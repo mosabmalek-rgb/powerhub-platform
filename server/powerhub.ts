@@ -4025,6 +4025,124 @@ export const powerhubRouter = router({
       if (errorText.includes("INVALID_EMPLOYEE_ADJUSTMENT_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات السلفة أو الخصم غير صحيحة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ السلفة أو الخصم في Supabase." });
     }),
+    listEmployeeAdvances: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      status: z.enum(["open", "settled", "cancelled"]).optional(),
+      advanceKind: z.enum(["salary_advance", "employee_loan"]).optional(),
+      employeeId: z.number().int().positive().optional(),
+    })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      let query = supabaseAdmin().from("employee_adjustments")
+        .select("id,tenant_id,employee_id,site_id,adjustment_type,advance_kind,monthly_deduction,amount,remaining_amount,reason,status,disbursement_account_id,disbursement_transaction_id,disbursed_at,created_by_user_id,created_at,updated_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("adjustment_type", "advance");
+      if (input.status) query = query.eq("status", input.status);
+      if (input.advanceKind) query = query.eq("advance_kind", input.advanceKind);
+      if (input.employeeId) query = query.eq("employee_id", input.employeeId);
+      const { data, error } = await query.order("created_at", { ascending: false }).limit(500);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل السلف والديون." });
+      const ids = Array.from(new Set((data ?? []).map((row) => Number(row.employee_id))));
+      const adjustmentIds = Array.from(new Set((data ?? []).map((row) => Number(row.id))));
+      const [peopleResult, repaymentResult] = await Promise.all([
+        ids.length ? supabaseAdmin().from("employees").select("id,tenant_id,site_id,linked_user_id,full_name,identity_no,phone,job_title,employment_status,contract_type,base_wage,hire_date,notes,created_at,updated_at").eq("tenant_id", access.tenantId).in("id", ids) : Promise.resolve({ data: [], error: null }),
+        adjustmentIds.length ? supabaseAdmin().from("employee_adjustment_repayments").select("id,tenant_id,adjustment_id,repayment_method,amount,company_account_id,account_transaction_id,payroll_run_id,payment_date,reference_no,notes,operation_key,created_by_user_id,created_at").eq("tenant_id", access.tenantId).in("adjustment_id", adjustmentIds).order("payment_date", { ascending: false }).limit(2000) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (peopleResult.error || repaymentResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تفاصيل الموظفين أو سداد السلف." });
+      const people = new Map((peopleResult.data ?? []).map((person) => [Number(person.id), person]));
+      const repaymentsByAdjustment = new Map<number, Array<Record<string, unknown>>>();
+      for (const payment of repaymentResult.data ?? []) {
+        const adjustmentId = Number(payment.adjustment_id);
+        const entries = repaymentsByAdjustment.get(adjustmentId) ?? [];
+        entries.push({
+          id: Number(payment.id), amount: String(payment.amount), repaymentMethod: payment.repayment_method,
+          companyAccountId: payment.company_account_id === null ? null : Number(payment.company_account_id),
+          accountTransactionId: payment.account_transaction_id === null ? null : Number(payment.account_transaction_id),
+          payrollRunId: payment.payroll_run_id === null ? null : Number(payment.payroll_run_id),
+          paymentDate: payment.payment_date, referenceNo: payment.reference_no, notes: payment.notes,
+          createdByUserId: Number(payment.created_by_user_id), createdAt: new Date(payment.created_at),
+        });
+        repaymentsByAdjustment.set(adjustmentId, entries);
+      }
+      return (data ?? []).flatMap((row) => {
+        const employee = people.get(Number(row.employee_id));
+        if (!employee) return [];
+        return [{
+          adjustment: {
+            id: Number(row.id), tenantId: Number(row.tenant_id), employeeId: Number(row.employee_id),
+            siteId: row.site_id === null ? null : Number(row.site_id), adjustmentType: row.adjustment_type,
+            advanceKind: row.advance_kind, monthlyDeduction: row.monthly_deduction === null ? null : String(row.monthly_deduction),
+            amount: String(row.amount), remainingAmount: String(row.remaining_amount), reason: row.reason, status: row.status,
+            disbursementAccountId: row.disbursement_account_id === null ? null : Number(row.disbursement_account_id),
+            disbursementTransactionId: row.disbursement_transaction_id === null ? null : Number(row.disbursement_transaction_id),
+            disbursedAt: row.disbursed_at ? new Date(row.disbursed_at) : null,
+            createdByUserId: Number(row.created_by_user_id), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+          },
+          employee: {
+            id: Number(employee.id), fullName: employee.full_name, phone: employee.phone,
+            jobTitle: employee.job_title, employmentStatus: employee.employment_status,
+          },
+          repayments: repaymentsByAdjustment.get(Number(row.id)) ?? [],
+        }];
+      });
+    }),
+    issueEmployeeAdvance: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), employeeId: z.number().int().positive(),
+      advanceKind: z.enum(["salary_advance", "employee_loan"]),
+      amount: z.number().positive().max(100000000),
+      monthlyDeduction: z.number().positive().max(100000000).optional(),
+      accountId: z.number().int().positive(),
+      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      reason: z.string().trim().min(3).max(255),
+      operationKey: z.string().uuid(),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "manageExpenses");
+      if (input.advanceKind === "employee_loan" && (!input.monthlyDeduction || input.monthlyDeduction > input.amount)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "حدد قسطًا شهريًا موجبًا لا يتجاوز أصل الدين." });
+      }
+      if (input.advanceKind === "salary_advance" && input.monthlyDeduction !== undefined) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "السلفة على الراتب تُسترد تلقائيًا من أقرب كشف راتب؛ لا يلزم قسط يدوي." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_issue_employee_advance", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_employee_id: input.employeeId, p_advance_kind: input.advanceKind, p_amount: input.amount,
+        p_monthly_deduction: input.monthlyDeduction ?? null, p_account_id: input.accountId,
+        p_payment_date: input.paymentDate, p_reason: input.reason.trim(), p_operation_key: input.operationKey,
+      });
+      const result = (data as Array<{ adjustment_id: number | string; account_transaction_id: number | string; remaining_amount: number | string; replayed: boolean }> | null)?.[0];
+      if (!error && result?.adjustment_id) return { id: Number(result.adjustment_id), accountTransactionId: Number(result.account_transaction_id), remainingAmount: Number(result.remaining_amount), replayed: Boolean(result.replayed) };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("EMPLOYEE_OUT_OF_SCOPE") || errorText.includes("EMPLOYEE_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير نشط أو غير تابع للفرع المحدد." });
+      if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND") || errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الصرف غير متاح لهذا الفرع." });
+      if (errorText.includes("INSUFFICIENT_ACCOUNT_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "رصيد حساب الصرف لا يكفي للمبلغ المطلوب." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن صرف السلفة خلالها." });
+      if (errorText.includes("IDEMPOTENCY_KEY_REUSED")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مستخدم لبيانات مختلفة. أنشئ محاولة جديدة بعد مراجعة السجل." });
+      if (errorText.includes("INVALID_EMPLOYEE_ADVANCE_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات السلفة أو الدين غير صحيحة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل وصرف السلفة في Supabase." });
+    }),
+    repayEmployeeAdvance: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), adjustmentId: z.number().int().positive(),
+      accountId: z.number().int().positive(), amount: z.number().positive().max(100000000),
+      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      referenceNo: z.string().trim().max(100).optional(), notes: z.string().trim().max(500).optional(),
+      operationKey: z.string().uuid(),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "manageExpenses");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_repay_employee_advance", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_adjustment_id: input.adjustmentId, p_account_id: input.accountId, p_amount: input.amount,
+        p_payment_date: input.paymentDate, p_reference_no: input.referenceNo?.trim() || null,
+        p_notes: input.notes?.trim() || null, p_operation_key: input.operationKey,
+      });
+      const result = (data as Array<{ repayment_id: number | string; adjustment_id: number | string; remaining_amount: number | string; account_transaction_id: number | string; replayed: boolean }> | null)?.[0];
+      if (!error && result?.repayment_id) return { id: Number(result.repayment_id), adjustmentId: Number(result.adjustment_id), remainingAmount: Number(result.remaining_amount), accountTransactionId: Number(result.account_transaction_id), replayed: Boolean(result.replayed) };
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("ADVANCE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "السلفة أو الدين غير موجود ضمن الفرع." });
+      if (errorText.includes("REPAYMENT_EXCEEDS_REMAINING")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ السداد أكبر من الرصيد المتبقي." });
+      if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND") || errorText.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الإيداع غير متاح لهذا الفرع." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تسجيل السداد خلالها." });
+      if (errorText.includes("IDEMPOTENCY_KEY_REUSED")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح السداد مستخدم لبيانات مختلفة. راجع السجل قبل إعادة المحاولة." });
+      if (errorText.includes("INVALID_ADVANCE_REPAYMENT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات السداد غير صحيحة." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل سداد السلفة أو الدين." });
+    }),
     getPayrollDetails: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), payrollRunId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
       const { data: run, error: runError } = await supabaseAdmin().from("payroll_runs").select("id").eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.payrollRunId).maybeSingle();
