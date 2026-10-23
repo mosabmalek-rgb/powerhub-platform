@@ -68,17 +68,19 @@ export function createPowerHubApp() {
     }
     if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
-      const { processAutomaticInvoiceNotifications, processAutomaticUnifiedNotifications, processAutomaticFuelAlertEvaluation } = await import("../notification-worker");
+      const { processAutomaticInvoiceNotifications, processAutomaticUnifiedNotifications, processAutomaticFuelAlertEvaluation, processAutomaticMaintenanceAlertEvaluation } = await import("../notification-worker");
       const { processUnifiedMessagingAutomations } = await import("../powerhub-unified-messaging");
       const invoiceResult = await processAutomaticInvoiceNotifications();
       const unifiedAutomationResult = await processUnifiedMessagingAutomations();
       const unifiedDispatchResult = await processAutomaticUnifiedNotifications();
       const fuelAlertEvaluationResult = await processAutomaticFuelAlertEvaluation();
+      const maintenanceAlertEvaluationResult = await processAutomaticMaintenanceAlertEvaluation();
       const result = {
         invoice: invoiceResult,
         unified: unifiedAutomationResult,
         unifiedDispatch: unifiedDispatchResult,
         fuelAlerts: fuelAlertEvaluationResult,
+        maintenanceAlerts: maintenanceAlertEvaluationResult,
       };
       return res.status(200).json({ ok: true, ...result });
     } catch (error) {

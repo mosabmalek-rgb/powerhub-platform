@@ -4,6 +4,7 @@ import { approveAndIssueMobileReadingRuntime } from "./powerhub-mobile-approve-r
 import { powerhubStaffSuspensionRuntimeRouter } from "./powerhub-staff-suspension-runtime";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { powerhubInventoryRouter } from "./powerhub-inventory-router";
+import { powerhubMaintenanceRouter } from "./powerhub-maintenance-router";
 
 /**
  * Runtime bridge for the incremental Supabase migration.
@@ -20,7 +21,7 @@ const legacyStaff = legacyRecord.staff as any;
 // the runtime bridge and callers receive NOT_FOUND for powerhub.staff.*.
 const legacyStaffRecord = legacyStaff?._def?.record ?? legacyStaff;
 
-export const powerhubRuntimeRouter: typeof powerhubRouter = router({
+export const powerhubRuntimeRouter = router({
   ...legacyRecord,
   ...(legacyMobileSync?._def?.record
     ? {
@@ -41,5 +42,6 @@ export const powerhubRuntimeRouter: typeof powerhubRouter = router({
     : {}),
   unifiedMessaging: powerhubUnifiedMessagingRouter,
   inventory: powerhubInventoryRouter,
+  maintenance: powerhubMaintenanceRouter,
   readingCycle: legacyRecord.readingCycle,
 }) as unknown as typeof powerhubRouter;

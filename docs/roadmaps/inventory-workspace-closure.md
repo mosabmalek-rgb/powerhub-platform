@@ -22,6 +22,7 @@ The final workspace should expose these nine logical tabs beneath the single “
 - [x] لوحة التحكم — source-backed current inventory metrics and supplier debt; fuel/maintenance KPIs remain Phase B/C.
 - [x] دليل الأصناف — create/view/edit/deactivate; durable item code, category, base unit, reorder point, specification; duplicate protection and referenced-history guards.
 - [ ] المشتريات — supplier invoices and lines, purchase/due dates, unit conversions, discounts/tax/charges, draft/approval, physical partial/full receipts, and payment state.
+- [x] Phase C maintenance now includes deduplicated in-app preventive due alerts and a site-scoped per-generator/date-range CSV report for recurring work titles, downtime, order counts and cost breakdown. Full shared Excel/RTL PDF exports and company-wide aggregation remain open.
 - [ ] المخزون والحركات — per-site warehouses and stock locations/tanks, opening balances, receipts, issues, transfers, supplier/issue returns, stocktake, corrections/reversals, item balances and immutable movement history.
 - [ ] الموردون والذمم — supplier profile lifecycle, opening balance, account statement, invoices, payments, returns/credits, outstanding balance, due/overdue aging.
 - [ ] دفعات الموردين — one or multiple invoice allocations, existing company-account selector, partial/full settlement, reference, reversal, atomic account/ledger/audit effects.
@@ -93,14 +94,16 @@ The Phase B release gate remains open until a Preview is verified to use staging
 
 ## Phase C — complete maintenance (not yet complete)
 
-- [ ] Work orders with unique number, type, generator, priority, symptoms/fault, dates, technician/vendor, downtime, work summary, parts/oils, labour, external service and total cost.
-- [ ] Lifecycle states: scheduled, new, in progress, waiting for parts, completed; documented cancel/reopen/correction transitions.
-- [ ] Preventive plans by time and/or operating hours; due-soon/overdue; next due is whichever trigger arrives first where configured.
-- [ ] Link issues of stock parts/oils to the order; consume and value materials exactly once.
-- [ ] Correct financial treatment for labour/external service, without duplicate company-account or expense posting.
-- [ ] Atomic close-out updates last maintenance/hour reading/next due, actor/approver and audit.
-- [ ] Notifications without duplicate dispatch; detailed generator maintenance history and recurring-fault/downtime/cost reports.
-- [ ] Permission, tenant/site isolation, stock locks, idempotency and failure rollback tests.
+- [x] Tenant/site/generator-scoped work orders with unique numbers, type, priority, fault/work summary, dates, assigned staff/supplier, downtime, spare-part cost, labour/service cost capture and total cost.
+- [x] Lifecycle states: scheduled, new, in progress, waiting for parts, completed and cancelled; invalid transitions and cancellation without a reason are rejected.
+- [x] Correct completed work orders through an explicitly audited record-only workflow requiring a reason and corrected summary; it preserves the close-out operating-hours reading, stock movements, preventive-plan schedule and alert state, and never posts a second expense.
+- [x] Reopen completed work orders as a new linked execution cycle with mandatory reason, a fresh work-order identity, idempotent retry and audit; the original completion, costs, stock issues and meter readings remain immutable and are not copied into the follow-up order.
+- [x] Preventive plans by calendar date and/or operating hours; due-soon/overdue detection and next-due advancement on linked preventive close-out.
+- [x] Spare-parts/oils issue linked to the work order and stock ledger, with atomic rollback and operation-key idempotency.
+- [ ] Define any required accounting/expense posting policy for labour and external services; current maintenance costs are captured and reported but are not automatically posted to company accounts. Duplicate posting is prohibited until a source-of-truth expense ledger and idempotent posting key are defined.
+- [x] Atomic close-out records completion actor, effective operating-hour reading, generator last-maintenance timestamp, linked plan advancement, cost totals and immutable maintenance audit.
+- [x] Deduplicated in-app preventive alerts and per-generator/date-range CSV cost/downtime summary.
+- [ ] Complete role-by-role capability verification, broader tenant/site/generator isolation and rollback acceptance, recurring-fault semantics review, full company-wide reports and branded Excel/PDF exports, and authorized staging/browser E2E.
 
 ## Phase D — dashboard, reporting and release closure (not yet complete)
 
@@ -164,3 +167,24 @@ After each cohesive PR:
 2. List newly discovered gaps instead of silently narrowing scope.
 3. Do not mark staging/production end-to-end complete unless actually executed and evidenced.
 4. Carry this file and this path into new conversations: `docs/roadmaps/inventory-workspace-closure.md`.
+
+## Phase C — Generator maintenance and breakdown management
+
+Status: implementation in progress on `feat/inventory-phase-c-maintenance`. This section is not an acceptance claim until CI and the disposable PostgreSQL workflow pass.
+
+### Scope delivered in this branch
+- Tenant/site/generator-scoped maintenance work orders with validated lifecycle transitions, closeout summary, downtime, operating-hours checks, labour/service/parts costs, and append-only audit events.
+- Spare-parts issue is executed through the existing stock-movement RPC inside the same PostgreSQL transaction as the work-order part row and recalculated order costs. Operation keys are payload-bound and replay-safe; insufficient stock or later insert/audit failure rolls the transaction back.
+- Preventive plans support date and/or operating-hour intervals, due-soon thresholds, overdue alerts, cycle-key deduplication, and resolution when a work order completes.
+- Direct table access is revoked from `anon` and `authenticated`; API requests go through authenticated server procedures with the existing `manageMaintenance` capability, plus `issueInventory` for parts and `manageExpenses` for closeout costs.
+- The inventory workspace has a maintenance tab for creating and tracking breakdown work orders and performing state transitions.
+- Added a disposable PostgreSQL integration script and a required workflow step, plus router/schema contract tests.
+
+### Required closure evidence
+1. Run the full required CI and PostgreSQL workflow on the final branch head.
+2. Fix any migration/test failures; do not weaken assertions to obtain a green run.
+3. Verify migration against a clean PostgreSQL 17 database and confirm cross-tenant generator, item, warehouse, assignee, and work-order references are rejected.
+4. Add/verify concurrency and failure rollback cases for concurrent duplicate part issues and stock movement failure.
+5. Verify role policy and capability configuration UI exposes `manageMaintenance` consistently to owners/managers/technicians.
+6. Verify the deployed migration list and actual schema before any staging rollout; production rollout remains gated on merge/release approval.
+7. Browser UI test is not part of this branch's claimed evidence until explicitly run; do not report it as passed merely because component contract tests pass.

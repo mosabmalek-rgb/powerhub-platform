@@ -3563,9 +3563,11 @@ declare
   v_low_dispatches integer;
   v_rate_dispatches integer;
   v_alert_notifications integer;
-  v_opening_time timestamptz := ((current_date-2)::timestamp + interval '20 hours') at time zone 'Asia/Gaza';
-  v_fill_time timestamptz := ((current_date-1)::timestamp + interval '23 hours 30 minutes') at time zone 'Asia/Gaza';
-  v_end_time timestamptz := now();
+  v_local_today date := (now() at time zone 'Asia/Gaza')::date;
+  v_opening_time timestamptz := ((v_local_today-2)::timestamp + interval '20 hours') at time zone 'Asia/Gaza';
+  v_fill_time timestamptz := ((v_local_today-1)::timestamp + interval '23 hours 30 minutes') at time zone 'Asia/Gaza';
+  -- Keep all later correction timestamps safely before wall-clock maintenance close-out tests.
+  v_end_time timestamptz := now() - interval '1 minute';
   v_replay_count integer;
   v_transfer_count integer;
 begin
@@ -3687,7 +3689,7 @@ begin
   );
 
   select * into v_prior_day_report from public.powerhub_inventory_fuel_consumption_report(
-    10,100,current_date-1,current_date-1,10000
+    10,100,v_local_today-1,v_local_today-1,10000
   );
   if v_prior_day_report.fuel_filled_liters<>5
      or v_prior_day_report.opening_level_liters<>10
@@ -3698,7 +3700,7 @@ begin
   end if;
 
   select * into v_report from public.powerhub_inventory_fuel_consumption_report(
-    10,100,current_date-1,current_date,10000
+    10,100,v_local_today-1,v_local_today,10000
   );
   if v_report.generator_id<>10000
      or v_report.fuel_filled_liters<>5
@@ -3716,7 +3718,7 @@ begin
   end if;
 
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
-    10,100,'day',current_date-1,null,null,10000,v_generator_tank_id
+    10,100,'day',v_local_today-1,null,null,10000,v_generator_tank_id
   );
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
      or v_period_report.actual_consumption_liters<>0 then
@@ -3724,7 +3726,7 @@ begin
   end if;
 
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
-    10,100,'custom',null,current_date-1,current_date,10000,v_generator_tank_id
+    10,100,'custom',null,v_local_today-1,v_local_today,10000,v_generator_tank_id
   );
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
      or v_period_report.recorded_consumption_liters<>3
@@ -3734,14 +3736,14 @@ begin
   end if;
 
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
-    10,100,'cycle',current_date-1,null,null,10000,v_generator_tank_id
+    10,100,'cycle',v_local_today-1,null,null,10000,v_generator_tank_id
   );
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5 then
     raise exception 'PHASE_B_CYCLE_REPORT_FAILED row=%',row_to_json(v_period_report);
   end if;
 
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
-    10,100,'month',current_date-1,null,null,10000,v_generator_tank_id
+    10,100,'month',v_local_today-1,null,null,10000,v_generator_tank_id
   );
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
      or v_period_report.actual_consumption_liters is not null
