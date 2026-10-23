@@ -133,7 +133,7 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain('views: [{ rightToLeft: true');
   });
 
-  it("renders a source-backed Phase A dashboard with permission-aware metrics and truthful Phase B/C placeholders", () => {
+  it("renders Phase D source-backed dashboard filters, financial summaries, and export contracts", () => {
     const page = read("client/src/pages/InventoryWorkspacePage.tsx");
     const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
@@ -145,6 +145,8 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("trpc.powerhub.inventory.supplierPayablesAging.useQuery");
     expect(dashboard).toContain("canViewInventoryReports ? <Metric label=\"القيمة الدفترية للمخزون\"");
     expect(dashboard).toContain("canViewSupplierLedger ? <Metric label=\"الذمم المستحقة للموردين\"");
+    expect(page).toContain("siteName={siteName}");
+    expect(page).toContain("canManageFuelAndConsumption={canManageFuelAndConsumption}");
     expect(dashboard).toContain("phaseDFinancialSummary.useQuery");
     expect(dashboard).toContain("fuelConsumptionReportPeriod.useQuery");
     expect(dashboard).toContain("maintenance.reportByGenerator.useQuery");
@@ -155,6 +157,15 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("لا يمكن أن يتجاوز نطاق التقرير 366 يومًا");
     expect(dashboard).toContain("تكلفة الصيانة المسجلة");
     expect(dashboard).toContain("ليست ترحيلًا محاسبيًا");
+    expect(dashboard).toContain("loadAllFilteredMoves");
+    expect(dashboard).toContain("downloadDashboardCsv");
+    expect(dashboard).toContain("exportDashboardExcel");
+    expect(dashboard).toContain("exportDashboardPdf");
+    expect(dashboard).toContain("listStockMovementReport.fetch");
+    expect(dashboard).toContain("downloadReportHtmlAsPdf");
+    expect(dashboard).toContain("rightToLeft");
+    expect(router).toContain("categoryByItemId");
+    expect(router).toContain("generator_id: row.generator_id");
     expect(router).toContain("powerhub_inventory_stock_overview");
     expect(router).toContain("powerhub_inventory_supplier_payables_aging");
     expect(router).toContain("phaseDFinancialSummary: protectedProcedure");
