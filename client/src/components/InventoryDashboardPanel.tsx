@@ -26,6 +26,8 @@ type AgingSummary = {
   as_of_date?: string;
 };
 
+type ReportWarehouse = { id: number; code: string; name: string };
+
 type FinancialEventRow = {
   event_date: string;
   event_type: "purchase_invoice" | "supplier_payment" | "supplier_return";
@@ -160,12 +162,16 @@ export default function InventoryDashboardPanel({
   const [customFrom, setCustomFrom] = useState(today);
   const [customTo, setCustomTo] = useState(today);
   const [generatorId, setGeneratorId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("all");
   const [category, setCategory] = useState("all");
   const [itemSearch, setItemSearch] = useState("");
 
   const stock = trpc.powerhub.inventory.stockOverview.useQuery(
     { siteId },
     { enabled: enabled && (canViewInventory || canViewInventoryReports), staleTime: 10_000, retry: 1 },
+  );
+  const reportWarehouses = trpc.powerhub.inventory.listInventoryReportWarehouses.useQuery(
+    { siteId }, { enabled: enabled && canViewInventoryReports, staleTime: 30_000, retry: 1 },
   );
   const cycleReferenceAt = useMemo(() => {
     const parsed = new Date(`${anchorDate}T12:00:00.000Z`);
@@ -187,10 +193,11 @@ export default function InventoryDashboardPanel({
   const filteredStockRows = useMemo(() => {
     const query = itemSearch.trim().toLocaleLowerCase();
     return stockRows.filter((row) =>
+      (warehouseId === "all" || Number(row.warehouse_id) === Number(warehouseId)) &&
       (category === "all" || row.category === category) &&
       (!query || [row.item_name, row.sku ?? "", row.warehouse_name].some((value) => value.toLocaleLowerCase().includes(query))),
     );
-  }, [stockRows, category, itemSearch]);
+  }, [stockRows, warehouseId, category, itemSearch]);
   const totals = useMemo(() => {
     const itemIds = new Set(filteredStockRows.map((row) => Number(row.item_id)));
     const lowLocations = filteredStockRows.filter((row) => row.below_reorder_point);
@@ -259,7 +266,8 @@ export default function InventoryDashboardPanel({
       filledLiters: fuelRows.reduce((sum, row) => sum + numberOf(row.fuel_filled_liters), 0),
       filledCost: fuelRows.reduce((sum, row) => sum + numberOf(row.fuel_filled_cost), 0),
       recordedConsumption: fuelRows.reduce((sum, row) => sum + numberOf(row.recorded_consumption_liters), 0),
-      actualConsumption: measuredRows.length ? measuredRows.reduce((sum, row) => sum + numberOf(row.actual_consumption_liters), 0) : null,
+      actualConsumption: fuelRows.length > 0 && measuredRows.length === fuelRows.length
+        ? measuredRows.reduce((sum, row) => sum + numberOf(row.actual_consumption_liters), 0) : null,
     };
   }, [fuelRows]);
   const maintenanceRows = (maintenanceReport.data ?? []) as MaintenanceReportRow[];
@@ -272,11 +280,11 @@ export default function InventoryDashboardPanel({
   }), [maintenanceRows]);
   const debt = payables.data as unknown as AgingSummary | undefined;
   const reportLoading = canViewInventoryReports && (
-    fuelOptions.isLoading || fuelReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
+    fuelOptions.isLoading || reportWarehouses.isLoading || fuelReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
     (period === "cycle" && cycleBounds.isLoading)
   );
   const reportError = canViewInventoryReports && (
-    fuelOptions.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
+    fuelOptions.isError || reportWarehouses.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
     (period === "cycle" && cycleBounds.isError)
   );
   const financialTotals = phaseDFinancialSummary.data as PhaseDFinancialSummary | undefined;
@@ -293,6 +301,7 @@ export default function InventoryDashboardPanel({
         siteId, limit: 200,
         fromDate: dateRange.fromDate, toDate: dateRange.toDate,
         search: itemSearch.trim().slice(0, 150) || undefined,
+        ...(warehouseId !== "all" ? { warehouseId: Number(warehouseId) } : {}),
         ...(cursor ? { beforeOccurredAt: cursor.beforeOccurredAt, beforeMovementId: cursor.beforeMovementId } : {}),
       });
       rows.push(...(result.items as StockMovementRow[]));
@@ -336,10 +345,10 @@ export default function InventoryDashboardPanel({
   const exportReady = () => {
     if (!canViewInventoryReports) { toast.error("ليست لديك صلاحية تصدير التقارير المالية."); return false; }
     if (!dateRange) { toast.error("حدد نطاقًا زمنيًا صالحًا لا يتجاوز 366 يومًا."); return false; }
-    if (isLoading || hasError || stock.isFetching || fuelReport.isFetching || maintenanceReport.isFetching || phaseDFinancialSummary.isFetching) {
+    if (isLoading || hasError || stock.isFetching || reportWarehouses.isFetching || fuelReport.isFetching || maintenanceReport.isFetching || phaseDFinancialSummary.isFetching) {
       toast.error("انتظر اكتمال تحميل مصادر التقرير بنجاح قبل التصدير."); return false;
     }
-    if (stock.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError) {
+    if (stock.isError || reportWarehouses.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError) {
       toast.error("تعذر تحميل مصدر واحد أو أكثر؛ أعد المحاولة قبل التصدير."); return false;
     }
     return true;
@@ -358,6 +367,7 @@ export default function InventoryDashboardPanel({
       ["من تاريخ", dateRange?.fromDate ?? "—"],
       ["إلى تاريخ", dateRange?.toDate ?? "—"],
       ["المولد", generatorId ? generators.find((row) => Number(row.id) === Number(generatorId))?.name ?? generatorId : "جميع المولدات"],
+      ["المخزن", warehouseId === "all" ? "كل المخازن" : reportWarehouses.data?.find((row) => Number(row.id) === Number(warehouseId))?.name ?? warehouseId],
       ["تصنيف الصنف", category === "all" ? "كل التصنيفات" : categoryLabels[category] ?? category],
       ["بحث الصنف / الحركة", itemSearch.trim() || "—"],
       ["عدد الأصناف المطابقة", totals.itemCount],
@@ -550,6 +560,7 @@ export default function InventoryDashboardPanel({
         "<p>الفرع: " + escapeHtml(siteName || String(siteId)) + " | الفترة: " + escapeHtml(periodLabel) +
         " | من: " + escapeHtml(dateRange?.fromDate ?? "") + " | إلى: " + escapeHtml(dateRange?.toDate ?? "") + "</p>" +
         "<p>المولد: " + escapeHtml(generatorId ? generators.find((g)=>Number(g.id)===Number(generatorId))?.name ?? generatorId : "جميع المولدات") +
+        " | المخزن: " + escapeHtml(warehouseId === "all" ? "كل المخازن" : reportWarehouses.data?.find((row) => Number(row.id) === Number(warehouseId))?.name ?? warehouseId) +
         " | التصنيف: " + escapeHtml(category === "all" ? "كل التصنيفات" : categoryLabels[category] ?? category) +
         " | البحث: " + escapeHtml(itemSearch.trim() || "—") + " | وقت التصدير: " + escapeHtml(new Date().toLocaleString("ar-PS")) + "</p></header>" +
         "<h2>الملخص المالي والتشغيلي</h2>" +
@@ -595,6 +606,7 @@ export default function InventoryDashboardPanel({
     if (canViewSupplierLedger) work.push(payables.refetch());
     if (canViewInventoryReports) {
       work.push(fuelOptions.refetch());
+      work.push(reportWarehouses.refetch());
       work.push(fuelReport.refetch());
       work.push(maintenanceReport.refetch());
       work.push(phaseDFinancialSummary.refetch());
@@ -642,6 +654,11 @@ export default function InventoryDashboardPanel({
           <label className="grid gap-1.5 text-sm">المولد
             <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={generatorId} onChange={(event) => setGeneratorId(event.target.value)}>
               <option value="">جميع المولدات</option>{generators.map((generator) => <option key={generator.id} value={generator.id}>{generator.name}{generator.code ? ` — ${generator.code}` : ""}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm">المخزن
+            <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+              <option value="all">كل المخازن</option>{((reportWarehouses.data ?? []) as ReportWarehouse[]).map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
             </select>
           </label>
           <label className="grid gap-1.5 text-sm">تصنيف الصنف
