@@ -16,6 +16,8 @@ describe("employee advances and loans workflow contract",()=>{
     expect(ui).toContain("سلفة من الراتب");
     expect(ui).toContain("دين / قرض على الموظف");
     expect(ui).toContain("تسجيل سداد جزئي أو كامل");
+    expect(ui).toContain("cancelPayrollDraft");
+    expect(ui).toContain("إلغاء المسودة");
     expect(ui).toContain("operationKey:newKey()");
     expect(preload).toContain('"/human-resources": () => import("../pages/HumanResourcesWorkspacePage")');
   });
