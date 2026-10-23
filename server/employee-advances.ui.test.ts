@@ -27,7 +27,7 @@ describe("employee advances and loans workflow contract",()=>{
   });
 
   it("keeps issue and repayment atomic, tenant scoped, audited, and idempotent in SQL",()=>{
-    const migration=read("supabase/migrations/20261023194500_powerhub_employee_advances_loans.sql");
+    const migration=read("supabase/migrations/20261023214445_powerhub_employee_advances_loans.sql");
     const router=read("server/powerhub.ts");
     expect(migration).toContain("create table if not exists public.employee_adjustment_repayments");
     expect(migration).toContain("powerhub_issue_employee_advance");

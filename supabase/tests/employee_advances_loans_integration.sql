@@ -95,9 +95,9 @@ insert into public.company_accounts(tenant_id,name,account_type,opening_balance)
 values (1,'صندوق الفرع','cash',5000),(2,'صندوق مستأجر آخر','cash',5000);
 insert into public.company_account_sites(tenant_id,account_id,site_id) values (1,1,100),(2,2,200);
 
-\ir ../migrations/20261023185500_powerhub_payroll_period_constraint_reconcile.sql
-\ir ../migrations/20261023190000_powerhub_hr_payroll_rpc_baseline.sql
-\ir ../migrations/20261023194500_powerhub_employee_advances_loans.sql
+\ir ../migrations/20261023214342_powerhub_payroll_period_constraint_reconcile.sql
+\ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
+\ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
 
 do $baseline_test$
 declare
