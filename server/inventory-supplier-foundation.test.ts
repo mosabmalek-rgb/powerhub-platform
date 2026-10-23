@@ -10,6 +10,10 @@ const coreDmlAclMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20261023151939_powerhub_core_financial_direct_dml_hardening.sql"),
   "utf8",
 );
+const generatorReadingDmlAclMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20261023153000_powerhub_generator_reading_direct_dml_hardening.sql"),
+  "utf8",
+);
 
 describe("PowerHub inventory and supplier-ledger foundation", () => {
   it("creates tenant-scoped catalog, warehouses, suppliers, purchases, stock movements, and supplier ledger", () => {
@@ -74,6 +78,17 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
     expect(coreDmlAclMigration).toContain("from anon, authenticated");
     expect(coreDmlAclMigration.toLowerCase()).not.toContain("revoke select");
     expect(coreDmlAclMigration.toLowerCase()).not.toContain("revoke all");
+  });
+
+  it("blocks direct client DML on generator and meter-reading tables", () => {
+    expect(generatorReadingDmlAclMigration.toLowerCase()).toContain(
+      "revoke insert, update, delete, truncate",
+    );
+    expect(generatorReadingDmlAclMigration).toContain("public.generators");
+    expect(generatorReadingDmlAclMigration).toContain("public.meter_readings");
+    expect(generatorReadingDmlAclMigration).toContain("from anon, authenticated");
+    expect(generatorReadingDmlAclMigration.toLowerCase()).not.toContain("revoke select");
+    expect(generatorReadingDmlAclMigration.toLowerCase()).not.toContain("revoke all");
   });
 
   it("does not change existing expense records or automatically apply migrations to a live database", () => {
