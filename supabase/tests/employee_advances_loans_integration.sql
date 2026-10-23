@@ -86,7 +86,7 @@ do $test$
 declare
   v_salary_advance_id bigint; v_loan_id bigint; v_tx bigint; v_remaining numeric; v_replayed boolean;
   v_payroll_id bigint; v_net numeric; v_salary_status text; v_loan_remaining numeric; v_balance numeric;
-  v_before_transactions integer; v_repayment_id bigint; v_second_payroll_id bigint;
+  v_before_transactions integer; v_repayment_id bigint; v_second_payroll_id bigint; v_third_payroll_id bigint; v_cancelled boolean;
 begin
   -- Reject insufficient cash before creating either a receivable or cash transaction.
   begin
@@ -173,6 +173,43 @@ begin
   select 5000+coalesce(sum(case when transaction_type in ('deposit','transfer_in','collection') then amount else -amount end),0)
     into v_balance from public.account_transactions where tenant_id=1 and account_id=1;
   if v_balance<>2750 then raise exception 'CASH_BALANCE_EXPECTED_2750_GOT_%',v_balance; end if;
+
+  -- A draft reserves installments; it blocks overlapping future payrolls until safely cancelled or paid.
+  select payroll_run_id into v_third_payroll_id
+  from public.powerhub_create_payroll_draft(1,100,10,'2026-12',
+    jsonb_build_array(jsonb_build_object('employee_id',1,'extra_amount',0,'advance_deduction',0,'other_deduction',0,'notes',null)));
+  begin
+    perform * from public.powerhub_create_payroll_draft(1,100,10,'2027-01',
+      jsonb_build_array(jsonb_build_object('employee_id',1,'extra_amount',0,'advance_deduction',0,'other_deduction',0,'notes',null)));
+    raise exception 'EXPECTED_OPEN_PAYROLL_RUN_GUARD';
+  exception when others then
+    if sqlerrm not in ('PAYROLL_OPEN_RUN_EXISTS','EXPECTED_OPEN_PAYROLL_RUN_GUARD') then raise; end if;
+    if sqlerrm='EXPECTED_OPEN_PAYROLL_RUN_GUARD' then raise; end if;
+  end;
+
+  select cancelled into v_cancelled
+  from public.powerhub_cancel_payroll_draft(1,100,10,v_third_payroll_id);
+  if not v_cancelled or (select status from public.payroll_runs where id=v_third_payroll_id)<>'cancelled' then
+    raise exception 'PAYROLL_DRAFT_CANCEL_FAILED';
+  end if;
+
+  -- Cancelled runs remain auditable but must not prevent a corrected draft for the same period.
+  select payroll_run_id into v_third_payroll_id
+  from public.powerhub_create_payroll_draft(1,100,10,'2026-12',
+    jsonb_build_array(jsonb_build_object('employee_id',1,'extra_amount',0,'advance_deduction',0,'other_deduction',0,'notes',null)));
+  select cancelled into v_cancelled
+  from public.powerhub_cancel_payroll_draft(1,100,10,v_third_payroll_id);
+  if not v_cancelled then raise exception 'REBUILT_PAYROLL_DRAFT_CANCEL_FAILED'; end if;
+
+  -- Unlinked manual advance deductions must not silently reduce pay outside the advance ledger.
+  begin
+    perform * from public.powerhub_create_payroll_draft(1,100,10,'2027-02',
+      jsonb_build_array(jsonb_build_object('employee_id',1,'extra_amount',0,'advance_deduction',1,'other_deduction',0,'notes',null)));
+    raise exception 'EXPECTED_UNLINKED_ADVANCE_DEDUCTION_GUARD';
+  exception when others then
+    if sqlerrm not in ('INVALID_PAYROLL_DRAFT_INPUT','EXPECTED_UNLINKED_ADVANCE_DEDUCTION_GUARD') then raise; end if;
+    if sqlerrm='EXPECTED_UNLINKED_ADVANCE_DEDUCTION_GUARD' then raise; end if;
+  end;
 
   begin
     perform * from public.powerhub_repay_employee_advance(2,200,20,v_loan_id,2,1,'2026-11-04',null,null,'cross-tenant-repay');
