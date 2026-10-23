@@ -1331,12 +1331,12 @@ export const powerhubInventoryRouter = router({
   phaseDFinancialSummary: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
-      fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
-      toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).superRefine((value, issue) => {
       const isDate = (text: string) => {
         const parsed = new Date(text + "T00:00:00.000Z");
-        return /^\\d{4}-\\d{2}-\\d{2}$/.test(text) &&
+        return /^\d{4}-\d{2}-\d{2}$/.test(text) &&
           Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
       };
       if (!isDate(value.fromDate) || !isDate(value.toDate) || value.fromDate > value.toDate) {
@@ -1377,10 +1377,10 @@ export const powerhubInventoryRouter = router({
   phaseDFinancialDetails: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
-      fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
-      toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       limit: z.number().int().min(1).max(200).default(100),
-      afterDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      afterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       afterEventType: z.enum(["purchase_invoice", "supplier_payment", "supplier_return"]).optional(),
       afterEventId: z.number().int().positive().optional(),
     }).superRefine((value, issue) => {
