@@ -50,7 +50,6 @@ const menuGroups = [
     label: "التشغيل",
     items: [
       { icon: UsersRound, label: "المشتركون", path: "/subscribers" },
-      { icon: Bolt, label: "المحطات والمولدات", path: "/generators" },
       { icon: Store, label: "الأفرع", path: "/branches" },
       { icon: Gauge, label: "إضافة قراءة", path: "/readings" },
     ],
@@ -62,7 +61,7 @@ const menuGroups = [
       { icon: WalletCards, label: "التحصيلات", path: "/collections" },
       { icon: WalletCards, label: "حسابات الشركة", path: "/company-accounts" },
       { icon: Fuel, label: "المصروفات والربحية", path: "/expenses" },
-      { icon: Boxes, label: "المخزون والمشتريات والصيانة", path: "/inventory", capability: "viewInventory" as PowerCapability },
+      { icon: Boxes, label: "التشغيل والمشتريات", path: "/inventory" },
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
       { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
