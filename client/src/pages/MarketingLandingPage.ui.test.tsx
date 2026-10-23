@@ -22,6 +22,7 @@ describe("PowerHub marketing landing page", () => {
     render(<MarketingLandingPage />);
 
     expect(screen.getByRole("heading", { name: "كل كيلوواط تحت السيطرة." })).toBeInTheDocument();
+    expect(screen.getByText("جميع الحقوق محفوظة لشركة SAIRO للخدمات الرقمية والتقنية")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "أدِر مشروع الكهرباء بوضوح أكبر." })).toBeInTheDocument();
     expect(screen.getByText("من قراءة العداد إلى الفاتورة والتحصيل، اجعل تفاصيل التشغيل ومتابعة المستحقات في مساحة واحدة.")).toBeInTheDocument();
     expect(screen.getByText("إدارة المشتركين")).toBeInTheDocument();
