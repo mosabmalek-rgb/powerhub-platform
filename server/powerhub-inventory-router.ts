@@ -399,7 +399,7 @@ export const powerhubInventoryRouter = router({
       if (categoryResult.error) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تصنيفات أصناف الحركات." });
       }
-      const categoryByItemId = new Map((categoryResult.data ?? []).map((row) => [Number(row.id), row.category]));
+      const categoryByItemId = new Map<number, string>((categoryResult.data ?? []).map((row) => [Number(row.id), row.category] as const));
       const items = pageRows.map((row) => ({
         movement_id: row.movement_id,
         warehouse_id: row.warehouse_id,
