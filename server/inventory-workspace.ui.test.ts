@@ -187,6 +187,7 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain('"viewInventoryReports"');
     expect(router).toContain("powerhub_inventory_phase_d_financial_summary");
     const phaseDSummary = read("supabase/migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql");
+    const phaseDFinancialAcl = read("supabase/migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql");
     const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
     expect(phaseDSummary).toContain("p.status in ('confirmed','partially_received','received')");
     expect(phaseDSummary).toContain("p.status='posted'");
@@ -194,6 +195,12 @@ describe("inventory workspace UI contract", () => {
     expect(phaseDSummary).toContain("revoke all on function public.powerhub_inventory_phase_d_financial_summary");
     expect(phaseDSummary).toContain("powerhub_inventory_phase_d_financial_details");
     expect(phaseDSummary).toContain("INVALID_PHASE_D_FINANCIAL_CURSOR");
+    expect(phaseDFinancialAcl).toContain("p_include_purchase_invoices");
+    expect(phaseDFinancialAcl).toContain("p_include_supplier_events");
+    expect(phaseDFinancialAcl).toContain("and p_include_purchase_invoices");
+    expect(phaseDFinancialAcl).toContain("and p_include_supplier_events");
+    expect(integration).toContain("PHASE_D_HIDDEN_PURCHASE_EVENT_RETURNED");
+    expect(integration).toContain("PHASE_D_HIDDEN_SUPPLIER_EVENT_RETURNED");
     expect(integration).toContain("PHASE_D_FINANCIAL_DETAILS_CURSOR_ORDER_FAILED");
     expect(integration).toContain("PHASE_D_FINANCIAL_DETAILS_PAYMENT_RECONCILIATION_FAILED");
     expect(integration).toContain("PHASE_D_PURCHASE_SUMMARY_RECONCILIATION_FAILED");
