@@ -744,4 +744,54 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
 
+  it("requires inventory report permission before querying Phase D financial totals", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.phaseDFinancialSummary;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23" },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7);
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("queries Phase D financial summary under tenant/site scope and masks fields without their finance capability", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, permissions: ["viewInventoryReports", "viewPurchases"],
+    });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      purchase_invoice_count: 3, purchase_invoice_amount: "155.00",
+      supplier_payment_count: 2, supplier_payment_amount: "80.00",
+      supplier_return_count: 1, supplier_return_credit_amount: "12.50",
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.phaseDFinancialSummary;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23" },
+    });
+    expect(result).toEqual({
+      purchaseInvoiceCount: 3, purchaseInvoiceAmount: 155,
+      supplierPaymentCount: null, supplierPaymentAmount: null,
+      supplierReturnCount: null, supplierReturnCreditAmount: null,
+    });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_phase_d_financial_summary", {
+      p_tenant_id: 44, p_site_id: 7, p_from_date: "2026-10-01", p_to_date: "2026-10-23",
+    });
+
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, permissions: ["viewInventoryReports", "viewSupplierLedger", "manageSupplierPayments"],
+    });
+    const fullResult = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23" },
+    });
+    expect(fullResult).toMatchObject({
+      supplierPaymentCount: 2, supplierPaymentAmount: 80,
+      supplierReturnCount: 1, supplierReturnCreditAmount: 12.5,
+    });
+  });
+
 });
