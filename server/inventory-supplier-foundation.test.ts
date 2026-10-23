@@ -14,6 +14,10 @@ const generatorReadingDmlAclMigration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20261023153000_powerhub_generator_reading_direct_dml_hardening.sql"),
   "utf8",
 );
+const membershipRlsMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20261023161000_powerhub_membership_rls_scope_alignment.sql"),
+  "utf8",
+);
 
 describe("PowerHub inventory and supplier-ledger foundation", () => {
   it("creates tenant-scoped catalog, warehouses, suppliers, purchases, stock movements, and supplier ledger", () => {
@@ -89,6 +93,18 @@ describe("PowerHub inventory and supplier-ledger foundation", () => {
     expect(generatorReadingDmlAclMigration).toContain("from anon, authenticated");
     expect(generatorReadingDmlAclMigration.toLowerCase()).not.toContain("revoke select");
     expect(generatorReadingDmlAclMigration.toLowerCase()).not.toContain("revoke all");
+  });
+
+  it("aligns core tenant RLS with expiry-aware access and excludes support from admin bypass", () => {
+    expect(membershipRlsMigration).toContain("tm.expires_at is null or tm.expires_at > now()");
+    expect(membershipRlsMigration).toContain("create or replace function powerhub_private.has_tenant_access");
+    expect(membershipRlsMigration).toContain("create or replace function powerhub_private.is_platform_admin");
+    expect(membershipRlsMigration).toContain("'platform_owner', 'platform_admin', 'finance_admin'");
+    expect(membershipRlsMigration).not.toContain("'platform_support'");
+    expect(membershipRlsMigration).toContain("for all to authenticated");
+    expect(membershipRlsMigration).toContain("drop policy if exists generator_tenant_access on public.generators");
+    expect(membershipRlsMigration).toContain("drop policy if exists reading_tenant_access on public.meter_readings");
+    expect(membershipRlsMigration).not.toContain("to public using");
   });
 
   it("does not change existing expense records or automatically apply migrations to a live database", () => {
