@@ -26,9 +26,38 @@ const csvCell = (value: unknown) => {
   return '"' + s.replace(/"/g, '""') + '"' ;
 };
 
+type MaintenanceReportDisplayRow = {
+  site_id: number;
+  site_name: string;
+  generator_id: number;
+  generator_name: string;
+  fault_title: string;
+  work_order_count: number;
+  breakdown_count: number;
+  preventive_count: number;
+  completed_count: number;
+  open_count: number;
+  downtime_minutes: number;
+  parts_cost: number;
+  labor_cost: number;
+  external_service_cost: number;
+  total_cost_amount: number;
+  first_reported_at: string;
+  last_reported_at: string;
+};
+
+const reportTimestamp = (date: Date) => new Intl.DateTimeFormat("ar-PS", {
+  timeZone: "Asia/Gaza", dateStyle: "short", timeStyle: "medium",
+}).format(date);
+
 export default function InventoryMaintenancePanel({
-  siteId, isAuthenticated, canViewMaintenance, canViewMaintenanceReport, canManageMaintenance, canIssueInventory, canManageExpenses,
-}: { siteId: number; isAuthenticated: boolean; canViewMaintenance: boolean; canViewMaintenanceReport: boolean; canManageMaintenance: boolean; canIssueInventory: boolean; canManageExpenses: boolean }) {
+  siteId, siteName, isAuthenticated, canViewMaintenance, canViewMaintenanceReport,
+  canViewCompanyMaintenanceReport, canManageMaintenance, canIssueInventory, canManageExpenses,
+}: {
+  siteId: number; siteName: string; isAuthenticated: boolean;
+  canViewMaintenance: boolean; canViewMaintenanceReport: boolean; canViewCompanyMaintenanceReport: boolean;
+  canManageMaintenance: boolean; canIssueInventory: boolean; canManageExpenses: boolean;
+}) {
   const utils = trpc.useUtils();
   const evaluatedSiteRef = useRef<number | null>(null);
   const [generatorId, setGeneratorId] = useState("");
@@ -52,6 +81,7 @@ export default function InventoryMaintenancePanel({
   const [partNotes, setPartNotes] = useState("");
   const [orderGeneratorFilter, setOrderGeneratorFilter] = useState("");
   const [supplierAssignmentDrafts, setSupplierAssignmentDrafts] = useState<Record<number, string>>({});
+  const [reportScope, setReportScope] = useState<"site" | "company">("site");
   const [reportGeneratorId, setReportGeneratorId] = useState("");
   const [reportFromDate, setReportFromDate] = useState(() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; });
   const [reportToDate, setReportToDate] = useState(() => localDateInput(new Date()));
@@ -60,10 +90,19 @@ export default function InventoryMaintenancePanel({
   const generators = trpc.powerhub.maintenance.listGenerators.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 30_000 });
   const orders = trpc.powerhub.maintenance.listWorkOrders.useQuery({ siteId, generatorId: orderGeneratorFilter ? Number(orderGeneratorFilter) : undefined, status: filter || undefined, limit: 200 }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
   const assignableSuppliers = trpc.powerhub.maintenance.listAssignableSuppliers.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance), staleTime: 60_000 });
+  const effectiveReportScope = canViewCompanyMaintenanceReport && reportScope === "company" ? "company" : "site";
   const maintenanceReport = trpc.powerhub.maintenance.reportByGenerator.useQuery(
     { siteId, fromDate: reportFromDate, toDate: reportToDate, generatorId: reportGeneratorId ? Number(reportGeneratorId) : undefined },
-    { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport && effectiveReportScope === "site" && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
   );
+  const companyMaintenanceReport = trpc.powerhub.maintenance.companyReportByGenerator.useQuery(
+    { siteId, fromDate: reportFromDate, toDate: reportToDate },
+    { enabled: Boolean(siteId && isAuthenticated && canViewCompanyMaintenanceReport && effectiveReportScope === "company" && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
+  );
+  const reportIsLoading = effectiveReportScope === "company" ? companyMaintenanceReport.isLoading : maintenanceReport.isLoading;
+  const reportIsFetching = effectiveReportScope === "company" ? companyMaintenanceReport.isFetching : maintenanceReport.isFetching;
+  const reportIsError = effectiveReportScope === "company" ? companyMaintenanceReport.isError : maintenanceReport.isError;
+  const reportError = effectiveReportScope === "company" ? companyMaintenanceReport.error : maintenanceReport.error;
   const reportBranding = trpc.powerhub.reportBranding.get.useQuery(
     { siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport), staleTime: 60_000 },
   );
