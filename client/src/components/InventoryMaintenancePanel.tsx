@@ -87,7 +87,8 @@ export default function InventoryMaintenancePanel({
   });
   const reopenCompleted = trpc.powerhub.maintenance.reopenCompletedWorkOrder.useMutation({
     onSuccess: async (result) => {
-      toast.success(result.replayed ? "تم استرجاع دورة المتابعة السابقة." : "تم إنشاء أمر متابعة جديد مرتبط بالإغلاق السابق.");
+      const replayed = Array.isArray(result) ? result[0]?.replayed === true : false;
+      toast.success(replayed ? "تم استرجاع دورة المتابعة السابقة." : "تم إنشاء أمر متابعة جديد مرتبط بالإغلاق السابق.");
       await Promise.all([utils.powerhub.maintenance.listWorkOrders.invalidate(), utils.powerhub.maintenance.listPreventivePlans.invalidate()]);
     },
     onError: (error) => toast.error(error.message || "تعذر إنشاء دورة متابعة للصيانة."),
