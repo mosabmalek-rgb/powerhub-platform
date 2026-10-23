@@ -94,6 +94,10 @@ function mapPurchaseDatabaseError(
     INVALID_PURCHASE_LINES: { code: "BAD_REQUEST", message: "تحقق من بنود فاتورة المشتريات والكميات والأسعار." },
     INVALID_RECEIPT_LINES: { code: "BAD_REQUEST", message: "تحقق من كميات الاستلام." },
     INVALID_PAYMENT_TERMS: { code: "BAD_REQUEST", message: "مدة السداد غير صالحة." },
+    INVALID_PAYMENT_MODE: { code: "BAD_REQUEST", message: "طريقة السداد غير صالحة." },
+    INVALID_IMMEDIATE_PAYMENT_TERMS: { code: "BAD_REQUEST", message: "الدفع الفوري يتطلب الاستحقاق في تاريخ الفاتورة." },
+    INVALID_SUPPLIER_TYPE: { code: "BAD_REQUEST", message: "نوع المورد غير صالح." },
+    INVALID_ONE_TIME_SUPPLIER_TERMS: { code: "BAD_REQUEST", message: "المورد لمرة واحدة يتطلب أجلًا افتراضيًا صفرًا." },
     INVALID_DUE_DATE: { code: "BAD_REQUEST", message: "تاريخ الاستحقاق لا يجوز أن يسبق تاريخ الفاتورة." },
     PURCHASE_NOT_FOUND: { code: "NOT_FOUND", message: "فاتورة المشتريات غير موجودة في هذا الفرع." },
     SUPPLIER_RETURN_REASON_REQUIRED: { code: "BAD_REQUEST", message: "أدخل سببًا واضحًا لمرتجع المورد." },
@@ -679,7 +683,7 @@ export const powerhubInventoryRouter = router({
     .query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewSuppliers");
       let query = supabaseAdmin().from("suppliers")
-        .select("id,tenant_id,supplier_code,name,contact_name,phone,email,address,tax_number,default_payment_terms_days,notes,is_active,created_at,updated_at")
+        .select("id,tenant_id,supplier_code,name,contact_name,phone,email,address,tax_number,default_payment_terms_days,supplier_type,notes,is_active,created_at,updated_at")
         .eq("tenant_id", access.tenantId)
         .order("name", { ascending: true })
         .limit(500);
@@ -704,11 +708,12 @@ export const powerhubInventoryRouter = router({
       address: z.string().trim().max(500).optional(),
       taxNumber: z.string().trim().max(100).optional(),
       defaultPaymentTermsDays: z.number().int().min(0).max(3650).default(0),
+      supplierType: z.enum(["permanent", "one_time"]).default("permanent"),
       notes: z.string().trim().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createSuppliers");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_supplier", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_supplier_with_type", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
         p_user_id: ctx.user.id,
@@ -721,8 +726,9 @@ export const powerhubInventoryRouter = router({
         p_tax_number: input.taxNumber || null,
         p_default_payment_terms_days: input.defaultPaymentTermsDays,
         p_notes: input.notes || null,
+        p_supplier_type: input.supplierType ?? "permanent",
       });
-      if (error || !data?.[0]) mapDatabaseError(error, "تعذر إضافة المورد.");
+      if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر إضافة المورد.");
       return data[0];
     }),
 
@@ -734,16 +740,18 @@ export const powerhubInventoryRouter = router({
       contactName: z.string().trim().max(180).optional(), phone: z.string().trim().max(40).optional(),
       email: z.string().trim().email().max(254).optional().or(z.literal("")),
       address: z.string().trim().max(500).optional(), taxNumber: z.string().trim().max(100).optional(),
-      defaultPaymentTermsDays: z.number().int().min(0).max(3650), notes: z.string().trim().max(2000).optional(),
+      defaultPaymentTermsDays: z.number().int().min(0).max(3650),
+      supplierType: z.enum(["permanent", "one_time"]).default("permanent"), notes: z.string().trim().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editSuppliers");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_supplier", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_supplier_with_type", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_supplier_id: input.supplierId, p_supplier_code: input.supplierCode || null, p_name: input.name,
         p_contact_name: input.contactName || null, p_phone: input.phone || null, p_email: input.email || null,
         p_address: input.address || null, p_tax_number: input.taxNumber || null,
         p_default_payment_terms_days: input.defaultPaymentTermsDays, p_notes: input.notes || null,
+        p_supplier_type: input.supplierType ?? "permanent",
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تعديل بيانات المورد.");
       return data[0];
@@ -853,7 +861,7 @@ export const powerhubInventoryRouter = router({
     .query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createPurchases");
       const [supplierResult, warehouseResult, itemResult, unitResult] = await Promise.all([
-        supabaseAdmin().from("suppliers").select("id,name,supplier_code")
+        supabaseAdmin().from("suppliers").select("id,name,supplier_code,supplier_type,default_payment_terms_days")
           .eq("tenant_id", access.tenantId).eq("is_active", true).order("name", { ascending: true }).limit(300),
         supabaseAdmin().from("inventory_warehouses").select("id,name,code")
           .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("is_active", true).order("name", { ascending: true }).limit(200),
@@ -922,7 +930,7 @@ export const powerhubInventoryRouter = router({
     .query(async ({ ctx, input }) => {
       const access = await requirePurchaseReadAccess(ctx.user.id, input.siteId);
       let query = supabaseAdmin().from("supplier_purchases")
-        .select("id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,supplier_invoice_no,invoice_date,due_date,status,subtotal_amount,discount_amount,tax_amount,other_charges_amount,total_amount,payment_terms_days,reference_no,notes,operation_key,received_at,received_by_user_id,confirmed_at,confirmed_by_user_id,created_by_user_id,created_at,updated_at")
+        .select("id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,supplier_invoice_no,invoice_date,due_date,payment_mode,status,subtotal_amount,discount_amount,tax_amount,other_charges_amount,total_amount,payment_terms_days,reference_no,notes,operation_key,received_at,received_by_user_id,confirmed_at,confirmed_by_user_id,created_by_user_id,created_at,updated_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
         .order("invoice_date", { ascending: false }).order("id", { ascending: false }).limit(200);
       if (!access.canViewFinancials) query = query.in("status", ["confirmed", "partially_received", "received"]);
@@ -965,7 +973,7 @@ export const powerhubInventoryRouter = router({
     .query(async ({ ctx, input }) => {
       const access = await requirePurchaseReadAccess(ctx.user.id, input.siteId);
       const { data: purchase, error: purchaseError } = await supabaseAdmin().from("supplier_purchases")
-        .select("id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,supplier_invoice_no,invoice_date,due_date,status,subtotal_amount,discount_amount,tax_amount,other_charges_amount,total_amount,payment_terms_days,reference_no,notes,operation_key,received_at,received_by_user_id,confirmed_at,confirmed_by_user_id,cancelled_at,cancelled_by_user_id,created_by_user_id,created_at,updated_at")
+        .select("id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,supplier_invoice_no,invoice_date,due_date,payment_mode,status,subtotal_amount,discount_amount,tax_amount,other_charges_amount,total_amount,payment_terms_days,reference_no,notes,operation_key,received_at,received_by_user_id,confirmed_at,confirmed_by_user_id,cancelled_at,cancelled_by_user_id,created_by_user_id,created_at,updated_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.purchaseId).maybeSingle();
       if (purchaseError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فاتورة المشتريات." });
       if (!purchase || (!access.canViewFinancials && !["confirmed", "partially_received", "received"].includes(purchase.status))) {
@@ -1153,6 +1161,7 @@ export const powerhubInventoryRouter = router({
       invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       paymentTermsDays: z.number().int().min(0).max(3650).optional(),
+      paymentMode: z.enum(["immediate", "deferred"]).default("deferred"),
       referenceNo: z.string().trim().max(120).optional(),
       notes: z.string().trim().max(2000).optional(),
       operationKey: z.string().trim().min(1).max(180),
@@ -1166,6 +1175,7 @@ export const powerhubInventoryRouter = router({
         p_supplier_invoice_no: input.supplierInvoiceNo || null,
         p_invoice_date: input.invoiceDate || null, p_due_date: input.dueDate || null,
         p_payment_terms_days: input.paymentTermsDays ?? null,
+        p_payment_mode: input.paymentMode ?? "deferred",
         p_reference_no: input.referenceNo || null, p_notes: input.notes || null,
         p_operation_key: input.operationKey,
         p_lines: input.lines.map((line) => ({
