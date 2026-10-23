@@ -64,4 +64,4 @@ begin
 end
 $assert_acl$;
 
-select 'financial ledger direct-DML ACL hardening PostgreSQL integration passed' as result;
+select 'direct-DML ACL hardening for financial, generator and meter-reading tables passed' as result;
