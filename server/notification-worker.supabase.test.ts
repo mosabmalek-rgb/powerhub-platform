@@ -9,7 +9,92 @@ vi.mock("./powerhub-supabase", () => ({ writeSupabaseAudit: vi.fn() }));
 vi.mock("./tweetsms-client", () => ({ sendTweetSms: provider.send, checkTweetSmsBalance: provider.balance }));
 
 import { encryptTenantCredential } from "./tenant-crypto";
-import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processAutomaticUnifiedNotifications, processNotificationById } from "./notification-worker";
+import { countUnconfirmedNeedsReviewPersistence, countUnpersistedNeedsReview, effectiveNeedsReviewCount, processAutomaticMaintenanceAlertEvaluation, processAutomaticUnifiedNotifications, processNotificationById } from "./notification-worker";
+
+
+describe("Periodic preventive-maintenance alert evaluation", () => {
+  beforeEach(() => {
+    state.rpc.mockReset();
+    state.from.mockReset();
+    provider.send.mockReset();
+    provider.balance.mockReset();
+  });
+
+  it("skips the maintenance evaluator in Preview unless explicitly opted in", async () => {
+    const previousVercelEnv = process.env.VERCEL_ENV;
+    const previousOptIn = process.env.POWERHUB_ALLOW_PREVIEW_MAINTENANCE_ALERTS;
+    process.env.VERCEL_ENV = "preview";
+    delete process.env.POWERHUB_ALLOW_PREVIEW_MAINTENANCE_ALERTS;
+
+    try {
+      await expect(processAutomaticMaintenanceAlertEvaluation()).resolves.toEqual({
+        skipped: true,
+        alertsEvaluated: 0,
+        notificationsCreated: 0,
+      });
+      expect(state.rpc).not.toHaveBeenCalled();
+      expect(provider.send).not.toHaveBeenCalled();
+    } finally {
+      if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+      else process.env.VERCEL_ENV = previousVercelEnv;
+      if (previousOptIn === undefined) delete process.env.POWERHUB_ALLOW_PREVIEW_MAINTENANCE_ALERTS;
+      else process.env.POWERHUB_ALLOW_PREVIEW_MAINTENANCE_ALERTS = previousOptIn;
+    }
+  });
+
+  it("invokes the global evaluator through the service-role RPC and counts created in-app alerts", async () => {
+    const previousVercelEnv = process.env.VERCEL_ENV;
+    process.env.VERCEL_ENV = "production";
+    state.rpc.mockResolvedValueOnce({
+      data: [
+        { notification_created: true },
+        { notification_created: false },
+        { notification_created: true },
+      ],
+      error: null,
+    });
+
+    try {
+      await expect(processAutomaticMaintenanceAlertEvaluation()).resolves.toEqual({
+        skipped: false,
+        alertsEvaluated: 3,
+        notificationsCreated: 2,
+      });
+      expect(state.rpc).toHaveBeenCalledTimes(1);
+      expect(state.rpc).toHaveBeenCalledWith("powerhub_maintenance_evaluate_due_plans", {
+        p_tenant_id: null,
+        p_site_id: null,
+      });
+      expect(provider.send).not.toHaveBeenCalled();
+    } finally {
+      if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+      else process.env.VERCEL_ENV = previousVercelEnv;
+    }
+  });
+
+  it("does not hide evaluator failures or report a successful scheduled pass", async () => {
+    const previousVercelEnv = process.env.VERCEL_ENV;
+    process.env.VERCEL_ENV = "production";
+    state.rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: "42883", message: "function lookup failure" },
+    });
+
+    try {
+      await expect(processAutomaticMaintenanceAlertEvaluation()).rejects.toThrow(
+        "تعذر تقييم تنبيهات الصيانة الوقائية المجدولة.",
+      );
+      expect(state.rpc).toHaveBeenCalledWith("powerhub_maintenance_evaluate_due_plans", {
+        p_tenant_id: null,
+        p_site_id: null,
+      });
+      expect(provider.send).not.toHaveBeenCalled();
+    } finally {
+      if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+      else process.env.VERCEL_ENV = previousVercelEnv;
+    }
+  });
+});
 
 describe("عامل TweetSMS عبر Supabase", () => {
   beforeEach(() => {
