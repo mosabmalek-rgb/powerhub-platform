@@ -3947,6 +3947,90 @@ begin
 end;
 $phase_d_financial_summary_assertions$;
 
+-- Verify the exported event ledger paginates without omissions or duplicates and reconciles with the headline summary.
+do $phase_d_financial_details_assertions$
+declare
+  v_event record;
+  v_summary record;
+  v_after_date date;
+  v_after_type text;
+  v_after_id bigint;
+  v_previous_date date;
+  v_previous_type text;
+  v_previous_id bigint;
+  v_page_count integer;
+  v_total_count bigint:=0;
+  v_purchase_count bigint:=0;
+  v_payment_count bigint:=0;
+  v_return_count bigint:=0;
+  v_purchase_amount numeric(14,2):=0;
+  v_payment_amount numeric(14,2):=0;
+  v_return_amount numeric(14,2):=0;
+begin
+  if has_function_privilege('anon','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_phase_d_financial_details(bigint,bigint,date,date,integer,date,text,bigint)','EXECUTE') then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_ACL_FAILED';
+  end if;
+
+  loop
+    v_page_count:=0;
+    for v_event in
+      select * from public.powerhub_inventory_phase_d_financial_details(
+        10,100,current_date-364,current_date+1,200,v_after_date,v_after_type,v_after_id
+      )
+    loop
+      if v_previous_date is not null
+        and (v_event.event_date,v_event.event_type,v_event.event_id)<=(v_previous_date,v_previous_type,v_previous_id) then
+        raise exception 'PHASE_D_FINANCIAL_DETAILS_CURSOR_ORDER_FAILED';
+      end if;
+      v_previous_date:=v_event.event_date;
+      v_previous_type:=v_event.event_type;
+      v_previous_id:=v_event.event_id;
+      v_after_date:=v_event.event_date;
+      v_after_type:=v_event.event_type;
+      v_after_id:=v_event.event_id;
+      v_page_count:=v_page_count+1;
+      v_total_count:=v_total_count+1;
+      if v_event.event_type='purchase_invoice' then
+        v_purchase_count:=v_purchase_count+1; v_purchase_amount:=v_purchase_amount+v_event.amount;
+      elsif v_event.event_type='supplier_payment' then
+        v_payment_count:=v_payment_count+1; v_payment_amount:=v_payment_amount+v_event.amount;
+      elsif v_event.event_type='supplier_return' then
+        v_return_count:=v_return_count+1; v_return_amount:=v_return_amount+v_event.amount;
+      else
+        raise exception 'PHASE_D_UNKNOWN_FINANCIAL_EVENT_TYPE';
+      end if;
+    end loop;
+    exit when v_page_count<200;
+  end loop;
+
+  select * into v_summary
+    from public.powerhub_inventory_phase_d_financial_summary(10,100,current_date-364,current_date+1);
+  if v_total_count<>v_purchase_count+v_payment_count+v_return_count then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_DUPLICATE_EVENT';
+  end if;
+  if v_purchase_count<>v_summary.purchase_invoice_count or v_purchase_amount<>v_summary.purchase_invoice_amount then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_PURCHASE_RECONCILIATION_FAILED';
+  end if;
+  if v_payment_count<>v_summary.supplier_payment_count or v_payment_amount<>v_summary.supplier_payment_amount then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_PAYMENT_RECONCILIATION_FAILED';
+  end if;
+  if v_return_count<>v_summary.supplier_return_count or v_return_amount<>v_summary.supplier_return_credit_amount then
+    raise exception 'PHASE_D_FINANCIAL_DETAILS_RETURN_RECONCILIATION_FAILED';
+  end if;
+
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-1,current_date,10,current_date,null,null
+    );
+    raise exception 'PHASE_D_PARTIAL_FINANCIAL_CURSOR_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'INVALID_PHASE_D_FINANCIAL_CURSOR' then raise; end if;
+  end;
+end;
+$phase_d_financial_details_assertions$;
+
 select 'inventory purchasing, supplier ledger, fuel fill/reading, measured consumption and stock operations PostgreSQL integration passed' as result;
 
 
