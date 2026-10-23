@@ -145,11 +145,30 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("trpc.powerhub.inventory.supplierPayablesAging.useQuery");
     expect(dashboard).toContain("canViewInventoryReports ? <Metric label=\"القيمة الدفترية للمخزون\"");
     expect(dashboard).toContain("canViewSupplierLedger ? <Metric label=\"الذمم المستحقة للموردين\"");
-    expect(dashboard).toContain("المرحلة B");
-    expect(dashboard).toContain("المرحلة C");
-    expect(dashboard).toContain("لم نستبدل البيانات المفقودة بأرقام تقديرية");
+    expect(dashboard).toContain("phaseDFinancialSummary.useQuery");
+    expect(dashboard).toContain("fuelConsumptionReportPeriod.useQuery");
+    expect(dashboard).toContain("maintenance.reportByGenerator.useQuery");
+    expect(dashboard).toContain("readingCycle.boundsAt.useQuery");
+    expect(dashboard).toContain("تصنيف الصنف");
+    expect(dashboard).toContain("دفعات الموردين المرحلة");
+    expect(dashboard).toContain("ائتمانات مرتجعات الموردين");
+    expect(dashboard).toContain("لا يمكن أن يتجاوز نطاق التقرير 366 يومًا");
+    expect(dashboard).toContain("تكلفة الصيانة المسجلة");
+    expect(dashboard).toContain("ليست ترحيلًا محاسبيًا");
     expect(router).toContain("powerhub_inventory_stock_overview");
     expect(router).toContain("powerhub_inventory_supplier_payables_aging");
+    expect(router).toContain("phaseDFinancialSummary: protectedProcedure");
+    expect(router).toContain('"viewInventoryReports"');
+    expect(router).toContain("powerhub_inventory_phase_d_financial_summary");
+    const phaseDSummary = read("supabase/migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+    expect(phaseDSummary).toContain("p.status in ('confirmed','partially_received','received')");
+    expect(phaseDSummary).toContain("p.status='posted'");
+    expect(phaseDSummary).toContain("r.status='posted'");
+    expect(phaseDSummary).toContain("revoke all on function public.powerhub_inventory_phase_d_financial_summary");
+    expect(integration).toContain("PHASE_D_PURCHASE_SUMMARY_RECONCILIATION_FAILED");
+    expect(integration).toContain("PHASE_D_PAYMENT_SUMMARY_RECONCILIATION_FAILED");
+    expect(integration).toContain("PHASE_D_FINANCIAL_SUMMARY_ACL_FAILED");
   });
 
   it("exports complete filtered stock reports to multi-sheet Excel and Arabic RTL PDF", () => {
