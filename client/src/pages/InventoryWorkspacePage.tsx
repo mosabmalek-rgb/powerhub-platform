@@ -327,6 +327,7 @@ export default function InventoryWorkspacePage() {
                 canViewSupplierLedger={canViewSupplierLedger}
                 canReadPurchases={canReadPurchases}
                 canAccessStocktakes={canAccessStocktakes}
+                canManageFuelAndConsumption={canManageFuelAndConsumption}
                 onNavigate={(nextTab) => setTab(nextTab)}
               />
             </TabsContent>
