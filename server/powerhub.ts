@@ -533,6 +533,33 @@ export const powerhubRouter = router({
         changes: Array<{ cursor: string; entity_type: string; entity_id: string; operation: "upsert" | "delete"; row_data: Record<string, unknown> | null; changed_at: string }>;
       };
     }),
+    snapshot: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      entityType: z.enum(["subscribers", "generators", "readings", "tariffs"]),
+    })).query(async ({ ctx, input }) => {
+      const readRolesByEntity = {
+        subscribers: ["owner", "manager", "accountant", "collector", "viewer"],
+        generators: ["owner", "manager", "technician", "viewer"],
+        readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        tariffs: ["owner", "manager", "accountant", "viewer"],
+      } as const;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_sync_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
+      });
+      if (error) {
+        if (error.message.includes("SITE_OUT_OF_SCOPE")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الوصول إلى هذا الفرع." });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء لقطة المزامنة." });
+      }
+      if (!data || typeof data !== "object" || Array.isArray(data) ||
+          !Array.isArray((data as { rows?: unknown }).rows) ||
+          typeof (data as { snapshot_cursor?: unknown }).snapshot_cursor !== "string") {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة لقطة المزامنة غير صالحة." });
+      }
+      return data as { status: "ok"; entity_type: string; snapshot_cursor: string; retained_from_cursor: string; rows: Array<Record<string, unknown>> };
+    }),
   }),
   offlineNumbering: powerhubOfflineNumberingRouter,
   unifiedMessaging: powerhubUnifiedMessagingRouter,
