@@ -1104,12 +1104,22 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     });
     const oldMembers = state.tables.tenant_members;
     const oldSessions = state.tables.collector_sessions;
+    const oldUsers = state.tables.users;
+    const oldProfiles = state.tables.staff_profiles;
+    state.tables.users = [...oldUsers, {
+      id: 2, role: "user", platform_role: null, account_status: "active", platformRole: null, accountStatus: "active",
+      name: "محصّل الاختبار", email: "collector@example.test",
+    }];
+    state.tables.staff_profiles = [...oldProfiles, {
+      id: 202, tenant_id: 20, site_id: 10, user_id: 2, role: "collector", permissions: null,
+      custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true,
+    }];
     state.tables.tenant_members = [{
-      tenant_id: 20, user_id: 1, role: "collector", is_active: true, membership_status: "active",
+      tenant_id: 20, user_id: 2, role: "collector", is_active: true, membership_status: "active",
     }];
     state.tables.collector_sessions = [];
     try {
-      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user", platform_role: null, account_status: "active", platformRole: null, accountStatus: "active" } as never, req: {} as never, res: {} as never });
       await expect(caller.payments.create({
         siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0002",
         amount: 25, paymentMethod: "cash", companyAccountId: 90,
@@ -1119,6 +1129,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     } finally {
       state.tables.tenant_members = oldMembers;
       state.tables.collector_sessions = oldSessions;
+      state.tables.users = oldUsers;
+      state.tables.staff_profiles = oldProfiles;
       upload.mockRestore();
     }
   });
