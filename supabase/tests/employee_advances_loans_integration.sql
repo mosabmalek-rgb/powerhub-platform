@@ -97,7 +97,6 @@ insert into public.company_account_sites(tenant_id,account_id,site_id) values (1
 
 \ir ../migrations/20261023214342_powerhub_payroll_period_constraint_reconcile.sql
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
-\ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
 \if :{?PREEXIST_PAYROLL_ALLOCATIONS}
 -- Production compatibility fixture: this table exists before the advances migration.
 create table public.payroll_adjustment_allocations (
@@ -117,7 +116,9 @@ create policy payroll_adjustment_allocations_tenant_isolation
 grant select on public.payroll_adjustment_allocations to anon, authenticated;
 \endif
 
-\ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
+
+\ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
+\ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql\ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
 
 
 do $employee_advance_fk_index_assertions$
