@@ -9,7 +9,7 @@
 - Service Worker بإستراتيجية network-first للتنقل وcache fallback لإعادة فتح المنصة عند انقطاع الإنترنت.
 - Cache للأصول الثابتة على نفس الأصل حتى يمكن تحميل الواجهة بعد الانقطاع.
 - Web App Manifest لتجهيز PowerHub كنظام PWA.
-- IndexedDB cache منفصل عن طوابير المسودات الميدانية القائمة.
+- تبقى Query cache منفصلة بسياسة TTL/حجم/مستخدم؛ أما مساحة العمل التشغيلية المشتركة `powerhub-offline-workspace` فتضم طابور العمليات، نطاقات الأرقام، طابور القراءات الميدانية، مؤشرات/كيانات Delta، حالة المزامنة، بيانات retry وملفات التعارض. المصادقة واللقطات المؤقتة الحساسة تبقى في مخازن منفصلة لسبب دورة الحياة والحساسية.
 - تخزين Query results الناجحة لبيانات PowerHub التشغيلية فقط.
 - Namespacing للتخزين حسب Supabase user id لمنع خلط cache بين حسابات مختلفة على الجهاز نفسه.
 - استعادة snapshot محلي للمستخدم لتستمر واجهة workspace في التعرف على الجلسة أثناء الانقطاع؛ هذا snapshot للواجهة فقط وليس بديلاً عن تحقق الخادم.
@@ -73,14 +73,9 @@ Pending drafts can be synchronized through the existing Offline Sync Center
 
 هذه المرحلة **ليست بعد** محرك مزامنة شامل لكل جداول PowerHub. لا يتم تنفيذ merge تلقائي لتعارضات السجلات، ولا يتم تحويل كل CRUD في المنصة إلى Offline mutation.
 
-المرحلة التالية P7.2 يجب أن توحد طوابير العمليات الحالية في Sync Engine واحد وتضيف:
+**حالة P7.2 في PR #332:** نُفّذ محرك Delta التدريجي، وOutbox الحالي يحافظ على معرف العملية وidempotency والاعتماديات وretry/backoff والحالات النهائية. أصبحت مخازن العمل المحلي والقراءات ونطاقات الأرقام وDelta/retry metadata متاحة عبر مخطط IndexedDB المشترك الإصدار 4. تحفظ حالات المزامنة والتعارضات بصورة دائمة، مع إبقاء البيانات المالية مرجعية خادمية فقط.
 
-1. operation dependency ordering.
-2. idempotency موحدة لكل العملية.
-3. conflict records قابلة للمراجعة.
-4. retry/backoff.
-5. مزامنة تلقائية للعمليات التشغيلية المسموح بها.
-6. اختبارات انقطاع الاتصال والعودة المتكررة.
+المتبقي لاعتماد الدفعتين تشغيليًا هو استكمال بوابة متصفح E2E على staging، وقياس التنقل وحجم Delta مقابل التحميل الكامل، ومراجعة ترقية المخطط وخطة الرجوع قبل أي ترحيل حقيقي. لا تعتبر نجاحات CI بديلًا عن تلك الخطوات.
 
 ## معايير القبول لـ P7.1
 
@@ -90,3 +85,11 @@ Pending drafts can be synchronized through the existing Offline Sync Center
 - Production build يمر.
 - Service Worker موجود في build.
 - لا توجد تغييرات على Production أثناء تطوير P7.1.
+
+
+## حالة التنفيذ الفعلية — 2026-10-24
+
+- نجحت TypeScript وVitest وبناء الإنتاج وPostgreSQL Integration وPowerHub Security وSupabase Admin Guard على رأس الشفرة `1568612daaacac08f9b1b6fe326d7af6e14adfc8`.
+- مخطط مساحة العمل التشغيلي هو الإصدار 4 ويشمل `operations`, `grants`, `claims`, `fieldReadings`, `orphanedFieldReadings`, `cursors`, `entities`, `syncState`, `conflicts`, و`syncMetadata`.
+- ترحيل الطوابير القديمة محافظ؛ القراءات التي لا تملك user/site/subscriber scope تُحجر ولا تُحذف بصمت. لا تُحذف قاعدة المصدر إلا بعد اكتمال النسخ.
+- ما زال PR #332 مفتوحًا ولم تُطبق ترحيلات على staging أو production. تبقى اختبارات متصفح E2E وrehearsal للمخططط وموافقة منفصلة قبل الدمج/التشغيل الفعلي.
