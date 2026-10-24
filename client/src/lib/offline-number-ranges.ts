@@ -168,6 +168,9 @@ export async function persistOfflineNumberGrant(grant: OfflineNumberGrant, now =
         existing.deviceId !== grant.deviceId ||
         existing.numberKind !== grant.numberKind ||
         existing.partitionKey !== grant.partitionKey ||
+        existing.issuedAt !== grant.issuedAt ||
+        existing.expiresAt !== grant.expiresAt ||
+        (existing.revokedAt ?? null) !== (grant.revokedAt ?? null) ||
         JSON.stringify(existing.reservedValues) !== JSON.stringify(grant.reservedValues)
       )) {
         tx.abort();
