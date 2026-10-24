@@ -40,6 +40,13 @@ describe("PowerHub delta sync contract", () => {
     expect(router).toContain("input.pageSize");
   });
 
+  it("uses read access roles for delta refresh rather than write capabilities", () => {
+    expect(router).toContain('subscribers: ["owner", "manager", "accountant", "collector", "viewer"]');
+    expect(router).toContain('generators: ["owner", "manager", "technician", "viewer"]');
+    expect(router).toContain('tariffs: ["owner", "manager", "accountant", "viewer"]');
+    expect(router).not.toContain('capabilityByEntity[input.entityType]');
+  });
+
   it("uses string cursors and fixed page boundaries and refuses unordered or mismatched changes", () => {
     expect(client).toContain("BigInt(assertCursor(a))");
     expect(client).toContain("throughCursor: through");

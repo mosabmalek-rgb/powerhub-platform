@@ -485,18 +485,19 @@ export const powerhubRouter = router({
       throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
       pageSize: z.number().int().min(1).max(500).default(200),
     })).query(async ({ ctx, input }) => {
-      const capabilityByEntity = {
-        sites: undefined,
-        subscribers: "manageSubscribers",
-        generators: "manageGenerators",
-        readings: "recordReadings",
-        tariffs: "manageTariffs",
+      // Delta pull is a read path: mirror the matching list endpoint's roles.
+      // Do not require write/manage capabilities to refresh an already authorized list.
+      const readRolesByEntity = {
+        sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        subscribers: ["owner", "manager", "accountant", "collector", "viewer"],
+        generators: ["owner", "manager", "technician", "viewer"],
+        readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        tariffs: ["owner", "manager", "accountant", "viewer"],
       } as const;
       const access = await requireSupabaseSiteRole(
         ctx.user.id,
         input.siteId,
-        ["owner", "manager", "accountant", "technician", "viewer"],
-        capabilityByEntity[input.entityType],
+        [...readRolesByEntity[input.entityType]],
       );
       const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
       const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
