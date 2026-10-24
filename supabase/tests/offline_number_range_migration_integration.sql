@@ -499,6 +499,7 @@ create table public.tariffs (
   created_at timestamptz not null default now()
 );
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
+\ir ../migrations/20261024180000_powerhub_delta_cross_tenant_reading_tombstones.sql
 
 do $assert_delta_sync$
 declare
@@ -641,6 +642,54 @@ begin
   end if;
 end
 $assert_delta_sync$;
+
+
+do $assert_cross_tenant_reading_tombstone$
+declare
+  v_subscriber_id bigint;
+  v_reading_id bigint;
+  v_old_cursor bigint;
+  v_old_delta jsonb;
+  v_old_snapshot jsonb;
+  v_new_delta jsonb;
+  v_new_snapshot jsonb;
+begin
+  insert into public.subscribers(tenant_id,site_id,subscriber_no,full_name,phone,subscription_type)
+  values (1,10,'SUB-800003','Cross Tenant Reading Test','0590000002','residential') returning id into v_subscriber_id;
+  insert into public.meter_readings(tenant_id,subscriber_id,reading_value)
+  values (1,v_subscriber_id,321.5) returning id into v_reading_id;
+
+  select last_cursor into v_old_cursor from public.powerhub_sync_scope_state
+  where tenant_id=1 and site_id=10 and entity_type='readings';
+  if v_old_cursor is null then raise exception 'ASSERT_FAILED: initial reading upsert did not advance old scope cursor'; end if;
+
+  update public.subscribers set tenant_id=2,site_id=20 where id=v_subscriber_id;
+  select public.powerhub_pull_sync_delta(1,10,'readings',v_old_cursor,null,50) into v_old_delta;
+  if v_old_delta->>'status' <> 'ok' or not exists (
+    select 1 from jsonb_array_elements(v_old_delta->'changes') as change
+    where change->>'entity_id'=v_reading_id::text and change->>'operation'='delete'
+  ) then raise exception 'ASSERT_FAILED: tenant move did not tombstone old reading: %',v_old_delta; end if;
+
+  select public.powerhub_get_sync_snapshot(1,10,'readings') into v_old_snapshot;
+  if jsonb_array_length(v_old_snapshot->'rows') <> 0 then
+    raise exception 'ASSERT_FAILED: old tenant snapshot retained reading: %',v_old_snapshot;
+  end if;
+
+  update public.meter_readings set tenant_id=2 where id=v_reading_id;
+  select public.powerhub_pull_sync_delta(2,20,'readings',0,null,50) into v_new_delta;
+  if v_new_delta->>'status' <> 'ok' or not exists (
+    select 1 from jsonb_array_elements(v_new_delta->'changes') as change
+    where change->>'entity_id'=v_reading_id::text and change->>'operation'='upsert'
+  ) then raise exception 'ASSERT_FAILED: new tenant scope missing reading upsert: %',v_new_delta; end if;
+
+  select public.powerhub_get_sync_snapshot(2,20,'readings') into v_new_snapshot;
+  if jsonb_array_length(v_new_snapshot->'rows') <> 1
+     or v_new_snapshot#>>'{rows,0,reading,id}' <> v_reading_id::text
+     or v_new_snapshot#>>'{rows,0,subscriber,id}' <> v_subscriber_id::text then
+    raise exception 'ASSERT_FAILED: new tenant snapshot missed reading: %',v_new_snapshot;
+  end if;
+end
+$assert_cross_tenant_reading_tombstone$;
 
 select 'offline_delta_sync_integration: PASS' as result;
 
