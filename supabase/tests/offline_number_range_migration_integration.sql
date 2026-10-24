@@ -66,7 +66,7 @@ create sequence public.powerhub_subscriber_no_seq as bigint minvalue 1 maxvalue 
 select setval('public.powerhub_subscriber_no_seq', 990002, true);
 
 create function public.powerhub_effective_tenant_quota(p_tenant_id bigint, p_resource text)
-returns integer language sql stable as $ select 100 $;
+returns integer language sql stable as $quota$ select 100 $quota$;
 
 -- Reproduce the older staging overload that accepts a browser-supplied subscriber number.
 create function public.powerhub_create_subscriber(
@@ -75,7 +75,7 @@ create function public.powerhub_create_subscriber(
   p_subscription_type text, p_client_operation_id uuid, p_quota_limit integer
 )
 returns table (subscriber_id bigint, subscriber_no text, replayed boolean)
-language sql as $ select null::bigint, p_subscriber_no, false $;
+language sql as $legacy$ select null::bigint, p_subscriber_no, false $legacy$;
 
 insert into public.tenants(id) values (1);
 insert into public.sites(id, tenant_id) values (10, 1);
