@@ -50,15 +50,22 @@ type OfflineAuthUserRecord = {
   updatedAt: number;
 };
 
-export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
+function getPowerHubQuerySegments(queryKey: readonly unknown[]) {
   const first = queryKey[0];
-  const segments = Array.isArray(first)
-    ? first.filter((part): part is string => typeof part === "string")
-    : typeof first === "string"
-      ? queryKey.slice(0, 3).filter((part): part is string => typeof part === "string")
-      : [];
+  if (Array.isArray(first)) return first.filter((part): part is string => typeof part === "string");
+  if (typeof first === "string" && first.includes(".")) return first.split(".");
+  if (typeof first === "string") return queryKey.slice(0, 3).filter((part): part is string => typeof part === "string");
+  return [];
+}
+
+export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
+  const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
   if (segments.some((value) => BLOCKED_PROCEDURES.has(value))) return false;
+  // Only stable whole-list query shapes are persisted. Search pages, details,
+  // summaries, mutations and other methods under an otherwise cacheable router
+  // must opt in explicitly rather than inheriting permission from the router name.
+  if (segments.length < 3 || segments[2] !== "list") return false;
   return CACHEABLE_PROCEDURES.has(segments[1] ?? "");
 }
 
