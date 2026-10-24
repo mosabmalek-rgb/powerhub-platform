@@ -73,6 +73,73 @@ describe("executeReadyOperations", () => {
     expect(result.metadata.nextAttemptAt).toBe(Number.POSITIVE_INFINITY);
   });
 
+  it("never dispatches a queue row with a persisted terminal outcome", async () => {
+    const outcomes = ["conflict", "rejected", "applied", "already_applied"] as const;
+
+    for (const outcome of outcomes) {
+      const queued = item(`terminal-${outcome}`, 1);
+      const transport = vi.fn(async () => ({ outcome: "applied" as const }));
+      const metadata = new Map([[queued.clientOperationId, {
+        ...createSyncMetadata(queued, 0),
+        outcome,
+        nextAttemptAt: 0,
+      }]]);
+
+      const results = await executeReadyOperations({
+        items: [queued],
+        metadataByOperationId: metadata,
+        transport,
+        now: 100,
+      });
+
+      expect(results).toEqual([]);
+      expect(transport).not.toHaveBeenCalled();
+    }
+  });
+
+  it("dispatches retryable work only when due and while retry budget remains", async () => {
+    const queued = { ...item("retryable", 1), status: "failed" as const };
+    const retryMetadata = {
+      ...createSyncMetadata(queued, 0),
+      outcome: "retryable" as const,
+      attempts: 1,
+      nextAttemptAt: 200,
+    };
+    const transport = vi.fn(async () => ({ outcome: "retryable" as const, message: "temporary" }));
+
+    const earlyResults = await executeReadyOperations({
+      items: [queued],
+      metadataByOperationId: new Map([[queued.clientOperationId, retryMetadata]]),
+      transport,
+      now: 199,
+    });
+    expect(earlyResults).toEqual([]);
+    expect(transport).not.toHaveBeenCalled();
+
+    const dueResults = await executeReadyOperations({
+      items: [queued],
+      metadataByOperationId: new Map([[queued.clientOperationId, retryMetadata]]),
+      transport,
+      now: 200,
+      random: () => 0.5,
+    });
+    expect(dueResults).toHaveLength(1);
+    expect(transport).toHaveBeenCalledTimes(1);
+
+    transport.mockClear();
+    const exhaustedResults = await executeReadyOperations({
+      items: [queued],
+      metadataByOperationId: new Map([[queued.clientOperationId, {
+        ...retryMetadata,
+        attempts: 5,
+      }]]),
+      transport,
+      now: 200,
+    });
+    expect(exhaustedResults).toEqual([]);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it("schedules only retryable failures", async () => {
     const retry = item("retry", 1);
     const rejected = item("rejected", 2);
