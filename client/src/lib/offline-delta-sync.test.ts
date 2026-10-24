@@ -73,7 +73,7 @@ describe("offline delta sync", () => {
 
   it("fails closed if the server changes the page boundary", async () => {
     const pull = vi.fn()
-      .mockResolvedValueOnce(page({ through_cursor: "9", next_cursor: "4", has_more: true }))
+      .mockResolvedValueOnce(page({ through_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "delete", null)] }))
       .mockResolvedValueOnce(page({ through_cursor: "10", next_cursor: "10", has_more: false }));
     await expect(pullDeltaPages({ scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" }, persistCursor: async () => {}, afterCursor: "3", pull, applyPage: async () => {}, rebuildSnapshot: async () => {} }))
       .rejects.toThrow(/تغيّر حد المزامنة/);
