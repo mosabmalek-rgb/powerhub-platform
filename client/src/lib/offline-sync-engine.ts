@@ -112,6 +112,11 @@ export function scheduleRetry(
   };
 }
 
+/** Manual retry is safe only when the last server/transport result was explicitly transient. */
+export function canManuallyRetry(metadata: Pick<SyncMetadata, "outcome"> | undefined): boolean {
+  return metadata?.outcome === "retryable";
+}
+
 export function shouldRetry(metadata: SyncMetadata): boolean {
   return metadata.attempts < SYNC_MAX_ATTEMPTS && Number.isFinite(metadata.nextAttemptAt);
 }
