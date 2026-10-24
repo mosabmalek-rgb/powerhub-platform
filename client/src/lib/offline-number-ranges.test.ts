@@ -86,6 +86,33 @@ describe("offline number range foundation", () => {
     })).toThrowError(/نوع الرقم/);
   });
 
+  it("replays the same claim after expiry or revocation without allocating a new number", () => {
+    const existing = claim("42", "stable-after-expiry");
+    const expiredGrant = { ...subscriberGrant, expiresAt: now - 1 };
+    expect(selectNextAvailableOfflineNumber({
+      grant: expiredGrant, claims: [existing], scope,
+      clientOperationId: "stable-after-expiry", entityType: "subscriber", now,
+    })).toMatchObject({ claim: existing, formattedNumber: "SUB-000042", replayed: true });
+
+    expect(() => selectNextAvailableOfflineNumber({
+      grant: expiredGrant, claims: [], scope,
+      clientOperationId: "new-operation", entityType: "subscriber", now,
+    })).toThrowError(/انتهت صلاحية/);
+
+    expect(selectNextAvailableOfflineNumber({
+      grant: { ...subscriberGrant, revokedAt: now - 1 }, claims: [existing], scope,
+      clientOperationId: "stable-after-expiry", entityType: "subscriber", now,
+    })).toMatchObject({ claim: existing, formattedNumber: "SUB-000042", replayed: true });
+  });
+
+  it("rejects a replay whose claimed number is outside the reserved grant values", () => {
+    const tampered = claim("99", "stable-operation");
+    expect(() => selectNextAvailableOfflineNumber({
+      grant: subscriberGrant, claims: [tampered], scope,
+      clientOperationId: "stable-operation", entityType: "subscriber", now,
+    })).toThrowError(/نطاق أو رقم مختلف/);
+  });
+
   it("does not allow a replay to change the scope or grant", () => {
     const existing = claim("42", "same-operation", "different-grant");
     expect(() => selectNextAvailableOfflineNumber({
