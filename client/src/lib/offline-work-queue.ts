@@ -1,5 +1,6 @@
 import { ensureLegacyFieldReadingsMigrated, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
 import { OfflineNumberRangeError, selectNextAvailableOfflineNumber, type OfflineNumberClaim, type OfflineNumberGrant, type OfflineNumberScope } from "./offline-number-ranges";
+import type { SyncMetadataRecord } from "./offline-sync-metadata";
 export type OfflineWorkKind =
   | "subscriber_create"
   | "subscriber_update"
@@ -169,6 +170,7 @@ const databaseName = "powerhub-offline-workspace";
 const storeName = "operations";
 const grantsStoreName = "grants";
 const claimsStoreName = "claims";
+const syncMetadataStoreName = "syncMetadata";
 
 export class OfflineWorkQueueError extends Error {}
 
@@ -190,6 +192,16 @@ export function createOfflineWork(
     createdAt: now,
     updatedAt: now,
     status: "pending",
+  };
+}
+
+/** Initial sync state must be committed with its matching Outbox operation. */
+export function createInitialSyncMetadataRecord(item: QueuedOfflineWork): SyncMetadataRecord {
+  return {
+    operationId: item.clientOperationId, userId: item.userId,
+    ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+    siteId: item.siteId, kind: item.kind, dependsOn: [], attempts: 0,
+    nextAttemptAt: item.createdAt, outcome: "pending", updatedAt: item.createdAt,
   };
 }
 
@@ -240,8 +252,15 @@ export async function enqueueOfflineWork(
   input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status"> & { clientOperationId?: string },
 ) {
   const record = createOfflineWork(input);
-  await transact("readwrite", (store) => store.put(record));
-  return record;
+  const database = await openDatabase();
+  return new Promise<QueuedOfflineWork>((resolve, reject) => {
+    const transaction = database.transaction([storeName, syncMetadataStoreName], "readwrite");
+    transaction.objectStore(storeName).put(record);
+    transaction.objectStore(syncMetadataStoreName).put(createInitialSyncMetadataRecord(record));
+    transaction.oncomplete = () => { database.close(); resolve(record); };
+    transaction.onerror = () => { const error = transaction.error; database.close(); reject(error ?? new OfflineWorkQueueError("تعذر حفظ المسودة وحالة مزامنتها معًا.")); };
+    transaction.onabort = () => { const error = transaction.error; database.close(); reject(error ?? new OfflineWorkQueueError("أُلغيت معاملة حفظ المسودة وحالة مزامنتها.")); };
+  });
 }
 
 export async function enqueueOfflineSubscriberCreateWithNumber(input: {
@@ -253,10 +272,11 @@ export async function enqueueOfflineSubscriberCreateWithNumber(input: {
   const clientOperationId = crypto.randomUUID();
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction([storeName, grantsStoreName, claimsStoreName], "readwrite");
+    const transaction = database.transaction([storeName, grantsStoreName, claimsStoreName, syncMetadataStoreName], "readwrite");
     const operations = transaction.objectStore(storeName);
     const grantsStore = transaction.objectStore(grantsStoreName);
     const claimsStore = transaction.objectStore(claimsStoreName);
+    const syncMetadata = transaction.objectStore(syncMetadataStoreName);
     const grantsRequest = grantsStore.getAll();
     const claimsRequest = claimsStore.getAll();
     let grants: OfflineNumberGrant[] | undefined;
@@ -311,6 +331,7 @@ export async function enqueueOfflineSubscriberCreateWithNumber(input: {
         // Either both survive a reload/crash, or neither does.
         claimsStore.add(claim);
         operations.add(item);
+        syncMetadata.put(createInitialSyncMetadataRecord(item));
         output = { item, formattedNumber: selected.formattedNumber };
       } catch (error) {
         failure = error;
@@ -340,10 +361,11 @@ export async function enqueueOfflineReadingWithInvoiceNumber(input: {
   const now = Date.now();
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction([storeName, grantsStoreName, claimsStoreName], "readwrite");
+    const transaction = database.transaction([storeName, grantsStoreName, claimsStoreName, syncMetadataStoreName], "readwrite");
     const operations = transaction.objectStore(storeName);
     const grantsStore = transaction.objectStore(grantsStoreName);
     const claimsStore = transaction.objectStore(claimsStoreName);
+    const syncMetadata = transaction.objectStore(syncMetadataStoreName);
     const grantsRequest = grantsStore.getAll();
     const claimsRequest = claimsStore.getAll();
     let grants: OfflineNumberGrant[] | undefined;
@@ -379,6 +401,7 @@ export async function enqueueOfflineReadingWithInvoiceNumber(input: {
         // The invoice claim and reading operation commit or abort together.
         claimsStore.add(claim);
         operations.add(item);
+        syncMetadata.put(createInitialSyncMetadataRecord(item));
         output = { item, formattedInvoiceNumber: selected.formattedNumber };
       } catch (error) { failure = error; transaction.abort(); }
     };
