@@ -54,7 +54,9 @@ describe("offline sync UI contract", () => {
     const readIndex = retryBody.indexOf("listOfflineWork({ userId, siteId })");
     expect(lockIndex).toBeGreaterThanOrEqual(0);
     expect(lockIndex).toBeLessThan(readIndex);
-    expect(retryBody).toContain("isSyncMetadataCompatibleWithWorkItem(item, metadata)");
+    expect(retryBody).toContain("await requeueOfflineWorkForManualRetry({");
+    expect(retryBody).not.toContain("upsertSyncMetadata(");
+    expect(retryBody).not.toContain("updateOfflineWork(item.id, { status: \"pending\"");
     expect(retryBody).toContain("await syncPendingUnlocked()");
     expect(retryBody).not.toContain("await syncPending();");
     expect(syncPanel).toContain("const syncPendingUnlocked = async () => {");

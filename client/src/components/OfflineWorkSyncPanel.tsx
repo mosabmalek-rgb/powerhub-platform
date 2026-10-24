@@ -9,7 +9,6 @@ import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
 import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { getOfflineSyncRefreshTargets } from "@/lib/offline-sync-refresh";
-import { canManuallyRetry } from "@/lib/offline-sync-engine";
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
