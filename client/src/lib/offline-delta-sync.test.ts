@@ -17,9 +17,9 @@ const page = (overrides: Partial<DeltaPage> = {}): DeltaPage => ({
   snapshot_cursor: null, through_cursor: "3", next_cursor: "3", has_more: false, changes: [], ...overrides,
 });
 
-function memoryStorage(): DeltaSyncStorage {
-  let cursor = "0";
-  let rows = new Map<string, Record<string, unknown>>();
+function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>[] = []): DeltaSyncStorage {
+  let cursor = initialCursor;
+  let rows = new Map<string, Record<string, unknown>>(initialRows.map(row => [String(row.id), row]));
   return {
     getCursor: async () => cursor,
     listEntities: async () => [...rows].map(([entityId, rowData]) => ({ ...scope, entityId, rowData, updatedAt: 1 })),
@@ -76,6 +76,32 @@ describe("offline delta sync", () => {
     expect((await storage.listEntities(scope)).map(x => x.rowData)).toEqual([{ id: 1, name: "A" }]);
     expect(await storage.getCursor(scope)).toBe("9");
     expect(result).toEqual({ cursor: "9", appliedChanges: 2, resetRequired: false });
+  });
+
+
+  it("does not advance the durable cursor when applying a page to the live cache fails", async () => {
+    const storage = memoryStorage("3");
+    const expectedPage = page({
+      current_cursor: "4", through_cursor: "4", next_cursor: "4",
+      changes: [change("4", "7", "upsert", { id: 7, name: "Recovered" })],
+    });
+    const pull = async () => expectedPage;
+    await expect(pullDeltaPages({
+      scope, storage, afterCursor: "3", pull,
+      applyPage: async () => { throw new Error("simulated cache persistence failure"); },
+      rebuildSnapshot: async () => [],
+    })).rejects.toThrow(/simulated cache persistence failure/);
+    expect(await storage.getCursor(scope)).toBe("3");
+    expect(await storage.listEntities(scope)).toEqual([]);
+
+    const result = await pullDeltaPages({
+      scope, storage, afterCursor: "3", pull,
+      applyPage: async () => {},
+      rebuildSnapshot: async () => [],
+    });
+    expect(result.cursor).toBe("4");
+    expect(await storage.getCursor(scope)).toBe("4");
+    expect((await storage.listEntities(scope)).map(row => row.rowData)).toEqual([{ id: 7, name: "Recovered" }]);
   });
 
   it("rebuilds and atomically checkpoints when server retention requires a snapshot", async () => {

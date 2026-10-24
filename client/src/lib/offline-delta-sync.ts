@@ -368,8 +368,11 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     if (!page.has_more && next !== page.through_cursor) throw new Error("الصفحة النهائية لا تنتهي عند حد المزامنة.");
     if (page.has_more && page.changes.length === 0) throw new Error("توقفت المزامنة قبل اكتمال الصفحة.");
     if (cursor !== null && compareDeltaCursors(next, cursor) < 0) throw new Error("تراجع مؤشر المزامنة.");
-    await storage.commitPage(input.scope, page, next);
+    // Update the live query cache and await its durable offline-cache write
+    // before advancing the separate delta cursor. If the browser stops here,
+    // the old cursor causes a safe idempotent replay instead of a skipped change.
     if (input.applyPage && page.changes.length) await input.applyPage(page);
+    await storage.commitPage(input.scope, page, next);
     appliedChanges += page.changes.length;
     cursor = next;
     if (!page.has_more) return { cursor: through, appliedChanges, resetRequired };

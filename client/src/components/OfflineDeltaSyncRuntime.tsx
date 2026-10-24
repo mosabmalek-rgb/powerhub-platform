@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { onlineManager, useQueryClient, type Query } from "@tanstack/react-query";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { getSupabaseSession } from "@/lib/supabase";
+import { persistOfflineQuery } from "@/lib/offline-query-cache";
 import {
   clearDeltaSyncDataForUser,
   getDeltaCursor,
@@ -119,12 +121,14 @@ function subscriberRowsForSite(queries: Query[], siteId: number, tenantId: numbe
   return [];
 }
 
-function patchQueryCaches(
+async function patchQueryCaches(
   queryClient: ReturnType<typeof useQueryClient>,
   scope: DeltaCursorScope,
   entityType: DeltaOperationalEntity,
   page: DeltaPage<AnyRow>,
-) {
+  cacheOwnerId: string,
+): Promise<void> {
+  const changedQueries = new Set<Query>();
   const queries = queryClient.getQueryCache().findAll();
   const subscribers = subscriberRowsForSite(queries, scope.siteId, scope.tenantId);
   for (const query of queries) {
@@ -134,10 +138,15 @@ function patchQueryCaches(
     if (!Array.isArray(rows)) continue;
     if (queryEntity === entityType) {
       queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, page, scope, subscribers));
+      changedQueries.add(query);
     } else if (entityType === "subscribers" && queryEntity === "readings") {
       queryClient.setQueryData(query.queryKey, refreshReadingSubscriberProjection(rows, page, scope));
+      changedQueries.add(query);
     }
   }
+  // The cursor is committed only after every affected durable query snapshot is
+  // written, so a browser restart cannot resume beyond a change absent from cache.
+  for (const query of changedQueries) await persistOfflineQuery(query, cacheOwnerId);
 }
 
 export function OfflineDeltaSyncRuntime() {
@@ -146,6 +155,7 @@ export function OfflineDeltaSyncRuntime() {
   const utils = trpc.useUtils();
   const currentRun = useRef(false);
   const rerunRequested = useRef(false);
+  const lastOnlineUserId = useRef<number | null>(null);
   const activeUserId = Number(auth.user?.id);
   const isAuthorizedOnline = auth.isOnlineAuthenticated && !auth.isLoggingOut &&
     auth.powerHubReachable && onlineManager.isOnline() &&
@@ -156,9 +166,13 @@ export function OfflineDeltaSyncRuntime() {
     let disposed = false;
     let debounce: ReturnType<typeof setTimeout> | null = null;
     let interval: ReturnType<typeof setInterval> | null = null;
-    let previousUserId = activeUserId;
+    const priorOnlineUserId = lastOnlineUserId.current;
+    if (priorOnlineUserId !== null && priorOnlineUserId !== activeUserId) {
+      void clearDeltaSyncDataForUser(priorOnlineUserId).catch(() => undefined);
+    }
+    lastOnlineUserId.current = activeUserId;
 
-    const syncOne = async (candidate: Candidate) => {
+    const syncOne = async (candidate: Candidate, cacheOwnerId: string) => {
       const scope: DeltaCursorScope = {
         userId: activeUserId,
         tenantId: candidate.tenantId,
@@ -192,6 +206,14 @@ export function OfflineDeltaSyncRuntime() {
             data = await utils.powerhub.tariffs.list.fetch({ siteId: candidate.siteId });
             break;
         }
+        // Persist the fetched full snapshot before its cursor becomes durable. If
+        // the snapshot persistence fails, abort the pull and leave the prior cursor.
+        const matchingQueries = queryClient.getQueryCache().findAll().filter((query) =>
+          queryIsSupportedList(query) === candidate.entityType &&
+          findNumberProperty(query.queryKey, "siteId") === candidate.siteId &&
+          Array.isArray(query.state.data)
+        );
+        for (const query of matchingQueries) await persistOfflineQuery(query, cacheOwnerId);
         return snapshotRowsFromQuery(candidate.entityType, data);
       };
       await pullDeltaPages({
@@ -199,7 +221,7 @@ export function OfflineDeltaSyncRuntime() {
         afterCursor,
         pull,
         rebuildSnapshot,
-        applyPage: async (page) => patchQueryCaches(queryClient, scope, candidate.entityType, page as DeltaPage<AnyRow>),
+        applyPage: async (page) => patchQueryCaches(queryClient, scope, candidate.entityType, page as DeltaPage<AnyRow>, cacheOwnerId),
       });
     };
 
@@ -213,12 +235,15 @@ export function OfflineDeltaSyncRuntime() {
       currentRun.current = true;
       rerunRequested.current = false;
       try {
+        const session = await getSupabaseSession();
+        if (!session?.user.id) return;
+        const cacheOwnerId = session.user.id;
         const queryList = queryClient.getQueryCache().findAll();
         const candidates = makeCandidates(queryList);
         for (const candidate of candidates) {
           if (disposed || !onlineManager.isOnline()) break;
           try {
-            await syncOne(candidate);
+            await syncOne(candidate, cacheOwnerId);
           } catch (error) {
             console.warn("[PowerHub] Delta sync deferred for scoped list", candidate.entityType, candidate.siteId, error);
           }
@@ -264,9 +289,11 @@ export function OfflineDeltaSyncRuntime() {
   }, [activeUserId, isAuthorizedOnline, queryClient, utils, auth.powerHubReachable]);
 
   useEffect(() => {
-    const previous = Number.isSafeInteger(activeUserId) && activeUserId > 0 ? activeUserId : null;
-    if (auth.isLoggingOut && previous) void clearDeltaSyncDataForUser(previous).catch(() => undefined);
-  }, [activeUserId, auth.isLoggingOut]);
+    if (!auth.isLoggingOut) return;
+    const previous = lastOnlineUserId.current;
+    lastOnlineUserId.current = null;
+    if (previous) void clearDeltaSyncDataForUser(previous).catch(() => undefined);
+  }, [auth.isLoggingOut]);
 
   return null;
 }
