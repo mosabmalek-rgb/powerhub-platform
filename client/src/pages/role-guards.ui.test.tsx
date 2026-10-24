@@ -84,6 +84,7 @@ vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { child
 vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, ...props }: { checked: boolean; onCheckedChange: (value: boolean) => void; [key: string]: unknown }) => <button type="button" aria-pressed={checked} onClick={() => onCheckedChange(!checked)} {...props} /> }));
 vi.mock("qrcode.react", () => ({ QRCodeCanvas: ({ value }: { value: string }) => <canvas aria-label="رمز QR للرابط" data-value={value} /> }));
 vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()], useRoute: (pattern: string) => pattern === "/payment-documentation/public/:token" && mocks.location.startsWith("/payment-documentation/public/") ? [true, { token: mocks.location.split("/").at(-1) }] : pattern === "/invoice/:token" && mocks.location.startsWith("/invoice/") ? [true, { token: mocks.location.split("/").at(-1) }] : [false, undefined] }));
+vi.mock("@/lib/offline-connectivity", () => ({ usePowerHubConnectivity: () => ({ isOnline: true, reconnectGeneration: 0 }), probePowerHubConnectivity: vi.fn().mockResolvedValue(true) }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
