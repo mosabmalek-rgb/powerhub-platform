@@ -118,7 +118,7 @@ grant select on public.payroll_adjustment_allocations to anon, authenticated;
 
 
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
-\ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql\ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
+\ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
 
 
 do $employee_advance_fk_index_assertions$
