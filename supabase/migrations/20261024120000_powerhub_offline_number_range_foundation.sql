@@ -704,7 +704,7 @@ returns table (subscriber_id bigint, subscriber_no text, replayed boolean)
 language plpgsql
 security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare
   v_subscriber_id bigint;
   v_subscriber_no text;
@@ -855,7 +855,7 @@ grant select, insert, update, delete on table public.powerhub_offline_number_cla
 
   return query select v_subscriber_id, v_subscriber_no, false;
 end;
-$;
+$$;
 
 revoke all on function public.powerhub_create_subscriber_with_offline_number(
   bigint, bigint, bigint, uuid, uuid, text, text, text, text, text, text, uuid
