@@ -52,6 +52,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const createPayment = trpc.powerhub.payments.create.useMutation();
   const submitPaymentDocumentation = trpc.powerhub.paymentDocumentation.submit.useMutation();
   const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
+  const createReading = trpc.powerhub.readings.create.useMutation();
 
   const refresh = async () => Promise.all([
     utils.powerhub.subscribers.list.invalidate({ siteId }),
@@ -103,6 +104,22 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const result = await syncGeneratorUpdate({ siteId: item.siteId, generatorId: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, expectedUpdatedAt: payload.expectedUpdatedAt, clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: "applied" };
+      }
+      if (item.kind === "reading_create") {
+        const payload = item.payload as import("@/lib/offline-work-queue").ReadingCreateDraft;
+        const result = await createReading.mutateAsync({
+          siteId: item.siteId, subscriberId: payload.subscriberId,
+          readingValue: payload.readingValue, readingAt: new Date(payload.readingAt),
+          captureMethod: payload.captureMethod, imageData: payload.imageData, imageMime: payload.imageMime,
+          notes: payload.notes, isReadingReset: payload.isReadingReset, overrideSameDay: payload.overrideSameDay,
+          fieldVerified: payload.fieldVerified, clientOperationId: item.clientOperationId,
+        });
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: Number(result.id),
+          appliedLabel: `قراءة للمشترك #${payload.subscriberId}`,
+          payload: { ...payload, imageData: undefined, imageMime: undefined },
+        });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "invoice_issue") {
         const payload = item.payload as import("@/lib/offline-work-queue").InvoiceIssueDraft;
@@ -178,6 +195,13 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
       }
       await refresh();
+      const successfulReadingCreates = results.filter((result) =>
+        result.item.kind === "reading_create" &&
+        (result.outcome === "applied" || result.outcome === "already_applied"),
+      );
+      if (successfulReadingCreates.length > 0) {
+        await utils.powerhub.readings.page.invalidate({ siteId, limit: 200 });
+      }
       const successfulInvoiceIssues = results.filter((result) =>
         result.item.kind === "invoice_issue" &&
         (result.outcome === "applied" || result.outcome === "already_applied"),

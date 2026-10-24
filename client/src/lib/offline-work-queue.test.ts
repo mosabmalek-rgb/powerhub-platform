@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOfflineWork, type GeneratorCreateDraft, type GeneratorUpdateDraft } from "./offline-work-queue";
+import { createOfflineWork, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
 
 describe("طابور المسودات دون اتصال", () => {
   it("ينشئ معرف عملية ثابتاً داخل السجل ومعرفاً مختلفاً لكل مسودة", () => {
@@ -9,6 +9,21 @@ describe("طابور المسودات دون اتصال", () => {
     expect(first.id).toBe(first.clientOperationId);
     expect(first.clientOperationId).not.toBe(second.clientOperationId);
     expect(first.status).toBe("pending");
+  });
+
+  it("يدرج القراءة الميدانية في Outbox مع الاحتفاظ بمعرف العملية", () => {
+    const payload: ReadingCreateDraft = {
+      subscriberId: 31, readingValue: "125.5", readingAt: "2026-10-24T10:00:00.000Z",
+      captureMethod: "photo", imageData: "aGVsbG8=", imageMime: "image/jpeg", fieldVerified: true,
+    };
+    const draft = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "reading_create",
+      payload, clientOperationId: "field-reading-op-1",
+    });
+    expect(draft).toMatchObject({
+      id: "field-reading-op-1", clientOperationId: "field-reading-op-1",
+      userId: 7, tenantId: 2, siteId: 3, kind: "reading_create", status: "pending", payload,
+    });
   });
 
   it("يحفظ التحصيل كمسودة معلقة من دون تمثيلها كدفعة مكتملة", () => {

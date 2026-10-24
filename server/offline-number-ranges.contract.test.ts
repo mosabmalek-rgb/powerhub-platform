@@ -59,10 +59,10 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(workspace).toContain('ensureStore(db, tx, "syncMetadata"');
     expect(workspace).toContain('ensureStore(db, tx, "fieldReadings"');
     expect(workspace).toContain('ensureStore(db, tx, "orphanedFieldReadings"');
-    expect(fieldQueue).toContain("openOfflineWorkspaceDatabase()");
-    expect(fieldQueue).toContain('openLegacyOfflineDatabaseIfPresent(legacyDatabaseName, [legacyStoreName])');
-    expect(fieldQueue).toContain('"missing-user-scope"');
-    expect(fieldQueue).toContain('"missing-site-scope"');
+    expect(fieldQueue).toContain("enqueueOfflineWork");
+    expect(fieldQueue).toContain("listOfflineWork");
+    expect(fieldQueue).toContain('kind: "reading_create"');
+    expect(workspace).toContain("ensureLegacyFieldReadingsMigrated");
     expect(queue).toContain("openOfflineWorkspaceDatabase()");
     expect(client).toContain("openOfflineWorkspaceDatabase()");
   });

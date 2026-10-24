@@ -10,7 +10,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Skeleton } from "@/components/ui/skeleton";
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { classifyReadingSyncError, enqueueReading, isQueuedReadingReadyForSync, listQueuedReadings, removeQueuedReading, scheduleReadingRetry, type QueuedReading, updateQueuedReading } from "@/lib/offline-reading-queue";
+import { enqueueReading, isQueuedReadingReadyForSync, listQueuedReadings, type QueuedReading } from "@/lib/offline-reading-queue";
+import { listOfflineWork, updateOfflineWork, type QueuedOfflineWork, type ReadingCreateDraft } from "@/lib/offline-work-queue";
+import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
+import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
+import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
+import { removeOfflineConflict, upsertOfflineConflict } from "@/lib/offline-workspace-db";
 import { trpc } from "@/lib/trpc";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { formatReportDate } from "@/lib/report-design-system";
@@ -97,7 +102,7 @@ export default function MeterReadingsPage() {
     ]);
     await loadQueuedReadings();
   };
-  const addReading = trpc.powerhub.readings.create.useMutation({ onSuccess: () => { void refresh(); }, onError: (error) => toast.error(error.message) });
+  const addReading = trpc.powerhub.readings.create.useMutation();
   const readingImage = trpc.powerhub.readings.getImage.useMutation({ onSuccess: (result) => setSelectedReadingImage(result.url), onError: (error) => toast.error(error.message) });
   const sendPendingSms = trpc.powerhub.notifications.sendPendingSms.useMutation({ onSuccess: async (result) => { await utils.powerhub.notifications.list.invalidate(); toast.success("تم تجهيز " + result.submitted + " رسالة للإرسال."); }, onError: (error) => toast.error(error.message) });
 
@@ -124,9 +129,15 @@ export default function MeterReadingsPage() {
   const downloadCsv = () => { const rows = [["المشترك", "الرقم المرجعي", "القراءة", "الاستهلاك kWh", "الحالة", "التاريخ"], ...exportRows(exportReadings)]; const csv = "\uFEFF" + rows.map((row) => row.map((value) => `"${String(value).replaceAll("\"", "\"\"")}"`).join(",")).join("\n"); download(new Blob([csv], { type: "text/csv;charset=utf-8" }), `powerhub-subscriber-readings-${new Date().toISOString().slice(0, 10)}.csv`); };
   const downloadExcel = async () => { try { const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook(); workbook.creator = "PowerHub"; const sheet = workbook.addWorksheet("قراءات المشتركين", { views: [{ rightToLeft: true }] }); sheet.addRow(["المشترك", "الرقم المرجعي", "القراءة", "الاستهلاك kWh", "الحالة", "التاريخ"]); exportRows(exportReadings).forEach((row) => sheet.addRow(row)); sheet.columns = [{ width: 28 }, { width: 22 }, { width: 16 }, { width: 18 }, { width: 20 }, { width: 18 }]; const header = sheet.getRow(1); header.font = { bold: true, color: { argb: "FFFFFFFF" } }; header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; const buffer = await workbook.xlsx.writeBuffer(); download(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `powerhub-subscriber-readings-${new Date().toISOString().slice(0, 10)}.xlsx`); } catch { toast.error("تعذر تجهيز ملف Excel."); } };
   const downloadPdf = async () => { if (!pdfRef.current || !exportReadings.length) { toast.error("لا توجد قراءات ضمن النطاق المحدد."); return; } try { await downloadReportHtmlAsPdf(pdfRef.current, `قراءات-المشتركين-${new Date().toISOString().slice(0, 10)}.pdf`, { title: "تقرير قراءات المشتركين من PowerHub" }); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
-  const queueReading = async (reading: Omit<QueuedReading, "id" | "createdAt" | "status" | "userId" | "attempts" | "nextAttemptAt">) => { if (!user?.id) throw new Error("تعذر تحديد المستخدم الحالي لحفظ القراءة."); await enqueueReading({ ...reading, userId: user.id }); await loadQueuedReadings(); };
+  const queueReading = async (reading: Omit<QueuedReading, "id" | "createdAt" | "status" | "userId" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind" | "error">) => {
+    if (!user?.id) throw new Error("تعذر تحديد المستخدم الحالي لحفظ القراءة.");
+    await enqueueReading({ ...reading, userId: user.id, ...(currentSite?.tenantId ? { tenantId: currentSite.tenantId } : {}) });
+    await loadQueuedReadings();
+  };
+
   const syncQueuedReadings = async (records: QueuedReading[] = queuedReadings) => {
     if (!isOnline) { toast.error("لا يمكن المزامنة قبل عودة الاتصال."); return; }
+    if (!user?.id || !siteId) return;
     const now = Date.now();
     const ready = records.filter((item) => isQueuedReadingReadyForSync(item, now));
     if (!ready.length) {
@@ -135,24 +146,109 @@ export default function MeterReadingsPage() {
       else toast.message("لا توجد قراءات مستحقة للمزامنة حالياً.");
       return;
     }
-    for (const record of ready) {
-      try {
-        await addReading.mutateAsync({ siteId: record.siteId, subscriberId: record.subscriberId, readingValue: record.readingValue, readingAt: new Date(record.readingAt), captureMethod: record.captureMethod, imageData: record.imageData, imageMime: record.imageMime, notes: record.notes, isReadingReset: record.isReadingReset, overrideSameDay: record.overrideSameDay, fieldVerified: record.fieldVerified, clientOperationId: record.clientOperationId });
-        await removeQueuedReading(record.id);
-      } catch (error) {
-        const errorCode = (error as { data?: { code?: string } }).data?.code;
-        const kind = classifyReadingSyncError(errorCode);
-        if (kind === "conflict") {
-          await updateQueuedReading(record.id, { status: "conflict", lastErrorKind: kind, lastErrorCode: errorCode, nextAttemptAt: Number.POSITIVE_INFINITY, error: error instanceof Error ? error.message : "تعارض يحتاج إلى مراجعة." });
-        } else if (kind === "terminal") {
-          await updateQueuedReading(record.id, { status: "failed", lastErrorKind: kind, lastErrorCode: errorCode, attempts: Math.max(record.attempts, 5), nextAttemptAt: Number.POSITIVE_INFINITY, error: error instanceof Error ? error.message : "رفض الخادم القراءة." });
-        } else {
-          const retry = scheduleReadingRetry(record, Date.now());
-          await updateQueuedReading(record.id, { status: "failed", lastErrorKind: kind, lastErrorCode: errorCode, attempts: retry.attempts, nextAttemptAt: retry.nextAttemptAt, error: error instanceof Error ? error.message : "تعذر إرسال القراءة مؤقتاً." });
+    const requested = new Set(ready.map((record) => record.clientOperationId));
+    const [allItems, storedMetadata] = await Promise.all([
+      listOfflineWork({ userId: user.id, siteId }),
+      listSyncMetadata({ userId: user.id, siteId }),
+    ]);
+    const pendingItems = allItems.filter((item) =>
+      item.kind === "reading_create" && requested.has(item.clientOperationId) &&
+      (item.status === "pending" || item.status === "failed")
+    );
+    const metadataByOperationId = new Map<string, SyncMetadata>();
+    for (const item of pendingItems) {
+      const stored = storedMetadata.find((row) => row.operationId === item.clientOperationId);
+      const metadata: SyncMetadata = stored ? {
+        operationId: stored.operationId, dependsOn: stored.dependsOn,
+        attempts: stored.attempts, nextAttemptAt: stored.nextAttemptAt, outcome: stored.outcome,
+        ...(stored.lastError ? { lastError: stored.lastError } : {}),
+      } : createSyncMetadata(item, now);
+      metadataByOperationId.set(item.clientOperationId, metadata);
+      if (!stored) await upsertSyncMetadata({
+        ...metadata, userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+        siteId: item.siteId, kind: item.kind, outcome: "pending", updatedAt: now,
+      });
+    }
+
+    const serverResults = new Map<string, { id?: number; replayed: boolean }>();
+    const errorCodes = new Map<string, string>();
+    const results = await executeReadyOperations({
+      items: pendingItems, metadataByOperationId,
+      completedIds: new Set(allItems.filter((item) => item.status === "applied").map((item) => item.clientOperationId)),
+      now,
+      transport: async (item: QueuedOfflineWork): Promise<SyncTransportResult> => {
+        const payload = item.payload as ReadingCreateDraft;
+        try {
+          const response = await addReading.mutateAsync({
+            siteId: item.siteId, subscriberId: payload.subscriberId,
+            readingValue: payload.readingValue, readingAt: new Date(payload.readingAt),
+            captureMethod: payload.captureMethod, imageData: payload.imageData, imageMime: payload.imageMime,
+            notes: payload.notes, isReadingReset: payload.isReadingReset,
+            overrideSameDay: payload.overrideSameDay, fieldVerified: payload.fieldVerified,
+            clientOperationId: item.clientOperationId,
+          });
+          const replayed = Boolean((response as { replayed?: boolean }).replayed);
+          const entityId = Number((response as { id?: number }).id);
+          serverResults.set(item.clientOperationId, {
+            ...(Number.isSafeInteger(entityId) && entityId > 0 ? { id: entityId } : {}), replayed,
+          });
+          return { outcome: replayed ? "already_applied" : "applied" };
+        } catch (error) {
+          const code = (error as { data?: { code?: string } }).data?.code;
+          if (code) errorCodes.set(item.clientOperationId, code);
+          return { outcome: "retryable", ...(code ? { errorCode: code } : {}),
+            message: error instanceof Error ? error.message : "تعذر مزامنة القراءة مؤقتاً." };
         }
+      },
+    });
+
+    const latestMetadata = await listSyncMetadata({ userId: user.id, siteId });
+    for (const result of results) {
+      const item = result.item;
+      const previous = latestMetadata.find((row) => row.operationId === item.clientOperationId);
+      const errorCode = errorCodes.get(item.clientOperationId) ?? previous?.lastErrorCode;
+      await upsertSyncMetadata({
+        operationId: item.clientOperationId, userId: item.userId,
+        ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+        siteId: item.siteId, kind: item.kind, dependsOn: result.metadata.dependsOn,
+        attempts: result.metadata.attempts, nextAttemptAt: result.metadata.nextAttemptAt,
+        outcome: result.outcome, ...(result.metadata.lastError ? { lastError: result.metadata.lastError } : {}),
+        ...(errorCode ? { lastErrorCode: errorCode } : {}), updatedAt: Date.now(),
+      });
+      if (result.outcome === "applied" || result.outcome === "already_applied") {
+        const server = serverResults.get(item.clientOperationId);
+        const payload = item.payload as ReadingCreateDraft;
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined,
+          ...(server?.id ? { appliedEntityId: server.id } : {}),
+          appliedLabel: `قراءة للمشترك #${payload.subscriberId}`,
+          payload: { ...payload, imageData: undefined, imageMime: undefined },
+        });
+        await removeOfflineConflict(item.userId, item.clientOperationId);
+      } else if (result.outcome === "conflict") {
+        const message = result.metadata.lastError ?? "تعارض قراءة يحتاج إلى مراجعة.";
+        await updateOfflineWork(item.id, { status: "conflict", error: message });
+        await upsertOfflineConflict({
+          userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+          siteId: item.siteId, operationId: item.clientOperationId, kind: item.kind,
+          outcome: "conflict", message, createdAt: item.createdAt, updatedAt: Date.now(),
+          localPayload: item.payload,
+        });
+      } else {
+        const message = result.metadata.lastError ?? (result.outcome === "rejected" ? "رفض الخادم القراءة." : "تعذر مزامنة القراءة مؤقتاً.");
+        await updateOfflineWork(item.id, { status: "failed", error: message });
+        await removeOfflineConflict(item.userId, item.clientOperationId);
       }
     }
-    await loadQueuedReadings();
+    await refresh();
+    const completed = results.filter((result) => result.outcome === "applied" || result.outcome === "already_applied").length;
+    const retryable = results.filter((result) => result.outcome === "retryable").length;
+    const conflicts = results.filter((result) => result.outcome === "conflict").length;
+    const rejected = results.filter((result) => result.outcome === "rejected").length;
+    if (completed) toast.success(`اكتملت مزامنة ${completed} قراءة.`);
+    if (retryable) toast.warning(`توجد ${retryable} قراءة مؤجلة لإعادة المحاولة.`);
+    if (conflicts) toast.error(`توجد ${conflicts} قراءة متعارضة تحتاج إلى مراجعة.`);
+    if (rejected) toast.error(`رفض الخادم ${rejected} قراءة؛ راجع سبب الرفض قبل المحاولة مجدداً.`);
   };
 
   useEffect(() => {

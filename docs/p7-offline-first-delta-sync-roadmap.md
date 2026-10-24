@@ -300,3 +300,10 @@
 - `PowerHub Supabase Admin Guard`: نجح — https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/40096549151
 
 **حدود القبول:** هذه النتائج تثبت بوابات الشفرة والترحيل المعزول على SHA المذكور فقط. لم ينفذ E2E على staging أو rehearsal لمخطط قاعدة فعلية، ولم تُطبق migrations أو يُنشر إلى production. أي commit توثيقي تالٍ يحتاج إعادة CI قبل اعتباره رأسًا صالحًا للدمج.
+
+### توحيد Outbox القراءات — 2026-10-24
+
+- أصبحت واجهة `offline-reading-queue` Adapter فوق `operations` و`syncMetadata` و`conflicts`؛ لا تنشئ عمليات جديدة في مخزن `fieldReadings`.
+- تستخدم مزامنة القراءات في `MeterReadingsPage` ومركز Offline Sync محرك `executeReadyOperations` نفسه، مع التصنيف والاعتماديات وإعادة المحاولة.
+- يحتفظ كل سجل بـ`clientOperationId` ذاته؛ تُحذف بيانات الصورة المحلية بعد تأكيد الخادم فقط، والتعارضات تحفظ في مخزن مركزي قابل للمراجعة.
+- أضيفت اختبارات لعقد القراءة الموحد وتصنيف الأخطاء ومواعيد إعادة المحاولة. يظل E2E على staging ومراجعة خطة الرجوع بوابة مستقلة قبل الإطلاق.

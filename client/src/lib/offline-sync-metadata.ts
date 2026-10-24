@@ -10,6 +10,7 @@ export type SyncMetadataRecord = {
   nextAttemptAt: number;
   outcome: "pending" | "syncing" | "applied" | "already_applied" | "conflict" | "retryable" | "rejected";
   lastError?: string;
+  lastErrorCode?: string;
   updatedAt: number;
 };
 
