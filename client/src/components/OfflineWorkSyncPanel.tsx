@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { toast } from "sonner";
 
-const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع" } as const;
+const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع", reading_create: "قراءة ميدانية معلقة" } as const;
 const labelByStatus = { pending: "بانتظار المزامنة", failed: "فشل يحتاج مراجعة", conflict: "يتطلب مراجعة", applied: "تمت المزامنة" } as const;
 
 function getErrorCode(error: unknown) { return (error as { data?: { code?: string } } | null)?.data?.code; }
