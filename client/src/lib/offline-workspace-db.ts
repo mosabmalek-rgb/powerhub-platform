@@ -1,0 +1,79 @@
+/**
+ * Canonical IndexedDB schema for operational offline work.
+ * All writers use the same DB version so the first opener creates every store.
+ * Query cache and authentication intentionally remain isolated in their own DBs.
+ */
+export const OFFLINE_WORKSPACE_DATABASE_NAME = "powerhub-offline-workspace";
+export const OFFLINE_WORKSPACE_DATABASE_VERSION = 3;
+
+function ensureStore(
+  db: IDBDatabase,
+  transaction: IDBTransaction,
+  name: string,
+  keyPath: string | string[],
+  indexes: Array<{ name: string; keyPath: string | string[]; unique?: boolean }> = [],
+) {
+  const store = db.objectStoreNames.contains(name)
+    ? transaction.objectStore(name)
+    : db.createObjectStore(name, { keyPath });
+  for (const index of indexes) {
+    if (!store.indexNames.contains(index.name)) {
+      store.createIndex(index.name, index.keyPath, { unique: index.unique ?? false });
+    }
+  }
+}
+
+export function openOfflineWorkspaceDatabase(): Promise<IDBDatabase> {
+  if (typeof indexedDB === "undefined") {
+    return Promise.reject(new Error("لا يدعم هذا المتصفح التخزين المحلي لعمليات PowerHub."));
+  }
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(OFFLINE_WORKSPACE_DATABASE_NAME, OFFLINE_WORKSPACE_DATABASE_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      const tx = request.transaction;
+      if (!tx) {
+        request.transaction?.abort();
+        return;
+      }
+      ensureStore(db, tx, "operations", "id");
+      ensureStore(db, tx, "grants", "id", [
+        { name: "byScope", keyPath: ["userId", "tenantId", "siteId", "deviceId"] },
+        { name: "byExpiry", keyPath: "expiresAt" },
+      ]);
+      ensureStore(db, tx, "claims", "id", [
+        { name: "byGrant", keyPath: "grantId" },
+        { name: "byGrantNumber", keyPath: ["grantId", "numberValue"], unique: true },
+        { name: "byOperation", keyPath: ["userId", "clientOperationId", "entityType"], unique: true },
+      ]);
+      ensureStore(db, tx, "cursors", ["userId", "tenantId", "siteId", "entityType"]);
+      ensureStore(db, tx, "entities", ["scopeKey", "entityId"], [
+        { name: "byScope", keyPath: "scopeKey" },
+        { name: "byUser", keyPath: "userId" },
+      ]);
+      ensureStore(db, tx, "syncState", ["userId", "tenantId", "siteId", "entityType"], [
+        { name: "byUser", keyPath: "userId" },
+        { name: "bySite", keyPath: ["userId", "siteId"] },
+        { name: "byOutcome", keyPath: "outcome" },
+      ]);
+      ensureStore(db, tx, "conflicts", ["userId", "operationId"], [
+        { name: "byUser", keyPath: "userId" },
+        { name: "bySite", keyPath: ["userId", "siteId"] },
+        { name: "byOutcome", keyPath: "outcome" },
+      ]);
+      ensureStore(db, tx, "syncMetadata", "operationId", [
+        { name: "byUser", keyPath: "userId" },
+        { name: "bySite", keyPath: ["userId", "siteId"] },
+        { name: "byOutcome", keyPath: "outcome" },
+        { name: "byNextAttempt", keyPath: "nextAttemptAt" },
+      ]);
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
+    request.onerror = () => reject(request.error ?? new Error("تعذر فتح مخزن PowerHub المحلي."));
+    request.onblocked = () => reject(new Error("تعذر ترقية مخزن PowerHub المحلي؛ أغلق تبويبات PowerHub الأخرى ثم أعد المحاولة."));
+  });
+}

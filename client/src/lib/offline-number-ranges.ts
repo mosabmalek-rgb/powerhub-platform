@@ -1,3 +1,4 @@
+import { openOfflineWorkspaceDatabase } from "./offline-workspace-db";
 export type OfflineNumberKind = "subscriber" | "invoice";
 
 export type OfflineNumberScope = {
@@ -146,28 +147,11 @@ export function selectNextAvailableOfflineNumber(input: {
 
 function openDatabase() {
   if (typeof indexedDB === "undefined") fail("INDEXEDDB_UNAVAILABLE", "لا يدعم هذا المتصفح التخزين المحلي لنطاقات الأرقام.");
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      // One operational IndexedDB contains the outbox and its number reservations.
-      if (!db.objectStoreNames.contains("operations")) {
-        db.createObjectStore("operations", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(GRANTS_STORE)) {
-        const grants = db.createObjectStore(GRANTS_STORE, { keyPath: "id" });
-        grants.createIndex("byScope", ["userId", "tenantId", "siteId", "deviceId"], { unique: false });
-        grants.createIndex("byExpiry", "expiresAt", { unique: false });
-      }
-      if (!db.objectStoreNames.contains(CLAIMS_STORE)) {
-        const claims = db.createObjectStore(CLAIMS_STORE, { keyPath: "id" });
-        claims.createIndex("byGrant", "grantId", { unique: false });
-        claims.createIndex("byGrantNumber", ["grantId", "numberValue"], { unique: true });
-        claims.createIndex("byOperation", ["userId", "clientOperationId", "entityType"], { unique: true });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new OfflineNumberRangeError("تعذر فتح مخزن الأرقام المحلي.", "DATABASE_OPEN_FAILED"));
+  return openOfflineWorkspaceDatabase().catch((error) => {
+    throw new OfflineNumberRangeError(
+      error instanceof Error ? error.message : "تعذر فتح مخزن الأرقام المحلي.",
+      "DATABASE_OPEN_FAILED",
+    );
   });
 }
 

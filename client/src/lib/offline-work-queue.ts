@@ -1,3 +1,4 @@
+import { openOfflineWorkspaceDatabase } from "./offline-workspace-db";
 export type OfflineWorkKind =
   | "subscriber_create"
   | "subscriber_update"
@@ -158,31 +159,8 @@ export function createOfflineWork(
 }
 
 function openDatabase() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    assertOfflineWorkQueueAvailable();
-    const request = indexedDB.open(databaseName, 2);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(storeName)) {
-        db.createObjectStore(storeName, { keyPath: "id" });
-      }
-      // Keep schema creation symmetric whichever offline module opens the DB first.
-      if (!db.objectStoreNames.contains(grantsStoreName)) {
-        const grants = db.createObjectStore(grantsStoreName, { keyPath: "id" });
-        grants.createIndex("byScope", ["userId", "tenantId", "siteId", "deviceId"], { unique: false });
-        grants.createIndex("byExpiry", "expiresAt", { unique: false });
-      }
-      if (!db.objectStoreNames.contains(claimsStoreName)) {
-        const claims = db.createObjectStore(claimsStoreName, { keyPath: "id" });
-        claims.createIndex("byGrant", "grantId", { unique: false });
-        claims.createIndex("byGrantNumber", ["grantId", "numberValue"], { unique: true });
-        claims.createIndex("byOperation", ["userId", "clientOperationId", "entityType"], { unique: true });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(request.error ?? new OfflineWorkQueueError("تعذر فتح طابور المسودات المحلي."));
-  });
+  assertOfflineWorkQueueAvailable();
+  return openOfflineWorkspaceDatabase();
 }
 
 async function transact<T>(
