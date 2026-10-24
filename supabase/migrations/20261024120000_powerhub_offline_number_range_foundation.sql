@@ -140,7 +140,7 @@ begin
 
   select count(*)::integer into v_current_count
   from public.subscribers
-  where tenant_id = p_tenant_id;
+  where tenant_id = p_tenant_id and archived_at is null;
   v_effective_limit := public.powerhub_effective_tenant_quota(p_tenant_id, 'subscribers');
   if v_effective_limit is not null and v_current_count >= v_effective_limit then
     raise exception 'SUBSCRIBER_QUOTA_REACHED' using errcode = 'P0001';
