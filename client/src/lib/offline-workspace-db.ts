@@ -176,3 +176,218 @@ export async function removeOfflineConflict(userId: number, operationId: string)
     tx.onabort = () => { db.close(); reject(tx.error ?? new Error("أُلغي حذف سجل التعارض.")); };
   });
 }
+
+
+let legacyFieldQueueMigration: Promise<void> | null = null;
+
+type LegacyFieldReadingRecord = Record<string, unknown>;
+type MigratedFieldReading = {
+  work: LegacyFieldReadingRecord & {
+    id: string; clientOperationId: string; userId: number; siteId: number;
+    kind: "reading_create"; payload: Record<string, unknown>;
+    createdAt: number; updatedAt: number; status: "pending" | "failed" | "conflict" | "applied";
+  };
+  metadata: LegacyFieldReadingRecord & {
+    operationId: string; userId: number; siteId: number; kind: "reading_create";
+    dependsOn: string[]; attempts: number; nextAttemptAt: number;
+    outcome: "pending" | "applied" | "conflict" | "retryable" | "rejected"; updatedAt: number;
+  };
+  conflict?: OfflineConflictRecord;
+};
+function migrationNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function mapLegacyFieldReading(raw: LegacyFieldReadingRecord): MigratedFieldReading | {
+  quarantine: LegacyFieldReadingRecord & { id: string; quarantinedAt: number; quarantineReason: string };
+} {
+  const { meterId: _meterId, ...row } = raw as LegacyFieldReadingRecord & { meterId?: unknown };
+  void _meterId;
+  const now = Date.now();
+  const operationId = String(row.clientOperationId ?? row.id ?? crypto.randomUUID());
+  const id = String(row.id ?? operationId);
+  const userId = Number(row.userId);
+  const siteId = Number(row.siteId);
+  const subscriberId = Number(row.subscriberId);
+  const quarantine = (reason: string) => ({
+    quarantine: { ...row, id, quarantinedAt: now, quarantineReason: reason },
+  });
+  if (!Number.isSafeInteger(userId) || userId < 1) return quarantine("missing-user-scope");
+  if (!Number.isSafeInteger(siteId) || siteId < 1) return quarantine("missing-site-scope");
+  if (!Number.isSafeInteger(subscriberId) || subscriberId < 1) return quarantine("missing-subscriber-scope");
+
+  const createdAt = migrationNumber(row.createdAt, now);
+  const updatedAt = migrationNumber(row.updatedAt, createdAt);
+  const status = row.status === "conflict" || row.status === "failed" || row.status === "applied" ? row.status : "pending";
+  const error = typeof row.error === "string" ? row.error : undefined;
+  const rawKind = row.lastErrorKind;
+  const outcome: "pending" | "applied" | "conflict" | "retryable" | "rejected" =
+    status === "applied" ? "applied" :
+    status === "conflict" || rawKind === "conflict" ? "conflict" :
+    status === "failed" ? (rawKind === "terminal" ? "rejected" : "retryable") : "pending";
+  const tenantNum = Number(row.tenantId);
+  const tenantId = Number.isSafeInteger(tenantNum) && tenantNum > 0 ? tenantNum : undefined;
+  const payload: Record<string, unknown> = {
+    subscriberId,
+    readingValue: String(row.readingValue ?? ""),
+    readingAt: String(row.readingAt ?? new Date(createdAt).toISOString()),
+    captureMethod: row.captureMethod === "photo" || row.captureMethod === "smart_meter" ? row.captureMethod : "manual",
+    ...(typeof row.imageData === "string" ? { imageData: row.imageData } : {}),
+    ...(typeof row.imageMime === "string" ? { imageMime: row.imageMime } : {}),
+    ...(typeof row.notes === "string" ? { notes: row.notes } : {}),
+    ...(typeof row.isReadingReset === "boolean" ? { isReadingReset: row.isReadingReset } : {}),
+    ...(typeof row.overrideSameDay === "boolean" ? { overrideSameDay: row.overrideSameDay } : {}),
+    ...(typeof row.fieldVerified === "boolean" ? { fieldVerified: row.fieldVerified } : {}),
+  };
+  const work = {
+    id, clientOperationId: operationId, userId,
+    ...(tenantId !== undefined ? { tenantId } : {}),
+    siteId, kind: "reading_create" as const, payload,
+    createdAt, updatedAt, status: status as "pending" | "failed" | "conflict" | "applied",
+    ...(error ? { error } : {}),
+  };
+  const metadata = {
+    operationId, userId, ...(tenantId !== undefined ? { tenantId } : {}),
+    siteId, kind: "reading_create" as const, dependsOn: [],
+    attempts: Math.max(0, Math.floor(migrationNumber(row.attempts, 0))),
+    nextAttemptAt: status === "applied" || status === "conflict" || outcome === "rejected"
+      ? Number.POSITIVE_INFINITY : migrationNumber(row.nextAttemptAt, createdAt),
+    outcome,
+    ...(error ? { lastError: error } : {}),
+    ...(typeof row.lastErrorCode === "string" ? { lastErrorCode: row.lastErrorCode } : {}),
+    updatedAt,
+  };
+  const conflict: OfflineConflictRecord | undefined = status === "conflict" ? {
+    userId, ...(tenantId !== undefined ? { tenantId } : {}), siteId, operationId,
+    kind: "reading_create", outcome: "conflict",
+    message: error ?? "تعارض قراءة قديم يحتاج إلى مراجعة.",
+    createdAt, updatedAt, localPayload: payload,
+  } : undefined;
+  return { work, metadata, ...(conflict ? { conflict } : {}) };
+}
+
+/**
+ * Conservatively migrate both the legacy field queue and the temporary v4
+ * fieldReadings store into the canonical operations Outbox. Source rows are
+ * removed only within the destination transaction after their replacement,
+ * metadata, or quarantine record is written.
+ */
+export async function ensureLegacyFieldReadingsMigrated(target: IDBDatabase): Promise<void> {
+  if (!legacyFieldQueueMigration) {
+    legacyFieldQueueMigration = (async () => {
+      const legacy = await openLegacyOfflineDatabaseIfPresent("powerhub-field-queue", ["readings"]);
+      let legacyReadings: LegacyFieldReadingRecord[] = [];
+      let legacyOrphans: LegacyFieldReadingRecord[] = [];
+      if (legacy) {
+        const sourceStores = ["readings", ...(legacy.objectStoreNames.contains("orphaned_readings") ? ["orphaned_readings"] : [])];
+        const source = await new Promise<{ readings: LegacyFieldReadingRecord[]; orphaned: LegacyFieldReadingRecord[] }>((resolve, reject) => {
+          const tx = legacy.transaction(sourceStores, "readonly");
+          const readingsRequest = tx.objectStore("readings").getAll();
+          const orphanRequest = sourceStores.includes("orphaned_readings") ? tx.objectStore("orphaned_readings").getAll() : null;
+          let readings: LegacyFieldReadingRecord[] = [];
+          let orphaned: LegacyFieldReadingRecord[] = [];
+          readingsRequest.onsuccess = () => { readings = readingsRequest.result as LegacyFieldReadingRecord[]; };
+          if (orphanRequest) orphanRequest.onsuccess = () => { orphaned = orphanRequest.result as LegacyFieldReadingRecord[]; };
+          readingsRequest.onerror = () => { try { tx.abort(); } catch {} };
+          if (orphanRequest) orphanRequest.onerror = () => { try { tx.abort(); } catch {} };
+          tx.oncomplete = () => { legacy.close(); resolve({ readings, orphaned }); };
+          tx.onerror = () => { legacy.close(); reject(tx.error ?? new Error("تعذر قراءة طابور القراءات القديم.")); };
+          tx.onabort = () => { legacy.close(); reject(tx.error ?? new Error("أُلغي ترحيل طابور القراءات القديم.")); };
+        });
+        legacyReadings = source.readings;
+        legacyOrphans = source.orphaned;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const tx = target.transaction(["operations", "syncMetadata", "conflicts", "fieldReadings", "orphanedFieldReadings"], "readwrite");
+        const operations = tx.objectStore("operations");
+        const metadata = tx.objectStore("syncMetadata");
+        const conflicts = tx.objectStore("conflicts");
+        const fieldRows = tx.objectStore("fieldReadings");
+        const orphanRows = tx.objectStore("orphanedFieldReadings");
+        const fieldReq = fieldRows.getAll();
+        const operationsReq = operations.getAll();
+        const metadataReq = metadata.getAll();
+        const conflictsReq = conflicts.getAll();
+        const orphanKeysReq = orphanRows.getAllKeys();
+        let fieldRecords: LegacyFieldReadingRecord[] = [];
+        let existingOperations: Array<Record<string, unknown>> = [];
+        let existingMetadata: Array<Record<string, unknown>> = [];
+        let existingConflicts: Array<Record<string, unknown>> = [];
+        let existingOrphans = new Set<IDBValidKey>();
+        let ready = 0;
+        let merged = false;
+        const merge = () => {
+          ready += 1;
+          if (ready < 5 || merged) return;
+          merged = true;
+          const existingIds = new Set(existingOperations.map((row) => String(row.id ?? "")));
+          const existingOperationIds = new Set(existingOperations.map((row) => String(row.clientOperationId ?? "")));
+          const existingMetadataIds = new Set(existingMetadata.map((row) => String(row.operationId ?? "")));
+          const existingConflictKeys = new Set(existingConflicts.map((row) => `${row.userId}|${row.operationId}`));
+          const normalized = new Map<string, MigratedFieldReading>();
+          const quarantined = new Map<string, LegacyFieldReadingRecord & { id: string; quarantinedAt: number; quarantineReason: string }>();
+          for (const raw of [...fieldRecords, ...legacyReadings]) {
+            const mapped = mapLegacyFieldReading(raw);
+            if ("quarantine" in mapped) {
+              if (!quarantined.has(mapped.quarantine.id)) quarantined.set(mapped.quarantine.id, mapped.quarantine);
+            } else if (!normalized.has(mapped.work.clientOperationId)) {
+              normalized.set(mapped.work.clientOperationId, mapped);
+            }
+          }
+          for (const raw of legacyOrphans) {
+            const id = String(raw.id ?? crypto.randomUUID());
+            if (!quarantined.has(id)) quarantined.set(id, {
+              ...raw, id, quarantinedAt: migrationNumber(raw.quarantinedAt, Date.now()),
+              quarantineReason: String(raw.quarantineReason ?? "previously-quarantined"),
+            });
+          }
+          for (const candidate of normalized.values()) {
+            const { work, metadata: metaRecord, conflict } = candidate;
+            if (!existingIds.has(work.id) && !existingOperationIds.has(work.clientOperationId)) {
+              operations.put(work);
+              existingIds.add(work.id);
+              existingOperationIds.add(work.clientOperationId);
+            }
+            if (!existingMetadataIds.has(metaRecord.operationId)) {
+              metadata.put(metaRecord);
+              existingMetadataIds.add(metaRecord.operationId);
+            }
+            if (conflict) {
+              const key = `${conflict.userId}|${conflict.operationId}`;
+              if (!existingConflictKeys.has(key)) { conflicts.put(conflict); existingConflictKeys.add(key); }
+            }
+          }
+          for (const orphan of quarantined.values()) {
+            if (!existingOrphans.has(orphan.id)) { orphanRows.put(orphan); existingOrphans.add(orphan.id); }
+          }
+          for (const row of fieldRecords) if (row.id !== undefined) fieldRows.delete(row.id as IDBValidKey);
+        };
+        fieldReq.onsuccess = () => { fieldRecords = fieldReq.result as LegacyFieldReadingRecord[]; merge(); };
+        operationsReq.onsuccess = () => { existingOperations = operationsReq.result as Array<Record<string, unknown>>; merge(); };
+        metadataReq.onsuccess = () => { existingMetadata = metadataReq.result as Array<Record<string, unknown>>; merge(); };
+        conflictsReq.onsuccess = () => { existingConflicts = conflictsReq.result as Array<Record<string, unknown>>; merge(); };
+        orphanKeysReq.onsuccess = () => { existingOrphans = new Set(orphanKeysReq.result); merge(); };
+        fieldReq.onerror = () => { try { tx.abort(); } catch {} };
+        operationsReq.onerror = () => { try { tx.abort(); } catch {} };
+        metadataReq.onerror = () => { try { tx.abort(); } catch {} };
+        conflictsReq.onerror = () => { try { tx.abort(); } catch {} };
+        orphanKeysReq.onerror = () => { try { tx.abort(); } catch {} };
+        tx.oncomplete = () => {
+          resolve();
+          if (legacy) {
+            const removal = indexedDB.deleteDatabase("powerhub-field-queue");
+            removal.onerror = () => undefined;
+            removal.onblocked = () => undefined;
+          }
+        };
+        tx.onerror = () => reject(tx.error ?? new Error("تعذر ترحيل القراءات إلى Outbox الموحد."));
+        tx.onabort = () => reject(tx.error ?? new Error("أُلغي ترحيل القراءات إلى Outbox الموحد."));
+      });
+    })().catch((error) => {
+      legacyFieldQueueMigration = null;
+      throw error;
+    });
+  }
+  await legacyFieldQueueMigration;
+}

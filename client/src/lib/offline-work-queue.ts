@@ -1,4 +1,4 @@
-import { openOfflineWorkspaceDatabase } from "./offline-workspace-db";
+import { ensureLegacyFieldReadingsMigrated, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
 export type OfflineWorkKind =
   | "subscriber_create"
   | "subscriber_update"
@@ -7,7 +7,8 @@ export type OfflineWorkKind =
   | "invoice_issue"
   | "payment_create"
   | "payment_documentation_submit"
-  | "payment_documentation_approve";
+  | "payment_documentation_approve"
+  | "reading_create";
 
 export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "applied";
 
@@ -71,6 +72,19 @@ export type PaymentDraft = {
   receiptImageMime?: "image/jpeg" | "image/png" | "image/webp";
 };
 
+export type ReadingCreateDraft = {
+  subscriberId: number;
+  readingValue: string;
+  readingAt: string;
+  captureMethod: "manual" | "photo" | "smart_meter";
+  imageData?: string;
+  imageMime?: "image/jpeg" | "image/png" | "image/webp";
+  notes?: string;
+  isReadingReset?: boolean;
+  overrideSameDay?: boolean;
+  fieldVerified?: boolean;
+};
+
 export type PaymentDocumentationInvoiceSnapshot = {
   id: number; invoiceNo: string; billingPeriod?: string | null;
   previousReading: number | null; currentReading: number | null;
@@ -113,13 +127,15 @@ export type OfflineWorkPayload =
   | InvoiceIssueDraft
   | PaymentDraft
   | PaymentDocumentationDraft
-  | PaymentDocumentationApprovalDraft;
+  | PaymentDocumentationApprovalDraft
+  | ReadingCreateDraft;
 
 export type QueuedOfflineWork = {
   id: string;
   clientOperationId: string;
   userId: number;
   siteId: number;
+  tenantId?: number;
   kind: OfflineWorkKind;
   payload: OfflineWorkPayload;
   createdAt: number;
@@ -144,14 +160,14 @@ export function assertOfflineWorkQueueAvailable() {
 }
 
 export function createOfflineWork(
-  input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status">,
+  input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status"> & { clientOperationId?: string },
 ): QueuedOfflineWork {
-  const id = crypto.randomUUID();
+  const id = input.clientOperationId ?? crypto.randomUUID();
   const now = Date.now();
   return {
     ...input,
     id,
-    clientOperationId: id,
+    clientOperationId: input.clientOperationId ?? id,
     createdAt: now,
     updatedAt: now,
     status: "pending",
@@ -160,7 +176,15 @@ export function createOfflineWork(
 
 function openDatabase() {
   assertOfflineWorkQueueAvailable();
-  return openOfflineWorkspaceDatabase();
+  return openOfflineWorkspaceDatabase().then(async (db) => {
+    try {
+      await ensureLegacyFieldReadingsMigrated(db);
+      return db;
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+  });
 }
 
 async function transact<T>(
@@ -194,11 +218,15 @@ export async function listOfflineWork(options: { userId: number; siteId?: number
 }
 
 export async function enqueueOfflineWork(
-  input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status">,
+  input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status"> & { clientOperationId?: string },
 ) {
   const record = createOfflineWork(input);
   await transact("readwrite", (store) => store.put(record));
   return record;
+}
+
+export async function getOfflineWork(id: string): Promise<QueuedOfflineWork | undefined> {
+  return transact<QueuedOfflineWork | undefined>("readonly", (store) => store.get(id));
 }
 
 export async function updateOfflineWork(
