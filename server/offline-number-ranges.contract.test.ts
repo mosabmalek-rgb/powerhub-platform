@@ -44,7 +44,8 @@ describe("PowerHub offline number range foundation contract", () => {
 
   it("atomically binds a locally claimed subscriber number to the shared Outbox and server transaction", () => {
     expect(queue).toContain("enqueueOfflineSubscriberCreateWithNumber");
-    expect(queue).toContain('database.transaction([storeName, grantsStoreName, claimsStoreName], "readwrite")');
+    expect(queue).toContain('database.transaction([storeName, grantsStoreName, claimsStoreName, syncMetadataStoreName], "readwrite")');
+    expect(queue).toContain("syncMetadata.put(createInitialSyncMetadataRecord(item))");
     expect(directory).toContain("enqueueOfflineSubscriberCreateWithNumber");
     expect(directory).toContain("hasAvailableOfflineNumberGrant");
     expect(syncPanel).toContain("offlineNumberClaim");
