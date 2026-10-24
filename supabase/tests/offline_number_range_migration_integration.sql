@@ -214,7 +214,8 @@ begin
   end;
 
   update public.powerhub_offline_number_grants
-    set expires_at = clock_timestamp() - interval '1 minute'
+    set issued_at = clock_timestamp() - interval '2 minutes',
+        expires_at = clock_timestamp() - interval '1 minute'
     where id = v_grant_id;
   begin
     perform * from public.powerhub_claim_offline_number(
