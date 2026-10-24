@@ -682,10 +682,9 @@ alter function public.powerhub_claim_offline_number(
   uuid, bigint, bigint, bigint, uuid, text, text, text, text, text
 ) owner to postgres;
 
-
--- Atomically create an offline-drafted subscriber using its locally claimed,
--- server-issued number. The claim and subscriber write share this transaction:
--- failed validation, quota, audit, or insert rolls the claim back too.
+-- Atomically create an offline-drafted subscriber using its locally claimed, server-issued number.
+-- The claim and subscriber write share this transaction: any failed validation, quota,
+-- audit, or insert rolls the claim back too.
 create or replace function public.powerhub_create_subscriber_with_offline_number(
   p_tenant_id bigint,
   p_site_id bigint,
@@ -723,12 +722,7 @@ begin
   if p_tenant_id is null or p_site_id is null or p_user_id is null
      or p_device_id is null or p_grant_id is null
      or p_client_operation_id is null
-     or p_number_value is null or p_number_value !~ '^[1-9][0-9]{0,5}
-revoke all on table public.powerhub_offline_number_grants from public, anon, authenticated;
-revoke all on table public.powerhub_offline_number_claims from public, anon, authenticated;
-grant select, insert, update, delete on table public.powerhub_offline_number_grants to service_role;
-grant select, insert, update, delete on table public.powerhub_offline_number_claims to service_role;
-
+     or p_number_value is null or p_number_value !~ '^[1-9][0-9]{0,5}$'
      or p_full_name is null or length(trim(p_full_name)) < 2
      or p_phone is null or length(trim(p_phone)) < 5
      or p_subscription_type is null
@@ -746,7 +740,7 @@ grant select, insert, update, delete on table public.powerhub_offline_number_cla
     raise exception 'SITE_OUT_OF_SCOPE' using errcode = 'P0001';
   end if;
 
-  -- Scope-check operation replay before returning any stored response.
+  -- Idempotency is scoped to the original tenant, branch, and entity contract.
   select response, tenant_id, site_id, operation_type, entity_type
     into v_response, v_operation_tenant_id, v_operation_site_id,
          v_operation_type, v_operation_entity_type
@@ -774,8 +768,7 @@ grant select, insert, update, delete on table public.powerhub_offline_number_cla
     return;
   end if;
 
-  -- Recover only a same-scope row with the exact claimed reference; never return
-  -- a matching clientOperationId from another tenant/site or with another number.
+  -- Recover only a same-scope row with the exact claimed reference.
   select s.id, s.subscriber_no, s.tenant_id, s.site_id
     into v_subscriber_id, v_existing_no, v_existing_tenant_id, v_existing_site_id
   from public.subscribers s
@@ -807,8 +800,7 @@ grant select, insert, update, delete on table public.powerhub_offline_number_cla
     raise exception 'SUBSCRIBER_QUOTA_REACHED' using errcode = 'P0001';
   end if;
 
-  -- Claim validation runs within the caller's transaction. If anything below
-  -- fails, PostgreSQL rolls the claim back; the same request can be retried.
+  -- Claim validation runs within the caller's transaction.
   perform c.claim_id
   from public.powerhub_claim_offline_number(
     p_grant_id, p_tenant_id, p_site_id, p_user_id, p_device_id,
@@ -866,7 +858,6 @@ grant execute on function public.powerhub_create_subscriber_with_offline_number(
 alter function public.powerhub_create_subscriber_with_offline_number(
   bigint, bigint, bigint, uuid, uuid, text, text, text, text, text, text, uuid
 ) owner to postgres;
-
 -- Explicitly preserve the service-role-only API contract on internal objects.
 revoke all on table public.powerhub_offline_number_grants from public, anon, authenticated;
 revoke all on table public.powerhub_offline_number_claims from public, anon, authenticated;
