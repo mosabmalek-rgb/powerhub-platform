@@ -110,6 +110,56 @@ alter function public.powerhub_append_sync_change(bigint, bigint, text, text, te
 revoke all on function public.powerhub_append_sync_change(bigint, bigint, text, text, text, jsonb) from public, anon, authenticated;
 grant execute on function public.powerhub_append_sync_change(bigint, bigint, text, text, text, jsonb) to service_role;
 
+-- Returns a tenant/site-scoped snapshot and cursor from the same STABLE statement snapshot.
+create or replace function public.powerhub_get_sync_snapshot(
+  p_tenant_id bigint, p_site_id bigint, p_entity_type text
+) returns jsonb
+language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare v_cursor bigint := 0; v_retained bigint := 0; v_rows jsonb := '[]'::jsonb;
+begin
+  if p_tenant_id is null or p_tenant_id < 1 or p_site_id is null or p_site_id < 1 then
+    raise exception 'POWERHUB_SYNC_SCOPE_REQUIRED' using errcode = 'P0001';
+  end if;
+  if p_entity_type not in ('subscribers','generators','readings','tariffs') then
+    raise exception 'POWERHUB_SYNC_ENTITY_UNSUPPORTED' using errcode = 'P0001';
+  end if;
+  if not exists (select 1 from public.sites where id=p_site_id and tenant_id=p_tenant_id) then
+    raise exception 'SITE_OUT_OF_SCOPE' using errcode = 'P0001';
+  end if;
+  select last_cursor, retained_from_cursor into v_cursor, v_retained
+    from public.powerhub_sync_scope_state
+    where tenant_id=p_tenant_id and site_id=p_site_id and entity_type=p_entity_type;
+  if not found then v_cursor := 0; v_retained := 0; end if;
+  case p_entity_type
+    when 'subscribers' then
+      select coalesce(jsonb_agg(to_jsonb(s) order by s.created_at desc,s.id desc),'[]'::jsonb)
+        into v_rows from public.subscribers s
+        where s.tenant_id=p_tenant_id and s.site_id=p_site_id and s.archived_at is null;
+    when 'generators' then
+      select coalesce(jsonb_agg(to_jsonb(g) order by g.created_at desc,g.id desc),'[]'::jsonb)
+        into v_rows from public.generators g
+        where g.tenant_id=p_tenant_id and g.site_id=p_site_id;
+    when 'readings' then
+      select coalesce(jsonb_agg(jsonb_build_object('reading',to_jsonb(r),'subscriber',to_jsonb(s))
+        order by r.reading_at desc,r.id desc),'[]'::jsonb)
+        into v_rows from public.meter_readings r
+        join public.subscribers s on s.id=r.subscriber_id and s.tenant_id=r.tenant_id
+        where r.tenant_id=p_tenant_id and s.site_id=p_site_id;
+    when 'tariffs' then
+      select coalesce(jsonb_agg(to_jsonb(t) order by t.effective_from desc,t.id desc),'[]'::jsonb)
+        into v_rows from public.tariffs t
+        where t.tenant_id=p_tenant_id and t.site_id=p_site_id;
+  end case;
+  return jsonb_build_object('status','ok','entity_type',p_entity_type,
+    'snapshot_cursor',v_cursor::text,'retained_from_cursor',v_retained::text,'rows',v_rows);
+end;
+$;
+alter function public.powerhub_get_sync_snapshot(bigint,bigint,text) owner to postgres;
+revoke all on function public.powerhub_get_sync_snapshot(bigint,bigint,text) from public,anon,authenticated;
+grant execute on function public.powerhub_get_sync_snapshot(bigint,bigint,text) to service_role;
+
 -- One trigger contract records inserts/updates and physical deletes. Subscriber
 -- archival is exposed as a tombstone, while historical rows remain untouched.
 -- meter_readings has no site_id column; its scope is derived from its subscriber.
