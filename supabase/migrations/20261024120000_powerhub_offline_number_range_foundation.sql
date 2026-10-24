@@ -363,6 +363,11 @@ begin
     raise exception 'USER_OUT_OF_SCOPE' using errcode = 'P0001';
   end if;
 
+  -- Serialize identical request IDs so concurrent retries cannot reserve two ranges.
+  perform pg_advisory_xact_lock(hashtextextended(
+    p_user_id::text || ':' || p_device_id::text || ':' || p_request_id::text, 0
+  ));
+
   -- Idempotent reservation request: a timeout/retry must return the same grant,
   -- never consume a second block of globally unique numbers.
   select * into v_existing_grant
@@ -402,7 +407,202 @@ begin
       v_reserved := array_append(v_reserved, v_number);
     end loop;
   elsif p_number_kind = 'invoice' then
-    if p_partition_key !~ '^[0-9]{4}$' then
+    if p_partition_key is null or p_partition_key !~ '^[0-9]{4}
+      raise exception 'OFFLINE_NUMBER_PARTITION_INVALID' using errcode = 'P0001';
+    end if;
+    v_year := p_partition_key::integer;
+    if v_year < 1000 or v_year > 9999 then
+      raise exception 'OFFLINE_NUMBER_PARTITION_INVALID' using errcode = 'P0001';
+    end if;
+
+    -- The same row lock/high-water mark is used by online invoice issuance.
+    -- Upsert reserves N consecutive values atomically without a COUNT()-based allocator.
+    insert into public.powerhub_invoice_sequences(invoice_year, next_sequence)
+    values (v_year, p_count + 1)
+    on conflict (invoice_year) do update
+      set next_sequence = public.powerhub_invoice_sequences.next_sequence + p_count
+    returning next_sequence - p_count into v_start;
+
+    if v_start is null or v_start < 1 then
+      raise exception 'INVOICE_SEQUENCE_INVALID' using errcode = 'P0001';
+    end if;
+    select array_agg(series.value order by series.value)
+      into v_reserved
+    from generate_series(v_start, v_start + p_count - 1) as series(value);
+  else
+    raise exception 'OFFLINE_NUMBER_KIND_INVALID' using errcode = 'P0001';
+  end if;
+
+  if cardinality(v_reserved) = 0 then
+    raise exception 'OFFLINE_NUMBER_RANGE_EMPTY' using errcode = 'P0001';
+  end if;
+
+  v_expires_at := v_issued_at + make_interval(mins => p_ttl_minutes);
+  insert into public.powerhub_offline_number_grants (
+    request_id, tenant_id, site_id, user_id, device_id, number_kind, partition_key,
+    reserved_values, issued_at, expires_at
+  ) values (
+    p_request_id, p_tenant_id, p_site_id, p_user_id, p_device_id, p_number_kind, p_partition_key,
+    v_reserved, v_issued_at, v_expires_at
+  ) returning id into v_grant_id;
+
+  select array_agg(value::text order by ordinal)
+    into v_output_values
+  from unnest(v_reserved) with ordinality as values_with_ordinal(value, ordinal);
+
+  return query select v_grant_id, p_number_kind, p_partition_key,
+    v_output_values, v_issued_at, v_expires_at;
+end;
+$$;
+
+revoke all on function public.powerhub_reserve_offline_number_grant(
+  bigint, bigint, bigint, uuid, uuid, text, text, integer, integer
+) from public, anon, authenticated;
+grant execute on function public.powerhub_reserve_offline_number_grant(
+  bigint, bigint, bigint, uuid, uuid, text, text, integer, integer
+) to service_role;
+alter function public.powerhub_reserve_offline_number_grant(
+  bigint, bigint, bigint, uuid, uuid, text, text, integer, integer
+) owner to postgres;
+
+-- Claim a reserved value exactly once when its queued operation reaches the server.
+-- A repeated identical client operation returns the same claim; a different operation
+-- cannot claim that value, even if it belongs to the same user/device.
+create or replace function public.powerhub_claim_offline_number(
+  p_grant_id uuid,
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_user_id bigint,
+  p_device_id uuid,
+  p_number_kind text,
+  p_partition_key text,
+  p_number_value text,
+  p_client_operation_id text,
+  p_entity_type text
+)
+returns table (claim_id uuid, replayed boolean)
+language plpgsql
+security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_grant public.powerhub_offline_number_grants%rowtype;
+  v_existing public.powerhub_offline_number_claims%rowtype;
+  v_claim_id uuid;
+  v_number_value bigint;
+begin
+  if p_grant_id is null or p_tenant_id is null or p_site_id is null
+     or p_user_id is null or p_device_id is null
+     or p_number_kind not in ('subscriber', 'invoice')
+     or p_partition_key is null
+     or p_client_operation_id is null or length(btrim(p_client_operation_id)) = 0
+     or p_entity_type not in ('subscriber', 'invoice') then
+    raise exception 'OFFLINE_NUMBER_CLAIM_INPUT_INVALID' using errcode = 'P0001';
+  end if;
+  if p_number_value is null or length(p_number_value) > 19
+     or p_number_value !~ '^[1-9][0-9]*$' then
+    raise exception 'OFFLINE_NUMBER_VALUE_INVALID' using errcode = 'P0001';
+  end if;
+  begin
+    v_number_value := p_number_value::bigint;
+  exception when numeric_value_out_of_range then
+    raise exception 'OFFLINE_NUMBER_VALUE_INVALID' using errcode = 'P0001';
+  end;
+
+  select * into v_existing
+  from public.powerhub_offline_number_claims c
+  where c.user_id = p_user_id
+    and c.client_operation_id = p_client_operation_id
+    and c.entity_type = p_entity_type;
+  if found then
+    if v_existing.grant_id <> p_grant_id
+       or v_existing.tenant_id <> p_tenant_id
+       or v_existing.site_id <> p_site_id
+       or v_existing.device_id <> p_device_id
+       or v_existing.number_kind <> p_number_kind
+       or v_existing.partition_key <> p_partition_key
+       or v_existing.number_value <> v_number_value then
+      raise exception 'OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH' using errcode = 'P0001';
+    end if;
+    return query select v_existing.id, true;
+    return;
+  end if;
+
+  select * into v_grant
+  from public.powerhub_offline_number_grants g
+  where g.id = p_grant_id
+    and g.tenant_id = p_tenant_id
+    and g.site_id = p_site_id
+    and g.user_id = p_user_id
+    and g.device_id = p_device_id
+    and g.number_kind = p_number_kind
+    and g.partition_key = p_partition_key
+    and g.revoked_at is null
+    and g.expires_at > clock_timestamp()
+  for update;
+  if not found then
+    raise exception 'OFFLINE_NUMBER_GRANT_INVALID_OR_EXPIRED' using errcode = 'P0001';
+  end if;
+  if not (v_number_value = any(v_grant.reserved_values)) then
+    raise exception 'OFFLINE_NUMBER_NOT_IN_GRANT' using errcode = 'P0001';
+  end if;
+  if p_number_kind = 'subscriber' and (p_entity_type <> 'subscriber' or v_number_value > 999999) then
+    raise exception 'OFFLINE_NUMBER_KIND_MISMATCH' using errcode = 'P0001';
+  end if;
+  if p_number_kind = 'invoice' and p_entity_type <> 'invoice' then
+    raise exception 'OFFLINE_NUMBER_KIND_MISMATCH' using errcode = 'P0001';
+  end if;
+
+  begin
+    insert into public.powerhub_offline_number_claims (
+      grant_id, tenant_id, site_id, user_id, device_id, number_kind,
+      partition_key, number_value, client_operation_id, entity_type
+    ) values (
+      p_grant_id, p_tenant_id, p_site_id, p_user_id, p_device_id, p_number_kind,
+      p_partition_key, v_number_value, p_client_operation_id, p_entity_type
+    ) returning id into v_claim_id;
+  exception when unique_violation then
+    select * into v_existing
+    from public.powerhub_offline_number_claims c
+    where c.user_id = p_user_id
+      and c.client_operation_id = p_client_operation_id
+      and c.entity_type = p_entity_type;
+    if found then
+      if v_existing.grant_id <> p_grant_id
+         or v_existing.tenant_id <> p_tenant_id
+         or v_existing.site_id <> p_site_id
+         or v_existing.device_id <> p_device_id
+         or v_existing.number_kind <> p_number_kind
+         or v_existing.partition_key <> p_partition_key
+         or v_existing.number_value <> v_number_value then
+        raise exception 'OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH' using errcode = 'P0001';
+      end if;
+      return query select v_existing.id, true;
+      return;
+    end if;
+    raise exception 'OFFLINE_NUMBER_ALREADY_CLAIMED' using errcode = 'P0001';
+  end;
+
+  return query select v_claim_id, false;
+end;
+$$;
+
+revoke all on function public.powerhub_claim_offline_number(
+  uuid, bigint, bigint, bigint, uuid, text, text, text, text, text
+) from public, anon, authenticated;
+grant execute on function public.powerhub_claim_offline_number(
+  uuid, bigint, bigint, bigint, uuid, text, text, text, text, text
+) to service_role;
+alter function public.powerhub_claim_offline_number(
+  uuid, bigint, bigint, bigint, uuid, text, text, text, text, text
+) owner to postgres;
+
+-- Explicitly preserve the service-role-only API contract on internal objects.
+revoke all on table public.powerhub_offline_number_grants from public, anon, authenticated;
+revoke all on table public.powerhub_offline_number_claims from public, anon, authenticated;
+grant select, insert, update, delete on table public.powerhub_offline_number_grants to service_role;
+grant select, insert, update, delete on table public.powerhub_offline_number_claims to service_role;
+ then
       raise exception 'OFFLINE_NUMBER_PARTITION_INVALID' using errcode = 'P0001';
     end if;
     v_year := p_partition_key::integer;
