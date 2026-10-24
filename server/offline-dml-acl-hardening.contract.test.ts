@@ -9,12 +9,17 @@ const deviceLockMigrationUrl = new URL(
   "../supabase/migrations/20261024210500_powerhub_device_lock_schema_reconciliation.sql",
   import.meta.url,
 );
+const quotaAclMigrationUrl = new URL(
+  "../supabase/migrations/20261025010000_powerhub_quota_alert_acl_hardening.sql",
+  import.meta.url,
+);
 const notificationTriggerMigrationUrl = new URL(
   "../supabase/migrations/20261024211000_powerhub_notification_trigger_rpc_hardening.sql",
   import.meta.url,
 );
 const readMigration = () => readFile(migrationUrl, "utf8");
 const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
+const readQuotaAclMigration = () => readFile(quotaAclMigrationUrl, "utf8");
 const readNotificationTriggerMigration = () => readFile(notificationTriggerMigrationUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
@@ -57,5 +62,13 @@ describe("offline server-write ACL hardening migration", () => {
     expect(migration).toMatch(/revoke execute on function public\.powerhub_notify_field_sync_received\(\)\s+from public, anon, authenticated/i);
     expect(migration).toMatch(/revoke execute on function public\.powerhub_notify_payment_documentation_request\(\)\s+from public, anon, authenticated/i);
     expect(migration).not.toMatch(/drop trigger|drop function|create or replace function/i);
+  });
+  
+  it("locks quota alert table access to the trusted server role", async () => {
+    const migration = await readQuotaAclMigration();
+    expect(migration).toMatch(/alter table public\.powerhub_quota_alerts enable row level security/i);
+    expect(migration).toMatch(/revoke all on table public\.powerhub_quota_alerts from public, anon, authenticated/i);
+    expect(migration).toMatch(/grant all on table public\.powerhub_quota_alerts to service_role/i);
+    expect(migration).not.toMatch(/grant\s+(?:select|insert|update|delete|all)\b[^;]*\b(?:public|anon|authenticated)\b/i);
   });
 });
