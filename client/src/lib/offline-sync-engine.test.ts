@@ -38,6 +38,11 @@ describe("offline sync engine", () => {
     expect(planReadyOperations([b, a], meta, new Set(["a"]), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["a", "b"]);
   });
 
+  it("fails closed when persisted sync metadata is missing", () => {
+    const queued = item("missing-metadata", 100);
+    expect(planReadyOperations([queued], new Map(), new Set(), 100)).toEqual([]);
+  });
+
   it("does not plan operations before nextAttemptAt", () => {
     const a = item("a", 100);
     const metadata = new Map([["a", { ...createSyncMetadata(a, 0), nextAttemptAt: 500 }]]);
