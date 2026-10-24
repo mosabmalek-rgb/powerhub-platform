@@ -29,7 +29,8 @@ create table public.subscribers (
   phone text not null,
   whatsapp_number text,
   address text,
-  subscription_type text
+  subscription_type text,
+  archived_at timestamptz
 );
 create unique index subscribers_client_operation_id_uq
   on public.subscribers(client_operation_id) where client_operation_id is not null;
