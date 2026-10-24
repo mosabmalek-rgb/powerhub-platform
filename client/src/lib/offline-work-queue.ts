@@ -131,6 +131,8 @@ export type QueuedOfflineWork = {
 
 const databaseName = "powerhub-offline-workspace";
 const storeName = "operations";
+const grantsStoreName = "grants";
+const claimsStoreName = "claims";
 
 export class OfflineWorkQueueError extends Error {}
 
@@ -158,10 +160,23 @@ export function createOfflineWork(
 function openDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     assertOfflineWorkQueueAvailable();
-    const request = indexedDB.open(databaseName, 1);
+    const request = indexedDB.open(databaseName, 2);
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(storeName)) {
-        request.result.createObjectStore(storeName, { keyPath: "id" });
+      const db = request.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.createObjectStore(storeName, { keyPath: "id" });
+      }
+      // Keep schema creation symmetric whichever offline module opens the DB first.
+      if (!db.objectStoreNames.contains(grantsStoreName)) {
+        const grants = db.createObjectStore(grantsStoreName, { keyPath: "id" });
+        grants.createIndex("byScope", ["userId", "tenantId", "siteId", "deviceId"], { unique: false });
+        grants.createIndex("byExpiry", "expiresAt", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(claimsStoreName)) {
+        const claims = db.createObjectStore(claimsStoreName, { keyPath: "id" });
+        claims.createIndex("byGrant", "grantId", { unique: false });
+        claims.createIndex("byGrantNumber", ["grantId", "numberValue"], { unique: true });
+        claims.createIndex("byOperation", ["userId", "clientOperationId", "entityType"], { unique: true });
       }
     };
     request.onsuccess = () => resolve(request.result);
