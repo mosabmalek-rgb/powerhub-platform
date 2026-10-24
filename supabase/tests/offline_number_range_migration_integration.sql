@@ -152,6 +152,17 @@ begin
     if position('OFFLINE_NUMBER_ALREADY_CLAIMED' in sqlerrm) = 0 then raise; end if;
   end;
 
+  begin
+    perform * from public.powerhub_reserve_offline_number_grant(
+      1, 10, 100, '11111111-1111-4111-8111-111111111111',
+      'abababab-abab-4bab-8bab-abababababab', 'subscriber', 'global', 3, 60
+    );
+    raise exception 'ASSERT_FAILED: a second unused subscriber range was allocated';
+  exception when others then
+    if sqlerrm = 'ASSERT_FAILED: a second unused subscriber range was allocated' then raise; end if;
+    if position('OFFLINE_NUMBER_RANGE_STILL_AVAILABLE' in sqlerrm) = 0 then raise; end if;
+  end;
+
   select reserved_values into v_values
   from public.powerhub_reserve_offline_number_grant(
     1, 10, 100, '11111111-1111-4111-8111-111111111111',
