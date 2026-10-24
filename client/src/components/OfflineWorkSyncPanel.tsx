@@ -55,18 +55,49 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
   const createReading = trpc.powerhub.readings.create.useMutation();
 
-  const refresh = async () => Promise.all([
-    utils.powerhub.subscribers.list.invalidate({ siteId }),
-    utils.powerhub.subscribers.directoryPage.invalidate({ siteId }),
-    utils.powerhub.subscribers.quota.invalidate({ siteId }),
-    utils.powerhub.generators.list.invalidate({ siteId }),
-    utils.powerhub.invoices.list.invalidate({ siteId }),
-    utils.powerhub.payments.list.invalidate({ siteId }),
-    utils.powerhub.dashboard.summary.invalidate({ siteId }),
-    utils.powerhub.dashboard.financialOverview.invalidate({ siteId, scope: "branch" }),
-    utils.powerhub.dashboard.periodMetrics.invalidate({ siteId, scope: "branch" }),
-    utils.powerhub.audit.list.invalidate({ siteId }),
-  ]);
+  const refresh = async (results: readonly { item: QueuedOfflineWork; outcome: string }[]) => {
+    const successful = results.filter((result) =>
+      result.outcome === "applied" || result.outcome === "already_applied",
+    );
+    const kinds = new Set(successful.map((result) => result.item.kind));
+    const refreshes: Promise<unknown>[] = [];
+
+    if (kinds.has("subscriber_create") || kinds.has("subscriber_update")) {
+      refreshes.push(
+        utils.powerhub.subscribers.list.invalidate({ siteId }),
+        utils.powerhub.subscribers.directoryPage.invalidate({ siteId }),
+        utils.powerhub.subscribers.quota.invalidate({ siteId }),
+        utils.powerhub.dashboard.summary.invalidate({ siteId }),
+      );
+    }
+    if (kinds.has("generator_create") || kinds.has("generator_update")) {
+      refreshes.push(utils.powerhub.generators.list.invalidate({ siteId }));
+    }
+    if (kinds.has("reading_create")) {
+      refreshes.push(utils.powerhub.readings.page.invalidate({ siteId, limit: 200 }));
+    }
+    if (kinds.has("invoice_issue")) {
+      refreshes.push(
+        utils.powerhub.invoices.list.invalidate({ siteId }),
+        utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 }),
+        utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 }),
+        utils.powerhub.dashboard.summary.invalidate({ siteId }),
+        utils.powerhub.dashboard.financialOverview.invalidate({ siteId, scope: "branch" }),
+        utils.powerhub.dashboard.periodMetrics.invalidate({ siteId, scope: "branch" }),
+      );
+    }
+    if (kinds.has("payment_create") || kinds.has("payment_documentation_approve") || kinds.has("payment_documentation_submit")) {
+      refreshes.push(
+        utils.powerhub.payments.list.invalidate({ siteId }),
+        utils.powerhub.invoices.list.invalidate({ siteId }),
+        utils.powerhub.dashboard.summary.invalidate({ siteId }),
+        utils.powerhub.dashboard.financialOverview.invalidate({ siteId, scope: "branch" }),
+        utils.powerhub.dashboard.periodMetrics.invalidate({ siteId, scope: "branch" }),
+      );
+    }
+    if (successful.length) refreshes.push(utils.powerhub.audit.list.invalidate({ siteId }));
+    await Promise.all(refreshes);
+  };
 
   const buildMetadata = async (pendingItems: QueuedOfflineWork[]) => {
     const stored = await listSyncMetadata({ userId, siteId });
@@ -196,25 +227,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           else if (result.outcome === "conflict") await updateOfflineWork(result.item.id, { status: "conflict", error: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة." });
           else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
         }
-        await refresh();
-        const successfulReadingCreates = results.filter((result) =>
-          result.item.kind === "reading_create" &&
-          (result.outcome === "applied" || result.outcome === "already_applied"),
-        );
-        if (successfulReadingCreates.length > 0) {
-          await utils.powerhub.readings.page.invalidate({ siteId, limit: 200 });
-        }
-        const successfulInvoiceIssues = results.filter((result) =>
-          result.item.kind === "invoice_issue" &&
-          (result.outcome === "applied" || result.outcome === "already_applied"),
-        );
-        // Refresh the active site's invoice pages only after successful invoice sync; no polling.
-        if (successfulInvoiceIssues.length > 0) {
-          await Promise.all([
-            utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 }),
-            utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 }),
-          ]);
-        }
+        await refresh(results);
         const successfulSubscriberChanges = results.filter((result) =>
           (result.item.kind === "subscriber_create" || result.item.kind === "subscriber_update") &&
           (result.outcome === "applied" || result.outcome === "already_applied"),
@@ -237,7 +250,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         if (retriable) toast.warning(`توجد ${retriable} عملية مؤجلة لإعادة المحاولة.`);
         if (conflicts) toast.error(`توجد ${conflicts} عملية متعارضة تحتاج إلى مراجعة.`);
       } catch (error) { toast.error(getErrorMessage(error)); }
-      } finally {
+      finally {
         setSyncing(false);
         await load();
       }
