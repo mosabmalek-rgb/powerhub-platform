@@ -16,6 +16,7 @@ import {
   applyDeltaPageToList,
   normalizeDeltaPage,
   refreshReadingSubscriberProjection,
+  normalizeDeltaEntityRow,
   snapshotRowsFromQuery,
   type DeltaOperationalEntity,
 } from "@/lib/offline-delta-query-bridge";
@@ -191,30 +192,44 @@ export function OfflineDeltaSyncRuntime() {
         return normalizeDeltaPage(candidate.entityType, response as unknown as DeltaPage<AnyRow>);
       };
       const rebuildSnapshot = async () => {
-        let data: unknown;
-        switch (candidate.entityType) {
-          case "subscribers":
-            data = await utils.powerhub.subscribers.list.fetch({ siteId: candidate.siteId });
-            break;
-          case "generators":
-            data = await utils.powerhub.generators.list.fetch({ siteId: candidate.siteId });
-            break;
-          case "readings":
-            data = await utils.powerhub.readings.list.fetch({ siteId: candidate.siteId });
-            break;
-          case "tariffs":
-            data = await utils.powerhub.tariffs.list.fetch({ siteId: candidate.siteId });
-            break;
+        // Rows and cursor are read by one STABLE PostgreSQL RPC, so changes committed
+        // during snapshot creation cannot fall between the snapshot and its cursor.
+        const snapshot = await utils.powerhub.deltaSync.snapshot.fetch({
+          siteId: candidate.siteId,
+          entityType: candidate.entityType,
+        });
+        if (!Array.isArray(snapshot.rows) || typeof snapshot.snapshot_cursor !== "string") {
+          throw new Error("استجابة لقطة المزامنة غير صالحة.");
         }
-        // Persist the fetched full snapshot before its cursor becomes durable. If
-        // the snapshot persistence fails, abort the pull and leave the prior cursor.
+        const queryRows = candidate.entityType === "readings"
+          ? snapshot.rows.flatMap((entry: any) => {
+              if (!entry?.reading || !entry?.subscriber) throw new Error("لقطة القراءة تفتقد بيانات المشترك.");
+              return [{
+                reading: normalizeDeltaEntityRow("readings", entry.reading),
+                subscriber: normalizeDeltaEntityRow("subscribers", entry.subscriber),
+              }];
+            })
+          : snapshot.rows.map((row: any) => normalizeDeltaEntityRow(candidate.entityType, row));
+        for (const row of queryRows) {
+          const scoped = candidate.entityType === "readings" ? row.subscriber : row;
+          if (Number(scoped?.tenantId) !== candidate.tenantId || Number(scoped?.siteId) !== candidate.siteId) {
+            throw new Error("لقطة المزامنة تحتوي بيانات خارج نطاق الفرع.");
+          }
+        }
         const matchingQueries = queryClient.getQueryCache().findAll().filter((query) =>
           queryIsSupportedList(query) === candidate.entityType &&
           findNumberProperty(query.queryKey, "siteId") === candidate.siteId &&
           Array.isArray(query.state.data)
         );
-        for (const query of matchingQueries) await persistOfflineQuery(query, cacheOwnerId);
-        return snapshotRowsFromQuery(candidate.entityType, data);
+        if (matchingQueries.length === 0) throw new Error("لا يوجد استعلام قائمة لاستقبال لقطة المزامنة.");
+        for (const query of matchingQueries) {
+          queryClient.setQueryData(query.queryKey, queryRows);
+          await persistOfflineQuery(query, cacheOwnerId);
+        }
+        return {
+          cursor: snapshot.snapshot_cursor,
+          rows: snapshotRowsFromQuery(candidate.entityType, queryRows),
+        };
       };
       await pullDeltaPages({
         scope,
