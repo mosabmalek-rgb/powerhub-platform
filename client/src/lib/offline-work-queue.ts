@@ -496,7 +496,7 @@ export async function requeueOfflineWorkForManualRetry(input: {
     const evaluate = () => {
       if (!operationReady || !metadataReady || evaluated) return;
       evaluated = true;
-      if (!operation ||
+      if (!operation || !metadata ||
           operation.id !== input.id ||
           operation.clientOperationId !== input.clientOperationId ||
           operation.userId !== input.userId ||
