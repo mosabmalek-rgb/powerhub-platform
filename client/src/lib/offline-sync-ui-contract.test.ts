@@ -50,7 +50,8 @@ describe("offline sync UI contract", () => {
     expect(offlineReadingQueue).toContain("getSyncMetadata(queued.item.clientOperationId");
     expect(offlineReadingQueue).toContain("enqueueOfflineWork({");
     expect(offlineReadingQueue).toContain("enqueueOfflineReadingWithInvoiceNumber");
-    expect(offlineReadingQueue).toContain('state?.outcome === "applied" || state?.outcome === "already_applied"');
+    expect(offlineReadingQueue).toContain("if (!isSyncMetadataCompatibleWithWorkItem(item, state))");
+    expect(offlineReadingQueue).toContain('if (state.outcome === "applied" || state.outcome === "already_applied")');
     expect(offlineReadingQueue).toContain("await removeOfflineConflict(item.userId, item.clientOperationId)");
     expect(offlineWorkQueue).toContain("transaction.objectStore(storeName).add(record)");
     expect(offlineWorkQueue).toContain("transaction.objectStore(syncMetadataStoreName).add(createInitialSyncMetadataRecord(record))");
