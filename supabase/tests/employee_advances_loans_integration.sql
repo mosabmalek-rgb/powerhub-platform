@@ -98,6 +98,63 @@ insert into public.company_account_sites(tenant_id,account_id,site_id) values (1
 \ir ../migrations/20261023214342_powerhub_payroll_period_constraint_reconcile.sql
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
+\ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
+
+
+do $employee_advance_fk_index_assertions$
+declare
+  v_missing text[];
+  v_bad_leading_column text[];
+begin
+  select array_agg(required.index_name order by required.index_name)
+    into v_missing
+  from (values
+    ('employee_adjustment_repayments_account_transaction_id_idx'),
+    ('employee_adjustment_repayments_adjustment_id_idx'),
+    ('employee_adjustment_repayments_company_account_id_idx'),
+    ('employee_adjustment_repayments_created_by_user_id_idx'),
+    ('employee_adjustment_repayments_payroll_run_id_idx'),
+    ('employee_adjustment_repayments_site_id_idx')
+  ) as required(index_name)
+  where not exists (
+    select 1 from pg_class idx
+    join pg_namespace n on n.oid=idx.relnamespace
+    join pg_index i on i.indexrelid=idx.oid
+    where n.nspname='public' and idx.relname=required.index_name
+      and i.indisvalid and i.indisready
+  );
+
+  if v_missing is not null then
+    raise exception 'EMPLOYEE_ADVANCE_FK_INDEXES_MISSING: %', array_to_string(v_missing, ',');
+  end if;
+
+  select array_agg(required.index_name order by required.index_name)
+    into v_bad_leading_column
+  from (values
+    ('employee_adjustment_repayments_account_transaction_id_idx','account_transaction_id'),
+    ('employee_adjustment_repayments_adjustment_id_idx','adjustment_id'),
+    ('employee_adjustment_repayments_company_account_id_idx','company_account_id'),
+    ('employee_adjustment_repayments_created_by_user_id_idx','created_by_user_id'),
+    ('employee_adjustment_repayments_payroll_run_id_idx','payroll_run_id'),
+    ('employee_adjustment_repayments_site_id_idx','site_id')
+  ) as required(index_name,column_name)
+  where not exists (
+    select 1
+    from pg_class idx
+    join pg_namespace n on n.oid=idx.relnamespace
+    join pg_index i on i.indexrelid=idx.oid
+    join pg_class tbl on tbl.oid=i.indrelid
+    join pg_attribute a on a.attrelid=tbl.oid and a.attnum=i.indkey[0]
+    where n.nspname='public' and idx.relname=required.index_name
+      and tbl.relname='employee_adjustment_repayments'
+      and i.indisvalid and i.indisready and a.attname=required.column_name
+  );
+
+  if v_bad_leading_column is not null then
+    raise exception 'EMPLOYEE_ADVANCE_FK_INDEX_LEADING_COLUMN_MISMATCH: %', array_to_string(v_bad_leading_column, ',');
+  end if;
+end
+$employee_advance_fk_index_assertions$;
 
 do $baseline_test$
 declare
