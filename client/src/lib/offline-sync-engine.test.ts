@@ -50,6 +50,10 @@ describe("offline sync engine", () => {
     expect(classifySyncResult("VALIDATION_FAILED")).toBe("rejected");
   });
 
+  it("does not automatically retry rejected preconditions such as quota limits", () => {
+    expect(classifySyncResult("PRECONDITION_FAILED")).toBe("rejected");
+  });
+
   it("classifies conflicts separately from transient failures", () => {
     expect(classifySyncResult("CONFLICT")).toBe("conflict");
     expect(classifySyncResult("SERVICE_UNAVAILABLE")).toBe("retryable");
