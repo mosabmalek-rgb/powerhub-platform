@@ -2682,9 +2682,13 @@ export const powerhubRouter = router({
         data = rpcResult.data as unknown[] | null;
         error = rpcResult.error;
       } catch (rpcFailure) {
+        // A transport exception does not prove that PostgreSQL rolled back: the
+        // payment may have committed before the response was lost. Retain the
+        // receipt rather than deleting an object a committed payment may reference.
         if (receiptImageKey) {
-          try { await storageRemove(receiptImageKey); }
-          catch (cleanupError) { console.error("[PowerHub] payment receipt cleanup failed after RPC exception", cleanupError); }
+          console.warn("[PowerHub] payment RPC outcome is indeterminate; retaining uploaded receipt for safe replay/reconciliation", {
+            errorName: rpcFailure instanceof Error ? rpcFailure.name : "unknown",
+          });
         }
         throw rpcFailure;
       }
@@ -2698,11 +2702,21 @@ export const powerhubRouter = router({
         }
         return { id: Number(row.payment_id), replayed: Boolean(row.replayed) };
       }
-      if (receiptImageKey) {
-        try { await storageRemove(receiptImageKey); }
-        catch (cleanupError) { console.error("[PowerHub] payment receipt cleanup failed after unsuccessful RPC", cleanupError); }
-      }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (receiptImageKey) {
+        // A five-character SQLSTATE is an explicit PostgreSQL statement failure,
+        // so the RPC transaction rolled back. PGRST/network/unknown errors may
+        // represent an indeterminate commit and must not trigger destructive cleanup.
+        const definitiveSqlFailure = typeof error?.code === "string" && /^[0-9A-Z]{5}$/.test(error.code);
+        if (definitiveSqlFailure) {
+          try { await storageRemove(receiptImageKey); }
+          catch (cleanupError) { console.error("[PowerHub] payment receipt cleanup failed after definitive RPC rejection", cleanupError); }
+        } else {
+          console.warn("[PowerHub] payment RPC returned an indeterminate outcome; retaining uploaded receipt for safe replay/reconciliation", {
+            errorCode: error?.code ?? "unknown",
+          });
+        }
+      }
       if (errorText.includes("MANUAL_DISCOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الخصم أكبر من الرصيد المستحق." });
       if (errorText.includes("PAYMENT_AND_DISCOUNT_EXCEED_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق." });
       if (errorText.includes("MANUAL_DISCOUNT_REASON_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل سبب الخصم اليدوي." });
