@@ -209,6 +209,40 @@ export async function listOfflineNumberGrants(scope: OfflineNumberScope, now = D
   });
 }
 
+export async function hasAvailableOfflineNumberGrant(
+  scope: OfflineNumberScope,
+  numberKind: OfflineNumberKind,
+  partitionKey: string,
+  now = Date.now(),
+) {
+  const db = await openDatabase();
+  return new Promise<boolean>((resolve, reject) => {
+    const tx = db.transaction([GRANTS_STORE, CLAIMS_STORE], "readonly");
+    const grantsRequest = tx.objectStore(GRANTS_STORE).getAll();
+    const claimsRequest = tx.objectStore(CLAIMS_STORE).getAll();
+    let grants: OfflineNumberGrant[] | undefined;
+    let claims: OfflineNumberClaim[] | undefined;
+    let available: boolean | undefined;
+    const evaluate = () => {
+      if (!grants || !claims) return;
+      available = grants.some((grant) => {
+        if (grant.userId !== scope.userId || grant.tenantId !== scope.tenantId ||
+            grant.siteId !== scope.siteId || grant.deviceId !== scope.deviceId ||
+            grant.numberKind !== numberKind || grant.partitionKey !== partitionKey ||
+            grant.revokedAt || grant.expiresAt <= now) return false;
+        const claimed = new Set(claims.filter((claim) => claim.grantId === grant.id).map((claim) => claim.numberValue));
+        return grant.reservedValues.some((value) => !claimed.has(value));
+      });
+    };
+    grantsRequest.onsuccess = () => { grants = grantsRequest.result as OfflineNumberGrant[]; evaluate(); };
+    claimsRequest.onsuccess = () => { claims = claimsRequest.result as OfflineNumberClaim[]; evaluate(); };
+    grantsRequest.onerror = () => { db.close(); reject(grantsRequest.error ?? new OfflineNumberRangeError("تعذر قراءة نطاقات الأرقام المحلية.", "GRANT_LIST_FAILED")); };
+    claimsRequest.onerror = () => { db.close(); reject(claimsRequest.error ?? new OfflineNumberRangeError("تعذر قراءة مطالبات الأرقام المحلية.", "CLAIM_LIST_FAILED")); };
+    tx.oncomplete = () => { db.close(); resolve(available ?? false); };
+    tx.onerror = () => { db.close(); reject(tx.error ?? new OfflineNumberRangeError("تعذر التحقق من الأرقام المحلية.", "NUMBER_AVAILABILITY_FAILED")); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new OfflineNumberRangeError("أُلغي التحقق من الأرقام المحلية.", "NUMBER_AVAILABILITY_ABORTED")); };
+  });
+}
 export async function claimNextOfflineNumber(input: {
   grantId: string;
   scope: OfflineNumberScope;

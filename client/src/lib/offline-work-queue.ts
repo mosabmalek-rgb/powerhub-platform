@@ -1,4 +1,5 @@
 import { ensureLegacyFieldReadingsMigrated, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
+import { OfflineNumberRangeError, selectNextAvailableOfflineNumber, type OfflineNumberClaim, type OfflineNumberGrant, type OfflineNumberScope } from "./offline-number-ranges";
 export type OfflineWorkKind =
   | "subscriber_create"
   | "subscriber_update"
@@ -12,11 +13,20 @@ export type OfflineWorkKind =
 
 export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "applied";
 
+export type SubscriberOfflineNumberClaim = {
+  grantId: string;
+  deviceId: string;
+  numberValue: string;
+  partitionKey: "global";
+  formattedNumber: string;
+};
+
 export type SubscriberCreateDraft = {
   fullName: string;
   phone: string;
   address?: string;
   subscriptionType: "residential" | "commercial" | "institution" | "mosque";
+  offlineNumberClaim?: SubscriberOfflineNumberClaim;
 };
 
 export type SubscriberUpdateDraft = SubscriberCreateDraft & {
@@ -225,6 +235,92 @@ export async function enqueueOfflineWork(
   return record;
 }
 
+export async function enqueueOfflineSubscriberCreateWithNumber(input: {
+  scope: OfflineNumberScope;
+  payload: Omit<SubscriberCreateDraft, "offlineNumberClaim">;
+}): Promise<{ item: QueuedOfflineWork; formattedNumber: string }> {
+  const { scope } = input;
+  const now = Date.now();
+  const clientOperationId = crypto.randomUUID();
+  const database = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction([storeName, grantsStoreName, claimsStoreName], "readwrite");
+    const operations = transaction.objectStore(storeName);
+    const grantsStore = transaction.objectStore(grantsStoreName);
+    const claimsStore = transaction.objectStore(claimsStoreName);
+    const grantsRequest = grantsStore.getAll();
+    const claimsRequest = claimsStore.getAll();
+    let grants: OfflineNumberGrant[] | undefined;
+    let claims: OfflineNumberClaim[] | undefined;
+    let output: { item: QueuedOfflineWork; formattedNumber: string } | undefined;
+    let failure: unknown;
+    let evaluated = false;
+    const evaluate = () => {
+      if (grants === undefined || claims === undefined || evaluated) return;
+      evaluated = true;
+      try {
+        const eligible = grants.filter((grant) =>
+          grant.userId === scope.userId && grant.tenantId === scope.tenantId &&
+          grant.siteId === scope.siteId && grant.deviceId === scope.deviceId &&
+          grant.numberKind === "subscriber" && grant.partitionKey === "global" &&
+          !grant.revokedAt && grant.expiresAt > now &&
+          grant.reservedValues.some((value) => !claims!.some((claim) => claim.grantId === grant.id && claim.numberValue === value)),
+        ).sort((left, right) => left.expiresAt - right.expiresAt || left.issuedAt - right.issuedAt);
+        let selected: { grant: OfflineNumberGrant; numberValue: string; formattedNumber: string } | undefined;
+        for (const grant of eligible) {
+          const decision = selectNextAvailableOfflineNumber({
+            grant, claims, scope, clientOperationId, entityType: "subscriber", now,
+          });
+          if (!decision.replayed && decision.numberValue) {
+            selected = { grant, numberValue: decision.numberValue, formattedNumber: decision.formattedNumber };
+            break;
+          }
+        }
+        if (!selected) {
+          throw new OfflineNumberRangeError(
+            "لا توجد أرقام مشتركين محجوزة لهذا الفرع والجهاز. اتصل بالإنترنت لحجز نطاق قبل إنشاء المسودة دون اتصال.",
+            "NO_RESERVED_OFFLINE_NUMBER",
+          );
+        }
+        const claim: OfflineNumberClaim = {
+          id: crypto.randomUUID(), grantId: selected.grant.id, ...scope,
+          numberKind: "subscriber", partitionKey: "global", numberValue: selected.numberValue,
+          clientOperationId, entityType: "subscriber", createdAt: now,
+        };
+        const item = createOfflineWork({
+          userId: scope.userId, tenantId: scope.tenantId, siteId: scope.siteId,
+          kind: "subscriber_create", clientOperationId,
+          payload: {
+            ...input.payload,
+            offlineNumberClaim: {
+              grantId: selected.grant.id, deviceId: scope.deviceId, numberValue: selected.numberValue,
+              partitionKey: "global", formattedNumber: selected.formattedNumber,
+            },
+          },
+        });
+        // Persist the claim and its Outbox operation in one IDB transaction.
+        // Either both survive a reload/crash, or neither does.
+        claimsStore.add(claim);
+        operations.add(item);
+        output = { item, formattedNumber: selected.formattedNumber };
+      } catch (error) {
+        failure = error;
+        transaction.abort();
+      }
+    };
+    grantsRequest.onsuccess = () => { grants = grantsRequest.result as OfflineNumberGrant[]; evaluate(); };
+    claimsRequest.onsuccess = () => { claims = claimsRequest.result as OfflineNumberClaim[]; evaluate(); };
+    grantsRequest.onerror = () => { failure = grantsRequest.error; transaction.abort(); };
+    claimsRequest.onerror = () => { failure = claimsRequest.error; transaction.abort(); };
+    transaction.oncomplete = () => {
+      database.close();
+      if (output) resolve(output);
+      else reject(new OfflineNumberRangeError("لم ينتج حجز الرقم والمسودة نتيجة مكتملة.", "OFFLINE_SUBSCRIBER_ENQUEUE_EMPTY"));
+    };
+    transaction.onerror = () => { database.close(); reject(failure ?? transaction.error ?? new OfflineWorkQueueError("تعذر حفظ المطالبة والمسودة محليًا.")); };
+    transaction.onabort = () => { database.close(); reject(failure ?? transaction.error ?? new OfflineWorkQueueError("أُلغي حفظ المطالبة والمسودة محليًا.")); };
+  });
+}
 export async function getOfflineWork(id: string): Promise<QueuedOfflineWork | undefined> {
   return transact<QueuedOfflineWork | undefined>("readonly", (store) => store.get(id));
 }
