@@ -30,4 +30,14 @@ describe("offline server-write ACL hardening migration", () => {
     expect(migration).not.toMatch(/grant\s+(?:insert|update|delete|truncate|all)\b/i);
     expect(migration).not.toMatch(/grant\s+execute\s+on function\b/i);
   });
+  
+  it("reconciles the device-lock schema and preserves cross-tab login serialization", async () => {
+    const migration = await readMigration();
+    expect(migration).toMatch(/create table if not exists public\.powerhub_user_device_locks/i);
+    expect(migration).toMatch(/references auth\.users\(id\) on delete cascade/i);
+    expect(migration).toMatch(/pg_advisory_xact_lock\([\s\S]*hashtextextended\(p_user_id::text, 0\)/i);
+    expect(migration).toMatch(/revoke all on function public\.powerhub_claim_user_device\(uuid, uuid, timestamptz\)[\s\S]*from public, anon, authenticated/i);
+    expect(migration).toMatch(/grant execute on function public\.powerhub_claim_user_device\(uuid, uuid, timestamptz\)[\s\S]*to service_role/i);
+    expect(migration).toMatch(/create or replace function public\.powerhub_release_user_device/i);
+  });
 });

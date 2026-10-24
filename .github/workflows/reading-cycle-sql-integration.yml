@@ -154,6 +154,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres offline_core_write_acl_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_core_write_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_core_write_acl_hardening.sql
 
+      - name: Verify offline device-lock schema reconciliation and single-device behavior
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres offline_device_lock_reconcile_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_device_lock_reconcile_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_device_lock_schema_reconciliation.sql
+
       - name: Verify membership expiry and core-table RLS scope alignment
         env:
           PGPASSWORD: postgres
