@@ -67,17 +67,24 @@ export function formatOfflineNumber(kind: OfflineNumberKind, partitionKey: strin
   return `INV-${partitionKey}-${value.padStart(8, "0")}`;
 }
 
-export function validateOfflineNumberGrant(grant: OfflineNumberGrant, now = Date.now()) {
+function validateOfflineNumberGrantShape(grant: OfflineNumberGrant) {
   if (!grant.id || !isUuid(grant.id) || !isUuid(grant.deviceId)) fail("GRANT_ID_INVALID", "معرّف حجز الأرقام أو الجهاز غير صالح.");
   if (![grant.userId, grant.tenantId, grant.siteId].every(validPositiveInteger)) fail("GRANT_SCOPE_INVALID", "نطاق حجز الأرقام غير مكتمل.");
-  if (grant.revokedAt) fail("GRANT_REVOKED", "تم إلغاء حجز الأرقام.");
   if (!Number.isFinite(grant.issuedAt) || !Number.isFinite(grant.expiresAt) || grant.expiresAt <= grant.issuedAt) {
     fail("GRANT_DATES_INVALID", "تواريخ حجز الأرقام غير صالحة.");
   }
-  if (grant.expiresAt <= now) fail("GRANT_EXPIRED", "انتهت صلاحية حجز الأرقام؛ يلزم الاتصال بالخادم لحجز نطاق جديد.");
-  if (grant.reservedValues.length < 1 || grant.reservedValues.length > 200) fail("GRANT_SIZE_INVALID", "حجم نطاق الأرقام غير صالح.");
+  if (!Array.isArray(grant.reservedValues) || grant.reservedValues.length < 1 || grant.reservedValues.length > 200) {
+    fail("GRANT_SIZE_INVALID", "حجم نطاق الأرقام غير صالح.");
+  }
   if (new Set(grant.reservedValues).size !== grant.reservedValues.length) fail("GRANT_DUPLICATE_VALUES", "يحتوي نطاق الأرقام على أرقام مكررة.");
   for (const value of grant.reservedValues) formatOfflineNumber(grant.numberKind, grant.partitionKey, value);
+  return true;
+}
+
+export function validateOfflineNumberGrant(grant: OfflineNumberGrant, now = Date.now()) {
+  validateOfflineNumberGrantShape(grant);
+  if (grant.revokedAt) fail("GRANT_REVOKED", "تم إلغاء حجز الأرقام.");
+  if (grant.expiresAt <= now) fail("GRANT_EXPIRED", "انتهت صلاحية حجز الأرقام؛ يلزم الاتصال بالخادم لحجز نطاق جديد.");
   return true;
 }
 
@@ -91,7 +98,7 @@ export function selectNextAvailableOfflineNumber(input: {
 }) {
   const { grant, claims, scope, clientOperationId, entityType } = input;
   const now = input.now ?? Date.now();
-  validateOfflineNumberGrant(grant, now);
+  validateOfflineNumberGrantShape(grant);
   if (
     grant.userId !== scope.userId ||
     grant.tenantId !== scope.tenantId ||
@@ -103,6 +110,8 @@ export function selectNextAvailableOfflineNumber(input: {
     fail("NUMBER_KIND_MISMATCH", "نوع الرقم لا يتوافق مع العملية المطلوبة.");
   }
 
+  // A number already assigned to this exact operation remains stable after expiry
+  // or revocation. Replaying it is not a new allocation and must never mint a new number.
   const replay = claims.find((claim) =>
     claim.userId === scope.userId &&
     claim.clientOperationId === clientOperationId &&
@@ -113,11 +122,17 @@ export function selectNextAvailableOfflineNumber(input: {
       replay.grantId !== grant.id ||
       replay.tenantId !== scope.tenantId ||
       replay.siteId !== scope.siteId ||
-      replay.deviceId !== scope.deviceId
-    ) fail("OPERATION_IDEMPOTENCY_MISMATCH", "معرّف العملية مستخدم سابقًا ضمن نطاق مختلف.");
-    return { claim: replay, replayed: true, formattedNumber: formatOfflineNumber(replay.numberKind, replay.partitionKey, replay.numberValue) };
+      replay.deviceId !== scope.deviceId ||
+      replay.numberKind !== grant.numberKind ||
+      replay.partitionKey !== grant.partitionKey ||
+      !grant.reservedValues.includes(replay.numberValue)
+    ) fail("OPERATION_IDEMPOTENCY_MISMATCH", "معرّف العملية مستخدم سابقًا ضمن نطاق أو رقم مختلف.");
+    return { claim: replay, replayed: true, formattedNumber: formatOfflineNumber(grant.numberKind, grant.partitionKey, replay.numberValue) };
   }
 
+  // Expiry/revocation prevents fresh claims, but never changes an existing
+  // operation's already-assigned number.
+  validateOfflineNumberGrant(grant, now);
   const usedValues = new Set(claims.filter((claim) => claim.grantId === grant.id).map((claim) => claim.numberValue));
   const numberValue = grant.reservedValues.find((value) => !usedValues.has(value));
   if (!numberValue) fail("GRANT_EXHAUSTED", "استهلكت جميع الأرقام المحجوزة؛ يلزم حجز نطاق جديد عند الاتصال.");
