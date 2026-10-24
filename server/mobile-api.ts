@@ -525,7 +525,7 @@ export function registerMobileApi(app: Express) {
             .eq("subscriber_id", row.id).eq("status", "approved")
             .order("reading_at", { ascending: false }).limit(1).maybeSingle(),
           admin.from("meter_readings").select("reading_at")
-            .eq("subscriber_id", row.id).eq("status", "approved")
+            .eq("subscriber_id", row.id).neq("status", "rejected")
             .eq("is_opening_baseline", false)
             .order("reading_at", { ascending: false }).limit(1).maybeSingle(),
         ]);
