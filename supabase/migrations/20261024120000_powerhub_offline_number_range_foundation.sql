@@ -429,6 +429,12 @@ begin
         end if;
         exit;
       end;
+      -- The public subscriber format and table constraint are six digits wide.
+      -- Never persist an unformattable value; if the sequence crosses the ceiling,
+      -- return the valid partial range (if any) and permanently stop allocating.
+      if v_number > 999999 then
+        exit;
+      end if;
       v_reserved := array_append(v_reserved, v_number);
     end loop;
   elsif p_number_kind = 'invoice' then
