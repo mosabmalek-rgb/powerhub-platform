@@ -1,6 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
-import { applyDeltaChanges, compareDeltaCursors, pullDeltaPages, type DeltaPage } from "./offline-delta-sync";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  applyDeltaChanges,
+  compareDeltaCursors,
+  pullDeltaPages,
+  type DeltaPage,
+  type DeltaSyncStorage,
+  type DeltaCursorScope,
+} from "./offline-delta-sync";
 
+const scope: DeltaCursorScope = { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" };
 const change = (cursor: string, entityId: string, operation: "upsert" | "delete", row_data: Record<string, unknown> | null) => ({
   cursor, entity_type: "subscribers" as const, entity_id: entityId, operation, row_data, changed_at: "2026-10-24T10:00:00Z",
 });
@@ -8,6 +16,30 @@ const page = (overrides: Partial<DeltaPage> = {}): DeltaPage => ({
   status: "ok", entity_type: "subscribers", current_cursor: "3", retained_from_cursor: "0",
   snapshot_cursor: null, through_cursor: "3", next_cursor: "3", has_more: false, changes: [], ...overrides,
 });
+
+function memoryStorage(): DeltaSyncStorage {
+  let cursor = "0";
+  let rows = new Map<string, Record<string, unknown>>();
+  return {
+    getCursor: async () => cursor,
+    listEntities: async () => [...rows].map(([entityId, rowData]) => ({ ...scope, entityId, rowData, updatedAt: 1 })),
+    commitPage: async (_scope, p, next) => {
+      if (BigInt(next) < BigInt(cursor)) throw new Error("stale cursor");
+      if (BigInt(next) === BigInt(cursor)) return;
+      for (const c of p.changes) {
+        if (c.operation === "delete") rows.delete(c.entity_id);
+        else if (c.row_data) rows.set(c.entity_id, c.row_data);
+      }
+      cursor = next;
+    },
+    replaceSnapshot: async (_scope, snapshot, next) => {
+      if (BigInt(next) < BigInt(cursor)) throw new Error("stale snapshot");
+      rows = new Map(snapshot.map(row => [String(row.id), row]));
+      cursor = next;
+    },
+    clearUser: async () => { cursor = "0"; rows.clear(); },
+  };
+}
 
 describe("offline delta sync", () => {
   it("compares bigint cursors without precision loss", () => {
@@ -17,12 +49,11 @@ describe("offline delta sync", () => {
 
   it("applies ordered upserts and tombstones without duplicating entity ids", () => {
     const current = [{ id: 1, name: "old" }, { id: 2, name: "keep" }];
-    const result = applyDeltaChanges(current, [
+    expect(applyDeltaChanges(current, [
       change("1", "1", "upsert", { id: 1, name: "new" }),
       change("2", "3", "upsert", { id: 3, name: "added" }),
       change("3", "2", "delete", null),
-    ]);
-    expect(result).toEqual([{ id: 1, name: "new" }, { id: 3, name: "added" }]);
+    ])).toEqual([{ id: 1, name: "new" }, { id: 3, name: "added" }]);
   });
 
   it("rejects unordered pages and mismatched row identities", () => {
@@ -32,50 +63,59 @@ describe("offline delta sync", () => {
     expect(() => applyDeltaChanges([], [change("1", "1", "upsert", { id: 2 })])).toThrow(/لا تطابق/);
   });
 
-  it("holds one through-cursor across pages and applies each page before moving on", async () => {
+  it("holds one through-cursor across pages and commits page changes before reporting success", async () => {
+    const storage = memoryStorage();
     const pull = vi.fn()
-      .mockResolvedValueOnce(page({ through_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "upsert", { id: 1 })] }))
-      .mockResolvedValueOnce(page({ through_cursor: "9", next_cursor: "9", has_more: false, changes: [change("9", "2", "delete", null)] }));
-    const applied: string[] = [];
-    const result = await pullDeltaPages({
-      scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" },
-      persistCursor: async () => {},
-      afterCursor: "3",
-      pull,
-      applyPage: async p => { applied.push(p.changes[0].cursor); },
-      rebuildSnapshot: async () => { throw new Error("unexpected snapshot"); },
-    });
+      .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "upsert", { id: 1, name: "A" })] }))
+      .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "9", has_more: false, changes: [change("9", "2", "delete", null)] }));
+    const result = await pullDeltaPages({ scope, storage, afterCursor: "3", pull, rebuildSnapshot: async () => [] });
     expect(pull.mock.calls).toEqual([
       [{ afterCursor: "3", throughCursor: null, pageSize: 200 }],
       [{ afterCursor: "4", throughCursor: "9", pageSize: 200 }],
     ]);
-    expect(applied).toEqual(["4", "9"]);
+    expect((await storage.listEntities(scope)).map(x => x.rowData)).toEqual([{ id: 1, name: "A" }]);
+    expect(await storage.getCursor(scope)).toBe("9");
     expect(result).toEqual({ cursor: "9", appliedChanges: 2, resetRequired: false });
   });
 
-  it("rebuilds on retention gaps before continuing from the snapshot cursor", async () => {
+  it("rebuilds and atomically checkpoints when server retention requires a snapshot", async () => {
+    const storage = memoryStorage();
     const pull = vi.fn()
-      .mockResolvedValueOnce(page({ status: "reset_required", snapshot_cursor: "20", current_cursor: "20", changes: [] }))
+      .mockResolvedValueOnce(page({ status: "reset_required", snapshot_cursor: "20", current_cursor: "20", through_cursor: "20", next_cursor: null, changes: [] }))
       .mockResolvedValueOnce(page({ current_cursor: "22", through_cursor: "22", next_cursor: "22", changes: [change("22", "7", "upsert", { id: 7 })] }));
-    const rebuilt: string[] = [];
     const result = await pullDeltaPages({
-      scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" },
-      persistCursor: async () => {},
-      afterCursor: null,
-      pull,
-      applyPage: async () => {},
-      rebuildSnapshot: async cursor => { rebuilt.push(cursor); },
+      scope, storage, afterCursor: null, pull,
+      rebuildSnapshot: async cursor => cursor === "20" ? [{ id: 6, name: "snapshot" }] : [],
     });
-    expect(rebuilt).toEqual(["20"]);
     expect(pull.mock.calls[1][0]).toEqual({ afterCursor: "20", throughCursor: null, pageSize: 200 });
+    expect(await storage.getCursor(scope)).toBe("22");
+    expect((await storage.listEntities(scope)).map(x => x.entityId).sort()).toEqual(["6", "7"]);
     expect(result).toEqual({ cursor: "22", appliedChanges: 1, resetRequired: true });
   });
 
   it("fails closed if the server changes the page boundary", async () => {
     const pull = vi.fn()
-      .mockResolvedValueOnce(page({ through_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "delete", null)] }))
-      .mockResolvedValueOnce(page({ through_cursor: "10", next_cursor: "10", has_more: false }));
-    await expect(pullDeltaPages({ scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" }, persistCursor: async () => {}, afterCursor: "3", pull, applyPage: async () => {}, rebuildSnapshot: async () => {} }))
+      .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "delete", null)] }))
+      .mockResolvedValueOnce(page({ through_cursor: "10", current_cursor: "10", next_cursor: "10", has_more: false }));
+    await expect(pullDeltaPages({ scope, storage: memoryStorage(), afterCursor: "3", pull, rebuildSnapshot: async () => [] }))
       .rejects.toThrow(/تغيّر حد المزامنة/);
+  });
+
+  it("rejects malformed terminal cursors and a page whose entity type differs from the requested scope", async () => {
+    await expect(pullDeltaPages({
+      scope, storage: memoryStorage(), afterCursor: null,
+      pull: async () => page({ next_cursor: "not-a-cursor" }), rebuildSnapshot: async () => [],
+    })).rejects.toThrow(/مؤشر المزامنة/);
+    await expect(pullDeltaPages({
+      scope, storage: memoryStorage(), afterCursor: null,
+      pull: async () => page({ entity_type: "generators" }), rebuildSnapshot: async () => [],
+    })).rejects.toThrow(/لا تطابق نوع البيانات/);
+  });
+
+  it("does not let an older snapshot replace a newer local cursor", async () => {
+    const storage = memoryStorage();
+    await storage.replaceSnapshot(scope, [{ id: 1, name: "new" }], "10");
+    await expect(storage.replaceSnapshot(scope, [{ id: 1, name: "stale" }], "9")).rejects.toThrow(/stale snapshot/);
+    expect((await storage.listEntities(scope))[0].rowData.name).toBe("new");
   });
 });
