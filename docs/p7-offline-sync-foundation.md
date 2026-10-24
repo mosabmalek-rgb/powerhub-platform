@@ -92,4 +92,4 @@ Pending drafts can be synchronized through the existing Offline Sync Center
 - نجحت TypeScript وVitest وبناء الإنتاج وPostgreSQL Integration وPowerHub Security وSupabase Admin Guard على رأس الشفرة `1568612daaacac08f9b1b6fe326d7af6e14adfc8`.
 - مخطط مساحة العمل التشغيلي هو الإصدار 4 ويشمل `operations`, `grants`, `claims`, `fieldReadings`, `orphanedFieldReadings`, `cursors`, `entities`, `syncState`, `conflicts`, و`syncMetadata`.
 - ترحيل الطوابير القديمة محافظ؛ القراءات التي لا تملك user/site/subscriber scope تُحجر ولا تُحذف بصمت. لا تُحذف قاعدة المصدر إلا بعد اكتمال النسخ.
-- ما زال PR #332 مفتوحًا ولم تُطبق ترحيلات على staging أو production. تبقى اختبارات متصفح E2E وrehearsal للمخططط وموافقة منفصلة قبل الدمج/التشغيل الفعلي.
+- ما زال PR #332 مفتوحًا ولم تُطبق ترحيلات على staging أو production. تبقى اختبارات متصفح E2E وrehearsal للمخطط وموافقة منفصلة قبل الدمج/التشغيل الفعلي.

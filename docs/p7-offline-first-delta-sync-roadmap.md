@@ -181,7 +181,7 @@
 - [x] تطبيق incremental pull مع cursors مستقرة لكل مستخدم/مستأجر/فرع/كيان وترقيم صفحات بحد ثابت.
 - [x] معالجة update/delete/archive عبر change log وtombstones، مع قفل مؤشر لكل نطاق لمنع تجاوز تغييرات متزامنة.
 - [x] الإبقاء على Outbox الحالي بمعرف عملية ثابت وidempotency خادمية وترتيب اعتماديات وretry/backoff وحالات pending/applied/conflict/retryable/rejected.
-- [x] توحيد مخطط IndexedDB التشغيلي إلى إصدار 3 مع مخازن operations/grants/claims/cursors/entities/syncState/conflicts/syncMetadata.
+- [x] توحيد مخطط IndexedDB التشغيلي إلى إصدار 4 مع مخازن operations/grants/claims/fieldReadings/orphanedFieldReadings/cursors/entities/syncState/conflicts/syncMetadata.
 - [x] ترحيل مؤشرات Delta وحالات إعادة المحاولة القديمة بشكل محافظ؛ لا يُستبدل المؤشر الموجود في المخزن المشترك بمؤشر أقدم.
 - [x] حفظ تحديث Query Cache محليًا قبل اعتماد المؤشر، وإعادة المحاولة الآمنة عند فشل كتابة الكاش.
 - [x] لقطة PostgreSQL واحدة للصفوف والمؤشر مع حقول مسموح بها فقط، واختبارات للمواقع والمشتركين والمولدات والقراءات والتعرفة.
