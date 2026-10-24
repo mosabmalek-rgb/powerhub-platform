@@ -9,6 +9,7 @@ import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
 import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { getOfflineSyncRefreshTargets } from "@/lib/offline-sync-refresh";
+import { canManuallyRetry } from "@/lib/offline-sync-engine";
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
@@ -275,7 +276,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         // remain blocked until the underlying issue is reviewed.
         // A missing metadata row is ambiguous, not proof of a transient error.
         // Only an explicitly classified retryable result may be re-queued.
-        if (!metadata || metadata.outcome !== "retryable") continue;
+        if (!canManuallyRetry(metadata)) continue;
         if (metadata) {
           const { lastError: previousError, ...baseMetadata } = metadata;
           void previousError;
