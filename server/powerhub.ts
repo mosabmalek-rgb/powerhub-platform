@@ -2707,7 +2707,14 @@ export const powerhubRouter = router({
         // A five-character SQLSTATE is an explicit PostgreSQL statement failure,
         // so the RPC transaction rolled back. PGRST/network/unknown errors may
         // represent an indeterminate commit and must not trigger destructive cleanup.
-        const definitiveSqlFailure = typeof error?.code === "string" && /^[0-9A-Z]{5}$/.test(error.code);
+        const errorCode = typeof error?.code === "string" ? error.code : "";
+        // Exclude connection errors, transaction-rollback/completion-unknown,
+        // server intervention, and internal-error classes: those do not prove
+        // that the caller can safely conclude no commit happened.
+        const ambiguousSqlStateClasses = new Set(["08", "40", "57", "58", "XX"]);
+        const definitiveSqlFailure = /^[0-9A-Z]{5}$/.test(errorCode) &&
+          !ambiguousSqlStateClasses.has(errorCode.slice(0, 2)) &&
+          errorCode !== "40003";
         if (definitiveSqlFailure) {
           try { await storageRemove(receiptImageKey); }
           catch (cleanupError) { console.error("[PowerHub] payment receipt cleanup failed after definitive RPC rejection", cleanupError); }
