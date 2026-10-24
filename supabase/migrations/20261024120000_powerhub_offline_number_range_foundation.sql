@@ -250,7 +250,7 @@ create table if not exists public.powerhub_offline_number_grants (
   expires_at timestamptz not null,
   revoked_at timestamptz,
   created_at timestamptz not null default clock_timestamp(),
-  constraint powerhub_offline_number_grants_request_unique unique (user_id, device_id, number_kind, partition_key, request_id),
+  constraint powerhub_offline_number_grants_request_unique unique (user_id, device_id, request_id),
   constraint powerhub_offline_number_grants_partition_check check (
     (number_kind = 'subscriber' and partition_key = 'global')
     or
@@ -369,12 +369,12 @@ begin
   from public.powerhub_offline_number_grants g
   where g.user_id = p_user_id
     and g.device_id = p_device_id
-    and g.number_kind = p_number_kind
-    and g.partition_key = p_partition_key
     and g.request_id = p_request_id;
   if found then
     if v_existing_grant.tenant_id <> p_tenant_id
        or v_existing_grant.site_id <> p_site_id
+       or v_existing_grant.number_kind <> p_number_kind
+       or v_existing_grant.partition_key <> p_partition_key
        or cardinality(v_existing_grant.reserved_values) <> p_count then
       raise exception 'OFFLINE_NUMBER_REQUEST_IDEMPOTENCY_MISMATCH' using errcode = 'P0001';
     end if;
