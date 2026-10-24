@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Supabase migration filename/version guard
+        run: node scripts/check-supabase-migration-files.mjs
+
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs
 
