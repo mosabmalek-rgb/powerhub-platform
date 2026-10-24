@@ -51,7 +51,12 @@ export function planReadyOperations(
   now = Date.now(),
 ): SyncPlanItem[] {
   return items
-    .map((item) => ({ item, metadata: metadataByOperationId.get(item.clientOperationId) ?? createSyncMetadata(item, now) }))
+    .flatMap((item) => {
+      // Missing persisted metadata is ambiguous after a crash. Fail closed:
+      // never turn it into a fresh pending operation and replay it automatically.
+      const metadata = metadataByOperationId.get(item.clientOperationId);
+      return metadata ? [{ item, metadata }] : [];
+    })
     .filter(({ item, metadata }) => {
       // Queue status can lag behind the persisted sync result after a crash or
       // partial IndexedDB write. Never resubmit terminal failures just because
