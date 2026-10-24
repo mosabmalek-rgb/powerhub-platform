@@ -63,6 +63,7 @@ export function formatOfflineNumber(kind: OfflineNumberKind, partitionKey: strin
   if (!/^\d{4}$/.test(partitionKey) || Number(partitionKey) < 1000 || Number(partitionKey) > 9999) {
     fail("INVOICE_PARTITION_INVALID", "سنة الفاتورة غير صالحة.");
   }
+  if (Number(value) > 99_999_999) fail("INVOICE_NUMBER_EXHAUSTED", "تجاوز رقم الفاتورة نطاق الصيغة الرسمية ذات الثمانية أرقام.");
   return `INV-${partitionKey}-${value.padStart(8, "0")}`;
 }
 
