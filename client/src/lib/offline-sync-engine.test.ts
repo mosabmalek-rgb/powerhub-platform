@@ -45,6 +45,31 @@ describe("offline sync engine", () => {
     expect(planReadyOperations([a], metadata, new Set(), 500)).toHaveLength(1);
   });
 
+  it("never replays a terminal result when the queue row still says pending", () => {
+    const outcomes = ["conflict", "rejected", "applied", "already_applied"] as const;
+    for (const outcome of outcomes) {
+      const queued = item(`terminal-${outcome}`, 100);
+      const metadata = new Map([[queued.clientOperationId, {
+        ...createSyncMetadata(queued, 0),
+        outcome,
+        nextAttemptAt: 0,
+      }]]);
+      expect(planReadyOperations([queued], metadata, new Set(), 100)).toEqual([]);
+    }
+  });
+
+  it("plans a transient retry only when its retry window is due", () => {
+    const queued = { ...item("retryable", 100), status: "failed" as const };
+    const metadata = new Map([[queued.clientOperationId, {
+      ...createSyncMetadata(queued, 0),
+      outcome: "retryable" as const,
+      attempts: 1,
+      nextAttemptAt: 200,
+    }]]);
+    expect(planReadyOperations([queued], metadata, new Set(), 199)).toEqual([]);
+    expect(planReadyOperations([queued], metadata, new Set(), 200)).toHaveLength(1);
+  });
+
   it("allows manual retry only for an explicitly classified transient failure", () => {
     expect(canManuallyRetry(undefined)).toBe(false);
     expect(canManuallyRetry({ outcome: "pending" })).toBe(false);
