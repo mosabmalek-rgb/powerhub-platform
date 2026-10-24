@@ -67,6 +67,7 @@ function mapWorkToReading(item: QueuedOfflineWork, metadata?: SyncMetadataRecord
     ...(raw.isReadingReset !== undefined ? { isReadingReset: raw.isReadingReset } : {}),
     ...(raw.overrideSameDay !== undefined ? { overrideSameDay: raw.overrideSameDay } : {}),
     ...(raw.fieldVerified !== undefined ? { fieldVerified: raw.fieldVerified } : {}),
+    ...(raw.offlineInvoiceNumberClaim !== undefined ? { offlineInvoiceNumberClaim: raw.offlineInvoiceNumberClaim } : {}),
     id: item.id, clientOperationId: item.clientOperationId, userId: item.userId,
     ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
     siteId: item.siteId, createdAt: item.createdAt, status,
@@ -130,6 +131,55 @@ export async function enqueueReading(reading: NewQueuedReading) {
   await upsertSyncMetadata(syncRecord);
   return mapWorkToReading(item, syncRecord);
 }
+export async function enqueueReadingWithInvoiceNumber(
+  reading: NewQueuedReading,
+  scope: import("./offline-number-ranges").OfflineNumberScope,
+  partitionKey: string,
+): Promise<{ record: QueuedReading; formattedInvoiceNumber?: string }> {
+  assertOfflineQueueAvailable();
+  if (scope.userId !== reading.userId || scope.siteId !== reading.siteId ||
+      (reading.tenantId !== undefined && scope.tenantId !== reading.tenantId)) {
+    throw new OfflineQueueError("نطاق حجز رقم الفاتورة لا يطابق الحساب والفرع الحاليين.");
+  }
+  const mapExisting = async (item: QueuedOfflineWork) => {
+    if (item.kind !== "reading_create" || item.userId !== reading.userId ||
+        item.siteId !== reading.siteId || item.clientOperationId !== reading.clientOperationId) {
+      throw new OfflineQueueError("معرف عملية القراءة مستخدم في نطاق مختلف؛ لم يتم استبدال المسودة.");
+    }
+    const metadata = await getSyncMetadata(item.clientOperationId, { userId: item.userId, siteId: item.siteId });
+    const payload = item.payload as ReadingCreateDraft;
+    return {
+      record: mapWorkToReading(item, metadata),
+      ...(payload.offlineInvoiceNumberClaim?.formattedNumber ? { formattedInvoiceNumber: payload.offlineInvoiceNumberClaim.formattedNumber } : {}),
+    };
+  };
+  const existing = await getOfflineWork(reading.clientOperationId);
+  if (existing) return mapExisting(existing);
+  const duplicate = (await listOfflineWork({ userId: reading.userId })).find((item) => item.clientOperationId === reading.clientOperationId);
+  if (duplicate) return mapExisting(duplicate);
+  const payload: Omit<ReadingCreateDraft, "offlineInvoiceNumberClaim"> = {
+    subscriberId: reading.subscriberId, readingValue: reading.readingValue,
+    readingAt: reading.readingAt, captureMethod: reading.captureMethod,
+    ...(reading.imageData !== undefined ? { imageData: reading.imageData } : {}),
+    ...(reading.imageMime !== undefined ? { imageMime: reading.imageMime } : {}),
+    ...(reading.notes !== undefined ? { notes: reading.notes } : {}),
+    ...(reading.isReadingReset !== undefined ? { isReadingReset: reading.isReadingReset } : {}),
+    ...(reading.overrideSameDay !== undefined ? { overrideSameDay: reading.overrideSameDay } : {}),
+    ...(reading.fieldVerified !== undefined ? { fieldVerified: reading.fieldVerified } : {}),
+  };
+  const queued = await import("./offline-work-queue").then(({ enqueueOfflineReadingWithInvoiceNumber }) =>
+    enqueueOfflineReadingWithInvoiceNumber({ scope, partitionKey, clientOperationId: reading.clientOperationId, payload }));
+  const now = Date.now();
+  const syncRecord: SyncMetadataRecord = {
+    operationId: queued.item.clientOperationId, userId: queued.item.userId,
+    ...(queued.item.tenantId !== undefined ? { tenantId: queued.item.tenantId } : {}),
+    siteId: queued.item.siteId, kind: queued.item.kind, dependsOn: [], attempts: 0,
+    nextAttemptAt: now, outcome: "pending", updatedAt: now,
+  };
+  await upsertSyncMetadata(syncRecord);
+  return { record: mapWorkToReading(queued.item, syncRecord), formattedInvoiceNumber: queued.formattedInvoiceNumber };
+}
+
 export async function updateQueuedReading(
   id: string,
   patch: Partial<Pick<QueuedReading, "status" | "error" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind">>,

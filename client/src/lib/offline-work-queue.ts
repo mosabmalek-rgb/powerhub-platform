@@ -82,6 +82,14 @@ export type PaymentDraft = {
   receiptImageMime?: "image/jpeg" | "image/png" | "image/webp";
 };
 
+export type InvoiceOfflineNumberClaim = {
+  grantId: string;
+  deviceId: string;
+  numberValue: string;
+  partitionKey: string;
+  formattedNumber: string;
+};
+
 export type ReadingCreateDraft = {
   subscriberId: number;
   readingValue: string;
@@ -93,6 +101,7 @@ export type ReadingCreateDraft = {
   isReadingReset?: boolean;
   overrideSameDay?: boolean;
   fieldVerified?: boolean;
+  offlineInvoiceNumberClaim?: InvoiceOfflineNumberClaim;
 };
 
 export type PaymentDocumentationInvoiceSnapshot = {
@@ -319,6 +328,67 @@ export async function enqueueOfflineSubscriberCreateWithNumber(input: {
     };
     transaction.onerror = () => { database.close(); reject(failure ?? transaction.error ?? new OfflineWorkQueueError("تعذر حفظ المطالبة والمسودة محليًا.")); };
     transaction.onabort = () => { database.close(); reject(failure ?? transaction.error ?? new OfflineWorkQueueError("أُلغي حفظ المطالبة والمسودة محليًا.")); };
+  });
+}
+export async function enqueueOfflineReadingWithInvoiceNumber(input: {
+  scope: OfflineNumberScope;
+  partitionKey: string;
+  clientOperationId: string;
+  payload: Omit<ReadingCreateDraft, "offlineInvoiceNumberClaim">;
+}): Promise<{ item: QueuedOfflineWork; formattedInvoiceNumber: string }> {
+  const { scope, partitionKey, clientOperationId } = input;
+  const now = Date.now();
+  const database = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction([storeName, grantsStoreName, claimsStoreName], "readwrite");
+    const operations = transaction.objectStore(storeName);
+    const grantsStore = transaction.objectStore(grantsStoreName);
+    const claimsStore = transaction.objectStore(claimsStoreName);
+    const grantsRequest = grantsStore.getAll();
+    const claimsRequest = claimsStore.getAll();
+    let grants: OfflineNumberGrant[] | undefined;
+    let claims: OfflineNumberClaim[] | undefined;
+    let output: { item: QueuedOfflineWork; formattedInvoiceNumber: string } | undefined;
+    let failure: unknown;
+    let evaluated = false;
+    const evaluate = () => {
+      if (grants === undefined || claims === undefined || evaluated) return;
+      evaluated = true;
+      try {
+        const eligible = grants.filter((grant) =>
+          grant.userId === scope.userId && grant.tenantId === scope.tenantId &&
+          grant.siteId === scope.siteId && grant.deviceId === scope.deviceId &&
+          grant.numberKind === "invoice" && grant.partitionKey === partitionKey &&
+          !grant.revokedAt && grant.expiresAt > now &&
+          grant.reservedValues.some((value) => !claims!.some((claim) => claim.grantId === grant.id && claim.numberValue === value)),
+        ).sort((left, right) => left.expiresAt - right.expiresAt || left.issuedAt - right.issuedAt);
+        let selected: { grant: OfflineNumberGrant; numberValue: string; formattedNumber: string } | undefined;
+        for (const grant of eligible) {
+          const decision = selectNextAvailableOfflineNumber({ grant, claims, scope, clientOperationId, entityType: "invoice", now });
+          if (!decision.replayed && decision.numberValue) { selected = { grant, numberValue: decision.numberValue, formattedNumber: decision.formattedNumber }; break; }
+        }
+        if (!selected) throw new OfflineNumberRangeError("لا توجد أرقام فواتير محجوزة لهذه السنة على هذا الجهاز. ستُسند الفاتورة من الخادم عند المزامنة.", "NO_RESERVED_OFFLINE_INVOICE_NUMBER");
+        const claim: OfflineNumberClaim = {
+          id: crypto.randomUUID(), grantId: selected.grant.id, ...scope, numberKind: "invoice",
+          partitionKey, numberValue: selected.numberValue, clientOperationId, entityType: "invoice", createdAt: now,
+        };
+        const item = createOfflineWork({
+          userId: scope.userId, tenantId: scope.tenantId, siteId: scope.siteId, kind: "reading_create", clientOperationId,
+          payload: { ...input.payload, offlineInvoiceNumberClaim: { grantId: selected.grant.id, deviceId: scope.deviceId, numberValue: selected.numberValue, partitionKey, formattedNumber: selected.formattedNumber } },
+        });
+        // The invoice claim and reading operation commit or abort together.
+        claimsStore.add(claim);
+        operations.add(item);
+        output = { item, formattedInvoiceNumber: selected.formattedNumber };
+      } catch (error) { failure = error; transaction.abort(); }
+    };
+    grantsRequest.onsuccess = () => { grants = grantsRequest.result as OfflineNumberGrant[]; evaluate(); };
+    claimsRequest.onsuccess = () => { claims = claimsRequest.result as OfflineNumberClaim[]; evaluate(); };
+    grantsRequest.onerror = () => { failure = grantsRequest.error; transaction.abort(); };
+    claimsRequest.onerror = () => { failure = claimsRequest.error; transaction.abort(); };
+    transaction.oncomplete = () => { database.close(); if (output) resolve(output); else reject(new OfflineNumberRangeError("لم ينتج حجز رقم الفاتورة والمسودة نتيجة مكتملة.", "OFFLINE_INVOICE_ENQUEUE_EMPTY")); };
+    transaction.onerror = () => { database.close(); reject(failure ?? transaction.error ?? new OfflineWorkQueueError("تعذر حفظ مطالبة الفاتورة والمسودة محليًا.")); };
+    transaction.onabort = () => { database.close(); reject(failure ?? transaction.error ?? new OfflineWorkQueueError("أُلغي حفظ مطالبة الفاتورة والمسودة محليًا.")); };
   });
 }
 export async function getOfflineWork(id: string): Promise<QueuedOfflineWork | undefined> {
