@@ -1,3 +1,4 @@
+import { openLegacyOfflineDatabaseIfPresent, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
 export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs";
 
 export type DeltaChange<Row extends Record<string, unknown> = Record<string, unknown>> = {
@@ -39,8 +40,6 @@ export interface DeltaSyncStorage<Row extends Record<string, unknown> = Record<s
   clearUser(userId: number): Promise<void>;
 }
 
-const DB_NAME = "powerhub-offline-delta-sync";
-const DB_VERSION = 2;
 const CURSOR_STORE = "cursors";
 const ENTITY_STORE = "entities";
 
@@ -91,26 +90,86 @@ export function applyDeltaChanges<Row extends Record<string, unknown>>(
   return [...records.values()];
 }
 
-function openDatabase() {
-  if (typeof indexedDB === "undefined") throw new Error("لا يدعم هذا المتصفح حفظ بيانات المزامنة.");
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(CURSOR_STORE)) {
-        db.createObjectStore(CURSOR_STORE, { keyPath: ["userId", "tenantId", "siteId", "entityType"] });
+
+let legacyDeltaMigration: Promise<void> | null = null;
+
+async function migrateLegacyDeltaDatabase(target: IDBDatabase) {
+  const legacy = await openLegacyOfflineDatabaseIfPresent("powerhub-offline-delta-sync", [CURSOR_STORE, ENTITY_STORE]);
+  if (!legacy) return;
+  const legacyData = await new Promise<{
+    cursors: DeltaCursorRecord[];
+    entities: Array<DeltaEntityRecord & { scopeKey: string }>;
+  }>((resolve, reject) => {
+    const tx = legacy.transaction([CURSOR_STORE, ENTITY_STORE], "readonly");
+    const cursorsRequest = tx.objectStore(CURSOR_STORE).getAll();
+    const entitiesRequest = tx.objectStore(ENTITY_STORE).getAll();
+    let cursors: DeltaCursorRecord[] = [];
+    let entities: Array<DeltaEntityRecord & { scopeKey: string }> = [];
+    cursorsRequest.onsuccess = () => { cursors = cursorsRequest.result as DeltaCursorRecord[]; };
+    entitiesRequest.onsuccess = () => { entities = entitiesRequest.result as Array<DeltaEntityRecord & { scopeKey: string }>; };
+    cursorsRequest.onerror = () => { try { tx.abort(); } catch {} };
+    entitiesRequest.onerror = () => { try { tx.abort(); } catch {} };
+    tx.oncomplete = () => { legacy.close(); resolve({ cursors, entities }); };
+    tx.onerror = () => { legacy.close(); reject(tx.error ?? new Error("تعذر قراءة مؤشرات المزامنة السابقة.")); };
+    tx.onabort = () => { legacy.close(); reject(tx.error ?? new Error("أُلغيت قراءة مؤشرات المزامنة السابقة.")); };
+  });
+  if (!legacyData.cursors.length) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = target.transaction([CURSOR_STORE, ENTITY_STORE], "readwrite");
+    const cursorStore = tx.objectStore(CURSOR_STORE);
+    const entityStore = tx.objectStore(ENTITY_STORE);
+    const cursorsRequest = cursorStore.getAll();
+    const entitiesRequest = entityStore.getAll();
+    let existingCursors: DeltaCursorRecord[] = [];
+    let existingEntities: Array<DeltaEntityRecord & { scopeKey: string }> = [];
+    let cursorsReady = false;
+    let entitiesReady = false;
+    let copied = false;
+    const merge = () => {
+      if (copied || !cursorsReady || !entitiesReady) return;
+      copied = true;
+      const presentScopeKeys = new Set(existingCursors.map((row) => scopeKey(row)));
+      const copiedScopes = new Set<string>();
+      const presentEntityKeys = new Set(existingEntities.map((row) => `${row.scopeKey}|${row.entityId}`));
+      for (const record of legacyData.cursors) {
+        const key = scopeKey(record);
+        if (presentScopeKeys.has(key)) continue;
+        cursorStore.put(record);
+        copiedScopes.add(key);
       }
-      if (!db.objectStoreNames.contains(ENTITY_STORE)) {
-        const entities = db.createObjectStore(ENTITY_STORE, { keyPath: ["scopeKey", "entityId"] });
-        entities.createIndex("byScope", "scopeKey", { unique: false });
-        entities.createIndex("byUser", "userId", { unique: false });
+      for (const record of legacyData.entities) {
+        if (!copiedScopes.has(record.scopeKey)) continue;
+        if (presentEntityKeys.has(`${record.scopeKey}|${record.entityId}`)) continue;
+        entityStore.put(record);
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("تعذر فتح مخزن المزامنة المحلي."));
-    request.onblocked = () => reject(new Error("تعذر ترقية مخزن المزامنة؛ أغلق تبويبات PowerHub الأخرى ثم أعد المحاولة."));
+    cursorsRequest.onsuccess = () => { existingCursors = cursorsRequest.result as DeltaCursorRecord[]; cursorsReady = true; merge(); };
+    entitiesRequest.onsuccess = () => { existingEntities = entitiesRequest.result as Array<DeltaEntityRecord & { scopeKey: string }>; entitiesReady = true; merge(); };
+    cursorsRequest.onerror = () => { try { tx.abort(); } catch {} };
+    entitiesRequest.onerror = () => { try { tx.abort(); } catch {} };
+    tx.oncomplete = () => {
+      resolve();
+      const removal = indexedDB.deleteDatabase("powerhub-offline-delta-sync");
+      removal.onerror = () => undefined;
+      removal.onblocked = () => undefined;
+    };
+    tx.onerror = () => reject(tx.error ?? new Error("تعذر ترحيل مؤشرات المزامنة القديمة."));
+    tx.onabort = () => reject(tx.error ?? new Error("أُلغِي ترحيل مؤشرات المزامنة القديمة."));
   });
 }
+
+async function openDatabase() {
+  const db = await openOfflineWorkspaceDatabase();
+  if (!legacyDeltaMigration) {
+    legacyDeltaMigration = migrateLegacyDeltaDatabase(db).catch((error) => {
+      console.warn("[PowerHub] Legacy Delta cache migration deferred to a server snapshot.", error);
+    });
+  }
+  await legacyDeltaMigration;
+  return db;
+}
+
 
 function cursorKey(scope: DeltaCursorScope) {
   return [scope.userId, scope.tenantId, scope.siteId, scope.entityType];
@@ -126,6 +185,54 @@ export async function getDeltaCursor(scope: DeltaCursorScope): Promise<string | 
     tx.oncomplete = () => db.close();
     tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر قراءة مؤشر المزامنة.")); };
     tx.onabort = () => { db.close(); reject(tx.error ?? new Error("أُلغيت قراءة مؤشر المزامنة.")); };
+  });
+}
+
+
+export type DeltaSyncStatusRecord = DeltaCursorScope & {
+  cursor: string;
+  lastSyncedAt: number | null;
+  lastAttemptAt: number;
+  outcome: "success" | "failed";
+  lastError?: string;
+};
+
+export async function getDeltaSyncStatus(scope: DeltaCursorScope): Promise<DeltaSyncStatusRecord | undefined> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("syncState", "readonly");
+    const request = tx.objectStore("syncState").get(cursorKey(scope));
+    request.onsuccess = () => resolve(request.result as DeltaSyncStatusRecord | undefined);
+    request.onerror = () => reject(request.error ?? new Error("تعذر قراءة حالة المزامنة."));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر قراءة حالة المزامنة.")); };
+  });
+}
+
+export async function saveDeltaSyncStatus(record: DeltaSyncStatusRecord): Promise<void> {
+  assertCursor(record.cursor);
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("syncState", "readwrite");
+    tx.objectStore("syncState").put(record);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر حفظ حالة المزامنة.")); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("أُلغي حفظ حالة المزامنة.")); };
+  });
+}
+
+export async function listDeltaSyncStatuses(options: { userId: number; siteId?: number }): Promise<DeltaSyncStatusRecord[]> {
+  if (!Number.isSafeInteger(options.userId) || options.userId < 1) return [];
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("syncState", "readonly");
+    const request = tx.objectStore("syncState").getAll();
+    request.onsuccess = () => resolve((request.result as DeltaSyncStatusRecord[])
+      .filter((row) => row.userId === options.userId && (options.siteId === undefined || row.siteId === options.siteId))
+      .sort((a, b) => b.lastAttemptAt - a.lastAttemptAt));
+    request.onerror = () => reject(request.error ?? new Error("تعذر قراءة حالات المزامنة."));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر قراءة حالات المزامنة.")); };
   });
 }
 
@@ -294,14 +401,22 @@ export async function clearDeltaSyncDataForUser(userId: number) {
   if (!Number.isSafeInteger(userId) || userId < 1) return;
   const db = await openDatabase();
   return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction([CURSOR_STORE, ENTITY_STORE], "readwrite");
+    const tx = db.transaction([CURSOR_STORE, ENTITY_STORE, "syncState"], "readwrite");
     const cursors = tx.objectStore(CURSOR_STORE);
     const entities = tx.objectStore(ENTITY_STORE);
+    const syncState = tx.objectStore("syncState");
     const cursorRequest = cursors.getAll();
     cursorRequest.onsuccess = () => {
       for (const record of cursorRequest.result as DeltaCursorRecord[]) {
         if (record.userId === userId) cursors.delete(cursorKey(record));
       }
+      const stateRequest = syncState.getAll();
+      stateRequest.onsuccess = () => {
+        for (const record of stateRequest.result as DeltaSyncStatusRecord[]) {
+          if (record.userId === userId) syncState.delete(cursorKey(record));
+        }
+      };
+      stateRequest.onerror = () => { try { tx.abort(); } catch {} };
     };
     cursorRequest.onerror = () => { try { tx.abort(); } catch {} };
     const entityKeysRequest = entities.index("byUser").getAllKeys(IDBKeyRange.only(userId));

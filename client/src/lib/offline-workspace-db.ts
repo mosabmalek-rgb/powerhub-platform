@@ -77,3 +77,41 @@ export function openOfflineWorkspaceDatabase(): Promise<IDBDatabase> {
     request.onblocked = () => reject(new Error("تعذر ترقية مخزن PowerHub المحلي؛ أغلق تبويبات PowerHub الأخرى ثم أعد المحاولة."));
   });
 }
+
+/** Open an optional legacy DB only if it already exists; never retain a probe-created empty DB. */
+export async function openLegacyOfflineDatabaseIfPresent(
+  databaseName: string,
+  requiredStores: readonly string[],
+): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === "undefined") return null;
+  const factory = indexedDB as IDBFactory & { databases?: () => Promise<Array<{ name?: string }>> };
+  if (typeof factory.databases === "function") {
+    try {
+      const databases = await factory.databases();
+      if (!databases.some((entry) => entry.name === databaseName)) return null;
+    } catch {
+      // Fall through for browsers without reliable database enumeration.
+    }
+  }
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(databaseName);
+    let createdDuringProbe = false;
+    request.onupgradeneeded = () => { createdDuringProbe = true; };
+    request.onsuccess = () => {
+      const db = request.result;
+      if (createdDuringProbe || requiredStores.some((store) => !db.objectStoreNames.contains(store))) {
+        db.close();
+        if (createdDuringProbe) {
+          const removal = indexedDB.deleteDatabase(databaseName);
+          removal.onsuccess = () => resolve(null);
+          removal.onerror = () => resolve(null);
+          removal.onblocked = () => resolve(null);
+        } else resolve(null);
+        return;
+      }
+      resolve(db);
+    };
+    request.onerror = () => reject(request.error ?? new Error("تعذر فتح مخزن المزامنة السابق."));
+    request.onblocked = () => resolve(null);
+  });
+}
