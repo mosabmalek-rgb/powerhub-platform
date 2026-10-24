@@ -68,7 +68,7 @@ describe("offline delta sync", () => {
     const pull = vi.fn()
       .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "upsert", { id: 1, name: "A" })] }))
       .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "9", has_more: false, changes: [change("9", "2", "delete", null)] }));
-    const result = await pullDeltaPages({ scope, storage, afterCursor: "3", pull, rebuildSnapshot: async () => [] });
+    const result = await pullDeltaPages({ scope, storage, afterCursor: "3", pull, rebuildSnapshot: async cursor => ({ cursor, rows: [] }) });
     expect(pull.mock.calls).toEqual([
       [{ afterCursor: "3", throughCursor: null, pageSize: 200 }],
       [{ afterCursor: "4", throughCursor: "9", pageSize: 200 }],
@@ -89,7 +89,7 @@ describe("offline delta sync", () => {
     await expect(pullDeltaPages({
       scope, storage, afterCursor: "3", pull,
       applyPage: async () => { throw new Error("simulated cache persistence failure"); },
-      rebuildSnapshot: async () => [],
+      rebuildSnapshot: async cursor => ({ cursor, rows: [] }),
     })).rejects.toThrow(/simulated cache persistence failure/);
     expect(await storage.getCursor(scope)).toBe("3");
     expect(await storage.listEntities(scope)).toEqual([]);
@@ -97,7 +97,7 @@ describe("offline delta sync", () => {
     const result = await pullDeltaPages({
       scope, storage, afterCursor: "3", pull,
       applyPage: async () => {},
-      rebuildSnapshot: async () => [],
+      rebuildSnapshot: async cursor => ({ cursor, rows: [] }),
     });
     expect(result.cursor).toBe("4");
     expect(await storage.getCursor(scope)).toBe("4");
@@ -111,9 +111,9 @@ describe("offline delta sync", () => {
       .mockResolvedValueOnce(page({ current_cursor: "22", through_cursor: "22", next_cursor: "22", changes: [change("22", "7", "upsert", { id: 7 })] }));
     const result = await pullDeltaPages({
       scope, storage, afterCursor: null, pull,
-      rebuildSnapshot: async cursor => cursor === "20" ? [{ id: 6, name: "snapshot" }] : [],
+      rebuildSnapshot: async () => ({ cursor: "21", rows: [{ id: 6, name: "snapshot" }] }),
     });
-    expect(pull.mock.calls[1][0]).toEqual({ afterCursor: "20", throughCursor: null, pageSize: 200 });
+    expect(pull.mock.calls[1][0]).toEqual({ afterCursor: "21", throughCursor: null, pageSize: 200 });
     expect(await storage.getCursor(scope)).toBe("22");
     expect((await storage.listEntities(scope)).map(x => x.entityId).sort()).toEqual(["6", "7"]);
     expect(result).toEqual({ cursor: "22", appliedChanges: 1, resetRequired: true });
@@ -123,18 +123,18 @@ describe("offline delta sync", () => {
     const pull = vi.fn()
       .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "delete", null)] }))
       .mockResolvedValueOnce(page({ through_cursor: "10", current_cursor: "10", next_cursor: "10", has_more: false }));
-    await expect(pullDeltaPages({ scope, storage: memoryStorage(), afterCursor: "3", pull, rebuildSnapshot: async () => [] }))
+    await expect(pullDeltaPages({ scope, storage: memoryStorage(), afterCursor: "3", pull, rebuildSnapshot: async cursor => ({ cursor, rows: [] }) }))
       .rejects.toThrow(/تغيّر حد المزامنة/);
   });
 
   it("rejects malformed terminal cursors and a page whose entity type differs from the requested scope", async () => {
     await expect(pullDeltaPages({
       scope, storage: memoryStorage(), afterCursor: null,
-      pull: async () => page({ next_cursor: "not-a-cursor" }), rebuildSnapshot: async () => [],
+      pull: async () => page({ next_cursor: "not-a-cursor" }), rebuildSnapshot: async cursor => ({ cursor, rows: [] }),
     })).rejects.toThrow(/مؤشر المزامنة/);
     await expect(pullDeltaPages({
       scope, storage: memoryStorage(), afterCursor: null,
-      pull: async () => page({ entity_type: "generators" }), rebuildSnapshot: async () => [],
+      pull: async () => page({ entity_type: "generators" }), rebuildSnapshot: async cursor => ({ cursor, rows: [] }),
     })).rejects.toThrow(/لا تطابق نوع البيانات/);
   });
 

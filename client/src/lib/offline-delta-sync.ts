@@ -334,7 +334,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   pageSize?: number;
   pull: (args: { afterCursor: string | null; throughCursor: string | null; pageSize: number }) => Promise<DeltaPage<Row>>;
   applyPage?: (page: DeltaPage<Row>) => Promise<void>;
-  rebuildSnapshot: (snapshotCursor: string) => Promise<readonly Row[]>;
+  rebuildSnapshot: (requestedCursor: string) => Promise<{ cursor: string; rows: readonly Row[] }>;
   storage?: DeltaSyncStorage<Row>;
 }): Promise<{ cursor: string; appliedChanges: number; resetRequired: boolean }> {
   const pageSize = input.pageSize ?? 200;
@@ -349,9 +349,9 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     const page = await input.pull({ afterCursor: cursor, throughCursor: through, pageSize });
     if (page.entity_type !== input.scope.entityType) throw new Error("استجابة المزامنة لا تطابق نوع البيانات المطلوب.");
     if (page.status === "reset_required") {
-      const snapshotCursor = assertCursor(page.snapshot_cursor ?? page.current_cursor);
-      const snapshotRows = await input.rebuildSnapshot(snapshotCursor);
-      await storage.replaceSnapshot(input.scope, snapshotRows, snapshotCursor);
+      const snapshot = await input.rebuildSnapshot(assertCursor(page.snapshot_cursor ?? page.current_cursor));
+      const snapshotCursor = assertCursor(snapshot.cursor);
+      await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor);
       cursor = snapshotCursor;
       through = null;
       resetRequired = true;
