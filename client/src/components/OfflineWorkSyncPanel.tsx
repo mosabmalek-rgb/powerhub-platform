@@ -8,6 +8,7 @@ import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadat
 import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
 import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
+import { getOfflineSyncRefreshTargets } from "@/lib/offline-sync-refresh";
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
@@ -56,46 +57,48 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const createReading = trpc.powerhub.readings.create.useMutation();
 
   const refresh = async (results: readonly { item: QueuedOfflineWork; outcome: string }[]) => {
-    const successful = results.filter((result) =>
-      result.outcome === "applied" || result.outcome === "already_applied",
-    );
-    const kinds = new Set(successful.map((result) => result.item.kind));
+    const targets = new Set(getOfflineSyncRefreshTargets(results));
     const refreshes: Promise<unknown>[] = [];
 
-    if (kinds.has("subscriber_create") || kinds.has("subscriber_update")) {
+    if (targets.has("subscribers")) {
       refreshes.push(
         utils.powerhub.subscribers.list.invalidate({ siteId }),
         utils.powerhub.subscribers.directoryPage.invalidate({ siteId }),
-        utils.powerhub.subscribers.quota.invalidate({ siteId }),
-        utils.powerhub.dashboard.summary.invalidate({ siteId }),
       );
     }
-    if (kinds.has("generator_create") || kinds.has("generator_update")) {
+    if (targets.has("subscriber-quota")) {
+      refreshes.push(utils.powerhub.subscribers.quota.invalidate({ siteId }));
+    }
+    if (targets.has("generators")) {
       refreshes.push(utils.powerhub.generators.list.invalidate({ siteId }));
     }
-    if (kinds.has("reading_create")) {
+    if (targets.has("readings")) {
       refreshes.push(utils.powerhub.readings.page.invalidate({ siteId, limit: 200 }));
     }
-    if (kinds.has("invoice_issue")) {
+    if (targets.has("invoices")) {
+      refreshes.push(utils.powerhub.invoices.list.invalidate({ siteId }));
+    }
+    if (targets.has("invoice-pages")) {
       refreshes.push(
-        utils.powerhub.invoices.list.invalidate({ siteId }),
         utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 }),
         utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 }),
-        utils.powerhub.dashboard.summary.invalidate({ siteId }),
-        utils.powerhub.dashboard.financialOverview.invalidate({ siteId, scope: "branch" }),
-        utils.powerhub.dashboard.periodMetrics.invalidate({ siteId, scope: "branch" }),
       );
     }
-    if (kinds.has("payment_create") || kinds.has("payment_documentation_approve") || kinds.has("payment_documentation_submit")) {
+    if (targets.has("payments")) {
+      refreshes.push(utils.powerhub.payments.list.invalidate({ siteId }));
+    }
+    if (targets.has("dashboard-summary")) {
+      refreshes.push(utils.powerhub.dashboard.summary.invalidate({ siteId }));
+    }
+    if (targets.has("financial-dashboard")) {
       refreshes.push(
-        utils.powerhub.payments.list.invalidate({ siteId }),
-        utils.powerhub.invoices.list.invalidate({ siteId }),
-        utils.powerhub.dashboard.summary.invalidate({ siteId }),
         utils.powerhub.dashboard.financialOverview.invalidate({ siteId, scope: "branch" }),
         utils.powerhub.dashboard.periodMetrics.invalidate({ siteId, scope: "branch" }),
       );
     }
-    if (successful.length) refreshes.push(utils.powerhub.audit.list.invalidate({ siteId }));
+    if (targets.has("audit")) {
+      refreshes.push(utils.powerhub.audit.list.invalidate({ siteId }));
+    }
     await Promise.all(refreshes);
   };
 
@@ -270,7 +273,9 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const metadata = metadataRows.find((row) => row.operationId === item.clientOperationId);
         // Only retry transient failures. Validation/auth rejection and conflicts
         // remain blocked until the underlying issue is reviewed.
-        if (metadata && metadata.outcome !== "retryable") continue;
+        // A missing metadata row is ambiguous, not proof of a transient error.
+        // Only an explicitly classified retryable result may be re-queued.
+        if (!metadata || metadata.outcome !== "retryable") continue;
         if (metadata) {
           const { lastError: previousError, ...baseMetadata } = metadata;
           void previousError;
