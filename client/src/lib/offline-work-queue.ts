@@ -255,8 +255,10 @@ export async function enqueueOfflineWork(
   const database = await openDatabase();
   return new Promise<QueuedOfflineWork>((resolve, reject) => {
     const transaction = database.transaction([storeName, syncMetadataStoreName], "readwrite");
-    transaction.objectStore(storeName).put(record);
-    transaction.objectStore(syncMetadataStoreName).put(createInitialSyncMetadataRecord(record));
+    // A repeated operation ID must fail the whole transaction, never overwrite
+    // a prior draft or its terminal result with a new pending state.
+    transaction.objectStore(storeName).add(record);
+    transaction.objectStore(syncMetadataStoreName).add(createInitialSyncMetadataRecord(record));
     transaction.oncomplete = () => { database.close(); resolve(record); };
     transaction.onerror = () => { const error = transaction.error; database.close(); reject(error ?? new OfflineWorkQueueError("تعذر حفظ المسودة وحالة مزامنتها معًا.")); };
     transaction.onabort = () => { const error = transaction.error; database.close(); reject(error ?? new OfflineWorkQueueError("أُلغيت معاملة حفظ المسودة وحالة مزامنتها.")); };

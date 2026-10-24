@@ -14,6 +14,10 @@ const offlineReadingQueue = readFileSync(
   resolve(process.cwd(), "client/src/lib/offline-reading-queue.ts"),
   "utf8",
 );
+const offlineWorkQueue = readFileSync(
+  resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"),
+  "utf8",
+);
 
 describe("offline sync UI contract", () => {
   it("refreshes the field-reading outbox view after the sync result is persisted", () => {
@@ -44,5 +48,9 @@ describe("offline sync UI contract", () => {
     expect(offlineReadingQueue).toContain("getSyncMetadata(queued.item.clientOperationId");
     expect(offlineReadingQueue).toContain("enqueueOfflineWork({");
     expect(offlineReadingQueue).toContain("enqueueOfflineReadingWithInvoiceNumber");
+    expect(offlineReadingQueue).toContain('state?.outcome === "applied" || state?.outcome === "already_applied"');
+    expect(offlineReadingQueue).toContain("await removeOfflineConflict(item.userId, item.clientOperationId)");
+    expect(offlineWorkQueue).toContain("transaction.objectStore(storeName).add(record)");
+    expect(offlineWorkQueue).toContain("transaction.objectStore(syncMetadataStoreName).add(createInitialSyncMetadataRecord(record))");
   });
 });

@@ -7,7 +7,7 @@ import {
   type SyncMetadataRecord,
 } from "./offline-sync-metadata";
 import { classifySyncResult, computeBackoffDelay, scheduleRetry, SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
-import { removeOfflineConflict, upsertOfflineConflict } from "./offline-workspace-db";
+import { listOfflineConflicts, removeOfflineConflict, upsertOfflineConflict } from "./offline-workspace-db";
 
 export type QueuedReadingStatus = "pending" | "conflict" | "failed";
 export type QueuedReadingErrorKind = "retryable" | "conflict" | "terminal";
@@ -79,10 +79,75 @@ function mapWorkToReading(item: QueuedOfflineWork, metadata?: SyncMetadataRecord
 }
 /** Field readings are an adapter over the canonical operations Outbox. */
 export async function listQueuedReadings(options: { userId: number; siteId?: number }) {
-  const items = await listOfflineWork(options); // Runs the one-time legacy migration first.
-  const metadata = await listSyncMetadata(options);
+  const [items, metadata, conflictRows] = await Promise.all([
+    listOfflineWork(options), // Runs the one-time legacy migration first.
+    listSyncMetadata(options),
+    listOfflineConflicts(options),
+  ]);
   const byOperation = new Map(metadata.map((row) => [row.operationId, row]));
-  return items.filter((item) => isReadingWork(item) && item.status !== "applied")
+  const conflictIds = new Set(conflictRows.map((row) => row.operationId));
+  const normalized: QueuedOfflineWork[] = [];
+
+  for (const item of items) {
+    if (!isReadingWork(item)) continue;
+    if (item.status === "applied") {
+      const payload = item.payload as ReadingCreateDraft;
+      const sanitizedPayload: ReadingCreateDraft = {
+        ...payload, imageData: undefined, imageMime: undefined, offlineInvoiceNumberClaim: undefined,
+      };
+      if (payload.imageData !== undefined || payload.imageMime !== undefined || payload.offlineInvoiceNumberClaim !== undefined) {
+        await updateOfflineWork(item.id, { payload: sanitizedPayload });
+      }
+      normalized.push({ ...item, payload: sanitizedPayload });
+      continue;
+    }
+
+    const state = byOperation.get(item.clientOperationId);
+    if (state?.outcome === "applied" || state?.outcome === "already_applied") {
+      // Metadata may commit before the queue row update when the tab crashes.
+      // Reconcile locally from the terminal server-confirmed result; never replay.
+      const payload = item.payload as ReadingCreateDraft;
+      const sanitizedPayload: ReadingCreateDraft = {
+        ...payload, imageData: undefined, imageMime: undefined, offlineInvoiceNumberClaim: undefined,
+      };
+      await updateOfflineWork(item.id, { status: "applied", error: undefined, payload: sanitizedPayload });
+      await removeOfflineConflict(item.userId, item.clientOperationId);
+      normalized.push({ ...item, status: "applied", error: undefined, payload: sanitizedPayload });
+      continue;
+    }
+
+    if (state?.outcome === "conflict") {
+      const message = state.lastError ?? "تعارض قراءة يحتاج إلى مراجعة.";
+      if (item.status !== "conflict" || item.error !== message) {
+        await updateOfflineWork(item.id, { status: "conflict", error: message });
+      }
+      if (!conflictIds.has(item.clientOperationId)) {
+        await upsertOfflineConflict({
+          userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+          siteId: item.siteId, operationId: item.clientOperationId, kind: item.kind,
+          outcome: "conflict", message, createdAt: item.createdAt, updatedAt: Date.now(),
+          localPayload: item.payload,
+        });
+      }
+      normalized.push({ ...item, status: "conflict", error: message });
+      continue;
+    }
+
+    if (state?.outcome === "retryable" || state?.outcome === "rejected") {
+      const message = state.lastError ?? (state.outcome === "rejected"
+        ? "رفض الخادم القراءة." : "تعذر مزامنة القراءة مؤقتاً.");
+      if (item.status !== "failed" || item.error !== message) {
+        await updateOfflineWork(item.id, { status: "failed", error: message });
+      }
+      if (conflictIds.has(item.clientOperationId)) await removeOfflineConflict(item.userId, item.clientOperationId);
+      normalized.push({ ...item, status: "failed", error: message });
+      continue;
+    }
+
+    normalized.push(item);
+  }
+
+  return normalized.filter((item) => item.status !== "applied")
     .map((item) => mapWorkToReading(item, byOperation.get(item.clientOperationId)))
     .sort((a, b) => a.createdAt - b.createdAt);
 }
