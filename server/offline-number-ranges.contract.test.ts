@@ -9,6 +9,7 @@ const migration = readFileSync(
 const route = readFileSync(resolve(process.cwd(), "server/powerhub-offline-numbering.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-number-ranges.ts"), "utf8");
 const queue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
+const fieldQueue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-reading-queue.ts"), "utf8");
 const workspace = readFileSync(resolve(process.cwd(), "client/src/lib/offline-workspace-db.ts"), "utf8");
 
 describe("PowerHub offline number range foundation contract", () => {
@@ -47,7 +48,7 @@ describe("PowerHub offline number range foundation contract", () => {
 
   it("keeps the outbox, number ranges, delta state, and conflicts in one versioned operational IndexedDB", () => {
     expect(workspace).toContain('OFFLINE_WORKSPACE_DATABASE_NAME = "powerhub-offline-workspace"');
-    expect(workspace).toContain("OFFLINE_WORKSPACE_DATABASE_VERSION = 3");
+    expect(workspace).toContain("OFFLINE_WORKSPACE_DATABASE_VERSION = 4");
     expect(workspace).toContain('ensureStore(db, tx, "operations", "id")');
     expect(workspace).toContain('ensureStore(db, tx, "grants", "id"');
     expect(workspace).toContain('ensureStore(db, tx, "claims", "id"');
@@ -56,6 +57,12 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(workspace).toContain('ensureStore(db, tx, "syncState"');
     expect(workspace).toContain('ensureStore(db, tx, "conflicts"');
     expect(workspace).toContain('ensureStore(db, tx, "syncMetadata"');
+    expect(workspace).toContain('ensureStore(db, tx, "fieldReadings"');
+    expect(workspace).toContain('ensureStore(db, tx, "orphanedFieldReadings"');
+    expect(fieldQueue).toContain("openOfflineWorkspaceDatabase()");
+    expect(fieldQueue).toContain('openLegacyOfflineDatabaseIfPresent(legacyDatabaseName, [legacyStoreName])');
+    expect(fieldQueue).toContain('"missing-user-scope"');
+    expect(fieldQueue).toContain('"missing-site-scope"');
     expect(queue).toContain("openOfflineWorkspaceDatabase()");
     expect(client).toContain("openOfflineWorkspaceDatabase()");
   });

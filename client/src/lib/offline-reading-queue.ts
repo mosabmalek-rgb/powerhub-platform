@@ -1,3 +1,5 @@
+import { openLegacyOfflineDatabaseIfPresent, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
+
 export type QueuedReadingStatus = "pending" | "conflict" | "failed";
 export type QueuedReadingErrorKind = "retryable" | "conflict" | "terminal";
 
@@ -25,9 +27,11 @@ export type QueuedReading = {
   error?: string;
 };
 
-const databaseName = "powerhub-field-queue";
-const storeName = "readings";
-const orphanedStoreName = "orphaned_readings";
+const legacyDatabaseName = "powerhub-field-queue";
+const legacyStoreName = "readings";
+const legacyOrphanedStoreName = "orphaned_readings";
+const storeName = "fieldReadings";
+const orphanedStoreName = "orphanedFieldReadings";
 export const READING_SYNC_MAX_ATTEMPTS = 5;
 const READING_SYNC_BASE_DELAY_MS = 1_000;
 const READING_SYNC_MAX_DELAY_MS = 5 * 60_000;
@@ -69,55 +73,128 @@ export function isQueuedReadingReadyForSync(record: QueuedReading, now = Date.no
     && record.nextAttemptAt <= now;
 }
 
-function openQueueDatabase() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    assertOfflineQueueAvailable();
-    const request = indexedDB.open(databaseName, 3);
-    request.onupgradeneeded = (event) => {
-      const database = request.result;
-      const transaction = request.transaction!;
-      const store = database.objectStoreNames.contains(storeName)
-        ? transaction.objectStore(storeName)
-        : database.createObjectStore(storeName, { keyPath: "id" });
+let legacyReadingQueueMigration: Promise<void> | null = null;
 
-      if ((event as IDBVersionChangeEvent).oldVersion < 2) {
-        const cursorRequest = store.openCursor();
-        cursorRequest.onsuccess = () => {
-          const cursor = cursorRequest.result;
-          if (!cursor) return;
-          const legacy = cursor.value as Partial<QueuedReading> & { meterId?: number };
-          if (!legacy.subscriberId) cursor.delete();
-          else {
-            const { meterId: _meterId, ...subscriberReading } = legacy;
-            void _meterId;
-            cursor.update(subscriberReading);
-          }
-          cursor.continue();
-        };
+async function migrateLegacyReadingQueue(target: IDBDatabase) {
+  const legacy = await openLegacyOfflineDatabaseIfPresent(legacyDatabaseName, [legacyStoreName]);
+  if (!legacy) return;
+  const sourceStores = [
+    legacyStoreName,
+    ...(legacy.objectStoreNames.contains(legacyOrphanedStoreName) ? [legacyOrphanedStoreName] : []),
+  ];
+  const source = await new Promise<{
+    readings: Array<Record<string, unknown>>;
+    orphaned: Array<Record<string, unknown>>;
+  }>((resolve, reject) => {
+    const tx = legacy.transaction(sourceStores, "readonly");
+    const readingsRequest = tx.objectStore(legacyStoreName).getAll();
+    const orphanedRequest = sourceStores.includes(legacyOrphanedStoreName)
+      ? tx.objectStore(legacyOrphanedStoreName).getAll()
+      : null;
+    let readings: Array<Record<string, unknown>> = [];
+    let orphaned: Array<Record<string, unknown>> = [];
+    readingsRequest.onsuccess = () => { readings = readingsRequest.result as Array<Record<string, unknown>>; };
+    if (orphanedRequest) orphanedRequest.onsuccess = () => { orphaned = orphanedRequest.result as Array<Record<string, unknown>>; };
+    readingsRequest.onerror = () => { try { tx.abort(); } catch {} };
+    if (orphanedRequest) orphanedRequest.onerror = () => { try { tx.abort(); } catch {} };
+    tx.oncomplete = () => { legacy.close(); resolve({ readings, orphaned }); };
+    tx.onerror = () => { legacy.close(); reject(tx.error ?? new Error("تعذر قراءة طابور القراءات القديم.")); };
+    tx.onabort = () => { legacy.close(); reject(tx.error ?? new Error("أُلغي ترحيل طابور القراءات القديم.")); };
+  });
+
+  const validReadings: Array<Record<string, unknown> & {
+    id: string; userId: number; siteId: number; subscriberId: number;
+  }> = [];
+  const quarantined: Array<Record<string, unknown> & {
+    id: string; quarantinedAt: number; quarantineReason: string;
+  }> = [];
+
+  for (const raw of source.readings) {
+    const { meterId: _meterId, ...normalized } = raw as Record<string, unknown> & { meterId?: unknown };
+    void _meterId;
+    const id = String(normalized.id ?? crypto.randomUUID());
+    const userId = Number(normalized.userId);
+    const siteId = Number(normalized.siteId);
+    const subscriberId = Number(normalized.subscriberId);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      quarantined.push({ ...normalized, id, quarantinedAt: Date.now(), quarantineReason: "missing-user-scope" });
+    } else if (!Number.isSafeInteger(siteId) || siteId < 1) {
+      quarantined.push({ ...normalized, id, quarantinedAt: Date.now(), quarantineReason: "missing-site-scope" });
+    } else if (!Number.isSafeInteger(subscriberId) || subscriberId < 1) {
+      quarantined.push({ ...normalized, id, quarantinedAt: Date.now(), quarantineReason: "missing-subscriber-scope" });
+    } else {
+      validReadings.push({
+        ...normalized,
+        id,
+        userId,
+        siteId,
+        subscriberId,
+        attempts: Number.isFinite(Number(normalized.attempts)) ? Number(normalized.attempts) : 0,
+        nextAttemptAt: Number.isFinite(Number(normalized.nextAttemptAt))
+          ? Number(normalized.nextAttemptAt)
+          : Number(normalized.createdAt ?? Date.now()),
+      });
+    }
+  }
+
+  for (const raw of source.orphaned) {
+    quarantined.push({
+      ...raw,
+      id: String(raw.id ?? crypto.randomUUID()),
+      quarantinedAt: Number(raw.quarantinedAt ?? Date.now()),
+      quarantineReason: String(raw.quarantineReason ?? "previously-quarantined"),
+    });
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = target.transaction([storeName, orphanedStoreName], "readwrite");
+    const readingsStore = tx.objectStore(storeName);
+    const orphanedStore = tx.objectStore(orphanedStoreName);
+    const readingsKeysRequest = readingsStore.getAllKeys();
+    const orphanedKeysRequest = orphanedStore.getAllKeys();
+    let readingsKeys = new Set<IDBValidKey>();
+    let orphanedKeys = new Set<IDBValidKey>();
+    let readingsReady = false;
+    let orphanedReady = false;
+    let copied = false;
+    const merge = () => {
+      if (copied || !readingsReady || !orphanedReady) return;
+      copied = true;
+      for (const record of validReadings) {
+        if (!readingsKeys.has(record.id)) readingsStore.put(record);
       }
-
-      if ((event as IDBVersionChangeEvent).oldVersion < 3) {
-        const orphaned = database.objectStoreNames.contains(orphanedStoreName)
-          ? transaction.objectStore(orphanedStoreName)
-          : database.createObjectStore(orphanedStoreName, { keyPath: "id" });
-        const cursorRequest = store.openCursor();
-        cursorRequest.onsuccess = () => {
-          const cursor = cursorRequest.result;
-          if (!cursor) return;
-          const legacy = cursor.value as Partial<QueuedReading>;
-          if (!legacy.userId) {
-            orphaned.put({ ...legacy, quarantinedAt: Date.now(), quarantineReason: "missing-user-scope" });
-            cursor.delete();
-          } else {
-            cursor.update({ ...legacy, attempts: Number(legacy.attempts ?? 0), nextAttemptAt: Number(legacy.nextAttemptAt ?? Date.now()) });
-          }
-          cursor.continue();
-        };
+      for (const record of quarantined) {
+        if (!orphanedKeys.has(record.id)) orphanedStore.put(record);
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("تعذر فتح طابور العمل دون اتصال."));
+    readingsKeysRequest.onsuccess = () => { readingsKeys = new Set(readingsKeysRequest.result); readingsReady = true; merge(); };
+    orphanedKeysRequest.onsuccess = () => { orphanedKeys = new Set(orphanedKeysRequest.result); orphanedReady = true; merge(); };
+    readingsKeysRequest.onerror = () => { try { tx.abort(); } catch {} };
+    orphanedKeysRequest.onerror = () => { try { tx.abort(); } catch {} };
+    tx.oncomplete = () => {
+      resolve();
+      const removal = indexedDB.deleteDatabase(legacyDatabaseName);
+      removal.onerror = () => undefined;
+      removal.onblocked = () => undefined;
+    };
+    tx.onerror = () => reject(tx.error ?? new Error("تعذر حفظ القراءات المرحّلة."));
+    tx.onabort = () => reject(tx.error ?? new Error("أُلغي حفظ القراءات المرحّلة."));
   });
+}
+
+async function openQueueDatabase() {
+  assertOfflineQueueAvailable();
+  const db = await openOfflineWorkspaceDatabase();
+  if (!legacyReadingQueueMigration) {
+    legacyReadingQueueMigration = migrateLegacyReadingQueue(db).catch((error) => {
+      legacyReadingQueueMigration = null;
+      db.close();
+      console.warn("[PowerHub] Legacy field reading queue migration deferred; source data preserved.", error);
+      throw error;
+    });
+  }
+  await legacyReadingQueueMigration;
+  return db;
 }
 
 async function transact<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>) {
