@@ -138,6 +138,17 @@ begin
     raise exception 'ASSERT_FAILED: reservation retry was not idempotent';
   end if;
 
+  begin
+    perform * from public.powerhub_reserve_offline_number_grant(
+      1, 10, 100, '11111111-1111-4111-8111-111111111111',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'subscriber', 'global', 4, 60
+    );
+    raise exception 'ASSERT_FAILED: changed reservation parameters were accepted for the same request ID';
+  exception when others then
+    if sqlerrm = 'ASSERT_FAILED: changed reservation parameters were accepted for the same request ID' then raise; end if;
+    if position('OFFLINE_NUMBER_REQUEST_IDEMPOTENCY_MISMATCH' in sqlerrm) = 0 then raise; end if;
+  end;
+
   select claim_id, replayed into v_claim_id, v_replayed
   from public.powerhub_claim_offline_number(
     v_grant_id, 1, 10, 100, '11111111-1111-4111-8111-111111111111',
@@ -176,7 +187,7 @@ begin
     if position('OFFLINE_NUMBER_RANGE_STILL_AVAILABLE' in sqlerrm) = 0 then raise; end if;
   end;
 
-  select reserved_values into v_values
+  select grant_id, reserved_values into v_grant_id, v_values
   from public.powerhub_reserve_offline_number_grant(
     1, 10, 100, '11111111-1111-4111-8111-111111111111',
     'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'invoice', '2026', 3, 60
@@ -190,6 +201,31 @@ begin
   if v_next_invoice <> 23 then
     raise exception 'ASSERT_FAILED: invoice allocator did not advance atomically';
   end if;
+
+  begin
+    perform * from public.powerhub_claim_offline_number(
+      v_grant_id, 1, 10, 100, '22222222-2222-4222-8222-222222222222',
+      'invoice', '2026', '20', '12121212-1212-4212-8212-121212121212', 'invoice'
+    );
+    raise exception 'ASSERT_FAILED: claim from a different device was accepted';
+  exception when others then
+    if sqlerrm = 'ASSERT_FAILED: claim from a different device was accepted' then raise; end if;
+    if position('OFFLINE_NUMBER_GRANT_INVALID_OR_EXPIRED' in sqlerrm) = 0 then raise; end if;
+  end;
+
+  update public.powerhub_offline_number_grants
+    set expires_at = clock_timestamp() - interval '1 minute'
+    where id = v_grant_id;
+  begin
+    perform * from public.powerhub_claim_offline_number(
+      v_grant_id, 1, 10, 100, '11111111-1111-4111-8111-111111111111',
+      'invoice', '2026', '20', '34343434-3434-4343-8343-343434343434', 'invoice'
+    );
+    raise exception 'ASSERT_FAILED: expired grant was accepted';
+  exception when others then
+    if sqlerrm = 'ASSERT_FAILED: expired grant was accepted' then raise; end if;
+    if position('OFFLINE_NUMBER_GRANT_INVALID_OR_EXPIRED' in sqlerrm) = 0 then raise; end if;
+  end;
 
   select subscriber_no into v_created_no
   from public.powerhub_create_subscriber(
