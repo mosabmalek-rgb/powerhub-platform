@@ -93,9 +93,13 @@ create function public.powerhub_create_subscriber(
 returns table (subscriber_id bigint, subscriber_no text, replayed boolean)
 language sql as $legacy$ select null::bigint, p_subscriber_no, false $legacy$;
 
-insert into public.tenants(id, name) values (1, 'Tenant One');
+insert into public.tenants(id, name) values
+  (1, 'Tenant One'),
+  (2, 'Tenant Two');
 insert into public.sites(id, tenant_id, name, code, city, address, status)
-values (10, 1, 'Site One', 'S-10', 'Gaza', null, 'active');
+values
+  (10, 1, 'Site One', 'S-10', 'Gaza', null, 'active'),
+  (20, 2, 'Site Two', 'S-20', 'Gaza', null, 'active');
 insert into public.users(id, platform_role) values (100, 'owner');
 insert into public.subscribers(tenant_id, site_id, subscriber_no, full_name, phone) values
   (1, 10, 'SUB-000041', 'Existing Subscriber', '123456789'),
@@ -253,6 +257,19 @@ begin
   if v_created_no <> 'SUB-990006' then
     raise exception 'ASSERT_FAILED: online create did not continue after reserved range: %', v_created_no;
   end if;
+
+  -- Reusing an operation ID in another tenant/site must fail closed and never
+  -- disclose the original subscriber ID/reference as a successful replay.
+  begin
+    perform * from public.powerhub_create_subscriber(
+      2, 20, 100, 'Cross-scope replay', '987654322', null, null, 'standard',
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 100
+    );
+    raise exception 'ASSERT_FAILED: cross-scope subscriber replay was accepted';
+  exception when others then
+    if sqlerrm = 'ASSERT_FAILED: cross-scope subscriber replay was accepted' then raise; end if;
+    if position('OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH' in sqlerrm) = 0 then raise; end if;
+  end;
 
   begin
     perform * from public.powerhub_reserve_offline_number_grant(

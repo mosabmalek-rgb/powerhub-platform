@@ -7,6 +7,7 @@ const migration = readFileSync(
   "utf8",
 );
 const route = readFileSync(resolve(process.cwd(), "server/powerhub-offline-numbering.ts"), "utf8");
+const powerhubRouter = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-number-ranges.ts"), "utf8");
 const queue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
 const fieldQueue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-reading-queue.ts"), "utf8");
@@ -26,6 +27,15 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(migration).toContain("alter sequence public.subscriber_global_number_seq maxvalue 999999 no cycle");
     expect(migration).toContain("SUBSCRIBER_NUMBER_RECONCILIATION_REQUIRED");
     expect(migration).not.toContain("update public.subscribers s");
+  });
+
+  it("rejects subscriber operation replays across tenant/site scopes", () => {
+    expect(migration).toContain("v_operation_tenant_id is distinct from p_tenant_id");
+    expect(migration).toContain("v_operation_site_id is distinct from p_site_id");
+    expect(migration).toContain("v_existing_tenant_id is distinct from p_tenant_id");
+    expect(powerhubRouter).toContain('select("tenant_id, site_id, entity_type, operation_type, response")');
+    expect(powerhubRouter).toContain("Number(applied.tenant_id) !== access.tenantId");
+    expect(powerhubRouter).toContain("Number(applied.site_id) !== input.siteId");
   });
 
   it("keeps number reservation RPCs server-only and locks claimed values idempotently", () => {

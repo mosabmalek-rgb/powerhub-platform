@@ -98,16 +98,32 @@ declare
   v_subscriber_no text;
   v_subscriber_sequence bigint;
   v_response jsonb;
+  v_operation_tenant_id bigint;
+  v_operation_site_id bigint;
+  v_operation_type text;
+  v_operation_entity_type text;
+  v_existing_tenant_id bigint;
+  v_existing_site_id bigint;
   v_platform_role text;
   v_current_count integer;
   v_effective_limit integer;
 begin
   if p_client_operation_id is not null then
-    select response into v_response
+    select response, tenant_id, site_id, operation_type, entity_type
+      into v_response, v_operation_tenant_id, v_operation_site_id,
+           v_operation_type, v_operation_entity_type
     from public.offline_sync_operations
     where user_id = p_user_id and client_operation_id = p_client_operation_id::text
     limit 1;
     if found then
+      -- Idempotency is valid only inside the original tenant/site/entity contract.
+      -- Never return another scope's subscriber ID or reference on a replay.
+      if v_operation_tenant_id is distinct from p_tenant_id
+         or v_operation_site_id is distinct from p_site_id
+         or v_operation_type is distinct from 'subscriber_create'
+         or v_operation_entity_type is distinct from 'subscriber' then
+        raise exception 'OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH' using errcode = 'P0001';
+      end if;
       if coalesce(v_response->>'id', '') = '' or coalesce(v_response->>'subscriberNo', '') = '' then
         raise exception 'INVALID_SUBSCRIBER_OPERATION_REPLAY' using errcode = 'P0001';
       end if;
@@ -129,11 +145,16 @@ begin
   end if;
 
   if p_client_operation_id is not null then
-    select s.id, s.subscriber_no into v_subscriber_id, v_subscriber_no
+    select s.id, s.subscriber_no, s.tenant_id, s.site_id
+      into v_subscriber_id, v_subscriber_no, v_existing_tenant_id, v_existing_site_id
     from public.subscribers as s
     where s.client_operation_id = p_client_operation_id::text
     limit 1;
     if found then
+      if v_existing_tenant_id is distinct from p_tenant_id
+         or v_existing_site_id is distinct from p_site_id then
+        raise exception 'OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH' using errcode = 'P0001';
+      end if;
       return query select v_subscriber_id, v_subscriber_no, true;
       return;
     end if;

@@ -1945,10 +1945,16 @@ export const powerhubRouter = router({
       const admin = supabaseAdmin();
       // Opening readings establish a baseline and are approved immediately; they do not issue consumption invoices.
       if (input.clientOperationId) {
-        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
+        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations")
+          .select("tenant_id, site_id, entity_type, operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
         if (appliedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مفتاح المزامنة في Supabase." });
         if (applied) {
+          if (Number(applied.tenant_id) !== access.tenantId ||
+              Number(applied.site_id) !== input.siteId ||
+              applied.entity_type !== "subscriber") {
+            throw new TRPCError({ code: "CONFLICT", message: "معرّف عملية المزامنة مستخدم ضمن مستأجر أو فرع مختلف." });
+          }
           if (applied.operation_type !== "subscriber_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
           return applied.response as { id: number; subscriberNo: string; referenceNotifications: Array<{ notificationId: number; status: string; error?: string }> };
         }
