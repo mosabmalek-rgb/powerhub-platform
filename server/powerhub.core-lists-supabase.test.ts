@@ -1277,6 +1277,103 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
 
+  it("retains private payment-documentation receipts after an ambiguous SQL connection error", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-documentation/private-indeterminate.png", url: "https://signed.example/private-indeterminate.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    const originalRpc = state.client.rpc;
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_submit_payment_documentation") return { data: null, error: { code: "08006", message: "connection lost after possible commit" } };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.paymentDocumentation.submit({
+        siteId: 10, subscriberId: 30, invoiceId: 70, destinationAccountId: 90,
+        paymentAmount: 25, paymentMethod: "bank_transfer",
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+        clientOperationId: "66666666-6666-4666-8666-666666666661",
+      })).rejects.toThrow("تعذر إرسال طلب توثيق الدفع.");
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      state.client.rpc = originalRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
+  it("retains public payment-documentation receipts after an ambiguous PostgREST error", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-documentation/public-indeterminate.png", url: "https://signed.example/public-indeterminate.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    const originalRpc = state.client.rpc;
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_get_public_payment_documentation_target") return {
+        data: { paymentDocumentationAvailable: true, siteId: 10, invoice: { id: 70, balanceDue: 75, status: "issued" } },
+        error: null,
+      };
+      if (name === "powerhub_submit_public_payment_documentation") return {
+        data: null, error: { code: "PGRST000", message: "upstream connection interrupted" },
+      };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.paymentDocumentation.publicSubmit({
+        token: "public-share-token-12345", destinationAccountId: 90,
+        paymentAmount: 25, paymentMethod: "bank_transfer",
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+        clientOperationId: "66666666-6666-4666-8666-666666666662",
+      })).rejects.toThrow("تعذر إرسال طلب توثيق الدفع.");
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      state.client.rpc = originalRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
+  it("cleans a new public payment-documentation receipt when the idempotent RPC replays an existing request", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-documentation/public-replay.png", url: "https://signed.example/public-replay.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    const originalRpc = state.client.rpc;
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_get_public_payment_documentation_target") return {
+        data: { paymentDocumentationAvailable: true, siteId: 10, invoice: { id: 70, balanceDue: 75, status: "issued" } },
+        error: null,
+      };
+      if (name === "powerhub_submit_public_payment_documentation") return { data: [{ request_id: 801, replayed: true }], error: null };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.paymentDocumentation.publicSubmit({
+        token: "public-share-token-12345", destinationAccountId: 90,
+        paymentAmount: 25, paymentMethod: "bank_transfer",
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+        clientOperationId: "66666666-6666-4666-8666-666666666663",
+      })).resolves.toEqual({ id: 801, replayed: true });
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalledWith("payment-documentation/public-replay.png");
+    } finally {
+      state.client.rpc = originalRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
   it("يفلتر سجل المصروفات في Supabase بحسب الفترة والحساب والمستأجر والفرع", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     const originalExpenses = state.tables.expenses;

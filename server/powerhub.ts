@@ -29,6 +29,35 @@ import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
+type SupabaseRpcFailure = { code?: string; message?: string } | null | undefined;
+
+function isDefinitivePostgresRpcFailure(error: SupabaseRpcFailure): boolean {
+  const code = typeof error?.code === "string" ? error.code : "";
+  const ambiguousSqlStateClasses = new Set(["08", "40", "57", "58", "XX"]);
+  return /^[0-9A-Z]{5}$/.test(code) &&
+    !ambiguousSqlStateClasses.has(code.slice(0, 2)) &&
+    code !== "40003";
+}
+
+async function cleanupReceiptAfterDefinitiveRpcFailure(
+  receiptImageKey: string | undefined,
+  error: SupabaseRpcFailure,
+  operation: string,
+): Promise<void> {
+  if (!receiptImageKey) return;
+  if (!isDefinitivePostgresRpcFailure(error)) {
+    console.warn(`[PowerHub] ${operation} outcome is indeterminate; retaining uploaded receipt for safe replay/reconciliation`, {
+      errorCode: error?.code ?? "unknown",
+    });
+    return;
+  }
+  try {
+    await storageRemove(receiptImageKey);
+  } catch (cleanupError) {
+    console.error(`[PowerHub] ${operation} receipt cleanup failed after definitive SQL rejection`, cleanupError);
+  }
+}
+
 async function requirePaymentDocumentationFeature(tenantId: number) {
   const { data, error } = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: tenantId });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع الإلكتروني." });
@@ -2707,22 +2736,7 @@ export const powerhubRouter = router({
         // A five-character SQLSTATE is an explicit PostgreSQL statement failure,
         // so the RPC transaction rolled back. PGRST/network/unknown errors may
         // represent an indeterminate commit and must not trigger destructive cleanup.
-        const errorCode = typeof error?.code === "string" ? error.code : "";
-        // Exclude connection errors, transaction-rollback/completion-unknown,
-        // server intervention, and internal-error classes: those do not prove
-        // that the caller can safely conclude no commit happened.
-        const ambiguousSqlStateClasses = new Set(["08", "40", "57", "58", "XX"]);
-        const definitiveSqlFailure = /^[0-9A-Z]{5}$/.test(errorCode) &&
-          !ambiguousSqlStateClasses.has(errorCode.slice(0, 2)) &&
-          errorCode !== "40003";
-        if (definitiveSqlFailure) {
-          try { await storageRemove(receiptImageKey); }
-          catch (cleanupError) { console.error("[PowerHub] payment receipt cleanup failed after definitive RPC rejection", cleanupError); }
-        } else {
-          console.warn("[PowerHub] payment RPC returned an indeterminate outcome; retaining uploaded receipt for safe replay/reconciliation", {
-            errorCode: error?.code ?? "unknown",
-          });
-        }
+        await cleanupReceiptAfterDefinitiveRpcFailure(receiptImageKey, error, "payment RPC");
       }
       if (errorText.includes("MANUAL_DISCOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الخصم أكبر من الرصيد المستحق." });
       if (errorText.includes("PAYMENT_AND_DISCOUNT_EXCEED_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق." });
@@ -2808,8 +2822,12 @@ export const powerhubRouter = router({
         p_receipt_image_hash: receiptImageHash ?? null,
         p_client_operation_id: input.clientOperationId,
       });
-      if (!error && data?.[0]) return { id: Number((data[0] as { request_id: number | string }).request_id), replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
-      if (receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
+      if (!error && data?.[0]) {
+        const replayed = Boolean((data[0] as { replayed?: boolean }).replayed);
+        if (replayed && receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
+        return { id: Number((data[0] as { request_id: number | string }).request_id), replayed };
+      }
+      await cleanupReceiptAfterDefinitiveRpcFailure(receiptImageKey, error, "public payment documentation RPC");
       const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (text.includes("SHARE_LINK_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
       if (text.includes("PAYMENT_DOCUMENTATION_DISABLED")) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة." });
@@ -3071,7 +3089,7 @@ export const powerhubRouter = router({
         if (replayed && receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
         return { id: Number((data[0] as { request_id: number | string }).request_id), replayed };
       }
-      if (receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
+      await cleanupReceiptAfterDefinitiveRpcFailure(receiptImageKey, error, "payment documentation RPC");
       const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (text.includes("INVOICE_OUT_OF_SCOPE") || text.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة أو المشترك لا يتبعان للمحطة المحددة." });
       if (text.includes("INVOICE_ALREADY_PAID")) throw new TRPCError({ code: "CONFLICT", message: "الفاتورة مسددة بالكامل." });
