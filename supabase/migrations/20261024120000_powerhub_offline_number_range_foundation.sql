@@ -426,6 +426,9 @@ begin
     if v_start is null or v_start < 1 then
       raise exception 'INVOICE_SEQUENCE_INVALID' using errcode = 'P0001';
     end if;
+    if v_start + p_count - 1 > 99999999 then
+      raise exception 'INVOICE_REFERENCE_EXHAUSTED' using errcode = 'P0001';
+    end if;
     select array_agg(series.value order by series.value)
       into v_reserved
     from generate_series(v_start, v_start + p_count - 1) as series(value);
