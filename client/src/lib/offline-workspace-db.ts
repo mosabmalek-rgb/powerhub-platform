@@ -115,3 +115,59 @@ export async function openLegacyOfflineDatabaseIfPresent(
     request.onblocked = () => resolve(null);
   });
 }
+
+
+export type OfflineConflictRecord = {
+  userId: number;
+  tenantId?: number;
+  siteId: number;
+  operationId: string;
+  kind: string;
+  outcome: "conflict";
+  message: string;
+  createdAt: number;
+  updatedAt: number;
+  localPayload?: unknown;
+};
+
+/** Persist unresolved conflicts independently of transient component state. */
+export async function upsertOfflineConflict(record: OfflineConflictRecord): Promise<void> {
+  if (!Number.isSafeInteger(record.userId) || record.userId < 1 ||
+      !Number.isSafeInteger(record.siteId) || record.siteId < 1 || !record.operationId) {
+    throw new Error("نطاق سجل التعارض المحلي غير صالح.");
+  }
+  const db = await openOfflineWorkspaceDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("conflicts", "readwrite");
+    tx.objectStore("conflicts").put(record);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر حفظ سجل التعارض.")); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("أُلغِي حفظ سجل التعارض.")); };
+  });
+}
+
+export async function listOfflineConflicts(options: { userId: number; siteId?: number }): Promise<OfflineConflictRecord[]> {
+  if (!Number.isSafeInteger(options.userId) || options.userId < 1) return [];
+  const db = await openOfflineWorkspaceDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("conflicts", "readonly");
+    const request = tx.objectStore("conflicts").getAll();
+    request.onsuccess = () => resolve((request.result as OfflineConflictRecord[])
+      .filter((row) => row.userId === options.userId && (options.siteId === undefined || row.siteId === options.siteId))
+      .sort((a, b) => b.updatedAt - a.updatedAt));
+    request.onerror = () => reject(request.error ?? new Error("تعذر تحميل سجل التعارضات."));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر تحميل سجل التعارضات.")); };
+  });
+}
+
+export async function removeOfflineConflict(userId: number, operationId: string): Promise<void> {
+  const db = await openOfflineWorkspaceDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("conflicts", "readwrite");
+    tx.objectStore("conflicts").delete([userId, operationId]);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر حذف سجل التعارض.")); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("أُلغي حذف سجل التعارض.")); };
+  });
+}

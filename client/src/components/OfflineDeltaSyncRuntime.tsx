@@ -7,6 +7,8 @@ import { persistOfflineQuery } from "@/lib/offline-query-cache";
 import {
   clearDeltaSyncDataForUser,
   getDeltaCursor,
+  getDeltaSyncStatus,
+  saveDeltaSyncStatus,
   pullDeltaPages,
   type DeltaCursorScope,
   type DeltaEntityType,
@@ -268,13 +270,46 @@ export function OfflineDeltaSyncRuntime() {
           rows: snapshotRowsFromQuery(candidate.entityType, queryRows),
         };
       };
-      await pullDeltaPages({
-        scope,
-        afterCursor,
-        pull,
-        rebuildSnapshot,
-        applyPage: async (page) => patchQueryCaches(queryClient, scope, candidate.entityType, page as DeltaPage<AnyRow>, cacheOwnerId),
-      });
+      try {
+        await pullDeltaPages({
+          scope,
+          afterCursor,
+          pull,
+          rebuildSnapshot,
+          applyPage: async (page) => patchQueryCaches(queryClient, scope, candidate.entityType, page as DeltaPage<AnyRow>, cacheOwnerId),
+        });
+        const now = Date.now();
+        await saveDeltaSyncStatus({
+          ...scope,
+          cursor: await getDeltaCursor(scope) ?? "0",
+          lastSyncedAt: now,
+          lastAttemptAt: now,
+          outcome: "success",
+        });
+      } catch (error) {
+        const now = Date.now();
+        const previous = await getDeltaSyncStatus(scope).catch(() => undefined);
+        const currentCursor = await getDeltaCursor(scope).catch(() => previous?.cursor ?? "0");
+        await saveDeltaSyncStatus({
+          ...scope,
+          cursor: currentCursor ?? "0",
+          lastSyncedAt: previous?.lastSyncedAt ?? null,
+          lastAttemptAt: now,
+          outcome: "failed",
+          lastError: error instanceof Error ? error.message : "تعذر تنفيذ المزامنة التفاضلية.",
+        }).catch((statusError) => console.warn("[PowerHub] Could not persist Delta sync status", statusError));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("powerhub:delta-sync-status-changed", {
+            detail: { userId: activeUserId, siteId: candidate.siteId },
+          }));
+        }
+        throw error;
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("powerhub:delta-sync-status-changed", {
+          detail: { userId: activeUserId, siteId: candidate.siteId },
+        }));
+      }
     };
 
     const run = async () => {

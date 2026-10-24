@@ -378,7 +378,12 @@ create table public.tariffs (
   tenant_id bigint not null,
   site_id bigint not null,
   name text not null,
+  code text not null default '',
   price_per_kwh numeric not null default 0,
+  fixed_fee numeric not null default 0,
+  tax_rate numeric not null default 0,
+  is_active boolean not null default true,
+  effective_from timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
@@ -392,6 +397,8 @@ declare
   v_third jsonb;
   v_reset jsonb;
   v_site_delta jsonb;
+  v_generator_id bigint;
+  v_tariff_id bigint;
   v_cursor bigint;
 begin
   -- Site updates use the supported site projection and never append a null upsert.
@@ -414,6 +421,38 @@ begin
   select public.powerhub_pull_sync_delta(1, 10, 'sites', 1, null, 10) into v_site_delta;
   if v_site_delta#>>'{changes,0,row_data,tenant_name}' <> 'Tenant Renamed' then
     raise exception 'ASSERT_FAILED: tenant name change did not refresh site cache: %', v_site_delta;
+  end if;
+
+  -- Generator and tariff snapshots/deltas use the same allowlisted projection contract.
+  insert into public.generators(tenant_id, site_id, code, name, serial_number, rated_capacity_kw, fuel_type, fuel_level_liters, operating_hours, status)
+  values (1, 10, 'GEN-10', 'Generator Test', 'SN-10', 100, 'diesel', 40, 12.5, 'active')
+  returning id into v_generator_id;
+  select public.powerhub_get_sync_snapshot(1, 10, 'generators') into v_site_delta;
+  if v_site_delta->>'status' <> 'ok'
+     or jsonb_array_length(v_site_delta->'rows') <> 1
+     or v_site_delta#>>'{rows,0,id}' <> v_generator_id::text
+     or v_site_delta#>>'{rows,0,serial_number}' <> 'SN-10' then
+    raise exception 'ASSERT_FAILED: generator snapshot projection mismatch: %', v_site_delta;
+  end if;
+  select public.powerhub_pull_sync_delta(1, 10, 'generators', 0, null, 10) into v_site_delta;
+  if v_site_delta#>>'{changes,0,row_data,code}' <> 'GEN-10' then
+    raise exception 'ASSERT_FAILED: generator delta projection mismatch: %', v_site_delta;
+  end if;
+
+  insert into public.tariffs(tenant_id, site_id, name, code, price_per_kwh, fixed_fee, tax_rate, is_active, effective_from)
+  values (1, 10, 'Tariff Test', 'T-10', 0.5, 1.25, 0, true, now())
+  returning id into v_tariff_id;
+  select public.powerhub_get_sync_snapshot(1, 10, 'tariffs') into v_site_delta;
+  if v_site_delta->>'status' <> 'ok'
+     or jsonb_array_length(v_site_delta->'rows') <> 1
+     or v_site_delta#>>'{rows,0,id}' <> v_tariff_id::text
+     or v_site_delta#>>'{rows,0,code}' <> 'T-10'
+     or v_site_delta#>>'{rows,0,price_per_kwh}' <> '0.5' then
+    raise exception 'ASSERT_FAILED: tariff snapshot projection mismatch: %', v_site_delta;
+  end if;
+  select public.powerhub_pull_sync_delta(1, 10, 'tariffs', 0, null, 10) into v_site_delta;
+  if v_site_delta#>>'{changes,0,row_data,code}' <> 'T-10' then
+    raise exception 'ASSERT_FAILED: tariff delta projection mismatch: %', v_site_delta;
   end if;
 
   insert into public.subscribers(tenant_id, site_id, subscriber_no, full_name, phone, subscription_type, private_test_marker)
