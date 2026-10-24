@@ -224,13 +224,15 @@ export async function hasAvailableOfflineNumberGrant(
     let claims: OfflineNumberClaim[] | undefined;
     let available: boolean | undefined;
     const evaluate = () => {
-      if (!grants || !claims) return;
-      available = grants.some((grant) => {
+      const loadedGrants = grants;
+      const loadedClaims = claims;
+      if (loadedGrants === undefined || loadedClaims === undefined) return;
+      available = loadedGrants.some((grant) => {
         if (grant.userId !== scope.userId || grant.tenantId !== scope.tenantId ||
             grant.siteId !== scope.siteId || grant.deviceId !== scope.deviceId ||
             grant.numberKind !== numberKind || grant.partitionKey !== partitionKey ||
             grant.revokedAt || grant.expiresAt <= now) return false;
-        const claimed = new Set(claims.filter((claim) => claim.grantId === grant.id).map((claim) => claim.numberValue));
+        const claimed = new Set(loadedClaims.filter((claim) => claim.grantId === grant.id).map((claim) => claim.numberValue));
         return grant.reservedValues.some((value) => !claimed.has(value));
       });
     };
