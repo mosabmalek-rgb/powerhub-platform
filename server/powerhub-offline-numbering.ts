@@ -33,6 +33,21 @@ export const powerhubOfflineNumberingRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: "سنة تخصيص الفاتورة غير صالحة." });
     }
 
+    // A caller cannot mint number ranges by spoofing arbitrary device IDs.
+    // Revalidate/renew the account's existing single-device lease before allocation.
+    const { data: deviceClaim, error: deviceClaimError } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
+      p_user_id: ctx.user.openId,
+      p_device_id: deviceId,
+      p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    });
+    const claimedDevice = Array.isArray(deviceClaim) ? deviceClaim[0] : null;
+    if (deviceClaimError || !claimedDevice?.allowed) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "يجب استخدام جهاز PowerHub المسجل لهذا الحساب قبل حجز الأرقام.",
+      });
+    }
+
     const { data, error } = await supabaseAdmin().rpc("powerhub_reserve_offline_number_grant", {
       p_tenant_id: access.tenantId,
       p_site_id: input.siteId,
