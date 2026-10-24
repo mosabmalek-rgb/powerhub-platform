@@ -148,7 +148,8 @@ SET search_path = pg_catalog, public
 AS $release_device$
 BEGIN
   DELETE FROM public.powerhub_user_device_locks
-  WHERE user_id = p_user_id;
+  WHERE user_id = p_user_id
+    AND device_id = p_device_id;
   RETURN FOUND;
 END;
 $release_device$;

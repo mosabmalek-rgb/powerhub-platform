@@ -84,6 +84,15 @@ BEGIN
     RAISE EXCEPTION 'DEVICE_LOCK_EXPIRED_RECOVERY_FAILED';
   END IF;
 
+  IF public.powerhub_release_user_device(v_user, v_second_device) THEN
+    RAISE EXCEPTION 'DEVICE_LOCK_RELEASED_DIFFERENT_DEVICE';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.powerhub_user_device_locks
+    WHERE user_id = v_user AND device_id = v_first_device
+  ) THEN
+    RAISE EXCEPTION 'DEVICE_LOCK_WRONG_DEVICE_RELEASE_REMOVED_ACTIVE_LOCK';
+  END IF;
   IF NOT public.powerhub_release_user_device(v_user, v_first_device) THEN
     RAISE EXCEPTION 'DEVICE_LOCK_RELEASE_FAILED';
   END IF;
