@@ -67,6 +67,9 @@ export const powerhubOfflineNumberingRouter = router({
       if (message.includes("INVOICE_REFERENCE_EXHAUSTED")) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "نفدت مساحة أرقام الفواتير المتاحة ضمن الصيغة الرسمية." });
       }
+      if (message.includes("OFFLINE_NUMBER_RANGE_STILL_AVAILABLE")) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "استخدم نطاق الأرقام الحالي أولًا قبل حجز نطاق جديد." });
+      }
       if (message.includes("SITE_OUT_OF_SCOPE") || message.includes("USER_OUT_OF_SCOPE")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "نطاق حجز الأرقام غير صالح." });
       }
