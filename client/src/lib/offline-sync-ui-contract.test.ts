@@ -27,6 +27,8 @@ describe("offline sync UI contract", () => {
   it("routes field reading creates through the shared offline executor", () => {
     expect(meterReadingsPage).toContain("executeReadyOperations({");
     expect(syncPanel).toContain('if (item.kind === "reading_create")');
-    expect(syncPanel).toContain("executeReadyOperations({ items: pendingItems");
+    expect(syncPanel).toContain("executeReadyOperations({ items: syncItems");
+    expect(syncPanel).toContain("const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId))");
+    expect(syncPanel).toContain("حالة المزامنة المحلية مفقودة؛ أُوقفت إعادة الإرسال تلقائيًا");
   });
 });
