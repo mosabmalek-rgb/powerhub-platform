@@ -134,21 +134,21 @@ begin
   if not found then v_cursor := 0; v_retained := 0; end if;
   case p_entity_type
     when 'subscribers' then
-      select coalesce(jsonb_agg(to_jsonb(s) order by s.created_at desc,s.id desc),'[]'::jsonb)
+      select coalesce(jsonb_agg(public.powerhub_delta_sync_project_row('subscribers',to_jsonb(s)) order by s.created_at desc,s.id desc),'[]'::jsonb)
         into v_rows from public.subscribers s
         where s.tenant_id=p_tenant_id and s.site_id=p_site_id and s.archived_at is null;
     when 'generators' then
-      select coalesce(jsonb_agg(to_jsonb(g) order by g.created_at desc,g.id desc),'[]'::jsonb)
+      select coalesce(jsonb_agg(public.powerhub_delta_sync_project_row('generators',to_jsonb(g)) order by g.created_at desc,g.id desc),'[]'::jsonb)
         into v_rows from public.generators g
         where g.tenant_id=p_tenant_id and g.site_id=p_site_id;
     when 'readings' then
-      select coalesce(jsonb_agg(jsonb_build_object('reading',to_jsonb(r),'subscriber',to_jsonb(s))
+      select coalesce(jsonb_agg(jsonb_build_object('reading',public.powerhub_delta_sync_project_row('readings',to_jsonb(r)),'subscriber',public.powerhub_delta_sync_project_row('subscribers',to_jsonb(s)))
         order by r.reading_at desc,r.id desc),'[]'::jsonb)
         into v_rows from public.meter_readings r
         join public.subscribers s on s.id=r.subscriber_id and s.tenant_id=r.tenant_id
         where r.tenant_id=p_tenant_id and s.site_id=p_site_id;
     when 'tariffs' then
-      select coalesce(jsonb_agg(to_jsonb(t) order by t.effective_from desc,t.id desc),'[]'::jsonb)
+      select coalesce(jsonb_agg(public.powerhub_delta_sync_project_row('tariffs',to_jsonb(t)) order by t.effective_from desc,t.id desc),'[]'::jsonb)
         into v_rows from public.tariffs t
         where t.tenant_id=p_tenant_id and t.site_id=p_site_id;
   end case;
@@ -163,6 +163,51 @@ grant execute on function public.powerhub_get_sync_snapshot(bigint,bigint,text) 
 -- One trigger contract records inserts/updates and physical deletes. Subscriber
 -- archival is exposed as a tombstone, while historical rows remain untouched.
 -- meter_readings has no site_id column; its scope is derived from its subscriber.
+-- Only explicitly listed operational fields may be replicated to an offline device.
+create or replace function public.powerhub_delta_sync_project_row(p_entity_type text, p_row jsonb)
+returns jsonb
+language sql immutable
+set search_path = pg_catalog, public, pg_temp
+as $$
+  select case p_entity_type
+    when 'subscribers' then jsonb_build_object(
+      'id',p_row->'id','tenant_id',p_row->'tenant_id','site_id',p_row->'site_id',
+      'subscriber_no',p_row->'subscriber_no','client_operation_id',p_row->'client_operation_id',
+      'full_name',p_row->'full_name','phone',p_row->'phone','whatsapp_number',p_row->'whatsapp_number',
+      'address',p_row->'address','subscription_type',p_row->'subscription_type',
+      'service_status',p_row->'service_status','created_at',p_row->'created_at','updated_at',p_row->'updated_at'
+    )
+    when 'generators' then jsonb_build_object(
+      'id',p_row->'id','tenant_id',p_row->'tenant_id','site_id',p_row->'site_id',
+      'code',p_row->'code','name',p_row->'name','serial_number',p_row->'serial_number',
+      'rated_capacity_kw',p_row->'rated_capacity_kw','fuel_type',p_row->'fuel_type',
+      'fuel_level_liters',p_row->'fuel_level_liters','operating_hours',p_row->'operating_hours',
+      'status',p_row->'status','last_maintenance_at',p_row->'last_maintenance_at',
+      'created_at',p_row->'created_at','updated_at',p_row->'updated_at'
+    )
+    when 'readings' then jsonb_build_object(
+      'id',p_row->'id','tenant_id',p_row->'tenant_id','subscriber_id',p_row->'subscriber_id',
+      'client_operation_id',p_row->'client_operation_id','reading_at',p_row->'reading_at',
+      'reading_value',p_row->'reading_value','previous_reading_value',p_row->'previous_reading_value',
+      'consumption_kwh',p_row->'consumption_kwh','capture_method',p_row->'capture_method',
+      'image_key',p_row->'image_key','image_hash',p_row->'image_hash','status',p_row->'status',
+      'entered_by_user_id',p_row->'entered_by_user_id','reviewed_by_user_id',p_row->'reviewed_by_user_id',
+      'reviewed_at',p_row->'reviewed_at','notes',p_row->'notes','version_no',p_row->'version_no',
+      'created_at',p_row->'created_at','updated_at',p_row->'updated_at'
+    )
+    when 'tariffs' then jsonb_build_object(
+      'id',p_row->'id','tenant_id',p_row->'tenant_id','site_id',p_row->'site_id',
+      'name',p_row->'name','code',p_row->'code','price_per_kwh',p_row->'price_per_kwh',
+      'fixed_fee',p_row->'fixed_fee','tax_rate',p_row->'tax_rate','is_active',p_row->'is_active',
+      'effective_from',p_row->'effective_from','created_at',p_row->'created_at'
+    )
+    else null
+  end
+$$;
+alter function public.powerhub_delta_sync_project_row(text,jsonb) owner to postgres;
+revoke all on function public.powerhub_delta_sync_project_row(text,jsonb) from public,anon,authenticated;
+grant execute on function public.powerhub_delta_sync_project_row(text,jsonb) to service_role;
+
 create or replace function public.powerhub_capture_delta_sync_change()
 returns trigger
 language plpgsql
@@ -179,6 +224,7 @@ declare
   v_entity_type text;
   v_entity_id text;
   v_change_type text;
+  v_projected_new jsonb;
   v_reading record;
 begin
   v_entity_type := case TG_TABLE_NAME
@@ -229,7 +275,8 @@ begin
       if coalesce(v_new ->> 'archived_at', '') <> '' then
         perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'delete', null);
       else
-        perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'upsert', v_new);
+        v_projected_new := public.powerhub_delta_sync_project_row(v_entity_type, v_new);
+        perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'upsert', v_projected_new);
       end if;
     end if;
     return NEW;
@@ -262,7 +309,8 @@ begin
         perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'delete', null);
       end if;
     else
-      perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'upsert', v_new);
+      v_projected_new := public.powerhub_delta_sync_project_row(v_entity_type, v_new);
+      perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'upsert', v_projected_new);
     end if;
   end if;
 
@@ -279,7 +327,7 @@ begin
         and r.subscriber_id = (v_new ->> 'id')::bigint
     loop
       perform public.powerhub_append_sync_change(v_old_tenant, v_old_site, 'readings', v_reading.row_data ->> 'id', 'delete', null);
-      perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, 'readings', v_reading.row_data ->> 'id', 'upsert', v_reading.row_data);
+      perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, 'readings', v_reading.row_data ->> 'id', 'upsert', public.powerhub_delta_sync_project_row('readings', v_reading.row_data));
     end loop;
   end if;
 

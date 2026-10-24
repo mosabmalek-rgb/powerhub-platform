@@ -211,7 +211,7 @@ export function OfflineDeltaSyncRuntime() {
             })
           : snapshot.rows.map((row: any) => normalizeDeltaEntityRow(candidate.entityType, row));
         for (const row of queryRows) {
-          const scoped = candidate.entityType === "readings" ? row.subscriber : row;
+          const scoped = (candidate.entityType === "readings" ? row.subscriber : row) as Record<string, unknown> | undefined;
           if (Number(scoped?.tenantId) !== candidate.tenantId || Number(scoped?.siteId) !== candidate.siteId) {
             throw new Error("لقطة المزامنة تحتوي بيانات خارج نطاق الفرع.");
           }
