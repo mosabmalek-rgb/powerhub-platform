@@ -9,6 +9,7 @@ const migration = readFileSync(
 const route = readFileSync(resolve(process.cwd(), "server/powerhub-offline-numbering.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-number-ranges.ts"), "utf8");
 const queue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
+const workspace = readFileSync(resolve(process.cwd(), "client/src/lib/offline-workspace-db.ts"), "utf8");
 
 describe("PowerHub offline number range foundation contract", () => {
   it("keeps grant and claim records private and enables RLS", () => {
@@ -44,19 +45,24 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(route).toContain('supabaseAdmin().rpc("powerhub_reserve_offline_number_grant"');
   });
 
-  it("keeps the outbox and number ranges in the same versioned operational IndexedDB", () => {
-    expect(client).toContain('const DATABASE_NAME = "powerhub-offline-workspace";');
-    expect(queue).toContain('const databaseName = "powerhub-offline-workspace";');
-    expect(client).toContain("const DATABASE_VERSION = 2;");
-    expect(queue).toContain("indexedDB.open(databaseName, 2)");
-    expect(client).toContain('db.createObjectStore("operations", { keyPath: "id" })');
-    expect(queue).toContain('db.createObjectStore(grantsStoreName, { keyPath: "id" })');
-    expect(queue).toContain('db.createObjectStore(claimsStoreName, { keyPath: "id" })');
+  it("keeps the outbox, number ranges, delta state, and conflicts in one versioned operational IndexedDB", () => {
+    expect(workspace).toContain('OFFLINE_WORKSPACE_DATABASE_NAME = "powerhub-offline-workspace"');
+    expect(workspace).toContain("OFFLINE_WORKSPACE_DATABASE_VERSION = 3");
+    expect(workspace).toContain('ensureStore(db, tx, "operations", "id")');
+    expect(workspace).toContain('ensureStore(db, tx, "grants", "id"');
+    expect(workspace).toContain('ensureStore(db, tx, "claims", "id"');
+    expect(workspace).toContain('ensureStore(db, tx, "cursors", ["userId", "tenantId", "siteId", "entityType"])');
+    expect(workspace).toContain('ensureStore(db, tx, "entities", ["scopeKey", "entityId"]');
+    expect(workspace).toContain('ensureStore(db, tx, "syncState"');
+    expect(workspace).toContain('ensureStore(db, tx, "conflicts"');
+    expect(workspace).toContain('ensureStore(db, tx, "syncMetadata"');
+    expect(queue).toContain("openOfflineWorkspaceDatabase()");
+    expect(client).toContain("openOfflineWorkspaceDatabase()");
   });
 
   it("uses stable local claims and rejects cross-user/site/device reuse", () => {
-    expect(client).toContain('createIndex("byGrantNumber", ["grantId", "numberValue"], { unique: true })');
-    expect(client).toContain('createIndex("byOperation", ["userId", "clientOperationId", "entityType"], { unique: true })');
+    expect(workspace).toContain('{ name: "byGrantNumber", keyPath: ["grantId", "numberValue"], unique: true }');
+    expect(workspace).toContain('{ name: "byOperation", keyPath: ["userId", "clientOperationId", "entityType"], unique: true }');
     expect(client).toContain("GRANT_SCOPE_MISMATCH");
     expect(client).toContain("OPERATION_IDEMPOTENCY_MISMATCH");
     expect(client).toContain("GRANT_EXHAUSTED");
