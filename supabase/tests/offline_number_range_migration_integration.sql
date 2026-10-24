@@ -62,17 +62,27 @@ create table public.invoices (
   invoice_no text not null
 );
 
-create sequence public.powerhub_subscriber_no_seq as bigint minvalue 1 maxvalue 999999 start with 40 increment by 1 no cycle;
-select setval('public.powerhub_subscriber_no_seq', 40, true);
+create sequence public.powerhub_subscriber_no_seq as bigint minvalue 1 maxvalue 999999 start with 990002 increment by 1 no cycle;
+select setval('public.powerhub_subscriber_no_seq', 990002, true);
 
 create function public.powerhub_effective_tenant_quota(p_tenant_id bigint, p_resource text)
-returns integer language sql stable as $$ select 100 $$;
+returns integer language sql stable as $ select 100 $;
+
+-- Reproduce the older staging overload that accepts a browser-supplied subscriber number.
+create function public.powerhub_create_subscriber(
+  p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_no text,
+  p_full_name text, p_phone text, p_whatsapp_number text, p_address text,
+  p_subscription_type text, p_client_operation_id uuid, p_quota_limit integer
+)
+returns table (subscriber_id bigint, subscriber_no text, replayed boolean)
+language sql as $ select null::bigint, p_subscriber_no, false $;
 
 insert into public.tenants(id) values (1);
 insert into public.sites(id, tenant_id) values (10, 1);
 insert into public.users(id, platform_role) values (100, 'owner');
-insert into public.subscribers(tenant_id, site_id, subscriber_no, full_name, phone)
-values (1, 10, 'SUB-000041', 'Existing Subscriber', '123456789');
+insert into public.subscribers(tenant_id, site_id, subscriber_no, full_name, phone) values
+  (1, 10, 'SUB-000041', 'Existing Subscriber', '123456789'),
+  (1, 10, 'SUB-990002', 'Staging High-Water Subscriber', '123456780');
 insert into public.invoices(invoice_no) values
   ('INV-2026-00000019'),
   ('STG-E2E-2026-0009');
@@ -91,7 +101,7 @@ declare
   v_created_no text;
   v_next_invoice bigint;
 begin
-  if (select last_value from public.subscriber_global_number_seq) <> 41 then
+  if (select last_value from public.subscriber_global_number_seq) <> 990002 then
     raise exception 'ASSERT_FAILED: subscriber sequence high-water mark was not reconciled';
   end if;
   if (select next_sequence from public.powerhub_invoice_sequences where invoice_year = 2026) <> 20 then
@@ -106,13 +116,16 @@ begin
        'execute') then
     raise exception 'ASSERT_FAILED: authenticated role can call private reservation RPC';
   end if;
+  if to_regprocedure('public.powerhub_create_subscriber(bigint,bigint,bigint,text,text,text,text,text,text,uuid,integer)') is not null then
+    raise exception 'ASSERT_FAILED: legacy browser-number subscriber overload remains callable';
+  end if;
 
   select grant_id, reserved_values into v_grant_id, v_values
   from public.powerhub_reserve_offline_number_grant(
     1, 10, 100, '11111111-1111-4111-8111-111111111111',
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'subscriber', 'global', 3, 60
   );
-  if v_values <> array['42','43','44']::text[] then
+  if v_values <> array['990003','990004','990005']::text[] then
     raise exception 'ASSERT_FAILED: unexpected subscriber range %', v_values;
   end if;
 
@@ -128,14 +141,14 @@ begin
   select claim_id, replayed into v_claim_id, v_replayed
   from public.powerhub_claim_offline_number(
     v_grant_id, 1, 10, 100, '11111111-1111-4111-8111-111111111111',
-    'subscriber', 'global', '42', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'subscriber'
+    'subscriber', 'global', '990003', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'subscriber'
   );
   if v_replayed then raise exception 'ASSERT_FAILED: first claim incorrectly replayed'; end if;
 
   select claim_id, replayed into v_retry_claim_id, v_replayed
   from public.powerhub_claim_offline_number(
     v_grant_id, 1, 10, 100, '11111111-1111-4111-8111-111111111111',
-    'subscriber', 'global', '42', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'subscriber'
+    'subscriber', 'global', '990003', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'subscriber'
   );
   if not v_replayed or v_retry_claim_id <> v_claim_id then
     raise exception 'ASSERT_FAILED: claim retry did not return the same claim';
@@ -144,7 +157,7 @@ begin
   begin
     perform * from public.powerhub_claim_offline_number(
       v_grant_id, 1, 10, 100, '11111111-1111-4111-8111-111111111111',
-      'subscriber', 'global', '42', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'subscriber'
+      'subscriber', 'global', '990003', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'subscriber'
     );
     raise exception 'ASSERT_FAILED: same number was claimed by a second operation';
   exception when others then
@@ -183,7 +196,7 @@ begin
     1, 10, 100, 'New Subscriber', '987654321', null, null, 'standard',
     'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 100
   );
-  if v_created_no <> 'SUB-000045' then
+  if v_created_no <> 'SUB-990006' then
     raise exception 'ASSERT_FAILED: online create did not continue after reserved range: %', v_created_no;
   end if;
 
