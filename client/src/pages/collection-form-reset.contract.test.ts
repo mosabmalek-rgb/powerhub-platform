@@ -49,7 +49,7 @@ describe("collection and entry form reset contracts", () => {
     expect(offlineSync).toContain('utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 })');
 
     const refreshPlan = read("client/src/lib/offline-sync-refresh.ts");
-    expect(refreshPlan).toContain('result.outcome === "applied" || result.outcome === "already_applied"');
+    expect(refreshPlan).toContain('const SUCCESS_OUTCOMES = new Set(["applied", "already_applied"]);');
     expect(refreshPlan).toContain('if (!SUCCESS_OUTCOMES.has(result.outcome)) continue;');
   });
 
