@@ -1069,6 +1069,50 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     ]);
   });
 
+  it("preserves already-applied results returned by idempotent Supabase RPCs", async () => {
+    const originalRpc = state.client.rpc;
+    const replayResponses: Record<string, unknown[]> = {
+      powerhub_create_subscriber: [{ subscriber_id: 31, subscriber_no: "MAIN-001", replayed: true }],
+      powerhub_update_subscriber: [{ updated_at: "2026-08-03T00:00:00.000Z", replayed: true }],
+      powerhub_issue_invoice_from_reading: [{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: true }],
+      powerhub_create_payment: [{ payment_id: 81, replayed: true }],
+    };
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (replayResponses[name]) return { data: replayResponses[name], error: null };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+
+      await expect(caller.subscribers.create({
+        siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential",
+        clientOperationId: "11111111-1111-4111-8111-111111111112",
+      })).resolves.toMatchObject({ id: 31, replayed: true });
+
+      await expect(caller.subscribers.update({
+        siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة",
+        subscriptionType: "commercial", serviceStatus: "active",
+        clientOperationId: "22222222-2222-4222-8222-222222222223",
+        expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z"),
+      })).resolves.toMatchObject({ success: true, replayed: true });
+
+      await expect(caller.invoices.createFromReading({
+        siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08",
+        dueDate: new Date("2026-09-01T00:00:00.000Z"), discountAmount: 0,
+        clientOperationId: "44444444-4444-4444-8444-444444444445",
+      })).resolves.toMatchObject({ id: 71, invoiceNo: "PH-MAIN-202608-00002", replayed: true });
+
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0004",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        clientOperationId: "55555555-5555-4555-8555-555555555556",
+      })).resolves.toEqual({ id: 81, replayed: true });
+    } finally {
+      state.client.rpc = originalRpc;
+    }
+  });
+
   it("يتخلص من صورة الإيصال الجديدة عندما يعيد الخادم تحصيلاً منفذاً مسبقاً", async () => {
     const storage = await import("./storage");
     const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
