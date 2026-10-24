@@ -12,7 +12,7 @@ const page = (overrides: Partial<DeltaPage> = {}): DeltaPage => ({
 describe("offline delta sync", () => {
   it("compares bigint cursors without precision loss", () => {
     expect(compareDeltaCursors("9007199254740993", "9007199254740992")).toBe(1);
-    expect(compareDeltaCursors("0002", "2")).toBe(-1); // leading zeroes are rejected before comparison
+    expect(() => compareDeltaCursors("0002", "2")).toThrow(/مؤشر المزامنة/);
   });
 
   it("applies ordered upserts and tombstones without duplicating entity ids", () => {
