@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOfflineWork, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
+import { canRequeueFailedOfflineWork, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
 
 describe("طابور المسودات دون اتصال", () => {
   it("ينشئ معرف عملية ثابتاً داخل السجل ومعرفاً مختلفاً لكل مسودة", () => {
@@ -10,6 +10,37 @@ describe("طابور المسودات دون اتصال", () => {
     expect(first.clientOperationId).not.toBe(second.clientOperationId);
     expect(first.status).toBe("pending");
   });
+
+  it("ينشئ بيانات مزامنة أولية بنفس نطاق ومعرف العملية", () => {
+    const draft = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "payment_create",
+      payload: { subscriberId: 31, invoiceId: 41, paymentNo: "PAY-OFF-002", amount: 25, paymentMethod: "cash", companyAccountId: 2 },
+    });
+    expect(createInitialSyncMetadataRecord(draft)).toEqual({
+      operationId: draft.clientOperationId, userId: 7, tenantId: 2, siteId: 3,
+      kind: "payment_create", dependsOn: [], attempts: 0,
+      nextAttemptAt: draft.createdAt, outcome: "pending", updatedAt: draft.createdAt,
+    });
+  });
+  it("rejects missing or mismatched sync metadata rather than trusting its operation ID alone", () => {
+    const draft = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "payment_create",
+      payload: { subscriberId: 31, invoiceId: 41, paymentNo: "PAY-OFF-003", amount: 15, paymentMethod: "cash", companyAccountId: 2 },
+    });
+    const metadata = createInitialSyncMetadataRecord(draft);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, metadata)).toBe(true);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, undefined)).toBe(false);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, tenantId: 99 })).toBe(false);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, kind: "reading_create" })).toBe(false);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, siteId: 8 })).toBe(false);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, userId: 8 })).toBe(false);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "failed" }, { ...metadata, outcome: "retryable" })).toBe(true);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "failed" }, metadata)).toBe(false);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "failed" }, { ...metadata, tenantId: 99, outcome: "retryable" })).toBe(false);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "failed" }, { ...metadata, kind: "reading_create", outcome: "retryable" })).toBe(false);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "pending" }, { ...metadata, outcome: "retryable" })).toBe(false);
+  });
+
 
   it("يدرج القراءة الميدانية في Outbox مع الاحتفاظ بمعرف العملية", () => {
     const payload: ReadingCreateDraft = {

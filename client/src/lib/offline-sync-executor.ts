@@ -48,6 +48,26 @@ export async function executeReadyOperations({
   const results: SyncExecutionResult[] = [];
   const handled = new Set<string>();
 
+  // A crash can persist terminal metadata before the Outbox status update.
+  // Reconcile that row locally; never send it to the server again.
+  for (const item of items) {
+    if (completed.has(item.clientOperationId)) continue;
+    const metadata = metadataByOperationId.get(item.clientOperationId);
+    const outcome = metadata?.outcome;
+    if (!metadata || (
+      outcome !== "conflict" && outcome !== "rejected" &&
+      outcome !== "applied" && outcome !== "already_applied"
+    )) continue;
+
+    const reconciledMetadata: SyncExecutionMetadata =
+      outcome === "applied" || outcome === "already_applied"
+        ? { ...markCompleted(metadata), outcome }
+        : { ...metadata, outcome, nextAttemptAt: Number.POSITIVE_INFINITY };
+    results.push({ item, metadata: reconciledMetadata, outcome });
+    handled.add(item.clientOperationId);
+    if (outcome === "applied" || outcome === "already_applied") completed.add(item.clientOperationId);
+  }
+
   while (true) {
     const plan = planReadyOperations(items, metadataByOperationId, completed, now).filter(
       ({ item }) => !handled.has(item.clientOperationId) && !completed.has(item.clientOperationId),
@@ -114,5 +134,5 @@ export async function executeReadyOperations({
     }
   }
 
-  return results;
+  return results.sort((left, right) => left.item.createdAt - right.item.createdAt);
 }

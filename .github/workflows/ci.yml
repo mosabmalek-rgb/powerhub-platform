@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -38,6 +40,14 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Validate Supabase migration release scripts
+        run: |
+          node --check scripts/check-supabase-migration-files.mjs
+          node --check scripts/supabase-migration-target.mjs
+          node --check scripts/supabase-migration-target.test.mjs
+          node --check scripts/release-supabase-migration.mjs
+          node scripts/check-supabase-migration-files.mjs
 
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs

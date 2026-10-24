@@ -51,9 +51,32 @@ export function planReadyOperations(
   now = Date.now(),
 ): SyncPlanItem[] {
   return items
-    .filter((item) => item.status === "pending" || (item.status === "failed" && metadataByOperationId.get(item.clientOperationId)?.outcome === "retryable" && shouldRetry(metadataByOperationId.get(item.clientOperationId)!)))
-    .map((item) => ({ item, metadata: metadataByOperationId.get(item.clientOperationId) ?? createSyncMetadata(item, now) }))
-    .filter(({ metadata }) => metadata.nextAttemptAt <= now)
+    .flatMap((item) => {
+      // Missing persisted metadata is ambiguous after a crash. Fail closed:
+      // never turn it into a fresh pending operation and replay it automatically.
+      const metadata = metadataByOperationId.get(item.clientOperationId);
+      return metadata ? [{ item, metadata }] : [];
+    })
+    .filter(({ item, metadata }) => {
+      // Queue status can lag behind the persisted sync result after a crash or
+      // partial IndexedDB write. Never resubmit terminal failures just because
+      // the queue row still says "pending".
+      if (metadata.outcome === "conflict" || metadata.outcome === "rejected" || metadata.outcome === "applied" || metadata.outcome === "already_applied") {
+        return false;
+      }
+      if (metadata.outcome === "retryable") {
+        return shouldRetry(metadata) && (item.status === "pending" || item.status === "failed");
+      }
+      // A persisted "syncing" state survives crashes in older clients. The caller
+      // must hold the scoped sync lock before planning, so no live worker owns it.
+      // Resume with the same operation ID; server idempotency resolves uncertain commits.
+      if (metadata.outcome === "syncing") {
+        return metadata.attempts < SYNC_MAX_ATTEMPTS &&
+          (item.status === "pending" || item.status === "failed");
+      }
+      return item.status === "pending" && metadata.outcome === "pending";
+    })
+    .filter(({ metadata }) => metadata.outcome === "syncing" || metadata.nextAttemptAt <= now)
     .filter(({ metadata }) => areDependenciesSatisfied(metadata.dependsOn, completedIds))
     .sort((a, b) => a.item.createdAt - b.item.createdAt);
 }
@@ -110,6 +133,11 @@ export function scheduleRetry(
     nextAttemptAt: now + computeBackoffDelay(attempts, random),
     outcome: "retryable",
   };
+}
+
+/** Manual retry is safe only when the last server/transport result was explicitly transient. */
+export function canManuallyRetry(metadata: Pick<SyncMetadata, "outcome"> | undefined): boolean {
+  return metadata?.outcome === "retryable";
 }
 
 export function shouldRetry(metadata: SyncMetadata): boolean {

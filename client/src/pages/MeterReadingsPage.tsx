@@ -15,8 +15,9 @@ import { getPowerHubDeviceId } from "@/lib/offline-auth";
 import { hasAvailableOfflineNumberGrant, persistOfflineNumberGrant } from "@/lib/offline-number-ranges";
 import { listOfflineWork, updateOfflineWork, type QueuedOfflineWork, type ReadingCreateDraft } from "@/lib/offline-work-queue";
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
-import { classifySyncResult, createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
+import { classifySyncResult, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
+import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { removeOfflineConflict, upsertOfflineConflict } from "@/lib/offline-workspace-db";
 import { trpc } from "@/lib/trpc";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
@@ -179,6 +180,14 @@ export default function MeterReadingsPage() {
   const syncQueuedReadings = async (records: QueuedReading[] = queuedReadings) => {
     if (!isOnline) { toast.error("لا يمكن المزامنة قبل عودة الاتصال."); return; }
     if (!user?.id || !siteId) return;
+    const lockResult = await withOfflineSyncLock({ userId: user.id, siteId }, async () => {
+      await syncQueuedReadingsUnlocked(records);
+    });
+    if (!lockResult.acquired) toast.info("مزامنة هذا الفرع تعمل بالفعل في تبويب آخر.");
+  };
+
+  const syncQueuedReadingsUnlocked = async (records: QueuedReading[] = queuedReadings) => {
+    if (!isOnline || !user?.id || !siteId) return;
     const now = Date.now();
     const ready = records.filter((item) => isQueuedReadingReadyForSync(item, now));
     if (!ready.length) {
@@ -199,22 +208,28 @@ export default function MeterReadingsPage() {
     const metadataByOperationId = new Map<string, SyncMetadata>();
     for (const item of pendingItems) {
       const stored = storedMetadata.find((row) => row.operationId === item.clientOperationId);
-      const metadata: SyncMetadata = stored ? {
+      if (!stored) {
+        await updateOfflineWork(item.id, {
+          status: "failed",
+          error: "حالة مزامنة القراءة المحلية مفقودة؛ أُوقفت إعادة الإرسال تلقائيًا. تحقّق من الخادم قبل إعادة إنشاء القراءة.",
+        });
+        continue;
+      }
+      const metadata: SyncMetadata = {
         operationId: stored.operationId, dependsOn: stored.dependsOn,
         attempts: stored.attempts, nextAttemptAt: stored.nextAttemptAt, outcome: stored.outcome,
         ...(stored.lastError ? { lastError: stored.lastError } : {}),
-      } : createSyncMetadata(item, now);
+      };
       metadataByOperationId.set(item.clientOperationId, metadata);
-      if (!stored) await upsertSyncMetadata({
-        ...metadata, userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
-        siteId: item.siteId, kind: item.kind, outcome: "pending", updatedAt: now,
-      });
     }
 
+    const missingMetadataCount = pendingItems.filter((item) => !metadataByOperationId.has(item.clientOperationId)).length;
+    if (missingMetadataCount) toast.error(`توجد ${missingMetadataCount} قراءة بلا حالة مزامنة موثوقة؛ لم تُرسل تلقائيًا.`);
+    const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId));
     const serverResults = new Map<string, { id?: number; replayed: boolean; invoiceNo?: string }>();
     const errorCodes = new Map<string, string>();
     const results = await executeReadyOperations({
-      items: pendingItems, metadataByOperationId,
+      items: syncItems, metadataByOperationId,
       completedIds: new Set(allItems.filter((item) => item.status === "applied").map((item) => item.clientOperationId)),
       now,
       transport: async (item: QueuedOfflineWork): Promise<SyncTransportResult> => {

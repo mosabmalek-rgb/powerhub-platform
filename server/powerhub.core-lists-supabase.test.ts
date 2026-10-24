@@ -973,7 +973,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
-      .resolves.toEqual({ id: 31, subscriberNo: expect.any(String), referenceNotifications: [] });
+      .resolves.toEqual({ id: 31, subscriberNo: expect.any(String), referenceNotifications: [], replayed: false });
     expect(state.rpcCalls).toEqual(expect.arrayContaining([expect.objectContaining({ name: "powerhub_create_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_quota_limit: 500 }) })]));
     expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
   });
@@ -981,8 +981,30 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يحدّث المشترك بالدالة الذرية في Supabase من دون استدعاء MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.update({ siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة", subscriptionType: "commercial", serviceStatus: "active", clientOperationId: "22222222-2222-4222-8222-222222222222", expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z") }))
-      .resolves.toEqual({ success: true, updatedAt: new Date("2026-08-03T00:00:00.000Z") });
+      .resolves.toEqual({ success: true, updatedAt: new Date("2026-08-03T00:00:00.000Z"), replayed: false });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_service_status: "active" }) })]);
+  });
+
+  it("يرفض إعادة تشغيل تعديل مشترك إذا كان معرّف العملية مسجلاً ضمن مستأجر أو فرع آخر", async () => {
+    const previousOperations = state.tables.offline_sync_operations;
+    const operationId = "22222222-2222-4222-8222-222222222222";
+    state.tables.offline_sync_operations = [{
+      tenant_id: 99, site_id: 10, user_id: 1, client_operation_id: operationId,
+      entity_type: "subscriber", operation_type: "subscriber_update",
+      response: { success: true, updatedAt: "2026-08-03T00:00:00.000Z" },
+    }];
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.subscribers.update({
+        siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة",
+        subscriptionType: "commercial", serviceStatus: "active", clientOperationId: operationId,
+        expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z"),
+      })).rejects.toThrow("معرّف عملية المزامنة مستخدم ضمن مستأجر أو فرع مختلف.");
+      expect(state.rpcCalls.some((call) => call.name === "powerhub_update_subscriber")).toBe(false);
+    } finally {
+      if (previousOperations) state.tables.offline_sync_operations = previousOperations;
+      else delete state.tables.offline_sync_operations;
+    }
   });
 
   it("يرفض تسجيل القراءة قبل رفع الصورة إذا لم توجد تعرفة فعالة", async () => {
@@ -1030,7 +1052,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.approve({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false })).resolves.toEqual({ success: true });
     await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-09-01T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
-      .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150 });
+      .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, replayed: false });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_approve_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1 }) }),
       expect.objectContaining({ name: "powerhub_issue_invoice_from_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_tariff_id: 40, p_billing_period: "2026-08", p_due_date: "2026-08-16T00:00:00.000Z" }) }),
@@ -1041,11 +1063,219 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يسجل التحصيل الذري عبر Supabase من دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.payments.create({ siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0001", amount: 25, paymentMethod: "cash", companyAccountId: 90, clientOperationId: "55555555-5555-4555-8555-555555555555" }))
-      .resolves.toEqual({ id: 81 });
+      .resolves.toEqual({ id: 81, replayed: false });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_create_payment", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_invoice_id: 70, p_company_account_id: 90, p_amount: 25 }) }),
     ]);
   });
+
+  it("preserves already-applied results returned by idempotent Supabase RPCs", async () => {
+    const originalRpc = state.client.rpc;
+    const replayResponses: Record<string, unknown[]> = {
+      powerhub_create_subscriber: [{ subscriber_id: 31, subscriber_no: "MAIN-001", replayed: true }],
+      powerhub_update_subscriber: [{ updated_at: "2026-08-03T00:00:00.000Z", replayed: true }],
+      powerhub_issue_invoice_from_reading: [{ invoice_id: 71, invoice_no: "PH-MAIN-202608-00002", total_amount: 150, replayed: true }],
+      powerhub_create_payment: [{ payment_id: 81, replayed: true }],
+    };
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (replayResponses[name]) return { data: replayResponses[name], error: null };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+
+      await expect(caller.subscribers.create({
+        siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential",
+        clientOperationId: "11111111-1111-4111-8111-111111111112",
+      })).resolves.toMatchObject({ id: 31, replayed: true });
+
+      await expect(caller.subscribers.update({
+        siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة",
+        subscriptionType: "commercial", serviceStatus: "active",
+        clientOperationId: "22222222-2222-4222-8222-222222222223",
+        expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z"),
+      })).resolves.toMatchObject({ success: true, replayed: true });
+
+      await expect(caller.invoices.createFromReading({
+        siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08",
+        dueDate: new Date("2026-09-01T00:00:00.000Z"), discountAmount: 0,
+        clientOperationId: "44444444-4444-4444-8444-444444444445",
+      })).resolves.toMatchObject({ id: 71, invoiceNo: "PH-MAIN-202608-00002", replayed: true });
+
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0004",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        clientOperationId: "55555555-5555-4555-8555-555555555556",
+      })).resolves.toEqual({ id: 81, replayed: true });
+    } finally {
+      state.client.rpc = originalRpc;
+    }
+  });
+
+  it("يتخلص من صورة الإيصال الجديدة عندما يعيد الخادم تحصيلاً منفذاً مسبقاً", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-receipts/replayed-retry.png", url: "https://signed.example/retry.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_payment") return { data: [{ payment_id: 81, replayed: true }], error: null };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0001",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+        clientOperationId: "55555555-5555-4555-8555-555555555555",
+      })).resolves.toEqual({ id: 81, replayed: true });
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalledWith("payment-receipts/replayed-retry.png");
+    } finally {
+      state.client.rpc = state.defaultRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
+  it("does not upload a receipt until a collector session has been validated", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-receipts/should-not-upload.png", url: "https://signed.example/unused.png",
+    });
+    const oldMembers = state.tables.tenant_members;
+    const oldSessions = state.tables.collector_sessions;
+    const oldUsers = state.tables.users;
+    const oldProfiles = state.tables.staff_profiles;
+    state.tables.users = [...oldUsers, {
+      id: 2, role: "user", platform_role: null, account_status: "active", platformRole: null, accountStatus: "active",
+      name: "محصّل الاختبار", email: "collector@example.test",
+    }];
+    state.tables.staff_profiles = [...oldProfiles, {
+      id: 202, tenant_id: 20, site_id: 10, user_id: 2, role: "collector", permissions: null,
+      custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true,
+    }];
+    state.tables.tenant_members = [{
+      tenant_id: 20, user_id: 2, role: "collector", is_active: true, membership_status: "active",
+    }];
+    state.tables.collector_sessions = [];
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user", platform_role: null, account_status: "active", platformRole: null, accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0002",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+      })).rejects.toThrow("افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية.");
+      expect(upload).not.toHaveBeenCalled();
+    } finally {
+      state.tables.tenant_members = oldMembers;
+      state.tables.collector_sessions = oldSessions;
+      state.tables.users = oldUsers;
+      state.tables.staff_profiles = oldProfiles;
+      upload.mockRestore();
+    }
+  });
+
+  it("retains the uploaded receipt when the payment RPC outcome is indeterminate", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-receipts/indeterminate-attempt.png", url: "https://signed.example/indeterminate.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    const originalRpc = state.client.rpc;
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_payment") throw new Error("fetch failed after server commit");
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0005",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+        clientOperationId: "55555555-5555-4555-8555-555555555557",
+      })).rejects.toThrow("fetch failed after server commit");
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      state.client.rpc = originalRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
+  it("retains receipts for ambiguous Postgres connection/transaction results", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockImplementation(async (key: string) => ({
+      key, url: "https://signed.example/indeterminate.png",
+    }));
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    const originalRpc = state.client.rpc;
+    const ambiguousCodes = ["08006", "40003", "PGRST000"];
+    let responseIndex = 0;
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_payment") {
+        const code = ambiguousCodes[responseIndex++];
+        return { data: null, error: { code, message: "payment outcome cannot be confirmed from this response" } };
+      }
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      const operationIds = [
+        "55555555-5555-4555-8555-555555555558",
+        "55555555-5555-4555-8555-555555555559",
+        "55555555-5555-4555-8555-55555555555a",
+      ];
+      for (let index = 0; index < ambiguousCodes.length; index += 1) {
+        await expect(caller.payments.create({
+          siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: `PAY-202608-000${index + 6}`,
+          amount: 25, paymentMethod: "cash", companyAccountId: 90,
+          receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+          clientOperationId: operationIds[index],
+        })).rejects.toThrow();
+      }
+      expect(upload).toHaveBeenCalledTimes(3);
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      state.client.rpc = originalRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
+  it("removes the uploaded receipt when the payment RPC rejects the collection", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-receipts/rejected-attempt.png", url: "https://signed.example/rejected.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_payment") return { data: null, error: { code: "P0001", message: "INVOICE_BALANCE_CONFLICT" } };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0003",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+      })).rejects.toThrow("تغير رصيد الفاتورة أثناء المزامنة؛ راجع المسودة ثم أعد المحاولة.");
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalledWith("payment-receipts/rejected-attempt.png");
+    } finally {
+      state.client.rpc = state.defaultRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
 
   it("يفلتر سجل المصروفات في Supabase بحسب الفترة والحساب والمستأجر والفرع", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
