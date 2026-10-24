@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { listOfflineWork, removeOfflineWork, updateOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
-import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
+import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
 import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { getOfflineSyncRefreshTargets } from "@/lib/offline-sync-refresh";
@@ -22,6 +22,27 @@ const labelByStatus = { pending: "بانتظار المزامنة", failed: "ف�
 
 function getErrorCode(error: unknown) { return (error as { data?: { code?: string } } | null)?.data?.code; }
 function getErrorMessage(error: unknown) { return error instanceof Error ? error.message : "تعذر مزامنة العملية."; }
+const MISSING_SYNC_METADATA_MESSAGE = "حالة المزامنة المحلية مفقودة؛ أُوقفت إعادة الإرسال تلقائيًا لحماية البيانات. تحقّق من الخادم قبل إعادة إنشاء المسودة.";
+
+function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["payload"] {
+  if (item.kind === "subscriber_create") {
+    const payload = item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft;
+    return { ...payload, offlineNumberClaim: undefined };
+  }
+  if (item.kind === "reading_create") {
+    const payload = item.payload as import("@/lib/offline-work-queue").ReadingCreateDraft;
+    return { ...payload, imageData: undefined, imageMime: undefined, offlineInvoiceNumberClaim: undefined };
+  }
+  if (item.kind === "payment_create") {
+    const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
+    return { ...payload, receiptImageData: undefined, receiptImageMime: undefined };
+  }
+  if (item.kind === "payment_documentation_submit") {
+    const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
+    return { ...payload, receiptImageData: undefined, receiptImageMime: undefined };
+  }
+  return item.payload;
+}
 
 export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { siteId: number; userId: number; compact?: boolean }) {
   const utils = trpc.useUtils();
@@ -108,9 +129,18 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     const metadataByOperationId = new Map<string, SyncMetadata>();
     for (const item of pendingItems) {
       const existing = stored.find((record) => record.operationId === item.clientOperationId);
-      const metadata = existing ? { operationId: existing.operationId, dependsOn: existing.dependsOn, attempts: existing.attempts, nextAttemptAt: existing.nextAttemptAt, ...(existing.outcome ? { outcome: existing.outcome } : {}), ...(existing.lastError ? { lastError: existing.lastError } : {}) } : createSyncMetadata(item);
-      metadataByOperationId.set(item.clientOperationId, metadata);
-      if (!existing) await upsertSyncMetadata({ ...metadata, userId, siteId: item.siteId, kind: item.kind, outcome: "pending", updatedAt: Date.now() });
+      if (!existing) {
+        if (item.status !== "failed" || item.error !== MISSING_SYNC_METADATA_MESSAGE) {
+          await updateOfflineWork(item.id, { status: "failed", error: MISSING_SYNC_METADATA_MESSAGE });
+        }
+        continue;
+      }
+      metadataByOperationId.set(item.clientOperationId, {
+        operationId: existing.operationId, dependsOn: existing.dependsOn,
+        attempts: existing.attempts, nextAttemptAt: existing.nextAttemptAt,
+        outcome: existing.outcome,
+        ...(existing.lastError ? { lastError: existing.lastError } : {}),
+      });
     }
     return metadataByOperationId;
   };
@@ -205,8 +235,12 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const pendingItems = allItems.filter((item) => item.status === "pending" || item.status === "failed");
         if (!pendingItems.length) return;
         const metadataByOperationId = await buildMetadata(pendingItems);
+        const missingMetadataCount = pendingItems.filter((item) => !metadataByOperationId.has(item.clientOperationId)).length;
+        if (missingMetadataCount) toast.error(`توجد ${missingMetadataCount} مسودة بلا حالة مزامنة موثوقة؛ لم تُرسل تلقائيًا.`);
+        const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId));
+        if (!syncItems.length) return;
         const completedIds = new Set(allItems.filter((item) => item.status === "applied").map((item) => item.clientOperationId));
-        const results = await executeReadyOperations({ items: pendingItems, metadataByOperationId, completedIds, transport, now: Date.now() });
+        const results = await executeReadyOperations({ items: syncItems, metadataByOperationId, completedIds, transport, now: Date.now() });
         const storedAfter = await listSyncMetadata({ userId, siteId });
         for (const result of results) {
           const current = storedAfter.find((row) => row.operationId === result.item.clientOperationId);
@@ -225,6 +259,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
               localPayload: result.item.payload,
             });
           } else if (result.outcome === "applied" || result.outcome === "already_applied") {
+            await updateOfflineWork(result.item.id, { status: "applied", error: undefined, payload: sanitizeCompletedPayload(result.item) });
             await removeOfflineConflict(userId, result.item.clientOperationId);
           }
           if (result.outcome === "retryable") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
