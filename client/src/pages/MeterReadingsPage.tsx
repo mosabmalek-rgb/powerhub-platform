@@ -17,6 +17,7 @@ import { listOfflineWork, updateOfflineWork, type QueuedOfflineWork, type Readin
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
 import { classifySyncResult, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
+import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { removeOfflineConflict, upsertOfflineConflict } from "@/lib/offline-workspace-db";
 import { trpc } from "@/lib/trpc";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
@@ -179,6 +180,14 @@ export default function MeterReadingsPage() {
   const syncQueuedReadings = async (records: QueuedReading[] = queuedReadings) => {
     if (!isOnline) { toast.error("لا يمكن المزامنة قبل عودة الاتصال."); return; }
     if (!user?.id || !siteId) return;
+    const lockResult = await withOfflineSyncLock({ userId: user.id, siteId }, async () => {
+      await syncQueuedReadingsUnlocked(records);
+    });
+    if (!lockResult.acquired) toast.info("مزامنة هذا الفرع تعمل بالفعل في تبويب آخر.");
+  };
+
+  const syncQueuedReadingsUnlocked = async (records: QueuedReading[] = queuedReadings) => {
+    if (!isOnline || !user?.id || !siteId) return;
     const now = Date.now();
     const ready = records.filter((item) => isQueuedReadingReadyForSync(item, now));
     if (!ready.length) {

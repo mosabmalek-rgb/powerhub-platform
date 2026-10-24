@@ -10,6 +10,10 @@ const syncPanel = readFileSync(
   resolve(process.cwd(), "client/src/components/OfflineWorkSyncPanel.tsx"),
   "utf8",
 );
+const offlineReadingQueue = readFileSync(
+  resolve(process.cwd(), "client/src/lib/offline-reading-queue.ts"),
+  "utf8",
+);
 
 describe("offline sync UI contract", () => {
   it("refreshes the field-reading outbox view after the sync result is persisted", () => {
@@ -30,5 +34,15 @@ describe("offline sync UI contract", () => {
     expect(syncPanel).toContain("executeReadyOperations({ items: syncItems");
     expect(syncPanel).toContain("const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId))");
     expect(syncPanel).toContain("حالة المزامنة المحلية مفقودة؛ أُوقفت إعادة الإرسال تلقائيًا");
+    expect(meterReadingsPage).toContain("withOfflineSyncLock({ userId: user.id, siteId }");
+    expect(meterReadingsPage).toContain("syncQueuedReadingsUnlocked(records)");
+  });
+
+  it("does not overwrite atomically persisted reading metadata with a stale pending result", () => {
+    expect(offlineReadingQueue).not.toContain("await upsertSyncMetadata(syncRecord)");
+    expect(offlineReadingQueue).toContain("getSyncMetadata(item.clientOperationId");
+    expect(offlineReadingQueue).toContain("getSyncMetadata(queued.item.clientOperationId");
+    expect(offlineReadingQueue).toContain("enqueueOfflineWork({");
+    expect(offlineReadingQueue).toContain("enqueueOfflineReadingWithInvoiceNumber");
   });
 });

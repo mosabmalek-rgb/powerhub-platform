@@ -121,15 +121,14 @@ export async function enqueueReading(reading: NewQueuedReading) {
     siteId: reading.siteId, kind: "reading_create", payload,
     clientOperationId: reading.clientOperationId,
   });
-  const now = Date.now();
-  const syncRecord: SyncMetadataRecord = {
-    operationId: item.clientOperationId, userId: item.userId,
-    ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
-    siteId: item.siteId, kind: item.kind, dependsOn: [], attempts: 0,
-    nextAttemptAt: now, outcome: "pending", updatedAt: now,
-  };
-  await upsertSyncMetadata(syncRecord);
-  return mapWorkToReading(item, syncRecord);
+  // The Outbox row and initial pending metadata were committed atomically by
+  // enqueueOfflineWork. Re-read instead of writing "pending" again: another tab
+  // may already have synchronized this operation between those transactions.
+  const [latestItem, latestMetadata] = await Promise.all([
+    getOfflineWork(item.id),
+    getSyncMetadata(item.clientOperationId, { userId: item.userId, siteId: item.siteId }),
+  ]);
+  return mapWorkToReading(latestItem ?? item, latestMetadata);
 }
 export async function enqueueReadingWithInvoiceNumber(
   reading: NewQueuedReading,
@@ -169,15 +168,17 @@ export async function enqueueReadingWithInvoiceNumber(
   };
   const queued = await import("./offline-work-queue").then(({ enqueueOfflineReadingWithInvoiceNumber }) =>
     enqueueOfflineReadingWithInvoiceNumber({ scope, partitionKey, clientOperationId: reading.clientOperationId, payload }));
-  const now = Date.now();
-  const syncRecord: SyncMetadataRecord = {
-    operationId: queued.item.clientOperationId, userId: queued.item.userId,
-    ...(queued.item.tenantId !== undefined ? { tenantId: queued.item.tenantId } : {}),
-    siteId: queued.item.siteId, kind: queued.item.kind, dependsOn: [], attempts: 0,
-    nextAttemptAt: now, outcome: "pending", updatedAt: now,
+  // enqueueOfflineReadingWithInvoiceNumber also persists the claim, Outbox
+  // row and initial metadata atomically. Never overwrite a result that may
+  // have been committed by a concurrent sync after that transaction completed.
+  const [latestItem, latestMetadata] = await Promise.all([
+    getOfflineWork(queued.item.id),
+    getSyncMetadata(queued.item.clientOperationId, { userId: queued.item.userId, siteId: queued.item.siteId }),
+  ]);
+  return {
+    record: mapWorkToReading(latestItem ?? queued.item, latestMetadata),
+    ...(queued.formattedInvoiceNumber ? { formattedInvoiceNumber: queued.formattedInvoiceNumber } : {}),
   };
-  await upsertSyncMetadata(syncRecord);
-  return { record: mapWorkToReading(queued.item, syncRecord), formattedInvoiceNumber: queued.formattedInvoiceNumber };
 }
 
 export async function updateQueuedReading(
