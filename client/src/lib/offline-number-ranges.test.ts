@@ -118,6 +118,6 @@ describe("offline number range foundation", () => {
     expect(() => selectNextAvailableOfflineNumber({
       grant: subscriberGrant, claims: [existing], scope, clientOperationId: "same-operation",
       entityType: "subscriber", now,
-    })).toThrowError(/نطاق مختلف/);
+    })).toThrowError(/نطاق أو رقم مختلف/);
   });
 });
