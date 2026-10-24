@@ -8,6 +8,7 @@ const migration = readFileSync(
 );
 const route = readFileSync(resolve(process.cwd(), "server/powerhub-offline-numbering.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-number-ranges.ts"), "utf8");
+const queue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
 
 describe("PowerHub offline number range foundation contract", () => {
   it("keeps grant and claim records private and enables RLS", () => {
@@ -41,6 +42,16 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(route).toContain('supabaseAdmin().rpc("powerhub_claim_user_device"');
     expect(route).toContain("OFFLINE_NUMBER_RANGE_STILL_AVAILABLE");
     expect(route).toContain('supabaseAdmin().rpc("powerhub_reserve_offline_number_grant"');
+  });
+
+  it("keeps the outbox and number ranges in the same versioned operational IndexedDB", () => {
+    expect(client).toContain('const DATABASE_NAME = "powerhub-offline-workspace";');
+    expect(queue).toContain('const databaseName = "powerhub-offline-workspace";');
+    expect(client).toContain("const DATABASE_VERSION = 2;");
+    expect(queue).toContain("indexedDB.open(databaseName, 2)");
+    expect(client).toContain('db.createObjectStore("operations", { keyPath: "id" })');
+    expect(queue).toContain('db.createObjectStore(grantsStoreName, { keyPath: "id" })');
+    expect(queue).toContain('db.createObjectStore(claimsStoreName, { keyPath: "id" })');
   });
 
   it("uses stable local claims and rejects cross-user/site/device reuse", () => {
