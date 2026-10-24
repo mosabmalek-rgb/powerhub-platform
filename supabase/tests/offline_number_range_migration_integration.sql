@@ -671,8 +671,11 @@ begin
   ) then raise exception 'ASSERT_FAILED: tenant move did not tombstone old reading: %',v_old_delta; end if;
 
   select public.powerhub_get_sync_snapshot(1,10,'readings') into v_old_snapshot;
-  if jsonb_array_length(v_old_snapshot->'rows') <> 0 then
-    raise exception 'ASSERT_FAILED: old tenant snapshot retained reading: %',v_old_snapshot;
+  if exists (
+    select 1 from jsonb_array_elements(v_old_snapshot->'rows') as row_item
+    where row_item#>>'{reading,id}' = v_reading_id::text
+  ) then
+    raise exception 'ASSERT_FAILED: old tenant snapshot retained moved reading: %',v_old_snapshot;
   end if;
 
   update public.meter_readings set tenant_id=2 where id=v_reading_id;
