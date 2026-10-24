@@ -37,7 +37,7 @@ describe("Supabase migration release target guard", () => {
     expect(() => assertSupabaseMigrationTarget({
       target: "production",
       projectRef: SUPABASE_PROJECT_BY_TARGET.production,
-      databaseUrl: directUri(SUPABASE_PROJECT_BY_TARGET.production).replace("/postgres", "/other"),
+      databaseUrl: directUri(SUPABASE_PROJECT_BY_TARGET.production).replace(/\/postgres(?=\?|$)/, "/other"),
     })).toThrow("must target the postgres database");
     expect(() => assertSupabaseMigrationTarget({
       target: "production",
