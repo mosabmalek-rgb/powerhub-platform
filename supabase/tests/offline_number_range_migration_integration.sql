@@ -250,4 +250,28 @@ begin
 end
 $assert_migration$;
 
+do $assert_subscriber_ceiling$
+declare
+  v_values text[];
+begin
+  -- Near the public six-digit ceiling, return only valid values. The allocator
+  -- must never persist SUB-1000000 or leave an unusable number in a grant.
+  update public.powerhub_offline_number_grants
+  set issued_at = clock_timestamp() - interval '2 minutes',
+      expires_at = clock_timestamp() - interval '1 minute'
+  where number_kind = 'subscriber' and revoked_at is null;
+  perform setval('public.subscriber_global_number_seq', 999997, true);
+
+  select reserved_values into v_values
+  from public.powerhub_reserve_offline_number_grant(
+    1, 10, 100, '11111111-1111-4111-8111-111111111111',
+    'abababab-abab-4bab-8bab-abababababab', 'subscriber', 'global', 3, 60
+  );
+
+  if v_values <> array['999998', '999999']::text[] then
+    raise exception 'ASSERT_FAILED: six-digit ceiling was not safely enforced: %', v_values;
+  end if;
+end
+$assert_subscriber_ceiling$;
+
 select 'offline_number_range_migration_integration: PASS' as result;
