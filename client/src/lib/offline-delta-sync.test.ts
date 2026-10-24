@@ -39,6 +39,7 @@ describe("offline delta sync", () => {
     const applied: string[] = [];
     const result = await pullDeltaPages({
       scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" },
+      persistCursor: async () => {},
       afterCursor: "3",
       pull,
       applyPage: async p => { applied.push(p.changes[0].cursor); },
@@ -58,6 +59,8 @@ describe("offline delta sync", () => {
       .mockResolvedValueOnce(page({ current_cursor: "22", through_cursor: "22", next_cursor: "22", changes: [change("22", "7", "upsert", { id: 7 })] }));
     const rebuilt: string[] = [];
     const result = await pullDeltaPages({
+      scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" },
+      persistCursor: async () => {},
       afterCursor: null,
       pull,
       applyPage: async () => {},
@@ -72,7 +75,7 @@ describe("offline delta sync", () => {
     const pull = vi.fn()
       .mockResolvedValueOnce(page({ through_cursor: "9", next_cursor: "4", has_more: true }))
       .mockResolvedValueOnce(page({ through_cursor: "10", next_cursor: "10", has_more: false }));
-    await expect(pullDeltaPages({ scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" }, afterCursor: "3", pull, applyPage: async () => {}, rebuildSnapshot: async () => {} }))
+    await expect(pullDeltaPages({ scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" }, persistCursor: async () => {}, afterCursor: "3", pull, applyPage: async () => {}, rebuildSnapshot: async () => {} }))
       .rejects.toThrow(/تغيّر حد المزامنة/);
   });
 });
