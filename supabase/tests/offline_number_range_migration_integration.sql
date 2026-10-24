@@ -321,7 +321,7 @@ begin
   begin
     perform * from public.powerhub_claim_offline_number(
       v_grant_id, 1, 10, 100, '22222222-2222-4222-8222-222222222222',
-      'invoice', '2026', '20', '12121212-1212-4212-8212-121212121212', 'invoice'
+      'invoice', '2026', '20', '56565656-5656-4656-8656-565656565656', 'invoice'
     );
     raise exception 'ASSERT_FAILED: claim from a different device was accepted';
   exception when others then
