@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QueuedOfflineWork } from "./offline-work-queue";
 import {
+  canManuallyRetry,
   classifySyncResult,
   computeBackoffDelay,
   createSyncMetadata,
@@ -42,6 +43,14 @@ describe("offline sync engine", () => {
     const metadata = new Map([["a", { ...createSyncMetadata(a, 0), nextAttemptAt: 500 }]]);
     expect(planReadyOperations([a], metadata, new Set(), 499)).toHaveLength(0);
     expect(planReadyOperations([a], metadata, new Set(), 500)).toHaveLength(1);
+  });
+
+  it("allows manual retry only for an explicitly classified transient failure", () => {
+    expect(canManuallyRetry(undefined)).toBe(false);
+    expect(canManuallyRetry({ outcome: "pending" })).toBe(false);
+    expect(canManuallyRetry({ outcome: "rejected" })).toBe(false);
+    expect(canManuallyRetry({ outcome: "conflict" })).toBe(false);
+    expect(canManuallyRetry({ outcome: "retryable" })).toBe(true);
   });
 
   it("classifies permanent auth and validation errors as rejected", () => {
