@@ -72,4 +72,14 @@ describe("offline sync UI contract", () => {
     expect(offlineWorkQueue).toContain("transaction.objectStore(storeName).add(record)");
     expect(offlineWorkQueue).toContain("transaction.objectStore(syncMetadataStoreName).add(createInitialSyncMetadataRecord(record))");
   });
+
+  it("requeues an eligible failed work row and retry metadata in one IndexedDB transaction", () => {
+    expect(offlineWorkQueue).toContain("export async function requeueOfflineWorkForManualRetry");
+    expect(offlineWorkQueue).toContain('database.transaction([storeName, syncMetadataStoreName], "readwrite")');
+    expect(offlineWorkQueue).toContain("canRequeueFailedOfflineWork(operation, metadata)");
+    expect(offlineWorkQueue).toContain("operations.put({ ...operation, status: \"pending\", error: undefined, updatedAt: now })");
+    expect(offlineWorkQueue).toContain("metadataStore.put({");
+    expect(syncPanel).toContain("await requeueOfflineWorkForManualRetry({");
+    expect(syncPanel).not.toContain("await upsertSyncMetadata({\n            ...baseMetadata");
+  });
 });

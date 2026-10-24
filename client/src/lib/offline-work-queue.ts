@@ -184,6 +184,14 @@ export function isSyncMetadataCompatibleWithWorkItem(
   );
 }
 
+/** Manual retry is allowed only for a failed row with scope-matched transient metadata. */
+export function canRequeueFailedOfflineWork(item: QueuedOfflineWork, metadata?: SyncMetadataRecord): boolean {
+  return item.status === "failed" &&
+    isSyncMetadataCompatibleWithWorkItem(item, metadata) &&
+    metadata.outcome === "retryable";
+}
+
+
 
 const databaseName = "powerhub-offline-workspace";
 const storeName = "operations";
@@ -450,6 +458,72 @@ export async function updateOfflineWork(
   await transact("readwrite", (store) =>
     store.put({ ...existing, ...patch, updatedAt: Date.now() }),
   );
+}
+
+/**
+ * Atomically moves a failed Outbox row and its matching transient metadata back
+ * to pending. Re-check the current database state inside the write transaction:
+ * the UI's earlier list may be stale, and a crash must not leave half a retry.
+ */
+export async function requeueOfflineWorkForManualRetry(input: {
+  id: string;
+  clientOperationId: string;
+  userId: number;
+  siteId: number;
+  now?: number;
+}): Promise<boolean> {
+  if (!input.id || !input.clientOperationId ||
+      !Number.isSafeInteger(input.userId) || input.userId < 1 ||
+      !Number.isSafeInteger(input.siteId) || input.siteId < 1) {
+    throw new OfflineWorkQueueError("نطاق إعادة محاولة المسودة غير صالح.");
+  }
+  const now = input.now ?? Date.now();
+  if (!Number.isFinite(now)) throw new OfflineWorkQueueError("وقت إعادة محاولة المسودة غير صالح.");
+  const database = await openDatabase();
+  return new Promise<boolean>((resolve, reject) => {
+    const transaction = database.transaction([storeName, syncMetadataStoreName], "readwrite");
+    const operations = transaction.objectStore(storeName);
+    const metadataStore = transaction.objectStore(syncMetadataStoreName);
+    const operationRequest = operations.get(input.id);
+    const metadataRequest = metadataStore.get(input.clientOperationId);
+    let operation: QueuedOfflineWork | undefined;
+    let metadata: SyncMetadataRecord | undefined;
+    let operationReady = false;
+    let metadataReady = false;
+    let evaluated = false;
+    let requeued = false;
+
+    const evaluate = () => {
+      if (!operationReady || !metadataReady || evaluated) return;
+      evaluated = true;
+      if (!operation ||
+          operation.id !== input.id ||
+          operation.clientOperationId !== input.clientOperationId ||
+          operation.userId !== input.userId ||
+          operation.siteId !== input.siteId ||
+          !canRequeueFailedOfflineWork(operation, metadata)) return;
+
+      const { lastError: _lastError, ...retryMetadata } = metadata;
+      void _lastError;
+      operations.put({ ...operation, status: "pending", error: undefined, updatedAt: now });
+      metadataStore.put({
+        ...retryMetadata,
+        attempts: 0,
+        nextAttemptAt: now,
+        outcome: "pending",
+        updatedAt: now,
+      });
+      requeued = true;
+    };
+
+    operationRequest.onsuccess = () => { operation = operationRequest.result as QueuedOfflineWork | undefined; operationReady = true; evaluate(); };
+    metadataRequest.onsuccess = () => { metadata = metadataRequest.result as SyncMetadataRecord | undefined; metadataReady = true; evaluate(); };
+    operationRequest.onerror = () => { try { transaction.abort(); } catch {} };
+    metadataRequest.onerror = () => { try { transaction.abort(); } catch {} };
+    transaction.oncomplete = () => { database.close(); resolve(requeued); };
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new OfflineWorkQueueError("تعذر تحديث المسودة وبيانات إعادة المحاولة معًا.")); };
+    transaction.onabort = () => { database.close(); reject(transaction.error ?? new OfflineWorkQueueError("أُلغيت معاملة إعادة محاولة المسودة.")); };
+  });
 }
 
 export async function removeOfflineWork(id: string) {

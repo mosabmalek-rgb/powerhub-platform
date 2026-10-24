@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
+import { canRequeueFailedOfflineWork, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
 
 describe("طابور المسودات دون اتصال", () => {
   it("ينشئ معرف عملية ثابتاً داخل السجل ومعرفاً مختلفاً لكل مسودة", () => {
@@ -34,6 +34,11 @@ describe("طابور المسودات دون اتصال", () => {
     expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, kind: "reading_create" })).toBe(false);
     expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, siteId: 8 })).toBe(false);
     expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, userId: 8 })).toBe(false);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "failed" }, { ...metadata, outcome: "retryable" })).toBe(true);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "failed" }, metadata)).toBe(false);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "failed" }, { ...metadata, tenantId: 99, outcome: "retryable" })).toBe(false);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "failed" }, { ...metadata, kind: "reading_create", outcome: "retryable" })).toBe(false);
+    expect(canRequeueFailedOfflineWork({ ...draft, status: "pending" }, { ...metadata, outcome: "retryable" })).toBe(false);
   });
 
 

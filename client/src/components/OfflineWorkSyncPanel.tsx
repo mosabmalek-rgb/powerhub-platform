@@ -3,7 +3,7 @@ import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, removeOfflineWork, updateOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
+import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, requeueOfflineWorkForManualRetry, removeOfflineWork, updateOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
 import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
@@ -315,27 +315,17 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     const lockResult = await withOfflineSyncLock({ userId, siteId }, async () => {
       setSyncing(true);
       try {
-        const [allItems, metadataRows] = await Promise.all([
-          listOfflineWork({ userId, siteId }),
-          listSyncMetadata({ userId, siteId }),
-        ]);
+        const allItems = await listOfflineWork({ userId, siteId });
         const now = Date.now();
+        let requeued = 0;
         for (const item of allItems.filter((entry) => entry.status === "failed")) {
-          const metadata = metadataRows.find((row) => row.operationId === item.clientOperationId);
-          // Only a scope-matched, explicitly transient result can be manually retried.
-          // Missing or mismatched metadata is ambiguous and remains blocked.
-          if (!isSyncMetadataCompatibleWithWorkItem(item, metadata) || !canManuallyRetry(metadata)) continue;
-          const { lastError: previousError, ...baseMetadata } = metadata;
-          void previousError;
-          await upsertSyncMetadata({
-            ...baseMetadata,
-            attempts: 0,
-            nextAttemptAt: now,
-            outcome: "pending",
-            updatedAt: now,
+          const changed = await requeueOfflineWorkForManualRetry({
+            id: item.id, clientOperationId: item.clientOperationId,
+            userId, siteId, now,
           });
-          await updateOfflineWork(item.id, { status: "pending", error: undefined });
+          if (changed) requeued += 1;
         }
+        if (!requeued) toast.message("لا توجد مسودات فاشلة ذات نتيجة مؤقتة موثوقة قابلة لإعادة المحاولة.");
         await syncPendingUnlocked();
       } catch (error) {
         toast.error(getErrorMessage(error));
