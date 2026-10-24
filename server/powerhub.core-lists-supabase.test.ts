@@ -1179,6 +1179,35 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     }
   });
 
+  it("retains the uploaded receipt when the payment RPC outcome is indeterminate", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-receipts/indeterminate-attempt.png", url: "https://signed.example/indeterminate.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    const originalRpc = state.client.rpc;
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_payment") throw new Error("fetch failed after server commit");
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0005",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+        clientOperationId: "55555555-5555-4555-8555-555555555557",
+      })).rejects.toThrow("fetch failed after server commit");
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      state.client.rpc = originalRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
   it("removes the uploaded receipt when the payment RPC rejects the collection", async () => {
     const storage = await import("./storage");
     const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
