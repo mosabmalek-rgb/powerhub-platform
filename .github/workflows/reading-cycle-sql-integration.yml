@@ -154,6 +154,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres offline_core_write_acl_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_core_write_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_core_write_acl_hardening.sql
 
+      - name: Verify notification trigger functions are not browser-callable
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres offline_notification_trigger_acl_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_notification_trigger_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_notification_trigger_acl_hardening.sql
+
       - name: Verify offline device-lock schema reconciliation and single-device behavior
         env:
           PGPASSWORD: postgres

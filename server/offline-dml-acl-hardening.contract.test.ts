@@ -9,8 +9,13 @@ const deviceLockMigrationUrl = new URL(
   "../supabase/migrations/20261024210500_powerhub_device_lock_schema_reconciliation.sql",
   import.meta.url,
 );
+const notificationTriggerMigrationUrl = new URL(
+  "../supabase/migrations/20261024211000_powerhub_notification_trigger_rpc_hardening.sql",
+  import.meta.url,
+);
 const readMigration = () => readFile(migrationUrl, "utf8");
 const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
+const readNotificationTriggerMigration = () => readFile(notificationTriggerMigrationUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
   it("revokes direct write privileges from public browser roles on core records", async () => {
@@ -44,5 +49,13 @@ describe("offline server-write ACL hardening migration", () => {
     expect(migration).toMatch(/revoke all on function public\.powerhub_claim_user_device\(uuid, uuid, timestamptz\)[\s\S]*from public, anon, authenticated/i);
     expect(migration).toMatch(/grant execute on function public\.powerhub_claim_user_device\(uuid, uuid, timestamptz\)[\s\S]*to service_role/i);
     expect(migration).toMatch(/create or replace function public\.powerhub_release_user_device/i);
+  });
+  
+  it("revokes direct execution of notification trigger functions without dropping their trigger wiring", async () => {
+    const migration = await readNotificationTriggerMigration();
+    expect(migration).toMatch(/revoke execute on function public\.powerhub_notify_admin_pending_request\(\)\s+from public, anon, authenticated/i);
+    expect(migration).toMatch(/revoke execute on function public\.powerhub_notify_field_sync_received\(\)\s+from public, anon, authenticated/i);
+    expect(migration).toMatch(/revoke execute on function public\.powerhub_notify_payment_documentation_request\(\)\s+from public, anon, authenticated/i);
+    expect(migration).not.toMatch(/drop trigger|drop function|create or replace function/i);
   });
 });
