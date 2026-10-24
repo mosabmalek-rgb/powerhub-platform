@@ -241,6 +241,7 @@ export default function MeterReadingsPage() {
       }
     }
     await refresh();
+    await loadQueuedReadings();
     const completed = results.filter((result) => result.outcome === "applied" || result.outcome === "already_applied").length;
     const retryable = results.filter((result) => result.outcome === "retryable").length;
     const conflicts = results.filter((result) => result.outcome === "conflict").length;
