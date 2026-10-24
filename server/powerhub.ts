@@ -2155,10 +2155,16 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");
       const admin = supabaseAdmin();
       if (input.clientOperationId) {
-        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
+        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations")
+          .select("tenant_id, site_id, entity_type, operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
         if (appliedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مفتاح المزامنة في Supabase." });
         if (applied) {
+          if (Number(applied.tenant_id) !== access.tenantId ||
+              Number(applied.site_id) !== input.siteId ||
+              applied.entity_type !== "subscriber") {
+            throw new TRPCError({ code: "CONFLICT", message: "معرّف عملية المزامنة مستخدم ضمن مستأجر أو فرع مختلف." });
+          }
           if (applied.operation_type !== "subscriber_update") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
           const response = applied.response as { success: true; updatedAt: string | Date };
           return { success: true as const, updatedAt: new Date(response.updatedAt), replayed: true };
@@ -2668,6 +2674,12 @@ export const powerhubRouter = router({
         : await supabaseAdmin().rpc("powerhub_create_payment", rpcArgs);
       if (!error && data?.[0]) {
         const row = data[0] as { payment_id: number | string; replayed: boolean };
+        if (row.replayed && receiptImageKey) {
+          // The existing payment owns its original receipt; discard the new upload
+          // attached to this transport retry to prevent orphaned duplicate images.
+          try { await storageRemove(receiptImageKey); }
+          catch (cleanupError) { console.error("[PowerHub] orphaned payment retry image cleanup failed", cleanupError); }
+        }
         return { id: Number(row.payment_id), replayed: Boolean(row.replayed) };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;

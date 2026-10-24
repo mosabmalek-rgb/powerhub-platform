@@ -985,6 +985,28 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_service_status: "active" }) })]);
   });
 
+  it("يرفض إعادة تشغيل تعديل مشترك إذا كان معرّف العملية مسجلاً ضمن مستأجر أو فرع آخر", async () => {
+    const previousOperations = state.tables.offline_sync_operations;
+    const operationId = "22222222-2222-4222-8222-222222222222";
+    state.tables.offline_sync_operations = [{
+      tenant_id: 99, site_id: 10, user_id: 1, client_operation_id: operationId,
+      entity_type: "subscriber", operation_type: "subscriber_update",
+      response: { success: true, updatedAt: "2026-08-03T00:00:00.000Z" },
+    }];
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.subscribers.update({
+        siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة",
+        subscriptionType: "commercial", serviceStatus: "active", clientOperationId: operationId,
+        expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z"),
+      })).rejects.toThrow("معرّف عملية المزامنة مستخدم ضمن مستأجر أو فرع مختلف.");
+      expect(state.rpcCalls.some((call) => call.name === "powerhub_update_subscriber")).toBe(false);
+    } finally {
+      if (previousOperations) state.tables.offline_sync_operations = previousOperations;
+      else delete state.tables.offline_sync_operations;
+    }
+  });
+
   it("يرفض تسجيل القراءة قبل رفع الصورة إذا لم توجد تعرفة فعالة", async () => {
     const originalTariffs = state.tables.tariffs;
     state.tables.tariffs = [];
@@ -1045,6 +1067,34 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_create_payment", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_invoice_id: 70, p_company_account_id: 90, p_amount: 25 }) }),
     ]);
+  });
+
+  it("يتخلص من صورة الإيصال الجديدة عندما يعيد الخادم تحصيلاً منفذاً مسبقاً", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-receipts/replayed-retry.png", url: "https://signed.example/retry.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_payment") return { data: [{ payment_id: 81, replayed: true }], error: null };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0001",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+        clientOperationId: "55555555-5555-4555-8555-555555555555",
+      })).resolves.toEqual({ id: 81, replayed: true });
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalledWith("payment-receipts/replayed-retry.png");
+    } finally {
+      state.client.rpc = state.defaultRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
   });
 
   it("يفلتر سجل المصروفات في Supabase بحسب الفترة والحساب والمستأجر والفرع", async () => {
