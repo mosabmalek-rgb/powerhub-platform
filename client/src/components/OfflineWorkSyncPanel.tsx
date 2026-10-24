@@ -7,6 +7,7 @@ import { listOfflineWork, removeOfflineWork, updateOfflineWork, type QueuedOffli
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
 import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
+import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
@@ -162,80 +163,86 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const syncPending = async () => {
     if (!isOnline) return toast.error("تحتاج إلى اتصال قبل مزامنة المسودات.");
     if (syncing) return;
-    setSyncing(true);
-    try {
-      const allItems = await listOfflineWork({ userId, siteId });
-      const pendingItems = allItems.filter((item) => item.status === "pending" || item.status === "failed");
-      if (!pendingItems.length) return;
-      const metadataByOperationId = await buildMetadata(pendingItems);
-      const completedIds = new Set(allItems.filter((item) => item.status === "applied").map((item) => item.clientOperationId));
-      const results = await executeReadyOperations({ items: pendingItems, metadataByOperationId, completedIds, transport, now: Date.now() });
-      const storedAfter = await listSyncMetadata({ userId, siteId });
-      for (const result of results) {
-        const current = storedAfter.find((row) => row.operationId === result.item.clientOperationId);
-        await upsertSyncMetadata({ operationId: result.item.clientOperationId, userId, siteId: result.item.siteId, kind: result.item.kind, dependsOn: result.metadata.dependsOn, attempts: result.metadata.attempts, nextAttemptAt: result.metadata.nextAttemptAt, outcome: result.outcome, ...(result.metadata.lastError ? { lastError: result.metadata.lastError } : {}), updatedAt: Date.now(), ...(current?.tenantId !== undefined ? { tenantId: current.tenantId } : {}) });
-        if (result.outcome === "conflict") {
-          await upsertOfflineConflict({
-            userId,
-            ...(current?.tenantId !== undefined ? { tenantId: current.tenantId } : {}),
-            siteId: result.item.siteId,
-            operationId: result.item.clientOperationId,
-            kind: result.item.kind,
-            outcome: "conflict",
-            message: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة قبل إعادة الإرسال.",
-            createdAt: result.item.createdAt,
-            updatedAt: Date.now(),
-            localPayload: result.item.payload,
-          });
-        } else if (result.outcome === "applied" || result.outcome === "already_applied") {
-          await removeOfflineConflict(userId, result.item.clientOperationId);
+    const lockResult = await withOfflineSyncLock({ userId, siteId }, async () => {
+      setSyncing(true);
+      try {
+        const allItems = await listOfflineWork({ userId, siteId });
+        const pendingItems = allItems.filter((item) => item.status === "pending" || item.status === "failed");
+        if (!pendingItems.length) return;
+        const metadataByOperationId = await buildMetadata(pendingItems);
+        const completedIds = new Set(allItems.filter((item) => item.status === "applied").map((item) => item.clientOperationId));
+        const results = await executeReadyOperations({ items: pendingItems, metadataByOperationId, completedIds, transport, now: Date.now() });
+        const storedAfter = await listSyncMetadata({ userId, siteId });
+        for (const result of results) {
+          const current = storedAfter.find((row) => row.operationId === result.item.clientOperationId);
+          await upsertSyncMetadata({ operationId: result.item.clientOperationId, userId, siteId: result.item.siteId, kind: result.item.kind, dependsOn: result.metadata.dependsOn, attempts: result.metadata.attempts, nextAttemptAt: result.metadata.nextAttemptAt, outcome: result.outcome, ...(result.metadata.lastError ? { lastError: result.metadata.lastError } : {}), updatedAt: Date.now(), ...(current?.tenantId !== undefined ? { tenantId: current.tenantId } : {}) });
+          if (result.outcome === "conflict") {
+            await upsertOfflineConflict({
+              userId,
+              ...(current?.tenantId !== undefined ? { tenantId: current.tenantId } : {}),
+              siteId: result.item.siteId,
+              operationId: result.item.clientOperationId,
+              kind: result.item.kind,
+              outcome: "conflict",
+              message: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة قبل إعادة الإرسال.",
+              createdAt: result.item.createdAt,
+              updatedAt: Date.now(),
+              localPayload: result.item.payload,
+            });
+          } else if (result.outcome === "applied" || result.outcome === "already_applied") {
+            await removeOfflineConflict(userId, result.item.clientOperationId);
+          }
+          if (result.outcome === "retryable") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
+          else if (result.outcome === "conflict") await updateOfflineWork(result.item.id, { status: "conflict", error: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة." });
+          else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
         }
-        if (result.outcome === "retryable") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
-        else if (result.outcome === "conflict") await updateOfflineWork(result.item.id, { status: "conflict", error: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة." });
-        else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
-      }
-      await refresh();
-      const successfulReadingCreates = results.filter((result) =>
-        result.item.kind === "reading_create" &&
-        (result.outcome === "applied" || result.outcome === "already_applied"),
-      );
-      if (successfulReadingCreates.length > 0) {
-        await utils.powerhub.readings.page.invalidate({ siteId, limit: 200 });
-      }
-      const successfulInvoiceIssues = results.filter((result) =>
-        result.item.kind === "invoice_issue" &&
-        (result.outcome === "applied" || result.outcome === "already_applied"),
-      );
-      // Refresh the active site's invoice pages only after successful invoice sync; no polling.
-      if (successfulInvoiceIssues.length > 0) {
-        await Promise.all([
-          utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 }),
-          utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 }),
-        ]);
-      }
-      const successfulSubscriberChanges = results.filter((result) =>
-        (result.item.kind === "subscriber_create" || result.item.kind === "subscriber_update") &&
-        (result.outcome === "applied" || result.outcome === "already_applied"),
-      );
-      if (typeof window !== "undefined") {
-        for (const changedSiteId of new Set(successfulSubscriberChanges.map((result) => result.item.siteId))) {
-          window.dispatchEvent(new CustomEvent("powerhub:subscriber-directory-changed", { detail: { siteId: changedSiteId } }));
+        await refresh();
+        const successfulReadingCreates = results.filter((result) =>
+          result.item.kind === "reading_create" &&
+          (result.outcome === "applied" || result.outcome === "already_applied"),
+        );
+        if (successfulReadingCreates.length > 0) {
+          await utils.powerhub.readings.page.invalidate({ siteId, limit: 200 });
         }
-        for (const result of successfulSubscriberChanges) {
-          if (result.item.kind === "subscriber_create" &&
-              (result.item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft).offlineNumberClaim) {
-            window.dispatchEvent(new CustomEvent("powerhub:offline-number-grant-refresh", { detail: { siteId: result.item.siteId, userId } }));
+        const successfulInvoiceIssues = results.filter((result) =>
+          result.item.kind === "invoice_issue" &&
+          (result.outcome === "applied" || result.outcome === "already_applied"),
+        );
+        // Refresh the active site's invoice pages only after successful invoice sync; no polling.
+        if (successfulInvoiceIssues.length > 0) {
+          await Promise.all([
+            utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 }),
+            utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 }),
+          ]);
+        }
+        const successfulSubscriberChanges = results.filter((result) =>
+          (result.item.kind === "subscriber_create" || result.item.kind === "subscriber_update") &&
+          (result.outcome === "applied" || result.outcome === "already_applied"),
+        );
+        if (typeof window !== "undefined") {
+          for (const changedSiteId of new Set(successfulSubscriberChanges.map((result) => result.item.siteId))) {
+            window.dispatchEvent(new CustomEvent("powerhub:subscriber-directory-changed", { detail: { siteId: changedSiteId } }));
+          }
+          for (const result of successfulSubscriberChanges) {
+            if (result.item.kind === "subscriber_create" &&
+                (result.item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft).offlineNumberClaim) {
+              window.dispatchEvent(new CustomEvent("powerhub:offline-number-grant-refresh", { detail: { siteId: result.item.siteId, userId } }));
+            }
           }
         }
+        const retriable = results.filter((r) => r.outcome === "retryable").length;
+        const conflicts = results.filter((r) => r.outcome === "conflict").length;
+        const completed = results.filter((r) => r.outcome === "applied" || r.outcome === "already_applied").length;
+        if (completed) toast.success(`اكتملت مزامنة ${completed} عملية.`);
+        if (retriable) toast.warning(`توجد ${retriable} عملية مؤجلة لإعادة المحاولة.`);
+        if (conflicts) toast.error(`توجد ${conflicts} عملية متعارضة تحتاج إلى مراجعة.`);
+      } catch (error) { toast.error(getErrorMessage(error)); }
+      } finally {
+        setSyncing(false);
+        await load();
       }
-      const retriable = results.filter((r) => r.outcome === "retryable").length;
-      const conflicts = results.filter((r) => r.outcome === "conflict").length;
-      const completed = results.filter((r) => r.outcome === "applied" || r.outcome === "already_applied").length;
-      if (completed) toast.success(`اكتملت مزامنة ${completed} عملية.`);
-      if (retriable) toast.warning(`توجد ${retriable} عملية مؤجلة لإعادة المحاولة.`);
-      if (conflicts) toast.error(`توجد ${conflicts} عملية متعارضة تحتاج إلى مراجعة.`);
-    } catch (error) { toast.error(getErrorMessage(error)); }
-    finally { setSyncing(false); await load(); }
+    });
+    if (!lockResult.acquired) toast.info("المزامنة تعمل بالفعل في تبويب آخر لهذا الفرع.");
   };
 
   const retryFailedAndSync = async () => {
