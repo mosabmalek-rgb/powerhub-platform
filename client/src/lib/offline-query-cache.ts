@@ -5,7 +5,6 @@ const DATABASE_NAME = "powerhub-offline-cache";
 const DATABASE_VERSION = 2;
 const QUERY_STORE = "queries";
 const AUTH_STORE = "auth-users";
-export const OFFLINE_QUERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER = 200;
 export const OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
 let successfulWritesSincePrune = 0;
@@ -42,7 +41,7 @@ type OfflineQueryRecord = {
   serializedQueryKey: string;
   serializedData: string;
   updatedAt: number;
-  expiresAt: number;
+  expiresAt: number | null;
 };
 
 type OfflineAuthUserRecord = {
@@ -51,15 +50,22 @@ type OfflineAuthUserRecord = {
   updatedAt: number;
 };
 
-export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
+function getPowerHubQuerySegments(queryKey: readonly unknown[]) {
   const first = queryKey[0];
-  const segments = Array.isArray(first)
-    ? first.filter((part): part is string => typeof part === "string")
-    : typeof first === "string"
-      ? queryKey.slice(0, 3).filter((part): part is string => typeof part === "string")
-      : [];
+  if (Array.isArray(first)) return first.filter((part): part is string => typeof part === "string");
+  if (typeof first === "string" && first.includes(".")) return first.split(".");
+  if (typeof first === "string") return queryKey.slice(0, 3).filter((part): part is string => typeof part === "string");
+  return [];
+}
+
+export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
+  const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
   if (segments.some((value) => BLOCKED_PROCEDURES.has(value))) return false;
+  // Only stable whole-list query shapes are persisted. Search pages, details,
+  // summaries, mutations and other methods under an otherwise cacheable router
+  // must opt in explicitly rather than inheriting permission from the router name.
+  if (segments.length < 3 || segments[2] !== "list") return false;
   return CACHEABLE_PROCEDURES.has(segments[1] ?? "");
 }
 
@@ -72,7 +78,8 @@ export function isOfflineQueryRecordUsable(
   userId: string,
   now = Date.now(),
 ) {
-  if (record.userId !== userId || record.expiresAt <= now) return false;
+  if (record.userId !== userId) return false;
+  if (record.expiresAt !== null && (!Number.isFinite(record.expiresAt) || record.expiresAt <= now)) return false;
   try {
     const queryKey = superjson.parse<readonly unknown[]>(record.serializedQueryKey);
     return isOfflineCacheableQueryKey(queryKey);
@@ -135,7 +142,8 @@ export async function pruneOfflineQueryCache(now = Date.now()) {
     const remove = new Set<string>();
     const byUser = new Map<string, OfflineQueryRecord[]>();
     for (const record of records) {
-      const valid = Number.isFinite(record.expiresAt) && record.expiresAt > now &&
+      const expiryValid = record.expiresAt === null || (Number.isFinite(record.expiresAt) && record.expiresAt > now);
+      const valid = expiryValid &&
         typeof record.userId === "string" && record.userId.length > 0 &&
         typeof record.serializedData === "string" && typeof record.serializedQueryKey === "string" &&
         isOfflineQueryRecordUsable(record, record.userId, now);
@@ -193,7 +201,9 @@ export async function persistOfflineQuery(query: Query, userId: string, now = Da
     serializedQueryKey,
     serializedData,
     updatedAt: query.state.dataUpdatedAt || now,
-    expiresAt: now + OFFLINE_QUERY_CACHE_TTL_MS,
+    // Operational snapshots are retained across days; freshness is handled by sync cursors,
+    // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
+    expiresAt: null,
   };
 
   try {

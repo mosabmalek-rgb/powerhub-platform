@@ -1,3 +1,4 @@
+import { openLegacyOfflineDatabaseIfPresent, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
 export type SyncMetadataRecord = {
   operationId: string;
   userId: number;
@@ -9,11 +10,12 @@ export type SyncMetadataRecord = {
   nextAttemptAt: number;
   outcome: "pending" | "syncing" | "applied" | "already_applied" | "conflict" | "retryable" | "rejected";
   lastError?: string;
+  lastErrorCode?: string;
   updatedAt: number;
 };
 
-const databaseName = "powerhub-offline-sync";
-const storeName = "metadata";
+const legacyDatabaseName = "powerhub-offline-sync";
+const storeName = "syncMetadata";
 
 export class OfflineSyncMetadataError extends Error {}
 
@@ -23,23 +25,53 @@ function assertAvailable() {
   }
 }
 
-function openDatabase() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    assertAvailable();
-    const request = indexedDB.open(databaseName, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(storeName)) {
-        const store = request.result.createObjectStore(storeName, { keyPath: "operationId" });
-        store.createIndex("userId", "userId", { unique: false });
-        store.createIndex("siteId", "siteId", { unique: false });
-        store.createIndex("outcome", "outcome", { unique: false });
-        store.createIndex("nextAttemptAt", "nextAttemptAt", { unique: false });
-      }
+
+let legacyMetadataMigration: Promise<void> | null = null;
+
+async function migrateLegacyMetadataDatabase(target: IDBDatabase) {
+  const legacy = await openLegacyOfflineDatabaseIfPresent(legacyDatabaseName, ["metadata"]);
+  if (!legacy) return;
+  const records = await new Promise<SyncMetadataRecord[]>((resolve, reject) => {
+    const tx = legacy.transaction("metadata", "readonly");
+    const request = tx.objectStore("metadata").getAll();
+    let rows: SyncMetadataRecord[] = [];
+    request.onsuccess = () => { rows = request.result as SyncMetadataRecord[]; };
+    request.onerror = () => { try { tx.abort(); } catch {} };
+    tx.oncomplete = () => { legacy.close(); resolve(rows); };
+    tx.onerror = () => { legacy.close(); reject(tx.error ?? new OfflineSyncMetadataError("تعذر قراءة حالات المزامنة القديمة.")); };
+    tx.onabort = () => { legacy.close(); reject(tx.error ?? new OfflineSyncMetadataError("أُلغيت قراءة حالات المزامنة القديمة.")); };
+  });
+  await new Promise<void>((resolve, reject) => {
+    const tx = target.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const existing = new Set((request.result as SyncMetadataRecord[]).map((row) => row.operationId));
+      for (const record of records) if (!existing.has(record.operationId)) store.put(record);
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new OfflineSyncMetadataError("تعذر فتح مخزن حالة المزامنة."));
+    request.onerror = () => { try { tx.abort(); } catch {} };
+    tx.oncomplete = () => {
+      resolve();
+      const removal = indexedDB.deleteDatabase(legacyDatabaseName);
+      removal.onerror = () => undefined;
+      removal.onblocked = () => undefined;
+    };
+    tx.onerror = () => reject(tx.error ?? new OfflineSyncMetadataError("تعذر ترحيل حالات المزامنة القديمة."));
+    tx.onabort = () => reject(tx.error ?? new OfflineSyncMetadataError("أُلغي ترحيل حالات المزامنة القديمة."));
   });
 }
+
+async function openDatabase() {
+  const db = await openOfflineWorkspaceDatabase();
+  if (!legacyMetadataMigration) {
+    legacyMetadataMigration = migrateLegacyMetadataDatabase(db).catch((error) => {
+      console.warn("[PowerHub] Legacy outbox metadata migration deferred; operation drafts remain intact.", error);
+    });
+  }
+  await legacyMetadataMigration;
+  return db;
+}
+
 
 export async function upsertSyncMetadata(record: SyncMetadataRecord) {
   const db = await openDatabase();

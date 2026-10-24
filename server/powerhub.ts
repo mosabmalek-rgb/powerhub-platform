@@ -25,6 +25,7 @@ import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { powerhubInventoryRouter } from "./powerhub-inventory-router";
 import { powerhubMaintenanceRouter } from "./powerhub-maintenance-router";
+import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
@@ -476,6 +477,92 @@ async function sendPendingInvoiceSmsRuntime(
 }
 
 export const powerhubRouter = router({
+  deltaSync: router({
+    pull: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"]),
+      afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
+      throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
+      pageSize: z.number().int().min(1).max(500).default(200),
+    })).query(async ({ ctx, input }) => {
+      // Delta pull is a read path: mirror the matching list endpoint's roles.
+      // Do not require write/manage capabilities to refresh an already authorized list.
+      const readRolesByEntity = {
+        sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        subscribers: ["owner", "manager", "accountant", "collector", "viewer"],
+        generators: ["owner", "manager", "technician", "viewer"],
+        readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        tariffs: ["owner", "manager", "accountant", "viewer"],
+      } as const;
+      const access = await requireSupabaseSiteRole(
+        ctx.user.id,
+        input.siteId,
+        [...readRolesByEntity[input.entityType]],
+      );
+      const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
+      const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
+      const { data, error } = await supabaseAdmin().rpc("powerhub_pull_sync_delta", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_entity_type: input.entityType,
+        p_after_cursor: afterCursor,
+        p_through_cursor: throughCursor,
+        p_page_size: input.pageSize,
+      });
+      if (error) {
+        if (error.message.includes("POWERHUB_SYNC_CURSOR_INVALID") || error.message.includes("POWERHUB_SYNC_TARGET_CURSOR_INVALID")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر المزامنة غير صالح؛ أعد تحميل لقطة البيانات." });
+        }
+        if (error.message.includes("SITE_OUT_OF_SCOPE")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الوصول إلى هذا الفرع." });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تغييرات المزامنة التفاضلية." });
+      }
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة المزامنة التفاضلية غير صالحة." });
+      }
+      return data as {
+        status: "ok" | "reset_required";
+        entity_type: string;
+        current_cursor: string;
+        retained_from_cursor: string;
+        snapshot_cursor: string | null;
+        through_cursor: string;
+        next_cursor: string | null;
+        has_more: boolean;
+        changes: Array<{ cursor: string; entity_type: string; entity_id: string; operation: "upsert" | "delete"; row_data: Record<string, unknown> | null; changed_at: string }>;
+      };
+    }),
+    snapshot: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"]),
+    })).query(async ({ ctx, input }) => {
+      const readRolesByEntity = {
+        sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        subscribers: ["owner", "manager", "accountant", "collector", "viewer"],
+        generators: ["owner", "manager", "technician", "viewer"],
+        readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        tariffs: ["owner", "manager", "accountant", "viewer"],
+      } as const;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_sync_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
+      });
+      if (error) {
+        if (error.message.includes("SITE_OUT_OF_SCOPE")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الوصول إلى هذا الفرع." });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء لقطة المزامنة." });
+      }
+      if (!data || typeof data !== "object" || Array.isArray(data) ||
+          !Array.isArray((data as { rows?: unknown }).rows) ||
+          typeof (data as { snapshot_cursor?: unknown }).snapshot_cursor !== "string") {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة لقطة المزامنة غير صالحة." });
+      }
+      return data as { status: "ok"; entity_type: string; snapshot_cursor: string; retained_from_cursor: string; rows: Array<Record<string, unknown>> };
+    }),
+  }),
+  offlineNumbering: powerhubOfflineNumberingRouter,
   unifiedMessaging: powerhubUnifiedMessagingRouter,
   // Declared on the canonical router so the public AppRouter retains inventory types.
   inventory: powerhubInventoryRouter,
@@ -1848,6 +1935,13 @@ export const powerhubRouter = router({
       address: z.string().max(1000).optional(),
       subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]).default("residential"),
       clientOperationId: z.string().uuid().optional(),
+      offlineNumberClaim: z.object({
+        grantId: z.string().uuid(),
+        deviceId: z.string().uuid(),
+        numberValue: z.string().regex(/^[1-9][0-9]{0,5}$/),
+        partitionKey: z.literal("global"),
+        formattedNumber: z.string().regex(/^SUB-\d{6}$/),
+      }).optional(),
       openingReading: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
       openingReadingAt: z.string().trim().optional().refine((value) => !value || !Number.isNaN(Date.parse(value)), "تاريخ القراءة الافتتاحية غير صالح."),
       openingReadingApproved: z.boolean().default(false),
@@ -1857,21 +1951,70 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const admin = supabaseAdmin();
       // Opening readings establish a baseline and are approved immediately; they do not issue consumption invoices.
-      if (input.clientOperationId) {
-        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
+      if (input.clientOperationId && !input.offlineNumberClaim) {
+        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations")
+          .select("tenant_id, site_id, entity_type, operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
         if (appliedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مفتاح المزامنة في Supabase." });
         if (applied) {
+          if (Number(applied.tenant_id) !== access.tenantId ||
+              Number(applied.site_id) !== input.siteId ||
+              applied.entity_type !== "subscriber") {
+            throw new TRPCError({ code: "CONFLICT", message: "معرّف عملية المزامنة مستخدم ضمن مستأجر أو فرع مختلف." });
+          }
           if (applied.operation_type !== "subscriber_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
           return applied.response as { id: number; subscriberNo: string; referenceNotifications: Array<{ notificationId: number; status: string; error?: string }> };
         }
       }
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
-      if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
+      if (!input.offlineNumberClaim && quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
       const whatsappNumber = input.whatsappNumber ? normalizeInternationalPhone(input.whatsappNumber) : undefined;
       if (input.openingReadingImageData && !input.openingReadingImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة القراءة الافتتاحية." });
       if (!input.openingReading && (input.openingReadingImageData || input.openingReadingApproved || input.openingReadingAt)) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل قيمة القراءة الافتتاحية قبل إضافة صورتها أو اعتمادها." });
+      if (input.offlineNumberClaim) {
+        const claim = input.offlineNumberClaim;
+        if (!input.clientOperationId || input.openingReading || input.openingReadingAt || input.openingReadingApproved || input.openingReadingImageData || input.openingReadingImageMime) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن الجمع بين رقم محجوز دون اتصال وقراءة افتتاحية أو صورة؛ أنشئ المشترك متصلاً لتسجيل القراءة." });
+        }
+        const rawDeviceId = ctx.req?.headers?.["x-powerhub-device-id"];
+        const headerDeviceId = Array.isArray(rawDeviceId) ? rawDeviceId[0] : rawDeviceId;
+        if (typeof headerDeviceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(headerDeviceId) || headerDeviceId.toLowerCase() !== claim.deviceId.toLowerCase()) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "مطالبة الرقم المحجوز لا تخص جهاز PowerHub الحالي." });
+        }
+        const expectedNumber = `SUB-${claim.numberValue.padStart(6, "0")}`;
+        if (claim.formattedNumber !== expectedNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "صيغة الرقم المحلي المحجوز غير مطابقة." });
+        const { data, error } = await admin.rpc("powerhub_create_subscriber_with_offline_number", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+          p_device_id: headerDeviceId, p_grant_id: claim.grantId, p_number_value: claim.numberValue,
+          p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "",
+          p_address: input.address?.trim() ?? "", p_subscription_type: input.subscriptionType,
+          p_client_operation_id: input.clientOperationId,
+        });
+        if (!error && data?.[0]) {
+          const row = data[0] as { subscriber_id: number | string; subscriber_no: string; replayed: boolean };
+          const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
+          if (!row.replayed) {
+            try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } }); }
+            catch (alertError) { console.error("[PowerHub] subscriber quota alert failed after offline creation", alertError); }
+          }
+          return response;
+        }
+        const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (errorText.includes("SUBSCRIBER_QUOTA_REACHED")) {
+          try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota, blockedAttempt: true }); }
+          catch (alertError) { console.error("[PowerHub] offline quota blocked-attempt alert failed", alertError); }
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). لا يمكن اعتماد المسودة قبل إضافة سعة أو ترقية الباقة.` });
+        }
+        if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة لا تتبع لمساحة صاحب المولد الحالية." });
+        if (errorText.includes("OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH") || errorText.includes("OFFLINE_NUMBER_ALREADY_CLAIMED") || errorText.includes("OFFLINE_NUMBER_CLAIM_MISSING")) {
+          throw new TRPCError({ code: "CONFLICT", message: "تعارض الرقم المحجوز مع عملية أخرى؛ أوقفنا المزامنة لمنع تكرار الرقم أو أثره." });
+        }
+        if (errorText.includes("OFFLINE_NUMBER_") || errorText.includes("OFFLINE_SUBSCRIBER_INPUT_INVALID")) {
+          throw new TRPCError({ code: "CONFLICT", message: "لم تعد مطالبة الرقم المحلي صالحة. احتفظنا بالمسودة للمراجعة ولم نعتمدها." });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد مسودة المشترك ذات الرقم المحجوز في Supabase." });
+      }
       let openingImageKey: string | undefined;
       let openingImageHash: string | undefined;
       if (input.openingReadingImageData && input.openingReadingImageMime) {
@@ -2196,7 +2339,9 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/), readingAt: z.date().optional(),
-      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
+      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(),
+      offlineInvoiceNumberClaim: z.object({ grantId: z.string().uuid(), deviceId: z.string().uuid(), numberValue: z.string().regex(/^[1-9][0-9]{0,7}$/), partitionKey: z.string().regex(/^\d{4}$/), formattedNumber: z.string().regex(/^INV-\d{4}-\d{8}$/) }).optional(),
+      imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       // Resolve membership once for all three capabilities; this is a common hot path.
       const access = await requireSupabaseSiteCapabilities(ctx.user.id, input.siteId, ["recordReadings", "approveReadings", "issueInvoices"]);
@@ -2216,6 +2361,22 @@ export const powerhubRouter = router({
       const billingPeriod = readingAt.toISOString().slice(0, 7);
       let imageKey: string | undefined;
       let imageHash: string | undefined;
+      const offlineInvoiceClaim = input.offlineInvoiceNumberClaim;
+      let offlineDeviceId: string | undefined;
+      if (offlineInvoiceClaim) {
+        const rawDeviceId = ctx.req?.headers?.["x-powerhub-device-id"];
+        const headerDeviceId = Array.isArray(rawDeviceId) ? rawDeviceId[0] : rawDeviceId;
+        const expectedInvoiceNo = `INV-${offlineInvoiceClaim.partitionKey}-${offlineInvoiceClaim.numberValue.padStart(8, "0")}`;
+        if (!input.clientOperationId || typeof headerDeviceId !== "string" ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(headerDeviceId) ||
+            headerDeviceId.toLowerCase() !== offlineInvoiceClaim.deviceId.toLowerCase()) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "مطالبة رقم الفاتورة لا تخص جهاز PowerHub الحالي." });
+        }
+        if (offlineInvoiceClaim.partitionKey !== billingPeriod.slice(0,4) || offlineInvoiceClaim.formattedNumber !== expectedInvoiceNo) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "رقم الفاتورة المحجوز لا يطابق سنة القراءة أو الصيغة الرسمية." });
+        }
+        offlineDeviceId = headerDeviceId;
+      }
       if (input.imageData) {
         if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة القراءة غير مدعوم." });
         const imageBytes = Buffer.from(input.imageData, "base64");
@@ -2225,14 +2386,21 @@ export const powerhubRouter = router({
         const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
         imageKey = stored.key;
       }
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice", {
+      const readingRpcArgs = {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
         p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
         p_capture_method: input.captureMethod, p_image_key: imageKey ?? "", p_image_hash: imageHash ?? "", p_notes: input.notes?.trim() ?? "",
         p_is_reading_reset: input.isReadingReset, p_field_verified: input.fieldVerified,
         p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
         p_due_date: dueDate.toISOString(), p_billing_period: billingPeriod,
-      });
+      };
+      const { data, error } = offlineInvoiceClaim
+        ? await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice_with_offline_number", {
+            ...readingRpcArgs, p_offline_grant_id: offlineInvoiceClaim.grantId,
+            p_offline_device_id: offlineDeviceId, p_offline_number_value: offlineInvoiceClaim.numberValue,
+            p_offline_partition_key: offlineInvoiceClaim.partitionKey,
+          })
+        : await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice", readingRpcArgs);
       if (!error && data?.[0]) {
         const row = data[0] as {
           reading_id: number | string; consumption_kwh: number | string; reading_status: "approved";
@@ -2271,6 +2439,8 @@ export const powerhubRouter = router({
       if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة في هذا الفرع؛ أضف التعرفة قبل تسجيل قراءة قابلة للفوترة." });
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الفترة المالية مقفلة ولا يمكن إصدار فاتورة داخلها؛ لم يتم حفظ القراءة." });
       if (errorText.includes("OPENING_BASELINE_NOT_BILLABLE")) throw new TRPCError({ code: "BAD_REQUEST", message: "القراءة الافتتاحية خط أساس ولا تصدر عنها فاتورة استهلاك." });
+      if (errorText.includes("OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH") || errorText.includes("OFFLINE_NUMBER_ALREADY_CLAIMED") || errorText.includes("OFFLINE_NUMBER_CLAIM_MISSING")) throw new TRPCError({ code: "CONFLICT", message: "تعارض رقم الفاتورة المحجوز؛ أوقفنا المزامنة لمنع تكرار الرقم." });
+      if (errorText.includes("OFFLINE_NUMBER_") || errorText.includes("OFFLINE_INVOICE_CLAIM_INPUT_INVALID")) throw new TRPCError({ code: "CONFLICT", message: "انتهت صلاحية مطالبة رقم الفاتورة أو لم تعد صالحة. احتفظنا بالقراءة للمراجعة ولم نعتمد فاتورة جديدة." });
       if (errorText.includes("READING_NOT_PENDING") || errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تعذر اعتماد القراءة بسبب تغير حالتها؛ حدّث البيانات ثم أعد المحاولة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ القراءة واعتمادها وإصدار فاتورتها؛ لم يتم تثبيت معاملة جزئية." });
     }),

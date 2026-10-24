@@ -1,159 +1,226 @@
+import {
+  enqueueOfflineWork, getOfflineWork, listOfflineWork, removeOfflineWork, updateOfflineWork,
+  type QueuedOfflineWork, type ReadingCreateDraft,
+} from "./offline-work-queue";
+import {
+  getSyncMetadata, listSyncMetadata, removeSyncMetadata, upsertSyncMetadata,
+  type SyncMetadataRecord,
+} from "./offline-sync-metadata";
+import { classifySyncResult, computeBackoffDelay, scheduleRetry, SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
+import { removeOfflineConflict, upsertOfflineConflict } from "./offline-workspace-db";
+
 export type QueuedReadingStatus = "pending" | "conflict" | "failed";
 export type QueuedReadingErrorKind = "retryable" | "conflict" | "terminal";
-
-export type QueuedReading = {
-  id: string;
-  clientOperationId: string;
-  userId: number;
-  siteId: number;
-  subscriberId: number;
-  readingValue: string;
-  readingAt: string;
-  captureMethod: "manual" | "photo" | "smart_meter";
-  imageData?: string;
-  imageMime?: "image/jpeg" | "image/png" | "image/webp";
-  notes?: string;
-  isReadingReset?: boolean;
-  overrideSameDay?: boolean;
-  fieldVerified?: boolean;
-  createdAt: number;
-  status: QueuedReadingStatus;
-  attempts: number;
-  nextAttemptAt: number;
-  lastErrorCode?: string;
-  lastErrorKind?: QueuedReadingErrorKind;
-  error?: string;
+export type QueuedReading = ReadingCreateDraft & {
+  id: string; clientOperationId: string; userId: number; tenantId?: number; siteId: number;
+  createdAt: number; status: QueuedReadingStatus; attempts: number; nextAttemptAt: number;
+  lastErrorCode?: string; lastErrorKind?: QueuedReadingErrorKind; error?: string;
 };
+type NewQueuedReading = Omit<QueuedReading,
+  "id" | "createdAt" | "status" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind" | "error">;
 
-const databaseName = "powerhub-field-queue";
-const storeName = "readings";
-const orphanedStoreName = "orphaned_readings";
-export const READING_SYNC_MAX_ATTEMPTS = 5;
-const READING_SYNC_BASE_DELAY_MS = 1_000;
-const READING_SYNC_MAX_DELAY_MS = 5 * 60_000;
-
+export const READING_SYNC_MAX_ATTEMPTS = SYNC_MAX_ATTEMPTS;
 export class OfflineQueueError extends Error {}
-
 export function assertOfflineQueueAvailable() {
   if (typeof indexedDB === "undefined") throw new OfflineQueueError("لا يدعم هذا المتصفح حفظ العمليات الميدانية دون اتصال.");
 }
-
 export function classifyReadingSyncError(errorCode?: string): QueuedReadingErrorKind {
-  if (errorCode === "CONFLICT") return "conflict";
-  if (["UNAUTHORIZED", "FORBIDDEN", "BAD_REQUEST", "NOT_FOUND", "VALIDATION_FAILED", "PRECONDITION_FAILED", "PAYLOAD_TOO_LARGE"].includes(errorCode ?? "")) return "terminal";
+  const outcome = errorCode ? classifySyncResult(errorCode) : "retryable";
+  if (outcome === "conflict") return "conflict";
+  if (outcome === "rejected") return "terminal";
   return "retryable";
 }
-
 export function computeReadingRetryDelay(attempts: number, random = Math.random()) {
-  const exponent = Math.max(0, attempts - 1);
-  const base = Math.min(READING_SYNC_MAX_DELAY_MS, READING_SYNC_BASE_DELAY_MS * 2 ** exponent);
-  const jitter = 0.75 + random * 0.5;
-  return Math.min(READING_SYNC_MAX_DELAY_MS, Math.round(base * jitter));
+  return computeBackoffDelay(attempts, random);
 }
-
 export function scheduleReadingRetry(record: QueuedReading, now = Date.now(), random = Math.random()) {
-  const attempts = record.attempts + 1;
-  return {
-    attempts,
-    nextAttemptAt: attempts >= READING_SYNC_MAX_ATTEMPTS
-      ? Number.POSITIVE_INFINITY
-      : now + computeReadingRetryDelay(attempts, random),
-  };
+  const retry = scheduleRetry({
+    operationId: record.clientOperationId, dependsOn: [],
+    attempts: record.attempts, nextAttemptAt: record.nextAttemptAt,
+  }, now, random);
+  return { attempts: retry.attempts, nextAttemptAt: retry.nextAttemptAt };
 }
-
 export function isQueuedReadingReadyForSync(record: QueuedReading, now = Date.now()) {
   if (record.status === "pending") return record.nextAttemptAt <= now;
-  return record.status === "failed"
-    && record.lastErrorKind === "retryable"
-    && record.attempts < READING_SYNC_MAX_ATTEMPTS
-    && record.nextAttemptAt <= now;
+  return record.status === "failed" && record.lastErrorKind === "retryable" &&
+    record.attempts < READING_SYNC_MAX_ATTEMPTS && record.nextAttemptAt <= now;
 }
-
-function openQueueDatabase() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    assertOfflineQueueAvailable();
-    const request = indexedDB.open(databaseName, 3);
-    request.onupgradeneeded = (event) => {
-      const database = request.result;
-      const transaction = request.transaction!;
-      const store = database.objectStoreNames.contains(storeName)
-        ? transaction.objectStore(storeName)
-        : database.createObjectStore(storeName, { keyPath: "id" });
-
-      if ((event as IDBVersionChangeEvent).oldVersion < 2) {
-        const cursorRequest = store.openCursor();
-        cursorRequest.onsuccess = () => {
-          const cursor = cursorRequest.result;
-          if (!cursor) return;
-          const legacy = cursor.value as Partial<QueuedReading> & { meterId?: number };
-          if (!legacy.subscriberId) cursor.delete();
-          else {
-            const { meterId: _meterId, ...subscriberReading } = legacy;
-            void _meterId;
-            cursor.update(subscriberReading);
-          }
-          cursor.continue();
-        };
-      }
-
-      if ((event as IDBVersionChangeEvent).oldVersion < 3) {
-        const orphaned = database.objectStoreNames.contains(orphanedStoreName)
-          ? transaction.objectStore(orphanedStoreName)
-          : database.createObjectStore(orphanedStoreName, { keyPath: "id" });
-        const cursorRequest = store.openCursor();
-        cursorRequest.onsuccess = () => {
-          const cursor = cursorRequest.result;
-          if (!cursor) return;
-          const legacy = cursor.value as Partial<QueuedReading>;
-          if (!legacy.userId) {
-            orphaned.put({ ...legacy, quarantinedAt: Date.now(), quarantineReason: "missing-user-scope" });
-            cursor.delete();
-          } else {
-            cursor.update({ ...legacy, attempts: Number(legacy.attempts ?? 0), nextAttemptAt: Number(legacy.nextAttemptAt ?? Date.now()) });
-          }
-          cursor.continue();
-        };
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("تعذر فتح طابور العمل دون اتصال."));
-  });
+function isReadingWork(item: QueuedOfflineWork): item is QueuedOfflineWork & { kind: "reading_create"; payload: ReadingCreateDraft } {
+  return item.kind === "reading_create";
 }
-
-async function transact<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>) {
-  const database = await openQueueDatabase();
-  return new Promise<T>((resolve, reject) => {
-    const transaction = database.transaction(storeName, mode);
-    const request = action(transaction.objectStore(storeName));
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("تعذر تحديث طابور القراءات."));
-    transaction.oncomplete = () => database.close();
-    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error("تعذر حفظ عملية الميدان.")); };
-  });
+function mapWorkToReading(item: QueuedOfflineWork, metadata?: SyncMetadataRecord): QueuedReading {
+  const raw = item.payload as ReadingCreateDraft;
+  const status: QueuedReadingStatus = item.status === "conflict" || metadata?.outcome === "conflict" ? "conflict"
+    : item.status === "failed" || metadata?.outcome === "retryable" || metadata?.outcome === "rejected" ? "failed" : "pending";
+  const lastErrorKind: QueuedReadingErrorKind | undefined = status === "conflict" ? "conflict"
+    : metadata?.outcome === "retryable" ? "retryable"
+    : metadata?.outcome === "rejected" ? "terminal"
+    : item.status === "failed" ? "terminal" : undefined;
+  return {
+    subscriberId: Number(raw.subscriberId),
+    readingValue: String(raw.readingValue ?? ""),
+    readingAt: typeof raw.readingAt === "string" ? raw.readingAt : new Date(String(raw.readingAt)).toISOString(),
+    captureMethod: raw.captureMethod === "photo" || raw.captureMethod === "smart_meter" ? raw.captureMethod : "manual",
+    ...(raw.imageData !== undefined ? { imageData: raw.imageData } : {}),
+    ...(raw.imageMime !== undefined ? { imageMime: raw.imageMime } : {}),
+    ...(raw.notes !== undefined ? { notes: raw.notes } : {}),
+    ...(raw.isReadingReset !== undefined ? { isReadingReset: raw.isReadingReset } : {}),
+    ...(raw.overrideSameDay !== undefined ? { overrideSameDay: raw.overrideSameDay } : {}),
+    ...(raw.fieldVerified !== undefined ? { fieldVerified: raw.fieldVerified } : {}),
+    ...(raw.offlineInvoiceNumberClaim !== undefined ? { offlineInvoiceNumberClaim: raw.offlineInvoiceNumberClaim } : {}),
+    id: item.id, clientOperationId: item.clientOperationId, userId: item.userId,
+    ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+    siteId: item.siteId, createdAt: item.createdAt, status,
+    attempts: metadata?.attempts ?? 0, nextAttemptAt: metadata?.nextAttemptAt ?? item.createdAt,
+    ...(metadata?.lastErrorCode ? { lastErrorCode: metadata.lastErrorCode } : {}),
+    ...(lastErrorKind ? { lastErrorKind } : {}),
+    ...((metadata?.lastError ?? item.error) ? { error: metadata?.lastError ?? item.error } : {}),
+  };
 }
-
+/** Field readings are an adapter over the canonical operations Outbox. */
 export async function listQueuedReadings(options: { userId: number; siteId?: number }) {
-  const records = await transact<QueuedReading[]>("readonly", (store) => store.getAll());
-  return records.filter((record) => record.userId === options.userId && (options.siteId === undefined || record.siteId === options.siteId)).sort((a, b) => a.createdAt - b.createdAt);
+  const items = await listOfflineWork(options); // Runs the one-time legacy migration first.
+  const metadata = await listSyncMetadata(options);
+  const byOperation = new Map(metadata.map((row) => [row.operationId, row]));
+  return items.filter((item) => isReadingWork(item) && item.status !== "applied")
+    .map((item) => mapWorkToReading(item, byOperation.get(item.clientOperationId)))
+    .sort((a, b) => a.createdAt - b.createdAt);
 }
-
-export async function enqueueReading(reading: Omit<QueuedReading, "id" | "createdAt" | "status" | "attempts" | "nextAttemptAt">) {
-  const id = crypto.randomUUID();
+export async function enqueueReading(reading: NewQueuedReading) {
+  assertOfflineQueueAvailable();
+  const existing = await getOfflineWork(reading.clientOperationId);
+  if (existing) {
+    if (existing.kind !== "reading_create" || existing.userId !== reading.userId ||
+        existing.siteId !== reading.siteId || existing.clientOperationId !== reading.clientOperationId) {
+      throw new OfflineQueueError("معرف عملية القراءة مستخدم في نطاق مختلف؛ لم يتم استبدال المسودة.");
+    }
+    const priorMetadata = await getSyncMetadata(existing.clientOperationId, { userId: existing.userId, siteId: existing.siteId });
+    return mapWorkToReading(existing, priorMetadata);
+  }
+  const sameUser = await listOfflineWork({ userId: reading.userId });
+  const duplicate = sameUser.find((item) => item.clientOperationId === reading.clientOperationId);
+  if (duplicate) {
+    if (duplicate.kind !== "reading_create" || duplicate.siteId !== reading.siteId) {
+      throw new OfflineQueueError("معرف عملية القراءة مستخدم في نطاق مختلف؛ لم يتم استبدال المسودة.");
+    }
+    const priorMetadata = await getSyncMetadata(duplicate.clientOperationId, { userId: duplicate.userId, siteId: duplicate.siteId });
+    return mapWorkToReading(duplicate, priorMetadata);
+  }
+  const payload: ReadingCreateDraft = {
+    subscriberId: reading.subscriberId, readingValue: reading.readingValue,
+    readingAt: reading.readingAt, captureMethod: reading.captureMethod,
+    ...(reading.imageData !== undefined ? { imageData: reading.imageData } : {}),
+    ...(reading.imageMime !== undefined ? { imageMime: reading.imageMime } : {}),
+    ...(reading.notes !== undefined ? { notes: reading.notes } : {}),
+    ...(reading.isReadingReset !== undefined ? { isReadingReset: reading.isReadingReset } : {}),
+    ...(reading.overrideSameDay !== undefined ? { overrideSameDay: reading.overrideSameDay } : {}),
+    ...(reading.fieldVerified !== undefined ? { fieldVerified: reading.fieldVerified } : {}),
+  };
+  const item = await enqueueOfflineWork({
+    userId: reading.userId, ...(reading.tenantId !== undefined ? { tenantId: reading.tenantId } : {}),
+    siteId: reading.siteId, kind: "reading_create", payload,
+    clientOperationId: reading.clientOperationId,
+  });
   const now = Date.now();
-  const record: QueuedReading = { ...reading, id, clientOperationId: reading.clientOperationId || id, createdAt: now, status: "pending", attempts: 0, nextAttemptAt: now };
-  await transact("readwrite", (store) => store.put(record));
-  return record;
+  const syncRecord: SyncMetadataRecord = {
+    operationId: item.clientOperationId, userId: item.userId,
+    ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+    siteId: item.siteId, kind: item.kind, dependsOn: [], attempts: 0,
+    nextAttemptAt: now, outcome: "pending", updatedAt: now,
+  };
+  await upsertSyncMetadata(syncRecord);
+  return mapWorkToReading(item, syncRecord);
+}
+export async function enqueueReadingWithInvoiceNumber(
+  reading: NewQueuedReading,
+  scope: import("./offline-number-ranges").OfflineNumberScope,
+  partitionKey: string,
+): Promise<{ record: QueuedReading; formattedInvoiceNumber?: string }> {
+  assertOfflineQueueAvailable();
+  if (scope.userId !== reading.userId || scope.siteId !== reading.siteId ||
+      (reading.tenantId !== undefined && scope.tenantId !== reading.tenantId)) {
+    throw new OfflineQueueError("نطاق حجز رقم الفاتورة لا يطابق الحساب والفرع الحاليين.");
+  }
+  const mapExisting = async (item: QueuedOfflineWork) => {
+    if (item.kind !== "reading_create" || item.userId !== reading.userId ||
+        item.siteId !== reading.siteId || item.clientOperationId !== reading.clientOperationId) {
+      throw new OfflineQueueError("معرف عملية القراءة مستخدم في نطاق مختلف؛ لم يتم استبدال المسودة.");
+    }
+    const metadata = await getSyncMetadata(item.clientOperationId, { userId: item.userId, siteId: item.siteId });
+    const payload = item.payload as ReadingCreateDraft;
+    return {
+      record: mapWorkToReading(item, metadata),
+      ...(payload.offlineInvoiceNumberClaim?.formattedNumber ? { formattedInvoiceNumber: payload.offlineInvoiceNumberClaim.formattedNumber } : {}),
+    };
+  };
+  const existing = await getOfflineWork(reading.clientOperationId);
+  if (existing) return mapExisting(existing);
+  const duplicate = (await listOfflineWork({ userId: reading.userId })).find((item) => item.clientOperationId === reading.clientOperationId);
+  if (duplicate) return mapExisting(duplicate);
+  const payload: Omit<ReadingCreateDraft, "offlineInvoiceNumberClaim"> = {
+    subscriberId: reading.subscriberId, readingValue: reading.readingValue,
+    readingAt: reading.readingAt, captureMethod: reading.captureMethod,
+    ...(reading.imageData !== undefined ? { imageData: reading.imageData } : {}),
+    ...(reading.imageMime !== undefined ? { imageMime: reading.imageMime } : {}),
+    ...(reading.notes !== undefined ? { notes: reading.notes } : {}),
+    ...(reading.isReadingReset !== undefined ? { isReadingReset: reading.isReadingReset } : {}),
+    ...(reading.overrideSameDay !== undefined ? { overrideSameDay: reading.overrideSameDay } : {}),
+    ...(reading.fieldVerified !== undefined ? { fieldVerified: reading.fieldVerified } : {}),
+  };
+  const queued = await import("./offline-work-queue").then(({ enqueueOfflineReadingWithInvoiceNumber }) =>
+    enqueueOfflineReadingWithInvoiceNumber({ scope, partitionKey, clientOperationId: reading.clientOperationId, payload }));
+  const now = Date.now();
+  const syncRecord: SyncMetadataRecord = {
+    operationId: queued.item.clientOperationId, userId: queued.item.userId,
+    ...(queued.item.tenantId !== undefined ? { tenantId: queued.item.tenantId } : {}),
+    siteId: queued.item.siteId, kind: queued.item.kind, dependsOn: [], attempts: 0,
+    nextAttemptAt: now, outcome: "pending", updatedAt: now,
+  };
+  await upsertSyncMetadata(syncRecord);
+  return { record: mapWorkToReading(queued.item, syncRecord), formattedInvoiceNumber: queued.formattedInvoiceNumber };
 }
 
 export async function updateQueuedReading(
   id: string,
   patch: Partial<Pick<QueuedReading, "status" | "error" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind">>,
 ) {
-  const existing = await transact<QueuedReading | undefined>("readonly", (store) => store.get(id));
-  if (!existing) return;
-  await transact("readwrite", (store) => store.put({ ...existing, ...patch }));
+  const item = await getOfflineWork(id);
+  if (!item || !isReadingWork(item) || item.status === "applied") return;
+  const existing = await getSyncMetadata(item.clientOperationId, { userId: item.userId, siteId: item.siteId });
+  const status = patch.status ?? item.status;
+  const hasErrorPatch = Object.prototype.hasOwnProperty.call(patch, "error");
+  const error = hasErrorPatch ? patch.error : existing?.lastError ?? item.error;
+  const attempts = patch.attempts ?? existing?.attempts ?? 0;
+  const kind = patch.lastErrorKind ?? (existing?.outcome === "conflict" ? "conflict"
+    : existing?.outcome === "retryable" ? "retryable"
+    : existing?.outcome === "rejected" ? "terminal" : undefined);
+  const outcome: SyncMetadataRecord["outcome"] = status === "conflict" ? "conflict"
+    : status === "failed" ? (kind === "retryable" ? "retryable" : "rejected") : "pending";
+  const nextAttemptAt = patch.nextAttemptAt ??
+    (status === "conflict" || outcome === "rejected" ? Number.POSITIVE_INFINITY : existing?.nextAttemptAt ?? item.createdAt);
+  const lastErrorCode = patch.lastErrorCode ?? existing?.lastErrorCode;
+  await updateOfflineWork(id, { status, ...(hasErrorPatch ? { error: patch.error } : {}) });
+  await upsertSyncMetadata({
+    operationId: item.clientOperationId, userId: item.userId,
+    ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+    siteId: item.siteId, kind: item.kind, dependsOn: existing?.dependsOn ?? [],
+    attempts, nextAttemptAt, outcome,
+    ...(error ? { lastError: error } : {}),
+    ...(lastErrorCode ? { lastErrorCode } : {}), updatedAt: Date.now(),
+  });
+  if (status === "conflict") {
+    await upsertOfflineConflict({
+      userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+      siteId: item.siteId, operationId: item.clientOperationId, kind: item.kind,
+      outcome: "conflict", message: error ?? "تعارض قراءة يحتاج إلى مراجعة.",
+      createdAt: item.createdAt, updatedAt: Date.now(), localPayload: item.payload,
+    });
+  } else await removeOfflineConflict(item.userId, item.clientOperationId);
 }
-
 export async function removeQueuedReading(id: string) {
-  await transact("readwrite", (store) => store.delete(id));
+  const item = await getOfflineWork(id);
+  if (!item || !isReadingWork(item)) return;
+  await removeOfflineWork(id);
+  await removeSyncMetadata(item.clientOperationId, { userId: item.userId, siteId: item.siteId });
+  await removeOfflineConflict(item.userId, item.clientOperationId);
 }

@@ -198,6 +198,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres employee_advances_loans_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname employee_advances_loans_test --set ON_ERROR_STOP=1 --file supabase/tests/employee_advances_loans_integration.sql
 
+      - name: Verify offline number range migration, reservation idempotency, claims, RLS, and allocator continuity
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres offline_number_range_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_number_range_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_number_range_migration_integration.sql
+
       - name: Verify employee advances migration with the pre-existing production payroll-allocation table
         env:
           PGPASSWORD: postgres

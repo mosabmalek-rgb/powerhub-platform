@@ -11,6 +11,7 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "readings", "list", { siteId: 7 }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub", "sites", "list"])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub", "generators", "list", { siteId: 7 }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub.tariffs.list", { input: { siteId: 7 }, type: "query" }])).toBe(true);
   });
 
   it("does not cache financial, dashboard, admin, audit, or auth queries", () => {
@@ -25,6 +26,8 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["users", "list"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["settings", "get"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "subscriberQuota", "get", { label: "subscribers" }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "subscribers", "getById", { siteId: 7, id: 12 }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", { input: { siteId: 7 }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey([["powerhub", "subscribers", "list"], { input: { siteId: 7 } }])).toBe(true);
     expect(isOfflineCacheableQueryKey([["powerhub", "payments", "list"], { input: { siteId: 7 } }])).toBe(false);
   });
@@ -53,6 +56,18 @@ describe("offline query cache policy", () => {
         1_000,
       ),
     ).toBe(false);
+  });
+
+  it("retains allowed operational snapshots across days when no explicit expiry is set", () => {
+    const key = ["powerhub", "subscribers", "list", { siteId: 7 }];
+    const persistentRecord = {
+      userId: "user-1",
+      serializedQueryKey: offlineQueryCacheKey(key),
+      expiresAt: null,
+    };
+
+    expect(isOfflineQueryRecordUsable(persistentRecord, "user-1", Date.parse("2030-01-01T00:00:00.000Z"))).toBe(true);
+    expect(isOfflineQueryRecordUsable({ ...persistentRecord, expiresAt: 2_000 }, "user-1", 2_000)).toBe(false);
   });
 
   it("rejects malformed serialized query keys", () => {

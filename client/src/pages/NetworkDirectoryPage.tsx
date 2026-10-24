@@ -14,7 +14,10 @@ import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { trpc } from "@/lib/trpc";
 import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search";
-import { enqueueOfflineWork } from "@/lib/offline-work-queue";
+import { enqueueOfflineSubscriberCreateWithNumber, enqueueOfflineWork } from "@/lib/offline-work-queue";
+import { getPowerHubDeviceId } from "@/lib/offline-auth";
+import { hasAvailableOfflineNumberGrant, persistOfflineNumberGrant } from "@/lib/offline-number-ranges";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { can } from "@shared/powerhub-rbac";
 import { Bolt, CircleAlert, Clock3, Copy, FileBarChart2, FileSpreadsheet, FileText, Loader2, Pencil, Plus, RefreshCw, UsersRound, WalletCards } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -34,8 +37,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 export default function NetworkDirectoryPage({ kind, embedded = false }: { kind: DirectoryKind; embedded?: boolean }) {
   const { isAuthenticated, loading, user } = useAuth();
+  const { isOnline } = usePowerHubConnectivity();
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
+  const reserveSubscriberNumbers = trpc.powerhub.offlineNumbering.reserve.useMutation();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const routeSearchParams = useMemo(() => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search), []);
@@ -62,6 +67,7 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const [addCardCollapsed, setAddCardCollapsed] = useState(() => !(kind === "subscribers" && new URLSearchParams(typeof window === "undefined" ? "" : window.location.search).get("add") === "1"));
   const [isManuallyRefreshingSubscribers, setIsManuallyRefreshingSubscribers] = useState(false);
   const [directoryRefreshGeneration, setDirectoryRefreshGeneration] = useState(0);
+  const [numberGrantRefreshGeneration, setNumberGrantRefreshGeneration] = useState(0);
   useEffect(() => {
     if (kind !== "subscribers") return;
     const params = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
@@ -236,6 +242,35 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const currentSubscriberPage = Math.min(subscriberPage, totalSubscriberPages);
   const pageData: any[] = visibleData;
   const activeSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
+  const activeTenantId = Number((activeSite as { tenantId?: number } | undefined)?.tenantId ?? 0);
+  useEffect(() => {
+    if (!isAuthenticated || kind !== "subscribers" || !canEdit || !siteId || !user?.id || !Number.isSafeInteger(activeTenantId) || activeTenantId <= 0 || !isOnline) return;
+    let cancelled = false;
+    void (async () => {
+      const deviceId = await getPowerHubDeviceId();
+      const scope = { userId: Number(user.id), tenantId: activeTenantId, siteId, deviceId };
+      if (await hasAvailableOfflineNumberGrant(scope, "subscriber", "global")) return;
+      const grant = await reserveSubscriberNumbers.mutateAsync({
+        siteId, requestId: crypto.randomUUID(), numberKind: "subscriber", partitionKey: "global", count: 50, ttlMinutes: 43_200,
+      });
+      if (cancelled) return;
+      await persistOfflineNumberGrant(grant);
+    })().catch((error) => {
+      if (!cancelled) console.warn("[PowerHub] could not prefetch offline subscriber numbers", error);
+    });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, kind, canEdit, siteId, user?.id, activeTenantId, isOnline, numberGrantRefreshGeneration, reserveSubscriberNumbers.mutateAsync]);
+  useEffect(() => {
+    if (kind !== "subscribers" || !siteId || !user?.id) return;
+    const handleGrantRefresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: number; siteId?: number }>).detail;
+      if (detail?.userId === Number(user.id) && detail?.siteId === siteId) {
+        setNumberGrantRefreshGeneration((generation) => generation + 1);
+      }
+    };
+    window.addEventListener("powerhub:offline-number-grant-refresh", handleGrantRefresh);
+    return () => window.removeEventListener("powerhub:offline-number-grant-refresh", handleGrantRefresh);
+  }, [kind, siteId, user?.id]);
   const refresh = (operation: "create" | "update" = "update"): void => {
     const siteScope = { siteId: siteId ?? 0 };
     const refreshTasks = kind === "subscribers"
@@ -270,15 +305,25 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
 
   const submitSubscriber = async (values: Values) => {
     const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial" | "institution" | "mosque", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected", openingReading: values.openingReading ? String(values.openingReading) : undefined, openingReadingAt: values.openingReadingAt ? String(values.openingReadingAt) : undefined, openingReadingApproved: Boolean(values.openingReading), openingReadingImageData: values.openingReadingImageData ? String(values.openingReadingImageData) : undefined, openingReadingImageMime: values.openingReadingImageMime ? String(values.openingReadingImageMime) as "image/jpeg" | "image/png" | "image/webp" : undefined };
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
+    if (!isOnline) {
       if (!editing && (base.openingReading || base.openingReadingAt || base.openingReadingApproved || base.openingReadingImageData)) return toast.error("إضافة القراءة الافتتاحية تحتاج اتصالاً بالإنترنت؛ لم يتم حفظ المشترك كمسودة حتى لا تُفقد القراءة أو صورتها.");
       if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ المسودة محلياً.");
       try {
-        if (editing) await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "subscriber_update", payload: { subscriberId: editing.id, fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType, serviceStatus: base.serviceStatus, expectedUpdatedAt: new Date(editing.updatedAt).toISOString() } });
-        else await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "subscriber_create", payload: { fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType } });
+        let reservedNumber: string | undefined;
+        if (editing) {
+          await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "subscriber_update", payload: { subscriberId: editing.id, fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType, serviceStatus: base.serviceStatus, expectedUpdatedAt: new Date(editing.updatedAt).toISOString() } });
+        } else {
+          if (!Number.isSafeInteger(activeTenantId) || activeTenantId <= 0) return toast.error("تعذر تحديد المستأجر الحالي؛ لم تُحفظ مسودة المشترك.");
+          const deviceId = await getPowerHubDeviceId();
+          const queued = await enqueueOfflineSubscriberCreateWithNumber({
+            scope: { userId: Number(user.id), tenantId: activeTenantId, siteId: siteId!, deviceId },
+            payload: { fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType },
+          });
+          reservedNumber = queued.formattedNumber;
+        }
         setEditing(null);
         if (!editing) setSubscriberFormResetKey((key) => key + 1);
-        toast.success(editing ? "حُفظ تعديل المشترك كمسودة محلية؛ راجع مركز المزامنة عند عودة الاتصال." : "حُفظ المشترك كمسودة محلية؛ سيُنشأ الرقم المرجعي عند قبول الخادم للمزامنة.");
+        toast.success(editing ? "حُفظ تعديل المشترك كمسودة محلية؛ راجع مركز المزامنة عند عودة الاتصال." : `حُفظ المشترك كمسودة برقم محجوز محليًا ${reservedNumber}؛ لا يُعتمد الرقم ولا يُنشأ السجل النهائي إلا بعد تأكيد الخادم عند المزامنة.`);
       } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر حفظ المسودة المحلية."); }
       return;
     }

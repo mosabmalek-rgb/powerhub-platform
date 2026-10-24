@@ -67,6 +67,7 @@ export function classifySyncResult(errorCode?: string): SyncOutcome {
     case "BAD_REQUEST":
     case "NOT_FOUND":
     case "VALIDATION_FAILED":
+    case "PRECONDITION_FAILED":
       return "rejected";
     case "TIMEOUT":
     case "RATE_LIMITED":
