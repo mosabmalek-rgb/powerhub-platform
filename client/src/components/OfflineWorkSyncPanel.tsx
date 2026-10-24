@@ -151,25 +151,25 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft;
         const result = await createSubscriber.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.subscriberNo });
-        return { outcome: "applied" };
+        return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "subscriber_update") {
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberUpdateDraft;
-        await updateSubscriber.mutateAsync({ siteId: item.siteId, id: payload.subscriberId, fullName: payload.fullName, phone: payload.phone, address: payload.address, subscriptionType: payload.subscriptionType, serviceStatus: payload.serviceStatus, expectedUpdatedAt: new Date(payload.expectedUpdatedAt), clientOperationId: item.clientOperationId });
+        const result = await updateSubscriber.mutateAsync({ siteId: item.siteId, id: payload.subscriberId, fullName: payload.fullName, phone: payload.phone, address: payload.address, subscriptionType: payload.subscriptionType, serviceStatus: payload.serviceStatus, expectedUpdatedAt: new Date(payload.expectedUpdatedAt), clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: payload.subscriberId, appliedLabel: payload.fullName });
-        return { outcome: "applied" };
+        return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "generator_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorCreateDraft;
         const result = await syncGeneratorCreate({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
-        return { outcome: "applied" };
+        return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "generator_update") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorUpdateDraft;
         const result = await syncGeneratorUpdate({ siteId: item.siteId, generatorId: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, expectedUpdatedAt: payload.expectedUpdatedAt, clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
-        return { outcome: "applied" };
+        return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "reading_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").ReadingCreateDraft;
@@ -191,20 +191,20 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const payload = item.payload as import("@/lib/offline-work-queue").InvoiceIssueDraft;
         const result = await issueInvoice.mutateAsync({ siteId: item.siteId, ...payload, dueDate: new Date(payload.dueDate), clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.invoiceNo });
-        return { outcome: "applied" };
+        return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "payment_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
         const result = await createPayment.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
         const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...sanitizedPayload } = payload;
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo, payload: sanitizedPayload });
-        return { outcome: "applied" };
+        return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "payment_documentation_approve") {
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationApprovalDraft;
         const result = await approvePaymentDocumentation.mutateAsync({ siteId: item.siteId, requestId: payload.requestId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: Number(result.paymentId), appliedLabel: `طلب #${payload.requestId} — حركة #${result.paymentId}` });
-        return { outcome: "applied" };
+        return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
       const result = await submitPaymentDocumentation.mutateAsync({

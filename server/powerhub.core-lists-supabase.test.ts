@@ -973,7 +973,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
-      .resolves.toEqual({ id: 31, subscriberNo: expect.any(String), referenceNotifications: [] });
+      .resolves.toEqual({ id: 31, subscriberNo: expect.any(String), referenceNotifications: [], replayed: false });
     expect(state.rpcCalls).toEqual(expect.arrayContaining([expect.objectContaining({ name: "powerhub_create_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_quota_limit: 500 }) })]));
     expect(state.inserts.some((entry) => entry.table === "notification_messages")).toBe(false);
   });
@@ -981,7 +981,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يحدّث المشترك بالدالة الذرية في Supabase من دون استدعاء MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.update({ siteId: 10, id: 30, fullName: "مشترك محدث", phone: "+970595123456", address: "غزة", subscriptionType: "commercial", serviceStatus: "active", clientOperationId: "22222222-2222-4222-8222-222222222222", expectedUpdatedAt: new Date("2026-08-01T00:00:00.000Z") }))
-      .resolves.toEqual({ success: true, updatedAt: new Date("2026-08-03T00:00:00.000Z") });
+      .resolves.toEqual({ success: true, updatedAt: new Date("2026-08-03T00:00:00.000Z"), replayed: false });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_update_subscriber", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_service_status: "active" }) })]);
   });
 
@@ -1030,7 +1030,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.readings.approve({ siteId: 10, readingId: 60, baseVersion: 1, sendNow: false })).resolves.toEqual({ success: true });
     await expect(caller.invoices.createFromReading({ siteId: 10, readingId: 60, tariffId: 40, billingPeriod: "2026-08", dueDate: new Date("2026-09-01T00:00:00.000Z"), discountAmount: 0, clientOperationId: "44444444-4444-4444-8444-444444444444" }))
-      .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150 });
+      .resolves.toEqual({ id: 71, invoiceNo: "PH-MAIN-202608-00002", totalAmount: 150, replayed: false });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_approve_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_base_version: 1 }) }),
       expect.objectContaining({ name: "powerhub_issue_invoice_from_reading", args: expect.objectContaining({ p_tenant_id: 20, p_reading_id: 60, p_tariff_id: 40, p_billing_period: "2026-08", p_due_date: "2026-08-16T00:00:00.000Z" }) }),
@@ -1041,7 +1041,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يسجل التحصيل الذري عبر Supabase من دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.payments.create({ siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0001", amount: 25, paymentMethod: "cash", companyAccountId: 90, clientOperationId: "55555555-5555-4555-8555-555555555555" }))
-      .resolves.toEqual({ id: 81 });
+      .resolves.toEqual({ id: 81, replayed: false });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_create_payment", args: expect.objectContaining({ p_tenant_id: 20, p_subscriber_id: 30, p_invoice_id: 70, p_company_account_id: 90, p_amount: 25 }) }),
     ]);

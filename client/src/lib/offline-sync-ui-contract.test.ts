@@ -44,6 +44,15 @@ describe("offline sync UI contract", () => {
     expect(meterReadingsPage).toContain("syncQueuedReadingsUnlocked(records)");
   });
 
+  it("preserves server replay outcomes for every shared Outbox transport", () => {
+    expect(syncPanel).toContain("return { outcome: result.replayed ? \"already_applied\" : \"applied\" };");
+    expect(syncPanel).toContain("approvePaymentDocumentation.mutateAsync");
+    expect(syncPanel).toContain("createPayment.mutateAsync");
+    expect(syncPanel).toContain("issueInvoice.mutateAsync");
+    expect(syncPanel).toContain("syncGeneratorCreate");
+    expect(syncPanel).toContain("syncGeneratorUpdate");
+  });
+
   it("serializes manual retry state changes with the same cross-tab sync lock", () => {
     const retryStart = syncPanel.indexOf("const retryFailedAndSync = async () => {");
     const retryEnd = syncPanel.indexOf("\n  useEffect(", retryStart);
