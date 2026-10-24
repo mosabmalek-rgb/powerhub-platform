@@ -250,6 +250,38 @@ begin
 end
 $assert_migration$;
 
+do $assert_invoice_ceiling$
+declare
+  v_next_sequence bigint;
+begin
+  update public.powerhub_offline_number_grants
+  set issued_at = clock_timestamp() - interval '2 minutes',
+      expires_at = clock_timestamp() - interval '1 minute'
+  where number_kind = 'invoice' and revoked_at is null;
+
+  update public.powerhub_invoice_sequences
+  set next_sequence = 99999999
+  where invoice_year = 2026;
+
+  begin
+    perform * from public.powerhub_reserve_offline_number_grant(
+      1, 10, 100, '11111111-1111-4111-8111-111111111111',
+      'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd', 'invoice', '2026', 2, 60
+    );
+    raise exception 'ASSERT_FAILED: invoice range crossed the eight-digit ceiling';
+  exception when others then
+    if sqlerrm = 'ASSERT_FAILED: invoice range crossed the eight-digit ceiling' then raise; end if;
+    if position('INVOICE_REFERENCE_EXHAUSTED' in sqlerrm) = 0 then raise; end if;
+  end;
+
+  select next_sequence into v_next_sequence
+  from public.powerhub_invoice_sequences where invoice_year = 2026;
+  if v_next_sequence <> 99999999 then
+    raise exception 'ASSERT_FAILED: failed invoice reservation changed the high-water mark: %', v_next_sequence;
+  end if;
+end
+$assert_invoice_ceiling$;
+
 do $assert_subscriber_ceiling$
 declare
   v_values text[];
