@@ -92,9 +92,21 @@ describe("executeReadyOperations", () => {
         now: 100,
       });
 
-      expect(results).toEqual([]);
+      expect(results).toHaveLength(1);
+      expect(results[0].outcome).toBe(outcome);
+      expect(results[0].metadata.nextAttemptAt).toBe(Number.POSITIVE_INFINITY);
       expect(transport).not.toHaveBeenCalled();
     }
+  });
+
+  it("does not dispatch work when its persisted metadata is missing", async () => {
+    const queued = item("missing-metadata", 1);
+    const transport = vi.fn(async () => ({ outcome: "applied" as const }));
+    const results = await executeReadyOperations({
+      items: [queued], metadataByOperationId: new Map(), transport, now: 100,
+    });
+    expect(results).toEqual([]);
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it("dispatches retryable work only when due and while retry budget remains", async () => {
