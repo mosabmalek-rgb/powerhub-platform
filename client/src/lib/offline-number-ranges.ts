@@ -28,8 +28,8 @@ export type OfflineNumberClaim = OfflineNumberScope & {
   createdAt: number;
 };
 
-const DATABASE_NAME = "powerhub-offline-number-ranges";
-const DATABASE_VERSION = 1;
+const DATABASE_NAME = "powerhub-offline-workspace";
+const DATABASE_VERSION = 2;
 const GRANTS_STORE = "grants";
 const CLAIMS_STORE = "claims";
 
@@ -135,6 +135,10 @@ function openDatabase() {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
+      // One operational IndexedDB contains the outbox and its number reservations.
+      if (!db.objectStoreNames.contains("operations")) {
+        db.createObjectStore("operations", { keyPath: "id" });
+      }
       if (!db.objectStoreNames.contains(GRANTS_STORE)) {
         const grants = db.createObjectStore(GRANTS_STORE, { keyPath: "id" });
         grants.createIndex("byScope", ["userId", "tenantId", "siteId", "deviceId"], { unique: false });
