@@ -414,3 +414,10 @@
 
 تظل بوابة C مفتوحة إلى أن تُستكمل اختبارات التنافس المالي وreplay عبر نطاقات مختلفة وتأكيد أثر التدقيق الخادمي. وتظل بوابة D مفتوحة لغياب E2E متصفح موثق وقياسات Network/performance ومصفوفة كاملة لكل الصفحات والاستعلامات. كما تمنع فروق سجل migrations والمنح والدوال إغلاق بوابة قاعدة البيانات قبل تحليل drift موثق وتسوية آمنة وخطة استرجاع مجرّبة. لم يتم دمج PR ولم تطبق ترحيلات أو نشر إنتاجي.
 
+## 15. ترحيل مواءمة ACL بعد اكتشاف انحراف staging
+
+أضيف داخل PR ترحيل مقترح `supabase/migrations/20261024210000_powerhub_offline_write_acl_hardening.sql` لمواءمة حد الكتابة مع الإنتاج: يسحب `INSERT/UPDATE/DELETE/TRUNCATE` من `PUBLIC` و`anon` و`authenticated` على `invoices` و`offline_sync_operations` و`payments` و`subscribers)، ويقصر تنفيذ `powerhub_update_subscriber` و`powerhub_approve_payment_documentation` على الأدوار الخادمية/مالكي الدوال، مع إبقاء القراءة وامتيازات `service_role`.
+
+أضيف اختبار PostgreSQL مستقل في `supabase/tests/offline_core_write_acl_hardening.sql) يهيئ منح staging الواسعة عمدًا داخل قاعدة بيانات disposable، ثم يطبق الترحيل ويتحقق من إزالة منح الكتابة والتنفيذ عن الأدوار المتصفح، ومن استمرار صلاحيات القراءة ووصول `service_role`. وجرى ربط الاختبار بسير عمل `Reading Cycle PostgreSQL Integration`، إضافة إلى اختبار عقد في Vitest. هذه الاختبارات لا تتصل ببيانات staging/production ولا تطبق الترحيل عليهما.
+
+**قيد الإطلاق:** لا يُعد إنشاء الترحيل إصلاحًا حيًا؛ فروق ACL في staging ما زالت قائمة حتى تُراجع نتائج CI، ويُعتمد الترحيل، وتُنفذ عملية إصدار منفصلة ومصرح بها. سجل migrations الكبير المنحرف وغياب `powerhub_claim_user_device` من كتالوج staging ما زالا يتطلبان تحليلًا أوسع؛ هذا الترحيل الضيق لا يدّعي إصلاح جميع فروق المخطط. الرأس سيتغير بعد هذه الإضافات، لذا يجب إعادة التحقق من بوابات CI الأربع على الرأس الناتج.
