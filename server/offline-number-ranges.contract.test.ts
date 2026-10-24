@@ -38,6 +38,8 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(route).toContain('input.numberKind === "subscriber" ? "manageSubscribers" : "issueInvoices"');
     expect(route).toContain("requireSupabaseSiteRole(ctx.user.id, input.siteId");
     expect(route).toContain('ctx.req?.headers?.["x-powerhub-device-id"]');
+    expect(route).toContain('supabaseAdmin().rpc("powerhub_claim_user_device"');
+    expect(route).toContain("OFFLINE_NUMBER_RANGE_STILL_AVAILABLE");
     expect(route).toContain('supabaseAdmin().rpc("powerhub_reserve_offline_number_grant"');
   });
 
