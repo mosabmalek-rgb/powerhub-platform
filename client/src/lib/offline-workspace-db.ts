@@ -31,11 +31,7 @@ export function openOfflineWorkspaceDatabase(): Promise<IDBDatabase> {
     const request = indexedDB.open(OFFLINE_WORKSPACE_DATABASE_NAME, OFFLINE_WORKSPACE_DATABASE_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      const tx = request.transaction;
-      if (!tx) {
-        request.transaction?.abort();
-        return;
-      }
+      const tx = request.transaction!;
       ensureStore(db, tx, "operations", "id");
       ensureStore(db, tx, "grants", "id", [
         { name: "byScope", keyPath: ["userId", "tenantId", "siteId", "deviceId"] },
