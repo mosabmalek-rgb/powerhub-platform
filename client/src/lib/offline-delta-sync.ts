@@ -209,6 +209,12 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
       // stale entities over fresher local records.
       if (compareDeltaCursors(nextCursor, existing) === 0) return;
       for (const change of page.changes) {
+        if (compareDeltaCursors(change.cursor, existing) <= 0) {
+          failTransaction("تحتوي الصفحة على تغيير أقدم من المؤشر المحلي؛ أعد طلب الصفحة من المؤشر الحالي.");
+          return;
+        }
+      }
+      for (const change of page.changes) {
         const entityKey: [string, string] = [key, change.entity_id];
         if (change.operation === "delete") {
           entities.delete(entityKey);
