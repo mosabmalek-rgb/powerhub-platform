@@ -13,3 +13,12 @@ create index if not exists employee_adjustment_repayments_payroll_run_id_idx
   on public.employee_adjustment_repayments(payroll_run_id);
 create index if not exists employee_adjustment_repayments_site_id_idx
   on public.employee_adjustment_repayments(site_id);
+create index if not exists employee_adjustments_created_by_user_id_idx
+  on public.employee_adjustments(created_by_user_id);
+create index if not exists employee_adjustments_disbursement_account_id_idx
+  on public.employee_adjustments(disbursement_account_id);
+create index if not exists employee_adjustments_employee_id_idx
+  on public.employee_adjustments(employee_id);
+create index if not exists employee_adjustments_site_id_idx
+  on public.employee_adjustments(site_id);
+

@@ -134,18 +134,24 @@ begin
   select array_agg(required.index_name order by required.index_name)
     into v_missing
   from (values
-    ('employee_adjustment_repayments_account_transaction_id_idx'),
-    ('employee_adjustment_repayments_adjustment_id_idx'),
-    ('employee_adjustment_repayments_company_account_id_idx'),
-    ('employee_adjustment_repayments_created_by_user_id_idx'),
-    ('employee_adjustment_repayments_payroll_run_id_idx'),
-    ('employee_adjustment_repayments_site_id_idx')
-  ) as required(index_name)
+    ('employee_adjustment_repayments','employee_adjustment_repayments_account_transaction_id_idx'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_adjustment_id_idx'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_company_account_id_idx'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_created_by_user_id_idx'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_payroll_run_id_idx'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_site_id_idx'),
+    ('employee_adjustments','employee_adjustments_created_by_user_id_idx'),
+    ('employee_adjustments','employee_adjustments_disbursement_account_id_idx'),
+    ('employee_adjustments','employee_adjustments_employee_id_idx'),
+    ('employee_adjustments','employee_adjustments_site_id_idx')
+  ) as required(table_name,index_name)
   where not exists (
     select 1 from pg_class idx
     join pg_namespace n on n.oid=idx.relnamespace
     join pg_index i on i.indexrelid=idx.oid
+    join pg_class tbl on tbl.oid=i.indrelid
     where n.nspname='public' and idx.relname=required.index_name
+      and tbl.relname=required.table_name
       and i.indisvalid and i.indisready
   );
 
@@ -156,13 +162,17 @@ begin
   select array_agg(required.index_name order by required.index_name)
     into v_bad_leading_column
   from (values
-    ('employee_adjustment_repayments_account_transaction_id_idx','account_transaction_id'),
-    ('employee_adjustment_repayments_adjustment_id_idx','adjustment_id'),
-    ('employee_adjustment_repayments_company_account_id_idx','company_account_id'),
-    ('employee_adjustment_repayments_created_by_user_id_idx','created_by_user_id'),
-    ('employee_adjustment_repayments_payroll_run_id_idx','payroll_run_id'),
-    ('employee_adjustment_repayments_site_id_idx','site_id')
-  ) as required(index_name,column_name)
+    ('employee_adjustment_repayments','employee_adjustment_repayments_account_transaction_id_idx','account_transaction_id'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_adjustment_id_idx','adjustment_id'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_company_account_id_idx','company_account_id'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_created_by_user_id_idx','created_by_user_id'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_payroll_run_id_idx','payroll_run_id'),
+    ('employee_adjustment_repayments','employee_adjustment_repayments_site_id_idx','site_id'),
+    ('employee_adjustments','employee_adjustments_created_by_user_id_idx','created_by_user_id'),
+    ('employee_adjustments','employee_adjustments_disbursement_account_id_idx','disbursement_account_id'),
+    ('employee_adjustments','employee_adjustments_employee_id_idx','employee_id'),
+    ('employee_adjustments','employee_adjustments_site_id_idx','site_id')
+  ) as required(table_name,index_name,column_name)
   where not exists (
     select 1
     from pg_class idx
@@ -171,7 +181,7 @@ begin
     join pg_class tbl on tbl.oid=i.indrelid
     join pg_attribute a on a.attrelid=tbl.oid and a.attnum=i.indkey[0]
     where n.nspname='public' and idx.relname=required.index_name
-      and tbl.relname='employee_adjustment_repayments'
+      and tbl.relname=required.table_name
       and i.indisvalid and i.indisready and a.attname=required.column_name
   );
 
