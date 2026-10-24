@@ -26,11 +26,22 @@ describe("offline sync Query invalidation plan", () => {
     ])).toEqual(["subscribers", "subscriber-quota", "dashboard-summary", "audit"]);
   });
 
-  it("keeps generator and reading changes out of unrelated financial queries", () => {
+  it("keeps generator changes separate but refreshes invoices created by a synced reading", () => {
     expect(getOfflineSyncRefreshTargets([
       result("generator_update", "applied"),
+    ])).toEqual(["generators", "audit"]);
+
+    // The reading RPC atomically creates/approves the reading and issues an invoice.
+    expect(getOfflineSyncRefreshTargets([
       result("reading_create", "applied"),
-    ])).toEqual(["generators", "readings", "audit"]);
+    ])).toEqual([
+      "readings",
+      "invoices",
+      "invoice-pages",
+      "dashboard-summary",
+      "financial-dashboard",
+      "audit",
+    ]);
   });
 
   it("deduplicates targets when a batch contains multiple financial operations", () => {
