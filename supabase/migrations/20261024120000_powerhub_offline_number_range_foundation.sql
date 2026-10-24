@@ -147,10 +147,14 @@ begin
     raise exception 'SUBSCRIBER_QUOTA_REACHED' using errcode = 'P0001';
   end if;
 
-  -- The canonical sequence is bigint-sized, while the public reference is six digits.
-  -- Fail with a stable domain error before trying to insert an unrepresentable number.
+  -- The sequence's public range is six digits. Translate sequence exhaustion
+  -- into a stable domain error rather than leaking PostgreSQL's raw nextval error.
   -- Sequence values are never recycled, including after a failed transaction.
-  v_subscriber_sequence := nextval('public.subscriber_global_number_seq');
+  begin
+    v_subscriber_sequence := nextval('public.subscriber_global_number_seq');
+  exception when sequence_generator_limit_exceeded then
+    raise exception 'SUBSCRIBER_REFERENCE_EXHAUSTED' using errcode = 'P0001';
+  end;
   if v_subscriber_sequence < 1 or v_subscriber_sequence > 999999 then
     raise exception 'SUBSCRIBER_REFERENCE_EXHAUSTED' using errcode = 'P0001';
   end if;
