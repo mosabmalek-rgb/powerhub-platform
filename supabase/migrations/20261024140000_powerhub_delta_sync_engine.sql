@@ -376,7 +376,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare v_site record;
 begin
   if new.name is not distinct from old.name then return new; end if;
@@ -392,7 +392,7 @@ begin
   end loop;
   return new;
 end;
-$;
+$$;
 alter function public.powerhub_capture_tenant_name_delta_sync_change() owner to postgres;
 revoke all on function public.powerhub_capture_tenant_name_delta_sync_change() from public, anon, authenticated;
 grant execute on function public.powerhub_capture_tenant_name_delta_sync_change() to service_role;
