@@ -5,7 +5,6 @@ const DATABASE_NAME = "powerhub-offline-cache";
 const DATABASE_VERSION = 2;
 const QUERY_STORE = "queries";
 const AUTH_STORE = "auth-users";
-export const OFFLINE_QUERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER = 200;
 export const OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
 let successfulWritesSincePrune = 0;
@@ -42,7 +41,7 @@ type OfflineQueryRecord = {
   serializedQueryKey: string;
   serializedData: string;
   updatedAt: number;
-  expiresAt: number;
+  expiresAt: number | null;
 };
 
 type OfflineAuthUserRecord = {
@@ -72,7 +71,8 @@ export function isOfflineQueryRecordUsable(
   userId: string,
   now = Date.now(),
 ) {
-  if (record.userId !== userId || record.expiresAt <= now) return false;
+  if (record.userId !== userId) return false;
+  if (record.expiresAt !== null && (!Number.isFinite(record.expiresAt) || record.expiresAt <= now)) return false;
   try {
     const queryKey = superjson.parse<readonly unknown[]>(record.serializedQueryKey);
     return isOfflineCacheableQueryKey(queryKey);
@@ -135,7 +135,8 @@ export async function pruneOfflineQueryCache(now = Date.now()) {
     const remove = new Set<string>();
     const byUser = new Map<string, OfflineQueryRecord[]>();
     for (const record of records) {
-      const valid = Number.isFinite(record.expiresAt) && record.expiresAt > now &&
+      const expiryValid = record.expiresAt === null || (Number.isFinite(record.expiresAt) && record.expiresAt > now);
+      const valid = expiryValid &&
         typeof record.userId === "string" && record.userId.length > 0 &&
         typeof record.serializedData === "string" && typeof record.serializedQueryKey === "string" &&
         isOfflineQueryRecordUsable(record, record.userId, now);
@@ -193,7 +194,9 @@ export async function persistOfflineQuery(query: Query, userId: string, now = Da
     serializedQueryKey,
     serializedData,
     updatedAt: query.state.dataUpdatedAt || now,
-    expiresAt: now + OFFLINE_QUERY_CACHE_TTL_MS,
+    // Operational snapshots are retained across days; freshness is handled by sync cursors,
+    // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
+    expiresAt: null,
   };
 
   try {
