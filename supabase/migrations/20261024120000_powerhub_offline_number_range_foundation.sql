@@ -238,6 +238,7 @@ grant select, insert, update on table public.powerhub_invoice_sequences to servi
 -- global six-digit subscriber namespace is nearly exhausted.
 create table if not exists public.powerhub_offline_number_grants (
   id uuid primary key default gen_random_uuid(),
+  request_id uuid not null default gen_random_uuid(),
   tenant_id bigint not null references public.tenants(id) on delete restrict,
   site_id bigint not null references public.sites(id) on delete restrict,
   user_id bigint not null references public.users(id) on delete restrict,
@@ -249,6 +250,7 @@ create table if not exists public.powerhub_offline_number_grants (
   expires_at timestamptz not null,
   revoked_at timestamptz,
   created_at timestamptz not null default clock_timestamp(),
+  constraint powerhub_offline_number_grants_request_unique unique (user_id, device_id, number_kind, partition_key, request_id),
   constraint powerhub_offline_number_grants_partition_check check (
     (number_kind = 'subscriber' and partition_key = 'global')
     or
@@ -310,6 +312,7 @@ create or replace function public.powerhub_reserve_offline_number_grant(
   p_site_id bigint,
   p_user_id bigint,
   p_device_id uuid,
+  p_request_id uuid,
   p_number_kind text,
   p_partition_key text,
   p_count integer default 50,
@@ -334,6 +337,7 @@ declare
   v_start bigint;
   v_year integer;
   v_grant_id uuid;
+  v_existing_grant public.powerhub_offline_number_grants%rowtype;
   v_issued_at timestamptz := clock_timestamp();
   v_expires_at timestamptz;
   v_i integer;
@@ -341,7 +345,7 @@ begin
   if p_tenant_id is null or p_tenant_id < 1
      or p_site_id is null or p_site_id < 1
      or p_user_id is null or p_user_id < 1
-     or p_device_id is null then
+     or p_device_id is null or p_request_id is null then
     raise exception 'OFFLINE_NUMBER_SCOPE_REQUIRED' using errcode = 'P0001';
   end if;
   if p_count is null or p_count < 1 or p_count > 200 then
@@ -357,6 +361,29 @@ begin
   end if;
   if not exists (select 1 from public.users u where u.id = p_user_id) then
     raise exception 'USER_OUT_OF_SCOPE' using errcode = 'P0001';
+  end if;
+
+  -- Idempotent reservation request: a timeout/retry must return the same grant,
+  -- never consume a second block of globally unique numbers.
+  select * into v_existing_grant
+  from public.powerhub_offline_number_grants g
+  where g.user_id = p_user_id
+    and g.device_id = p_device_id
+    and g.number_kind = p_number_kind
+    and g.partition_key = p_partition_key
+    and g.request_id = p_request_id;
+  if found then
+    if v_existing_grant.tenant_id <> p_tenant_id
+       or v_existing_grant.site_id <> p_site_id
+       or cardinality(v_existing_grant.reserved_values) <> p_count then
+      raise exception 'OFFLINE_NUMBER_REQUEST_IDEMPOTENCY_MISMATCH' using errcode = 'P0001';
+    end if;
+    select array_agg(value::text order by ordinal)
+      into v_output_values
+    from unnest(v_existing_grant.reserved_values) with ordinality as values_with_ordinal(value, ordinal);
+    return query select v_existing_grant.id, v_existing_grant.number_kind,
+      v_existing_grant.partition_key, v_output_values, v_existing_grant.issued_at, v_existing_grant.expires_at;
+    return;
   end if;
 
   if p_number_kind = 'subscriber' then
@@ -407,10 +434,10 @@ begin
 
   v_expires_at := v_issued_at + make_interval(mins => p_ttl_minutes);
   insert into public.powerhub_offline_number_grants (
-    tenant_id, site_id, user_id, device_id, number_kind, partition_key,
+    request_id, tenant_id, site_id, user_id, device_id, number_kind, partition_key,
     reserved_values, issued_at, expires_at
   ) values (
-    p_tenant_id, p_site_id, p_user_id, p_device_id, p_number_kind, p_partition_key,
+    p_request_id, p_tenant_id, p_site_id, p_user_id, p_device_id, p_number_kind, p_partition_key,
     v_reserved, v_issued_at, v_expires_at
   ) returning id into v_grant_id;
 
@@ -424,13 +451,13 @@ end;
 $$;
 
 revoke all on function public.powerhub_reserve_offline_number_grant(
-  bigint, bigint, bigint, uuid, text, text, integer, integer
+  bigint, bigint, bigint, uuid, uuid, text, text, integer, integer
 ) from public, anon, authenticated;
 grant execute on function public.powerhub_reserve_offline_number_grant(
-  bigint, bigint, bigint, uuid, text, text, integer, integer
+  bigint, bigint, bigint, uuid, uuid, text, text, integer, integer
 ) to service_role;
 alter function public.powerhub_reserve_offline_number_grant(
-  bigint, bigint, bigint, uuid, text, text, integer, integer
+  bigint, bigint, bigint, uuid, uuid, text, text, integer, integer
 ) owner to postgres;
 
 -- Claim a reserved value exactly once when its queued operation reaches the server.
