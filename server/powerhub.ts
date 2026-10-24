@@ -477,6 +477,62 @@ async function sendPendingInvoiceSmsRuntime(
 }
 
 export const powerhubRouter = router({
+  deltaSync: router({
+    pull: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"]),
+      afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
+      throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
+      pageSize: z.number().int().min(1).max(500).default(200),
+    })).query(async ({ ctx, input }) => {
+      const capabilityByEntity = {
+        sites: undefined,
+        subscribers: "manageSubscribers",
+        generators: "manageGenerators",
+        readings: "recordReadings",
+        tariffs: "manageTariffs",
+      } as const;
+      const access = await requireSupabaseSiteRole(
+        ctx.user.id,
+        input.siteId,
+        ["owner", "manager", "accountant", "technician", "viewer"],
+        capabilityByEntity[input.entityType],
+      );
+      const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
+      const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
+      const { data, error } = await supabaseAdmin().rpc("powerhub_pull_sync_delta", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_entity_type: input.entityType,
+        p_after_cursor: afterCursor,
+        p_through_cursor: throughCursor,
+        p_page_size: input.pageSize,
+      });
+      if (error) {
+        if (error.message.includes("POWERHUB_SYNC_CURSOR_INVALID") || error.message.includes("POWERHUB_SYNC_TARGET_CURSOR_INVALID")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر المزامنة غير صالح؛ أعد تحميل لقطة البيانات." });
+        }
+        if (error.message.includes("SITE_OUT_OF_SCOPE")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الوصول إلى هذا الفرع." });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تغييرات المزامنة التفاضلية." });
+      }
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة المزامنة التفاضلية غير صالحة." });
+      }
+      return data as {
+        status: "ok" | "reset_required";
+        entity_type: string;
+        current_cursor: string;
+        retained_from_cursor: string;
+        snapshot_cursor: string | null;
+        through_cursor: string;
+        next_cursor: string | null;
+        has_more: boolean;
+        changes: Array<{ cursor: string; entity_type: string; entity_id: string; operation: "upsert" | "delete"; row_data: Record<string, unknown> | null; changed_at: string }>;
+      };
+    }),
+  }),
   offlineNumbering: powerhubOfflineNumberingRouter,
   unifiedMessaging: powerhubUnifiedMessagingRouter,
   // Declared on the canonical router so the public AppRouter retains inventory types.
