@@ -1208,6 +1208,47 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     }
   });
 
+  it("retains receipts for ambiguous Postgres connection/transaction results", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockImplementation(async (key: string) => ({
+      key, url: "https://signed.example/indeterminate.png",
+    }));
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    const originalRpc = state.client.rpc;
+    const ambiguousCodes = ["08006", "40003", "PGRST000"];
+    let responseIndex = 0;
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_payment") {
+        const code = ambiguousCodes[responseIndex++];
+        return { data: null, error: { code, message: "payment outcome cannot be confirmed from this response" } };
+      }
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      const operationIds = [
+        "55555555-5555-4555-8555-555555555558",
+        "55555555-5555-4555-8555-555555555559",
+        "55555555-5555-4555-8555-55555555555a",
+      ];
+      for (let index = 0; index < ambiguousCodes.length; index += 1) {
+        await expect(caller.payments.create({
+          siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: `PAY-202608-000${index + 6}`,
+          amount: 25, paymentMethod: "cash", companyAccountId: 90,
+          receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+          clientOperationId: operationIds[index],
+        })).rejects.toThrow();
+      }
+      expect(upload).toHaveBeenCalledTimes(3);
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      state.client.rpc = originalRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
   it("removes the uploaded receipt when the payment RPC rejects the collection", async () => {
     const storage = await import("./storage");
     const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
