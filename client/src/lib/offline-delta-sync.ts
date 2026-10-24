@@ -113,9 +113,11 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   pull: (args: { afterCursor: string | null; throughCursor: string | null; pageSize: number }) => Promise<DeltaPage<Row>>;
   applyPage: (page: DeltaPage<Row>) => Promise<void>;
   rebuildSnapshot: (snapshotCursor: string) => Promise<void>;
+  persistCursor?: (scope: DeltaCursorScope, cursor: string) => Promise<void>;
 }): Promise<{ cursor: string; appliedChanges: number; resetRequired: boolean }> {
   const pageSize = input.pageSize ?? 200;
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 500) throw new Error("حجم صفحة المزامنة غير صالح.");
+  const persistCursor = input.persistCursor ?? setDeltaCursor;
   let cursor = input.afterCursor;
   let through: string | null = null;
   let appliedChanges = 0;
@@ -126,7 +128,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     if (page.status === "reset_required") {
       const snapshotCursor = page.snapshot_cursor ?? page.current_cursor;
       await input.rebuildSnapshot(snapshotCursor);
-      await setDeltaCursor(input.scope, snapshotCursor);
+      await persistCursor(input.scope, snapshotCursor);
       cursor = snapshotCursor;
       through = null;
       resetRequired = true;
@@ -140,7 +142,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     // Persist only after the page has been applied. If the browser crashes between
     // the entity write and this cursor write, the page is replayed; upsert/tombstone
     // application is idempotent, so the cursor can never outrun local data.
-    await setDeltaCursor(input.scope, next);
+    await persistCursor(input.scope, next);
     if (cursor !== null && compareDeltaCursors(next, cursor) < 0) throw new Error("تراجع مؤشر المزامنة.");
     cursor = next;
     if (!page.has_more) return { cursor: through, appliedChanges, resetRequired };
