@@ -1,0 +1,57 @@
+name: Supabase Versioned Migration Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target environment. Production runs require GitHub environment approval."
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      migration_path:
+        description: "Exact reviewed migration path, e.g. supabase/migrations/20261025090000_powerhub_example.sql"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-migration-release-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Validate and apply one versioned migration
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: supabase-${{ inputs.target }}
+    env:
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      MIGRATION_PATH: ${{ inputs.migration_path }}
+      RELEASE_TARGET: ${{ inputs.target }}
+    steps:
+      - name: Checkout main release commit
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate migration history and exact target
+        run: |
+          node scripts/check-supabase-migration-files.mjs
+          test -n "$SUPABASE_PROJECT_REF"
+          test -n "$SUPABASE_DB_URL"
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Apply exactly one migration with matching ledger version
+        run: node scripts/release-supabase-migration.mjs "$MIGRATION_PATH" "$RELEASE_TARGET"
