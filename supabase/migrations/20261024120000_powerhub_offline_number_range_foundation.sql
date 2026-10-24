@@ -361,8 +361,14 @@ begin
   end if;
 
   -- Serialize identical request IDs so concurrent retries cannot reserve two ranges.
+  -- Lock the request ID and the allocation scope separately: identical retries
+  -- serialize even if their arguments differ, and different request IDs cannot race
+  -- past the outstanding-range guard for the same device/scope.
   perform pg_advisory_xact_lock(hashtextextended(
-    p_user_id::text || ':' || p_device_id::text || ':' || p_request_id::text, 0
+    p_user_id::text || ':' || p_device_id::text || ':request:' || p_request_id::text, 0
+  ));
+  perform pg_advisory_xact_lock(hashtextextended(
+    p_user_id::text || ':' || p_device_id::text || ':' || p_number_kind || ':' || p_partition_key, 1
   ));
 
   -- Idempotent reservation request: a timeout/retry must return the same grant,
