@@ -2339,7 +2339,9 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/), readingAt: z.date().optional(),
-      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(), imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
+      captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(),
+      offlineInvoiceNumberClaim: z.object({ grantId: z.string().uuid(), deviceId: z.string().uuid(), numberValue: z.string().regex(/^[1-9][0-9]{0,7}$/), partitionKey: z.string().regex(/^\\d{4}$/), formattedNumber: z.string().regex(/^INV-\\d{4}-\\d{8}$/) }).optional(),
+      imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       // Resolve membership once for all three capabilities; this is a common hot path.
       const access = await requireSupabaseSiteCapabilities(ctx.user.id, input.siteId, ["recordReadings", "approveReadings", "issueInvoices"]);
@@ -2359,6 +2361,22 @@ export const powerhubRouter = router({
       const billingPeriod = readingAt.toISOString().slice(0, 7);
       let imageKey: string | undefined;
       let imageHash: string | undefined;
+      const offlineInvoiceClaim = input.offlineInvoiceNumberClaim;
+      let offlineDeviceId: string | undefined;
+      if (offlineInvoiceClaim) {
+        const rawDeviceId = ctx.req?.headers?.["x-powerhub-device-id"];
+        const headerDeviceId = Array.isArray(rawDeviceId) ? rawDeviceId[0] : rawDeviceId;
+        const expectedInvoiceNo = `INV-${offlineInvoiceClaim.partitionKey}-${offlineInvoiceClaim.numberValue.padStart(8, "0")}`;
+        if (!input.clientOperationId || typeof headerDeviceId !== "string" ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(headerDeviceId) ||
+            headerDeviceId.toLowerCase() !== offlineInvoiceClaim.deviceId.toLowerCase()) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "مطالبة رقم الفاتورة لا تخص جهاز PowerHub الحالي." });
+        }
+        if (offlineInvoiceClaim.partitionKey !== billingPeriod.slice(0,4) || offlineInvoiceClaim.formattedNumber !== expectedInvoiceNo) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "رقم الفاتورة المحجوز لا يطابق سنة القراءة أو الصيغة الرسمية." });
+        }
+        offlineDeviceId = headerDeviceId;
+      }
       if (input.imageData) {
         if (!input.imageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "نوع صورة القراءة غير مدعوم." });
         const imageBytes = Buffer.from(input.imageData, "base64");
@@ -2368,14 +2386,21 @@ export const powerhubRouter = router({
         const stored = await storagePut(`subscriber-readings/${ctx.user.id}/${input.subscriberId}-${Date.now()}.${extension}`, imageBytes, input.imageMime);
         imageKey = stored.key;
       }
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice", {
+      const readingRpcArgs = {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId,
         p_client_operation_id: input.clientOperationId ?? null, p_reading_at: readingAt.toISOString(), p_reading_value: input.readingValue,
         p_capture_method: input.captureMethod, p_image_key: imageKey ?? "", p_image_hash: imageHash ?? "", p_notes: input.notes?.trim() ?? "",
         p_is_reading_reset: input.isReadingReset, p_field_verified: input.fieldVerified,
         p_can_override_same_day: input.overrideSameDay && ["owner", "manager", "accountant"].includes(access.role),
         p_due_date: dueDate.toISOString(), p_billing_period: billingPeriod,
-      });
+      };
+      const { data, error } = offlineInvoiceClaim
+        ? await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice_with_offline_number", {
+            ...readingRpcArgs, p_offline_grant_id: offlineInvoiceClaim.grantId,
+            p_offline_device_id: offlineDeviceId, p_offline_number_value: offlineInvoiceClaim.numberValue,
+            p_offline_partition_key: offlineInvoiceClaim.partitionKey,
+          })
+        : await supabaseAdmin().rpc("powerhub_create_reading_and_issue_invoice", readingRpcArgs);
       if (!error && data?.[0]) {
         const row = data[0] as {
           reading_id: number | string; consumption_kwh: number | string; reading_status: "approved";
@@ -2414,6 +2439,8 @@ export const powerhubRouter = router({
       if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة في هذا الفرع؛ أضف التعرفة قبل تسجيل قراءة قابلة للفوترة." });
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "الفترة المالية مقفلة ولا يمكن إصدار فاتورة داخلها؛ لم يتم حفظ القراءة." });
       if (errorText.includes("OPENING_BASELINE_NOT_BILLABLE")) throw new TRPCError({ code: "BAD_REQUEST", message: "القراءة الافتتاحية خط أساس ولا تصدر عنها فاتورة استهلاك." });
+      if (errorText.includes("OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH") || errorText.includes("OFFLINE_NUMBER_ALREADY_CLAIMED") || errorText.includes("OFFLINE_NUMBER_CLAIM_MISSING")) throw new TRPCError({ code: "CONFLICT", message: "تعارض رقم الفاتورة المحجوز؛ أوقفنا المزامنة لمنع تكرار الرقم." });
+      if (errorText.includes("OFFLINE_NUMBER_") || errorText.includes("OFFLINE_INVOICE_CLAIM_INPUT_INVALID")) throw new TRPCError({ code: "CONFLICT", message: "انتهت صلاحية مطالبة رقم الفاتورة أو لم تعد صالحة. احتفظنا بالقراءة للمراجعة ولم نعتمد فاتورة جديدة." });
       if (errorText.includes("READING_NOT_PENDING") || errorText.includes("READING_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تعذر اعتماد القراءة بسبب تغير حالتها؛ حدّث البيانات ثم أعد المحاولة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ القراءة واعتمادها وإصدار فاتورتها؛ لم يتم تثبيت معاملة جزئية." });
     }),

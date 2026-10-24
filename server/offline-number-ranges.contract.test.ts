@@ -14,6 +14,8 @@ const fieldQueue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-r
 const workspace = readFileSync(resolve(process.cwd(), "client/src/lib/offline-workspace-db.ts"), "utf8");
 const directory = readFileSync(resolve(process.cwd(), "client/src/pages/NetworkDirectoryPage.tsx"), "utf8");
 const syncPanel = readFileSync(resolve(process.cwd(), "client/src/components/OfflineWorkSyncPanel.tsx"), "utf8");
+const invoiceReadingMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261024160000_powerhub_offline_invoice_number_claim.sql"), "utf8");
+const readingsPage = readFileSync(resolve(process.cwd(), "client/src/pages/MeterReadingsPage.tsx"), "utf8");
 
 describe("PowerHub offline number range foundation contract", () => {
   it("keeps grant and claim records private and enables RLS", () => {
@@ -48,6 +50,15 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(syncPanel).toContain("offlineNumberClaim");
     expect(powerhubRouter).toContain('admin.rpc("powerhub_create_subscriber_with_offline_number"');
     expect(migration).toContain("create or replace function public.powerhub_create_subscriber_with_offline_number");
+  });
+
+  it("atomically binds an offline invoice claim to platform reading and invoice issuance", () => {
+    expect(invoiceReadingMigration).toContain("powerhub_create_reading_and_issue_invoice_with_offline_number");
+    expect(invoiceReadingMigration).toContain("powerhub_claim_offline_number");
+    expect(invoiceReadingMigration).toContain("powerhub.offline_invoice_claim");
+    expect(powerhubRouter).toContain('"powerhub_create_reading_and_issue_invoice_with_offline_number"');
+    expect(readingsPage).toContain("enqueueReadingWithInvoiceNumber");
+    expect(readingsPage).toContain("hasAvailableOfflineNumberGrant");
   });
 
   it("keeps number reservation RPCs server-only and locks claimed values idempotently", () => {

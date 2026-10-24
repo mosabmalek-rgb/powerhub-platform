@@ -110,6 +110,58 @@ insert into public.invoices(invoice_no) values
 
 \ir ../migrations/20261024120000_powerhub_offline_number_range_foundation.sql
 
+
+-- Minimal fixture implementations prove the allocator patch and wrapper in this isolated DB.
+create function public.powerhub_issue_invoice_from_reading(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_reading_id bigint,p_tariff_id bigint,
+  p_billing_period text,p_due_date timestamptz,p_discount_amount numeric,p_client_operation_id uuid
+)
+returns table(invoice_id bigint,invoice_no text,total_amount numeric,replayed boolean)
+language plpgsql security definer set search_path=public,pg_temp
+as $invoice_fixture$
+declare
+  v_invoice_no text;
+  v_sequence bigint;
+  v_invoice_year integer;
+begin
+  v_invoice_year:=left(p_billing_period,4)::integer;
+  insert into public.powerhub_invoice_sequences(invoice_year,next_sequence)
+  values(v_invoice_year,2)
+  on conflict (invoice_year) do update
+    set next_sequence=public.powerhub_invoice_sequences.next_sequence+1
+  returning next_sequence-1 into v_sequence;
+  if not found or v_sequence is null or v_sequence < 1 then raise exception 'INVOICE_SEQUENCE_INVALID' using errcode='P0001'; end if;
+  v_invoice_no:=format('INV-%s-%s',v_invoice_year,lpad(v_sequence::text,8,'0'));
+  return query select 501::bigint,v_invoice_no,25::numeric,false;
+end;
+$invoice_fixture$;
+
+create function public.powerhub_create_reading_and_issue_invoice(
+  p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_subscriber_id bigint,
+  p_client_operation_id uuid,p_reading_at timestamptz,p_reading_value numeric,
+  p_capture_method text,p_image_key text,p_image_hash text,p_notes text,
+  p_is_reading_reset boolean,p_field_verified boolean,p_can_override_same_day boolean,
+  p_due_date timestamptz,p_billing_period text
+)
+returns table(
+  reading_id bigint,consumption_kwh numeric,reading_status text,replayed boolean,
+  invoice_id bigint,invoice_no text,total_amount numeric,notification_ids bigint[],already_processed boolean
+)
+language plpgsql security definer set search_path=public,pg_temp
+as $reading_fixture$
+declare v_invoice record;
+begin
+  select * into v_invoice
+  from public.powerhub_issue_invoice_from_reading(
+    p_tenant_id,p_site_id,p_user_id,1,1,p_billing_period,p_due_date,0,p_client_operation_id
+  );
+  return query select 601::bigint,15::numeric,'approved'::text,false,
+    v_invoice.invoice_id,v_invoice.invoice_no,v_invoice.total_amount,array[]::bigint[],false;
+end;
+$reading_fixture$;
+
+\ir ../migrations/20261024160000_powerhub_offline_invoice_number_claim.sql
+
 do $assert_migration$
 declare
   v_values text[];
@@ -121,6 +173,8 @@ declare
   v_replayed boolean;
   v_created_no text;
   v_next_invoice bigint;
+  v_invoice_no text;
+  v_invoice_id bigint;
 begin
   if (select last_value from public.subscriber_global_number_seq) <> 990002 then
     raise exception 'ASSERT_FAILED: subscriber sequence high-water mark was not reconciled';
@@ -241,6 +295,27 @@ begin
   from public.powerhub_invoice_sequences where invoice_year = 2026;
   if v_next_invoice <> 23 then
     raise exception 'ASSERT_FAILED: invoice allocator did not advance atomically';
+  end if;
+
+  -- Exercise the real invoice allocator patch and wrapper against a reserved invoice number.
+  select invoice_id, invoice_no into v_invoice_id, v_invoice_no
+  from public.powerhub_create_reading_and_issue_invoice_with_offline_number(
+    1,10,100,1000,'12121212-1212-4212-8212-121212121212',
+    '2026-10-24T10:00:00Z',15,'manual','','','offline invoice claim test',
+    false,false,false,'2026-11-07T10:00:00Z','2026-10',
+    v_grant_id,'11111111-1111-4111-8111-111111111111','20','2026'
+  );
+  if v_invoice_id <> 501 or v_invoice_no <> 'INV-2026-00000020' then
+    raise exception 'ASSERT_FAILED: offline invoice number claim was not preserved: %, %',v_invoice_id,v_invoice_no;
+  end if;
+  if not exists (
+    select 1 from public.powerhub_offline_number_claims c
+    where c.grant_id=v_grant_id and c.tenant_id=1 and c.site_id=10 and c.user_id=100
+      and c.device_id='11111111-1111-4111-8111-111111111111' and c.number_kind='invoice'
+      and c.partition_key='2026' and c.number_value=20
+      and c.client_operation_id='12121212-1212-4212-8212-121212121212' and c.entity_type='invoice'
+  ) then
+    raise exception 'ASSERT_FAILED: invoice claim was not persisted against the operation';
   end if;
 
   begin
