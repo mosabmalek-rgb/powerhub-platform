@@ -96,7 +96,7 @@ declare
   v_response jsonb;
   v_platform_role text;
   v_current_count integer;
-  v_effective_limit integer;
+  v_feature_policy record;
 begin
   if p_client_operation_id is not null then
     select response into v_response
@@ -138,8 +138,14 @@ begin
   select count(*)::integer into v_current_count
   from public.subscribers
   where tenant_id = p_tenant_id;
-  v_effective_limit := public.powerhub_effective_tenant_quota(p_tenant_id, 'subscribers');
-  if v_effective_limit is not null and v_current_count >= v_effective_limit then
+  select * into v_feature_policy
+  from public.powerhub_resolve_tenant_feature_policy(p_tenant_id, 'subscriber_management');
+  if not coalesce(v_feature_policy.eligible, false)
+     or not coalesce(v_feature_policy.enabled, false) then
+    raise exception 'SUBSCRIBER_FEATURE_DISABLED' using errcode = 'P0001';
+  end if;
+  if v_feature_policy.effective_limit is not null
+     and v_current_count >= v_feature_policy.effective_limit then
     raise exception 'SUBSCRIBER_QUOTA_REACHED' using errcode = 'P0001';
   end if;
 
