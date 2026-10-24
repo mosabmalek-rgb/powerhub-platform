@@ -12,7 +12,7 @@ const legacyCollisions = new Map([
 ]);
 
 function fail(message) {
-  console.error(\`Supabase migration guard: \${message}\`);
+  console.error(`Supabase migration guard: ${message}`);
   process.exitCode = 1;
 }
 
@@ -25,7 +25,7 @@ const byVersion = new Map();
 for (const filename of entries) {
   const match = filename.match(/^(\d+)_([a-zA-Z0-9_]+)\.sql$/);
   if (!match) {
-    fail(\`invalid migration filename: \${filename}\`);
+    fail(`invalid migration filename: ${filename}`);
     continue;
   }
   const [, version] = match;
@@ -38,20 +38,20 @@ for (const [version, filenames] of byVersion) {
   if (filenames.length === 1) continue;
   const expected = legacyCollisions.get(version);
   if (!expected || JSON.stringify([...filenames].sort()) !== JSON.stringify([...expected].sort())) {
-    fail(\`duplicate version "\${version}": \${filenames.join(", ")}. Historical collisions are pinned; never add or rename a file into a colliding version.\`);
+    fail(`duplicate version "${version}": ${filenames.join(", ")}. Historical collisions are pinned; never add or rename a file into a colliding version.`);
   }
 }
 
 for (const [version, expected] of legacyCollisions) {
   const actual = byVersion.get(version) ?? [];
   if (JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())) {
-    fail(\`the documented legacy collision "\${version}" changed. Review and explicitly reconcile the historical migration ledger before changing these files.\`);
+    fail(`the documented legacy collision "${version}" changed. Review and explicitly reconcile the historical migration ledger before changing these files.`);
   }
 }
 
 const baseRef = process.env.GITHUB_BASE_REF;
 if (baseRef) {
-  const diff = spawnSync("git", ["diff", "--name-status", "--diff-filter=A", \`origin/\${baseRef}...HEAD\`, "--", migrationDir], { encoding: "utf8" });
+  const diff = spawnSync("git", ["diff", "--name-status", "--diff-filter=A", `origin/${baseRef}...HEAD`, "--", migrationDir], { encoding: "utf8" });
   if (diff.status !== 0) {
     fail("could not compare added migration files against the PR base branch");
   } else {
@@ -60,14 +60,14 @@ if (baseRef) {
       if (!filename) continue;
       const match = filename.match(/^(\d{14})_[a-z0-9_]+\.sql$/);
       if (!match) {
-        fail(\`new migrations must use a unique 14-digit timestamp and snake_case name: \${filename}\`);
+        fail(`new migrations must use a unique 14-digit timestamp and snake_case name: ${filename}`);
         continue;
       }
-      const existing = entries.filter((entry) => entry !== filename && entry.startsWith(\`\${match[1]}_\`));
-      if (existing.length) fail(\`new migration \${filename} collides with: \${existing.join(", ")}\`);
+      const existing = entries.filter((entry) => entry !== filename && entry.startsWith(`${match[1]}_`));
+      if (existing.length) fail(`new migration ${filename} collides with: ${existing.join(", ")}`);
     }
   }
 }
 
 if (process.exitCode) process.exit(process.exitCode);
-console.log(\`Supabase migration guard passed (\${entries.length} SQL files; historical version collisions explicitly pinned).\`);
+console.log(`Supabase migration guard passed (${entries.length} SQL files; historical version collisions explicitly pinned).`);
