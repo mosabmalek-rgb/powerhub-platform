@@ -128,9 +128,9 @@ begin
   end if;
 
   if p_client_operation_id is not null then
-    select id, subscriber_no into v_subscriber_id, v_subscriber_no
-    from public.subscribers
-    where client_operation_id = p_client_operation_id::text
+    select s.id, s.subscriber_no into v_subscriber_id, v_subscriber_no
+    from public.subscribers as s
+    where s.client_operation_id = p_client_operation_id::text
     limit 1;
     if found then
       return query select v_subscriber_id, v_subscriber_no, true;
@@ -150,14 +150,14 @@ begin
   -- transaction-aborted values are never recycled.
   v_subscriber_no := format('SUB-%s', lpad(nextval('public.subscriber_global_number_seq')::text, 6, '0'));
 
-  insert into public.subscribers (
+  insert into public.subscribers as inserted (
     tenant_id, site_id, subscriber_no, client_operation_id,
     full_name, phone, whatsapp_number, address, subscription_type
   ) values (
     p_tenant_id, p_site_id, v_subscriber_no, p_client_operation_id::text,
     trim(p_full_name), trim(p_phone), nullif(trim(p_whatsapp_number), ''),
     nullif(trim(p_address), ''), p_subscription_type
-  ) returning id, subscriber_no into v_subscriber_id, v_subscriber_no;
+  ) returning inserted.id, inserted.subscriber_no into v_subscriber_id, v_subscriber_no;
 
   select platform_role into v_platform_role from public.users where id = p_user_id;
   insert into public.audit_logs (
