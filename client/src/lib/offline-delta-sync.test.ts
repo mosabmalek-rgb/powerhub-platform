@@ -38,6 +38,7 @@ describe("offline delta sync", () => {
       .mockResolvedValueOnce(page({ through_cursor: "9", next_cursor: "9", has_more: false, changes: [change("9", "2", "delete", null)] }));
     const applied: string[] = [];
     const result = await pullDeltaPages({
+      scope: { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" },
       afterCursor: "3",
       pull,
       applyPage: async p => { applied.push(p.changes[0].cursor); },
