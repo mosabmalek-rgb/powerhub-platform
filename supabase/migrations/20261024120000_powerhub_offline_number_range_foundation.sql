@@ -388,6 +388,28 @@ begin
     return;
   end if;
 
+  -- Do not burn another globally unique range while this device still has
+  -- unused values in an unexpired grant. The same request ID above remains replayable.
+  if exists (
+    select 1
+    from public.powerhub_offline_number_grants g
+    cross join lateral unnest(g.reserved_values) as reserved(value)
+    where g.tenant_id = p_tenant_id
+      and g.site_id = p_site_id
+      and g.user_id = p_user_id
+      and g.device_id = p_device_id
+      and g.number_kind = p_number_kind
+      and g.partition_key = p_partition_key
+      and g.revoked_at is null
+      and g.expires_at > clock_timestamp()
+      and not exists (
+        select 1 from public.powerhub_offline_number_claims c
+        where c.grant_id = g.id and c.number_value = reserved.value
+      )
+  ) then
+    raise exception 'OFFLINE_NUMBER_RANGE_STILL_AVAILABLE' using errcode = 'P0001';
+  end if;
+
   if p_number_kind = 'subscriber' then
     if p_partition_key is distinct from 'global' then
       raise exception 'OFFLINE_NUMBER_PARTITION_INVALID' using errcode = 'P0001';
