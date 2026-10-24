@@ -51,8 +51,19 @@ export function planReadyOperations(
   now = Date.now(),
 ): SyncPlanItem[] {
   return items
-    .filter((item) => item.status === "pending" || (item.status === "failed" && metadataByOperationId.get(item.clientOperationId)?.outcome === "retryable" && shouldRetry(metadataByOperationId.get(item.clientOperationId)!)))
     .map((item) => ({ item, metadata: metadataByOperationId.get(item.clientOperationId) ?? createSyncMetadata(item, now) }))
+    .filter(({ item, metadata }) => {
+      // Queue status can lag behind the persisted sync result after a crash or
+      // partial IndexedDB write. Never resubmit terminal failures just because
+      // the queue row still says "pending".
+      if (metadata.outcome === "conflict" || metadata.outcome === "rejected" || metadata.outcome === "applied" || metadata.outcome === "already_applied") {
+        return false;
+      }
+      if (metadata.outcome === "retryable") {
+        return shouldRetry(metadata) && (item.status === "pending" || item.status === "failed");
+      }
+      return item.status === "pending" && metadata.outcome === "pending";
+    })
     .filter(({ metadata }) => metadata.nextAttemptAt <= now)
     .filter(({ metadata }) => areDependenciesSatisfied(metadata.dependsOn, completedIds))
     .sort((a, b) => a.item.createdAt - b.item.createdAt);
