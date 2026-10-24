@@ -214,7 +214,8 @@ alter table public.powerhub_invoice_sequences
 alter table public.powerhub_invoice_sequences
   drop constraint if exists powerhub_invoice_sequences_next_sequence_check;
 alter table public.powerhub_invoice_sequences
-  add constraint powerhub_invoice_sequences_next_sequence_check check (next_sequence > 0);
+  add constraint powerhub_invoice_sequences_next_sequence_check
+  check (next_sequence between 1 and 100000000);
 
 -- Support the old four-digit and current eight-digit official invoice formats.
 -- Custom staging fixtures (for example STG-E2E-*) are deliberately ignored.
@@ -452,13 +453,16 @@ begin
       raise exception 'OFFLINE_NUMBER_PARTITION_INVALID' using errcode = 'P0001';
     end if;
 
-    -- The same row lock/high-water mark is used by online invoice issuance.
-    -- Upsert reserves N consecutive values atomically without a COUNT()-based allocator.
+    -- Serialize against the existing online invoice allocator on the same yearly
+    -- high-water row. Check the eight-digit ceiling before advancing the counter.
     insert into public.powerhub_invoice_sequences(invoice_year, next_sequence)
-    values (v_year, p_count + 1)
-    on conflict (invoice_year) do update
-      set next_sequence = public.powerhub_invoice_sequences.next_sequence + p_count
-    returning next_sequence - p_count into v_start;
+    values (v_year, 1)
+    on conflict (invoice_year) do nothing;
+
+    select next_sequence into v_start
+    from public.powerhub_invoice_sequences
+    where invoice_year = v_year
+    for update;
 
     if v_start is null or v_start < 1 then
       raise exception 'INVOICE_SEQUENCE_INVALID' using errcode = 'P0001';
@@ -466,6 +470,11 @@ begin
     if v_start + p_count - 1 > 99999999 then
       raise exception 'INVOICE_REFERENCE_EXHAUSTED' using errcode = 'P0001';
     end if;
+
+    update public.powerhub_invoice_sequences
+      set next_sequence = v_start + p_count
+      where invoice_year = v_year;
+
     select array_agg(series.value order by series.value)
       into v_reserved
     from generate_series(v_start, v_start + p_count - 1) as series(value);
