@@ -43,8 +43,7 @@ if (collisions.length) fail(`version ${version} already belongs to another file:
 
 const sql = await readFile(absolutePath, "utf8");
 if (!sql.trim()) fail("migration is empty");
-if (/^\s*\\/\\/|^\s*\\\\/m.test(sql)) fail("psql meta-commands are not allowed in a released migration");
-if (/^\s*(BEGIN|START\s+TRANSACTION|COMMIT|ROLLBACK)\s*;/im.test(sql)) {
+if (sql.split("\n").some((line) => line.trimStart().startsWith("\\"))) fail("psql meta-commands are not allowed in a released migration");
   fail("migration must not open or close its own transaction; release runner wraps SQL and ledger update atomically");
 }
 if (/\b(?:CREATE|DROP)\s+INDEX\s+CONCURRENTLY\b|^\s*VACUUM\b/im.test(sql)) {
