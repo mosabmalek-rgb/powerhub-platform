@@ -36,6 +36,7 @@ describe("offline number range foundation", () => {
     expect(() => formatOfflineNumber("subscriber", "global", "1000000")).toThrowError(/رقم المشترك/);
     expect(() => formatOfflineNumber("subscriber", "2026", "42")).toThrowError(/رقم المشترك/);
     expect(() => formatOfflineNumber("invoice", "26", "1")).toThrowError(/سنة الفاتورة/);
+    expect(() => formatOfflineNumber("invoice", "2026", "100000000")).toThrowError(/ثمانية أرقام/);
   });
 
   it("validates grant size, dates, and unique values", () => {
