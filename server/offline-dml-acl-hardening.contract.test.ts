@@ -5,7 +5,12 @@ const migrationUrl = new URL(
   "../supabase/migrations/20261024210000_powerhub_offline_write_acl_hardening.sql",
   import.meta.url,
 );
+const deviceLockMigrationUrl = new URL(
+  "../supabase/migrations/20261024210500_powerhub_device_lock_schema_reconciliation.sql",
+  import.meta.url,
+);
 const readMigration = () => readFile(migrationUrl, "utf8");
+const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
   it("revokes direct write privileges from public browser roles on core records", async () => {
@@ -32,7 +37,7 @@ describe("offline server-write ACL hardening migration", () => {
   });
   
   it("reconciles the device-lock schema and preserves cross-tab login serialization", async () => {
-    const migration = await readMigration();
+    const migration = await readDeviceLockMigration();
     expect(migration).toMatch(/create table if not exists public\.powerhub_user_device_locks/i);
     expect(migration).toMatch(/references auth\.users\(id\) on delete cascade/i);
     expect(migration).toMatch(/pg_advisory_xact_lock\([\s\S]*hashtextextended\(p_user_id::text, 0\)/i);
