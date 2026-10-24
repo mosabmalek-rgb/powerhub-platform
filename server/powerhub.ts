@@ -2340,7 +2340,7 @@ export const powerhubRouter = router({
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), readingValue: z.string().regex(/^\d+(\.\d{1,2})?$/), readingAt: z.date().optional(),
       captureMethod: z.enum(["manual", "photo", "smart_meter"]).default("manual"), clientOperationId: z.string().uuid().optional(),
-      offlineInvoiceNumberClaim: z.object({ grantId: z.string().uuid(), deviceId: z.string().uuid(), numberValue: z.string().regex(/^[1-9][0-9]{0,7}$/), partitionKey: z.string().regex(/^\\d{4}$/), formattedNumber: z.string().regex(/^INV-\\d{4}-\\d{8}$/) }).optional(),
+      offlineInvoiceNumberClaim: z.object({ grantId: z.string().uuid(), deviceId: z.string().uuid(), numberValue: z.string().regex(/^[1-9][0-9]{0,7}$/), partitionKey: z.string().regex(/^\d{4}$/), formattedNumber: z.string().regex(/^INV-\d{4}-\d{8}$/) }).optional(),
       imageData: z.string().max(9_500_000).optional(), imageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), notes: z.string().max(1000).optional(), isReadingReset: z.boolean().default(false), overrideSameDay: z.boolean().default(false), fieldVerified: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       // Resolve membership once for all three capabilities; this is a common hot path.

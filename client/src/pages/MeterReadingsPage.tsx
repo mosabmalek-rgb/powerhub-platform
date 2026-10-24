@@ -10,10 +10,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Skeleton } from "@/components/ui/skeleton";
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { enqueueReading, isQueuedReadingReadyForSync, listQueuedReadings, removeQueuedReading, type QueuedReading } from "@/lib/offline-reading-queue";
+import { enqueueReading, enqueueReadingWithInvoiceNumber, isQueuedReadingReadyForSync, listQueuedReadings, removeQueuedReading, type QueuedReading } from "@/lib/offline-reading-queue";
+import { getPowerHubDeviceId } from "@/lib/offline-auth";
+import { hasAvailableOfflineNumberGrant, persistOfflineNumberGrant } from "@/lib/offline-number-ranges";
 import { listOfflineWork, updateOfflineWork, type QueuedOfflineWork, type ReadingCreateDraft } from "@/lib/offline-work-queue";
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
-import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
+import { classifySyncResult, createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
 import { removeOfflineConflict, upsertOfflineConflict } from "@/lib/offline-workspace-db";
 import { trpc } from "@/lib/trpc";
@@ -41,6 +43,7 @@ export default function MeterReadingsPage() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, loading, user } = useAuth();
   const utils = trpc.useUtils();
+  const reserveOfflineInvoiceNumbers = trpc.powerhub.offlineNumbering.reserve.useMutation();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [queuedReadings, setQueuedReadings] = useState<QueuedReading[]>([]);
@@ -75,6 +78,24 @@ export default function MeterReadingsPage() {
   const canSendInvoiceSms = can(role, "manageMessaging", permissions);
   const canSettleLegacyReading = canApproveReading && canIssueInvoice;
   const currentSite = useMemo(() => sitesQuery.data?.find((site) => site.id === siteId), [siteId, sitesQuery.data]);
+  useEffect(() => {
+    if (!isAuthenticated || !canIssueInvoice || !["owner", "manager", "accountant"].includes(role ?? "") || !siteId || !user?.id || !currentSite?.tenantId || !isOnline) return;
+    let cancelled = false;
+    void (async () => {
+      const deviceId = await getPowerHubDeviceId();
+      const scope = { userId: Number(user.id), tenantId: Number(currentSite.tenantId), siteId, deviceId };
+      const partitionKey = String(new Date().getUTCFullYear());
+      if (await hasAvailableOfflineNumberGrant(scope, "invoice", partitionKey)) return;
+      const grant = await reserveOfflineInvoiceNumbers.mutateAsync({
+        siteId, requestId: crypto.randomUUID(), numberKind: "invoice", partitionKey, count: 50, ttlMinutes: 43_200,
+      });
+      if (cancelled) return;
+      await persistOfflineNumberGrant(grant);
+    })().catch((error) => {
+      if (!cancelled) console.warn("[PowerHub] could not prefetch offline invoice numbers", error);
+    });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, canIssueInvoice, role, siteId, user?.id, currentSite?.tenantId, isOnline, reserveOfflineInvoiceNumbers.mutateAsync]);
 
   const loadQueuedReadings = useCallback(async () => {
     if (!siteId || !user?.id) return [];
@@ -129,10 +150,30 @@ export default function MeterReadingsPage() {
   const downloadCsv = () => { const rows = [["المشترك", "الرقم المرجعي", "القراءة", "الاستهلاك kWh", "الحالة", "التاريخ"], ...exportRows(exportReadings)]; const csv = "\uFEFF" + rows.map((row) => row.map((value) => `"${String(value).replaceAll("\"", "\"\"")}"`).join(",")).join("\n"); download(new Blob([csv], { type: "text/csv;charset=utf-8" }), `powerhub-subscriber-readings-${new Date().toISOString().slice(0, 10)}.csv`); };
   const downloadExcel = async () => { try { const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook(); workbook.creator = "PowerHub"; const sheet = workbook.addWorksheet("قراءات المشتركين", { views: [{ rightToLeft: true }] }); sheet.addRow(["المشترك", "الرقم المرجعي", "القراءة", "الاستهلاك kWh", "الحالة", "التاريخ"]); exportRows(exportReadings).forEach((row) => sheet.addRow(row)); sheet.columns = [{ width: 28 }, { width: 22 }, { width: 16 }, { width: 18 }, { width: 20 }, { width: 18 }]; const header = sheet.getRow(1); header.font = { bold: true, color: { argb: "FFFFFFFF" } }; header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; const buffer = await workbook.xlsx.writeBuffer(); download(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `powerhub-subscriber-readings-${new Date().toISOString().slice(0, 10)}.xlsx`); } catch { toast.error("تعذر تجهيز ملف Excel."); } };
   const downloadPdf = async () => { if (!pdfRef.current || !exportReadings.length) { toast.error("لا توجد قراءات ضمن النطاق المحدد."); return; } try { await downloadReportHtmlAsPdf(pdfRef.current, `قراءات-المشتركين-${new Date().toISOString().slice(0, 10)}.pdf`, { title: "تقرير قراءات المشتركين من PowerHub" }); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
-  const queueReading = async (reading: Omit<QueuedReading, "id" | "createdAt" | "status" | "userId" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind" | "error">) => {
+  const queueReading = async (reading: Omit<QueuedReading, "id" | "createdAt" | "status" | "userId" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind" | "error">): Promise<string | undefined> => {
     if (!user?.id) throw new Error("تعذر تحديد المستخدم الحالي لحفظ القراءة.");
-    await enqueueReading({ ...reading, userId: user.id, ...(currentSite?.tenantId ? { tenantId: currentSite.tenantId } : {}) });
+    const queuedReading = { ...reading, userId: user.id, ...(currentSite?.tenantId ? { tenantId: currentSite.tenantId } : {}) };
+    let formattedInvoiceNumber: string | undefined;
+    const partitionKey = String(new Date(reading.readingAt).getUTCFullYear());
+    if (currentSite?.tenantId && siteId) {
+      const deviceId = await getPowerHubDeviceId();
+      const scope = { userId: Number(user.id), tenantId: Number(currentSite.tenantId), siteId, deviceId };
+      if (await hasAvailableOfflineNumberGrant(scope, "invoice", partitionKey)) {
+        try {
+          const result = await enqueueReadingWithInvoiceNumber(queuedReading, scope, partitionKey);
+          formattedInvoiceNumber = result.formattedInvoiceNumber;
+        } catch (error) {
+          if (!(error instanceof Error) || !("code" in error) || (error as { code?: string }).code !== "NO_RESERVED_OFFLINE_INVOICE_NUMBER") throw error;
+          await enqueueReading(queuedReading);
+        }
+      } else {
+        await enqueueReading(queuedReading);
+      }
+    } else {
+      await enqueueReading(queuedReading);
+    }
     await loadQueuedReadings();
+    return formattedInvoiceNumber;
   };
 
   const syncQueuedReadings = async (records: QueuedReading[] = queuedReadings) => {
@@ -170,7 +211,7 @@ export default function MeterReadingsPage() {
       });
     }
 
-    const serverResults = new Map<string, { id?: number; replayed: boolean }>();
+    const serverResults = new Map<string, { id?: number; replayed: boolean; invoiceNo?: string }>();
     const errorCodes = new Map<string, string>();
     const results = await executeReadyOperations({
       items: pendingItems, metadataByOperationId,
@@ -189,14 +230,17 @@ export default function MeterReadingsPage() {
           });
           const replayed = Boolean((response as { replayed?: boolean }).replayed);
           const entityId = Number((response as { id?: number }).id);
+          const invoiceNo = typeof (response as { invoiceNo?: unknown }).invoiceNo === "string" ? (response as { invoiceNo: string }).invoiceNo : undefined;
           serverResults.set(item.clientOperationId, {
             ...(Number.isSafeInteger(entityId) && entityId > 0 ? { id: entityId } : {}), replayed,
+            ...(invoiceNo ? { invoiceNo } : {}),
           });
           return { outcome: replayed ? "already_applied" : "applied" };
         } catch (error) {
           const code = (error as { data?: { code?: string } }).data?.code;
           if (code) errorCodes.set(item.clientOperationId, code);
-          return { outcome: "retryable", ...(code ? { errorCode: code } : {}),
+          const classified = classifySyncResult(code);
+          return { outcome: classified === "applied" ? "retryable" : classified, ...(code ? { errorCode: code } : {}),
             message: error instanceof Error ? error.message : "تعذر مزامنة القراءة مؤقتاً." };
         }
       },
@@ -221,8 +265,8 @@ export default function MeterReadingsPage() {
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined,
           ...(server?.id ? { appliedEntityId: server.id } : {}),
-          appliedLabel: `قراءة للمشترك #${payload.subscriberId}`,
-          payload: { ...payload, imageData: undefined, imageMime: undefined },
+          appliedLabel: server?.invoiceNo ? `فاتورة ${server.invoiceNo} · قراءة للمشترك #${payload.subscriberId}` : `قراءة للمشترك #${payload.subscriberId}`,
+          payload: { ...payload, imageData: undefined, imageMime: undefined, offlineInvoiceNumberClaim: undefined },
         });
         await removeOfflineConflict(item.userId, item.clientOperationId);
       } else if (result.outcome === "conflict") {
