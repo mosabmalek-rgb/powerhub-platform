@@ -43,12 +43,14 @@ describe("collection and entry form reset contracts", () => {
     expect(meterReadings).toContain('utils.powerhub.invoices.page.invalidate({ siteId: refreshSiteId, limit: 200 })');
 
     const offlineSync = read("client/src/components/OfflineWorkSyncPanel.tsx");
-    expect(offlineSync).toContain('const refresh = async (results: readonly { item: QueuedOfflineWork; outcome: string }[]) =>');
-    expect(offlineSync).toContain('const successful = results.filter((result) =>');
-    expect(offlineSync).toContain('result.outcome === "applied" || result.outcome === "already_applied"');
-    expect(offlineSync).toContain('if (kinds.has("invoice_issue"))');
+    expect(offlineSync).toContain('getOfflineSyncRefreshTargets(results)');
+    expect(offlineSync).toContain('if (targets.has("invoice-pages"))');
     expect(offlineSync).toContain('utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 })');
     expect(offlineSync).toContain('utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 })');
+
+    const refreshPlan = read("client/src/lib/offline-sync-refresh.ts");
+    expect(refreshPlan).toContain('result.outcome === "applied" || result.outcome === "already_applied"');
+    expect(refreshPlan).toContain('if (!SUCCESS_OUTCOMES.has(result.outcome)) continue;');
   });
 
   it("preserves the two-decimal reading validation and clears the reading form after success", () => {
