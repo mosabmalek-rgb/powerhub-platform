@@ -43,8 +43,10 @@ describe("collection and entry form reset contracts", () => {
     expect(meterReadings).toContain('utils.powerhub.invoices.page.invalidate({ siteId: refreshSiteId, limit: 200 })');
 
     const offlineSync = read("client/src/components/OfflineWorkSyncPanel.tsx");
-    expect(offlineSync).toContain('const successfulInvoiceIssues = results.filter');
-    expect(offlineSync).toContain('if (successfulInvoiceIssues.length > 0)');
+    expect(offlineSync).toContain('const refresh = async (results: readonly { item: QueuedOfflineWork; outcome: string }[]) =>');
+    expect(offlineSync).toContain('const successful = results.filter((result) =>');
+    expect(offlineSync).toContain('result.outcome === "applied" || result.outcome === "already_applied"');
+    expect(offlineSync).toContain('if (kinds.has("invoice_issue"))');
     expect(offlineSync).toContain('utils.powerhub.invoices.page.invalidate({ siteId, limit: 100 })');
     expect(offlineSync).toContain('utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 })');
   });
