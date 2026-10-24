@@ -61,6 +61,6 @@ describe("delta-query bridge", () => {
       row_data: { id: 4, tenantId: 2, siteId: 10, fullName: "New name" }, changed_at: "2026-10-24T00:00:00Z",
     }]);
     expect(refreshReadingSubscriberProjection([{ reading: { id: 30 }, subscriber: { id: 4, fullName: "Old" } }], subPage, scope))
-      .toEqual([{ reading: { id: 30 }, subscriber: { id: 4, fullName: "New name" } }]);
+      .toEqual([{ reading: { id: 30 }, subscriber: { id: 4, fullName: "New name", tenantId: 2, siteId: 10 } }]);
   });
 });
