@@ -67,9 +67,16 @@ export function planReadyOperations(
       if (metadata.outcome === "retryable") {
         return shouldRetry(metadata) && (item.status === "pending" || item.status === "failed");
       }
+      // A persisted "syncing" state survives crashes in older clients. The caller
+      // must hold the scoped sync lock before planning, so no live worker owns it.
+      // Resume with the same operation ID; server idempotency resolves uncertain commits.
+      if (metadata.outcome === "syncing") {
+        return metadata.attempts < SYNC_MAX_ATTEMPTS &&
+          (item.status === "pending" || item.status === "failed");
+      }
       return item.status === "pending" && metadata.outcome === "pending";
     })
-    .filter(({ metadata }) => metadata.nextAttemptAt <= now)
+    .filter(({ metadata }) => metadata.outcome === "syncing" || metadata.nextAttemptAt <= now)
     .filter(({ metadata }) => areDependenciesSatisfied(metadata.dependsOn, completedIds))
     .sort((a, b) => a.item.createdAt - b.item.createdAt);
 }

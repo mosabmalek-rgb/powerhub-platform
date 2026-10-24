@@ -44,6 +44,22 @@ describe("offline sync UI contract", () => {
     expect(meterReadingsPage).toContain("syncQueuedReadingsUnlocked(records)");
   });
 
+  it("serializes manual retry state changes with the same cross-tab sync lock", () => {
+    const retryStart = syncPanel.indexOf("const retryFailedAndSync = async () => {");
+    const retryEnd = syncPanel.indexOf("\n  useEffect(", retryStart);
+    expect(retryStart).toBeGreaterThanOrEqual(0);
+    expect(retryEnd).toBeGreaterThan(retryStart);
+    const retryBody = syncPanel.slice(retryStart, retryEnd);
+    const lockIndex = retryBody.indexOf("withOfflineSyncLock({ userId, siteId }");
+    const readIndex = retryBody.indexOf("listOfflineWork({ userId, siteId })");
+    expect(lockIndex).toBeGreaterThanOrEqual(0);
+    expect(lockIndex).toBeLessThan(readIndex);
+    expect(retryBody).toContain("isSyncMetadataCompatibleWithWorkItem(item, metadata)");
+    expect(retryBody).toContain("await syncPendingUnlocked()");
+    expect(retryBody).not.toContain("await syncPending();");
+    expect(syncPanel).toContain("const syncPendingUnlocked = async () => {");
+  });
+
   it("does not overwrite atomically persisted reading metadata with a stale pending result", () => {
     expect(offlineReadingQueue).not.toContain("await upsertSyncMetadata(syncRecord)");
     expect(offlineReadingQueue).toContain("getSyncMetadata(item.clientOperationId");

@@ -63,6 +63,26 @@ describe("offline sync engine", () => {
     }
   });
 
+  it("recovers a persisted syncing operation after the prior tab crashed", () => {
+    const queued = item("interrupted-sync", 100);
+    const metadata = new Map([[queued.clientOperationId, {
+      ...createSyncMetadata(queued, 0),
+      outcome: "syncing" as const,
+      attempts: 1,
+      nextAttemptAt: Number.POSITIVE_INFINITY,
+    }]]);
+    expect(planReadyOperations([queued], metadata, new Set(), 100).map((entry) => entry.item.clientOperationId))
+      .toEqual(["interrupted-sync"]);
+
+    const exhausted = new Map([[queued.clientOperationId, {
+      ...createSyncMetadata(queued, 0),
+      outcome: "syncing" as const,
+      attempts: 5,
+      nextAttemptAt: Number.POSITIVE_INFINITY,
+    }]]);
+    expect(planReadyOperations([queued], exhausted, new Set(), 100)).toEqual([]);
+  });
+
   it("plans a transient retry only when its retry window is due", () => {
     const queued = { ...item("retryable", 100), status: "failed" as const };
     const metadata = new Map([[queued.clientOperationId, {

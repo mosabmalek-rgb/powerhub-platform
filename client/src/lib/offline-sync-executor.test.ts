@@ -109,6 +109,25 @@ describe("executeReadyOperations", () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
+  it("recovers a persisted syncing operation through idempotent transport after a crash", async () => {
+    const queued = item("interrupted-sync", 1);
+    const transport = vi.fn(async () => ({ outcome: "already_applied" as const }));
+    const results = await executeReadyOperations({
+      items: [queued],
+      metadataByOperationId: new Map([[queued.clientOperationId, {
+        ...createSyncMetadata(queued, 0),
+        outcome: "syncing" as const,
+        attempts: 1,
+        nextAttemptAt: Number.POSITIVE_INFINITY,
+      }]]),
+      transport,
+      now: 100,
+    });
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(results).toHaveLength(1);
+    expect(results[0].outcome).toBe("already_applied");
+  });
+
   it("dispatches retryable work only when due and while retry budget remains", async () => {
     const queued = { ...item("retryable", 1), status: "failed" as const };
     const retryMetadata = {
