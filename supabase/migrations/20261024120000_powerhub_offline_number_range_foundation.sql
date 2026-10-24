@@ -96,6 +96,7 @@ as $$
 declare
   v_subscriber_id bigint;
   v_subscriber_no text;
+  v_subscriber_sequence bigint;
   v_response jsonb;
   v_platform_role text;
   v_current_count integer;
@@ -146,9 +147,14 @@ begin
     raise exception 'SUBSCRIBER_QUOTA_REACHED' using errcode = 'P0001';
   end if;
 
-  -- The sequence is capped at 999999. It does not cycle, so issued or
-  -- transaction-aborted values are never recycled.
-  v_subscriber_no := format('SUB-%s', lpad(nextval('public.subscriber_global_number_seq')::text, 6, '0'));
+  -- The canonical sequence is bigint-sized, while the public reference is six digits.
+  -- Fail with a stable domain error before trying to insert an unrepresentable number.
+  -- Sequence values are never recycled, including after a failed transaction.
+  v_subscriber_sequence := nextval('public.subscriber_global_number_seq');
+  if v_subscriber_sequence < 1 or v_subscriber_sequence > 999999 then
+    raise exception 'SUBSCRIBER_REFERENCE_EXHAUSTED' using errcode = 'P0001';
+  end if;
+  v_subscriber_no := format('SUB-%s', lpad(v_subscriber_sequence::text, 6, '0'));
 
   insert into public.subscribers as inserted (
     tenant_id, site_id, subscriber_no, client_operation_id,
