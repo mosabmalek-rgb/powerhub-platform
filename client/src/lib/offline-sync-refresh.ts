@@ -24,7 +24,9 @@ const TARGETS_BY_KIND: Partial<Record<QueuedOfflineWork["kind"], readonly Offlin
   subscriber_update: ["subscribers", "subscriber-quota", "dashboard-summary"],
   generator_create: ["generators"],
   generator_update: ["generators"],
-  reading_create: ["readings"],
+  // The server creates and approves the reading and issues its invoice in one RPC.
+  // Refresh the related invoice and financial summaries only after that RPC confirms success.
+  reading_create: ["readings", "invoices", "invoice-pages", "dashboard-summary", "financial-dashboard"],
   invoice_issue: ["invoices", "invoice-pages", "dashboard-summary", "financial-dashboard"],
   payment_create: ["payments", "invoices", "dashboard-summary", "financial-dashboard"],
   payment_documentation_submit: ["payments", "invoices", "dashboard-summary", "financial-dashboard"],
