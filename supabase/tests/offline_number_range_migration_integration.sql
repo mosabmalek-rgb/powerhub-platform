@@ -271,6 +271,17 @@ begin
   if v_values <> array['999998', '999999']::text[] then
     raise exception 'ASSERT_FAILED: six-digit ceiling was not safely enforced: %', v_values;
   end if;
+
+  begin
+    perform * from public.powerhub_create_subscriber(
+      1, 10, 100, 'Ceiling Subscriber', '987654321', null, null, 'standard',
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef', 100
+    );
+    raise exception 'ASSERT_FAILED: online subscriber creation accepted a number outside the six-digit format';
+  exception when others then
+    if sqlerrm = 'ASSERT_FAILED: online subscriber creation accepted a number outside the six-digit format' then raise; end if;
+    if position('SUBSCRIBER_REFERENCE_EXHAUSTED' in sqlerrm) = 0 then raise; end if;
+  end;
 end
 $assert_subscriber_ceiling$;
 
