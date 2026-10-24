@@ -116,7 +116,7 @@ create or replace function public.powerhub_get_sync_snapshot(
 ) returns jsonb
 language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare v_cursor bigint := 0; v_retained bigint := 0; v_rows jsonb := '[]'::jsonb;
 begin
   if p_tenant_id is null or p_tenant_id < 1 or p_site_id is null or p_site_id < 1 then
@@ -155,7 +155,7 @@ begin
   return jsonb_build_object('status','ok','entity_type',p_entity_type,
     'snapshot_cursor',v_cursor::text,'retained_from_cursor',v_retained::text,'rows',v_rows);
 end;
-$;
+$$;
 alter function public.powerhub_get_sync_snapshot(bigint,bigint,text) owner to postgres;
 revoke all on function public.powerhub_get_sync_snapshot(bigint,bigint,text) from public,anon,authenticated;
 grant execute on function public.powerhub_get_sync_snapshot(bigint,bigint,text) to service_role;
