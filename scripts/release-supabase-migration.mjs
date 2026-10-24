@@ -1,12 +1,9 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { assertSupabaseMigrationTarget, SUPABASE_PROJECT_BY_TARGET } from "./supabase-migration-target.mjs";
 
 const [requestedPath, target] = process.argv.slice(2);
-const expectedProjectByTarget = {
-  staging: "iyuryuhaylhisjfcrwkz",
-  production: "vvcdiqcyhaloxesvpppc",
-};
 const migrationRoot = path.resolve("supabase/migrations");
 
 function fail(message) {
@@ -14,7 +11,7 @@ function fail(message) {
   process.exit(1);
 }
 
-if (!requestedPath || !expectedProjectByTarget[target]) {
+if (!requestedPath || !Object.hasOwn(SUPABASE_PROJECT_BY_TARGET, target)) {
   fail("usage: node scripts/release-supabase-migration.mjs <supabase/migrations/file.sql> <staging|production>");
 }
 
@@ -30,11 +27,10 @@ if (!match) fail("release migration filenames must use a 14-digit timestamp and 
 const [, version, name] = match;
 const actualProject = process.env.SUPABASE_PROJECT_REF;
 const databaseUrl = process.env.SUPABASE_DB_URL;
-if (actualProject !== expectedProjectByTarget[target]) {
-  fail(`SUPABASE_PROJECT_REF does not match the selected ${target} project; refusing to connect to an unexpected database`);
-}
-if (!databaseUrl || !/^postgres(?:ql)?:\/\//i.test(databaseUrl)) {
-  fail("SUPABASE_DB_URL must be a PostgreSQL connection URI stored as an environment secret");
+try {
+  assertSupabaseMigrationTarget({ target, projectRef: actualProject, databaseUrl });
+} catch (error) {
+  fail(error instanceof Error ? error.message : "Supabase database target validation failed");
 }
 
 const migrations = (await readdir(migrationRoot)).filter((entry) => entry.endsWith(".sql"));
