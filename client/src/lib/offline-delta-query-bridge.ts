@@ -1,6 +1,6 @@
 import type { DeltaChange, DeltaEntityType, DeltaPage, DeltaCursorScope } from "./offline-delta-sync";
 
-export type DeltaOperationalEntity = Exclude<DeltaEntityType, "sites">;
+export type DeltaOperationalEntity = DeltaEntityType;
 type Row = Record<string, unknown>;
 
 function toNumber(value: unknown): number {
@@ -26,6 +26,25 @@ function isRow(value: unknown): value is Row {
 
 export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw: Row): Row {
   switch (entityType) {
+    case "sites": {
+      const invoiceDueDays = optionalNumber(raw.invoice_due_days ?? raw.invoiceDueDays) ?? 14;
+      const invoiceDueHours = optionalNumber(raw.invoice_due_hours ?? raw.invoiceDueHours) ??
+        Math.max(1, Math.min(2160, invoiceDueDays * 24));
+      return {
+        id: toNumber(raw.id),
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        tenantName: String(raw.tenant_name ?? raw.tenantName ?? raw.name ?? ""),
+        name: String(raw.name ?? ""),
+        code: String(raw.code ?? ""),
+        city: (raw.city ?? null) as string | null,
+        address: (raw.address ?? null) as string | null,
+        status: String(raw.status ?? "active"),
+        anomalyAlertPercent: optionalNumber(raw.anomaly_alert_percent ?? raw.anomalyAlertPercent),
+        invoiceDueDays,
+        invoiceDueHours,
+        createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
+      };
+    }
     case "subscribers":
       return {
         id: toNumber(raw.id),
@@ -154,10 +173,12 @@ export function applyDeltaPageToList(
   const subscribersById = new Map(subscriberRows.filter(isRow).map((row) => [String(row.id), row]));
   for (const change of page.changes) {
     if (change.operation === "delete") {
+      if (entityType === "sites" && change.entity_id !== String(scope.siteId)) continue;
       byId.delete(change.entity_id);
       continue;
     }
     if (!isRow(change.row_data) || idOf(change.row_data) !== change.entity_id || !scopedTo(change.row_data, scope)) continue;
+    if (entityType === "sites" && change.entity_id !== String(scope.siteId)) continue;
     if (entityType !== "readings") {
       byId.set(change.entity_id, change.row_data);
       continue;

@@ -71,7 +71,7 @@ function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
   if (!isOfflineCacheableQueryKey(query.queryKey) || !Array.isArray(query.state.data)) return null;
   const segments = getSegments(query.queryKey);
   if (segments[0] !== "powerhub" || segments[2] !== "list") return null;
-  if (segments[1] === "subscribers" || segments[1] === "generators" || segments[1] === "readings" || segments[1] === "tariffs") {
+  if (segments[1] === "sites" || segments[1] === "subscribers" || segments[1] === "generators" || segments[1] === "readings" || segments[1] === "tariffs") {
     return segments[1];
   }
   return null;
@@ -101,9 +101,20 @@ function makeCandidates(queries: Query[]): Candidate[] {
   for (const query of queries) {
     const entityType = queryIsSupportedList(query);
     if (!entityType) continue;
+    const data = query.state.data as unknown[];
+    if (entityType === "sites") {
+      for (const site of data) {
+        if (!site || typeof site !== "object") continue;
+        const row = site as AnyRow;
+        const siteId = Number(row.id);
+        const tenantId = Number(row.tenantId);
+        if (!Number.isSafeInteger(siteId) || siteId < 1 || !Number.isSafeInteger(tenantId) || tenantId < 1) continue;
+        unique.set([tenantId, siteId, entityType].join(":"), { entityType, siteId, tenantId });
+      }
+      continue;
+    }
     const siteId = findNumberProperty(query.queryKey, "siteId");
     if (!siteId) continue;
-    const data = query.state.data as unknown[];
     const tenantId = tenants.get(siteId) ?? data.map(rowTenantId).find((value) => value !== null) ?? null;
     if (!tenantId) continue;
     const candidate = { entityType, siteId, tenantId };
@@ -134,7 +145,13 @@ async function patchQueryCaches(
   const subscribers = subscriberRowsForSite(queries, scope.siteId, scope.tenantId);
   for (const query of queries) {
     const queryEntity = queryIsSupportedList(query);
-    if (!queryEntity || findNumberProperty(query.queryKey, "siteId") !== scope.siteId) continue;
+    if (!queryEntity) continue;
+    const segments = getSegments(query.queryKey);
+    if (queryEntity === "sites") {
+      if (segments[0] !== "powerhub" || segments[1] !== "sites" || segments[2] !== "list") continue;
+    } else if (findNumberProperty(query.queryKey, "siteId") !== scope.siteId) {
+      continue;
+    }
     const rows = query.state.data;
     if (!Array.isArray(rows)) continue;
     if (queryEntity === entityType) {
@@ -212,18 +229,38 @@ export function OfflineDeltaSyncRuntime() {
           : snapshot.rows.map((row: any) => normalizeDeltaEntityRow(candidate.entityType, row));
         for (const row of queryRows) {
           const scoped = (candidate.entityType === "readings" ? row.subscriber : row) as Record<string, unknown> | undefined;
-          if (Number(scoped?.tenantId) !== candidate.tenantId || Number(scoped?.siteId) !== candidate.siteId) {
+          const matchesScope = candidate.entityType === "sites"
+            ? Number(scoped?.id) === candidate.siteId && Number(scoped?.tenantId) === candidate.tenantId
+            : Number(scoped?.tenantId) === candidate.tenantId && Number(scoped?.siteId) === candidate.siteId;
+          if (!matchesScope) {
             throw new Error("لقطة المزامنة تحتوي بيانات خارج نطاق الفرع.");
           }
         }
-        const matchingQueries = queryClient.getQueryCache().findAll().filter((query) =>
-          queryIsSupportedList(query) === candidate.entityType &&
-          findNumberProperty(query.queryKey, "siteId") === candidate.siteId &&
-          Array.isArray(query.state.data)
-        );
+        const matchingQueries = queryClient.getQueryCache().findAll().filter((query) => {
+          if (queryIsSupportedList(query) !== candidate.entityType || !Array.isArray(query.state.data)) return false;
+          if (candidate.entityType === "sites") {
+            const segments = getSegments(query.queryKey);
+            return segments[0] === "powerhub" && segments[1] === "sites" && segments[2] === "list";
+          }
+          return findNumberProperty(query.queryKey, "siteId") === candidate.siteId;
+        });
         if (matchingQueries.length === 0) throw new Error("لا يوجد استعلام قائمة لاستقبال لقطة المزامنة.");
         for (const query of matchingQueries) {
-          queryClient.setQueryData(query.queryKey, queryRows);
+          if (candidate.entityType === "sites") {
+            const current = query.state.data as AnyRow[];
+            const siteRows = (queryRows as AnyRow[]).filter((row) => Number(row.id) === candidate.siteId);
+            const merged = [
+              ...current.filter((row) => Number(row.id) !== candidate.siteId),
+              ...siteRows,
+            ].sort((a, b) => {
+              const aDate = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(String(a.createdAt ?? 0)).getTime();
+              const bDate = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(String(b.createdAt ?? 0)).getTime();
+              return bDate - aDate;
+            });
+            queryClient.setQueryData(query.queryKey, merged);
+          } else {
+            queryClient.setQueryData(query.queryKey, queryRows);
+          }
           await persistOfflineQuery(query, cacheOwnerId);
         }
         return {

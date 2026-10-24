@@ -15,6 +15,35 @@ const basePage = (changes: any[], entityType: any = "subscribers"): DeltaPage<Re
 });
 
 describe("delta-query bridge", () => {
+  it("normalizes site projections including tenant label and due-time policy", () => {
+    const row = normalizeDeltaEntityRow("sites", {
+      id: 10, tenant_id: 2, tenant_name: "Tenant One", name: "Site One", code: "S-10",
+      invoice_due_days: 14, invoice_due_hours: 48, created_at: "2026-10-24T00:00:00Z",
+    });
+    expect(row).toMatchObject({ id: 10, tenantId: 2, tenantName: "Tenant One", invoiceDueDays: 14, invoiceDueHours: 48 });
+  });
+
+  it("applies only the matching site row to the shared accessible-site list", () => {
+    const siteScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "sites" };
+    const current = [
+      { id: 10, tenantId: 2, name: "Old Site" },
+      { id: 11, tenantId: 2, name: "Other Site" },
+    ];
+    const update = basePage([{
+      cursor: "1", entity_type: "sites", entity_id: "10", operation: "upsert",
+      row_data: { id: 10, tenantId: 2, name: "Updated Site" }, changed_at: "2026-10-24T00:00:00Z",
+    }], "sites");
+    expect(applyDeltaPageToList("sites", current, update, siteScope)).toEqual([
+      { id: 10, tenantId: 2, name: "Updated Site" },
+      { id: 11, tenantId: 2, name: "Other Site" },
+    ]);
+    const wrongSite = basePage([{
+      cursor: "1", entity_type: "sites", entity_id: "11", operation: "upsert",
+      row_data: { id: 11, tenantId: 2, name: "Wrong Site" }, changed_at: "2026-10-24T00:00:00Z",
+    }], "sites");
+    expect(applyDeltaPageToList("sites", current, wrongSite, siteScope)).toEqual(current);
+  });
+
   it("maps database subscriber rows to the existing PowerHub client shape", () => {
     const row = normalizeDeltaEntityRow("subscribers", {
       id: 4, tenant_id: 2, site_id: 10, subscriber_no: "SUB-000004",

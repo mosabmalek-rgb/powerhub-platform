@@ -535,9 +535,10 @@ export const powerhubRouter = router({
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["subscribers", "generators", "readings", "tariffs"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"]),
     })).query(async ({ ctx, input }) => {
       const readRolesByEntity = {
+        sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         subscribers: ["owner", "manager", "accountant", "collector", "viewer"],
         generators: ["owner", "manager", "technician", "viewer"],
         readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],

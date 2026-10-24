@@ -122,7 +122,7 @@ begin
   if p_tenant_id is null or p_tenant_id < 1 or p_site_id is null or p_site_id < 1 then
     raise exception 'POWERHUB_SYNC_SCOPE_REQUIRED' using errcode = 'P0001';
   end if;
-  if p_entity_type not in ('subscribers','generators','readings','tariffs') then
+  if p_entity_type not in ('sites','subscribers','generators','readings','tariffs') then
     raise exception 'POWERHUB_SYNC_ENTITY_UNSUPPORTED' using errcode = 'P0001';
   end if;
   if not exists (select 1 from public.sites where id=p_site_id and tenant_id=p_tenant_id) then
@@ -133,6 +133,15 @@ begin
     where tenant_id=p_tenant_id and site_id=p_site_id and entity_type=p_entity_type;
   if not found then v_cursor := 0; v_retained := 0; end if;
   case p_entity_type
+    when 'sites' then
+      select coalesce(jsonb_agg(
+        public.powerhub_delta_sync_project_row('sites',
+          to_jsonb(s) || jsonb_build_object('tenant_name', t.name))
+        order by s.created_at desc, s.id desc), '[]'::jsonb)
+        into v_rows
+      from public.sites s
+      join public.tenants t on t.id = s.tenant_id
+      where s.tenant_id = p_tenant_id and s.id = p_site_id;
     when 'subscribers' then
       select coalesce(jsonb_agg(public.powerhub_delta_sync_project_row('subscribers',to_jsonb(s)) order by s.created_at desc,s.id desc),'[]'::jsonb)
         into v_rows from public.subscribers s
@@ -170,6 +179,13 @@ language sql immutable
 set search_path = pg_catalog, public, pg_temp
 as $$
   select case p_entity_type
+    when 'sites' then jsonb_build_object(
+      'id',p_row->'id','tenant_id',p_row->'tenant_id','tenant_name',p_row->'tenant_name',
+      'name',p_row->'name','code',p_row->'code','city',p_row->'city','address',p_row->'address',
+      'status',p_row->'status','anomaly_alert_percent',p_row->'anomaly_alert_percent',
+      'invoice_due_days',p_row->'invoice_due_days','invoice_due_hours',p_row->'invoice_due_hours',
+      'created_at',p_row->'created_at'
+    )
     when 'subscribers' then jsonb_build_object(
       'id',p_row->'id','tenant_id',p_row->'tenant_id','site_id',p_row->'site_id',
       'subscriber_no',p_row->'subscriber_no','client_operation_id',p_row->'client_operation_id',
@@ -225,6 +241,7 @@ declare
   v_entity_id text;
   v_change_type text;
   v_projected_new jsonb;
+  v_tenant_name text;
   v_reading record;
 begin
   v_entity_type := case TG_TABLE_NAME
@@ -241,6 +258,21 @@ begin
 
   if TG_OP <> 'INSERT' then v_old := to_jsonb(OLD); end if;
   if TG_OP <> 'DELETE' then v_new := to_jsonb(NEW); end if;
+
+  if TG_TABLE_NAME = 'sites' and v_old is not null then
+    select t.name into v_tenant_name
+    from public.tenants t where t.id = nullif(v_old ->> 'tenant_id', '')::bigint;
+    if v_tenant_name is not null then
+      v_old := v_old || jsonb_build_object('tenant_name', v_tenant_name);
+    end if;
+  end if;
+  if TG_TABLE_NAME = 'sites' and v_new is not null then
+    select t.name into v_tenant_name
+    from public.tenants t where t.id = nullif(v_new ->> 'tenant_id', '')::bigint;
+    if v_tenant_name is not null then
+      v_new := v_new || jsonb_build_object('tenant_name', v_tenant_name);
+    end if;
+  end if;
 
   if v_old is not null then
     v_old_tenant := nullif(v_old ->> 'tenant_id', '')::bigint;
@@ -337,6 +369,38 @@ $$;
 alter function public.powerhub_capture_delta_sync_change() owner to postgres;
 revoke all on function public.powerhub_capture_delta_sync_change() from public, anon, authenticated;
 grant execute on function public.powerhub_capture_delta_sync_change() to service_role;
+
+-- Propagate a tenant display-name change to each scoped site projection.
+create or replace function public.powerhub_capture_tenant_name_delta_sync_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare v_site record;
+begin
+  if new.name is not distinct from old.name then return new; end if;
+  for v_site in
+    select s.id as site_id,
+           to_jsonb(s) || jsonb_build_object('tenant_name', new.name) as row_data
+    from public.sites s where s.tenant_id = new.id
+  loop
+    perform public.powerhub_append_sync_change(
+      new.id, v_site.site_id, 'sites', v_site.site_id::text, 'upsert',
+      public.powerhub_delta_sync_project_row('sites', v_site.row_data)
+    );
+  end loop;
+  return new;
+end;
+$;
+alter function public.powerhub_capture_tenant_name_delta_sync_change() owner to postgres;
+revoke all on function public.powerhub_capture_tenant_name_delta_sync_change() from public, anon, authenticated;
+grant execute on function public.powerhub_capture_tenant_name_delta_sync_change() to service_role;
+
+drop trigger if exists powerhub_delta_sync_tenant_name on public.tenants;
+create trigger powerhub_delta_sync_tenant_name
+after update of name on public.tenants
+for each row execute function public.powerhub_capture_tenant_name_delta_sync_change();
 
 drop trigger if exists powerhub_delta_sync_changes on public.sites;
 create trigger powerhub_delta_sync_changes

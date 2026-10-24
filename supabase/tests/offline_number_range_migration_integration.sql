@@ -10,10 +10,22 @@ begin
 end
 $roles$;
 
-create table public.tenants (id bigint primary key);
+create table public.tenants (
+  id bigint primary key,
+  name text not null
+);
 create table public.sites (
   id bigint primary key,
-  tenant_id bigint not null references public.tenants(id)
+  tenant_id bigint not null references public.tenants(id),
+  name text not null,
+  code text,
+  city text,
+  address text,
+  status text not null default 'active',
+  anomaly_alert_percent numeric,
+  invoice_due_days integer,
+  invoice_due_hours integer,
+  created_at timestamptz not null default now()
 );
 create table public.users (
   id bigint primary key,
@@ -81,8 +93,9 @@ create function public.powerhub_create_subscriber(
 returns table (subscriber_id bigint, subscriber_no text, replayed boolean)
 language sql as $legacy$ select null::bigint, p_subscriber_no, false $legacy$;
 
-insert into public.tenants(id) values (1);
-insert into public.sites(id, tenant_id) values (10, 1);
+insert into public.tenants(id, name) values (1, 'Tenant One');
+insert into public.sites(id, tenant_id, name, code, city, address, status)
+values (10, 1, 'Site One', 'S-10', 'Gaza', null, 'active');
 insert into public.users(id, platform_role) values (100, 'owner');
 insert into public.subscribers(tenant_id, site_id, subscriber_no, full_name, phone) values
   (1, 10, 'SUB-000041', 'Existing Subscriber', '123456789'),
@@ -378,8 +391,31 @@ declare
   v_second jsonb;
   v_third jsonb;
   v_reset jsonb;
+  v_site_delta jsonb;
   v_cursor bigint;
 begin
+  -- Site updates use the supported site projection and never append a null upsert.
+  update public.sites set name = 'Site One Updated' where id = 10;
+  select public.powerhub_pull_sync_delta(1, 10, 'sites', 0, null, 10) into v_site_delta;
+  if v_site_delta->>'status' <> 'ok'
+     or jsonb_array_length(v_site_delta->'changes') <> 1
+     or v_site_delta#>>'{changes,0,row_data,name}' <> 'Site One Updated'
+     or v_site_delta#>>'{changes,0,row_data,tenant_name}' <> 'Tenant One' then
+    raise exception 'ASSERT_FAILED: site delta projection was incorrect: %', v_site_delta;
+  end if;
+  select public.powerhub_get_sync_snapshot(1, 10, 'sites') into v_site_delta;
+  if v_site_delta->>'status' <> 'ok'
+     or jsonb_array_length(v_site_delta->'rows') <> 1
+     or v_site_delta#>>'{rows,0,id}' <> '10'
+     or v_site_delta#>>'{rows,0,tenant_name}' <> 'Tenant One' then
+    raise exception 'ASSERT_FAILED: site snapshot did not match the accessible sites projection: %', v_site_delta;
+  end if;
+  update public.tenants set name = 'Tenant Renamed' where id = 1;
+  select public.powerhub_pull_sync_delta(1, 10, 'sites', 1, null, 10) into v_site_delta;
+  if v_site_delta#>>'{changes,0,row_data,tenant_name}' <> 'Tenant Renamed' then
+    raise exception 'ASSERT_FAILED: tenant name change did not refresh site cache: %', v_site_delta;
+  end if;
+
   insert into public.subscribers(tenant_id, site_id, subscriber_no, full_name, phone, subscription_type, private_test_marker)
   values (1, 10, 'SUB-800001', 'Delta Test', '0590000000', 'residential', 'must-not-be-synchronized')
   returning id into v_subscriber_id;
