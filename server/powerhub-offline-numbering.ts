@@ -6,6 +6,7 @@ import { supabaseAdmin } from "./supabase-admin";
 
 const reserveInput = z.object({
   siteId: z.number().int().positive(),
+  requestId: z.string().uuid(),
   numberKind: z.enum(["subscriber", "invoice"]),
   partitionKey: z.string().regex(/^(global|[0-9]{4})$/),
   count: z.number().int().min(1).max(200).default(50),
@@ -37,6 +38,7 @@ export const powerhubOfflineNumberingRouter = router({
       p_site_id: input.siteId,
       p_user_id: ctx.user.id,
       p_device_id: deviceId,
+      p_request_id: input.requestId,
       p_number_kind: input.numberKind,
       p_partition_key: input.partitionKey,
       p_count: input.count,
