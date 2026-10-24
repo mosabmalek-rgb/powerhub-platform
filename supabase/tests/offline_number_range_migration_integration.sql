@@ -312,7 +312,7 @@ begin
     select 1 from public.powerhub_offline_number_claims c
     where c.grant_id=v_grant_id and c.tenant_id=1 and c.site_id=10 and c.user_id=100
       and c.device_id='11111111-1111-4111-8111-111111111111' and c.number_kind='invoice'
-      and c.partition_key='2026' and c.number_value=20
+      and c.partition_key='2026' and c.number_value='20'
       and c.client_operation_id='12121212-1212-4212-8212-121212121212' and c.entity_type='invoice'
   ) then
     raise exception 'ASSERT_FAILED: invoice claim was not persisted against the operation';
