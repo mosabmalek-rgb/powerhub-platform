@@ -1,5 +1,5 @@
 import {
-  enqueueOfflineWork, getOfflineWork, listOfflineWork, removeOfflineWork, updateOfflineWork,
+  enqueueOfflineWork, getOfflineWork, isSyncMetadataCompatibleWithWorkItem, listOfflineWork, removeOfflineWork, updateOfflineWork,
   type QueuedOfflineWork, type ReadingCreateDraft,
 } from "./offline-work-queue";
 import {
@@ -85,7 +85,8 @@ export async function listQueuedReadings(options: { userId: number; siteId?: num
     listOfflineConflicts(options),
   ]);
   const byOperation = new Map(metadata.map((row) => [row.operationId, row]));
-  const conflictIds = new Set(conflictRows.map((row) => row.operationId));
+  const conflictByOperation = new Map(conflictRows.map((row) => [row.operationId, row]));
+  const conflictIds = new Set(conflictByOperation.keys());
   const normalized: QueuedOfflineWork[] = [];
 
   for (const item of items) {
@@ -103,7 +104,32 @@ export async function listQueuedReadings(options: { userId: number; siteId?: num
     }
 
     const state = byOperation.get(item.clientOperationId);
-    if (state?.outcome === "applied" || state?.outcome === "already_applied") {
+    if (!isSyncMetadataCompatibleWithWorkItem(item, state)) {
+      const recordedConflict = conflictByOperation.get(item.clientOperationId);
+      if (item.status === "conflict" || recordedConflict) {
+        const message = recordedConflict?.message ?? item.error ?? "تعارض محلي يحتاج إلى مراجعة؛ حالة المزامنة غير متطابقة ولم تُرسل العملية.";
+        if (item.status !== "conflict" || item.error !== message) {
+          await updateOfflineWork(item.id, { status: "conflict", error: message });
+        }
+        if (!recordedConflict) {
+          await upsertOfflineConflict({
+            userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+            siteId: item.siteId, operationId: item.clientOperationId, kind: item.kind,
+            outcome: "conflict", message, createdAt: item.createdAt, updatedAt: Date.now(),
+            localPayload: item.payload,
+          });
+        }
+        normalized.push({ ...item, status: "conflict", error: message });
+      } else {
+        const message = "حالة مزامنة القراءة مفقودة أو لا تطابق نطاق العملية؛ أُوقفت إعادة الإرسال تلقائيًا. تحقّق من الخادم قبل إعادة إنشاء القراءة.";
+        if (item.status !== "failed" || item.error !== message) {
+          await updateOfflineWork(item.id, { status: "failed", error: message });
+        }
+        normalized.push({ ...item, status: "failed", error: message });
+      }
+      continue;
+    }
+    if (state.outcome === "applied" || state.outcome === "already_applied") {
       // Metadata may commit before the queue row update when the tab crashes.
       // Reconcile locally from the terminal server-confirmed result; never replay.
       const payload = item.payload as ReadingCreateDraft;
@@ -148,7 +174,10 @@ export async function listQueuedReadings(options: { userId: number; siteId?: num
   }
 
   return normalized.filter((item) => item.status !== "applied")
-    .map((item) => mapWorkToReading(item, byOperation.get(item.clientOperationId)))
+    .map((item) => {
+      const state = byOperation.get(item.clientOperationId);
+      return mapWorkToReading(item, isSyncMetadataCompatibleWithWorkItem(item, state) ? state : undefined);
+    })
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 export async function enqueueReading(reading: NewQueuedReading) {

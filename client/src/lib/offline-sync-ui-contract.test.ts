@@ -37,7 +37,9 @@ describe("offline sync UI contract", () => {
     expect(syncPanel).toContain('if (item.kind === "reading_create")');
     expect(syncPanel).toContain("executeReadyOperations({ items: syncItems");
     expect(syncPanel).toContain("const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId))");
-    expect(syncPanel).toContain("حالة المزامنة المحلية مفقودة؛ أُوقفت إعادة الإرسال تلقائيًا");
+    expect(syncPanel).toContain("حالة المزامنة المحلية مفقودة أو لا تطابق نطاق المسودة؛ أُوقفت إعادة الإرسال تلقائيًا");
+    expect(syncPanel).toContain("isSyncMetadataCompatibleWithWorkItem(item, storedRecord)");
+    expect(offlineReadingQueue).toContain("isSyncMetadataCompatibleWithWorkItem(item, state)");
     expect(meterReadingsPage).toContain("withOfflineSyncLock({ userId: user.id, siteId }");
     expect(meterReadingsPage).toContain("syncQueuedReadingsUnlocked(records)");
   });

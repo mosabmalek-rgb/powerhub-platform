@@ -165,6 +165,25 @@ export type QueuedOfflineWork = {
   appliedEntityId?: number;
   appliedLabel?: string;
 };
+/**
+ * Validate that persisted synchronization state belongs to this exact Outbox
+ * operation. Legacy metadata without tenantId remains compatible only when all
+ * stable identity fields match; an explicit tenant mismatch always fails closed.
+ */
+export function isSyncMetadataCompatibleWithWorkItem(
+  item: Pick<QueuedOfflineWork, "clientOperationId" | "userId" | "tenantId" | "siteId" | "kind">,
+  metadata?: SyncMetadataRecord,
+): metadata is SyncMetadataRecord {
+  return Boolean(
+    metadata &&
+    metadata.operationId === item.clientOperationId &&
+    metadata.userId === item.userId &&
+    metadata.siteId === item.siteId &&
+    metadata.kind === item.kind &&
+    (metadata.tenantId === undefined || metadata.tenantId === item.tenantId)
+  );
+}
+
 
 const databaseName = "powerhub-offline-workspace";
 const storeName = "operations";

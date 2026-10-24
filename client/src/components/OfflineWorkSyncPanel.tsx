@@ -3,7 +3,7 @@ import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { listOfflineWork, removeOfflineWork, updateOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
+import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, removeOfflineWork, updateOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
 import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
@@ -22,7 +22,7 @@ const labelByStatus = { pending: "بانتظار المزامنة", failed: "ف�
 
 function getErrorCode(error: unknown) { return (error as { data?: { code?: string } } | null)?.data?.code; }
 function getErrorMessage(error: unknown) { return error instanceof Error ? error.message : "تعذر مزامنة العملية."; }
-const MISSING_SYNC_METADATA_MESSAGE = "حالة المزامنة المحلية مفقودة؛ أُوقفت إعادة الإرسال تلقائيًا لحماية البيانات. تحقّق من الخادم قبل إعادة إنشاء المسودة.";
+const MISSING_SYNC_METADATA_MESSAGE = "حالة المزامنة المحلية مفقودة أو لا تطابق نطاق المسودة؛ أُوقفت إعادة الإرسال تلقائيًا لحماية البيانات. تحقّق من الخادم قبل إعادة إنشاء المسودة.";
 
 function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["payload"] {
   if (item.kind === "subscriber_create") {
@@ -128,7 +128,8 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     const stored = await listSyncMetadata({ userId, siteId });
     const metadataByOperationId = new Map<string, SyncMetadata>();
     for (const item of pendingItems) {
-      const existing = stored.find((record) => record.operationId === item.clientOperationId);
+      const storedRecord = stored.find((record) => record.operationId === item.clientOperationId);
+      const existing = isSyncMetadataCompatibleWithWorkItem(item, storedRecord) ? storedRecord : undefined;
       if (!existing) {
         if (item.status !== "failed" || item.error !== MISSING_SYNC_METADATA_MESSAGE) {
           await updateOfflineWork(item.id, { status: "failed", error: MISSING_SYNC_METADATA_MESSAGE });

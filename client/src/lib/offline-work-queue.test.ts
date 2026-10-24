@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialSyncMetadataRecord, createOfflineWork, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
+import { createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
 
 describe("طابور المسودات دون اتصال", () => {
   it("ينشئ معرف عملية ثابتاً داخل السجل ومعرفاً مختلفاً لكل مسودة", () => {
@@ -22,6 +22,20 @@ describe("طابور المسودات دون اتصال", () => {
       nextAttemptAt: draft.createdAt, outcome: "pending", updatedAt: draft.createdAt,
     });
   });
+  it("rejects missing or mismatched sync metadata rather than trusting its operation ID alone", () => {
+    const draft = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "payment_create",
+      payload: { subscriberId: 31, invoiceId: 41, paymentNo: "PAY-OFF-003", amount: 15, paymentMethod: "cash", companyAccountId: 2 },
+    });
+    const metadata = createInitialSyncMetadataRecord(draft);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, metadata)).toBe(true);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, undefined)).toBe(false);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, tenantId: 99 })).toBe(false);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, kind: "reading_create" })).toBe(false);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, siteId: 8 })).toBe(false);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, { ...metadata, userId: 8 })).toBe(false);
+  });
+
 
   it("يدرج القراءة الميدانية في Outbox مع الاحتفاظ بمعرف العملية", () => {
     const payload: ReadingCreateDraft = {
