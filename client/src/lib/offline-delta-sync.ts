@@ -107,6 +107,7 @@ export async function setDeltaCursor(scope: DeltaCursorScope, cursor: string, no
  * is normalized; callers must supply a transactional applyPage callback.
  */
 export async function pullDeltaPages<Row extends Record<string, unknown>>(input: {
+  scope: DeltaCursorScope;
   afterCursor: string | null;
   pageSize?: number;
   pull: (args: { afterCursor: string | null; throughCursor: string | null; pageSize: number }) => Promise<DeltaPage<Row>>;
@@ -125,6 +126,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     if (page.status === "reset_required") {
       const snapshotCursor = page.snapshot_cursor ?? page.current_cursor;
       await input.rebuildSnapshot(snapshotCursor);
+      await setDeltaCursor(input.scope, snapshotCursor);
       cursor = snapshotCursor;
       through = null;
       resetRequired = true;
@@ -135,6 +137,10 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     if (page.changes.length) await input.applyPage(page);
     appliedChanges += page.changes.length;
     const next = page.next_cursor ?? cursor ?? "0";
+    // Persist only after the page has been applied. If the browser crashes between
+    // the entity write and this cursor write, the page is replayed; upsert/tombstone
+    // application is idempotent, so the cursor can never outrun local data.
+    await setDeltaCursor(input.scope, next);
     if (cursor !== null && compareDeltaCursors(next, cursor) < 0) throw new Error("تراجع مؤشر المزامنة.");
     cursor = next;
     if (!page.has_more) return { cursor: through, appliedChanges, resetRequired };
