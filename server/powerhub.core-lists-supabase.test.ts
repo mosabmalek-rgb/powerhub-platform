@@ -1097,6 +1097,60 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     }
   });
 
+  it("does not upload a receipt until a collector session has been validated", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-receipts/should-not-upload.png", url: "https://signed.example/unused.png",
+    });
+    const oldMembers = state.tables.tenant_members;
+    const oldSessions = state.tables.collector_sessions;
+    state.tables.tenant_members = [{
+      tenant_id: 20, user_id: 1, role: "collector", is_active: true, membership_status: "active",
+    }];
+    state.tables.collector_sessions = [];
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0002",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+      })).rejects.toThrow("افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية.");
+      expect(upload).not.toHaveBeenCalled();
+    } finally {
+      state.tables.tenant_members = oldMembers;
+      state.tables.collector_sessions = oldSessions;
+      upload.mockRestore();
+    }
+  });
+
+  it("removes the uploaded receipt when the payment RPC rejects the collection", async () => {
+    const storage = await import("./storage");
+    const upload = vi.spyOn(storage, "storagePut").mockResolvedValue({
+      key: "payment-receipts/rejected-attempt.png", url: "https://signed.example/rejected.png",
+    });
+    const remove = vi.spyOn(storage, "storageRemove").mockResolvedValue();
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_payment") return { data: null, error: { code: "P0001", message: "INVOICE_BALANCE_CONFLICT" } };
+      return state.defaultRpc(name, args);
+    });
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      await expect(caller.payments.create({
+        siteId: 10, subscriberId: 30, invoiceId: 70, paymentNo: "PAY-202608-0003",
+        amount: 25, paymentMethod: "cash", companyAccountId: 90,
+        receiptImageData: "aGVsbG8=", receiptImageMime: "image/png",
+      })).rejects.toThrow("تغير رصيد الفاتورة أثناء المزامنة؛ راجع المسودة ثم أعد المحاولة.");
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalledWith("payment-receipts/rejected-attempt.png");
+    } finally {
+      state.client.rpc = state.defaultRpc;
+      upload.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
+
   it("يفلتر سجل المصروفات في Supabase بحسب الفترة والحساب والمستأجر والفرع", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     const originalExpenses = state.tables.expenses;

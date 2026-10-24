@@ -2645,6 +2645,17 @@ export const powerhubRouter = router({
       }
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
+      let collectorSessionId: number | undefined;
+      if (access.role === "collector") {
+        const { data: openSession, error: sessionError } = await supabaseAdmin().from("collector_sessions").select("id")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("collector_user_id", ctx.user.id).eq("status", "open").maybeSingle();
+        if (sessionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة التحصيل في Supabase." });
+        if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
+        collectorSessionId = Number(openSession.id);
+      }
+
+      // All authorization and collector-session preconditions must pass before
+      // creating a receipt object in storage.
       if (input.receiptImageData) {
         if (!input.receiptImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة الإيصال." });
         const imageBytes = Buffer.from(input.receiptImageData, "base64");
@@ -2654,14 +2665,7 @@ export const powerhubRouter = router({
         const stored = await storagePut(`payment-receipts/${ctx.user.id}/${input.paymentNo}-${Date.now()}.${extension}`, imageBytes, input.receiptImageMime);
         receiptImageKey = stored.key;
       }
-      let collectorSessionId: number | undefined;
-      if (access.role === "collector") {
-        const { data: openSession, error: sessionError } = await supabaseAdmin().from("collector_sessions").select("id")
-          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("collector_user_id", ctx.user.id).eq("status", "open").maybeSingle();
-        if (sessionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة التحصيل في Supabase." });
-        if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
-        collectorSessionId = Number(openSession.id);
-      }
+
       const rpcArgs = {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId, p_invoice_id: input.invoiceId ?? null,
         p_payment_no: input.paymentNo, p_amount: input.amount, p_payment_method: input.paymentMethod, p_company_account_id: input.companyAccountId,
@@ -2669,9 +2673,21 @@ export const powerhubRouter = router({
         p_receipt_image_key: receiptImageKey ?? null, p_receipt_image_hash: receiptImageHash ?? null, p_collector_session_id: collectorSessionId ?? null,
         p_client_operation_id: input.clientOperationId ?? null,
       };
-      const { data, error } = input.manualDiscountAmount > 0
-        ? await supabaseAdmin().rpc("powerhub_create_payment_with_discount", { ...rpcArgs, p_manual_discount_amount: input.manualDiscountAmount, p_manual_discount_reason: input.manualDiscountReason })
-        : await supabaseAdmin().rpc("powerhub_create_payment", rpcArgs);
+      let data: unknown[] | null = null;
+      let error: { code?: string; message?: string } | null = null;
+      try {
+        const rpcResult = input.manualDiscountAmount > 0
+          ? await supabaseAdmin().rpc("powerhub_create_payment_with_discount", { ...rpcArgs, p_manual_discount_amount: input.manualDiscountAmount, p_manual_discount_reason: input.manualDiscountReason })
+          : await supabaseAdmin().rpc("powerhub_create_payment", rpcArgs);
+        data = rpcResult.data as unknown[] | null;
+        error = rpcResult.error;
+      } catch (rpcFailure) {
+        if (receiptImageKey) {
+          try { await storageRemove(receiptImageKey); }
+          catch (cleanupError) { console.error("[PowerHub] payment receipt cleanup failed after RPC exception", cleanupError); }
+        }
+        throw rpcFailure;
+      }
       if (!error && data?.[0]) {
         const row = data[0] as { payment_id: number | string; replayed: boolean };
         if (row.replayed && receiptImageKey) {
@@ -2681,6 +2697,10 @@ export const powerhubRouter = router({
           catch (cleanupError) { console.error("[PowerHub] orphaned payment retry image cleanup failed", cleanupError); }
         }
         return { id: Number(row.payment_id), replayed: Boolean(row.replayed) };
+      }
+      if (receiptImageKey) {
+        try { await storageRemove(receiptImageKey); }
+        catch (cleanupError) { console.error("[PowerHub] payment receipt cleanup failed after unsuccessful RPC", cleanupError); }
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("MANUAL_DISCOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الخصم أكبر من الرصيد المستحق." });
