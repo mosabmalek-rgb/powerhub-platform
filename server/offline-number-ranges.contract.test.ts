@@ -12,6 +12,8 @@ const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-numbe
 const queue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
 const fieldQueue = readFileSync(resolve(process.cwd(), "client/src/lib/offline-reading-queue.ts"), "utf8");
 const workspace = readFileSync(resolve(process.cwd(), "client/src/lib/offline-workspace-db.ts"), "utf8");
+const directory = readFileSync(resolve(process.cwd(), "client/src/pages/NetworkDirectoryPage.tsx"), "utf8");
+const syncPanel = readFileSync(resolve(process.cwd(), "client/src/components/OfflineWorkSyncPanel.tsx"), "utf8");
 
 describe("PowerHub offline number range foundation contract", () => {
   it("keeps grant and claim records private and enables RLS", () => {
@@ -36,6 +38,16 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(powerhubRouter).toContain('select("tenant_id, site_id, entity_type, operation_type, response")');
     expect(powerhubRouter).toContain("Number(applied.tenant_id) !== access.tenantId");
     expect(powerhubRouter).toContain("Number(applied.site_id) !== input.siteId");
+  });
+
+  it("atomically binds a locally claimed subscriber number to the shared Outbox and server transaction", () => {
+    expect(queue).toContain("enqueueOfflineSubscriberCreateWithNumber");
+    expect(queue).toContain('database.transaction([storeName, grantsStoreName, claimsStoreName], "readwrite")');
+    expect(directory).toContain("enqueueOfflineSubscriberCreateWithNumber");
+    expect(directory).toContain("hasAvailableOfflineNumberGrant");
+    expect(syncPanel).toContain("offlineNumberClaim");
+    expect(powerhubRouter).toContain('admin.rpc("powerhub_create_subscriber_with_offline_number"');
+    expect(migration).toContain("create or replace function public.powerhub_create_subscriber_with_offline_number");
   });
 
   it("keeps number reservation RPCs server-only and locks claimed values idempotently", () => {

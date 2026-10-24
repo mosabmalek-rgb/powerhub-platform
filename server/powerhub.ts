@@ -1935,6 +1935,13 @@ export const powerhubRouter = router({
       address: z.string().max(1000).optional(),
       subscriptionType: z.enum(["residential", "commercial", "institution", "mosque"]).default("residential"),
       clientOperationId: z.string().uuid().optional(),
+      offlineNumberClaim: z.object({
+        grantId: z.string().uuid(),
+        deviceId: z.string().uuid(),
+        numberValue: z.string().regex(/^[1-9][0-9]{0,5}$/),
+        partitionKey: z.literal("global"),
+        formattedNumber: z.string().regex(/^SUB-\d{6}$/),
+      }).optional(),
       openingReading: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
       openingReadingAt: z.string().trim().optional().refine((value) => !value || !Number.isNaN(Date.parse(value)), "تاريخ القراءة الافتتاحية غير صالح."),
       openingReadingApproved: z.boolean().default(false),
@@ -1944,7 +1951,7 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
       const admin = supabaseAdmin();
       // Opening readings establish a baseline and are approved immediately; they do not issue consumption invoices.
-      if (input.clientOperationId) {
+      if (input.clientOperationId && !input.offlineNumberClaim) {
         const { data: applied, error: appliedError } = await admin.from("offline_sync_operations")
           .select("tenant_id, site_id, entity_type, operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
@@ -1960,11 +1967,54 @@ export const powerhubRouter = router({
         }
       }
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
-      if (quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
+      if (!input.offlineNumberClaim && quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
       const whatsappNumber = input.whatsappNumber ? normalizeInternationalPhone(input.whatsappNumber) : undefined;
       if (input.openingReadingImageData && !input.openingReadingImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة القراءة الافتتاحية." });
       if (!input.openingReading && (input.openingReadingImageData || input.openingReadingApproved || input.openingReadingAt)) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل قيمة القراءة الافتتاحية قبل إضافة صورتها أو اعتمادها." });
+      if (input.offlineNumberClaim) {
+        const claim = input.offlineNumberClaim;
+        if (!input.clientOperationId || input.openingReading || input.openingReadingAt || input.openingReadingApproved || input.openingReadingImageData || input.openingReadingImageMime) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن الجمع بين رقم محجوز دون اتصال وقراءة افتتاحية أو صورة؛ أنشئ المشترك متصلاً لتسجيل القراءة." });
+        }
+        const rawDeviceId = ctx.req?.headers?.["x-powerhub-device-id"];
+        const headerDeviceId = Array.isArray(rawDeviceId) ? rawDeviceId[0] : rawDeviceId;
+        if (typeof headerDeviceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(headerDeviceId) || headerDeviceId.toLowerCase() !== claim.deviceId.toLowerCase()) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "مطالبة الرقم المحجوز لا تخص جهاز PowerHub الحالي." });
+        }
+        const expectedNumber = `SUB-${claim.numberValue.padStart(6, "0")}`;
+        if (claim.formattedNumber !== expectedNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "صيغة الرقم المحلي المحجوز غير مطابقة." });
+        const { data, error } = await admin.rpc("powerhub_create_subscriber_with_offline_number", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+          p_device_id: headerDeviceId, p_grant_id: claim.grantId, p_number_value: claim.numberValue,
+          p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "",
+          p_address: input.address?.trim() ?? "", p_subscription_type: input.subscriptionType,
+          p_client_operation_id: input.clientOperationId,
+        });
+        if (!error && data?.[0]) {
+          const row = data[0] as { subscriber_id: number | string; subscriber_no: string; replayed: boolean };
+          const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
+          if (!row.replayed) {
+            try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } }); }
+            catch (alertError) { console.error("[PowerHub] subscriber quota alert failed after offline creation", alertError); }
+          }
+          return response;
+        }
+        const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+        if (errorText.includes("SUBSCRIBER_QUOTA_REACHED")) {
+          try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota, blockedAttempt: true }); }
+          catch (alertError) { console.error("[PowerHub] offline quota blocked-attempt alert failed", alertError); }
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). لا يمكن اعتماد المسودة قبل إضافة سعة أو ترقية الباقة.` });
+        }
+        if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة لا تتبع لمساحة صاحب المولد الحالية." });
+        if (errorText.includes("OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH") || errorText.includes("OFFLINE_NUMBER_ALREADY_CLAIMED") || errorText.includes("OFFLINE_NUMBER_CLAIM_MISSING")) {
+          throw new TRPCError({ code: "CONFLICT", message: "تعارض الرقم المحجوز مع عملية أخرى؛ أوقفنا المزامنة لمنع تكرار الرقم أو أثره." });
+        }
+        if (errorText.includes("OFFLINE_NUMBER_") || errorText.includes("OFFLINE_SUBSCRIBER_INPUT_INVALID")) {
+          throw new TRPCError({ code: "CONFLICT", message: "لم تعد مطالبة الرقم المحلي صالحة. احتفظنا بالمسودة للمراجعة ولم نعتمدها." });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد مسودة المشترك ذات الرقم المحجوز في Supabase." });
+      }
       let openingImageKey: string | undefined;
       let openingImageHash: string | undefined;
       if (input.openingReadingImageData && input.openingReadingImageMime) {
