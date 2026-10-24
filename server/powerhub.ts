@@ -25,6 +25,7 @@ import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { powerhubInventoryRouter } from "./powerhub-inventory-router";
 import { powerhubMaintenanceRouter } from "./powerhub-maintenance-router";
+import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
@@ -476,6 +477,7 @@ async function sendPendingInvoiceSmsRuntime(
 }
 
 export const powerhubRouter = router({
+  offlineNumbering: powerhubOfflineNumberingRouter,
   unifiedMessaging: powerhubUnifiedMessagingRouter,
   // Declared on the canonical router so the public AppRouter retains inventory types.
   inventory: powerhubInventoryRouter,
