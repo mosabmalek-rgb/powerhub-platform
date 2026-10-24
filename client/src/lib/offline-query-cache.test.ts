@@ -55,6 +55,18 @@ describe("offline query cache policy", () => {
     ).toBe(false);
   });
 
+  it("retains allowed operational snapshots across days when no explicit expiry is set", () => {
+    const key = ["powerhub", "subscribers", "list", { siteId: 7 }];
+    const persistentRecord = {
+      userId: "user-1",
+      serializedQueryKey: offlineQueryCacheKey(key),
+      expiresAt: null,
+    };
+
+    expect(isOfflineQueryRecordUsable(persistentRecord, "user-1", Date.parse("2030-01-01T00:00:00.000Z"))).toBe(true);
+    expect(isOfflineQueryRecordUsable({ ...persistentRecord, expiresAt: 2_000 }, "user-1", 2_000)).toBe(false);
+  });
+
   it("rejects malformed serialized query keys", () => {
     expect(
       isOfflineQueryRecordUsable(
