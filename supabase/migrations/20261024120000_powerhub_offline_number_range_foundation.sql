@@ -426,26 +426,37 @@ begin
     return;
   end if;
 
-  -- Do not burn another globally unique range while this device still has
-  -- unused values in an unexpired grant. The same request ID above remains replayable.
-  if exists (
-    select 1
-    from public.powerhub_offline_number_grants g
-    cross join lateral unnest(g.reserved_values) as reserved(value)
-    where g.tenant_id = p_tenant_id
-      and g.site_id = p_site_id
-      and g.user_id = p_user_id
-      and g.device_id = p_device_id
-      and g.number_kind = p_number_kind
-      and g.partition_key = p_partition_key
-      and g.revoked_at is null
-      and g.expires_at > clock_timestamp()
-      and not exists (
+  -- Restore a still-usable grant if its local IndexedDB copy was lost. This
+  -- does not mint a second range and remains serialized by the scope lock above.
+  select g.* into v_existing_grant
+  from public.powerhub_offline_number_grants g
+  where g.tenant_id = p_tenant_id
+    and g.site_id = p_site_id
+    and g.user_id = p_user_id
+    and g.device_id = p_device_id
+    and g.number_kind = p_number_kind
+    and g.partition_key = p_partition_key
+    and g.revoked_at is null
+    and g.expires_at > clock_timestamp()
+    and exists (
+      select 1
+      from unnest(g.reserved_values) as reserved(value)
+      where not exists (
         select 1 from public.powerhub_offline_number_claims c
         where c.grant_id = g.id and c.number_value = reserved.value
       )
-  ) then
-    raise exception 'OFFLINE_NUMBER_RANGE_STILL_AVAILABLE' using errcode = 'P0001';
+    )
+  order by g.issued_at desc, g.id
+  limit 1
+  for update;
+  if found then
+    select array_agg(value::text order by ordinal)
+      into v_output_values
+    from unnest(v_existing_grant.reserved_values) with ordinality as values_with_ordinal(value, ordinal);
+    return query select v_existing_grant.id, v_existing_grant.number_kind,
+      v_existing_grant.partition_key, v_output_values,
+      v_existing_grant.issued_at, v_existing_grant.expires_at;
+    return;
   end if;
 
   if p_number_kind = 'subscriber' then
@@ -669,6 +680,191 @@ grant execute on function public.powerhub_claim_offline_number(
 ) to service_role;
 alter function public.powerhub_claim_offline_number(
   uuid, bigint, bigint, bigint, uuid, text, text, text, text, text
+) owner to postgres;
+
+
+-- Atomically create an offline-drafted subscriber using its locally claimed,
+-- server-issued number. The claim and subscriber write share this transaction:
+-- failed validation, quota, audit, or insert rolls the claim back too.
+create or replace function public.powerhub_create_subscriber_with_offline_number(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_user_id bigint,
+  p_device_id uuid,
+  p_grant_id uuid,
+  p_number_value text,
+  p_full_name text,
+  p_phone text,
+  p_whatsapp_number text,
+  p_address text,
+  p_subscription_type text,
+  p_client_operation_id uuid
+)
+returns table (subscriber_id bigint, subscriber_no text, replayed boolean)
+language plpgsql
+security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare
+  v_subscriber_id bigint;
+  v_subscriber_no text;
+  v_existing_no text;
+  v_existing_tenant_id bigint;
+  v_existing_site_id bigint;
+  v_response jsonb;
+  v_operation_tenant_id bigint;
+  v_operation_site_id bigint;
+  v_operation_type text;
+  v_operation_entity_type text;
+  v_current_count integer;
+  v_effective_limit integer;
+  v_platform_role text;
+begin
+  if p_tenant_id is null or p_site_id is null or p_user_id is null
+     or p_device_id is null or p_grant_id is null
+     or p_client_operation_id is null
+     or p_number_value is null or p_number_value !~ '^[1-9][0-9]{0,5}
+revoke all on table public.powerhub_offline_number_grants from public, anon, authenticated;
+revoke all on table public.powerhub_offline_number_claims from public, anon, authenticated;
+grant select, insert, update, delete on table public.powerhub_offline_number_grants to service_role;
+grant select, insert, update, delete on table public.powerhub_offline_number_claims to service_role;
+
+     or p_full_name is null or length(trim(p_full_name)) < 2
+     or p_phone is null or length(trim(p_phone)) < 5
+     or p_subscription_type is null
+     or p_subscription_type not in ('residential', 'commercial', 'institution', 'mosque') then
+    raise exception 'OFFLINE_SUBSCRIBER_INPUT_INVALID' using errcode = 'P0001';
+  end if;
+
+  v_subscriber_no := format('SUB-%s', lpad(p_number_value, 6, '0'));
+  perform pg_advisory_xact_lock(p_tenant_id);
+
+  if not exists (
+    select 1 from public.sites s
+    where s.id = p_site_id and s.tenant_id = p_tenant_id and s.status <> 'archived'
+  ) then
+    raise exception 'SITE_OUT_OF_SCOPE' using errcode = 'P0001';
+  end if;
+
+  -- Scope-check operation replay before returning any stored response.
+  select response, tenant_id, site_id, operation_type, entity_type
+    into v_response, v_operation_tenant_id, v_operation_site_id,
+         v_operation_type, v_operation_entity_type
+  from public.offline_sync_operations
+  where user_id = p_user_id and client_operation_id = p_client_operation_id::text
+  limit 1;
+  if found then
+    if v_operation_tenant_id is distinct from p_tenant_id
+       or v_operation_site_id is distinct from p_site_id
+       or v_operation_type is distinct from 'subscriber_create'
+       or v_operation_entity_type is distinct from 'subscriber'
+       or v_response->>'subscriberNo' is distinct from v_subscriber_no
+       or coalesce(v_response->>'id', '') = '' then
+      raise exception 'OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH' using errcode = 'P0001';
+    end if;
+    perform c.claim_id
+    from public.powerhub_claim_offline_number(
+      p_grant_id, p_tenant_id, p_site_id, p_user_id, p_device_id,
+      'subscriber', 'global', p_number_value, p_client_operation_id::text, 'subscriber'
+    ) as c;
+    if not found then
+      raise exception 'OFFLINE_NUMBER_CLAIM_MISSING' using errcode = 'P0001';
+    end if;
+    return query select (v_response->>'id')::bigint, v_response->>'subscriberNo', true;
+    return;
+  end if;
+
+  -- Recover only a same-scope row with the exact claimed reference; never return
+  -- a matching clientOperationId from another tenant/site or with another number.
+  select s.id, s.subscriber_no, s.tenant_id, s.site_id
+    into v_subscriber_id, v_existing_no, v_existing_tenant_id, v_existing_site_id
+  from public.subscribers s
+  where s.client_operation_id = p_client_operation_id::text
+  limit 1;
+  if found then
+    if v_existing_tenant_id is distinct from p_tenant_id
+       or v_existing_site_id is distinct from p_site_id
+       or v_existing_no is distinct from v_subscriber_no then
+      raise exception 'OFFLINE_NUMBER_IDEMPOTENCY_MISMATCH' using errcode = 'P0001';
+    end if;
+    perform c.claim_id
+    from public.powerhub_claim_offline_number(
+      p_grant_id, p_tenant_id, p_site_id, p_user_id, p_device_id,
+      'subscriber', 'global', p_number_value, p_client_operation_id::text, 'subscriber'
+    ) as c;
+    if not found then
+      raise exception 'OFFLINE_NUMBER_CLAIM_MISSING' using errcode = 'P0001';
+    end if;
+    return query select v_subscriber_id, v_existing_no, true;
+    return;
+  end if;
+
+  select count(*)::integer into v_current_count
+  from public.subscribers
+  where tenant_id = p_tenant_id and archived_at is null;
+  v_effective_limit := public.powerhub_effective_tenant_quota(p_tenant_id, 'subscribers');
+  if v_effective_limit is not null and v_current_count >= v_effective_limit then
+    raise exception 'SUBSCRIBER_QUOTA_REACHED' using errcode = 'P0001';
+  end if;
+
+  -- Claim validation runs within the caller's transaction. If anything below
+  -- fails, PostgreSQL rolls the claim back; the same request can be retried.
+  perform c.claim_id
+  from public.powerhub_claim_offline_number(
+    p_grant_id, p_tenant_id, p_site_id, p_user_id, p_device_id,
+    'subscriber', 'global', p_number_value, p_client_operation_id::text, 'subscriber'
+  ) as c;
+  if not found then
+    raise exception 'OFFLINE_NUMBER_CLAIM_MISSING' using errcode = 'P0001';
+  end if;
+
+  insert into public.subscribers as inserted (
+    tenant_id, site_id, subscriber_no, client_operation_id,
+    full_name, phone, whatsapp_number, address, subscription_type
+  ) values (
+    p_tenant_id, p_site_id, v_subscriber_no, p_client_operation_id::text,
+    trim(p_full_name), trim(p_phone), nullif(trim(p_whatsapp_number), ''),
+    nullif(trim(p_address), ''), p_subscription_type
+  ) returning inserted.id, inserted.subscriber_no into v_subscriber_id, v_subscriber_no;
+
+  select platform_role into v_platform_role from public.users where id = p_user_id;
+  insert into public.audit_logs (
+    tenant_id, site_id, user_id, actor_platform_role, entity_type, entity_id, action, after_data
+  ) values (
+    p_tenant_id, p_site_id, p_user_id, v_platform_role, 'subscriber', v_subscriber_id::text, 'create',
+    jsonb_build_object(
+      'siteId', p_site_id, 'fullName', trim(p_full_name), 'phone', trim(p_phone),
+      'whatsappNumber', nullif(trim(p_whatsapp_number), ''),
+      'address', nullif(trim(p_address), ''), 'subscriptionType', p_subscription_type,
+      'subscriberNo', v_subscriber_no, 'clientOperationId', p_client_operation_id,
+      'offlineNumberGrantId', p_grant_id, 'offlineNumberValue', p_number_value
+    )
+  );
+
+  insert into public.offline_sync_operations (
+    tenant_id, site_id, user_id, client_operation_id, operation_type,
+    entity_type, entity_id, response
+  ) values (
+    p_tenant_id, p_site_id, p_user_id, p_client_operation_id::text,
+    'subscriber_create', 'subscriber', v_subscriber_id,
+    jsonb_build_object(
+      'id', v_subscriber_id, 'subscriberNo', v_subscriber_no,
+      'referenceNotifications', jsonb_build_array()
+    )
+  );
+
+  return query select v_subscriber_id, v_subscriber_no, false;
+end;
+$;
+
+revoke all on function public.powerhub_create_subscriber_with_offline_number(
+  bigint, bigint, bigint, uuid, uuid, text, text, text, text, text, text, uuid
+) from public, anon, authenticated;
+grant execute on function public.powerhub_create_subscriber_with_offline_number(
+  bigint, bigint, bigint, uuid, uuid, text, text, text, text, text, text, uuid
+) to service_role;
+alter function public.powerhub_create_subscriber_with_offline_number(
+  bigint, bigint, bigint, uuid, uuid, text, text, text, text, text, text, uuid
 ) owner to postgres;
 
 -- Explicitly preserve the service-role-only API contract on internal objects.

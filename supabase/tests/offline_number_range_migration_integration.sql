@@ -197,16 +197,36 @@ begin
     if position('OFFLINE_NUMBER_ALREADY_CLAIMED' in sqlerrm) = 0 then raise; end if;
   end;
 
-  begin
-    perform * from public.powerhub_reserve_offline_number_grant(
-      1, 10, 100, '11111111-1111-4111-8111-111111111111',
-      'abababab-abab-4bab-8bab-abababababab', 'subscriber', 'global', 3, 60
-    );
-    raise exception 'ASSERT_FAILED: a second unused subscriber range was allocated';
-  exception when others then
-    if sqlerrm = 'ASSERT_FAILED: a second unused subscriber range was allocated' then raise; end if;
-    if position('OFFLINE_NUMBER_RANGE_STILL_AVAILABLE' in sqlerrm) = 0 then raise; end if;
-  end;
+  -- A locally assigned subscriber reference becomes final only after the server
+  -- atomically verifies the grant, claim, quota, subscriber insert, and audit log.
+  select subscriber_no into v_created_no
+  from public.powerhub_create_subscriber_with_offline_number(
+    1, 10, 100, '11111111-1111-4111-8111-111111111111', v_grant_id,
+    '990004', 'Offline Subscriber', '987654323', null, null, 'residential',
+    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  );
+  if v_created_no <> 'SUB-990004' then
+    raise exception 'ASSERT_FAILED: offline claimed subscriber number was not preserved: %', v_created_no;
+  end if;
+
+  select replayed into v_replayed
+  from public.powerhub_create_subscriber_with_offline_number(
+    1, 10, 100, '11111111-1111-4111-8111-111111111111', v_grant_id,
+    '990004', 'Offline Subscriber', '987654323', null, null, 'residential',
+    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  );
+  if not v_replayed then
+    raise exception 'ASSERT_FAILED: offline subscriber create retry was not idempotent';
+  end if;
+
+  select grant_id, reserved_values into v_retry_grant_id, v_retry_values
+  from public.powerhub_reserve_offline_number_grant(
+    1, 10, 100, '11111111-1111-4111-8111-111111111111',
+    'abababab-abab-4bab-8bab-abababababab', 'subscriber', 'global', 3, 60
+  );
+  if v_retry_grant_id <> v_grant_id or v_retry_values <> v_values then
+    raise exception 'ASSERT_FAILED: lost local range was not recoverable without allocating a second range';
+  end if;
 
   select grant_id, reserved_values into v_grant_id, v_values
   from public.powerhub_reserve_offline_number_grant(
@@ -252,7 +272,7 @@ begin
   select subscriber_no into v_created_no
   from public.powerhub_create_subscriber(
     1, 10, 100, 'New Subscriber', '987654321', null, null, 'standard',
-    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 100
+    '99999999-9999-4999-8999-999999999999', 100
   );
   if v_created_no <> 'SUB-990006' then
     raise exception 'ASSERT_FAILED: online create did not continue after reserved range: %', v_created_no;
