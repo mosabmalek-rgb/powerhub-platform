@@ -226,7 +226,7 @@ export default function MeterReadingsPage() {
             captureMethod: payload.captureMethod, imageData: payload.imageData, imageMime: payload.imageMime,
             notes: payload.notes, isReadingReset: payload.isReadingReset,
             overrideSameDay: payload.overrideSameDay, fieldVerified: payload.fieldVerified,
-            clientOperationId: item.clientOperationId,
+            clientOperationId: item.clientOperationId, offlineInvoiceNumberClaim: payload.offlineInvoiceNumberClaim,
           });
           const replayed = Boolean((response as { replayed?: boolean }).replayed);
           const entityId = Number((response as { id?: number }).id);

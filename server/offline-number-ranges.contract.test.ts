@@ -59,6 +59,7 @@ describe("PowerHub offline number range foundation contract", () => {
     expect(powerhubRouter).toContain('"powerhub_create_reading_and_issue_invoice_with_offline_number"');
     expect(readingsPage).toContain("enqueueReadingWithInvoiceNumber");
     expect(readingsPage).toContain("hasAvailableOfflineNumberGrant");
+    expect(readingsPage).toContain("offlineInvoiceNumberClaim: payload.offlineInvoiceNumberClaim");
   });
 
   it("keeps number reservation RPCs server-only and locks claimed values idempotently", () => {
