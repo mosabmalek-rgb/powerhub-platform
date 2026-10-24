@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Skeleton } from "@/components/ui/skeleton";
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { enqueueReading, isQueuedReadingReadyForSync, listQueuedReadings, type QueuedReading } from "@/lib/offline-reading-queue";
+import { enqueueReading, isQueuedReadingReadyForSync, listQueuedReadings, removeQueuedReading, type QueuedReading } from "@/lib/offline-reading-queue";
 import { listOfflineWork, updateOfflineWork, type QueuedOfflineWork, type ReadingCreateDraft } from "@/lib/offline-work-queue";
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
 import { createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
