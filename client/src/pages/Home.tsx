@@ -255,7 +255,7 @@ export function WorkspaceHome() {
     {selectedScope === "all" && <BranchPerformanceCard rows={overview?.branchSummaries ?? []} loading={financialOverviewQuery.isLoading} error={financialOverviewQuery.isError} onOpenReports={() => setLocation("/reports")} />}
 
     {/* Keep subscription duration and renewal information at the end of the dashboard. */}
-    <SubscriptionRenewalDashboardCard data={ownerRenewalQuery.data} loading={ownerRenewalQuery.isLoading} error={ownerRenewalQuery.isError} ownerAccessVerified={accessQuery.data?.role === "owner"} onRetry={() => ownerRenewalQuery.refetch()} onContact={() => setLocation("/support")} />
+    <SubscriptionRenewalDashboardCard data={ownerRenewalQuery.data} loading={ownerRenewalQuery.isLoading} error={ownerRenewalQuery.isError} ownerAccessVerified={accessQuery.data?.role === "owner"} ownerAccessLoading={accessQuery.isLoading} ownerAccessError={accessQuery.isError} onRetry={() => ownerRenewalQuery.refetch()} onContact={() => setLocation("/support")} />
 
   </div></DashboardLayout>;
 }
