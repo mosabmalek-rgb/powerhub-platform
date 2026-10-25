@@ -143,6 +143,12 @@ export function WorkspaceHome() {
   const overview = financialOverviewQuery.data;
   const dashboardDataError = sitesQuery.isError || accessQuery.isError || financialOverviewQuery.isError ||
     (selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError);
+  const dashboardDataFailures: string[] = [];
+  if (sitesQuery.isError) dashboardDataFailures.push(`الفروع: ${sitesQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (accessQuery.isError) dashboardDataFailures.push(`صلاحيات الفرع: ${accessQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (financialOverviewQuery.isError) dashboardDataFailures.push(`الملخص المالي: ${financialOverviewQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (selectedScope === "all" && allBranchesSummaryQuery.isError) dashboardDataFailures.push(`ملخص جميع الفروع: ${allBranchesSummaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (selectedScope !== "all" && summaryQuery.isError) dashboardDataFailures.push(`مؤشرات الفرع: ${summaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
   const retryDashboardData = () => {
     void sitesQuery.refetch();
     void accessQuery.refetch();
@@ -207,7 +213,7 @@ export function WorkspaceHome() {
     </header>
 
 
-    {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
+    {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p><ul className="mt-2 space-y-1 text-xs leading-5 text-amber-100/90">{dashboardDataFailures.map((failure) => <li key={failure}>{failure}</li>)}</ul></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
 
     <DashboardKpiPeriodFilter
       value={dashboardPeriod.preset}
