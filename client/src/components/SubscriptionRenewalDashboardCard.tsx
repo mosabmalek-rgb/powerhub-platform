@@ -50,20 +50,45 @@ type Props = {
   loading: boolean;
   error: boolean;
   ownerAccessVerified: boolean;
+  ownerAccessLoading?: boolean;
+  ownerAccessError?: boolean;
   onRetry: () => unknown;
   onContact: () => void;
 };
 
-export function SubscriptionRenewalDashboardCard({ data, loading, error, ownerAccessVerified, onRetry, onContact }: Props) {
-  const isOwner = data?.isOwner === true || ownerAccessVerified;
-  if (!isOwner) return null;
+function SubscriptionLoadErrorCard({ onRetry }: { onRetry: () => unknown }) {
+  return <Card role="alert" className="border-rose-400/25 bg-[#111823] shadow-panel"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-rose-200">تعذر تحميل حالة الاشتراك</h2><p className="mt-1 text-sm leading-6 text-slate-300">لم نعرض تاريخًا تخمينيًا. أعد المحاولة للتأكد من موعد التجديد.</p></div><Button type="button" variant="outline" onClick={() => { void onRetry(); }} className="border-white/15 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />إعادة المحاولة</Button></CardContent></Card>;
+}
 
-  if (error) {
-    return <Card role="alert" className="border-rose-400/25 bg-[#111823] shadow-panel"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-rose-200">تعذر تحميل حالة الاشتراك</h2><p className="mt-1 text-sm leading-6 text-slate-300">لم نعرض تاريخًا تخمينيًا. أعد المحاولة للتأكد من موعد التجديد.</p></div><Button type="button" variant="outline" onClick={() => { void onRetry(); }} className="border-white/15 text-white hover:bg-white/5 hover:text-white"><RefreshCw className="ml-2 h-4 w-4" />إعادة المحاولة</Button></CardContent></Card>;
+function SubscriptionLoadingCard() {
+  return <Card className="border-white/10 bg-[#111823] shadow-panel" aria-label="جارٍ تحميل الاشتراك"><CardContent className="p-5"><div className="h-4 w-44 animate-pulse rounded bg-white/10" /><div className="mt-4 h-8 w-64 rounded bg-white/10" /></CardContent></Card>;
+}
+
+export function SubscriptionRenewalDashboardCard({
+  data, loading, error, ownerAccessVerified,
+  ownerAccessLoading = false, ownerAccessError = false,
+  onRetry, onContact,
+}: Props) {
+  const isOwner = data?.isOwner === true || ownerAccessVerified;
+
+  // Do not hide the whole subscription area while both independent ownership
+  // checks are still resolving. The query itself only returns subscription
+  // details after confirming the tenant membership is an owner membership.
+  if (!isOwner && data?.isOwner !== false && (loading || ownerAccessLoading)) {
+    return <SubscriptionLoadingCard />;
   }
 
+  // A failed subscription read can coincide with a failed access query (for
+  // example, when the workspace APIs are gated). Previously the early return
+  // above hid both the loading and error states, making the data look absent.
+  if (error && (isOwner || ownerAccessError)) {
+    return <SubscriptionLoadErrorCard onRetry={onRetry} />;
+  }
+
+  if (!isOwner) return null;
+
   if (loading && !data?.isOwner) {
-    return <Card className="border-white/10 bg-[#111823] shadow-panel" aria-label="جارٍ تحميل الاشتراك"><CardContent className="p-5"><div className="h-4 w-44 animate-pulse rounded bg-white/10" /><div className="mt-4 h-8 w-64 animate-pulse rounded bg-white/10" /></CardContent></Card>;
+    return <SubscriptionLoadingCard />;
   }
 
   const subscription = data?.subscription;
