@@ -174,7 +174,7 @@ END
 $widen_policy_scope$;
 
 \ir ../migrations/20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql
-\ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
+\ir ../migrations/20261025182440_powerhub_scoped_platform_admin_and_recovery_rpc.sql
 -- Simulate the untracked legacy production function: its OUT columns differ even
 -- though its input signature is identical. The forward migration must replace it.
 CREATE OR REPLACE FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(
@@ -194,10 +194,10 @@ ALTER FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(bigint, 
 REVOKE ALL ON FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(bigint, uuid, text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(bigint, uuid, text, text) TO service_role;
 
-\ir ../migrations/20261025140000_powerhub_owner_provisioning_lifecycle_reconciliation.sql
+\ir ../migrations/20261025182544_powerhub_owner_provisioning_lifecycle_reconciliation.sql
 -- Both forward migrations must be safe to replay without duplicating policy/function state.
-\ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
-\ir ../migrations/20261025140000_powerhub_owner_provisioning_lifecycle_reconciliation.sql
+\ir ../migrations/20261025182440_powerhub_scoped_platform_admin_and_recovery_rpc.sql
+\ir ../migrations/20261025182544_powerhub_owner_provisioning_lifecycle_reconciliation.sql
 
 DO $assert_reconciliation$
 DECLARE
