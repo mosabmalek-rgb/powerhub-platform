@@ -314,31 +314,80 @@ GRANT USAGE, SELECT ON SEQUENCE public.tenant_owner_alerts_id_seq TO service_rol
 REVOKE ALL ON SEQUENCE public.user_quick_action_preferences_id_seq FROM PUBLIC, anon, authenticated, service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.user_quick_action_preferences_id_seq TO service_role;
 
-DO $reconcile_policy$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='access_recovery_requests' AND policyname='access_recovery_tenant_isolation') THEN
-    EXECUTE 'CREATE POLICY "access_recovery_tenant_isolation" ON public.access_recovery_requests AS PERMISSIVE FOR ALL TO "authenticated" USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin())) WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))';
-  END IF;
-END $reconcile_policy$;
-DO $reconcile_policy$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='complaints' AND policyname='complaints_tenant_isolation') THEN
-    EXECUTE 'CREATE POLICY "complaints_tenant_isolation" ON public.complaints AS PERMISSIVE FOR ALL TO "authenticated" USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin())) WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))';
-  END IF;
-END $reconcile_policy$;
-DO $reconcile_policy$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='meters' AND policyname='meters_tenant_isolation') THEN
-    EXECUTE 'CREATE POLICY "meters_tenant_isolation" ON public.meters AS PERMISSIVE FOR ALL TO "authenticated" USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin())) WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))';
-  END IF;
-END $reconcile_policy$;
-DO $reconcile_policy$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='platform_tariff_policies' AND policyname='platform_tariff_policies_platform_admin_only') THEN
-    EXECUTE 'CREATE POLICY "platform_tariff_policies_platform_admin_only" ON public.platform_tariff_policies AS PERMISSIVE FOR ALL TO "authenticated" USING (private.powerhub_is_platform_admin()) WITH CHECK (private.powerhub_is_platform_admin())';
-  END IF;
-END $reconcile_policy$;
-DO $reconcile_policy$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='user_quick_action_preferences' AND policyname='quick_actions_owner_only') THEN
-    EXECUTE 'CREATE POLICY "quick_actions_owner_only" ON public.user_quick_action_preferences AS PERMISSIVE FOR ALL TO "authenticated" USING (((user_id = private.powerhub_current_user_id()) OR private.powerhub_is_platform_admin())) WITH CHECK (((user_id = private.powerhub_current_user_id()) OR private.powerhub_is_platform_admin()))';
-  END IF;
-END $reconcile_policy$;
+-- Recreate the named permissive policy so a drifted definition cannot survive by name alone.
+DROP POLICY IF EXISTS "access_recovery_tenant_isolation" ON public.access_recovery_requests;
+CREATE POLICY "access_recovery_tenant_isolation" ON public.access_recovery_requests
+  AS PERMISSIVE FOR ALL TO authenticated
+  USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))
+  WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()));
+
+-- A restrictive guard is ANDed with every permissive policy, so an accidental
+-- extra permissive policy cannot widen cross-tenant or cross-user access.
+DROP POLICY IF EXISTS "access_recovery_scope_guard" ON public.access_recovery_requests;
+CREATE POLICY "access_recovery_scope_guard" ON public.access_recovery_requests
+  AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))
+  WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()));
+
+-- Recreate the named permissive policy so a drifted definition cannot survive by name alone.
+DROP POLICY IF EXISTS "complaints_tenant_isolation" ON public.complaints;
+CREATE POLICY "complaints_tenant_isolation" ON public.complaints
+  AS PERMISSIVE FOR ALL TO authenticated
+  USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))
+  WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()));
+
+-- A restrictive guard is ANDed with every permissive policy, so an accidental
+-- extra permissive policy cannot widen cross-tenant or cross-user access.
+DROP POLICY IF EXISTS "complaints_scope_guard" ON public.complaints;
+CREATE POLICY "complaints_scope_guard" ON public.complaints
+  AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))
+  WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()));
+
+-- Recreate the named permissive policy so a drifted definition cannot survive by name alone.
+DROP POLICY IF EXISTS "meters_tenant_isolation" ON public.meters;
+CREATE POLICY "meters_tenant_isolation" ON public.meters
+  AS PERMISSIVE FOR ALL TO authenticated
+  USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))
+  WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()));
+
+-- A restrictive guard is ANDed with every permissive policy, so an accidental
+-- extra permissive policy cannot widen cross-tenant or cross-user access.
+DROP POLICY IF EXISTS "meters_scope_guard" ON public.meters;
+CREATE POLICY "meters_scope_guard" ON public.meters
+  AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()))
+  WITH CHECK ((private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_admin()));
+
+-- Recreate the named permissive policy so a drifted definition cannot survive by name alone.
+DROP POLICY IF EXISTS "platform_tariff_policies_platform_admin_only" ON public.platform_tariff_policies;
+CREATE POLICY "platform_tariff_policies_platform_admin_only" ON public.platform_tariff_policies
+  AS PERMISSIVE FOR ALL TO authenticated
+  USING (private.powerhub_is_platform_admin())
+  WITH CHECK (private.powerhub_is_platform_admin());
+
+-- A restrictive guard is ANDed with every permissive policy, so an accidental
+-- extra permissive policy cannot widen cross-tenant or cross-user access.
+DROP POLICY IF EXISTS "platform_tariff_policies_admin_guard" ON public.platform_tariff_policies;
+CREATE POLICY "platform_tariff_policies_admin_guard" ON public.platform_tariff_policies
+  AS RESTRICTIVE FOR ALL TO authenticated
+  USING (private.powerhub_is_platform_admin())
+  WITH CHECK (private.powerhub_is_platform_admin());
+
+-- Recreate the named permissive policy so a drifted definition cannot survive by name alone.
+DROP POLICY IF EXISTS "quick_actions_owner_only" ON public.user_quick_action_preferences;
+CREATE POLICY "quick_actions_owner_only" ON public.user_quick_action_preferences
+  AS PERMISSIVE FOR ALL TO authenticated
+  USING (((user_id = private.powerhub_current_user_id()) OR private.powerhub_is_platform_admin()))
+  WITH CHECK (((user_id = private.powerhub_current_user_id()) OR private.powerhub_is_platform_admin()));
+
+-- A restrictive guard is ANDed with every permissive policy, so an accidental
+-- extra permissive policy cannot widen cross-tenant or cross-user access.
+DROP POLICY IF EXISTS "quick_actions_owner_guard" ON public.user_quick_action_preferences;
+CREATE POLICY "quick_actions_owner_guard" ON public.user_quick_action_preferences
+  AS RESTRICTIVE FOR ALL TO authenticated
+  USING (((user_id = private.powerhub_current_user_id()) OR private.powerhub_is_platform_admin()))
+  WITH CHECK (((user_id = private.powerhub_current_user_id()) OR private.powerhub_is_platform_admin()));
 
 DO $reconcile_trigger$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.complaints'::regclass AND tgname='complaints_set_updated_at' AND NOT tgisinternal) THEN

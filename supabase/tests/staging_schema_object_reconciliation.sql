@@ -130,6 +130,34 @@ BEGIN
 END
 $widen_function_acl$;
 
+-- Simulate RLS policy drift: preserve the canonical names but widen both their
+-- predicates and the same-named guards. Leave one additional permissive policy
+-- in place to prove the restrictive guard still caps its effective scope.
+DO $widen_policy_scope$
+DECLARE
+  v_policy record;
+BEGIN
+  FOR v_policy IN
+    SELECT * FROM (VALUES
+      ('access_recovery_requests','access_recovery_tenant_isolation','access_recovery_scope_guard'),
+      ('complaints','complaints_tenant_isolation','complaints_scope_guard'),
+      ('meters','meters_tenant_isolation','meters_scope_guard'),
+      ('platform_tariff_policies','platform_tariff_policies_platform_admin_only','platform_tariff_policies_admin_guard'),
+      ('user_quick_action_preferences','quick_actions_owner_only','quick_actions_owner_guard')
+    ) AS policies(table_name, permissive_policy, restrictive_policy)
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I',v_policy.permissive_policy,v_policy.table_name);
+    EXECUTE format('CREATE POLICY %I ON public.%I AS PERMISSIVE FOR ALL TO authenticated USING (true) WITH CHECK (true)',v_policy.permissive_policy,v_policy.table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I',v_policy.restrictive_policy,v_policy.table_name);
+    EXECUTE format('CREATE POLICY %I ON public.%I AS PERMISSIVE FOR ALL TO authenticated USING (true) WITH CHECK (true)',v_policy.restrictive_policy,v_policy.table_name);
+  END LOOP;
+
+  DROP POLICY IF EXISTS staging_reconciliation_open_policy ON public.complaints;
+  CREATE POLICY staging_reconciliation_open_policy ON public.complaints
+    AS PERMISSIVE FOR ALL TO authenticated USING (true) WITH CHECK (true);
+END
+$widen_policy_scope$;
+
 \ir ../migrations/20261025020000_powerhub_missing_schema_and_rpc_reconciliation.sql
 
 DO $assert_reconciliation$
@@ -138,6 +166,10 @@ DECLARE
   v_signature text;
   v_role text;
   v_privilege text;
+  v_policy record;
+  v_policy_mode text;
+  v_policy_qual text;
+  v_policy_check text;
   v_authenticated_read_tables text[] := ARRAY[
     'access_recovery_requests','complaints','meters','platform_tariff_policies','user_quick_action_preferences'
   ];
@@ -202,14 +234,62 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- Five canonical permissive policies, five restrictive scope guards, plus the
+  -- deliberate stray permissive-policy fixture that must remain contained.
   IF (SELECT count(*) FROM pg_policies
       WHERE schemaname='public' AND tablename IN (
         'access_recovery_requests','complaints','feature_global_control_audit',
         'generator_owner_provisioning_operations','meters','password_reset_intents',
         'platform_tariff_policies','subscription_renewal_operations',
         'tenant_addon_renewal_decisions','tenant_owner_alerts','user_quick_action_preferences'
-      )) <> 5 THEN
+      )) <> 11 THEN
     RAISE EXCEPTION 'SCHEMA_RECONCILIATION_POLICY_COUNT_MISMATCH';
+  END IF;
+
+  FOR v_policy IN
+    SELECT * FROM (VALUES
+      ('access_recovery_requests','access_recovery_tenant_isolation','access_recovery_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
+      ('complaints','complaints_tenant_isolation','complaints_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
+      ('meters','meters_tenant_isolation','meters_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
+      ('platform_tariff_policies','platform_tariff_policies_platform_admin_only','platform_tariff_policies_admin_guard','powerhub_is_platform_admin',NULL),
+      ('user_quick_action_preferences','quick_actions_owner_only','quick_actions_owner_guard','powerhub_current_user_id','powerhub_is_platform_admin')
+    ) AS expected(table_name, permissive_policy, restrictive_policy, helper_one, helper_two)
+  LOOP
+    SELECT permissive, qual, with_check
+      INTO v_policy_mode, v_policy_qual, v_policy_check
+    FROM pg_policies
+    WHERE schemaname='public' AND tablename=v_policy.table_name AND policyname=v_policy.permissive_policy;
+    IF NOT FOUND OR v_policy_mode <> 'PERMISSIVE'
+       OR position(v_policy.helper_one in coalesce(v_policy_qual,'')) = 0
+       OR position(v_policy.helper_one in coalesce(v_policy_check,'')) = 0
+       OR (v_policy.helper_two IS NOT NULL AND (
+         position(v_policy.helper_two in coalesce(v_policy_qual,'')) = 0
+         OR position(v_policy.helper_two in coalesce(v_policy_check,'')) = 0
+       )) THEN
+      RAISE EXCEPTION 'SCHEMA_RECONCILIATION_CANONICAL_POLICY_DRIFT: %',v_policy.permissive_policy;
+    END IF;
+
+    SELECT permissive, qual, with_check
+      INTO v_policy_mode, v_policy_qual, v_policy_check
+    FROM pg_policies
+    WHERE schemaname='public' AND tablename=v_policy.table_name AND policyname=v_policy.restrictive_policy;
+    IF NOT FOUND OR v_policy_mode <> 'RESTRICTIVE'
+       OR position(v_policy.helper_one in coalesce(v_policy_qual,'')) = 0
+       OR position(v_policy.helper_one in coalesce(v_policy_check,'')) = 0
+       OR (v_policy.helper_two IS NOT NULL AND (
+         position(v_policy.helper_two in coalesce(v_policy_qual,'')) = 0
+         OR position(v_policy.helper_two in coalesce(v_policy_check,'')) = 0
+       )) THEN
+      RAISE EXCEPTION 'SCHEMA_RECONCILIATION_RESTRICTIVE_GUARD_MISSING_OR_DRIFTED: %',v_policy.restrictive_policy;
+    END IF;
+  END LOOP;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname='public' AND tablename='complaints'
+      AND policyname='staging_reconciliation_open_policy' AND permissive='PERMISSIVE'
+  ) THEN
+    RAISE EXCEPTION 'SCHEMA_RECONCILIATION_STRAY_PERMISSIVE_POLICY_FIXTURE_MISSING';
   END IF;
 
   IF (SELECT count(*) FROM pg_trigger t
@@ -267,4 +347,38 @@ BEGIN
 END
 $assert_reconciliation$;
 
-SELECT 'staging schema reconciliation passed twice: 11 tables, RLS/grants, 5 policies, 3 triggers, 11 server-only RPCs, stale overloads removed' AS result;
+-- Exercise effective RLS, not only catalog metadata. A deliberate permissive TRUE
+-- policy remains on complaints; the restrictive guard must still hide another tenant.
+GRANT USAGE ON SCHEMA private TO authenticated;
+CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(p_tenant_id bigint)
+RETURNS boolean LANGUAGE sql STABLE AS $function$
+  SELECT p_tenant_id = NULLIF(current_setting('powerhub.test_tenant_id', true), '')::bigint
+$function$;
+
+INSERT INTO public.tenants(id,name,slug,status) VALUES
+  (91001,'RLS fixture tenant A','rls-fixture-tenant-a','active'),
+  (91002,'RLS fixture tenant B','rls-fixture-tenant-b','active');
+INSERT INTO public.sites(id,tenant_id,name,code,status,city) VALUES
+  (91001,91001,'RLS fixture site A','RLS-A','active','fixture'),
+  (91002,91002,'RLS fixture site B','RLS-B','active','fixture');
+INSERT INTO public.complaints(tenant_id,site_id,title,description) VALUES
+  (91001,91001,'staging-rls-scope-tenant-a','RLS fixture A'),
+  (91002,91002,'staging-rls-scope-tenant-b','RLS fixture B');
+
+SELECT set_config('powerhub.test_tenant_id','91001',false);
+SET ROLE authenticated;
+DO $assert_effective_tenant_scope$
+DECLARE v_visible integer;
+BEGIN
+  SELECT count(*) INTO v_visible
+  FROM public.complaints
+  WHERE title IN ('staging-rls-scope-tenant-a','staging-rls-scope-tenant-b');
+  IF v_visible <> 1 THEN
+    RAISE EXCEPTION 'SCHEMA_RECONCILIATION_RESTRICTIVE_RLS_BYPASS: expected only tenant A row, observed %',v_visible;
+  END IF;
+END
+$assert_effective_tenant_scope$;
+RESET ROLE;
+SELECT set_config('powerhub.test_tenant_id','',false);
+
+SELECT 'staging schema reconciliation passed twice: 11 tables, ACL/RLS guards, 10 canonical policies plus one contained stray policy, 3 triggers, 11 server-only RPCs, stale overloads removed' AS result;
