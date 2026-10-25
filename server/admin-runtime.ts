@@ -44,48 +44,110 @@ const retiredMutation = (operation: string) => platformAdminProcedure.input(z.an
 
 export const adminRouter = router({
   createGeneratorOwnerSubscription: platformAdminProcedure.input(z.object({
+    clientOperationId:z.string().uuid(),
     companyName:z.string().min(2).max(180), ownerName:z.string().min(2).max(180), identityNumber:z.string().min(4).max(50), ownerPhone:z.string().min(5).max(30), ownerWhatsapp:z.preprocess(v=>typeof v==="string"&&!v.trim()?undefined:v,z.string().min(5).max(30).optional()), ownerEmail:z.string().email(), temporaryPassword:z.string().min(8).max(128), packageCode:packageCodeSchema.default("basic"), billingCycle:billingCycleSchema.default("monthly"), subscriptionDuration:z.number().int().min(1).max(60).default(1), trialEnabled:z.boolean().default(false), trialDurationDays:z.number().int().min(1).max(3650).optional(),
   })).mutation(async ({ctx,input}) => {
     const email=input.ownerEmail.trim().toLowerCase();
-    const identity=encryptTenantCredential(input.identityNumber.trim());
+    const normalized = {
+      companyName: input.companyName.trim(), ownerName: input.ownerName.trim(),
+      identityNumber: input.identityNumber.trim(), ownerPhone: input.ownerPhone.trim(),
+      ownerWhatsapp: input.ownerWhatsapp?.trim() || null, ownerEmail: email,
+      temporaryPassword: input.temporaryPassword, packageCode: input.packageCode,
+      billingCycle: input.billingCycle, subscriptionDuration: input.subscriptionDuration,
+      trialEnabled: input.trialEnabled, trialDurationDays: input.trialEnabled ? (input.trialDurationDays ?? 8) : null,
+    };
+    const fingerprint = crypto.createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
     const admin=supabaseAdmin();
-    const {data:authData,error:authError}=await admin.auth.admin.createUser({email,password:input.temporaryPassword,email_confirm:true,user_metadata:{name:input.ownerName.trim(),must_change_password:true}});
-    if(authError||!authData.user) throw new TRPCError({code:authError?.status===422?"CONFLICT":"BAD_REQUEST",message:authError?.message||"تعذر إنشاء حساب صاحب المولد في Supabase Auth."});
-    let databaseRollbackConfirmed = false;
-    try {
-      const {data,error}=await admin.rpc("powerhub_create_generator_owner_subscription",{p_actor_user_id:ctx.user.id,p_auth_user_id:authData.user.id,p_tenant_name:input.companyName.trim(),p_slug:`owner-${crypto.randomUUID().replaceAll("-","")}`,p_company_name:input.companyName.trim(),p_owner_name:input.ownerName.trim(),p_identity_ciphertext:identity.ciphertext,p_identity_iv:identity.iv,p_identity_last4:input.identityNumber.trim().slice(-4),p_owner_phone:input.ownerPhone.trim(),p_owner_whatsapp:input.ownerWhatsapp?.trim()||null,p_owner_email:email,p_site_name:"الفرع الرئيسي",p_site_code:`SITE-${crypto.randomUUID().slice(0,8).toUpperCase()}`,p_package_code:input.packageCode,p_billing_cycle:input.billingCycle,p_subscription_status:input.trialEnabled?"trial":"active",p_trial_duration_days:input.trialDurationDays ?? null,p_subscription_duration:input.subscriptionDuration,p_trial_enabled:input.trialEnabled});
-      if (error) {
-        // A PostgreSQL SQLSTATE means the statement failed and the RPC transaction
-        // rolled back. Transport/PostgREST errors do not prove rollback.
-        databaseRollbackConfirmed = typeof error.code === "string" && /^[0-9A-Z]{5}$/.test(error.code);
-        throw new Error(error.message || "فشل إجراء إنشاء الاشتراك في قاعدة البيانات.");
-      }
-      if (!data?.[0]) throw new Error("لم تُرجع معاملة Supabase نتيجة صالحة؛ حالة التنفيذ غير مؤكدة.");
-      return data[0];
-    } catch(error) {
-      if (databaseRollbackConfirmed) {
-        try {
-          const { error: cleanupError } = await admin.auth.admin.deleteUser(authData.user.id);
-          if (cleanupError) console.error("[AdminSupabase] owner provisioning Auth compensation failed", { code: cleanupError.code ?? null });
-        } catch(cleanupError) {
-          console.error("[AdminSupabase] owner provisioning Auth compensation threw", {
-            errorName: cleanupError instanceof Error ? cleanupError.name : "unknown",
-          });
-        }
-        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر إنشاء اشتراك صاحب المولد بسبب رفض قاعدة البيانات؛ راجع بيانات الإدخال ثم أعد المحاولة."});
-      }
-
-      // The RPC may have committed before its response was lost. Deleting the Auth
-      // user here could orphan a committed owner profile; retain it for reconciliation.
-      console.error("[AdminSupabase] owner provisioning RPC outcome is indeterminate; retained Auth user for reconciliation", {
-        errorName: error instanceof Error ? error.name : "unknown",
-      });
-      throw new TRPCError({
-        code:"INTERNAL_SERVER_ERROR",
-        message:"تعذر تأكيد نتيجة إنشاء اشتراك صاحب المولد؛ لم يُحذف حساب المصادقة لأن العملية قد تكون اكتملت. تحقق من قائمة أصحاب المولدات قبل إعادة المحاولة.",
-      });
+    const begin = await admin.rpc("powerhub_admin_begin_generator_owner_provisioning", {
+      p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+      p_owner_email: email, p_request_fingerprint: fingerprint,
+    });
+    if (begin.error || !begin.data?.[0]) {
+      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تثبيت عملية التسجيل بأمان؛ لم يُنشأ حساب جديد."});
     }
+    const operation = begin.data[0];
+    if (operation.needs_reconciliation) {
+      throw new TRPCError({code:"CONFLICT",message:"نتيجة إنشاء حساب الدخول السابقة غير محسومة. لا تعِد إنشاء الحساب؛ يلزم التحقق من سجل العملية قبل المتابعة."});
+    }
+    if (operation.success && operation.replayed) return {
+      tenant_id: operation.tenant_id, owner_user_id: operation.owner_user_id,
+      site_id: operation.site_id, subscription_id: operation.subscription_id, replayed: true,
+    };
+    let authUserId: string | null = operation.auth_user_id ?? null;
+    if (operation.can_create_auth) {
+      let authResult;
+      try {
+        authResult = await admin.auth.admin.createUser({
+          email, password: input.temporaryPassword, email_confirm: true,
+          user_metadata: {name: normalized.ownerName, must_change_password: true},
+        });
+      } catch (error) {
+        console.error("[AdminSupabase] owner Auth creation outcome indeterminate", { errorName: error instanceof Error ? error.name : "unknown" });
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"نتيجة إنشاء حساب الدخول غير محسومة؛ أُبقيت العملية محجوزة لمنع إنشاء حساب مكرر."});
+      }
+      if (authResult.error || !authResult.data.user) {
+        // Only a definitive duplicate/validation response is safe to release.
+        if (authResult.error?.status === 422) {
+          await admin.rpc("powerhub_admin_cancel_generator_owner_provisioning", {
+            p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+            p_request_fingerprint: fingerprint, p_auth_user_id: null,
+          });
+          throw new TRPCError({code:"CONFLICT",message:"البريد الإلكتروني مستخدم مسبقًا أو لا يمكن إنشاء الحساب بهذه البيانات."});
+        }
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تأكيد إنشاء حساب الدخول؛ أُبقيت العملية للمصالحة الآمنة."});
+      }
+      authUserId = authResult.data.user.id;
+      const attach = await admin.rpc("powerhub_admin_attach_generator_owner_provisioning_auth", {
+        p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+        p_auth_user_id: authUserId, p_request_fingerprint: fingerprint,
+      });
+      if (attach.error || !attach.data?.[0]?.attached) {
+        // The Auth user may exist. Preserve the operation and identity for a safe retry.
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"أُنشئ حساب الدخول لكن تعذر ربطه بسجل العملية؛ لا تُعد المحاولة بمعرّف جديد."});
+      }
+    }
+    if (!authUserId) {
+      throw new TRPCError({code:"CONFLICT",message:"عملية التسجيل موجودة لكنها تحتاج إلى مصالحة؛ لم يُنشأ حساب إضافي."});
+    }
+    const identity=encryptTenantCredential(normalized.identityNumber);
+    const endDate = normalized.trialEnabled ? null : addSubscriptionPeriod(new Date(), normalized.billingCycle, normalized.subscriptionDuration).toISOString();
+    const result = await admin.rpc("powerhub_admin_complete_generator_owner_provisioning", {
+      p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+      p_auth_user_id: authUserId, p_tenant_name: normalized.companyName,
+      p_slug: `owner-${crypto.randomUUID().replaceAll("-","")}`,
+      p_company_name: normalized.companyName, p_owner_name: normalized.ownerName,
+      p_identity_ciphertext: identity.ciphertext, p_identity_iv: identity.iv,
+      p_identity_last4: normalized.identityNumber.slice(-4), p_owner_phone: normalized.ownerPhone,
+      p_owner_whatsapp: normalized.ownerWhatsapp, p_owner_email: email,
+      p_site_name: "الفرع الرئيسي", p_site_code: `SITE-${crypto.randomUUID().slice(0,8).toUpperCase()}`,
+      p_package_code: normalized.packageCode, p_billing_cycle: normalized.billingCycle,
+      p_subscription_status: normalized.trialEnabled ? "trial" : "active",
+      p_ends_at: endDate, p_trial_duration_days: normalized.trialDurationDays ?? 8,
+    });
+    if (!result.error && result.data?.[0]?.success) {
+      return {
+        tenant_id: result.data[0].tenant_id, owner_user_id: result.data[0].owner_user_id,
+        site_id: result.data[0].site_id, subscription_id: result.data[0].subscription_id,
+        replayed: result.data[0].replayed,
+      };
+    }
+    const sqlRollbackConfirmed = typeof result.error?.code === "string" && /^[0-9A-Z]{5}$/.test(result.error.code);
+    if (sqlRollbackConfirmed) {
+      // Delete Auth first; retain the operation if compensation fails so retry can reuse the same user.
+      const cleanup = await admin.auth.admin.deleteUser(authUserId);
+      if (!cleanup.error) {
+        await admin.rpc("powerhub_admin_cancel_generator_owner_provisioning", {
+          p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+          p_request_fingerprint: fingerprint, p_auth_user_id: authUserId,
+        });
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"رفضت قاعدة البيانات التسجيل؛ تراجعت المعاملة وأُلغي حساب الدخول التعويضيًا."});
+      }
+      console.error("[AdminSupabase] owner provisioning Auth compensation failed", { code: cleanup.error.code ?? null });
+    }
+    // A lost RPC response may mean the transaction committed. Preserve Auth and operation for replay.
+    throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تأكيد نتيجة تسجيل صاحب المولد. أعد المحاولة بالعملية نفسها؛ سيمنع معرّف العملية تكرار الاشتراك."});
   }),
+
   overview: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive().optional()}).optional()).query(async ({input}) => { const owners=await ownerOverviewFromSupabase(input?.tenantId); const totals=owners.reduce((a,item)=>({generatorOwners:a.generatorOwners+1,residential:a.residential+item.subscribers.residential,commercial:a.commercial+item.subscribers.commercial,subscribers:a.subscribers+item.subscribers.total,activeSubscriptions:a.activeSubscriptions+(isEffectivelyActiveAdminSubscription(item.subscription?.status,item.subscription?.endsAt,item.subscription?.archivedAt)?1:0)}),{generatorOwners:0,residential:0,commercial:0,subscribers:0,activeSubscriptions:0}); return {totals,owners}; }),
   listOwners: platformAdminProcedure.query(async ()=>ownerOverviewFromSupabase()),
   platformSnapshot: platformAdminProcedure.query(async ()=>platformSnapshotFromSupabase()),
