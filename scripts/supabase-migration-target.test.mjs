@@ -21,6 +21,21 @@ describe("Supabase migration release target guard", () => {
     });
   });
 
+  it("rejects URL options that disable TLS or permit an insecure fallback", () => {
+    for (const mode of ["disable", "allow", "prefer", ""]) {
+      expect(() => assertSupabaseMigrationTarget({
+        target: "staging",
+        projectRef: SUPABASE_PROJECT_BY_TARGET.staging,
+        databaseUrl: directUri(SUPABASE_PROJECT_BY_TARGET.staging, `?sslmode=${mode}`),
+      })).toThrow("must enforce TLS");
+    }
+    expect(assertSupabaseMigrationTarget({
+      target: "staging",
+      projectRef: SUPABASE_PROJECT_BY_TARGET.staging,
+      databaseUrl: directUri(SUPABASE_PROJECT_BY_TARGET.staging, "?sslmode=verify-full"),
+    }).hostname).toBe(`db.${SUPABASE_PROJECT_BY_TARGET.staging}.supabase.co");
+  });
+
   it("rejects a project reference secret for the wrong environment", () => {
     expect(() => assertSupabaseMigrationTarget({
       target: "staging",

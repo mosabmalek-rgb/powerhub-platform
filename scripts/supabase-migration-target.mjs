@@ -26,6 +26,15 @@ export function assertSupabaseMigrationTarget({ target, projectRef, databaseUrl 
     throw new Error("SUPABASE_DB_URL is not a valid PostgreSQL connection URI.");
   }
 
+  const requestedSslModes = parsed.searchParams.getAll("sslmode").map((mode) => mode.trim().toLowerCase());
+  const allowedSslModes = new Set(["require", "verify-ca", "verify-full"]);
+  if (
+    requestedSslModes.some((mode) => !allowedSslModes.has(mode)) ||
+    new Set(requestedSslModes).size > 1
+  ) {
+    throw new Error("SUPABASE_DB_URL must enforce TLS; sslmode must be require, verify-ca, or verify-full.");
+  }
+
   const expectedHost = `db.${expectedProjectRef}.supabase.co`;
   if (parsed.hostname !== expectedHost) {
     throw new Error(`SUPABASE_DB_URL host must match the selected ${target} project (${expectedHost}); refusing to connect to a differently configured database.`);

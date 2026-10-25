@@ -117,7 +117,7 @@ describe("offline work status presentation", () => {
     expect(stillBackedOff.canRetry).toBe(false);
   });
 
- () => {
+  it("does not expose retry before nextAttemptAt for pending transient results", () => {
     const presentation = getOfflineWorkStatusPresentation(
       item("pending"),
       metadata("retryable", { nextAttemptAt: 300 }),
