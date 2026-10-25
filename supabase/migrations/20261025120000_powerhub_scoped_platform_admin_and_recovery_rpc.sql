@@ -47,14 +47,14 @@ CREATE POLICY platform_security_settings_platform_admin_guard
   USING (private.powerhub_is_platform_management_admin())
   WITH CHECK (private.powerhub_is_platform_management_admin());
 
--- Access-recovery requests remain visible to a tenant that legitimately owns
--- them, but finance_admin does not gain blanket cross-tenant recovery access.
+-- Access-recovery requests contain security workflow metadata and are read by
+-- the platform-management server workflow only; tenant members get no direct read.
 ALTER TABLE public.access_recovery_requests ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS access_recovery_tenant_isolation ON public.access_recovery_requests;
 CREATE POLICY access_recovery_tenant_isolation
   ON public.access_recovery_requests AS PERMISSIVE FOR ALL TO authenticated
-  USING (private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_management_admin())
-  WITH CHECK (private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_management_admin());
+  USING (private.powerhub_is_platform_management_admin())
+  WITH CHECK (private.powerhub_is_platform_management_admin());
 DROP POLICY IF EXISTS access_recovery_scope_guard ON public.access_recovery_requests;
 CREATE POLICY access_recovery_scope_guard
   ON public.access_recovery_requests AS RESTRICTIVE FOR ALL TO authenticated
