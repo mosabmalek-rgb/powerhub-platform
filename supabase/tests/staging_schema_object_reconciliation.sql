@@ -64,6 +64,8 @@ CREATE TABLE public.offline_sync_operations (
   client_operation_id text, operation_type text, entity_type text, entity_id text,
   response jsonb, created_at timestamptz
 );
+-- Deliberately model the staging drift: nullable scheduled_at without a default.
+CREATE TABLE public.notification_messages (id bigint PRIMARY KEY, scheduled_at timestamptz);
 CREATE TABLE public.feature_catalog (
   feature_key text PRIMARY KEY, is_active boolean, updated_at timestamptz
 );
@@ -223,6 +225,23 @@ BEGIN
      OR to_regprocedure('public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb)') IS NOT NULL
      OR to_regprocedure('public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb,uuid)') IS NOT NULL THEN
     RAISE EXCEPTION 'SCHEMA_RECONCILIATION_STALE_RPC_OVERLOAD_REMAINS';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='offline_sync_operations'
+      AND column_name='request_fingerprint' AND data_type='text' AND is_nullable='YES'
+  ) THEN
+    RAISE EXCEPTION 'SCHEMA_RECONCILIATION_REQUEST_FINGERPRINT_COLUMN_MISSING';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='notification_messages'
+      AND column_name='scheduled_at' AND is_nullable='NO'
+      AND column_default IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'SCHEMA_RECONCILIATION_SCHEDULED_AT_DEFAULT_OR_NOT_NULL_MISSING';
   END IF;
 
   IF (SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename IN (

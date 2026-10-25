@@ -93,6 +93,10 @@ describe("offline server-write ACL hardening migration", () => {
     expect(normalizedMigration).toContain("grant execute on function public.powerhub_admin_renew_subscription_with_addons(bigint, bigint, timestamp with time zone, text, jsonb, uuid) to service_role");
     expect(normalizedMigration).toContain("revoke all on table public.generator_owner_provisioning_operations from public, anon, authenticated, service_role");
     expect(normalizedMigration).toContain("grant all on table public.generator_owner_provisioning_operations to service_role");
+    expect(normalizedMigration).toContain("alter table public.offline_sync_operations add column if not exists request_fingerprint text;");
+    expect(normalizedMigration).toContain("alter table public.notification_messages alter column scheduled_at set default now();");
+    expect(normalizedMigration).toContain("alter table public.notification_messages alter column scheduled_at set not null;");
+    expect(normalizedMigration).toContain("where scheduled_at is null");
     expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_request_owner_access_recovery(bigint,bigint,text)");
     expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb,uuid)");
   });
