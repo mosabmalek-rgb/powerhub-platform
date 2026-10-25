@@ -342,9 +342,16 @@ function DashboardLayoutContent({
   // Never use cached access after the live server check has explicitly failed.
   // This prevents a stale subscription/permission snapshot from surviving a
   // confirmed 401/403 while still eliminating the refresh-time menu flash.
-  const activeTenantAccess = activeAccess.isError
+  const activeAccessErrorCode = (activeAccess.error as { data?: { code?: string } } | null)?.data?.code;
+  const accessWasExplicitlyDenied = activeAccess.isError &&
+    (activeAccessErrorCode === "FORBIDDEN" || activeAccessErrorCode === "UNAUTHORIZED");
+  // A timeout/network error is not proof that a membership or permission was
+  // revoked. Preserve the last server-confirmed snapshot in that case; only a
+  // definitive authorization response invalidates the cached menu snapshot.
+  const activeTenantAccess = accessWasExplicitlyDenied
     ? null
     : activeAccess.data ?? cachedActiveAccess;
+  const accessCheckTemporarilyUnavailable = activeAccess.isError && !accessWasExplicitlyDenied;
   const hasActiveTenantAccess = Boolean(activeTenantAccess?.role);
 
   useEffect(() => {
@@ -377,7 +384,11 @@ function DashboardLayoutContent({
     items: group.items.filter((item) => {
       if (displayUser.role === "admin") return true;
       if (item.path === "/payment-documentation") return Boolean(paymentDocumentationAccess.data?.allowed);
-      if (!hasActiveTenantAccess) return item.path === "/workspace" || item.path === "/profile";
+      if (!hasActiveTenantAccess) {
+        // Keep navigation discoverable during a transient access-check outage.
+        // Every route and operation still validates authorization on the server.
+        return accessCheckTemporarilyUnavailable || item.path === "/workspace" || item.path === "/profile";
+      }
       if (!activeTenantAccess) return item.path === "/workspace" || item.path === "/profile";
       return tenantMenuRouteAllowed(item.path, activeTenantAccess.role, activeTenantAccess.permissions, activeTenantAccess.usesPermissionOverride);
     }),
