@@ -47,7 +47,7 @@ DECLARE
   v_policy_count integer;
 BEGIN
   FOREACH v_table IN ARRAY ARRAY['platform_security_events','platform_security_settings'] LOOP
-    IF NOT has_table_privilege('anon',format('public.%I',v_table),'SELECT')
+    IF has_table_privilege('anon',format('public.%I',v_table),'SELECT')
        OR has_table_privilege('anon',format('public.%I',v_table),'INSERT')
        OR has_table_privilege('authenticated',format('public.%I',v_table),'INSERT')
        OR has_table_privilege('authenticated',format('public.%I',v_table),'UPDATE')
