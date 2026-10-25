@@ -46,6 +46,9 @@ jobs:
           node --check scripts/supabase-migration-file.mjs
           node --check scripts/supabase-migration-target.test.mjs
           node --check scripts/release-supabase-migration.mjs
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          fi
           node scripts/check-supabase-migration-files.mjs
           pnpm exec vitest run --maxWorkers=1 --minWorkers=1 scripts/supabase-migration-target.test.mjs
 
