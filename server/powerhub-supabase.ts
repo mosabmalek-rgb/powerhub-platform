@@ -995,11 +995,14 @@ export async function getSupabaseFinancialOverview(site: SupabaseSite) {
   const admin = supabaseAdmin();
   // Supabase's configured REST row cap can silently truncate ordinary selects.
   // Read every table in ordered, bounded pages so the debt totals and search workspace are complete.
-  const readAllPages = async <T,>(readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) => {
+  const readAllPages = async <T,>(area: string, readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>) => {
     const result: T[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await readPage(from, from + 999);
-      if (page.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جميع بيانات المتأخرات من Supabase." });
+      if (page.error) {
+        logSupabaseDataReadFailure(area, page.error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `تعذر تحميل بيانات الملخص المالي من Supabase (${area}).` });
+      }
       const rows = page.data ?? [];
       result.push(...rows);
       if (rows.length < 1000) break;
@@ -1007,10 +1010,10 @@ export async function getSupabaseFinancialOverview(site: SupabaseSite) {
     return result;
   };
   const [invoices, payments, expenses, subscribers] = await Promise.all([
-    readAllPages((from, to) => admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
-    readAllPages((from, to) => admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
-    readAllPages((from, to) => admin.from("expenses").select("site_id, amount, occurred_at").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
-    readAllPages((from, to) => admin.from("subscribers").select("id, full_name, subscriber_no, service_status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.financialOverview.invoices", (from, to) => admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.financialOverview.payments", (from, to) => admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.financialOverview.expenses", (from, to) => admin.from("expenses").select("site_id, amount, occurred_at").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.financialOverview.subscribers", (from, to) => admin.from("subscribers").select("id, full_name, subscriber_no, service_status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
   ]);
   const byId = new Map(subscribers.map((row) => [Number(row.id), row]));
   return buildFinancialOverview({
@@ -1087,9 +1090,11 @@ export async function getSupabaseDashboardSummary(siteId: number, tenantId: numb
     ["invoices", invoiceResult.error],
     ["expenses", expenseResult.error],
   ] as const;
-  const failedInitialReads = initialReadErrors.filter((entry): entry is readonly [string, NonNullable<typeof entry[1]>] => Boolean(entry[1]));
+  const failedInitialReads = initialReadErrors.filter(([, error]) => Boolean(error));
   if (failedInitialReads.length) {
-    for (const [table, error] of failedInitialReads) logSupabaseDataReadFailure(`dashboard.summary.${table}`, error);
+    for (const [table, error] of failedInitialReads) {
+      if (error) logSupabaseDataReadFailure(`dashboard.summary.${table}`, error);
+    }
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: `تعذر تحميل مؤشرات لوحة التشغيل من Supabase: ${failedInitialReads.map(([table]) => table).join("، ")}.`,
