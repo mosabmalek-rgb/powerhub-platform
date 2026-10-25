@@ -58,8 +58,8 @@ CREATE POLICY access_recovery_tenant_isolation
 DROP POLICY IF EXISTS access_recovery_scope_guard ON public.access_recovery_requests;
 CREATE POLICY access_recovery_scope_guard
   ON public.access_recovery_requests AS RESTRICTIVE FOR ALL TO authenticated
-  USING (private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_management_admin())
-  WITH CHECK (private.powerhub_has_tenant_access(tenant_id) OR private.powerhub_is_platform_management_admin());
+  USING (private.powerhub_is_platform_management_admin())
+  WITH CHECK (private.powerhub_is_platform_management_admin());
 
 -- Quick-action preferences stay owner-scoped; only platform owners/admins may
 -- inspect or manage other users' preferences from the platform workspace.
