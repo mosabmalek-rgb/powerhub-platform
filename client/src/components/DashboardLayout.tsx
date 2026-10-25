@@ -376,7 +376,7 @@ function DashboardLayoutContent({
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const paymentDocumentationAccess = trpc.powerhub.paymentDocumentation.access.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
-  const operationalGroups = menuGroups.map((group) => group.label === "التشغيل" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled) } : group);
+  const operationalGroups = menuGroups.map((group) => group.label === "التشغيل" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled !== false) } : group);
   const canSeePlatformAdmin = displayUser.role === "admin" && ["platform_owner", "platform_admin"].includes(displayUser.platformRole ?? "");
   const visibleMenuGroups = canSeePlatformAdmin ? [...operationalGroups, platformAdminGroup] : operationalGroups;
   const permissionAwareGroups = visibleMenuGroups.map((group) => ({
