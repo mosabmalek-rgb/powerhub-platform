@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { QueuedOfflineWork } from "./offline-work-queue";
 import type { SyncMetadataRecord } from "./offline-sync-metadata";
 import { getOfflineWorkStatusPresentation } from "./offline-work-status";
+import { SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
 
 type WorkState = Pick<QueuedOfflineWork, "clientOperationId" | "userId" | "tenantId" | "siteId" | "kind" | "status">;
 
@@ -75,6 +76,26 @@ describe("offline work status presentation", () => {
     expect(presentation.outcome).toBe("rejected");
     expect(presentation.canSync).toBe(true);
     expect(presentation.actionLabel).toBe("تسوية الحالة");
+  });
+
+  it("offers an explicit recovery action for an exhausted ambiguous send", () => {
+    const exhausted = getOfflineWorkStatusPresentation(
+      item("pending"),
+      metadata("syncing", { attempts: SYNC_MAX_ATTEMPTS }),
+      200,
+    );
+    expect(exhausted.outcome).toBe("recoverable-syncing");
+    expect(exhausted.canSync).toBe(true);
+    expect(exhausted.canRetry).toBe(true);
+    expect(exhausted.actionLabel).toBe("استعادة النتيجة");
+
+    const notExhausted = getOfflineWorkStatusPresentation(
+      item("pending"),
+      metadata("syncing", { attempts: SYNC_MAX_ATTEMPTS - 1 }),
+      200,
+    );
+    expect(notExhausted.outcome).toBe("syncing");
+    expect(notExhausted.canRetry).toBe(false);
   });
 
   it("does not expose retry before nextAttemptAt for pending transient results", () => {

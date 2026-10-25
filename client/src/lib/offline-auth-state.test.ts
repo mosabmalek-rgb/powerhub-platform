@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isSupabaseSessionUsable,
@@ -74,5 +75,17 @@ describe("Supabase browser session refresh policy", () => {
     expect(isSupabaseSessionUsable({ expires_at: 999 }, 1_000)).toBe(false);
     expect(isSupabaseSessionUsable({ expires_at: Number.NaN }, 1_000)).toBe(false);
     expect(isSupabaseSessionUsable(null, 1_000)).toBe(false);
+  });
+});
+
+
+describe("Supabase browser refresh wiring", () => {
+  it("uses the supported automatic refresh lifecycle in the actual browser client", () => {
+    const source = readFileSync(new URL("./supabase.ts", import.meta.url), "utf8");
+    expect(source).toContain("auth: { ...SUPABASE_BROWSER_AUTH_OPTIONS }");
+    expect(source).not.toMatch(/autoRefreshToken\\s*:\\s*false/);
+    expect(source).not.toContain("scheduleSessionRefresh");
+    expect(source).toContain("shouldRefreshSupabaseSession");
+    expect(source).toMatch(/getSupabaseAccessToken[\\s\\S]*isSupabaseSessionUsable/);
   });
 });

@@ -3,13 +3,15 @@ import {
   type QueuedOfflineWork,
 } from "./offline-work-queue";
 import type { SyncMetadataRecord } from "./offline-sync-metadata";
+import { isManualSyncRecoveryRequired } from "./offline-sync-engine";
 
-type WorkStatusOutcome = SyncMetadataRecord["outcome"] | "missing";
+type WorkStatusOutcome = SyncMetadataRecord["outcome"] | "missing" | "recoverable-syncing";
 type WorkStatusTone = "success" | "warning" | "error" | "pending";
 
 const STATUS_PRESENTATION: Record<WorkStatusOutcome, { label: string; tone: WorkStatusTone }> = {
   pending: { label: "بانتظار مزامنة الخادم", tone: "pending" },
   syncing: { label: "التحقق من نتيجة إرسال سابق", tone: "warning" },
+  "recoverable-syncing": { label: "نتيجة إرسال غير محسومة — الاستعادة اليدوية متاحة", tone: "warning" },
   applied: { label: "أكد الخادم نجاح العملية", tone: "success" },
   already_applied: { label: "أكد الخادم أن العملية نُفذت سابقًا", tone: "success" },
   conflict: { label: "تعارض — مراجعة مطلوبة", tone: "error" },
@@ -38,9 +40,16 @@ export function getOfflineWorkStatusPresentation(
   const compatibleMetadata = isSyncMetadataCompatibleWithWorkItem(item, metadata)
     ? metadata
     : undefined;
-  const outcome: WorkStatusOutcome = compatibleMetadata
-    ? compatibleMetadata.outcome
-    : item.status === "applied"
+  const exhaustedSyncNeedsRecovery = Boolean(
+    compatibleMetadata &&
+    isManualSyncRecoveryRequired(compatibleMetadata) &&
+    (item.status === "pending" || item.status === "failed"),
+  );
+  const outcome: WorkStatusOutcome = exhaustedSyncNeedsRecovery
+    ? "recoverable-syncing"
+    : compatibleMetadata
+      ? compatibleMetadata.outcome
+      : item.status === "applied"
       ? "applied"
       : item.status === "conflict"
         ? "conflict"
@@ -55,19 +64,23 @@ export function getOfflineWorkStatusPresentation(
   const canSync = Boolean(compatibleMetadata && eligibleQueueState && (
     (outcome === "pending" && item.status === "pending") ||
     outcome === "syncing" ||
+    outcome === "recoverable-syncing" ||
     (outcome === "retryable" && (
       item.status === "failed" || compatibleMetadata.nextAttemptAt <= now
     )) ||
     queueNeedsReconciliation
   ));
   const canRetry = Boolean(
-    compatibleMetadata &&
-    item.status === "failed" &&
-    outcome === "retryable",
+    compatibleMetadata && (
+      (item.status === "failed" && outcome === "retryable") ||
+      outcome === "recoverable-syncing"
+    ),
   );
   const actionLabel = queueNeedsReconciliation
     ? "تسوية الحالة"
-    : canRetry
+    : outcome === "recoverable-syncing"
+      ? "استعادة النتيجة"
+      : canRetry
       ? "إعادة محاولة"
       : "مزامنة";
 

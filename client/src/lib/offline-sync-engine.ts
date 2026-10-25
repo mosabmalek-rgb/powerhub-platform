@@ -137,9 +137,21 @@ export function scheduleRetry(
   };
 }
 
-/** Manual retry is safe only when the last server/transport result was explicitly transient. */
-export function canManuallyRetry(metadata: Pick<SyncMetadata, "outcome"> | undefined): boolean {
-  return metadata?.outcome === "retryable";
+/** A crash-stuck send may have committed on the server; recovery must be user initiated. */
+export function isManualSyncRecoveryRequired(
+  metadata: Pick<SyncMetadata, "outcome" | "attempts"> | undefined,
+): boolean {
+  return metadata?.outcome === "syncing" && metadata.attempts >= SYNC_MAX_ATTEMPTS;
+}
+
+/** Manual retry is safe for explicit transient failures or an exhausted ambiguous send using the same operation ID. */
+export function canManuallyRetry(
+  metadata: (Pick<SyncMetadata, "outcome"> & Partial<Pick<SyncMetadata, "attempts">>) | undefined,
+): boolean {
+  return metadata?.outcome === "retryable" ||
+    (metadata?.outcome === "syncing" &&
+      typeof metadata.attempts === "number" &&
+      metadata.attempts >= SYNC_MAX_ATTEMPTS);
 }
 
 export function shouldRetry(metadata: SyncMetadata): boolean {

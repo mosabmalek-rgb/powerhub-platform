@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { QueuedOfflineWork } from "./offline-work-queue";
 import {
   canManuallyRetry,
+  isManualSyncRecoveryRequired,
+  SYNC_MAX_ATTEMPTS,
   classifySyncResult,
   computeBackoffDelay,
   createSyncMetadata,
@@ -137,6 +139,14 @@ describe("offline sync engine", () => {
     const exhausted = scheduleRetry(metadata, 1_000, 0.5);
     expect(exhausted.attempts).toBe(5);
     expect(shouldRetry(exhausted)).toBe(false);
+  });
+
+  it("requires explicit recovery for a crash-stuck send after the retry ceiling", () => {
+    expect(isManualSyncRecoveryRequired({ outcome: "syncing", attempts: SYNC_MAX_ATTEMPTS })).toBe(true);
+    expect(isManualSyncRecoveryRequired({ outcome: "syncing", attempts: SYNC_MAX_ATTEMPTS - 1 })).toBe(false);
+    expect(canManuallyRetry({ outcome: "syncing", attempts: SYNC_MAX_ATTEMPTS })).toBe(true);
+    expect(canManuallyRetry({ outcome: "syncing", attempts: SYNC_MAX_ATTEMPTS - 1 })).toBe(false);
+    expect(canManuallyRetry({ outcome: "retryable" })).toBe(true);
   });
 
   it("marks completed operations as terminal", () => {

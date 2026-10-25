@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { canRequeueFailedOfflineWork, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
+import { canRequeueFailedOfflineWork, canRequeueOfflineWorkForManualRecovery, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
+import { SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
 
 describe("طابور المسودات دون اتصال", () => {
   it("ينشئ معرف عملية ثابتاً داخل السجل ومعرفاً مختلفاً لكل مسودة", () => {
@@ -41,6 +42,19 @@ describe("طابور المسودات دون اتصال", () => {
     expect(canRequeueFailedOfflineWork({ ...draft, status: "pending" }, { ...metadata, outcome: "retryable" })).toBe(false);
   });
 
+
+  it("allows recovery only for exhausted ambiguous sends with matching scope", () => {
+    const draft = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "payment_create",
+      payload: { subscriberId: 31, invoiceId: 41, paymentNo: "PAY-OFF-RECOVERY", amount: 15, paymentMethod: "cash", companyAccountId: 2 },
+    });
+    const syncing = { ...createInitialSyncMetadataRecord(draft), outcome: "syncing" as const, attempts: SYNC_MAX_ATTEMPTS };
+    expect(canRequeueOfflineWorkForManualRecovery({ ...draft, status: "pending" }, syncing)).toBe(true);
+    expect(canRequeueOfflineWorkForManualRecovery({ ...draft, status: "failed" }, syncing)).toBe(true);
+    expect(canRequeueOfflineWorkForManualRecovery({ ...draft, status: "pending" }, { ...syncing, attempts: SYNC_MAX_ATTEMPTS - 1 })).toBe(false);
+    expect(canRequeueOfflineWorkForManualRecovery({ ...draft, status: "conflict" }, syncing)).toBe(false);
+    expect(canRequeueOfflineWorkForManualRecovery({ ...draft, status: "pending" }, { ...syncing, tenantId: 999 })).toBe(false);
+  });
 
   it("يدرج القراءة الميدانية في Outbox مع الاحتفاظ بمعرف العملية", () => {
     const payload: ReadingCreateDraft = {

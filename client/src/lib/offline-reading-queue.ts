@@ -6,7 +6,7 @@ import {
   getSyncMetadata, listSyncMetadata, removeSyncMetadata, upsertSyncMetadata,
   type SyncMetadataRecord,
 } from "./offline-sync-metadata";
-import { classifySyncResult, computeBackoffDelay, scheduleRetry, SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
+import { classifySyncResult, computeBackoffDelay, isManualSyncRecoveryRequired, scheduleRetry, SYNC_MAX_ATTEMPTS, type SyncOutcome } from "./offline-sync-engine";
 import { listOfflineConflicts, removeOfflineConflict, upsertOfflineConflict } from "./offline-workspace-db";
 
 export type QueuedReadingStatus = "pending" | "conflict" | "failed";
@@ -14,10 +14,10 @@ export type QueuedReadingErrorKind = "retryable" | "conflict" | "terminal";
 export type QueuedReading = ReadingCreateDraft & {
   id: string; clientOperationId: string; userId: number; tenantId?: number; siteId: number;
   createdAt: number; status: QueuedReadingStatus; attempts: number; nextAttemptAt: number;
-  lastErrorCode?: string; lastErrorKind?: QueuedReadingErrorKind; error?: string;
+  lastErrorCode?: string; lastErrorKind?: QueuedReadingErrorKind; error?: string; syncOutcome?: SyncOutcome;
 };
 type NewQueuedReading = Omit<QueuedReading,
-  "id" | "createdAt" | "status" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind" | "error">;
+  "id" | "createdAt" | "status" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind" | "error" | "syncOutcome">;
 
 export const READING_SYNC_MAX_ATTEMPTS = SYNC_MAX_ATTEMPTS;
 export class OfflineQueueError extends Error {}
@@ -40,7 +40,14 @@ export function scheduleReadingRetry(record: QueuedReading, now = Date.now(), ra
   }, now, random);
   return { attempts: retry.attempts, nextAttemptAt: retry.nextAttemptAt };
 }
-export function isQueuedReadingReadyForSync(record: QueuedReading, now = Date.now()) {
+export function isQueuedReadingReadyForSync(
+  record: QueuedReading,
+  now = Date.now(),
+  allowUncertainRecovery = false,
+) {
+  if (record.syncOutcome === "syncing" && record.attempts >= READING_SYNC_MAX_ATTEMPTS) {
+    return allowUncertainRecovery && (record.status === "pending" || record.status === "failed");
+  }
   if (record.status === "pending") return record.nextAttemptAt <= now;
   return record.status === "failed" && record.lastErrorKind === "retryable" &&
     record.attempts < READING_SYNC_MAX_ATTEMPTS && record.nextAttemptAt <= now;
@@ -50,10 +57,11 @@ function isReadingWork(item: QueuedOfflineWork): item is QueuedOfflineWork & { k
 }
 function mapWorkToReading(item: QueuedOfflineWork, metadata?: SyncMetadataRecord): QueuedReading {
   const raw = item.payload as ReadingCreateDraft;
+  const exhaustedSyncNeedsRecovery = isManualSyncRecoveryRequired(metadata);
   const status: QueuedReadingStatus = item.status === "conflict" || metadata?.outcome === "conflict" ? "conflict"
-    : item.status === "failed" || metadata?.outcome === "retryable" || metadata?.outcome === "rejected" ? "failed" : "pending";
+    : item.status === "failed" || metadata?.outcome === "retryable" || metadata?.outcome === "rejected" || exhaustedSyncNeedsRecovery ? "failed" : "pending";
   const lastErrorKind: QueuedReadingErrorKind | undefined = status === "conflict" ? "conflict"
-    : metadata?.outcome === "retryable" ? "retryable"
+    : metadata?.outcome === "retryable" || exhaustedSyncNeedsRecovery ? "retryable"
     : metadata?.outcome === "rejected" ? "terminal"
     : item.status === "failed" ? "terminal" : undefined;
   return {
@@ -74,7 +82,10 @@ function mapWorkToReading(item: QueuedOfflineWork, metadata?: SyncMetadataRecord
     attempts: metadata?.attempts ?? 0, nextAttemptAt: metadata?.nextAttemptAt ?? item.createdAt,
     ...(metadata?.lastErrorCode ? { lastErrorCode: metadata.lastErrorCode } : {}),
     ...(lastErrorKind ? { lastErrorKind } : {}),
-    ...((metadata?.lastError ?? item.error) ? { error: metadata?.lastError ?? item.error } : {}),
+    ...(metadata?.outcome ? { syncOutcome: metadata.outcome } : {}),
+    ...((metadata?.lastError ?? item.error ?? (exhaustedSyncNeedsRecovery
+      ? "لم تصل نتيجة الإرسال السابقة بعد بلوغ حد المحاولات؛ استخدم الاستعادة اليدوية الآمنة للتحقق بنفس معرف العملية."
+      : undefined)) ? { error: metadata?.lastError ?? item.error ?? "نتيجة إرسال غير محسومة." } : {}),
   };
 }
 /** Field readings are an adapter over the canonical operations Outbox. */

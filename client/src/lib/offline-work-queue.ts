@@ -1,6 +1,7 @@
 import { ensureLegacyFieldReadingsMigrated, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
 import { OfflineNumberRangeError, selectNextAvailableOfflineNumber, type OfflineNumberClaim, type OfflineNumberGrant, type OfflineNumberScope } from "./offline-number-ranges";
 import type { SyncMetadataRecord } from "./offline-sync-metadata";
+import { isManualSyncRecoveryRequired } from "./offline-sync-engine";
 export type OfflineWorkKind =
   | "subscriber_create"
   | "subscriber_update"
@@ -189,6 +190,21 @@ export function canRequeueFailedOfflineWork(item: QueuedOfflineWork, metadata?: 
   return item.status === "failed" &&
     isSyncMetadataCompatibleWithWorkItem(item, metadata) &&
     metadata.outcome === "retryable";
+}
+
+/**
+ * Recover a result-unknown operation only when automatic retries are exhausted.
+ * Keep the original operation ID: the server's idempotency contract determines
+ * whether the previous request committed and must return its original result.
+ */
+export function canRequeueOfflineWorkForManualRecovery(
+  item: QueuedOfflineWork,
+  metadata?: SyncMetadataRecord,
+): boolean {
+  if (!isSyncMetadataCompatibleWithWorkItem(item, metadata)) return false;
+  if (item.status === "failed" && metadata.outcome === "retryable") return true;
+  return (item.status === "pending" || item.status === "failed") &&
+    isManualSyncRecoveryRequired(metadata);
 }
 
 
@@ -501,7 +517,7 @@ export async function requeueOfflineWorkForManualRetry(input: {
           operation.clientOperationId !== input.clientOperationId ||
           operation.userId !== input.userId ||
           operation.siteId !== input.siteId ||
-          !canRequeueFailedOfflineWork(operation, metadata)) return;
+          !canRequeueOfflineWorkForManualRecovery(operation, metadata)) return;
 
       const { lastError: _lastError, ...retryMetadata } = metadata;
       void _lastError;

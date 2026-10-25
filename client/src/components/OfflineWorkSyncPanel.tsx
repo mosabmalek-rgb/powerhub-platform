@@ -324,14 +324,16 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const allItems = await listOfflineWork({ userId, siteId });
         const now = Date.now();
         let requeued = 0;
-        for (const item of allItems.filter((entry) => entry.status === "failed")) {
+        for (const item of allItems.filter((entry) => entry.status === "failed" || entry.status === "pending")) {
           const changed = await requeueOfflineWorkForManualRetry({
             id: item.id, clientOperationId: item.clientOperationId,
             userId, siteId, now,
           });
           if (changed) requeued += 1;
         }
-        if (!requeued) toast.message("لا توجد مسودات فاشلة ذات نتيجة مؤقتة موثوقة قابلة لإعادة المحاولة.");
+        if (!requeued && !allItems.some((entry) => entry.status === "pending")) {
+          toast.message("لا توجد مسودات فاشلة ذات نتيجة مؤقتة أو عمليات إرسال غير محسومة بلغت حد المحاولات.");
+        }
         await syncPendingUnlocked();
       } catch (error) {
         toast.error(getErrorMessage(error));

@@ -1,33 +1,53 @@
 import { describe, expect, it } from "vitest";
-import {
-  OfflineQueueError, assertOfflineQueueAvailable, classifyReadingSyncError,
-  computeReadingRetryDelay, isQueuedReadingReadyForSync, scheduleReadingRetry, type QueuedReading,
-} from "./offline-reading-queue";
+import { SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
+import { isQueuedReadingReadyForSync, type QueuedReading } from "./offline-reading-queue";
 
-describe("offline field reading adapter", () => {
-  it("reports a clear error when IndexedDB is unavailable", () => {
-    if (typeof indexedDB !== "undefined") return;
-    expect(() => assertOfflineQueueAvailable()).toThrow(OfflineQueueError);
+function reading(overrides: Partial<QueuedReading> = {}): QueuedReading {
+  return {
+    id: "reading-1",
+    clientOperationId: "reading-op-1",
+    userId: 7,
+    tenantId: 2,
+    siteId: 3,
+    subscriberId: 31,
+    readingValue: "1234",
+    readingAt: "2026-10-25T10:00:00.000Z",
+    captureMethod: "manual",
+    createdAt: 100,
+    status: "pending",
+    attempts: 0,
+    nextAttemptAt: 100,
+    ...overrides,
+  };
+}
+
+describe("offline reading sync readiness", () => {
+  it("does not automatically replay an exhausted ambiguous send, but enables explicit recovery", () => {
+    const stuck = reading({
+      status: "failed",
+      attempts: SYNC_MAX_ATTEMPTS,
+      nextAttemptAt: 1,
+      syncOutcome: "syncing",
+      lastErrorKind: "retryable",
+    });
+    expect(isQueuedReadingReadyForSync(stuck, 200)).toBe(false);
+    expect(isQueuedReadingReadyForSync(stuck, 200, true)).toBe(true);
   });
-  it("uses the shared sync outcome classifier", () => {
-    expect(classifyReadingSyncError("CONFLICT")).toBe("conflict");
-    expect(classifyReadingSyncError("BAD_REQUEST")).toBe("terminal");
-    expect(classifyReadingSyncError("SERVICE_UNAVAILABLE")).toBe("retryable");
-    expect(classifyReadingSyncError()).toBe("retryable");
+
+  it("resumes syncing operations below the attempt ceiling", () => {
+    const resumable = reading({ attempts: SYNC_MAX_ATTEMPTS - 1, syncOutcome: "syncing" });
+    expect(isQueuedReadingReadyForSync(resumable, 200)).toBe(true);
   });
-  it("applies bounded retry and respects retry deadlines", () => {
-    const record: QueuedReading = {
-      id: "reading-1", clientOperationId: "op-1", userId: 7, siteId: 3, subscriberId: 31,
-      readingValue: "125.5", readingAt: "2026-10-24T10:00:00.000Z", captureMethod: "manual",
-      createdAt: 1000, status: "failed", attempts: 1, nextAttemptAt: 5000, lastErrorKind: "retryable",
-    };
-    expect(isQueuedReadingReadyForSync(record, 4999)).toBe(false);
-    expect(isQueuedReadingReadyForSync(record, 5000)).toBe(true);
-    const retry = scheduleReadingRetry(record, 5000, 0.5);
-    expect(retry.attempts).toBe(2);
-    expect(retry.nextAttemptAt).toBeGreaterThan(5000);
-    expect(isQueuedReadingReadyForSync({ ...record, status: "conflict" }, 10000)).toBe(false);
-    expect(isQueuedReadingReadyForSync({ ...record, attempts: 5 }, 10000)).toBe(false);
-    expect(computeReadingRetryDelay(10, 0.5)).toBe(300000);
+
+  it("does not bypass backoff for ordinary transient failures", () => {
+    const delayed = reading({
+      status: "failed",
+      attempts: 1,
+      nextAttemptAt: 500,
+      syncOutcome: "retryable",
+      lastErrorKind: "retryable",
+    });
+    expect(isQueuedReadingReadyForSync(delayed, 200)).toBe(false);
+    expect(isQueuedReadingReadyForSync(delayed, 200, true)).toBe(false);
   });
 });
