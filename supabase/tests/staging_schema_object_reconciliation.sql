@@ -175,8 +175,10 @@ $widen_policy_scope$;
 
 \ir ../migrations/20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql
 \ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
--- The scoped policy migration must be safe to replay after the main reconciliation.
+\ir ../migrations/20261025133000_powerhub_owner_provisioning_idempotency_lifecycle.sql
+-- Both forward migrations must be safe to replay without duplicating policy/function state.
 \ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
+\ir ../migrations/20261025133000_powerhub_owner_provisioning_idempotency_lifecycle.sql
 
 DO $assert_reconciliation$
 DECLARE
@@ -197,6 +199,9 @@ DECLARE
     'tenant_addon_renewal_decisions','tenant_owner_alerts'
   ];
   v_server_functions text[] := ARRAY[
+    'public.powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text)',
+    'public.powerhub_admin_attach_generator_owner_provisioning_auth(bigint,uuid,uuid,text)',
+    'public.powerhub_admin_cancel_generator_owner_provisioning(bigint,uuid,text,uuid)',
     'public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,integer)',
     'public.powerhub_admin_create_tariff_policy(bigint,numeric,numeric,timestamptz,boolean,text)',
     'public.powerhub_admin_grant_tenant_addon(bigint,bigint,text,integer,text,text,uuid)',
