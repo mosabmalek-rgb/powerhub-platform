@@ -1,12 +1,10 @@
 import { trpc } from "@/lib/trpc";
-import { UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
-import { httpBatchLink, TRPCClientError } from "@trpc/client";
+import { httpBatchLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import { lazy, Suspense } from "react";
 import superjson from "superjson";
 const App = lazy(() => import("./App"));
-import { startLogin } from "./const";
 import "./index.css";
 
 const AuthProvider = lazy(() => import("@/_core/hooks/useAuth").then((module) => ({ default: module.AuthProvider })));
@@ -51,32 +49,9 @@ onlineManager.setEventListener((setOnline) => {
   };
 });
 
-const redirectToLoginIfUnauthorized = (error: unknown) => {
-  if (!(error instanceof TRPCClientError)) return;
-  if (typeof window === "undefined") return;
-
-  const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
-  if (!isUnauthorized) return;
-
-  // A request can race the first Supabase auth event immediately after login.
-  // Do not redirect on that transient 401; only redirect after a fresh session
-  // read confirms that the browser is genuinely unauthenticated.
-  void import("./lib/supabase").then(async ({ getSupabaseSession, isSupabaseRefreshBackoffActive }) => {
-    const session = await getSupabaseSession();
-    return { session, refreshBackoffActive: isSupabaseRefreshBackoffActive() };
-  }).then(({ session, refreshBackoffActive }) => {
-    // A rate-limited/transient refresh failure is not confirmation that the
-    // user signed out. Keep the current route while the bounded retry window
-    // elapses; useAuth will retry profile validation after the backoff.
-    if (session || refreshBackoffActive) return;
-    if (window.location.pathname !== "/login") window.location.assign("/login");
-  });
-};
-
 queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.query.state.error;
-    redirectToLoginIfUnauthorized(error);
     console.error("[API Query Error]", error);
   }
 });
@@ -84,7 +59,6 @@ queryClient.getQueryCache().subscribe(event => {
 queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
-    redirectToLoginIfUnauthorized(error);
     console.error("[API Mutation Error]", error);
   }
 });

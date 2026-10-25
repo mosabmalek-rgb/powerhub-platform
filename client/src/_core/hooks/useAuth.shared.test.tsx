@@ -163,7 +163,7 @@ describe("shared AuthProvider", () => {
     queryClient.clear();
   });
 
-  it("does not preserve a session after an explicit unauthorized profile response", async () => {
+  it("does not treat an unauthorized profile response as logout while a live session exists", async () => {
     const unauthorized = Object.assign(new Error("Unauthorized"), {
       data: { code: "UNAUTHORIZED" },
     });
@@ -171,10 +171,11 @@ describe("shared AuthProvider", () => {
       data: undefined,
       isPending: false,
       isSuccess: false,
+      isError: true,
       error: unauthorized,
       refetch: vi.fn(),
     });
-    mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
+    mocks.getSession.mockResolvedValue({ user: { id: "user-1" }, expires_at: Math.floor(Date.now() / 1000) + 300 });
     mocks.subscribe.mockReturnValue(vi.fn());
     mocks.getLease.mockResolvedValue(null);
     mocks.getOfflineUser.mockResolvedValue(null);
@@ -189,7 +190,8 @@ describe("shared AuthProvider", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("workspace: anonymous")).toBeInTheDocument();
+      expect(screen.getByText("workspace: checking")).toBeInTheDocument();
+      expect(screen.queryByText("workspace: anonymous")).not.toBeInTheDocument();
     });
     queryClient.clear();
   });
