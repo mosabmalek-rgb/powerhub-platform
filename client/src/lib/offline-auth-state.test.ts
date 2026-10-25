@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { resolveOfflineAuthTransition, selectAuthSnapshot } from "./offline-auth-state";
+import {
+  isSupabaseSessionUsable,
+  resolveOfflineAuthTransition,
+  selectAuthSnapshot,
+  shouldRefreshSupabaseSession,
+  SUPABASE_BROWSER_AUTH_OPTIONS,
+} from "./offline-auth-state";
 
 describe("offline authentication state transitions", () => {
   it("preserves the offline lease when the initial session is absent", () => {
@@ -34,5 +40,39 @@ describe("auth session snapshot ordering", () => {
 
   it("accepts a session snapshot when no newer auth event occurred", () => {
     expect(selectAuthSnapshot(null, "old-session", 4, 4)).toBeNull();
+  });
+});
+
+
+describe("Supabase browser session refresh policy", () => {
+  it("keeps automatic refresh enabled with persisted sessions", () => {
+    expect(SUPABASE_BROWSER_AUTH_OPTIONS).toEqual({
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    });
+  });
+
+  it("does not refresh a comfortably unexpired access token", () => {
+    expect(shouldRefreshSupabaseSession(1_800, 1_000)).toBe(false);
+  });
+
+  it("refreshes an access token inside the 60-second safety window", () => {
+    expect(shouldRefreshSupabaseSession(1_060, 1_000)).toBe(true);
+    expect(shouldRefreshSupabaseSession(1_059, 1_000)).toBe(true);
+  });
+
+  it("refreshes expired or unbounded sessions instead of returning stale credentials", () => {
+    expect(shouldRefreshSupabaseSession(999, 1_000)).toBe(true);
+    expect(shouldRefreshSupabaseSession(undefined, 1_000)).toBe(true);
+    expect(shouldRefreshSupabaseSession(null, 1_000)).toBe(true);
+  });
+
+  it("only treats a session as usable while its access token is unexpired", () => {
+    expect(isSupabaseSessionUsable({ expires_at: 1_001 }, 1_000)).toBe(true);
+    expect(isSupabaseSessionUsable({ expires_at: 1_000 }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ expires_at: 999 }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ expires_at: Number.NaN }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable(null, 1_000)).toBe(false);
   });
 });
