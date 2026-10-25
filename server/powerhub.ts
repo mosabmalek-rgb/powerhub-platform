@@ -29,12 +29,43 @@ import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
+type SupabaseRpcFailure = { code?: string; message?: string } | null | undefined;
+
+function isDefinitivePostgresRpcFailure(error: SupabaseRpcFailure): boolean {
+  const code = typeof error?.code === "string" ? error.code : "";
+  const ambiguousSqlStateClasses = new Set(["08", "40", "57", "58", "XX"]);
+  return /^[0-9A-Z]{5}$/.test(code) &&
+    !ambiguousSqlStateClasses.has(code.slice(0, 2)) &&
+    code !== "40003";
+}
+
+async function cleanupReceiptAfterDefinitiveRpcFailure(
+  receiptImageKey: string | undefined,
+  error: SupabaseRpcFailure,
+  operation: string,
+): Promise<void> {
+  if (!receiptImageKey) return;
+  if (!isDefinitivePostgresRpcFailure(error)) {
+    console.warn(`[PowerHub] ${operation} outcome is indeterminate; retaining uploaded receipt for safe replay/reconciliation`, {
+      errorCode: error?.code ?? "unknown",
+    });
+    return;
+  }
+  try {
+    await storageRemove(receiptImageKey);
+  } catch (cleanupError) {
+    console.error(`[PowerHub] ${operation} receipt cleanup failed after definitive SQL rejection`, cleanupError);
+  }
+}
+
 async function requirePaymentDocumentationFeature(tenantId: number) {
   const { data, error } = await supabaseAdmin().rpc("powerhub_payment_documentation_access", { p_tenant_id: tenantId });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة توثيق الدفع الإلكتروني." });
   if (!data?.[0]?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة لهذا الاشتراك." });
   return data[0] as { allowed: boolean; policy: string; package_code: string | null; entitlement_enabled: boolean };
 }
+
+const hasAtMostTwoDecimalPlaces = (value: number) => Number.isFinite(value) && Math.abs(value * 100 - Math.round(value * 100)) < 1e-7;
 
 const paymentDocumentationDateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ يجب أن يكون بصيغة سنة-شهر-يوم.")
   .refine((value) => {
@@ -1963,7 +1994,8 @@ export const powerhubRouter = router({
             throw new TRPCError({ code: "CONFLICT", message: "معرّف عملية المزامنة مستخدم ضمن مستأجر أو فرع مختلف." });
           }
           if (applied.operation_type !== "subscriber_create") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
-          return applied.response as { id: number; subscriberNo: string; referenceNotifications: Array<{ notificationId: number; status: string; error?: string }> };
+          const previous = applied.response as { id: number; subscriberNo: string; referenceNotifications: Array<{ notificationId: number; status: string; error?: string }> };
+          return { ...previous, replayed: true };
         }
       }
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
@@ -1993,7 +2025,7 @@ export const powerhubRouter = router({
         });
         if (!error && data?.[0]) {
           const row = data[0] as { subscriber_id: number | string; subscriber_no: string; replayed: boolean };
-          const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
+          const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }>, replayed: Boolean(row.replayed) };
           if (!row.replayed) {
             try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } }); }
             catch (alertError) { console.error("[PowerHub] subscriber quota alert failed after offline creation", alertError); }
@@ -2056,7 +2088,7 @@ export const powerhubRouter = router({
           openingReadingId = replayReading?.id ? Number(replayReading.id) : undefined;
           openingReadingStatus = replayReading?.status ?? openingReadingStatus;
         }
-        const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }> };
+        const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }>, replayed: Boolean(row.replayed) };
         if (!row.replayed) {
           try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } }); } catch (alertError) { console.error("[PowerHub] subscriber quota alert failed after successful creation", alertError); }
         }
@@ -2154,13 +2186,19 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageSubscribers");
       const admin = supabaseAdmin();
       if (input.clientOperationId) {
-        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations").select("operation_type, response")
+        const { data: applied, error: appliedError } = await admin.from("offline_sync_operations")
+          .select("tenant_id, site_id, entity_type, operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
         if (appliedError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مفتاح المزامنة في Supabase." });
         if (applied) {
+          if (Number(applied.tenant_id) !== access.tenantId ||
+              Number(applied.site_id) !== input.siteId ||
+              applied.entity_type !== "subscriber") {
+            throw new TRPCError({ code: "CONFLICT", message: "معرّف عملية المزامنة مستخدم ضمن مستأجر أو فرع مختلف." });
+          }
           if (applied.operation_type !== "subscriber_update") throw new TRPCError({ code: "CONFLICT", message: "مفتاح عملية المزامنة مستخدم لنوع عملية مختلف." });
           const response = applied.response as { success: true; updatedAt: string | Date };
-          return { success: true as const, updatedAt: new Date(response.updatedAt) };
+          return { success: true as const, updatedAt: new Date(response.updatedAt), replayed: true };
         }
       }
       const phone = normalizeInternationalPhone(input.phone);
@@ -2172,7 +2210,7 @@ export const powerhubRouter = router({
       });
       if (!error && data?.[0]) {
         const row = data[0] as { updated_at: string; replayed: boolean };
-        return { success: true as const, updatedAt: new Date(row.updated_at) };
+        return { success: true as const, updatedAt: new Date(row.updated_at), replayed: Boolean(row.replayed) };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن المحطة المحددة." });
@@ -2518,8 +2556,8 @@ export const powerhubRouter = router({
         p_billing_period: input.billingPeriod, p_due_date: dueDate.toISOString(), p_discount_amount: input.discountAmount, p_client_operation_id: input.clientOperationId ?? null,
       });
       if (!error && data?.[0]) {
-        const row = data[0] as { invoice_id: number | string; invoice_no: string; total_amount: number | string };
-        return { id: Number(row.invoice_id), invoiceNo: row.invoice_no, totalAmount: Number(row.total_amount) };
+        const row = data[0] as { invoice_id: number | string; invoice_no: string; total_amount: number | string; replayed: boolean };
+        return { id: Number(row.invoice_id), invoiceNo: row.invoice_no, totalAmount: Number(row.total_amount), replayed: Boolean(row.replayed) };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("READING_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "القراءة لا تتبع للمحطة المحددة." });
@@ -2626,7 +2664,7 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
-      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(), manualDiscountAmount: z.number().min(0).max(100000000).default(0), manualDiscountReason: z.string().trim().max(300).optional(),
+      paymentNo: z.string().min(3).max(60), amount: z.number().positive().refine(hasAtMostTwoDecimalPlaces, "مبلغ التحصيل يجب ألا يتجاوز منزلتين عشريتين."), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(), manualDiscountAmount: z.number().min(0).max(100000000).refine(hasAtMostTwoDecimalPlaces, "مبلغ الخصم يجب ألا يتجاوز منزلتين عشريتين.").default(0), manualDiscountReason: z.string().trim().max(300).optional(),
     }).superRefine((input, ctx) => {
       const hasTransferSource = Boolean(input.transferFromAccount);
       if ((hasTransferSource && !input.transferFromType) || (!hasTransferSource && input.transferFromType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "حدد نوع الحساب المحوِّل فقط عند إدخال رقمه." });
@@ -2638,6 +2676,17 @@ export const powerhubRouter = router({
       }
       let receiptImageKey: string | undefined;
       let receiptImageHash: string | undefined;
+      let collectorSessionId: number | undefined;
+      if (access.role === "collector") {
+        const { data: openSession, error: sessionError } = await supabaseAdmin().from("collector_sessions").select("id")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("collector_user_id", ctx.user.id).eq("status", "open").maybeSingle();
+        if (sessionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة التحصيل في Supabase." });
+        if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
+        collectorSessionId = Number(openSession.id);
+      }
+
+      // All authorization and collector-session preconditions must pass before
+      // creating a receipt object in storage.
       if (input.receiptImageData) {
         if (!input.receiptImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة الإيصال." });
         const imageBytes = Buffer.from(input.receiptImageData, "base64");
@@ -2647,14 +2696,7 @@ export const powerhubRouter = router({
         const stored = await storagePut(`payment-receipts/${ctx.user.id}/${input.paymentNo}-${Date.now()}.${extension}`, imageBytes, input.receiptImageMime);
         receiptImageKey = stored.key;
       }
-      let collectorSessionId: number | undefined;
-      if (access.role === "collector") {
-        const { data: openSession, error: sessionError } = await supabaseAdmin().from("collector_sessions").select("id")
-          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("collector_user_id", ctx.user.id).eq("status", "open").maybeSingle();
-        if (sessionError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة التحصيل في Supabase." });
-        if (!openSession) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
-        collectorSessionId = Number(openSession.id);
-      }
+
       const rpcArgs = {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_subscriber_id: input.subscriberId, p_invoice_id: input.invoiceId ?? null,
         p_payment_no: input.paymentNo, p_amount: input.amount, p_payment_method: input.paymentMethod, p_company_account_id: input.companyAccountId,
@@ -2662,11 +2704,42 @@ export const powerhubRouter = router({
         p_receipt_image_key: receiptImageKey ?? null, p_receipt_image_hash: receiptImageHash ?? null, p_collector_session_id: collectorSessionId ?? null,
         p_client_operation_id: input.clientOperationId ?? null,
       };
-      const { data, error } = input.manualDiscountAmount > 0
-        ? await supabaseAdmin().rpc("powerhub_create_payment_with_discount", { ...rpcArgs, p_manual_discount_amount: input.manualDiscountAmount, p_manual_discount_reason: input.manualDiscountReason })
-        : await supabaseAdmin().rpc("powerhub_create_payment", rpcArgs);
-      if (!error && data?.[0]) return { id: Number((data[0] as { payment_id: number | string }).payment_id) };
+      let data: unknown[] | null = null;
+      let error: { code?: string; message?: string } | null = null;
+      try {
+        const rpcResult = input.manualDiscountAmount > 0
+          ? await supabaseAdmin().rpc("powerhub_create_payment_with_discount", { ...rpcArgs, p_manual_discount_amount: input.manualDiscountAmount, p_manual_discount_reason: input.manualDiscountReason })
+          : await supabaseAdmin().rpc("powerhub_create_payment", rpcArgs);
+        data = rpcResult.data as unknown[] | null;
+        error = rpcResult.error;
+      } catch (rpcFailure) {
+        // A transport exception does not prove that PostgreSQL rolled back: the
+        // payment may have committed before the response was lost. Retain the
+        // receipt rather than deleting an object a committed payment may reference.
+        if (receiptImageKey) {
+          console.warn("[PowerHub] payment RPC outcome is indeterminate; retaining uploaded receipt for safe replay/reconciliation", {
+            errorName: rpcFailure instanceof Error ? rpcFailure.name : "unknown",
+          });
+        }
+        throw rpcFailure;
+      }
+      if (!error && data?.[0]) {
+        const row = data[0] as { payment_id: number | string; replayed: boolean };
+        if (row.replayed && receiptImageKey) {
+          // The existing payment owns its original receipt; discard the new upload
+          // attached to this transport retry to prevent orphaned duplicate images.
+          try { await storageRemove(receiptImageKey); }
+          catch (cleanupError) { console.error("[PowerHub] orphaned payment retry image cleanup failed", cleanupError); }
+        }
+        return { id: Number(row.payment_id), replayed: Boolean(row.replayed) };
+      }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (receiptImageKey) {
+        // A five-character SQLSTATE is an explicit PostgreSQL statement failure,
+        // so the RPC transaction rolled back. PGRST/network/unknown errors may
+        // represent an indeterminate commit and must not trigger destructive cleanup.
+        await cleanupReceiptAfterDefinitiveRpcFailure(receiptImageKey, error, "payment RPC");
+      }
       if (errorText.includes("MANUAL_DISCOUNT_EXCEEDS_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "قيمة الخصم أكبر من الرصيد المستحق." });
       if (errorText.includes("PAYMENT_AND_DISCOUNT_EXCEED_BALANCE")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق." });
       if (errorText.includes("MANUAL_DISCOUNT_REASON_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل سبب الخصم اليدوي." });
@@ -2751,8 +2824,12 @@ export const powerhubRouter = router({
         p_receipt_image_hash: receiptImageHash ?? null,
         p_client_operation_id: input.clientOperationId,
       });
-      if (!error && data?.[0]) return { id: Number((data[0] as { request_id: number | string }).request_id), replayed: Boolean((data[0] as { replayed?: boolean }).replayed) };
-      if (receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
+      if (!error && data?.[0]) {
+        const replayed = Boolean((data[0] as { replayed?: boolean }).replayed);
+        if (replayed && receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
+        return { id: Number((data[0] as { request_id: number | string }).request_id), replayed };
+      }
+      await cleanupReceiptAfterDefinitiveRpcFailure(receiptImageKey, error, "public payment documentation RPC");
       const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (text.includes("SHARE_LINK_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "رابط الفاتورة غير صالح أو منتهي." });
       if (text.includes("PAYMENT_DOCUMENTATION_DISABLED")) throw new TRPCError({ code: "FORBIDDEN", message: "ميزة توثيق الدفع الإلكتروني غير مفعلة." });
@@ -3014,7 +3091,7 @@ export const powerhubRouter = router({
         if (replayed && receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
         return { id: Number((data[0] as { request_id: number | string }).request_id), replayed };
       }
-      if (receiptImageKey) await storageRemove(receiptImageKey).catch(() => undefined);
+      await cleanupReceiptAfterDefinitiveRpcFailure(receiptImageKey, error, "payment documentation RPC");
       const text = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (text.includes("INVOICE_OUT_OF_SCOPE") || text.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفاتورة أو المشترك لا يتبعان للمحطة المحددة." });
       if (text.includes("INVOICE_ALREADY_PAID")) throw new TRPCError({ code: "CONFLICT", message: "الفاتورة مسددة بالكامل." });
@@ -3040,7 +3117,9 @@ export const powerhubRouter = router({
         if (text.includes("INVOICE_BALANCE_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد الفاتورة؛ راجع الطلب قبل الاعتماد." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد طلب توثيق الدفع." });
       }
-      const paymentId = Number((data[0] as { payment_id: number | string }).payment_id);
+      const approval = data[0] as { payment_id: number | string; replayed: boolean };
+      const paymentId = Number(approval.payment_id);
+      const replayed = Boolean(approval.replayed);
       // Approval is the financial source of truth. Receipt preparation and SMS queuing
       // are secondary, best-effort work and must never turn a successful approval into a
       // misleading failed button state. Read receipt context and display policy in parallel.
@@ -3096,7 +3175,7 @@ export const powerhubRouter = router({
           errorName: secondaryError instanceof Error ? secondaryError.name : "unknown",
         });
       }
-      return { paymentId };
+      return { paymentId, replayed };
     }),
     receiptUrl: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), requestId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");

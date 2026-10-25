@@ -99,6 +99,13 @@ describe("site billing minimum and fractional settlement contract", () => {
     expect(collectionUi).toContain("مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق");
   });
 
+  it("rejects sub-cent payment and manual-discount amounts before the financial RPC", () => {
+    const server = read("server/powerhub.ts");
+    expect(server).toContain("hasAtMostTwoDecimalPlaces");
+    expect(server).toContain("amount: z.number().positive().refine(hasAtMostTwoDecimalPlaces");
+    expect(server).toContain("manualDiscountAmount: z.number().min(0).max(100000000).refine(hasAtMostTwoDecimalPlaces");
+  });
+
   it("reports only realized automatic and manual discounts by adjustment timestamp", () => {
     const migration = read("supabase/migrations/20261014140000_powerhub_manual_collection_discount.sql");
     const server = read("server/powerhub.ts");
