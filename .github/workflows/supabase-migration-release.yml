@@ -1,0 +1,162 @@
+name: Supabase Versioned Migration Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target environment. Production runs require protected environment approval."
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      migration_path:
+        description: "Exact reviewed migration path under supabase/migrations"
+        required: true
+        type: string
+      source_pr_number:
+        description: "Optional open same-repository PR number for a newly added migration. Staging only."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: supabase-migration-release-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Validate and apply one versioned migration
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: supabase-${{ inputs.target }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MIGRATION_PATH: ${{ inputs.migration_path }}
+      RELEASE_TARGET: ${{ inputs.target }}
+      SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
+
+    steps:
+      - name: Checkout trusted release tooling from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve and validate immutable migration source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$MIGRATION_PATH" =~ ^supabase/migrations/[0-9]{14}_[a-z0-9_]+\.sql$ ]]; then
+            echo "Release blocked: migration_path must name one top-level, versioned SQL migration."
+            exit 1
+          fi
+
+          if [[ "$RELEASE_TARGET" == "production" ]]; then
+            if [[ -n "$SOURCE_PR_NUMBER" ]]; then
+              echo "Release blocked: production migrations must come from main; source_pr_number must be empty."
+              exit 1
+            fi
+            source_sha="$(git rev-parse HEAD)"
+          elif [[ -z "$SOURCE_PR_NUMBER" ]]; then
+            source_sha="$(git rev-parse HEAD)"
+          else
+            if [[ ! "$SOURCE_PR_NUMBER" =~ ^[1-9][0-9]{0,7}$ ]]; then
+              echo "Release blocked: source_pr_number must be a numeric pull request number."
+              exit 1
+            fi
+
+            pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$SOURCE_PR_NUMBER")"
+            pr_state="$(jq -r '.state // ""' <<< "$pr_json")"
+            pr_base="$(jq -r '.base.ref // ""' <<< "$pr_json")"
+            pr_base_repo="$(jq -r '.base.repo.full_name // ""' <<< "$pr_json")"
+            pr_base_sha="$(jq -r '.base.sha // ""' <<< "$pr_json")"
+            pr_head_repo="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
+            source_sha="$(jq -r '.head.sha // ""' <<< "$pr_json")"
+            current_main_sha="$(git rev-parse HEAD)"
+
+            if [[ "$pr_state" != "open" || "$pr_base" != "main" || "$pr_base_repo" != "$GITHUB_REPOSITORY" || "$pr_head_repo" != "$GITHUB_REPOSITORY" ]]; then
+              echo "Release blocked: staging source must be an open, same-repository PR targeting main."
+              exit 1
+            fi
+            if [[ "$pr_base_sha" != "$current_main_sha" ]]; then
+              echo "Release blocked: PR base is stale relative to main; update the PR and retry."
+              exit 1
+            fi
+            if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Release blocked: GitHub did not return an immutable commit SHA."
+              exit 1
+            fi
+
+            compare_json="$(gh api "repos/$GITHUB_REPOSITORY/compare/$pr_base_sha...$source_sha")"
+            if ! jq -e --arg path "$MIGRATION_PATH" 'any(.files[]?; .filename == $path and .status == "added")' <<< "$compare_json" >/dev/null; then
+              echo "Release blocked: only a migration newly added by the pinned PR head can be released before merge."
+              exit 1
+            fi
+          fi
+
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Migration source pinned to $source_sha"
+
+      - name: Checkout migration source at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.source.outputs.sha }}
+          path: migration-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Copy only the selected SQL migration into trusted release workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_file="$GITHUB_WORKSPACE/migration-source/$MIGRATION_PATH"
+          source_migrations="$GITHUB_WORKSPACE/migration-source/supabase/migrations"
+          target_file="$GITHUB_WORKSPACE/$MIGRATION_PATH"
+
+          if [[ ! -f "$source_file" || -L "$source_file" ]]; then
+            echo "Release blocked: selected source is not a regular SQL file."
+            exit 1
+          fi
+          if [[ "$(realpath "$(dirname "$source_file")")" != "$(realpath "$source_migrations")" ]]; then
+            echo "Release blocked: selected migration resolves outside the source migration directory."
+            exit 1
+          fi
+
+          if [[ -e "$target_file" ]]; then
+            if ! cmp -s -- "$source_file" "$target_file"; then
+              echo "Release blocked: the migration path exists on main with different content; investigate instead of overwriting."
+              exit 1
+            fi
+          else
+            cp -- "$source_file" "$target_file"
+          fi
+
+      - name: Validate trusted release scripts and migration history
+        run: |
+          node --check scripts/check-supabase-migration-files.mjs
+          node --check scripts/supabase-migration-file.mjs
+          node --check scripts/supabase-migration-target.mjs
+          node --check scripts/release-supabase-migration.mjs
+          node scripts/check-supabase-migration-files.mjs
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Apply exactly one migration with matching ledger version
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          MIGRATION_PATH: ${{ inputs.migration_path }}
+          RELEASE_TARGET: ${{ inputs.target }}
+        run: node scripts/release-supabase-migration.mjs "$MIGRATION_PATH" "$RELEASE_TARGET"
