@@ -180,6 +180,14 @@ BEGIN
   END;
   IF NOT v_denied THEN RAISE EXCEPTION 'EXPIRED_OWNER_UPDATE_WAS_ALLOWED'; END IF;
 
+END
+$assert_expired_membership_denied$;
+RESET ROLE;
+
+-- Inspect side effects as the migration/test owner. The authenticated browser
+-- role intentionally has no direct SELECT access to these operational tables.
+DO $assert_expired_membership_no_side_effects$
+BEGIN
   IF EXISTS (SELECT 1 FROM public.generators WHERE tenant_id=10 AND code='GEN-EXPIRED-CREATE')
      OR EXISTS (SELECT 1 FROM public.offline_sync_operations WHERE user_id=1 AND client_operation_id='expired-create-op') THEN
     RAISE EXCEPTION 'EXPIRED_OWNER_CREATE_LEFT_OPERATIONAL_SIDE_EFFECTS';
@@ -188,8 +196,7 @@ BEGIN
     RAISE EXCEPTION 'EXPIRED_OWNER_UPDATE_LEFT_OPERATIONAL_SIDE_EFFECTS';
   END IF;
 END
-$assert_expired_membership_denied$;
-RESET ROLE;
+$assert_expired_membership_no_side_effects$;
 
 -- Positive controls: an unexpired owner can still create and update offline.
 SELECT set_config('request.jwt.claim.sub','20000000-0000-4000-8000-000000000002',false);
