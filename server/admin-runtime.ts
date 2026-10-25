@@ -88,10 +88,24 @@ export const adminRouter = router({
       if (authResult.error || !authResult.data.user) {
         // Only a definitive duplicate/validation response is safe to release.
         if (authResult.error?.status === 422) {
-          await admin.rpc("powerhub_admin_cancel_generator_owner_provisioning", {
-            p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
-            p_request_fingerprint: fingerprint, p_auth_user_id: null,
-          });
+          let cancellation;
+          try {
+            cancellation = await admin.rpc("powerhub_admin_cancel_generator_owner_provisioning", {
+              p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+              p_request_fingerprint: fingerprint, p_auth_user_id: null,
+            });
+          } catch (error) {
+            console.error("[AdminSupabase] failed to persist owner provisioning cancellation after definitive Auth rejection", {
+              errorName: error instanceof Error ? error.name : "unknown",
+            });
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"رُفض إنشاء حساب الدخول، لكن تعذر تثبيت إلغاء العملية. لا تبدأ عملية جديدة؛ أعد محاولة المصالحة بالمعرّف نفسه."});
+          }
+          if (cancellation.error || cancellation.data?.[0]?.cancelled !== true) {
+            console.error("[AdminSupabase] owner provisioning cancellation not confirmed after Auth rejection", {
+              code: cancellation.error?.code ?? null,
+            });
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"رُفض إنشاء حساب الدخول، لكن لم يتأكد إغلاق سجل العملية. أعد محاولة المصالحة بالمعرّف نفسه."});
+          }
           throw new TRPCError({code:"CONFLICT",message:"البريد الإلكتروني مستخدم مسبقًا أو لا يمكن إنشاء الحساب بهذه البيانات."});
         }
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تأكيد إنشاء حساب الدخول؛ أُبقيت العملية للمصالحة الآمنة."});
@@ -146,14 +160,21 @@ export const adminRouter = router({
         });
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تراجعت معاملة قاعدة البيانات، لكن تعذر إغلاق سجل العملية بأمان؛ احتُفظ بحساب الدخول لمنع كسر إمكانية المصالحة."});
       }
-      const cleanup = await admin.auth.admin.deleteUser(authUserId);
-      if (!cleanup.error) {
-        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"رفضت قاعدة البيانات التسجيل؛ أُغلقت العملية وأُلغي حساب الدخول التعويضيًا."});
+      try {
+        const cleanup = await admin.auth.admin.deleteUser(authUserId);
+        if (!cleanup.error) {
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"رفضت قاعدة البيانات التسجيل؛ أُغلقت العملية وأُلغي حساب الدخول التعويضيًا."});
+        }
+        console.error("[AdminSupabase] owner provisioning Auth compensation failed after durable cancellation", {
+          code: cleanup.error.code ?? null,
+        });
+      } catch (cleanupError) {
+        if (cleanupError instanceof TRPCError) throw cleanupError;
+        console.error("[AdminSupabase] owner provisioning Auth compensation threw after durable cancellation", {
+          errorName: cleanupError instanceof Error ? cleanupError.name : "unknown",
+        });
       }
-      console.error("[AdminSupabase] owner provisioning Auth compensation failed after durable cancellation", {
-        code: cleanup.error.code ?? null,
-      });
-      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"أُغلقت عملية التسجيل بأمان لكن تعذر حذف حساب الدخول التعويضي؛ يلزم تنظيفه عبر مسار المصالحة، ولن تُعاد العملية تلقائيًا."});
+      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"أُغلقت عملية التسجيل بأمان لكن تعذر تأكيد حذف حساب الدخول التعويضي؛ يلزم تنظيفه عبر مسار المصالحة، ولن تُعاد العملية تلقائيًا."});
     }
     // A lost RPC response may mean the transaction committed. Preserve Auth and operation for replay.
     throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تأكيد نتيجة تسجيل صاحب المولد. أعد المحاولة بالعملية نفسها؛ سيمنع معرّف العملية تكرار الاشتراك."});
