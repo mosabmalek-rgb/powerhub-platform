@@ -71,7 +71,7 @@ begin
     from public.staff_profiles p
     where p.tenant_id=v_tenant_id and p.user_id=v_user_id
       and p.is_active and (p.site_id is null or p.site_id=p_site_id)
-      and ((p.permissions @> '[\"manageGenerators\"]'::jsonb)
+      and ((p.permissions @> '["manageGenerators"]'::jsonb)
            or p.role in ('owner','manager','technician'))
     limit 1;
   end if;
