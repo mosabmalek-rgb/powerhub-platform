@@ -33,7 +33,7 @@ describe("Supabase migration release target guard", () => {
       target: "staging",
       projectRef: SUPABASE_PROJECT_BY_TARGET.staging,
       databaseUrl: directUri(SUPABASE_PROJECT_BY_TARGET.staging, "?sslmode=verify-full"),
-    }).hostname).toBe(`db.${SUPABASE_PROJECT_BY_TARGET.staging}.supabase.co");
+    }).hostname).toBe(`db.${SUPABASE_PROJECT_BY_TARGET.staging}.supabase.co`);
   });
 
   it("rejects a project reference secret for the wrong environment", () => {
