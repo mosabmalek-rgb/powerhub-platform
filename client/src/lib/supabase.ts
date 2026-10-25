@@ -24,12 +24,23 @@ let authSubscriptionReady = false;
 // snapshots must not overwrite a newer sign-in/sign-out event when they finish.
 let authStateRevision = 0;
 let expiredSessionRefreshInFlight: Promise<Session | null> | null = null;
+let expiredRefreshFailureCount = 0;
+let expiredRefreshRetryAfter = 0;
 
 async function refreshExpiredSupabaseSession(): Promise<Session | null> {
   if (expiredSessionRefreshInFlight) return expiredSessionRefreshInFlight;
+  if (Date.now() < expiredRefreshRetryAfter) {
+    return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+  }
   expiredSessionRefreshInFlight = supabase.auth.refreshSession()
     .then(({ data, error }) => {
-      if (error || !data.session) return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+      if (error || !data.session) {
+        expiredRefreshFailureCount += 1;
+        expiredRefreshRetryAfter = Date.now() + Math.min(60_000, 5_000 * 2 ** Math.min(expiredRefreshFailureCount - 1, 4));
+        return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+      }
+      expiredRefreshFailureCount = 0;
+      expiredRefreshRetryAfter = 0;
       // The auth listener is authoritative when it has already observed the
       // refresh event; otherwise keep the returned live session as a fallback.
       if (!isSupabaseSessionUsable(currentSession)) {
@@ -38,7 +49,11 @@ async function refreshExpiredSupabaseSession(): Promise<Session | null> {
       }
       return isSupabaseSessionUsable(currentSession) ? currentSession : null;
     })
-    .catch(() => isSupabaseSessionUsable(currentSession) ? currentSession : null)
+    .catch(() => {
+      expiredRefreshFailureCount += 1;
+      expiredRefreshRetryAfter = Date.now() + Math.min(60_000, 5_000 * 2 ** Math.min(expiredRefreshFailureCount - 1, 4));
+      return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+    })
     .finally(() => { expiredSessionRefreshInFlight = null; });
   return expiredSessionRefreshInFlight;
 }
