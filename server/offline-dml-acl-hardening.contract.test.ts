@@ -31,7 +31,7 @@ describe("offline server-write ACL hardening migration", () => {
   it("revokes direct write privileges from public browser roles on core records", async () => {
     const migration = await readMigration();
     expect(migration).toMatch(
-      /revoke\s+insert,\s*update,\s*delete,\s*truncate\s+on table\s+public\.invoices,\s*public\.offline_sync_operations,\s*public\.payments,\s*public\.subscribers\s+from\s+public,\s*anon,\s*authenticated\s*;/i,
+      /revoke\s+insert,\s*update,\s*delete,\s*truncate,\s*references,\s*trigger,\s*maintain\s+on table\s+public\.invoices,\s*public\.offline_sync_operations,\s*public\.payments,\s*public\.subscribers\s+from\s+public,\s*anon,\s*authenticated\s*;/i,
     );
   });
 
