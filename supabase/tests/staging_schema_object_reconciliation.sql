@@ -136,6 +136,11 @@ DO $assert_reconciliation$
 DECLARE
   v_table text;
   v_signature text;
+  v_role text;
+  v_privilege text;
+  v_authenticated_read_tables text[] := ARRAY[
+    'access_recovery_requests','complaints','meters','platform_tariff_policies','user_quick_action_preferences'
+  ];
   v_internal_tables text[] := ARRAY[
     'feature_global_control_audit','generator_owner_provisioning_operations',
     'password_reset_intents','subscription_renewal_operations',
@@ -167,26 +172,33 @@ BEGIN
     IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=to_regclass('public.'||v_table)) THEN
       RAISE EXCEPTION 'SCHEMA_RECONCILIATION_RLS_NOT_ENABLED: %',v_table;
     END IF;
-    IF has_table_privilege('anon','public.'||v_table,'INSERT')
-       OR has_table_privilege('authenticated','public.'||v_table,'INSERT')
-       OR has_table_privilege('anon','public.'||v_table,'UPDATE')
-       OR has_table_privilege('authenticated','public.'||v_table,'UPDATE')
-       OR has_table_privilege('anon','public.'||v_table,'DELETE')
-       OR has_table_privilege('authenticated','public.'||v_table,'DELETE') THEN
-      RAISE EXCEPTION 'SCHEMA_RECONCILIATION_BROWSER_DML_REMAINS: %',v_table;
+    -- Anonymous users must not have direct table access; authenticated read
+    -- grants are limited to the five RLS-scoped tables used by app queries.
+    IF has_table_privilege('anon','public.'||v_table,'SELECT') THEN
+      RAISE EXCEPTION 'SCHEMA_RECONCILIATION_ANON_READ_REMAINS: %',v_table;
     END IF;
+    IF v_table = ANY(v_authenticated_read_tables) THEN
+      IF NOT has_table_privilege('authenticated','public.'||v_table,'SELECT') THEN
+        RAISE EXCEPTION 'SCHEMA_RECONCILIATION_AUTHENTICATED_READ_MISSING: %',v_table;
+      END IF;
+    ELSIF has_table_privilege('authenticated','public.'||v_table,'SELECT') THEN
+      RAISE EXCEPTION 'SCHEMA_RECONCILIATION_INTERNAL_TABLE_EXPOSED: %',v_table;
+    END IF;
+
+    -- RLS does not protect object-management privileges. Browser roles must
+    -- not be able to add triggers, create foreign keys, or maintain these tables.
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+      FOREACH v_privilege IN ARRAY ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'] LOOP
+        IF has_table_privilege(v_role,'public.'||v_table,v_privilege) THEN
+          RAISE EXCEPTION 'SCHEMA_RECONCILIATION_BROWSER_PRIVILEGE_REMAINS: table %, role %, privilege %',v_table,v_role,v_privilege;
+        END IF;
+      END LOOP;
+    END LOOP;
     IF NOT has_table_privilege('service_role','public.'||v_table,'SELECT')
        OR NOT has_table_privilege('service_role','public.'||v_table,'INSERT')
        OR NOT has_table_privilege('service_role','public.'||v_table,'UPDATE')
        OR NOT has_table_privilege('service_role','public.'||v_table,'DELETE') THEN
       RAISE EXCEPTION 'SCHEMA_RECONCILIATION_SERVICE_GRANTS_MISSING: %',v_table;
-    END IF;
-  END LOOP;
-
-  FOREACH v_table IN ARRAY v_internal_tables LOOP
-    IF has_table_privilege('anon','public.'||v_table,'SELECT')
-       OR has_table_privilege('authenticated','public.'||v_table,'SELECT') THEN
-      RAISE EXCEPTION 'SCHEMA_RECONCILIATION_INTERNAL_TABLE_EXPOSED: %',v_table;
     END IF;
   END LOOP;
 

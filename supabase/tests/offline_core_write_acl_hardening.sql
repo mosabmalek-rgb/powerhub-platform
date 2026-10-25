@@ -51,14 +51,14 @@ begin
     end if;
 
     foreach v_role in array array['anon','authenticated'] loop
-      foreach v_privilege in array array['INSERT','UPDATE','DELETE','TRUNCATE'] loop
+      foreach v_privilege in array array['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'] loop
         if has_table_privilege(v_role, format('public.%I',v_table), v_privilege) then
           raise exception 'DIRECT_%_STILL_GRANTED_TO_%_ON_%',v_privilege,v_role,v_table;
         end if;
       end loop;
     end loop;
 
-    foreach v_privilege in array array['INSERT','UPDATE','DELETE','TRUNCATE'] loop
+    foreach v_privilege in array array['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'] loop
       if not has_table_privilege('service_role', format('public.%I',v_table), v_privilege) then
         raise exception 'SERVICE_ROLE_%_REMOVED_ON_%',v_privilege,v_table;
       end if;

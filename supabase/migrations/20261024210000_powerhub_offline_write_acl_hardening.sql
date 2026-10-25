@@ -1,7 +1,7 @@
 -- Keep direct DML behind the server's audited, capability-checked RPC boundary.
 -- Production already has these write grants revoked; this idempotently reconciles
 -- staging's broader grants without changing SELECT/RLS behavior.
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN
   ON TABLE public.invoices, public.offline_sync_operations, public.payments, public.subscribers
   FROM PUBLIC, anon, authenticated;
 
