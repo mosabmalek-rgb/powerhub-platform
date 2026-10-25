@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   invalidate: vi.fn(),
   setData: vi.fn(),
   getSession: vi.fn(),
+  isRefreshBackoffActive: vi.fn(() => false),
   subscribe: vi.fn(),
   getLease: vi.fn(),
   getOfflineUser: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@/lib/trpc", () => ({
 }));
 vi.mock("@/lib/supabase", () => ({
   getSupabaseSession: mocks.getSession,
+  isSupabaseRefreshBackoffActive: mocks.isRefreshBackoffActive,
   subscribeSupabaseAuthState: mocks.subscribe,
 }));
 vi.mock("@/lib/offline-auth", () => ({
@@ -133,4 +135,63 @@ describe("shared AuthProvider", () => {
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
     queryClient.clear();
   });
+  it("does not treat a transient auth.me network error as a signed-out session", async () => {
+    mocks.useQuery.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isSuccess: false,
+      error: new Error("Failed to fetch"),
+      refetch: vi.fn(),
+    });
+    mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
+    mocks.subscribe.mockReturnValue(vi.fn());
+    mocks.getLease.mockResolvedValue(null);
+    mocks.getOfflineUser.mockResolvedValue(null);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
+    });
+    queryClient.clear();
+  });
+
+  it("does not preserve a session after an explicit unauthorized profile response", async () => {
+    const unauthorized = Object.assign(new Error("Unauthorized"), {
+      data: { code: "UNAUTHORIZED" },
+    });
+    mocks.useQuery.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isSuccess: false,
+      error: unauthorized,
+      refetch: vi.fn(),
+    });
+    mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
+    mocks.subscribe.mockReturnValue(vi.fn());
+    mocks.getLease.mockResolvedValue(null);
+    mocks.getOfflineUser.mockResolvedValue(null);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("workspace: anonymous")).toBeInTheDocument();
+    });
+    queryClient.clear();
+  });
+
 });

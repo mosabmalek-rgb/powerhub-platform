@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { probePowerHubConnectivity } from "./offline-connectivity";
+import { probePowerHubConnectivity, subscribeBrowserNetworkStatus } from "./offline-connectivity";
 
 describe("PowerHub connectivity probe", () => {
   it("trusts a successful origin check even when the browser reports offline", async () => {
@@ -36,5 +36,33 @@ describe("PowerHub connectivity probe", () => {
     const networkError = vi.fn(async () => { throw new Error("network unavailable"); });
     await expect(probePowerHubConnectivity(networkError, true)).resolves.toBe(false);
     expect(networkError).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+describe("browser network status", () => {
+  it("tracks browser online/offline events independently of health endpoint probes", () => {
+    const target = new EventTarget();
+    let online = true;
+    const states: boolean[] = [];
+    const unsubscribe = subscribeBrowserNetworkStatus(
+      (value) => states.push(value),
+      target as Window,
+      () => online,
+    );
+
+    expect(states.at(-1)).toBe(true);
+    online = false;
+    target.dispatchEvent(new Event("offline"));
+    expect(states.at(-1)).toBe(false);
+    online = true;
+    target.dispatchEvent(new Event("online"));
+    expect(states.at(-1)).toBe(true);
+
+    const countBeforeCleanup = states.length;
+    unsubscribe();
+    online = false;
+    target.dispatchEvent(new Event("offline"));
+    expect(states).toHaveLength(countBeforeCleanup);
   });
 });

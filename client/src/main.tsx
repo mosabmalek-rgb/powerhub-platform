@@ -30,30 +30,24 @@ const queryClient = new QueryClient({
 
 onlineManager.setEventListener((setOnline) => {
   if (typeof window === "undefined") return () => undefined;
-  // The public invoice query is authorized by its share token, not by an
-  // authenticated user's offline session. Do not let IndexedDB/health-probe
-  // startup pause the invoice query before it has even made its first request.
+  // The online manager must reflect the browser's actual network hint, not a
+  // single health-endpoint request. A cold start or a temporary /api/health
+  // failure must not pause every query and mutation indefinitely.
   if (isStandalonePublicInvoiceRoute()) {
     setOnline(true);
     return () => undefined;
   }
   let disposed = false;
-  const verify = () => {
-    void import("./lib/offline-connectivity").then(({ probePowerHubConnectivity }) => probePowerHubConnectivity()).then((reachable) => {
-      if (!disposed) setOnline(reachable);
-    });
+  const syncBrowserNetwork = () => {
+    if (!disposed) setOnline(typeof navigator === "undefined" || navigator.onLine !== false);
   };
-  const handleOnline = () => verify();
-  // Browser offline hints can be false positives; probe the application origin
-  // before React Query pauses queries and mutations.
-  const handleOffline = () => verify();
-  window.addEventListener("online", handleOnline);
-  window.addEventListener("offline", handleOffline);
-  verify();
+  window.addEventListener("online", syncBrowserNetwork);
+  window.addEventListener("offline", syncBrowserNetwork);
+  syncBrowserNetwork();
   return () => {
     disposed = true;
-    window.removeEventListener("online", handleOnline);
-    window.removeEventListener("offline", handleOffline);
+    window.removeEventListener("online", syncBrowserNetwork);
+    window.removeEventListener("offline", syncBrowserNetwork);
   };
 });
 
@@ -67,8 +61,14 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   // A request can race the first Supabase auth event immediately after login.
   // Do not redirect on that transient 401; only redirect after a fresh session
   // read confirms that the browser is genuinely unauthenticated.
-  void import("./lib/supabase").then(({ getSupabaseSession }) => getSupabaseSession()).then((session) => {
-    if (session) return;
+  void import("./lib/supabase").then(async ({ getSupabaseSession, isSupabaseRefreshBackoffActive }) => {
+    const session = await getSupabaseSession();
+    return { session, refreshBackoffActive: isSupabaseRefreshBackoffActive() };
+  }).then(({ session, refreshBackoffActive }) => {
+    // A rate-limited/transient refresh failure is not confirmation that the
+    // user signed out. Keep the current route while the bounded retry window
+    // elapses; useAuth will retry profile validation after the backoff.
+    if (session || refreshBackoffActive) return;
     if (window.location.pathname !== "/login") window.location.assign("/login");
   });
 };
