@@ -44,9 +44,21 @@ describe("إنشاء صاحب مولد عبر Supabase Auth وRPC ذري", () =>
     await expect(nonAdminCaller.createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("يحذف Auth تعويضياً إذا فشلت المعاملة", async () => {
-    state.rpc.mockRejectedValueOnce(new Error("فشل إدخال الاشتراك"));
+  it("يحذف Auth تعويضياً عند رفض PostgreSQL المؤكد بعد تراجع المعاملة", async () => {
+    state.rpc.mockResolvedValueOnce({ data: null, error: { code: "23505", message: "duplicate key" } });
     await expect(caller().createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
     expect(state.authDeleteUser).toHaveBeenCalledWith("new-auth-user");
+  });
+
+  it("لا يحذف Auth عند غموض نتيجة RPC لأن المعاملة قد تكون اكتملت", async () => {
+    state.rpc.mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(caller().createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(state.authDeleteUser).not.toHaveBeenCalled();
+  });
+
+  it("لا يحذف Auth عند غياب نتيجة RPC من دون خطأ SQL مؤكد", async () => {
+    state.rpc.mockResolvedValueOnce({ data: null, error: null });
+    await expect(caller().createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(state.authDeleteUser).not.toHaveBeenCalled();
   });
 });
