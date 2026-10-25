@@ -52,7 +52,14 @@ BEGIN
        OR has_table_privilege('authenticated',format('public.%I',v_table),'INSERT')
        OR has_table_privilege('authenticated',format('public.%I',v_table),'UPDATE')
        OR has_table_privilege('authenticated',format('public.%I',v_table),'DELETE') THEN
-      RAISE EXCEPTION 'PLATFORM_SECURITY_TABLE_CLIENT_GRANTS_NOT_RESTRICTED: %',v_table;
+      RAISE EXCEPTION
+        'PLATFORM_SECURITY_TABLE_CLIENT_GRANTS_NOT_RESTRICTED: table=% anon_select=% anon_insert=% auth_insert=% auth_update=% auth_delete=%',
+        v_table,
+        has_table_privilege('anon',format('public.%I',v_table),'SELECT'),
+        has_table_privilege('anon',format('public.%I',v_table),'INSERT'),
+        has_table_privilege('authenticated',format('public.%I',v_table),'INSERT'),
+        has_table_privilege('authenticated',format('public.%I',v_table),'UPDATE'),
+        has_table_privilege('authenticated',format('public.%I',v_table),'DELETE');
     END IF;
     IF NOT has_table_privilege('authenticated',format('public.%I',v_table),'SELECT')
        OR NOT has_table_privilege('service_role',format('public.%I',v_table),'SELECT')
