@@ -444,8 +444,19 @@ BEGIN
   PERFORM * FROM public.powerhub_admin_cancel_generator_owner_provisioning(
     92001, v_operation_id, v_fingerprint, v_auth_id
   );
-  IF EXISTS (SELECT 1 FROM public.generator_owner_provisioning_operations WHERE client_operation_id = v_operation_id) THEN
-    RAISE EXCEPTION 'OWNER_PROVISIONING_CANCEL_DID_NOT_REMOVE_MATCHING_PENDING_OPERATION';
+  IF NOT EXISTS (
+    SELECT 1 FROM public.generator_owner_provisioning_operations
+    WHERE client_operation_id = v_operation_id AND status = 'cancelled'
+  ) THEN
+    RAISE EXCEPTION 'OWNER_PROVISIONING_CANCEL_TOMBSTONE_MISSING';
+  END IF;
+
+  SELECT * INTO v_replay
+  FROM public.powerhub_admin_begin_generator_owner_provisioning(
+    92001, v_operation_id, 'owner-lifecycle@example.test', v_fingerprint
+  );
+  IF v_replay.can_create_auth OR NOT v_replay.needs_reconciliation OR v_replay.success THEN
+    RAISE EXCEPTION 'OWNER_PROVISIONING_CANCELLED_OPERATION_REOPENED: %', row_to_json(v_replay);
   END IF;
 END
 $assert_owner_provisioning_lifecycle$;
