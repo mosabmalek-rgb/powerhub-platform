@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ -z "$PGDATABASE" ]; then
+if [ -z "${PGDATABASE:-}" ]; then
   echo "PGDATABASE must name the disposable site-billing test database." >&2
   exit 1
 fi
-if [ -z "$PGHOST" ]; then export PGHOST=127.0.0.1; fi
-if [ -z "$PGPORT" ]; then export PGPORT=5432; fi
-if [ -z "$PGUSER" ]; then export PGUSER=postgres; fi
+if [ -z "${PGHOST:-}" ]; then export PGHOST=127.0.0.1; fi
+if [ -z "${PGPORT:-}" ]; then export PGPORT=5432; fi
+if [ -z "${PGUSER:-}" ]; then export PGUSER=postgres; fi
 
 psql_test() {
   psql --no-psqlrc --no-password --set=ON_ERROR_STOP=1 --tuples-only --no-align --dbname "$PGDATABASE" "$@"
