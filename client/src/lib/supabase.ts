@@ -138,6 +138,6 @@ export async function getSupabaseSession(): Promise<Session | null> {
 
 export async function getSupabaseAccessToken() {
   const session = await getSupabaseSession();
-  if (!isSupabaseSessionUsable(session)) return null;
+  if (!session || !isSupabaseSessionUsable(session)) return null;
   return session.access_token;
 }
