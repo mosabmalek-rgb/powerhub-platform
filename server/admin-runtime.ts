@@ -66,19 +66,64 @@ export const adminRouter = router({
       throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تثبيت عملية التسجيل بأمان؛ لم يُنشأ حساب جديد."});
     }
     const operation = begin.data[0];
-    if (operation.needs_reconciliation) {
-      throw new TRPCError({code:"CONFLICT",message:"نتيجة إنشاء حساب الدخول السابقة غير محسومة. لا تعِد إنشاء الحساب؛ يلزم التحقق من سجل العملية قبل المتابعة."});
-    }
     if (operation.success && operation.replayed) return {
       tenant_id: operation.tenant_id, owner_user_id: operation.owner_user_id,
       site_id: operation.site_id, subscription_id: operation.subscription_id, replayed: true,
     };
     let authUserId: string | null = operation.auth_user_id ?? null;
+    if (operation.needs_reconciliation) {
+      // Recover only a user created by this exact server-owned operation marker.
+      // Never infer identity from email alone and never create another Auth user here.
+      const envelope = await admin.rpc("powerhub_admin_get_generator_owner_provisioning_reconciliation", {
+        p_actor_user_id: ctx.user.id,
+        p_client_operation_id: input.clientOperationId,
+        p_request_fingerprint: fingerprint,
+      });
+      const record = envelope.data?.[0];
+      if (envelope.error || !record || record.operation_status !== "pending" ||
+          record.owner_email !== email || record.request_fingerprint !== fingerprint ||
+          !record.auth_creation_started_at) {
+        throw new TRPCError({code:"CONFLICT",message:"عملية التسجيل تحتاج إلى مصالحة؛ تعذر إثبات هوية حساب الدخول بأمان. لم يُنشأ حساب إضافي."});
+      }
+      if (record.auth_user_id) {
+        authUserId = record.auth_user_id;
+      } else {
+        const matchingUsers = [];
+        for (let page = 1; page <= 10; page += 1) {
+          const usersPage = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+          if (usersPage.error) {
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر فحص حسابات الدخول للمصالحة الآمنة؛ أعد المحاولة بمعرّف العملية نفسه."});
+          }
+          const users = usersPage.data.users ?? [];
+          matchingUsers.push(...users.filter(user =>
+            user.email?.trim().toLowerCase() === email &&
+            user.app_metadata?.powerhub_owner_provisioning_operation_id === input.clientOperationId &&
+            user.app_metadata?.powerhub_owner_provisioning_fingerprint === fingerprint
+          ));
+          if (users.length < 1000) break;
+        }
+        if (matchingUsers.length !== 1) {
+          throw new TRPCError({code:"CONFLICT",message:"لم يُعثر على حساب واحد مطابق حصريًا لعلامة العملية؛ تُركت العملية للمراجعة ولم يُنشأ حساب إضافي."});
+        }
+        authUserId = matchingUsers[0].id;
+      }
+      const attachRecovered = await admin.rpc("powerhub_admin_attach_generator_owner_provisioning_auth", {
+        p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+        p_auth_user_id: authUserId, p_request_fingerprint: fingerprint,
+      });
+      if (attachRecovered.error || !attachRecovered.data?.[0]?.attached) {
+        throw new TRPCError({code:"CONFLICT",message:"عُثر على حساب مطابق لكن تعذر تثبيته في سجل العملية؛ أُبقيت العملية للمصالحة الآمنة."});
+      }
+    }
     if (operation.can_create_auth) {
       let authResult;
       try {
         authResult = await admin.auth.admin.createUser({
           email, password: input.temporaryPassword, email_confirm: true,
+          app_metadata: {
+            powerhub_owner_provisioning_operation_id: input.clientOperationId,
+            powerhub_owner_provisioning_fingerprint: fingerprint,
+          },
           user_metadata: {name: normalized.ownerName, must_change_password: true},
         });
       } catch (error) {
