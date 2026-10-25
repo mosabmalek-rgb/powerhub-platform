@@ -65,6 +65,8 @@ async function requirePaymentDocumentationFeature(tenantId: number) {
   return data[0] as { allowed: boolean; policy: string; package_code: string | null; entitlement_enabled: boolean };
 }
 
+const hasAtMostTwoDecimalPlaces = (value: number) => Number.isFinite(value) && Math.abs(value * 100 - Math.round(value * 100)) < 1e-7;
+
 const paymentDocumentationDateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ يجب أن يكون بصيغة سنة-شهر-يوم.")
   .refine((value) => {
     const date = new Date(`${value}T00:00:00.000Z`);
@@ -2662,7 +2664,7 @@ export const powerhubRouter = router({
     }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
-      paymentNo: z.string().min(3).max(60), amount: z.number().positive(), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(), manualDiscountAmount: z.number().min(0).max(100000000).default(0), manualDiscountReason: z.string().trim().max(300).optional(),
+      paymentNo: z.string().min(3).max(60), amount: z.number().positive().refine(hasAtMostTwoDecimalPlaces, "مبلغ التحصيل يجب ألا يتجاوز منزلتين عشريتين."), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(), manualDiscountAmount: z.number().min(0).max(100000000).refine(hasAtMostTwoDecimalPlaces, "مبلغ الخصم يجب ألا يتجاوز منزلتين عشريتين.").default(0), manualDiscountReason: z.string().trim().max(300).optional(),
     }).superRefine((input, ctx) => {
       const hasTransferSource = Boolean(input.transferFromAccount);
       if ((hasTransferSource && !input.transferFromType) || (!hasTransferSource && input.transferFromType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["transferFromAccount"], message: "حدد نوع الحساب المحوِّل فقط عند إدخال رقمه." });
