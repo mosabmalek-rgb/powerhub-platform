@@ -56,6 +56,16 @@ describe("طابور المسودات دون اتصال", () => {
     expect(canRequeueOfflineWorkForManualRecovery({ ...draft, status: "pending" }, { ...syncing, tenantId: 999 })).toBe(false);
   });
 
+  it("allows manual recovery when a pending row has exhausted retryable metadata", () => {
+    const draft = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "payment_create",
+      payload: { subscriberId: 31, invoiceId: 41, paymentNo: "PAY-OFF-RETRY-CEILING", amount: 15, paymentMethod: "cash", companyAccountId: 2 },
+    });
+    const retryable = { ...createInitialSyncMetadataRecord(draft), outcome: "retryable" as const, attempts: SYNC_MAX_ATTEMPTS };
+    expect(canRequeueOfflineWorkForManualRecovery({ ...draft, status: "pending" }, retryable)).toBe(true);
+    expect(canRequeueOfflineWorkForManualRecovery({ ...draft, status: "pending" }, { ...retryable, attempts: SYNC_MAX_ATTEMPTS - 1 })).toBe(false);
+  });
+
   it("يدرج القراءة الميدانية في Outbox مع الاحتفاظ بمعرف العملية", () => {
     const payload: ReadingCreateDraft = {
       subscriberId: 31, readingValue: "125.5", readingAt: "2026-10-24T10:00:00.000Z",

@@ -15,7 +15,7 @@ import { getPowerHubDeviceId } from "@/lib/offline-auth";
 import { hasAvailableOfflineNumberGrant, persistOfflineNumberGrant } from "@/lib/offline-number-ranges";
 import { listOfflineWork, requeueOfflineWorkForManualRetry, updateOfflineWork, type QueuedOfflineWork, type ReadingCreateDraft } from "@/lib/offline-work-queue";
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
-import { classifySyncResult, SYNC_MAX_ATTEMPTS, type SyncMetadata } from "@/lib/offline-sync-engine";
+import { classifySyncResult, isManualSyncRecoveryRequired, SYNC_MAX_ATTEMPTS, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
 import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { removeOfflineConflict, upsertOfflineConflict } from "@/lib/offline-workspace-db";
@@ -195,8 +195,7 @@ export default function MeterReadingsPage() {
     if (allowUncertainRecovery) {
       let recovered = 0;
       for (const item of records.filter((entry) =>
-        entry.syncOutcome === "syncing" &&
-        entry.attempts >= SYNC_MAX_ATTEMPTS &&
+        isManualSyncRecoveryRequired({ outcome: entry.syncOutcome, attempts: entry.attempts }) &&
         (entry.status === "pending" || entry.status === "failed"),
       )) {
         if (await requeueOfflineWorkForManualRetry({

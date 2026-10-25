@@ -98,7 +98,26 @@ describe("offline work status presentation", () => {
     expect(notExhausted.canRetry).toBe(false);
   });
 
-  it("does not expose retry before nextAttemptAt for pending transient results", () => {
+  it("offers manual recovery when a pending row has exhausted retryable metadata", () => {
+    const exhaustedRetry = getOfflineWorkStatusPresentation(
+      item("pending"),
+      metadata("retryable", { attempts: SYNC_MAX_ATTEMPTS }),
+      200,
+    );
+    expect(exhaustedRetry.outcome).toBe("recoverable-syncing");
+    expect(exhaustedRetry.canRetry).toBe(true);
+    expect(exhaustedRetry.actionLabel).toBe("استعادة النتيجة");
+
+    const stillBackedOff = getOfflineWorkStatusPresentation(
+      item("pending"),
+      metadata("retryable", { attempts: SYNC_MAX_ATTEMPTS - 1, nextAttemptAt: 500 }),
+      200,
+    );
+    expect(stillBackedOff.outcome).toBe("retryable");
+    expect(stillBackedOff.canRetry).toBe(false);
+  });
+
+ () => {
     const presentation = getOfflineWorkStatusPresentation(
       item("pending"),
       metadata("retryable", { nextAttemptAt: 300 }),

@@ -137,11 +137,12 @@ export function scheduleRetry(
   };
 }
 
-/** A crash-stuck send may have committed on the server; recovery must be user initiated. */
+/** An exhausted ambiguous send may have committed on the server; recovery must be user initiated. */
 export function isManualSyncRecoveryRequired(
   metadata: Pick<SyncMetadata, "outcome" | "attempts"> | undefined,
 ): boolean {
-  return metadata?.outcome === "syncing" && metadata.attempts >= SYNC_MAX_ATTEMPTS;
+  return (metadata?.outcome === "syncing" || metadata?.outcome === "retryable") &&
+    metadata.attempts >= SYNC_MAX_ATTEMPTS;
 }
 
 /** Manual retry is safe for explicit transient failures or an exhausted ambiguous send using the same operation ID. */

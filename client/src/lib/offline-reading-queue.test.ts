@@ -34,6 +34,18 @@ describe("offline reading sync readiness", () => {
     expect(isQueuedReadingReadyForSync(stuck, 200, true)).toBe(true);
   });
 
+  it("requires manual action for an exhausted retryable result as well", () => {
+    const stuckRetry = reading({
+      status: "failed",
+      attempts: SYNC_MAX_ATTEMPTS,
+      nextAttemptAt: 1,
+      syncOutcome: "retryable",
+      lastErrorKind: "retryable",
+    });
+    expect(isQueuedReadingReadyForSync(stuckRetry, 200)).toBe(false);
+    expect(isQueuedReadingReadyForSync(stuckRetry, 200, true)).toBe(true);
+  });
+
   it("resumes syncing operations below the attempt ceiling", () => {
     const resumable = reading({ attempts: SYNC_MAX_ATTEMPTS - 1, syncOutcome: "syncing" });
     expect(isQueuedReadingReadyForSync(resumable, 200)).toBe(true);

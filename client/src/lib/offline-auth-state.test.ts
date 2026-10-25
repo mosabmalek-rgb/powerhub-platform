@@ -83,9 +83,9 @@ describe("Supabase browser refresh wiring", () => {
   it("uses the supported automatic refresh lifecycle in the actual browser client", () => {
     const source = readFileSync(new URL("./supabase.ts", import.meta.url), "utf8");
     expect(source).toContain("auth: { ...SUPABASE_BROWSER_AUTH_OPTIONS }");
-    expect(source).not.toMatch(/autoRefreshToken\\s*:\\s*false/);
+    expect(source).not.toContain("autoRefreshToken: false");
     expect(source).not.toContain("scheduleSessionRefresh");
     expect(source).toContain("shouldRefreshSupabaseSession");
-    expect(source).toMatch(/getSupabaseAccessToken[\\s\\S]*isSupabaseSessionUsable/);
+    expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) return null;");
   });
 });

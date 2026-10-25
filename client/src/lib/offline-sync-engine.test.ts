@@ -149,6 +149,16 @@ describe("offline sync engine", () => {
     expect(canManuallyRetry({ outcome: "retryable" })).toBe(true);
   });
 
+  it("requires manual recovery for exhausted transient and ambiguous outcomes", () => {
+    expect(isManualSyncRecoveryRequired({ outcome: "syncing", attempts: SYNC_MAX_ATTEMPTS })).toBe(true);
+    expect(isManualSyncRecoveryRequired({ outcome: "syncing", attempts: SYNC_MAX_ATTEMPTS - 1 })).toBe(false);
+    expect(isManualSyncRecoveryRequired({ outcome: "retryable", attempts: SYNC_MAX_ATTEMPTS })).toBe(true);
+    expect(isManualSyncRecoveryRequired({ outcome: "retryable", attempts: SYNC_MAX_ATTEMPTS - 1 })).toBe(false);
+    expect(canManuallyRetry({ outcome: "syncing", attempts: SYNC_MAX_ATTEMPTS })).toBe(true);
+    expect(canManuallyRetry({ outcome: "syncing", attempts: SYNC_MAX_ATTEMPTS - 1 })).toBe(false);
+    expect(canManuallyRetry({ outcome: "retryable" })).toBe(true);
+  });
+
   it("marks completed operations as terminal", () => {
     const a = item("a", 100);
     const completed = markCompleted(createSyncMetadata(a, 0));

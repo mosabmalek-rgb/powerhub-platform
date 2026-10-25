@@ -41,7 +41,8 @@ describe("offline sync UI contract", () => {
     expect(syncPanel).toContain("isSyncMetadataCompatibleWithWorkItem(item, storedRecord)");
     expect(offlineReadingQueue).toContain("isSyncMetadataCompatibleWithWorkItem(item, state)");
     expect(meterReadingsPage).toContain("withOfflineSyncLock({ userId: user.id, siteId }");
-    expect(meterReadingsPage).toContain("syncQueuedReadingsUnlocked(records)");
+    expect(meterReadingsPage).toContain("syncQueuedReadingsUnlocked(records, allowUncertainRecovery)");
+    expect(meterReadingsPage).toContain("syncQueuedReadings(records, false)");
   });
 
   it("preserves server replay outcomes for every shared Outbox transport", () => {
@@ -63,6 +64,7 @@ describe("offline sync UI contract", () => {
     const readIndex = retryBody.indexOf("listOfflineWork({ userId, siteId })");
     expect(lockIndex).toBeGreaterThanOrEqual(0);
     expect(lockIndex).toBeLessThan(readIndex);
+    expect(retryBody).toContain("for (const item of allItems.filter((entry) => entry.status === \"failed\" || entry.status === \"pending\"))");
     expect(retryBody).toContain("await requeueOfflineWorkForManualRetry({");
     expect(retryBody).not.toContain("upsertSyncMetadata(");
     expect(retryBody).not.toContain("updateOfflineWork(item.id, { status: \"pending\"");
@@ -87,7 +89,9 @@ describe("offline sync UI contract", () => {
   it("requeues an eligible failed work row and retry metadata in one IndexedDB transaction", () => {
     expect(offlineWorkQueue).toContain("export async function requeueOfflineWorkForManualRetry");
     expect(offlineWorkQueue).toContain('database.transaction([storeName, syncMetadataStoreName], "readwrite")');
-    expect(offlineWorkQueue).toContain("canRequeueFailedOfflineWork(operation, metadata)");
+    expect(offlineWorkQueue).toContain("canRequeueOfflineWorkForManualRecovery(operation, metadata)");
+    expect(offlineWorkQueue).toContain("isSyncMetadataCompatibleWithWorkItem(item, metadata)");
+    expect(offlineWorkQueue).toContain("isManualSyncRecoveryRequired(metadata)");
     expect(offlineWorkQueue).toContain("operations.put({ ...operation, status: \"pending\", error: undefined, updatedAt: now })");
     expect(offlineWorkQueue).toContain("metadataStore.put({");
     expect(syncPanel).toContain("await requeueOfflineWorkForManualRetry({");

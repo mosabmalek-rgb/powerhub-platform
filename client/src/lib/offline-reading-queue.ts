@@ -45,7 +45,7 @@ export function isQueuedReadingReadyForSync(
   now = Date.now(),
   allowUncertainRecovery = false,
 ) {
-  if (record.syncOutcome === "syncing" && record.attempts >= READING_SYNC_MAX_ATTEMPTS) {
+  if (isManualSyncRecoveryRequired({ outcome: record.syncOutcome, attempts: record.attempts })) {
     return allowUncertainRecovery && (record.status === "pending" || record.status === "failed");
   }
   if (record.status === "pending") return record.nextAttemptAt <= now;
