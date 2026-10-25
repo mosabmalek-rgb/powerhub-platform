@@ -58,8 +58,14 @@ function useAuthController() {
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: hasSession,
-    retry: false,
-    refetchOnWindowFocus: false,
+    // Retry transient server/network failures, but do not retry definitive
+    // authorization failures as if they were connectivity problems.
+    retry: (failureCount, error) => {
+      const code = (error as { data?: { code?: string } } | null)?.data?.code;
+      return failureCount < 2 && code !== "UNAUTHORIZED" && code !== "FORBIDDEN";
+    },
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
   type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
@@ -245,7 +251,14 @@ function useAuthController() {
   // online workspace before the current Supabase session has completed a live
   // auth.me check. This prevents protected tenant queries from racing the
   // login/session handshake and avoids transient 401/403 states in the UI.
-  const isOnlineAuthenticated = Boolean(hasSession && (meQuery.isSuccess && meQuery.data || cachedUser));
+  const meQueryErrorCode = (meQuery.error as { data?: { code?: string } } | null)?.data?.code;
+  const meQueryAuthorizationDenied = meQueryErrorCode === "UNAUTHORIZED" || meQueryErrorCode === "FORBIDDEN";
+  const meQueryTemporarilyUnavailable = Boolean(meQuery.error && !meQueryAuthorizationDenied);
+  const isOnlineAuthenticated = Boolean(
+    hasSession &&
+      !meQueryAuthorizationDenied &&
+      (meQuery.isSuccess && meQuery.data || cachedUser || meQueryTemporarilyUnavailable),
+  );
   const offlineAuthenticated = Boolean(
     !hasSession &&
       offlineLeaseUserId &&
