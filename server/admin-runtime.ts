@@ -66,12 +66,23 @@ export const adminRouter = router({
       throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تثبيت عملية التسجيل بأمان؛ لم يُنشأ حساب جديد."});
     }
     const operation = begin.data[0];
-    if (operation.success && operation.replayed) return {
+    // Production may still have the legacy begin RPC return shape until the
+    // protected migration-release workflow is run from main. Recognize it
+    // explicitly so code deployment cannot silently treat undefined flags as
+    // permission to skip both Auth creation and reconciliation.
+    const legacyOperationContract =
+      typeof operation.operation_status !== "string" &&
+      typeof operation.status === "string" &&
+      typeof operation.client_operation_id === "string";
+    if (!legacyOperationContract && operation.success && operation.replayed) return {
       tenant_id: operation.tenant_id, owner_user_id: operation.owner_user_id,
       site_id: operation.site_id, subscription_id: operation.subscription_id, replayed: true,
     };
+    if (legacyOperationContract && !["pending", "completed"].includes(operation.status)) {
+      throw new TRPCError({code:"CONFLICT",message:"دورة تسجيل قاعدة البيانات بإصدار قديم وغير متوقع؛ لم يُنشأ حساب إضافي."});
+    }
     let authUserId: string | null = operation.auth_user_id ?? null;
-    if (operation.needs_reconciliation) {
+    if (!legacyOperationContract && operation.needs_reconciliation) {
       // Recover only a user created by this exact server-owned operation marker.
       // Never infer identity from email alone and never create another Auth user here.
       const envelope = await admin.rpc("powerhub_admin_get_generator_owner_provisioning_reconciliation", {
@@ -115,7 +126,7 @@ export const adminRouter = router({
         throw new TRPCError({code:"CONFLICT",message:"عُثر على حساب مطابق لكن تعذر تثبيته في سجل العملية؛ أُبقيت العملية للمصالحة الآمنة."});
       }
     }
-    if (operation.can_create_auth) {
+    if (operation.can_create_auth || (legacyOperationContract && operation.status === "pending" && !authUserId)) {
       let authResult;
       try {
         authResult = await admin.auth.admin.createUser({
@@ -124,7 +135,14 @@ export const adminRouter = router({
             powerhub_owner_provisioning_operation_id: input.clientOperationId,
             powerhub_owner_provisioning_fingerprint: fingerprint,
           },
-          user_metadata: {name: normalized.ownerName, must_change_password: true},
+          // Legacy production begin-RPC recovery looks for this user-metadata
+          // idempotency marker. It is not an authorization claim; new releases
+          // use the server-owned app_metadata marker below.
+          user_metadata: {
+            name: normalized.ownerName,
+            must_change_password: true,
+            provisioning_operation_id: input.clientOperationId,
+          },
         });
       } catch (error) {
         console.error("[AdminSupabase] owner Auth creation outcome indeterminate", { errorName: error instanceof Error ? error.name : "unknown" });
@@ -133,6 +151,14 @@ export const adminRouter = router({
       if (authResult.error || !authResult.data.user) {
         // Only a definitive duplicate/validation response is safe to release.
         if (authResult.error?.status === 422) {
+          if (legacyOperationContract) {
+            // The legacy schema has no cancellation/tombstone RPC. Leave its
+            // reservation intact; it remains safe to retry only with this key.
+            console.error("[AdminSupabase] legacy owner provisioning reservation cannot be cancelled", {
+              clientOperationId: input.clientOperationId,
+            });
+            throw new TRPCError({code:"CONFLICT",message:"البريد الإلكتروني مستخدم مسبقًا أو لا يمكن إنشاء الحساب. يحتفظ المخطط الحالي بسجل العملية؛ استخدم المعرّف نفسه بعد معالجة تعارض البريد."});
+          }
           let cancellation;
           try {
             cancellation = await admin.rpc("powerhub_admin_cancel_generator_owner_provisioning", {
@@ -156,13 +182,15 @@ export const adminRouter = router({
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تأكيد إنشاء حساب الدخول؛ أُبقيت العملية للمصالحة الآمنة."});
       }
       authUserId = authResult.data.user.id;
-      const attach = await admin.rpc("powerhub_admin_attach_generator_owner_provisioning_auth", {
-        p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
-        p_auth_user_id: authUserId, p_request_fingerprint: fingerprint,
-      });
-      if (attach.error || !attach.data?.[0]?.attached) {
-        // The Auth user may exist. Preserve the operation and identity for a safe retry.
-        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"أُنشئ حساب الدخول لكن تعذر ربطه بسجل العملية؛ لا تُعد المحاولة بمعرّف جديد."});
+      if (!legacyOperationContract) {
+        const attach = await admin.rpc("powerhub_admin_attach_generator_owner_provisioning_auth", {
+          p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+          p_auth_user_id: authUserId, p_request_fingerprint: fingerprint,
+        });
+        if (attach.error || !attach.data?.[0]?.attached) {
+          // The Auth user may exist. Preserve the operation and identity for a safe retry.
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"أُنشئ حساب الدخول لكن تعذر ربطه بسجل العملية؛ لا تُعد المحاولة بمعرّف جديد."});
+        }
       }
     }
     if (!authUserId) {
