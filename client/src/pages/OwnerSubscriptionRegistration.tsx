@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Building2, KeyRound, Plus, UserRoundCheck } from "lucide-react";
-import { FormEvent } from "react";
+import { FormEvent, useState } from "react";
 import { trpc } from "@/lib/trpc";
 
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
@@ -11,6 +11,7 @@ type OwnerSubscriptionRegistrationProps = {
   rows: any[];
   pending: boolean;
   onCreate: (input: {
+    clientOperationId: string;
     companyName: string;
     ownerName: string;
     identityNumber: string;
@@ -23,12 +24,13 @@ type OwnerSubscriptionRegistrationProps = {
     subscriptionDuration: number;
     trialEnabled: boolean;
     trialDurationDays?: number;
-  }) => void;
+  }) => Promise<unknown>;
   creationAvailable: boolean;
   onGoToFinance?: () => void;
 };
 
 export default function OwnerSubscriptionRegistration({ rows, pending, onCreate, creationAvailable, onGoToFinance }: OwnerSubscriptionRegistrationProps) {
+  const [clientOperationId, setClientOperationId] = useState(() => crypto.randomUUID());
   const openProfile = (tenantId: number) => { window.history.pushState({}, "", `/admin/owner-subscriptions/${tenantId}`); window.dispatchEvent(new PopStateEvent("popstate")); };
   const catalog = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
   const availablePackages = (catalog.data?.packages ?? []).filter((pkg: any) => pkg.active !== false);
@@ -68,7 +70,8 @@ export default function OwnerSubscriptionRegistration({ rows, pending, onCreate,
           event.preventDefault();
           if (!creationAvailable) return;
           const data = new FormData(event.currentTarget);
-          onCreate({
+          void Promise.resolve(onCreate({
+            clientOperationId,
             companyName: String(data.get("companyName")).trim(),
             ownerName: String(data.get("ownerName")).trim(),
             identityNumber: String(data.get("identityNumber")).trim(),
@@ -81,7 +84,7 @@ export default function OwnerSubscriptionRegistration({ rows, pending, onCreate,
             subscriptionDuration: Number(data.get("subscriptionDuration") || 1),
             trialEnabled: data.get("trialEnabled") === "on",
             trialDurationDays: data.get("trialEnabled") === "on" ? Number(data.get("trialDurationDays") || 8) : undefined
-          });
+          })).then(() => setClientOperationId(crypto.randomUUID())).catch(() => undefined);
         }}>
           <fieldset disabled={!creationAvailable || pending} className="space-y-4 disabled:opacity-55">
             <Input required name="companyName" placeholder="اسم الشركة — مثال: مولدات الحي الشمالي" className={inputClass} />

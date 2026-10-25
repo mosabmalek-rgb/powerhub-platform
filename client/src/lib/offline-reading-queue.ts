@@ -1,23 +1,23 @@
 import {
-  enqueueOfflineWork, getOfflineWork, listOfflineWork, removeOfflineWork, updateOfflineWork,
+  enqueueOfflineWork, getOfflineWork, isSyncMetadataCompatibleWithWorkItem, listOfflineWork, removeOfflineWork, updateOfflineWork,
   type QueuedOfflineWork, type ReadingCreateDraft,
 } from "./offline-work-queue";
 import {
   getSyncMetadata, listSyncMetadata, removeSyncMetadata, upsertSyncMetadata,
   type SyncMetadataRecord,
 } from "./offline-sync-metadata";
-import { classifySyncResult, computeBackoffDelay, scheduleRetry, SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
-import { removeOfflineConflict, upsertOfflineConflict } from "./offline-workspace-db";
+import { classifySyncResult, computeBackoffDelay, isManualSyncRecoveryRequired, scheduleRetry, SYNC_MAX_ATTEMPTS, type SyncOutcome } from "./offline-sync-engine";
+import { listOfflineConflicts, removeOfflineConflict, upsertOfflineConflict } from "./offline-workspace-db";
 
 export type QueuedReadingStatus = "pending" | "conflict" | "failed";
 export type QueuedReadingErrorKind = "retryable" | "conflict" | "terminal";
 export type QueuedReading = ReadingCreateDraft & {
   id: string; clientOperationId: string; userId: number; tenantId?: number; siteId: number;
   createdAt: number; status: QueuedReadingStatus; attempts: number; nextAttemptAt: number;
-  lastErrorCode?: string; lastErrorKind?: QueuedReadingErrorKind; error?: string;
+  lastErrorCode?: string; lastErrorKind?: QueuedReadingErrorKind; error?: string; syncOutcome?: SyncOutcome;
 };
 type NewQueuedReading = Omit<QueuedReading,
-  "id" | "createdAt" | "status" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind" | "error">;
+  "id" | "createdAt" | "status" | "attempts" | "nextAttemptAt" | "lastErrorCode" | "lastErrorKind" | "error" | "syncOutcome">;
 
 export const READING_SYNC_MAX_ATTEMPTS = SYNC_MAX_ATTEMPTS;
 export class OfflineQueueError extends Error {}
@@ -40,7 +40,14 @@ export function scheduleReadingRetry(record: QueuedReading, now = Date.now(), ra
   }, now, random);
   return { attempts: retry.attempts, nextAttemptAt: retry.nextAttemptAt };
 }
-export function isQueuedReadingReadyForSync(record: QueuedReading, now = Date.now()) {
+export function isQueuedReadingReadyForSync(
+  record: QueuedReading,
+  now = Date.now(),
+  allowUncertainRecovery = false,
+) {
+  if (isManualSyncRecoveryRequired({ outcome: record.syncOutcome, attempts: record.attempts })) {
+    return allowUncertainRecovery && (record.status === "pending" || record.status === "failed");
+  }
   if (record.status === "pending") return record.nextAttemptAt <= now;
   return record.status === "failed" && record.lastErrorKind === "retryable" &&
     record.attempts < READING_SYNC_MAX_ATTEMPTS && record.nextAttemptAt <= now;
@@ -50,10 +57,11 @@ function isReadingWork(item: QueuedOfflineWork): item is QueuedOfflineWork & { k
 }
 function mapWorkToReading(item: QueuedOfflineWork, metadata?: SyncMetadataRecord): QueuedReading {
   const raw = item.payload as ReadingCreateDraft;
+  const exhaustedSyncNeedsRecovery = isManualSyncRecoveryRequired(metadata);
   const status: QueuedReadingStatus = item.status === "conflict" || metadata?.outcome === "conflict" ? "conflict"
-    : item.status === "failed" || metadata?.outcome === "retryable" || metadata?.outcome === "rejected" ? "failed" : "pending";
+    : item.status === "failed" || metadata?.outcome === "retryable" || metadata?.outcome === "rejected" || exhaustedSyncNeedsRecovery ? "failed" : "pending";
   const lastErrorKind: QueuedReadingErrorKind | undefined = status === "conflict" ? "conflict"
-    : metadata?.outcome === "retryable" ? "retryable"
+    : metadata?.outcome === "retryable" || exhaustedSyncNeedsRecovery ? "retryable"
     : metadata?.outcome === "rejected" ? "terminal"
     : item.status === "failed" ? "terminal" : undefined;
   return {
@@ -74,16 +82,113 @@ function mapWorkToReading(item: QueuedOfflineWork, metadata?: SyncMetadataRecord
     attempts: metadata?.attempts ?? 0, nextAttemptAt: metadata?.nextAttemptAt ?? item.createdAt,
     ...(metadata?.lastErrorCode ? { lastErrorCode: metadata.lastErrorCode } : {}),
     ...(lastErrorKind ? { lastErrorKind } : {}),
-    ...((metadata?.lastError ?? item.error) ? { error: metadata?.lastError ?? item.error } : {}),
+    ...(metadata?.outcome ? { syncOutcome: metadata.outcome } : {}),
+    ...((metadata?.lastError ?? item.error ?? (exhaustedSyncNeedsRecovery
+      ? "لم تصل نتيجة الإرسال السابقة بعد بلوغ حد المحاولات؛ استخدم الاستعادة اليدوية الآمنة للتحقق بنفس معرف العملية."
+      : undefined)) ? { error: metadata?.lastError ?? item.error ?? "نتيجة إرسال غير محسومة." } : {}),
   };
 }
 /** Field readings are an adapter over the canonical operations Outbox. */
 export async function listQueuedReadings(options: { userId: number; siteId?: number }) {
-  const items = await listOfflineWork(options); // Runs the one-time legacy migration first.
-  const metadata = await listSyncMetadata(options);
+  const [items, metadata, conflictRows] = await Promise.all([
+    listOfflineWork(options), // Runs the one-time legacy migration first.
+    listSyncMetadata(options),
+    listOfflineConflicts(options),
+  ]);
   const byOperation = new Map(metadata.map((row) => [row.operationId, row]));
-  return items.filter((item) => isReadingWork(item) && item.status !== "applied")
-    .map((item) => mapWorkToReading(item, byOperation.get(item.clientOperationId)))
+  const conflictByOperation = new Map(conflictRows.map((row) => [row.operationId, row]));
+  const conflictIds = new Set(conflictByOperation.keys());
+  const normalized: QueuedOfflineWork[] = [];
+
+  for (const item of items) {
+    if (!isReadingWork(item)) continue;
+    if (item.status === "applied") {
+      const payload = item.payload as ReadingCreateDraft;
+      const sanitizedPayload: ReadingCreateDraft = {
+        ...payload, imageData: undefined, imageMime: undefined, offlineInvoiceNumberClaim: undefined,
+      };
+      if (payload.imageData !== undefined || payload.imageMime !== undefined || payload.offlineInvoiceNumberClaim !== undefined) {
+        await updateOfflineWork(item.id, { payload: sanitizedPayload });
+      }
+      normalized.push({ ...item, payload: sanitizedPayload });
+      continue;
+    }
+
+    const state = byOperation.get(item.clientOperationId);
+    if (!isSyncMetadataCompatibleWithWorkItem(item, state)) {
+      const recordedConflict = conflictByOperation.get(item.clientOperationId);
+      if (item.status === "conflict" || recordedConflict) {
+        const message = recordedConflict?.message ?? item.error ?? "تعارض محلي يحتاج إلى مراجعة؛ حالة المزامنة غير متطابقة ولم تُرسل العملية.";
+        if (item.status !== "conflict" || item.error !== message) {
+          await updateOfflineWork(item.id, { status: "conflict", error: message });
+        }
+        if (!recordedConflict) {
+          await upsertOfflineConflict({
+            userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+            siteId: item.siteId, operationId: item.clientOperationId, kind: item.kind,
+            outcome: "conflict", message, createdAt: item.createdAt, updatedAt: Date.now(),
+            localPayload: item.payload,
+          });
+        }
+        normalized.push({ ...item, status: "conflict", error: message });
+      } else {
+        const message = "حالة مزامنة القراءة مفقودة أو لا تطابق نطاق العملية؛ أُوقفت إعادة الإرسال تلقائيًا. تحقّق من الخادم قبل إعادة إنشاء القراءة.";
+        if (item.status !== "failed" || item.error !== message) {
+          await updateOfflineWork(item.id, { status: "failed", error: message });
+        }
+        normalized.push({ ...item, status: "failed", error: message });
+      }
+      continue;
+    }
+    if (state.outcome === "applied" || state.outcome === "already_applied") {
+      // Metadata may commit before the queue row update when the tab crashes.
+      // Reconcile locally from the terminal server-confirmed result; never replay.
+      const payload = item.payload as ReadingCreateDraft;
+      const sanitizedPayload: ReadingCreateDraft = {
+        ...payload, imageData: undefined, imageMime: undefined, offlineInvoiceNumberClaim: undefined,
+      };
+      await updateOfflineWork(item.id, { status: "applied", error: undefined, payload: sanitizedPayload });
+      await removeOfflineConflict(item.userId, item.clientOperationId);
+      normalized.push({ ...item, status: "applied", error: undefined, payload: sanitizedPayload });
+      continue;
+    }
+
+    if (state?.outcome === "conflict") {
+      const message = state.lastError ?? "تعارض قراءة يحتاج إلى مراجعة.";
+      if (item.status !== "conflict" || item.error !== message) {
+        await updateOfflineWork(item.id, { status: "conflict", error: message });
+      }
+      if (!conflictIds.has(item.clientOperationId)) {
+        await upsertOfflineConflict({
+          userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
+          siteId: item.siteId, operationId: item.clientOperationId, kind: item.kind,
+          outcome: "conflict", message, createdAt: item.createdAt, updatedAt: Date.now(),
+          localPayload: item.payload,
+        });
+      }
+      normalized.push({ ...item, status: "conflict", error: message });
+      continue;
+    }
+
+    if (state?.outcome === "retryable" || state?.outcome === "rejected") {
+      const message = state.lastError ?? (state.outcome === "rejected"
+        ? "رفض الخادم القراءة." : "تعذر مزامنة القراءة مؤقتاً.");
+      if (item.status !== "failed" || item.error !== message) {
+        await updateOfflineWork(item.id, { status: "failed", error: message });
+      }
+      if (conflictIds.has(item.clientOperationId)) await removeOfflineConflict(item.userId, item.clientOperationId);
+      normalized.push({ ...item, status: "failed", error: message });
+      continue;
+    }
+
+    normalized.push(item);
+  }
+
+  return normalized.filter((item) => item.status !== "applied")
+    .map((item) => {
+      const state = byOperation.get(item.clientOperationId);
+      return mapWorkToReading(item, isSyncMetadataCompatibleWithWorkItem(item, state) ? state : undefined);
+    })
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 export async function enqueueReading(reading: NewQueuedReading) {
@@ -121,15 +226,14 @@ export async function enqueueReading(reading: NewQueuedReading) {
     siteId: reading.siteId, kind: "reading_create", payload,
     clientOperationId: reading.clientOperationId,
   });
-  const now = Date.now();
-  const syncRecord: SyncMetadataRecord = {
-    operationId: item.clientOperationId, userId: item.userId,
-    ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
-    siteId: item.siteId, kind: item.kind, dependsOn: [], attempts: 0,
-    nextAttemptAt: now, outcome: "pending", updatedAt: now,
-  };
-  await upsertSyncMetadata(syncRecord);
-  return mapWorkToReading(item, syncRecord);
+  // The Outbox row and initial pending metadata were committed atomically by
+  // enqueueOfflineWork. Re-read instead of writing "pending" again: another tab
+  // may already have synchronized this operation between those transactions.
+  const [latestItem, latestMetadata] = await Promise.all([
+    getOfflineWork(item.id),
+    getSyncMetadata(item.clientOperationId, { userId: item.userId, siteId: item.siteId }),
+  ]);
+  return mapWorkToReading(latestItem ?? item, latestMetadata);
 }
 export async function enqueueReadingWithInvoiceNumber(
   reading: NewQueuedReading,
@@ -169,15 +273,17 @@ export async function enqueueReadingWithInvoiceNumber(
   };
   const queued = await import("./offline-work-queue").then(({ enqueueOfflineReadingWithInvoiceNumber }) =>
     enqueueOfflineReadingWithInvoiceNumber({ scope, partitionKey, clientOperationId: reading.clientOperationId, payload }));
-  const now = Date.now();
-  const syncRecord: SyncMetadataRecord = {
-    operationId: queued.item.clientOperationId, userId: queued.item.userId,
-    ...(queued.item.tenantId !== undefined ? { tenantId: queued.item.tenantId } : {}),
-    siteId: queued.item.siteId, kind: queued.item.kind, dependsOn: [], attempts: 0,
-    nextAttemptAt: now, outcome: "pending", updatedAt: now,
+  // enqueueOfflineReadingWithInvoiceNumber also persists the claim, Outbox
+  // row and initial metadata atomically. Never overwrite a result that may
+  // have been committed by a concurrent sync after that transaction completed.
+  const [latestItem, latestMetadata] = await Promise.all([
+    getOfflineWork(queued.item.id),
+    getSyncMetadata(queued.item.clientOperationId, { userId: queued.item.userId, siteId: queued.item.siteId }),
+  ]);
+  return {
+    record: mapWorkToReading(latestItem ?? queued.item, latestMetadata),
+    ...(queued.formattedInvoiceNumber ? { formattedInvoiceNumber: queued.formattedInvoiceNumber } : {}),
   };
-  await upsertSyncMetadata(syncRecord);
-  return { record: mapWorkToReading(queued.item, syncRecord), formattedInvoiceNumber: queued.formattedInvoiceNumber };
 }
 
 export async function updateQueuedReading(

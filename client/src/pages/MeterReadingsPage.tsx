@@ -13,10 +13,11 @@ import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { enqueueReading, enqueueReadingWithInvoiceNumber, isQueuedReadingReadyForSync, listQueuedReadings, removeQueuedReading, type QueuedReading } from "@/lib/offline-reading-queue";
 import { getPowerHubDeviceId } from "@/lib/offline-auth";
 import { hasAvailableOfflineNumberGrant, persistOfflineNumberGrant } from "@/lib/offline-number-ranges";
-import { listOfflineWork, updateOfflineWork, type QueuedOfflineWork, type ReadingCreateDraft } from "@/lib/offline-work-queue";
+import { listOfflineWork, requeueOfflineWorkForManualRetry, updateOfflineWork, type QueuedOfflineWork, type ReadingCreateDraft } from "@/lib/offline-work-queue";
 import { listSyncMetadata, upsertSyncMetadata } from "@/lib/offline-sync-metadata";
-import { classifySyncResult, createSyncMetadata, type SyncMetadata } from "@/lib/offline-sync-engine";
+import { classifySyncResult, isManualSyncRecoveryRequired, SYNC_MAX_ATTEMPTS, type SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
+import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { removeOfflineConflict, upsertOfflineConflict } from "@/lib/offline-workspace-db";
 import { trpc } from "@/lib/trpc";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
@@ -176,11 +177,38 @@ export default function MeterReadingsPage() {
     return formattedInvoiceNumber;
   };
 
-  const syncQueuedReadings = async (records: QueuedReading[] = queuedReadings) => {
+  const syncQueuedReadings = async (records: QueuedReading[] = queuedReadings, allowUncertainRecovery = true) => {
     if (!isOnline) { toast.error("لا يمكن المزامنة قبل عودة الاتصال."); return; }
     if (!user?.id || !siteId) return;
+    const lockResult = await withOfflineSyncLock({ userId: user.id, siteId }, async () => {
+      await syncQueuedReadingsUnlocked(records, allowUncertainRecovery);
+    });
+    if (!lockResult.acquired) toast.info("مزامنة هذا الفرع تعمل بالفعل في تبويب آخر.");
+  };
+
+  const syncQueuedReadingsUnlocked = async (
+    records: QueuedReading[] = queuedReadings,
+    allowUncertainRecovery = false,
+  ) => {
+    if (!isOnline || !user?.id || !siteId) return;
+    let workingRecords = records;
+    if (allowUncertainRecovery) {
+      let recovered = 0;
+      for (const item of records.filter((entry) =>
+        isManualSyncRecoveryRequired({ outcome: entry.syncOutcome, attempts: entry.attempts }) &&
+        (entry.status === "pending" || entry.status === "failed"),
+      )) {
+        if (await requeueOfflineWorkForManualRetry({
+          id: item.id,
+          clientOperationId: item.clientOperationId,
+          userId: item.userId,
+          siteId: item.siteId,
+        })) recovered += 1;
+      }
+      if (recovered) workingRecords = await loadQueuedReadings();
+    }
     const now = Date.now();
-    const ready = records.filter((item) => isQueuedReadingReadyForSync(item, now));
+    const ready = workingRecords.filter((item) => isQueuedReadingReadyForSync(item, now, allowUncertainRecovery));
     if (!ready.length) {
       const waiting = records.filter((item) => item.status === "failed" && item.lastErrorKind === "retryable" && item.nextAttemptAt > now).length;
       if (waiting) toast.message(`توجد ${waiting} قراءة مؤجلة وفق سياسة إعادة المحاولة. ستصبح قابلة للمزامنة بعد انتهاء مهلة الانتظار.`);
@@ -199,22 +227,28 @@ export default function MeterReadingsPage() {
     const metadataByOperationId = new Map<string, SyncMetadata>();
     for (const item of pendingItems) {
       const stored = storedMetadata.find((row) => row.operationId === item.clientOperationId);
-      const metadata: SyncMetadata = stored ? {
+      if (!stored) {
+        await updateOfflineWork(item.id, {
+          status: "failed",
+          error: "حالة مزامنة القراءة المحلية مفقودة؛ أُوقفت إعادة الإرسال تلقائيًا. تحقّق من الخادم قبل إعادة إنشاء القراءة.",
+        });
+        continue;
+      }
+      const metadata: SyncMetadata = {
         operationId: stored.operationId, dependsOn: stored.dependsOn,
         attempts: stored.attempts, nextAttemptAt: stored.nextAttemptAt, outcome: stored.outcome,
         ...(stored.lastError ? { lastError: stored.lastError } : {}),
-      } : createSyncMetadata(item, now);
+      };
       metadataByOperationId.set(item.clientOperationId, metadata);
-      if (!stored) await upsertSyncMetadata({
-        ...metadata, userId: item.userId, ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
-        siteId: item.siteId, kind: item.kind, outcome: "pending", updatedAt: now,
-      });
     }
 
+    const missingMetadataCount = pendingItems.filter((item) => !metadataByOperationId.has(item.clientOperationId)).length;
+    if (missingMetadataCount) toast.error(`توجد ${missingMetadataCount} قراءة بلا حالة مزامنة موثوقة؛ لم تُرسل تلقائيًا.`);
+    const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId));
     const serverResults = new Map<string, { id?: number; replayed: boolean; invoiceNo?: string }>();
     const errorCodes = new Map<string, string>();
     const results = await executeReadyOperations({
-      items: pendingItems, metadataByOperationId,
+      items: syncItems, metadataByOperationId,
       completedIds: new Set(allItems.filter((item) => item.status === "applied").map((item) => item.clientOperationId)),
       now,
       transport: async (item: QueuedOfflineWork): Promise<SyncTransportResult> => {
@@ -300,7 +334,7 @@ export default function MeterReadingsPage() {
     if (!isOnline || reconnectGeneration === 0 || lastAutoSyncGeneration.current === reconnectGeneration) return;
     lastAutoSyncGeneration.current = reconnectGeneration;
     void loadQueuedReadings().then((records) => {
-      if (records.length) void syncQueuedReadings(records);
+      if (records.length) void syncQueuedReadings(records, false);
     });
   }, [isOnline, reconnectGeneration, loadQueuedReadings]);
 
@@ -314,7 +348,7 @@ export default function MeterReadingsPage() {
     <BranchAnomalySettings siteId={siteId!} canEdit={role === "owner"} currentPercent={anomalyQuery.data?.anomalyAlertPercent ?? 50} />
     {canSendInvoiceSms && <Panel title="إرسال فواتير القراءات عبر SMS"><div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-300">حدد الفواتير المعتمدة غير المرسلة، ثم جهزها للإرسال إلى أرقام المشتركين المسجلة.</p><Button disabled={sendPendingSms.isPending || !selectedInvoiceIds.length} onClick={() => sendPendingSms.mutate({ siteId: siteId!, invoiceIds: selectedInvoiceIds, includeFailed: false })} className="bg-sky-400 text-[#0D1117] hover:bg-sky-300"><Send className="ml-2 h-4 w-4" />إرسال المحدد ({selectedInvoiceIds.length})</Button></div><label className="text-xs text-slate-400">حالة الإرسال<select value={invoiceSendStatus} onChange={(event) => { setInvoiceSendStatus(event.target.value as typeof invoiceSendStatus); setSelectedInvoiceIds([]); }} className={`${inputClass} mt-1 max-w-48`}><option value="unsent">لم يتم الإرسال</option><option value="sent">تم الإرسال</option><option value="all">كل الحالات</option></select></label>{filteredInvoiceCandidates.length ? <div className="max-h-56 divide-y divide-white/8 overflow-auto rounded-xl border border-white/8">{filteredInvoiceCandidates.map((invoice) => <label key={invoice.id} className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm hover:bg-white/[.03]"><input type="checkbox" checked={selectedInvoiceIds.includes(invoice.id)} onChange={() => setSelectedInvoiceIds((current) => current.includes(invoice.id) ? current.filter((id) => id !== invoice.id) : [...current, invoice.id])} className="accent-[#F5B800]" /><strong className="flex-1 text-white" dir="ltr">{invoice.invoiceNo}</strong><span className="text-xs text-slate-400">{invoice.billingPeriod}</span></label>)}</div> : <p className="text-sm text-slate-500">لا توجد فواتير معتمدة مطابقة للفلتر.</p>}</div></Panel>}
     <Panel title={`سجل القراءات — ${currentSite?.name ?? ""}`}><div className="mb-4 grid gap-3 rounded-xl border border-white/8 bg-white/[.018] p-3 md:grid-cols-[1.5fr_1fr_1fr_auto]"><label className="text-xs text-slate-400">بحث<input aria-label="بحث القراءات" value={readingSearch} onChange={(event) => { setReadingSearch(event.target.value); setReadingPage(1); }} className={`${inputClass} mt-1`} placeholder="اسم المشترك أو الرقم المرجعي" /></label><label className="text-xs text-slate-400">حالة القراءة<select value={readingStatus} onChange={(event) => { setReadingStatus(event.target.value as typeof readingStatus); setReadingPage(1); }} className={`${inputClass} mt-1`}><option value="all">كل الحالات</option><option value="pending_review">بانتظار المراجعة</option><option value="approved">معتمدة</option></select></label><label className="text-xs text-slate-400">السجلات في الصفحة<select value={readingPageSize} onChange={(event) => { setReadingPageSize(Number(event.target.value) as 10 | 20 | 50); setReadingPage(1); }} className={`${inputClass} mt-1`}><option value="10">10</option><option value="20">20</option><option value="50">50</option></select></label><Button variant="outline" onClick={() => { setReadingSearch(""); setReadingStatus("all"); setReadingPage(1); }} className="self-end border-white/15 text-slate-300">مسح الفلاتر</Button></div><div className="mb-4 flex flex-wrap items-end gap-2"><label className="text-xs text-slate-400">من تاريخ<input type="date" value={exportStartDate} onChange={(event) => setExportStartDate(event.target.value)} className={`${inputClass} mt-1`} /></label><label className="text-xs text-slate-400">إلى تاريخ<input type="date" value={exportEndDate} onChange={(event) => setExportEndDate(event.target.value)} className={`${inputClass} mt-1`} /></label><Button type="button" onClick={downloadCsv} disabled={!exportReadings.length} variant="outline" className="border-white/10 text-slate-200"><Download className="ml-2 h-4 w-4" />CSV</Button><Button type="button" onClick={() => void downloadExcel()} disabled={!exportReadings.length} variant="outline" className="border-[#F5B800]/35 text-[#F5B800]"><FileSpreadsheet className="ml-2 h-4 w-4" />Excel</Button><Button type="button" onClick={() => void downloadPdf()} disabled={!exportReadings.length} variant="outline" className="border-rose-300/30 text-rose-200"><FileSpreadsheet className="ml-2 h-4 w-4" />PDF</Button></div><div className="overflow-x-auto">{readingsQuery.isLoading ? <ReadingTableSkeleton /> : pageReadings.length ? <table className="w-full min-w-[720px] text-sm"><thead className="text-right text-xs text-slate-500"><tr><th className="pb-3">المشترك</th><th className="pb-3">الرقم المرجعي</th><th className="pb-3">القراءة</th><th className="pb-3">الاستهلاك</th><th className="pb-3">الحالة</th><th className="pb-3">الصورة</th><th className="pb-3">إجراء</th></tr></thead><tbody>{pageReadings.map((row) => <tr key={row.reading.id} className="border-t border-white/7"><td className="py-3 font-bold text-white">{row.subscriber.fullName}</td><td className="py-3 text-slate-400" dir="ltr">{row.subscriber.subscriberNo}</td><td className="py-3">{Number(row.reading.readingValue).toFixed(3)}</td><td className="py-3 text-[#F5B800]">{Number(row.reading.consumptionKwh ?? 0).toFixed(3)} kWh</td><td className="py-3"><Badge className={row.reading.status === "approved" ? "bg-emerald-400/10 text-emerald-400" : "bg-sky-400/10 text-sky-400"}>{row.reading.status === "pending_review" ? "بانتظار المراجعة" : row.reading.status === "approved" ? "معتمدة" : row.reading.status}</Badge></td><td className="py-3">{row.reading.imageKey ? <Button type="button" size="sm" variant="outline" disabled={readingImage.isPending} onClick={() => readingImage.mutate({ siteId: siteId!, readingId: row.reading.id })} className="border-[#F5B800]/30 text-[#F5B800]"><Camera className="ml-1 h-3.5 w-3.5"/>عرض الصورة</Button> : <span className="text-xs text-slate-600">لا توجد صورة</span>}</td><td className="py-3">{row.reading.status === "pending_review" ? <span className="text-xs text-slate-500">قراءة معلّقة قديمة؛ تُراجع حسب مصدرها من المسار المختص</span> : "—"}</td></tr>)}</tbody></table> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500"><Camera className="mx-auto mb-3 h-5 w-5 text-[#F5B800]" />لا توجد قراءات بعد. اختر مشتركاً وسجل أول قراءة.</div>}</div>{totalPages > 1 && <div className="mt-4 flex items-center justify-between border-t border-white/8 pt-4"><Button size="sm" variant="outline" disabled={readingPage === 1} onClick={() => setReadingPage((page) => page - 1)}>السابق</Button><span className="text-xs text-slate-400">صفحة {readingPage} من {totalPages}</span><Button size="sm" variant="outline" disabled={readingPage === totalPages} onClick={() => setReadingPage((page) => page + 1)}>التالي</Button></div>}</Panel>
-    <Panel title="طابور المزامنة الميداني"><div className="flex flex-col gap-4"><div className="flex flex-col gap-3 rounded-xl border border-white/8 bg-white/[.018] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-white">{queuedReadings.length} قراءة محلية</p><p className="mt-1 text-xs text-slate-500">الطابور معزول بالحساب والفرع. القراءات الفاشلة تعود وفق Backoff ولا يعاد إرسالها قبل موعد المحاولة التالية.</p></div><Button variant="outline" disabled={!isOnline || addReading.isPending || !queuedReadings.some((record) => isQueuedReadingReadyForSync(record))} onClick={() => void syncQueuedReadings()} className="border-[#F5B800]/30 text-[#F5B800]"><RotateCw className="ml-2 h-4 w-4" />مزامنة الآن</Button></div>{queuedReadings.length ? <div className="space-y-2">{queuedReadings.map((record) => <div key={record.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.015] p-4"><div><p className="font-bold text-white">مشترك #{record.subscriberId} · {record.readingValue} kWh</p><p className="mt-1 text-xs text-slate-500">{new Date(record.createdAt).toLocaleString("ar-IQ")}{record.lastErrorKind === "retryable" && record.nextAttemptAt > Date.now() ? ` · المحاولة التالية بعد ${new Date(record.nextAttemptAt).toLocaleTimeString("ar-PS", { hour: "2-digit", minute: "2-digit" })}` : ""}{record.error ? ` · ${record.error}` : ""}</p></div><div className="flex items-center gap-2"><Badge className={record.status === "pending" ? "bg-amber-400/10 text-amber-300" : record.status === "conflict" ? "bg-rose-400/10 text-rose-300" : record.lastErrorKind === "retryable" ? "bg-amber-400/10 text-amber-200" : "bg-slate-400/10 text-slate-300"}>{record.status === "pending" ? "بانتظار المزامنة" : record.status === "conflict" ? "يتطلب مراجعة" : record.lastErrorKind === "retryable" ? "مؤجل لإعادة المحاولة" : "فشل يحتاج مراجعة"}</Badge>{record.status !== "pending" ? <Button aria-label="حذف القراءة المحلية" size="icon" variant="ghost" onClick={() => void removeQueuedReading(record.id).then(loadQueuedReadings)} className="h-8 w-8 text-slate-400 hover:bg-rose-400/10 hover:text-rose-200"><Trash2 className="h-3.5 w-3.5" /></Button> : null}</div></div>)}</div> : <p className="py-3 text-center text-sm text-slate-500">لا توجد عمليات محلية لهذا الفرع والحساب.</p>}</div></Panel>
+    <Panel title="طابور المزامنة الميداني"><div className="flex flex-col gap-4"><div className="flex flex-col gap-3 rounded-xl border border-white/8 bg-white/[.018] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-white">{queuedReadings.length} قراءة محلية</p><p className="mt-1 text-xs text-slate-500">الطابور معزول بالحساب والفرع. القراءات الفاشلة تعود وفق Backoff ولا يعاد إرسالها قبل موعد المحاولة التالية.</p></div><Button variant="outline" disabled={!isOnline || addReading.isPending || !queuedReadings.some((record) => isQueuedReadingReadyForSync(record, Date.now(), true))} onClick={() => void syncQueuedReadings()} className="border-[#F5B800]/30 text-[#F5B800]"><RotateCw className="ml-2 h-4 w-4" />مزامنة الآن</Button></div>{queuedReadings.length ? <div className="space-y-2">{queuedReadings.map((record) => <div key={record.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.015] p-4"><div><p className="font-bold text-white">مشترك #{record.subscriberId} · {record.readingValue} kWh</p><p className="mt-1 text-xs text-slate-500">{new Date(record.createdAt).toLocaleString("ar-IQ")}{record.lastErrorKind === "retryable" && record.nextAttemptAt > Date.now() ? ` · المحاولة التالية بعد ${new Date(record.nextAttemptAt).toLocaleTimeString("ar-PS", { hour: "2-digit", minute: "2-digit" })}` : ""}{record.error ? ` · ${record.error}` : ""}</p></div><div className="flex items-center gap-2"><Badge className={record.status === "pending" ? "bg-amber-400/10 text-amber-300" : record.status === "conflict" ? "bg-rose-400/10 text-rose-300" : record.lastErrorKind === "retryable" ? "bg-amber-400/10 text-amber-200" : "bg-slate-400/10 text-slate-300"}>{record.status === "pending" ? "بانتظار المزامنة" : record.status === "conflict" ? "يتطلب مراجعة" : record.lastErrorKind === "retryable" ? "مؤجل لإعادة المحاولة" : "فشل يحتاج مراجعة"}</Badge>{record.status !== "pending" ? <Button aria-label="حذف القراءة المحلية" size="icon" variant="ghost" onClick={() => void removeQueuedReading(record.id).then(loadQueuedReadings)} className="h-8 w-8 text-slate-400 hover:bg-rose-400/10 hover:text-rose-200"><Trash2 className="h-3.5 w-3.5" /></Button> : null}</div></div>)}</div> : <p className="py-3 text-center text-sm text-slate-500">لا توجد عمليات محلية لهذا الفرع والحساب.</p>}</div></Panel>
     <Dialog open={Boolean(selectedReadingImage)} onOpenChange={(open) => { if (!open) setSelectedReadingImage(null); }}><DialogContent dir="rtl" className="max-w-3xl border-white/10 bg-[#111823] text-white"><DialogHeader><DialogTitle>صورة القراءة المرفقة</DialogTitle></DialogHeader>{selectedReadingImage ? <img src={selectedReadingImage} alt="الصورة المرفقة مع قراءة العداد" className="max-h-[75vh] w-full rounded-xl bg-black/20 object-contain" /> : null}</DialogContent></Dialog>
     <div ref={pdfRef} className="pointer-events-none absolute -left-[9999px] top-0 w-[760px] bg-white p-8 text-right text-black" dir="rtl"><h1>PowerHub — تقرير قراءات المشتركين</h1><p>الفرع: {currentSite?.name ?? ""}</p><table className="w-full border-collapse text-sm"><thead><tr><th>المشترك</th><th>المرجع</th><th>القراءة</th><th>الاستهلاك</th><th>الحالة</th></tr></thead><tbody>{exportReadings.map((row) => <tr key={row.reading.id}><td>{row.subscriber.fullName}</td><td>{row.subscriber.subscriberNo}</td><td>{row.reading.readingValue}</td><td>{row.reading.consumptionKwh}</td><td>{row.reading.status}</td></tr>)}</tbody></table></div>
   </div></DashboardLayout>;
