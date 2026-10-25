@@ -99,6 +99,61 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
     }));
   });
 
+  it("يبقى متوافقًا مع عقد begin القديم حتى يُطلق الترحيل المحمي", async () => {
+    state.rpc.mockImplementation(async (name: string) => {
+      if (name === "powerhub_admin_begin_generator_owner_provisioning") return { data: [{
+        client_operation_id: input.clientOperationId,
+        auth_user_id: null,
+        status: "pending",
+        replayed: false,
+      }], error: null };
+      if (name === "powerhub_admin_complete_generator_owner_provisioning") return { data: [{
+        success: true, tenant_id: 501, owner_user_id: 502, site_id: 503, subscription_id: 504, replayed: false,
+      }], error: null };
+      return { data: null, error: { message: "Unexpected RPC", code: "42883" } };
+    });
+
+    await expect(caller().createGeneratorOwnerSubscription(input)).resolves.toMatchObject({
+      tenant_id: 501, owner_user_id: 502, site_id: 503, subscription_id: 504,
+    });
+    expect(state.authCreateUser).toHaveBeenCalledWith(expect.objectContaining({
+      app_metadata: expect.objectContaining({
+        powerhub_owner_provisioning_operation_id: input.clientOperationId,
+      }),
+      user_metadata: expect.objectContaining({
+        provisioning_operation_id: input.clientOperationId,
+      }),
+    }));
+    expect(state.rpc).not.toHaveBeenCalledWith("powerhub_admin_attach_generator_owner_provisioning_auth", expect.anything());
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_complete_generator_owner_provisioning", expect.objectContaining({
+      p_client_operation_id: input.clientOperationId, p_auth_user_id: "new-auth-user",
+    }));
+  });
+
+  it("يعيد استخدام Auth الذي أعاده عقد begin القديم بعد فقدان الاستجابة دون إنشاء مستخدم ثانٍ", async () => {
+    state.rpc.mockImplementation(async (name: string) => {
+      if (name === "powerhub_admin_begin_generator_owner_provisioning") return { data: [{
+        client_operation_id: input.clientOperationId,
+        auth_user_id: "legacy-recovered-auth-user",
+        status: "pending",
+        replayed: true,
+      }], error: null };
+      if (name === "powerhub_admin_complete_generator_owner_provisioning") return { data: [{
+        success: true, tenant_id: 601, owner_user_id: 602, site_id: 603, subscription_id: 604, replayed: false,
+      }], error: null };
+      return { data: null, error: { message: "Unexpected RPC", code: "42883" } };
+    });
+
+    await expect(caller().createGeneratorOwnerSubscription(input)).resolves.toMatchObject({
+      tenant_id: 601, subscription_id: 604,
+    });
+    expect(state.authCreateUser).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalledWith("powerhub_admin_attach_generator_owner_provisioning_auth", expect.anything());
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_complete_generator_owner_provisioning", expect.objectContaining({
+      p_client_operation_id: input.clientOperationId, p_auth_user_id: "legacy-recovered-auth-user",
+    }));
+  });
+
   it("يحجز العملية ثم ينشئ Auth ويربطه ويكمل معاملة قاعدة البيانات", async () => {
     await expect(caller().createGeneratorOwnerSubscription(input)).resolves.toMatchObject({ tenant_id: 101, subscription_id: 404 });
     expect(state.rpc).toHaveBeenNthCalledWith(1, "powerhub_admin_begin_generator_owner_provisioning", expect.objectContaining({
