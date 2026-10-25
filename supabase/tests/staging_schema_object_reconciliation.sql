@@ -458,6 +458,21 @@ BEGIN
   IF v_replay.can_create_auth OR NOT v_replay.needs_reconciliation OR v_replay.success THEN
     RAISE EXCEPTION 'OWNER_PROVISIONING_CANCELLED_OPERATION_REOPENED: %', row_to_json(v_replay);
   END IF;
+
+  v_conflict := false;
+  BEGIN
+    UPDATE public.generator_owner_provisioning_operations
+    SET status = 'completed'
+    WHERE client_operation_id = v_operation_id;
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    v_conflict := true;
+  END;
+  IF NOT v_conflict OR NOT EXISTS (
+    SELECT 1 FROM public.generator_owner_provisioning_operations
+    WHERE client_operation_id = v_operation_id AND status = 'cancelled'
+  ) THEN
+    RAISE EXCEPTION 'OWNER_PROVISIONING_CANCELLED_TOMBSTONE_WAS_MUTABLE';
+  END IF;
 END
 $assert_owner_provisioning_lifecycle$;
 
