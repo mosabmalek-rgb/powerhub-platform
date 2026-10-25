@@ -36,6 +36,11 @@ BEFORE UPDATE ON public.generator_owner_provisioning_operations
 FOR EACH ROW
 EXECUTE FUNCTION public.powerhub_guard_cancelled_owner_provisioning_operation();
 
+-- Production contains a legacy function with the same input types but different
+-- OUT columns. PostgreSQL will not replace OUT columns via CREATE OR REPLACE.
+-- Drop only the exact signature (no CASCADE) inside this migration transaction.
+DROP FUNCTION IF EXISTS public.powerhub_admin_begin_generator_owner_provisioning(bigint, uuid, text, text);
+
 CREATE OR REPLACE FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(
   p_actor_user_id bigint,
   p_client_operation_id uuid,
