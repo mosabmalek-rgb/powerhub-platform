@@ -175,6 +175,8 @@ $widen_policy_scope$;
 
 \ir ../migrations/20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql
 \ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
+-- The scoped policy migration must be safe to replay after the main reconciliation.
+\ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
 
 DO $assert_reconciliation$
 DECLARE
