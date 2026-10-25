@@ -41,6 +41,37 @@ describe("بطاقة اشتراك صاحب المولد", () => {
     expect(screen.getByText("انتهى الاشتراك")).toBeInTheDocument();
   });
 
+  it("keeps a loading state visible while owner access is unresolved", () => {
+    render(<SubscriptionRenewalDashboardCard
+      data={undefined}
+      loading={true}
+      error={false}
+      ownerAccessVerified={false}
+      ownerAccessLoading={true}
+      ownerAccessError={false}
+      onRetry={vi.fn()}
+      onContact={vi.fn()}
+    />);
+    expect(screen.getByLabelText("جارٍ تحميل الاشتراك")).toBeInTheDocument();
+  });
+
+  it("shows a retryable error when subscription and owner-access queries both fail", () => {
+    const onRetry = vi.fn();
+    render(<SubscriptionRenewalDashboardCard
+      data={undefined}
+      loading={false}
+      error={true}
+      ownerAccessVerified={false}
+      ownerAccessLoading={false}
+      ownerAccessError={true}
+      onRetry={onRetry}
+      onContact={vi.fn()}
+    />);
+    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل حالة الاشتراك");
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
   it("لا تكشف معلومات الاشتراك عن المستخدمين غير المالكين", () => {
     render(<SubscriptionRenewalDashboardCard data={{ isOwner: false, subscription: null }} loading={false} error={false} ownerAccessVerified={false} onRetry={vi.fn()} onContact={vi.fn()} />);
     expect(screen.queryByRole("heading", { name: "اشتراكي وتجديدي" })).not.toBeInTheDocument();
