@@ -1064,6 +1064,15 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
   });
 }
 
+function logSupabaseDataReadFailure(area: string, error: { message: string; code?: string }) {
+  // Keep query failures actionable without logging tenant/user IDs or query payloads.
+  console.error("[PowerHub data read failed]", {
+    area,
+    code: error.code ?? "unknown",
+    message: error.message,
+  });
+}
+
 export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {
   const admin = supabaseAdmin();
   const [subscriberResult, generatorResult, invoiceResult, expenseResult] = await Promise.all([
@@ -1072,28 +1081,42 @@ export async function getSupabaseDashboardSummary(siteId: number, tenantId: numb
     admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft"),
     admin.from("expenses").select("amount", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
   ]);
-  if (subscriberResult.error || generatorResult.error || invoiceResult.error || expenseResult.error) {
-    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مؤشرات لوحة التشغيل من Supabase." });
+  const initialReadErrors = [
+    ["subscribers", subscriberResult.error],
+    ["generators", generatorResult.error],
+    ["invoices", invoiceResult.error],
+    ["expenses", expenseResult.error],
+  ] as const;
+  const failedInitialReads = initialReadErrors.filter((entry): entry is readonly [string, NonNullable<typeof entry[1]>] => Boolean(entry[1]));
+  if (failedInitialReads.length) {
+    for (const [table, error] of failedInitialReads) logSupabaseDataReadFailure(`dashboard.summary.${table}`, error);
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `تعذر تحميل مؤشرات لوحة التشغيل من Supabase: ${failedInitialReads.map(([table]) => table).join("، ")}.`,
+    });
   }
   // Supabase returns at most its configured page size for ordinary selects. Read all matching
   // rows in bounded pages so dashboard totals do not silently truncate at 1,000 records.
-  const readAllPages = async <T,>(readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) => {
+  const readAllPages = async <T,>(area: string, readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>) => {
     const result: T[] = [];
     for (let from = 0; ; from += 1000) {
       const page = await readPage(from, from + 999);
-      if (page.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل جميع سجلات مؤشرات لوحة التشغيل." });
+      if (page.error) {
+        logSupabaseDataReadFailure(area, page.error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `تعذر تحميل بيانات لوحة التشغيل من Supabase (${area}).` });
+      }
       const rows = page.data ?? [];
       result.push(...rows);
       if (rows.length < 1000) break;
     }
     return result;
   };
-  const subscriberRows = await readAllPages((from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null).order("id", { ascending: true }).range(from, to));
-  const generatorRows = await readAllPages((from, to) => admin.from("generators").select("status").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
-  const invoiceRows = await readAllPages((from, to) => admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to));
-  const expenseRows = await readAllPages((from, to) => admin.from("expenses").select("amount").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
+  const subscriberRows = await readAllPages("dashboard.summary.subscribers", (from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null).order("id", { ascending: true }).range(from, to));
+  const generatorRows = await readAllPages("dashboard.summary.generators", (from, to) => admin.from("generators").select("status").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
+  const invoiceRows = await readAllPages("dashboard.summary.invoices", (from, to) => admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to));
+  const expenseRows = await readAllPages("dashboard.summary.expenses", (from, to) => admin.from("expenses").select("amount").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
   const subscriberIds = subscriberRows.map((row) => Number((row as { id: number }).id)).filter(Number.isInteger);
-  const notificationRows = await readAllPages((from, to) => admin.from("notification_messages").select("status").eq("tenant_id", tenantId).in("subscriber_id", subscriberIds.length ? subscriberIds : [-1]).order("id", { ascending: true }).range(from, to));
+  const notificationRows = await readAllPages("dashboard.summary.notifications", (from, to) => admin.from("notification_messages").select("status").eq("tenant_id", tenantId).in("subscriber_id", subscriberIds.length ? subscriberIds : [-1]).order("id", { ascending: true }).range(from, to));
   const activeSubscribers = subscriberRows.filter((row) => (row as { service_status: string }).service_status === "active").length;
   const activeGenerators = generatorRows.filter((row) => (row as { status: string }).status === "active").length;
   const maintenanceGenerators = generatorRows.filter((row) => (row as { status: string }).status === "maintenance").length;
