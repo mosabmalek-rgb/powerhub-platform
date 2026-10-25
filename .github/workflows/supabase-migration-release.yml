@@ -20,7 +20,7 @@ on:
         type: string
 
 permissions:
-  administration: read
+  actions: read
   contents: read
   pull-requests: read
 
@@ -119,8 +119,8 @@ jobs:
               echo "Release blocked: the pinned PR head must include the current main commit; merge current main into the PR and retry."
               exit 1
             fi
-            if ! jq -e --arg path "$MIGRATION_PATH" 'any(.files[]?; .filename == $path and .status == "added")' <<< "$compare_json" >/dev/null; then
-              echo "Release blocked: only a migration newly added relative to the current main commit can be released before merge."
+            if ! jq -e --arg path "$MIGRATION_PATH" 'any(.files[]?; .filename == $path and (.status == "added" or .status == "renamed"))' <<< "$compare_json" >/dev/null; then
+              echo "Release blocked: the selected versioned migration path must be new relative to current main (added or renamed to a new path)."
               exit 1
             fi
           fi
