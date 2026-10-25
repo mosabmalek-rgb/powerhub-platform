@@ -100,6 +100,7 @@ function ensureAuthSubscription() {
     authStateRevision += 1;
     currentSession = session;
     sessionInitialized = true;
+    if (session) clearRefreshBackoff();
 
     // Keep the Supabase callback synchronous. Consumers may perform async work
     // after React schedules their state updates; this avoids re-entrancy inside
