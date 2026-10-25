@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 import { lazy, Suspense } from "react";
 import superjson from "superjson";
 const App = lazy(() => import("./App"));
-import { startLogin } from "./const";
 import "./index.css";
 
 const AuthProvider = lazy(() => import("@/_core/hooks/useAuth").then((module) => ({ default: module.AuthProvider })));
