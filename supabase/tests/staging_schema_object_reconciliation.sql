@@ -389,6 +389,67 @@ BEGIN
 END
 $assert_reconciliation$;
 
+-- Exercise the owner-provisioning idempotency state machine in the disposable DB:
+-- reserve, bind Auth, replay without creating another Auth user, reject fingerprint reuse,
+-- and cancel only the matching pending operation.
+INSERT INTO public.users (id, role, platform_role, account_status, email)
+VALUES (92001, 'admin', 'platform_admin', 'active', 'provisioning-admin@example.test');
+
+DO $assert_owner_provisioning_lifecycle$
+DECLARE
+  v_first record;
+  v_replay record;
+  v_conflict boolean := false;
+  v_operation_id uuid := '92001000-0000-4000-8000-000000000001';
+  v_auth_id uuid := '92001000-0000-4000-8000-000000000002';
+  v_fingerprint text := repeat('a', 64);
+BEGIN
+  SELECT * INTO v_first
+  FROM public.powerhub_admin_begin_generator_owner_provisioning(
+    92001, v_operation_id, 'owner-lifecycle@example.test', v_fingerprint
+  );
+  IF v_first.operation_status <> 'pending'
+     OR NOT v_first.can_create_auth
+     OR v_first.needs_reconciliation
+     OR v_first.success THEN
+    RAISE EXCEPTION 'OWNER_PROVISIONING_INITIAL_RESERVATION_INVALID: %', row_to_json(v_first);
+  END IF;
+
+  PERFORM * FROM public.powerhub_admin_attach_generator_owner_provisioning_auth(
+    92001, v_operation_id, v_auth_id, v_fingerprint
+  );
+
+  SELECT * INTO v_replay
+  FROM public.powerhub_admin_begin_generator_owner_provisioning(
+    92001, v_operation_id, 'owner-lifecycle@example.test', v_fingerprint
+  );
+  IF v_replay.auth_user_id IS DISTINCT FROM v_auth_id
+     OR v_replay.can_create_auth
+     OR v_replay.needs_reconciliation
+     OR v_replay.success THEN
+    RAISE EXCEPTION 'OWNER_PROVISIONING_AUTH_REPLAY_INVALID: %', row_to_json(v_replay);
+  END IF;
+
+  BEGIN
+    PERFORM * FROM public.powerhub_admin_begin_generator_owner_provisioning(
+      92001, v_operation_id, 'owner-lifecycle@example.test', repeat('b', 64)
+    );
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    v_conflict := true;
+  END;
+  IF NOT v_conflict THEN
+    RAISE EXCEPTION 'OWNER_PROVISIONING_FINGERPRINT_CONFLICT_NOT_REJECTED';
+  END IF;
+
+  PERFORM * FROM public.powerhub_admin_cancel_generator_owner_provisioning(
+    92001, v_operation_id, v_fingerprint, v_auth_id
+  );
+  IF EXISTS (SELECT 1 FROM public.generator_owner_provisioning_operations WHERE client_operation_id = v_operation_id) THEN
+    RAISE EXCEPTION 'OWNER_PROVISIONING_CANCEL_DID_NOT_REMOVE_MATCHING_PENDING_OPERATION';
+  END IF;
+END
+$assert_owner_provisioning_lifecycle$;
+
 -- Exercise effective RLS, not only catalog metadata. A deliberate permissive TRUE
 -- policy remains on complaints; the restrictive guard must still hide another tenant.
 GRANT USAGE ON SCHEMA private TO authenticated;
