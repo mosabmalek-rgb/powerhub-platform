@@ -92,7 +92,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_admin_renew_subscription_with_addons(
 RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
 
 -- First pass must create missing tables, indexes, RLS policies, triggers, and production RPC signatures.
-\ir ../migrations/20261025020000_powerhub_missing_schema_and_rpc_reconciliation.sql
+\ir ../migrations/20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql
 
 -- Simulate legacy/staging-wide ACL drift deliberately, then prove the forward migration
 -- can repair it on a second pass without duplicating policies/triggers/indexes.
@@ -163,7 +163,7 @@ BEGIN
 END
 $widen_policy_scope$;
 
-\ir ../migrations/20261025020000_powerhub_missing_schema_and_rpc_reconciliation.sql
+\ir ../migrations/20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql
 
 DO $assert_reconciliation$
 DECLARE

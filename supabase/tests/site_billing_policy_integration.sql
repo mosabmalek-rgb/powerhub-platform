@@ -137,7 +137,7 @@ end;$$;
 
 \ir ../migrations/20261014130000_powerhub_site_billing_policies.sql
 \ir ../migrations/20261014140000_powerhub_manual_collection_discount.sql
-\ir ../migrations/20261025030000_powerhub_payment_idempotency_replay_hardening.sql
+\ir ../migrations/20261025101844_powerhub_payment_idempotency_replay_hardening.sql
 \ir ../migrations/20261014150000_powerhub_invoice_adjustment_display.sql
 
 insert into public.tenants(id) values (1),(2);

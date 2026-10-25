@@ -39,7 +39,7 @@ INSERT INTO public.platform_security_settings(id,setting_key,value)
 
 -- The new tables do not exist at the original 0003/0004 policy creation time in
 -- this fixture, matching the staging drift observed before this reconciliation.
-\ir ../migrations/20261025040000_powerhub_platform_security_table_acl_reconciliation.sql
+\ir ../migrations/20261025102019_powerhub_platform_security_table_acl_reconciliation.sql
 
 DO $acl_contract$
 DECLARE

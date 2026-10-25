@@ -479,7 +479,7 @@
 
 ## 24. حزمة مصالحة الانجراف المتبقي — 2026-10-25 (بانتظار CI)
 
-أضيفت على فرع PR #333 ترحيل أمامي جديد `20261025020000_powerhub_missing_schema_and_rpc_reconciliation.sql` مبني على تعريفات كتالوج Production الحالية، ولا يُطبق على staging قبل نجاح البوابات. يعيد إنشاء 11 جدولًا مفقودًا فقط إذا لم تكن موجودة، ويستعيد فهارسها وسياسات RLS/المشغّلات ومجموعة RPCs حالية، ويزيل overloads قديمة موجودة في staging ولا تظهر في الإنتاج. لا يحتوي على backfill للسجلات التجارية، ولا يجري حذفًا للجداول أو تعديل قيم الفواتير/المشتركين/المدفوعات.
+أضيفت على فرع PR #333 ترحيل أمامي جديد `20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql` مبني على تعريفات كتالوج Production الحالية، ولا يُطبق على staging قبل نجاح البوابات. يعيد إنشاء 11 جدولًا مفقودًا فقط إذا لم تكن موجودة، ويستعيد فهارسها وسياسات RLS/المشغّلات ومجموعة RPCs حالية، ويزيل overloads قديمة موجودة في staging ولا تظهر في الإنتاج. لا يحتوي على backfill للسجلات التجارية، ولا يجري حذفًا للجداول أو تعديل قيم الفواتير/المشتركين/المدفوعات.
 
 أضيف اختبار PostgreSQL مستقل يهيئ الاعتماديات اللازمة في قاعدة disposable، يطبق الترحيل مرتين، يوسّع ACL عمدًا بين التطبيقين ليختبر إعادة التسوية، ثم يتحقق من وجود الجداول الإحدى عشرة، وتفعيل RLS، وعدم وجود منح DML مباشر للمتصفح، ووجود 5 سياسات و3 triggers، و11 RPC server-only، وإزالة overloads القديمة. أُضيف كذلك اختبار عقد إلى Vitest وربط الاختبار بسير `Reading Cycle PostgreSQL Integration`.
 
@@ -493,7 +493,7 @@
 
 ## 15. تقوية إضافية — تكرار التحصيل تحت تبدل الحمولة والتنافس (2026-10-25)
 
-- أضيف ترحيل أمامي 20261025030000_powerhub_payment_idempotency_replay_hardening.sql يحفظ بصمة طلب خادمية في offline_sync_operations لكل تحصيل عادي أو تحصيل بخصم يدوي.
+- أضيف ترحيل أمامي 20261025101844_powerhub_payment_idempotency_replay_hardening.sql يحفظ بصمة طلب خادمية في offline_sync_operations لكل تحصيل عادي أو تحصيل بخصم يدوي.
 - أصبحت هوية العملية مقيدة عالميًا أثناء القفل؛ إعادة استخدام UUID من مستخدم/مستأجر/فرع مختلف أو لنوع عملية مختلف تُرفض بدل إعادة دفعة سابقة.
 - لا يُقبل replay عند اختلاف المبلغ أو الفاتورة أو المشترك أو الحساب أو بيانات التحويل أو مرجع الدفع أو مفتاح صورة الإيصال وبصمتها أو تفاصيل الخصم اليدوي.
 - للتوافق مع السجلات القديمة التي لا تحتوي بصمة، لا تُملأ البصمة إلا بعد مطابقة سجل الدفعة وحركة الحساب وسجل الخصم اليدوي (حيث ينطبق) مع الحمولة المعادة.
@@ -504,7 +504,28 @@
 ## 16. Staging security-table policy drift reconciliation (2026-10-25)
 
 - Read-only staging inspection found `platform_security_events` and `platform_security_settings` created after the baseline policy migration. Both had RLS enabled but no policies, and inherited broad grants to `anon`/`authenticated`; production retained the intended platform-admin-only policies.
-- A first staging apply attempt of `20261025020000` correctly failed closed because staging also lacked the three `private.powerhub_*` RLS helper functions from migration 0004; the migration history and schema remained unchanged. The reconciliation now bootstraps the production-equivalent helpers and the disposable PostgreSQL test no longer masks this drift with stub functions.
-- Added forward migration `20261025040000_powerhub_platform_security_table_acl_reconciliation.sql`: re-establishes the canonical platform-admin policy plus a restrictive guard, removes direct client grants, preserves authenticated reads behind RLS, and grants the server-side service role the CRUD privileges used by the application.
+- A first staging apply attempt of `20261025101753` correctly failed closed because staging also lacked the three `private.powerhub_*` RLS helper functions from migration 0004; the migration history and schema remained unchanged. The reconciliation now bootstraps the production-equivalent helpers and the disposable PostgreSQL test no longer masks this drift with stub functions.
+- Added forward migration `20261025102019_powerhub_platform_security_table_acl_reconciliation.sql`: re-establishes the canonical platform-admin policy plus a restrictive guard, removes direct client grants, preserves authenticated reads behind RLS, and grants the server-side service role the CRUD privileges used by the application.
 - Added an isolated PostgreSQL test that reproduces the missing-policy/broad-grant staging state, checks ACL parity, inserts an extra permissive `USING (true)` policy, and proves non-admin reads remain empty while a platform administrator can read the fixture rows.
-- This migration has only been added to the PR and tested in disposable PostgreSQL; it has not been applied to staging or production.
+- The migration was applied successfully to staging on 2026-10-25 under Supabase history version `20261025102019`; production remains unchanged.
+
+
+## 17. تطبيق مصالحة P7 على staging — توحيد سجل Supabase والمستودع (2026-10-25)
+
+طُبقت الترحيلات الثلاثة التالية بالترتيب على مشروع staging `iyuryuhaylhisjfcrwkz` فقط، بعد نجاح بوابات CI على الرأس الذي احتوى تعريفاتها. يضع Supabase MCP إصدارًا فعليًا مولدًا في `supabase_migrations.schema_migrations`، ولذلك جرى توحيد أسماء الملفات ومراجع اختبارات `\\ir` مع تلك الإصدارات الفعلية:
+
+| إصدار Supabase الفعلي | اسم الترحيل |
+|---|---|
+| `20261025101753` | `20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql` |
+| `20261025101844` | `20261025101844_powerhub_payment_idempotency_replay_hardening.sql` |
+| `20261025102019` | `20261025102019_powerhub_platform_security_table_acl_reconciliation.sql` |
+
+**التحقق بعد التطبيق على staging:**
+- دوال `private.powerhub_current_user_id()` و`private.powerhub_has_tenant_access(bigint)` و`private.powerhub_is_platform_admin()` موجودة، مع صلاحيات مقيدة؛ لا يملك `anon` تنفيذها.
+- عمود `offline_sync_operations.request_fingerprint` موجود، والجداول المفقودة التي يعيدها ترحيل المصالحة أصبحت موجودة.
+- دالّتا `powerhub_create_payment` و`powerhub_create_payment_with_discount` موجودتان؛ التنفيذ مسموح لـ `service_role` وممنوع عن `authenticated`.
+- على `platform_security_events` و`platform_security_settings`: RLS مفعّل، وسياسة مسؤول المنصة وحارس `RESTRICTIVE` موجودان، و`anon SELECT=false` وعمليات `INSERT/UPDATE/DELETE` المباشرة لـ `authenticated` ممنوعة، مع بقاء CRUD لـ `service_role`.
+
+محاولة تطبيق أولى للترحيل 20000 فشلت قبل تسجيلها بسبب غياب مساعد RLS؛ تحققنا من تراجع المعاملة وعدم بقاء جداول أو دوال جزئية، ثم أصلحنا الترحيل واختبرناه قبل إعادة التطبيق الناجحة. لم تُطبق أي من هذه التغييرات على production ولم يُدمج PR #333.
+
+**ما زال مفتوحًا:** إعادة CI على أسماء الملفات الموحدة، وPreview موصول بمتغيرات staging الخاصة بهذا الفرع ثم E2E للمتصفح، والمقارنة النهائية للـ drift وخطة rollback قبل قرار الدمج التشغيلي.
