@@ -47,6 +47,20 @@ CREATE POLICY platform_security_settings_platform_admin_guard
   USING (private.powerhub_is_platform_management_admin())
   WITH CHECK (private.powerhub_is_platform_management_admin());
 
+-- Platform tariff policies can be read/managed only by active platform owners/admins,
+-- matching the server mutation route and keeping finance_admin out of general platform settings.
+ALTER TABLE public.platform_tariff_policies ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS platform_tariff_policies_platform_admin_only ON public.platform_tariff_policies;
+CREATE POLICY platform_tariff_policies_platform_admin_only
+  ON public.platform_tariff_policies AS PERMISSIVE FOR ALL TO authenticated
+  USING (private.powerhub_is_platform_management_admin())
+  WITH CHECK (private.powerhub_is_platform_management_admin());
+DROP POLICY IF EXISTS platform_tariff_policies_admin_guard ON public.platform_tariff_policies;
+CREATE POLICY platform_tariff_policies_admin_guard
+  ON public.platform_tariff_policies AS RESTRICTIVE FOR ALL TO authenticated
+  USING (private.powerhub_is_platform_management_admin())
+  WITH CHECK (private.powerhub_is_platform_management_admin());
+
 -- Access-recovery requests contain security workflow metadata and are read by
 -- the platform-management server workflow only; tenant members get no direct read.
 ALTER TABLE public.access_recovery_requests ENABLE ROW LEVEL SECURITY;
