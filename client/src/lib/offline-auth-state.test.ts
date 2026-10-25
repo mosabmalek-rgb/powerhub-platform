@@ -85,7 +85,9 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).toContain("auth: { ...SUPABASE_BROWSER_AUTH_OPTIONS }");
     expect(source).not.toContain("autoRefreshToken: false");
     expect(source).not.toContain("scheduleSessionRefresh");
-    expect(source).toContain("shouldRefreshSupabaseSession");
+    expect(source).not.toContain("shouldRefreshSupabaseSession");
+    expect(source).toContain("refreshExpiredSupabaseSession");
+    expect(source).toContain("if (sessionInitialized && isSupabaseSessionUsable(currentSession, nowSeconds))");
     expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) return null;");
   });
 });
