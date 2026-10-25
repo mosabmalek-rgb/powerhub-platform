@@ -5,6 +5,14 @@
 ALTER TABLE public.generator_owner_provisioning_operations
   ADD COLUMN IF NOT EXISTS auth_creation_started_at timestamptz;
 
+-- Keep a terminal tombstone after compensation so a retry can never reuse a
+-- cancelled operation key or bind a deleted Auth identity to a new subscription.
+ALTER TABLE public.generator_owner_provisioning_operations
+  DROP CONSTRAINT IF EXISTS generator_owner_provisioning_operations_status_check;
+ALTER TABLE public.generator_owner_provisioning_operations
+  ADD CONSTRAINT generator_owner_provisioning_operations_status_check
+  CHECK (status = ANY (ARRAY['pending'::text, 'completed'::text, 'cancelled'::text]));
+
 CREATE OR REPLACE FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(
   p_actor_user_id bigint,
   p_client_operation_id uuid,
@@ -64,6 +72,13 @@ BEGIN
        OR lower(v_op.owner_email) IS DISTINCT FROM v_email
        OR v_op.request_fingerprint IS DISTINCT FROM p_request_fingerprint THEN
       RAISE EXCEPTION 'PROVISIONING_OPERATION_PAYLOAD_CONFLICT' USING ERRCODE = 'P0001';
+    END IF;
+
+    IF v_op.status = 'cancelled' THEN
+      RETURN QUERY SELECT v_op.status, v_op.auth_user_id, false,
+        v_op.tenant_id, v_op.owner_user_id, v_op.site_id, v_op.subscription_id,
+        false, false, true;
+      RETURN;
     END IF;
 
     IF v_op.status = 'completed' THEN
@@ -214,7 +229,8 @@ BEGIN
   WHERE client_operation_id = p_client_operation_id
   FOR UPDATE;
   IF NOT FOUND THEN
-    RETURN QUERY SELECT true;
+    -- A missing operation is not proof that the compensation gate succeeded.
+    RETURN QUERY SELECT false;
     RETURN;
   END IF;
   IF v_op.actor_user_id IS DISTINCT FROM p_actor_user_id
@@ -225,7 +241,8 @@ BEGIN
     RETURN;
   END IF;
 
-  DELETE FROM public.generator_owner_provisioning_operations
+  UPDATE public.generator_owner_provisioning_operations
+  SET status = 'cancelled', updated_at = now()
   WHERE client_operation_id = p_client_operation_id;
   RETURN QUERY SELECT true;
 END;
