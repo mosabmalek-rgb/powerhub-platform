@@ -423,7 +423,7 @@ begin
   end if;
   return query select v_payment_id,coalesce(v_replayed,false);
   return;
-end;$;
+end;$$;
 
 REVOKE EXECUTE ON FUNCTION public.powerhub_create_payment(bigint,bigint,bigint,bigint,bigint,text,numeric,text,bigint,text,text,text,text,text,bigint,uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_create_payment(bigint,bigint,bigint,bigint,bigint,text,numeric,text,bigint,text,text,text,text,text,bigint,uuid) TO service_role;
