@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 export const POWERHUB_CONNECTIVITY_PROBE_TIMEOUT_MS = 3_500;
+export const POWERHUB_CONNECTIVITY_RECHECK_INTERVAL_MS = 15_000;
 const HEALTH_PATH = "/api/health";
 const PROBE_ATTEMPTS = 2;
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -54,6 +55,26 @@ export function probePowerHubConnectivity(
   return runHealthProbe(fetcher, timeoutMs);
 }
 
+/**
+ * React Query's online manager represents browser/network reachability, not
+ * whether one particular application health endpoint is responding. Keep that
+ * signal separate from the PowerHub health probe below.
+ */
+export function subscribeBrowserNetworkStatus(
+  setOnline: (online: boolean) => void,
+  target: Pick<Window, "addEventListener" | "removeEventListener"> = window,
+  onlineHint: () => boolean = () => typeof navigator === "undefined" || navigator.onLine,
+) {
+  const sync = () => setOnline(onlineHint());
+  target.addEventListener("online", sync);
+  target.addEventListener("offline", sync);
+  sync();
+  return () => {
+    target.removeEventListener("online", sync);
+    target.removeEventListener("offline", sync);
+  };
+}
+
 /** Verified reachability and a counter that increments only after a real reconnection. */
 export function usePowerHubConnectivity() {
   // Avoid displaying a false offline banner based solely on the browser hint
@@ -85,8 +106,12 @@ export function usePowerHubConnectivity() {
     window.addEventListener("offline", handleOffline);
     document.addEventListener("visibilitychange", handleVisible);
     void check();
+    // Recover from a transient health-check failure even if the browser emits
+    // no new online event (common after a brief API/Vercel cold-start hiccup).
+    const retryId = window.setInterval(() => { void check(); }, POWERHUB_CONNECTIVITY_RECHECK_INTERVAL_MS);
     return () => {
       active = false;
+      window.clearInterval(retryId);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       document.removeEventListener("visibilitychange", handleVisible);
