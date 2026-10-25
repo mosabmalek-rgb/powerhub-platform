@@ -109,6 +109,13 @@ jobs:
           PGDATABASE: site_billing_policy_test
         run: bash supabase/tests/payment_idempotency_concurrency.sh
 
+      - name: Reconcile server-only platform security table ACLs and RLS
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres platform_security_acl_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname platform_security_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/platform_security_table_acl_reconciliation.sql
+
       - name: Verify payment-documentation admin and owner precedence
         env:
           PGPASSWORD: postgres

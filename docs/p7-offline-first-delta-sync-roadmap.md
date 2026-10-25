@@ -499,3 +499,11 @@
 - للتوافق مع السجلات القديمة التي لا تحتوي بصمة، لا تُملأ البصمة إلا بعد مطابقة سجل الدفعة وحركة الحساب وسجل الخصم اليدوي (حيث ينطبق) مع الحمولة المعادة.
 - أضيفت اختبارات PostgreSQL للـ replay المطابق، وتغيير الحمولة، وإعادة استخدام UUID عبر مستخدم/مستأجر آخر، مع سيناريو تنافسي يفرض تأخيرًا في إدراج الدفعة ويتحقق من وجود دفعة وحركة حساب وسجل تدقيق واحد فقط.
 - تظل الدفعتان C وD غير مقبولتين نهائيًا حتى نجاح الفحوص على الرأس النهائي، ومراجعة مخطط staging وسجل الترحيلات، وإتمام E2E المتصفح وقياسات الشبكة والأداء. هذا التغيير يضيف إثباتًا للـ RPC المالي المعزول ولا يدّعي حدوث اختبار حي على staging أو production.
+
+
+## 16. Staging security-table policy drift reconciliation (2026-10-25)
+
+- Read-only staging inspection found `platform_security_events` and `platform_security_settings` created after the baseline policy migration. Both had RLS enabled but no policies, and inherited broad grants to `anon`/`authenticated`; production retained the intended platform-admin-only policies.
+- Added forward migration `20261025040000_powerhub_platform_security_table_acl_reconciliation.sql`: re-establishes the canonical platform-admin policy plus a restrictive guard, removes direct client grants, preserves authenticated reads behind RLS, and grants the server-side service role the CRUD privileges used by the application.
+- Added an isolated PostgreSQL test that reproduces the missing-policy/broad-grant staging state, checks ACL parity, inserts an extra permissive `USING (true)` policy, and proves non-admin reads remain empty while a platform administrator can read the fixture rows.
+- This migration has only been added to the PR and tested in disposable PostgreSQL; it has not been applied to staging or production.
