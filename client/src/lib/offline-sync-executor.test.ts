@@ -195,6 +195,51 @@ describe("executeReadyOperations", () => {
     expect(results[1].metadata.attempts).toBe(0);
   });
 
+  it("retries an ambiguous lost response with the same operation ID and accepts server replay", async () => {
+    const queued = item("uncertain-payment", 1);
+    const committedOperationIds = new Set<string>();
+    const firstTransport = vi.fn(async (operation: QueuedOfflineWork) => {
+      // Simulate the server committing before the response is lost.
+      committedOperationIds.add(operation.clientOperationId);
+      throw new Error("response lost after server commit");
+    });
+
+    const [first] = await executeReadyOperations({
+      items: [queued],
+      metadataByOperationId: new Map([[queued.clientOperationId, createSyncMetadata(queued, 0)]]),
+      transport: firstTransport,
+      now: 100,
+      random: () => 0.5,
+    });
+
+    expect(first.outcome).toBe("retryable");
+    expect(first.metadata.attempts).toBe(1);
+    expect(first.metadata.nextAttemptAt).toBeGreaterThan(100);
+    expect(firstTransport).toHaveBeenCalledTimes(1);
+    expect(committedOperationIds.size).toBe(1);
+
+    const retryTransport = vi.fn(async (operation: QueuedOfflineWork) => {
+      expect(operation.clientOperationId).toBe(queued.clientOperationId);
+      if (committedOperationIds.has(operation.clientOperationId)) {
+        return { outcome: "already_applied" as const };
+      }
+      committedOperationIds.add(operation.clientOperationId);
+      return { outcome: "applied" as const };
+    });
+    const [replayed] = await executeReadyOperations({
+      items: [{ ...queued, status: "failed" as const }],
+      metadataByOperationId: new Map([[queued.clientOperationId, first.metadata]]),
+      transport: retryTransport,
+      now: first.metadata.nextAttemptAt,
+      random: () => 0.5,
+    });
+
+    expect(replayed.outcome).toBe("already_applied");
+    expect(replayed.item.clientOperationId).toBe(queued.clientOperationId);
+    expect(retryTransport).toHaveBeenCalledTimes(1);
+    expect(committedOperationIds.size).toBe(1);
+  });
+
   it("maps transport error codes through the central classifier", async () => {
     const a = item("a", 1);
 

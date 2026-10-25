@@ -118,6 +118,12 @@ describe("offline sync engine", () => {
     expect(classifySyncResult("SERVICE_UNAVAILABLE")).toBe("retryable");
   });
 
+  it("fails closed for missing or unknown transport error codes", () => {
+    expect(classifySyncResult(undefined)).toBe("retryable");
+    expect(classifySyncResult("")).toBe("retryable");
+    expect(classifySyncResult("UNKNOWN_ERROR")).toBe("retryable");
+  });
+
   it("uses bounded exponential backoff with jitter", () => {
     expect(computeBackoffDelay(1, 0)).toBe(750);
     expect(computeBackoffDelay(2, 0.5)).toBe(2_000);

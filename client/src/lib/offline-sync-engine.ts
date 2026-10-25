@@ -97,8 +97,10 @@ export function classifySyncResult(errorCode?: string): SyncOutcome {
     case "INTERNAL_SERVER_ERROR":
     case "SERVICE_UNAVAILABLE":
       return "retryable";
+    // This function classifies failed/ambiguous transports, never successful responses.
+    // Unknown or missing codes must fail closed; callers confirm success separately.
     default:
-      return errorCode ? "retryable" : "applied";
+      return "retryable";
   }
 }
 
