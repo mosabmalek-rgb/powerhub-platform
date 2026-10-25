@@ -85,8 +85,8 @@ describe("offline server-write ACL hardening migration", () => {
       "platform_tariff_policies", "subscription_renewal_operations",
       "tenant_addon_renewal_decisions", "tenant_owner_alerts", "user_quick_action_preferences",
     ]) {
-      expect(migration).toMatch(new RegExp("create table if not exists public\\\\." + table, "i"));
-      expect(migration).toMatch(new RegExp("alter table public\\\\." + table + " enable row level security", "i"));
+      expect(migration.toLowerCase()).toContain("create table if not exists public." + table);
+      expect(migration.toLowerCase()).toContain("alter table public." + table + " enable row level security");
     }
     expect(migration).toMatch(/grant execute on function public\\.powerhub_admin_request_owner_access_recovery\\(bigint, bigint, text, text, text\\) to service_role/i);
     expect(migration).toMatch(/grant execute on function public\\.powerhub_admin_renew_subscription_with_addons\\(bigint, bigint, timestamptz, text, jsonb, uuid\\) to service_role/i);
