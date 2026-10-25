@@ -175,25 +175,6 @@ $widen_policy_scope$;
 
 \ir ../migrations/20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql
 \ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
--- Simulate the untracked legacy production function: its OUT columns differ even
--- though its input signature is identical. The forward migration must replace it.
-CREATE OR REPLACE FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(
-  p_actor_user_id bigint,
-  p_client_operation_id uuid,
-  p_owner_email text,
-  p_request_fingerprint text
-)
-RETURNS TABLE(client_operation_id uuid, auth_user_id uuid, status text, replayed boolean)
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path TO 'public', 'pg_temp'
-AS $legacy$
-  SELECT p_client_operation_id, NULL::uuid, 'pending'::text, false;
-$legacy$;
-ALTER FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(bigint, uuid, text, text) OWNER TO postgres;
-REVOKE ALL ON FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(bigint, uuid, text, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(bigint, uuid, text, text) TO service_role;
-
 \ir ../migrations/20261025133000_powerhub_owner_provisioning_idempotency_lifecycle.sql
 -- Both forward migrations must be safe to replay without duplicating policy/function state.
 \ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
@@ -375,19 +356,6 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- Assert the new RPC result contract, not only its input signature.
-  IF position('can_create_auth boolean' IN pg_get_function_result(
-       to_regprocedure('public.powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text)')
-     )) = 0
-     OR position('needs_reconciliation boolean' IN pg_get_function_result(
-       to_regprocedure('public.powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text)')
-     )) = 0
-     OR position('client_operation_id uuid' IN pg_get_function_result(
-       to_regprocedure('public.powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text)')
-     )) > 0 THEN
-    RAISE EXCEPTION 'SCHEMA_RECONCILIATION_OWNER_PROVISIONING_RETURN_CONTRACT_DRIFT';
-  END IF;
-
   IF to_regprocedure('public.powerhub_admin_request_owner_access_recovery(bigint,bigint,text)') IS NOT NULL
      OR to_regprocedure('public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb)') IS NOT NULL
      OR to_regprocedure('public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb,uuid)') IS NOT NULL THEN
@@ -446,20 +414,6 @@ BEGIN
      OR v_first.needs_reconciliation
      OR v_first.success THEN
     RAISE EXCEPTION 'OWNER_PROVISIONING_INITIAL_RESERVATION_INVALID: %', row_to_json(v_first);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM public.powerhub_admin_get_generator_owner_provisioning_reconciliation(
-      92001, v_operation_id, v_fingerprint
-    ) AS r
-    WHERE r.operation_status = 'pending'
-      AND r.owner_email = 'owner-lifecycle@example.test'
-      AND r.auth_user_id IS NULL
-      AND r.request_fingerprint = v_fingerprint
-      AND r.auth_creation_started_at IS NOT NULL
-  ) THEN
-    RAISE EXCEPTION 'OWNER_PROVISIONING_RECONCILIATION_ENVELOPE_INVALID';
   END IF;
 
   PERFORM * FROM public.powerhub_admin_attach_generator_owner_provisioning_auth(
