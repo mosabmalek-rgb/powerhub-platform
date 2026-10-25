@@ -23,6 +23,25 @@ let authSubscriptionReady = false;
 // Incremented for every accepted Supabase auth event. Async getSession/refresh
 // snapshots must not overwrite a newer sign-in/sign-out event when they finish.
 let authStateRevision = 0;
+let expiredSessionRefreshInFlight: Promise<Session | null> | null = null;
+
+async function refreshExpiredSupabaseSession(): Promise<Session | null> {
+  if (expiredSessionRefreshInFlight) return expiredSessionRefreshInFlight;
+  expiredSessionRefreshInFlight = supabase.auth.refreshSession()
+    .then(({ data, error }) => {
+      if (error || !data.session) return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+      // The auth listener is authoritative when it has already observed the
+      // refresh event; otherwise keep the returned live session as a fallback.
+      if (!isSupabaseSessionUsable(currentSession)) {
+        currentSession = data.session;
+        sessionInitialized = true;
+      }
+      return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+    })
+    .catch(() => isSupabaseSessionUsable(currentSession) ? currentSession : null)
+    .finally(() => { expiredSessionRefreshInFlight = null; });
+  return expiredSessionRefreshInFlight;
+}
 
 type AuthSubscriber = (event: AuthChangeEvent, session: Session | null) => void;
 const authSubscribers = new Set<AuthSubscriber>();
@@ -70,6 +89,13 @@ export async function getSupabaseSession(): Promise<Session | null> {
     return currentSession;
   }
 
+  // A manual refresh is permitted only after the access token has expired.
+  // Near-expiry tokens are returned while Supabase's built-in timer owns
+  // rotation; this avoids racing the SDK's one-time refresh-token lifecycle.
+  if (sessionInitialized && currentSession && !isSupabaseSessionUsable(currentSession, nowSeconds)) {
+    return refreshExpiredSupabaseSession();
+  }
+
   if (sessionReadInFlight) return sessionReadInFlight;
 
   const requestRevision = authStateRevision;
@@ -84,6 +110,9 @@ export async function getSupabaseSession(): Promise<Session | null> {
 
       currentSession = selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision);
       sessionInitialized = true;
+      if (currentSession && !isSupabaseSessionUsable(currentSession)) {
+        return refreshExpiredSupabaseSession();
+      }
       return isSupabaseSessionUsable(currentSession) ? currentSession : null;
     })
     .catch(() => {
