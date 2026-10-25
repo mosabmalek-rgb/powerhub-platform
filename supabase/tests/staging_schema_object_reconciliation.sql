@@ -164,6 +164,7 @@ END
 $widen_policy_scope$;
 
 \ir ../migrations/20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql
+\ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
 
 DO $assert_reconciliation$
 DECLARE
@@ -241,17 +242,20 @@ BEGIN
 
   IF to_regprocedure('private.powerhub_current_user_id()') IS NULL
      OR to_regprocedure('private.powerhub_has_tenant_access(bigint)') IS NULL
-     OR to_regprocedure('private.powerhub_is_platform_admin()') IS NULL THEN
+     OR to_regprocedure('private.powerhub_is_platform_admin()') IS NULL
+     OR to_regprocedure('private.powerhub_is_platform_management_admin()') IS NULL THEN
     RAISE EXCEPTION 'SCHEMA_RECONCILIATION_PRIVATE_RLS_HELPERS_MISSING';
   END IF;
   IF NOT has_function_privilege('authenticated','private.powerhub_current_user_id()','EXECUTE')
      OR NOT has_function_privilege('authenticated','private.powerhub_has_tenant_access(bigint)','EXECUTE')
-     OR NOT has_function_privilege('authenticated','private.powerhub_is_platform_admin()','EXECUTE') THEN
+     OR NOT has_function_privilege('authenticated','private.powerhub_is_platform_admin()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','private.powerhub_is_platform_management_admin()','EXECUTE') THEN
     RAISE EXCEPTION 'SCHEMA_RECONCILIATION_PRIVATE_RLS_HELPER_GRANTS_MISSING';
   END IF;
   IF has_function_privilege('anon','private.powerhub_current_user_id()','EXECUTE')
      OR has_function_privilege('anon','private.powerhub_has_tenant_access(bigint)','EXECUTE')
-     OR has_function_privilege('anon','private.powerhub_is_platform_admin()','EXECUTE') THEN
+     OR has_function_privilege('anon','private.powerhub_is_platform_admin()','EXECUTE')
+     OR has_function_privilege('anon','private.powerhub_is_platform_management_admin()','EXECUTE') THEN
     RAISE EXCEPTION 'SCHEMA_RECONCILIATION_PRIVATE_RLS_HELPER_EXPOSED_TO_ANON';
   END IF;
 
@@ -269,11 +273,11 @@ BEGIN
 
   FOR v_policy IN
     SELECT * FROM (VALUES
-      ('access_recovery_requests','access_recovery_tenant_isolation','access_recovery_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
+      ('access_recovery_requests','access_recovery_tenant_isolation','access_recovery_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_management_admin'),
       ('complaints','complaints_tenant_isolation','complaints_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
       ('meters','meters_tenant_isolation','meters_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
       ('platform_tariff_policies','platform_tariff_policies_platform_admin_only','platform_tariff_policies_admin_guard','powerhub_is_platform_admin',NULL),
-      ('user_quick_action_preferences','quick_actions_owner_only','quick_actions_owner_guard','powerhub_current_user_id','powerhub_is_platform_admin')
+      ('user_quick_action_preferences','quick_actions_owner_only','quick_actions_owner_guard','powerhub_current_user_id','powerhub_is_platform_management_admin')
     ) AS expected(table_name, permissive_policy, restrictive_policy, helper_one, helper_two)
   LOOP
     SELECT permissive, qual, with_check
