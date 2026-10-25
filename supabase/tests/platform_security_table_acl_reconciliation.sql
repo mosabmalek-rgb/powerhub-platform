@@ -78,6 +78,8 @@ INSERT INTO public.platform_security_settings(id,setting_key,value)
 -- this fixture, matching the staging drift observed before this reconciliation.
 \ir ../migrations/20261025102019_powerhub_platform_security_table_acl_reconciliation.sql
 \ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
+-- Run the scoped correction twice to detect duplicate policies or non-repeatable DDL.
+\ir ../migrations/20261025120000_powerhub_scoped_platform_admin_and_recovery_rpc.sql
 
 DO $acl_contract$
 DECLARE
