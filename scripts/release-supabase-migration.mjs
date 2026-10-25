@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { assertSupabaseMigrationTarget, SUPABASE_PROJECT_BY_TARGET } from "./supabase-migration-target.mjs";
+import { resolveSupabaseMigrationFile } from "./supabase-migration-file.mjs";
 
 const [requestedPath, target] = process.argv.slice(2);
 const migrationRoot = path.resolve("supabase/migrations");
@@ -15,9 +16,15 @@ if (!requestedPath || !Object.hasOwn(SUPABASE_PROJECT_BY_TARGET, target)) {
   fail("usage: node scripts/release-supabase-migration.mjs <supabase/migrations/file.sql> <staging|production>");
 }
 
-const absolutePath = path.resolve(requestedPath);
-if (!absolutePath.startsWith(migrationRoot + path.sep)) {
-  fail("only a migration inside supabase/migrations may be released");
+let absolutePath;
+try {
+  absolutePath = await resolveSupabaseMigrationFile({
+    repositoryRoot: path.resolve("."),
+    migrationRoot,
+    requestedPath,
+  });
+} catch (error) {
+  fail(error instanceof Error ? error.message : "migration path validation failed");
 }
 
 const filename = path.basename(absolutePath);

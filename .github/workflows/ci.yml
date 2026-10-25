@@ -45,6 +45,7 @@ jobs:
         run: |
           node --check scripts/check-supabase-migration-files.mjs
           node --check scripts/supabase-migration-target.mjs
+          node --check scripts/supabase-migration-file.mjs
           node --check scripts/supabase-migration-target.test.mjs
           node --check scripts/release-supabase-migration.mjs
           node scripts/check-supabase-migration-files.mjs
