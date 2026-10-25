@@ -74,6 +74,16 @@ CREATE TABLE public.notification_messages (id bigint PRIMARY KEY, scheduled_at t
 CREATE TABLE public.feature_catalog (
   feature_key text PRIMARY KEY, is_active boolean, updated_at timestamptz
 );
+-- These security tables are prerequisites for the forward policy-scope migration.
+CREATE TABLE public.platform_security_events (
+  id bigint PRIMARY KEY, event_type text, severity text, status text, title text,
+  details text, metadata jsonb, related_user_id bigint, created_by_user_id bigint,
+  created_at timestamptz, resolved_at timestamptz
+);
+CREATE TABLE public.platform_security_settings (
+  id bigint PRIMARY KEY, setting_key text, is_enabled boolean, value jsonb,
+  updated_at timestamptz, updated_by_user_id bigint
+);
 
 CREATE OR REPLACE FUNCTION public.powerhub_set_updated_at()
 RETURNS trigger LANGUAGE plpgsql AS $function$
