@@ -12,7 +12,7 @@ $roles$;
 
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE OR REPLACE FUNCTION auth.uid()
-RETURNS uuid LANGUAGE sql STABLE AS $ SELECT NULL::uuid $;
+RETURNS uuid LANGUAGE sql STABLE AS $auth_uid$ SELECT NULL::uuid $auth_uid$;
 
 CREATE TABLE public.users (
   id bigint PRIMARY KEY,
