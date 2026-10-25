@@ -133,16 +133,27 @@ export const adminRouter = router({
     }
     const sqlRollbackConfirmed = typeof result.error?.code === "string" && /^[0-9A-Z]{5}$/.test(result.error.code);
     if (sqlRollbackConfirmed) {
-      // Delete Auth first; retain the operation if compensation fails so retry can reuse the same user.
+      // Close the operation first. A durable cancelled tombstone prevents retries
+      // from attaching a deleted Auth user or creating a second identity.
+      const cancellation = await admin.rpc("powerhub_admin_cancel_generator_owner_provisioning", {
+        p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
+        p_request_fingerprint: fingerprint, p_auth_user_id: authUserId,
+      });
+      const cancelled = !cancellation.error && cancellation.data?.[0]?.cancelled === true;
+      if (!cancelled) {
+        console.error("[AdminSupabase] owner provisioning cancellation failed", {
+          code: cancellation.error?.code ?? null,
+        });
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تراجعت معاملة قاعدة البيانات، لكن تعذر إغلاق سجل العملية بأمان؛ احتُفظ بحساب الدخول لمنع كسر إمكانية المصالحة."});
+      }
       const cleanup = await admin.auth.admin.deleteUser(authUserId);
       if (!cleanup.error) {
-        await admin.rpc("powerhub_admin_cancel_generator_owner_provisioning", {
-          p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,
-          p_request_fingerprint: fingerprint, p_auth_user_id: authUserId,
-        });
-        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"رفضت قاعدة البيانات التسجيل؛ تراجعت المعاملة وأُلغي حساب الدخول التعويضيًا."});
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"رفضت قاعدة البيانات التسجيل؛ أُغلقت العملية وأُلغي حساب الدخول التعويضيًا."});
       }
-      console.error("[AdminSupabase] owner provisioning Auth compensation failed", { code: cleanup.error.code ?? null });
+      console.error("[AdminSupabase] owner provisioning Auth compensation failed after durable cancellation", {
+        code: cleanup.error.code ?? null,
+      });
+      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"أُغلقت عملية التسجيل بأمان لكن تعذر حذف حساب الدخول التعويضي؛ يلزم تنظيفه عبر مسار المصالحة، ولن تُعاد العملية تلقائيًا."});
     }
     // A lost RPC response may mean the transaction committed. Preserve Auth and operation for replay.
     throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تأكيد نتيجة تسجيل صاحب المولد. أعد المحاولة بالعملية نفسها؛ سيمنع معرّف العملية تكرار الاشتراك."});
