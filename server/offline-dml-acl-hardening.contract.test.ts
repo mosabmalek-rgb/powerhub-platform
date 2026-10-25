@@ -14,7 +14,7 @@ const quotaAclMigrationUrl = new URL(
   import.meta.url,
 );
 const schemaReconciliationMigrationUrl = new URL(
-  "../supabase/migrations/20261025020000_powerhub_missing_schema_and_rpc_reconciliation.sql",
+  "../supabase/migrations/20261025101753_powerhub_missing_schema_and_rpc_reconciliation.sql",
   import.meta.url,
 );
 const notificationTriggerMigrationUrl = new URL(
