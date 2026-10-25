@@ -504,6 +504,7 @@
 ## 16. Staging security-table policy drift reconciliation (2026-10-25)
 
 - Read-only staging inspection found `platform_security_events` and `platform_security_settings` created after the baseline policy migration. Both had RLS enabled but no policies, and inherited broad grants to `anon`/`authenticated`; production retained the intended platform-admin-only policies.
+- A first staging apply attempt of `20261025020000` correctly failed closed because staging also lacked the three `private.powerhub_*` RLS helper functions from migration 0004; the migration history and schema remained unchanged. The reconciliation now bootstraps the production-equivalent helpers and the disposable PostgreSQL test no longer masks this drift with stub functions.
 - Added forward migration `20261025040000_powerhub_platform_security_table_acl_reconciliation.sql`: re-establishes the canonical platform-admin policy plus a restrictive guard, removes direct client grants, preserves authenticated reads behind RLS, and grants the server-side service role the CRUD privileges used by the application.
 - Added an isolated PostgreSQL test that reproduces the missing-policy/broad-grant staging state, checks ACL parity, inserts an extra permissive `USING (true)` policy, and proves non-admin reads remain empty while a platform administrator can read the fixture rows.
 - This migration has only been added to the PR and tested in disposable PostgreSQL; it has not been applied to staging or production.

@@ -10,13 +10,9 @@ BEGIN
 END
 $roles$;
 
-CREATE SCHEMA private;
-CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(bigint)
-RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
-CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin()
-RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
-CREATE OR REPLACE FUNCTION private.powerhub_current_user_id()
-RETURNS bigint LANGUAGE sql STABLE AS $$ SELECT NULL::bigint $$;
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE OR REPLACE FUNCTION auth.uid()
+RETURNS uuid LANGUAGE sql STABLE AS $ SELECT NULL::uuid $;
 
 CREATE TABLE public.users (
   id bigint PRIMARY KEY,
@@ -34,6 +30,15 @@ CREATE TABLE public.users (
   last_signed_in timestamptz
 );
 CREATE TABLE public.tenants (id bigint PRIMARY KEY, name text, slug text, status text);
+CREATE TABLE public.tenant_members (
+  id bigint PRIMARY KEY,
+  tenant_id bigint NOT NULL,
+  user_id bigint NOT NULL,
+  role text,
+  is_active boolean NOT NULL DEFAULT true,
+  membership_status text NOT NULL DEFAULT 'active',
+  expires_at timestamptz
+);
 CREATE TABLE public.sites (
   id bigint PRIMARY KEY, tenant_id bigint, name text, code text, status text, city text
 );
@@ -233,6 +238,22 @@ BEGIN
       RAISE EXCEPTION 'SCHEMA_RECONCILIATION_SERVICE_GRANTS_MISSING: %',v_table;
     END IF;
   END LOOP;
+
+  IF to_regprocedure('private.powerhub_current_user_id()') IS NULL
+     OR to_regprocedure('private.powerhub_has_tenant_access(bigint)') IS NULL
+     OR to_regprocedure('private.powerhub_is_platform_admin()') IS NULL THEN
+    RAISE EXCEPTION 'SCHEMA_RECONCILIATION_PRIVATE_RLS_HELPERS_MISSING';
+  END IF;
+  IF NOT has_function_privilege('authenticated','private.powerhub_current_user_id()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','private.powerhub_has_tenant_access(bigint)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','private.powerhub_is_platform_admin()','EXECUTE') THEN
+    RAISE EXCEPTION 'SCHEMA_RECONCILIATION_PRIVATE_RLS_HELPER_GRANTS_MISSING';
+  END IF;
+  IF has_function_privilege('anon','private.powerhub_current_user_id()','EXECUTE')
+     OR has_function_privilege('anon','private.powerhub_has_tenant_access(bigint)','EXECUTE')
+     OR has_function_privilege('anon','private.powerhub_is_platform_admin()','EXECUTE') THEN
+    RAISE EXCEPTION 'SCHEMA_RECONCILIATION_PRIVATE_RLS_HELPER_EXPOSED_TO_ANON';
+  END IF;
 
   -- Five canonical permissive policies, five restrictive scope guards, plus the
   -- deliberate stray permissive-policy fixture that must remain contained.

@@ -3,6 +3,68 @@
 -- This migration performs no data backfill. Existing production tables are left in place by CREATE TABLE IF NOT EXISTS.
 SET search_path TO public, pg_temp;
 
+
+-- Rebuild the private RLS helpers before any policy references them.
+-- Staging drift may omit migration 0004 objects while retaining tables and policies
+-- created by later migrations. These definitions match the currently deployed
+-- production helper contract and keep privileged helpers outside the exposed schema.
+CREATE SCHEMA IF NOT EXISTS private;
+
+CREATE OR REPLACE FUNCTION private.powerhub_current_user_id()
+RETURNS bigint
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+  SELECT id FROM public.users WHERE auth_user_id = auth.uid() LIMIT 1;
+$function$;
+ALTER FUNCTION private.powerhub_current_user_id() OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.powerhub_current_user_id() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.powerhub_current_user_id() TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.tenant_members membership
+    WHERE membership.tenant_id = target_tenant_id
+      AND membership.user_id = private.powerhub_current_user_id()
+      AND membership.is_active = true
+      AND membership.membership_status = 'active'
+      AND (membership.expires_at IS NULL OR membership.expires_at > now())
+  );
+$function$;
+ALTER FUNCTION private.powerhub_has_tenant_access(bigint) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.powerhub_has_tenant_access(bigint) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.powerhub_has_tenant_access(bigint) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.users
+    WHERE id = private.powerhub_current_user_id()
+      AND platform_role IN ('platform_owner', 'platform_admin', 'finance_admin')
+      AND account_status = 'active'
+  );
+$function$;
+ALTER FUNCTION private.powerhub_is_platform_admin() OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.powerhub_is_platform_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION private.powerhub_is_platform_admin() TO authenticated, service_role;
+
+GRANT USAGE ON SCHEMA private TO authenticated, service_role;
+
 -- Reconcile shared dependencies used by current offline/admin RPCs without rewriting rows.
 ALTER TABLE public.offline_sync_operations
   ADD COLUMN IF NOT EXISTS request_fingerprint text;
