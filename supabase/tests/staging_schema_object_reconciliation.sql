@@ -415,6 +415,20 @@ BEGIN
     RAISE EXCEPTION 'OWNER_PROVISIONING_INITIAL_RESERVATION_INVALID: %', row_to_json(v_first);
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.powerhub_admin_get_generator_owner_provisioning_reconciliation(
+      92001, v_operation_id, v_fingerprint
+    ) AS r
+    WHERE r.operation_status = 'pending'
+      AND r.owner_email = 'owner-lifecycle@example.test'
+      AND r.auth_user_id IS NULL
+      AND r.request_fingerprint = v_fingerprint
+      AND r.auth_creation_started_at IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'OWNER_PROVISIONING_RECONCILIATION_ENVELOPE_INVALID';
+  END IF;
+
   PERFORM * FROM public.powerhub_admin_attach_generator_owner_provisioning_auth(
     92001, v_operation_id, v_auth_id, v_fingerprint
   );
