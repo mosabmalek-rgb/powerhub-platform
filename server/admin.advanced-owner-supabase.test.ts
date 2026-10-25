@@ -63,13 +63,13 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
       }], error: null };
       return { data: null, error: { message: "Unexpected RPC", code: "42883" } };
     });
-    state.authListUsers.mockResolvedValue({ data: { users: [{
+    state.authListUsers.mockImplementation(async () => ({ data: { users: [{
       id: "recovered-auth-user", email: input.ownerEmail,
       app_metadata: {
         powerhub_owner_provisioning_operation_id: input.clientOperationId,
         powerhub_owner_provisioning_fingerprint: expectedFingerprint,
       },
-    }] }, error: null });
+    }] }, error: null }));
     await expect(caller().createGeneratorOwnerSubscription(input)).resolves.toMatchObject({ tenant_id: 101, subscription_id: 404 });
     expect(state.authCreateUser).not.toHaveBeenCalled();
     expect(state.authListUsers).toHaveBeenCalledTimes(1);
