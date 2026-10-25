@@ -69,6 +69,6 @@ describe("offline server-write ACL hardening migration", () => {
     expect(migration).toMatch(/alter table public\.powerhub_quota_alerts enable row level security/i);
     expect(migration).toMatch(/revoke all on table public\.powerhub_quota_alerts from public, anon, authenticated/i);
     expect(migration).toMatch(/grant all on table public\.powerhub_quota_alerts to service_role/i);
-    expect(migration).not.toMatch(/grant\s+(?:select|insert|update|delete|all)\b[^;]*\b(?:public|anon|authenticated)\b/i);
+    expect(migration).not.toMatch(/grant\s+(?:select|insert|update|delete|all)\b[^;]*\bto\s+(?:public|anon|authenticated)\b/i);
   });
 });
