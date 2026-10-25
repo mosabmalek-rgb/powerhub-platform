@@ -84,7 +84,7 @@ INSERT INTO public.users(id,auth_user_id,account_status,role) VALUES
 INSERT INTO public.sites(id,tenant_id,status) VALUES (10,10,'active'),(20,20,'active');
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
   (10,1,'owner',true,'active',now()-interval '1 minute'),
-  (20,2,'owner',true,'active',null);
+  (20,2,'owner',true,'active',now()+interval '1 day');
 INSERT INTO public.generators(id,tenant_id,site_id,code,name,rated_capacity_kw,fuel_type,client_operation_id,updated_at) VALUES
   (101,10,10,'GEN-EXPIRED','Expired owner fixture',100,'diesel','seed-expired','2026-01-01T00:00:00Z'),
   (202,20,20,'GEN-ACTIVE','Active owner fixture',100,'diesel','seed-active','2026-01-01T00:00:00Z');
@@ -179,6 +179,14 @@ BEGIN
     END IF;
   END;
   IF NOT v_denied THEN RAISE EXCEPTION 'EXPIRED_OWNER_UPDATE_WAS_ALLOWED'; END IF;
+
+  IF EXISTS (SELECT 1 FROM public.generators WHERE tenant_id=10 AND code='GEN-EXPIRED-CREATE')
+     OR EXISTS (SELECT 1 FROM public.offline_sync_operations WHERE user_id=1 AND client_operation_id='expired-create-op') THEN
+    RAISE EXCEPTION 'EXPIRED_OWNER_CREATE_LEFT_OPERATIONAL_SIDE_EFFECTS';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.generators WHERE id=101 AND (name <> 'Expired owner fixture' OR fuel_level_liters IS NOT NULL OR operating_hours IS NOT NULL)) THEN
+    RAISE EXCEPTION 'EXPIRED_OWNER_UPDATE_LEFT_OPERATIONAL_SIDE_EFFECTS';
+  END IF;
 END
 $assert_expired_membership_denied$;
 RESET ROLE;
