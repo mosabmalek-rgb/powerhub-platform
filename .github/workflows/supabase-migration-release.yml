@@ -20,7 +20,6 @@ on:
         type: string
 
 permissions:
-  actions: read
   contents: read
   pull-requests: read
 
@@ -44,11 +43,17 @@ jobs:
 
     steps:
       - name: Fail closed unless the GitHub environment has reviewer and main-only protections
+        env:
+          ENVIRONMENT_GUARD_TOKEN: ${{ secrets.SUPABASE_ENVIRONMENT_GUARD_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "${ENVIRONMENT_GUARD_TOKEN:-}" ]]; then
+            echo "Release blocked: configure SUPABASE_ENVIRONMENT_GUARD_TOKEN with read-only access to repository environment settings."
+            exit 1
+          fi
           environment_name="supabase-${RELEASE_TARGET}"
-          environment_json="$(gh api "repos/$GITHUB_REPOSITORY/environments/$environment_name")"
+          environment_json="$(GH_TOKEN="$ENVIRONMENT_GUARD_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/$environment_name")"
 
           if ! jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and ((.reviewers // []) | length > 0))] | length > 0' <<< "$environment_json" >/dev/null; then
             echo "Release blocked: $environment_name must require at least one human reviewer."
@@ -60,7 +65,7 @@ jobs:
             exit 1
           fi
 
-          branch_policies="$(gh api "repos/$GITHUB_REPOSITORY/environments/$environment_name/deployment-branch-policies")"
+          branch_policies="$(GH_TOKEN="$ENVIRONMENT_GUARD_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/$environment_name/deployment-branch-policies")"
           if ! jq -e '.branch_policies | length == 1 and .[0].name == "main" and .[0].type == "branch"' <<< "$branch_policies" >/dev/null; then
             echo "Release blocked: $environment_name must allow exactly the main branch."
             exit 1
