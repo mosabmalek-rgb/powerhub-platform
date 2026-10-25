@@ -13,6 +13,29 @@ ALTER TABLE public.generator_owner_provisioning_operations
   ADD CONSTRAINT generator_owner_provisioning_operations_status_check
   CHECK (status = ANY (ARRAY['pending'::text, 'completed'::text, 'cancelled'::text]));
 
+CREATE OR REPLACE FUNCTION public.powerhub_guard_cancelled_owner_provisioning_operation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF OLD.status = 'cancelled' AND NEW IS DISTINCT FROM OLD THEN
+    RAISE EXCEPTION 'CANCELLED_PROVISIONING_OPERATION_IS_TERMINAL'
+      USING ERRCODE = 'P0001';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+ALTER FUNCTION public.powerhub_guard_cancelled_owner_provisioning_operation() OWNER TO postgres;
+REVOKE ALL ON FUNCTION public.powerhub_guard_cancelled_owner_provisioning_operation() FROM PUBLIC, anon, authenticated, service_role;
+
+DROP TRIGGER IF EXISTS powerhub_guard_cancelled_owner_provisioning_operation
+  ON public.generator_owner_provisioning_operations;
+CREATE TRIGGER powerhub_guard_cancelled_owner_provisioning_operation
+BEFORE UPDATE ON public.generator_owner_provisioning_operations
+FOR EACH ROW
+EXECUTE FUNCTION public.powerhub_guard_cancelled_owner_provisioning_operation();
+
 CREATE OR REPLACE FUNCTION public.powerhub_admin_begin_generator_owner_provisioning(
   p_actor_user_id bigint,
   p_client_operation_id uuid,
