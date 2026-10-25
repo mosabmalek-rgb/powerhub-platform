@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
-import { getSupabaseSession, isSupabaseRefreshBackoffActive, subscribeSupabaseAuthState } from "@/lib/supabase";
+import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
 
@@ -62,7 +62,7 @@ function useAuthController() {
     // authorization failures as if they were connectivity problems.
     retry: (failureCount, error) => {
       const code = (error as { data?: { code?: string } } | null)?.data?.code;
-      return failureCount < 2 && code !== "UNAUTHORIZED" && code !== "FORBIDDEN";
+      return failureCount < 2 && code !== "FORBIDDEN";
     },
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -254,7 +254,7 @@ function useAuthController() {
   // login/session handshake and avoids transient 401/403 states in the UI.
   const meQueryErrorCode = (meQuery.error as { data?: { code?: string } } | null)?.data?.code;
   const meQueryAuthorizationDenied = meQueryErrorCode === "FORBIDDEN" ||
-    (meQueryErrorCode === "UNAUTHORIZED" && !isSupabaseRefreshBackoffActive());
+    (meQueryErrorCode === "UNAUTHORIZED" && !hasSession);
   const meQueryTemporarilyUnavailable = Boolean(meQuery.error && !meQueryAuthorizationDenied);
   const isOnlineAuthenticated = Boolean(
     hasSession &&
@@ -273,8 +273,11 @@ function useAuthController() {
   const user = meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
     user,
-    loading: isLoggingOut || !sessionReady || Boolean(hasSession && meQuery.isPending),
-    error: meQuery.error ?? null,
+    loading: isLoggingOut || !sessionReady || Boolean(hasSession && (meQuery.isPending || (meQuery.isError && !meQuery.data && !cachedUser && !meQueryAuthorizationDenied))),
+    // A server-side token check can race a browser refresh. Keep this as a
+    // recoverable profile validation state while the browser still has a
+    // session; RouteAccessGate must not present it as a forced logout.
+    error: hasSession && meQueryErrorCode === "UNAUTHORIZED" ? null : meQuery.error ?? null,
     isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
     isOnlineAuthenticated: !isLoggingOut && isOnlineAuthenticated,
     isLoggingOut,
