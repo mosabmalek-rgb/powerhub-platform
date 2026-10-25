@@ -47,7 +47,7 @@ begin
       'subscriberId',p_subscriber_id,'invoiceId',p_invoice_id,'paymentNo',p_payment_no,
       'amount',round(p_amount,2),'paymentMethod',p_payment_method,'companyAccountId',p_company_account_id,
       'transferFromAccount',p_transfer_from_account,'transferFromType',p_transfer_from_type,
-      'referenceNo',p_reference_no,'receiptImageHash',p_receipt_image_hash,
+      'referenceNo',p_reference_no,'receiptImageKey',p_receipt_image_key,'receiptImageHash',p_receipt_image_hash,
       'collectorSessionId',p_collector_session_id
     )::text);
 
@@ -96,6 +96,7 @@ begin
      or v_existing_payment.transfer_from_account is distinct from p_transfer_from_account
      or v_existing_payment.transfer_from_type is distinct from p_transfer_from_type
      or v_existing_payment.reference_no is distinct from p_reference_no
+     or v_existing_payment.receipt_image_key is distinct from p_receipt_image_key
      or v_existing_payment.receipt_image_hash is distinct from p_receipt_image_hash
      or v_existing_payment.collector_session_id is distinct from p_collector_session_id
      or not exists(
@@ -132,6 +133,7 @@ begin
      or v_existing_payment.transfer_from_account is distinct from p_transfer_from_account
      or v_existing_payment.transfer_from_type is distinct from p_transfer_from_type
      or v_existing_payment.reference_no is distinct from p_reference_no
+     or v_existing_payment.receipt_image_key is distinct from p_receipt_image_key
      or v_existing_payment.receipt_image_hash is distinct from p_receipt_image_hash
      or v_existing_payment.collector_session_id is distinct from p_collector_session_id
      or not exists(
@@ -239,7 +241,7 @@ begin
     'subscriberId',p_subscriber_id,'invoiceId',p_invoice_id,'paymentNo',p_payment_no,
     'amount',round(p_amount,2),'paymentMethod',p_payment_method,'companyAccountId',p_company_account_id,
     'transferFromAccount',p_transfer_from_account,'transferFromType',p_transfer_from_type,
-    'referenceNo',p_reference_no,'receiptImageHash',p_receipt_image_hash,
+    'referenceNo',p_reference_no,'receiptImageKey',p_receipt_image_key,'receiptImageHash',p_receipt_image_hash,
     'collectorSessionId',p_collector_session_id,'manualDiscountAmount',round(p_manual_discount_amount,2),
     'manualDiscountReason',btrim(p_manual_discount_reason)
   )::text);
@@ -288,6 +290,7 @@ begin
      or v_existing_payment.transfer_from_account is distinct from p_transfer_from_account
      or v_existing_payment.transfer_from_type is distinct from p_transfer_from_type
      or v_existing_payment.reference_no is distinct from p_reference_no
+     or v_existing_payment.receipt_image_key is distinct from p_receipt_image_key
      or v_existing_payment.receipt_image_hash is distinct from p_receipt_image_hash
      or v_existing_payment.collector_session_id is distinct from p_collector_session_id
      or not exists(
@@ -338,6 +341,7 @@ begin
      or v_existing_payment.transfer_from_account is distinct from p_transfer_from_account
      or v_existing_payment.transfer_from_type is distinct from p_transfer_from_type
      or v_existing_payment.reference_no is distinct from p_reference_no
+     or v_existing_payment.receipt_image_key is distinct from p_receipt_image_key
      or v_existing_payment.receipt_image_hash is distinct from p_receipt_image_hash
      or v_existing_payment.collector_session_id is distinct from p_collector_session_id
      or not exists(
