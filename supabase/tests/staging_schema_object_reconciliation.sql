@@ -371,9 +371,9 @@ $assert_reconciliation$;
 -- Exercise effective RLS, not only catalog metadata. A deliberate permissive TRUE
 -- policy remains on complaints; the restrictive guard must still hide another tenant.
 GRANT USAGE ON SCHEMA private TO authenticated;
-CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(p_tenant_id bigint)
+CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint)
 RETURNS boolean LANGUAGE sql STABLE AS $function$
-  SELECT p_tenant_id = NULLIF(current_setting('powerhub.test_tenant_id', true), '')::bigint
+  SELECT target_tenant_id = NULLIF(current_setting('powerhub.test_tenant_id', true), '')::bigint
 $function$;
 
 INSERT INTO public.tenants(id,name,slug,status) VALUES
