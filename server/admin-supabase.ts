@@ -9,7 +9,14 @@ type SubscriberRow = { tenant_id: number | string; subscription_type: "residenti
 
 const numberId = (value: string | number | null) => value === null ? null : Number(value);
 
-function unavailable(error: { message: string } | null) {
+function unavailable(error: { message: string; code?: string } | null) {
+  if (error) {
+    // Read failures only: log the operation class and database error, never user or tenant identifiers.
+    console.error("[PowerHub admin data read failed]", {
+      code: error.code ?? "unknown",
+      message: error.message,
+    });
+  }
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `تعذر تحميل ملخص إدارة المنصة من Supabase${error ? `: ${error.message}` : "."}` });
 }
 
