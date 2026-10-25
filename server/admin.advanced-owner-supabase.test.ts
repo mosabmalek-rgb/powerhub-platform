@@ -42,6 +42,27 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
     });
   });
 
+  it("يرفض المصالحة إذا لم يوجد حساب يحمل علامة العملية الدقيقة ولا ينشئ حسابًا جديدًا", async () => {
+    state.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "powerhub_admin_begin_generator_owner_provisioning") return { data: [{
+        operation_status: "pending", auth_user_id: null, success: false, replayed: false,
+        can_create_auth: false, needs_reconciliation: true,
+      }], error: null };
+      if (name === "powerhub_admin_get_generator_owner_provisioning_reconciliation") return { data: [{
+        operation_status: "pending", owner_email: input.ownerEmail, auth_creation_started_at: "2026-10-25T12:00:00Z",
+        auth_user_id: null, request_fingerprint: args.p_request_fingerprint,
+      }], error: null };
+      return { data: null, error: { message: "Unexpected RPC", code: "42883" } };
+    });
+    state.authListUsers.mockResolvedValue({ data: { users: [{
+      id: "unrelated-auth-user", email: input.ownerEmail,
+      app_metadata: { unrelated: true },
+    }] }, error: null });
+    await expect(caller().createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(state.authCreateUser).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalledWith("powerhub_admin_attach_generator_owner_provisioning_auth", expect.anything());
+  });
+
   it("يستعيد حساب Auth الذي أنشأته العملية نفسها بعد انقطاع الاستجابة دون إنشاء حساب ثانٍ", async () => {
     let expectedFingerprint = "";
     state.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
