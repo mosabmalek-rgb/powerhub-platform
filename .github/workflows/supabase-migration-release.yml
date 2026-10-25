@@ -42,6 +42,35 @@ jobs:
       SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
 
     steps:
+      - name: Fail closed unless the GitHub environment has reviewer and main-only protections
+        env:
+          ENVIRONMENT_GUARD_TOKEN: ${{ secrets.SUPABASE_ENVIRONMENT_GUARD_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${ENVIRONMENT_GUARD_TOKEN:-}" ]]; then
+            echo "Release blocked: configure SUPABASE_ENVIRONMENT_GUARD_TOKEN with read-only access to repository environment settings."
+            exit 1
+          fi
+          environment_name="supabase-${RELEASE_TARGET}"
+          environment_json="$(GH_TOKEN="$ENVIRONMENT_GUARD_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/$environment_name")"
+
+          if ! jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and ((.reviewers // []) | length > 0))] | length > 0' <<< "$environment_json" >/dev/null; then
+            echo "Release blocked: $environment_name must require at least one human reviewer."
+            exit 1
+          fi
+
+          if ! jq -e '.deployment_branch_policy.custom_branch_policies == true and .deployment_branch_policy.protected_branches == false' <<< "$environment_json" >/dev/null; then
+            echo "Release blocked: $environment_name must use an explicit branch policy restricted to main."
+            exit 1
+          fi
+
+          branch_policies="$(GH_TOKEN="$ENVIRONMENT_GUARD_TOKEN" gh api "repos/$GITHUB_REPOSITORY/environments/$environment_name/deployment-branch-policies")"
+          if ! jq -e '.branch_policies | length == 1 and .[0].name == "main" and .[0].type == "branch"' <<< "$branch_policies" >/dev/null; then
+            echo "Release blocked: $environment_name must allow exactly the main branch."
+            exit 1
+          fi
+
       - name: Checkout trusted release tooling from main
         uses: actions/checkout@v4
         with:
@@ -77,7 +106,6 @@ jobs:
             pr_state="$(jq -r '.state // ""' <<< "$pr_json")"
             pr_base="$(jq -r '.base.ref // ""' <<< "$pr_json")"
             pr_base_repo="$(jq -r '.base.repo.full_name // ""' <<< "$pr_json")"
-            pr_base_sha="$(jq -r '.base.sha // ""' <<< "$pr_json")"
             pr_head_repo="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
             source_sha="$(jq -r '.head.sha // ""' <<< "$pr_json")"
             current_main_sha="$(git rev-parse HEAD)"
@@ -86,18 +114,18 @@ jobs:
               echo "Release blocked: staging source must be an open, same-repository PR targeting main."
               exit 1
             fi
-            if [[ "$pr_base_sha" != "$current_main_sha" ]]; then
-              echo "Release blocked: PR base is stale relative to main; update the PR and retry."
-              exit 1
-            fi
             if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
               echo "Release blocked: GitHub did not return an immutable commit SHA."
               exit 1
             fi
 
-            compare_json="$(gh api "repos/$GITHUB_REPOSITORY/compare/$pr_base_sha...$source_sha")"
-            if ! jq -e --arg path "$MIGRATION_PATH" 'any(.files[]?; .filename == $path and .status == "added")' <<< "$compare_json" >/dev/null; then
-              echo "Release blocked: only a migration newly added by the pinned PR head can be released before merge."
+            compare_json="$(gh api "repos/$GITHUB_REPOSITORY/compare/$current_main_sha...$source_sha")"
+            if ! jq -e '.status == "ahead" and .behind_by == 0' <<< "$compare_json" >/dev/null; then
+              echo "Release blocked: the pinned PR head must include the current main commit; merge current main into the PR and retry."
+              exit 1
+            fi
+            if ! jq -e --arg path "$MIGRATION_PATH" 'any(.files[]?; .filename == $path and (.status == "added" or .status == "renamed"))' <<< "$compare_json" >/dev/null; then
+              echo "Release blocked: the selected versioned migration path must be new relative to current main (added or renamed to a new path)."
               exit 1
             fi
           fi
