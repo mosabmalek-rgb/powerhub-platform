@@ -20,7 +20,8 @@ function unavailable(error: { message: string; code?: string } | null, area = "a
   }
   throw new TRPCError({
     code: "INTERNAL_SERVER_ERROR",
-    message: `تعذر تحميل بيانات إدارة المنصة من Supabase (${area})${error ? `: ${error.message}` : "."}`,
+    // Keep database internals in server logs; the client receives only a safe operation label.
+    message: `تعذر تحميل بيانات إدارة المنصة من Supabase (${area}).`,
   });
 }
 
