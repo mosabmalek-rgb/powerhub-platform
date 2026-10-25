@@ -103,6 +103,12 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres site_billing_policy_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname site_billing_policy_test --set ON_ERROR_STOP=1 --file supabase/tests/site_billing_policy_integration.sql
 
+      - name: Verify payment idempotency under concurrent retries
+        env:
+          PGPASSWORD: postgres
+          PGDATABASE: site_billing_policy_test
+        run: bash supabase/tests/payment_idempotency_concurrency.sh
+
       - name: Verify payment-documentation admin and owner precedence
         env:
           PGPASSWORD: postgres
