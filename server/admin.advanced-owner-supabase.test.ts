@@ -104,8 +104,23 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
       return { data: null, error: null };
     });
     await expect(caller().createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
-    expect(state.authDeleteUser).toHaveBeenCalledWith("new-auth-user");
     expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_cancel_generator_owner_provisioning", expect.objectContaining({ p_auth_user_id: "new-auth-user" }));
+    expect(state.authDeleteUser).toHaveBeenCalledWith("new-auth-user");
+    expect(state.rpc.mock.invocationCallOrder[3]).toBeLessThan(state.authDeleteUser.mock.invocationCallOrder[0]);
+  });
+
+  it("لا يحذف Auth إذا فشل إغلاق سجل العملية بعد رفض SQL", async () => {
+    state.rpc.mockImplementation(async (name: string) => {
+      if (name === "powerhub_admin_begin_generator_owner_provisioning") return { data: [{
+        operation_status: "pending", auth_user_id: null, success: false, can_create_auth: true, needs_reconciliation: false,
+      }], error: null };
+      if (name === "powerhub_admin_attach_generator_owner_provisioning_auth") return { data: [{ attached: true }], error: null };
+      if (name === "powerhub_admin_complete_generator_owner_provisioning") return { data: null, error: { code: "23505", message: "duplicate key" } };
+      if (name === "powerhub_admin_cancel_generator_owner_provisioning") return { data: [{ cancelled: false }], error: null };
+      return { data: null, error: null };
+    });
+    await expect(caller().createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(state.authDeleteUser).not.toHaveBeenCalled();
   });
 
   it("لا يحذف Auth عند غموض نتيجة RPC لأن المعاملة قد تكون اكتملت", async () => {
