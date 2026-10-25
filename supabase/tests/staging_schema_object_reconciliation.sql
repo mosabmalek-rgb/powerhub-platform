@@ -286,7 +286,7 @@ BEGIN
       ('access_recovery_requests','access_recovery_tenant_isolation','access_recovery_scope_guard','powerhub_is_platform_management_admin','powerhub_is_platform_management_admin'),
       ('complaints','complaints_tenant_isolation','complaints_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
       ('meters','meters_tenant_isolation','meters_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
-      ('platform_tariff_policies','platform_tariff_policies_platform_admin_only','platform_tariff_policies_admin_guard','powerhub_is_platform_admin',NULL),
+      ('platform_tariff_policies','platform_tariff_policies_platform_admin_only','platform_tariff_policies_admin_guard','powerhub_is_platform_management_admin',NULL),
       ('user_quick_action_preferences','quick_actions_owner_only','quick_actions_owner_guard','powerhub_current_user_id','powerhub_is_platform_management_admin')
     ) AS expected(table_name, permissive_policy, restrictive_policy, helper_one, helper_two)
   LOOP
