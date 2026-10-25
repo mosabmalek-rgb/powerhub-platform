@@ -51,13 +51,39 @@ export const adminRouter = router({
     const admin=supabaseAdmin();
     const {data:authData,error:authError}=await admin.auth.admin.createUser({email,password:input.temporaryPassword,email_confirm:true,user_metadata:{name:input.ownerName.trim(),must_change_password:true}});
     if(authError||!authData.user) throw new TRPCError({code:authError?.status===422?"CONFLICT":"BAD_REQUEST",message:authError?.message||"تعذر إنشاء حساب صاحب المولد في Supabase Auth."});
+    let databaseRollbackConfirmed = false;
     try {
       const {data,error}=await admin.rpc("powerhub_create_generator_owner_subscription",{p_actor_user_id:ctx.user.id,p_auth_user_id:authData.user.id,p_tenant_name:input.companyName.trim(),p_slug:`owner-${crypto.randomUUID().replaceAll("-","")}`,p_company_name:input.companyName.trim(),p_owner_name:input.ownerName.trim(),p_identity_ciphertext:identity.ciphertext,p_identity_iv:identity.iv,p_identity_last4:input.identityNumber.trim().slice(-4),p_owner_phone:input.ownerPhone.trim(),p_owner_whatsapp:input.ownerWhatsapp?.trim()||null,p_owner_email:email,p_site_name:"الفرع الرئيسي",p_site_code:`SITE-${crypto.randomUUID().slice(0,8).toUpperCase()}`,p_package_code:input.packageCode,p_billing_cycle:input.billingCycle,p_subscription_status:input.trialEnabled?"trial":"active",p_trial_duration_days:input.trialDurationDays ?? null,p_subscription_duration:input.subscriptionDuration,p_trial_enabled:input.trialEnabled});
-      if(error||!data?.[0]) throw error??new Error("لم تُرجع معاملة Supabase نتيجة صالحة.");
+      if (error) {
+        // A PostgreSQL SQLSTATE means the statement failed and the RPC transaction
+        // rolled back. Transport/PostgREST errors do not prove rollback.
+        databaseRollbackConfirmed = typeof error.code === "string" && /^[0-9A-Z]{5}$/.test(error.code);
+        throw new Error(error.message || "فشل إجراء إنشاء الاشتراك في قاعدة البيانات.");
+      }
+      if (!data?.[0]) throw new Error("لم تُرجع معاملة Supabase نتيجة صالحة؛ حالة التنفيذ غير مؤكدة.");
       return data[0];
     } catch(error) {
-      await admin.auth.admin.deleteUser(authData.user.id);
-      throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:error instanceof Error?error.message:"تعذر إكمال إنشاء اشتراك صاحب المولد."});
+      if (databaseRollbackConfirmed) {
+        try {
+          const { error: cleanupError } = await admin.auth.admin.deleteUser(authData.user.id);
+          if (cleanupError) console.error("[AdminSupabase] owner provisioning Auth compensation failed", { code: cleanupError.code ?? null });
+        } catch(cleanupError) {
+          console.error("[AdminSupabase] owner provisioning Auth compensation threw", {
+            errorName: cleanupError instanceof Error ? cleanupError.name : "unknown",
+          });
+        }
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر إنشاء اشتراك صاحب المولد بسبب رفض قاعدة البيانات؛ راجع بيانات الإدخال ثم أعد المحاولة."});
+      }
+
+      // The RPC may have committed before its response was lost. Deleting the Auth
+      // user here could orphan a committed owner profile; retain it for reconciliation.
+      console.error("[AdminSupabase] owner provisioning RPC outcome is indeterminate; retained Auth user for reconciliation", {
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+      throw new TRPCError({
+        code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر تأكيد نتيجة إنشاء اشتراك صاحب المولد؛ لم يُحذف حساب المصادقة لأن العملية قد تكون اكتملت. تحقق من قائمة أصحاب المولدات قبل إعادة المحاولة.",
+      });
     }
   }),
   overview: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive().optional()}).optional()).query(async ({input}) => { const owners=await ownerOverviewFromSupabase(input?.tenantId); const totals=owners.reduce((a,item)=>({generatorOwners:a.generatorOwners+1,residential:a.residential+item.subscribers.residential,commercial:a.commercial+item.subscribers.commercial,subscribers:a.subscribers+item.subscribers.total,activeSubscriptions:a.activeSubscriptions+(isEffectivelyActiveAdminSubscription(item.subscription?.status,item.subscription?.endsAt,item.subscription?.archivedAt)?1:0)}),{generatorOwners:0,residential:0,commercial:0,subscribers:0,activeSubscriptions:0}); return {totals,owners}; }),
