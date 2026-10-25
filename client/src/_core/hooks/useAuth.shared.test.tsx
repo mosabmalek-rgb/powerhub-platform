@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   invalidate: vi.fn(),
   setData: vi.fn(),
   getSession: vi.fn(),
+  isRefreshBackoffActive: vi.fn(() => false),
   subscribe: vi.fn(),
   getLease: vi.fn(),
   getOfflineUser: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@/lib/trpc", () => ({
 }));
 vi.mock("@/lib/supabase", () => ({
   getSupabaseSession: mocks.getSession,
+  isSupabaseRefreshBackoffActive: mocks.isRefreshBackoffActive,
   subscribeSupabaseAuthState: mocks.subscribe,
 }));
 vi.mock("@/lib/offline-auth", () => ({
