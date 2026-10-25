@@ -154,6 +154,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres offline_core_write_acl_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_core_write_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_core_write_acl_hardening.sql
 
+      - name: Verify staging schema and RPC reconciliation is idempotent and server-only
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres staging_schema_reconciliation_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname staging_schema_reconciliation_test --set ON_ERROR_STOP=1 --file supabase/tests/staging_schema_object_reconciliation.sql
+
       - name: Verify quota alert table access remains server-only
         env:
           PGPASSWORD: postgres

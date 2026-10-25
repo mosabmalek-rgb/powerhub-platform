@@ -13,6 +13,10 @@ const quotaAclMigrationUrl = new URL(
   "../supabase/migrations/20261025010000_powerhub_quota_alert_acl_hardening.sql",
   import.meta.url,
 );
+const schemaReconciliationMigrationUrl = new URL(
+  "../supabase/migrations/20261025020000_powerhub_missing_schema_and_rpc_reconciliation.sql",
+  import.meta.url,
+);
 const notificationTriggerMigrationUrl = new URL(
   "../supabase/migrations/20261024211000_powerhub_notification_trigger_rpc_hardening.sql",
   import.meta.url,
@@ -20,6 +24,7 @@ const notificationTriggerMigrationUrl = new URL(
 const readMigration = () => readFile(migrationUrl, "utf8");
 const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
 const readQuotaAclMigration = () => readFile(quotaAclMigrationUrl, "utf8");
+const readSchemaReconciliationMigration = () => readFile(schemaReconciliationMigrationUrl, "utf8");
 const readNotificationTriggerMigration = () => readFile(notificationTriggerMigrationUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
@@ -70,5 +75,24 @@ describe("offline server-write ACL hardening migration", () => {
     expect(migration).toMatch(/revoke all on table public\.powerhub_quota_alerts from public, anon, authenticated/i);
     expect(migration).toMatch(/grant all on table public\.powerhub_quota_alerts to service_role/i);
     expect(migration).not.toMatch(/grant\s+(?:select|insert|update|delete|all)\b[^;]*\bto\s+(?:public|anon|authenticated)\b/i);
+  });
+  
+  it("reconciles missing production tables and restores current server-only RPC signatures without data backfills", async () => {
+    const migration = await readSchemaReconciliationMigration();
+    for (const table of [
+      "access_recovery_requests", "complaints", "feature_global_control_audit",
+      "generator_owner_provisioning_operations", "meters", "password_reset_intents",
+      "platform_tariff_policies", "subscription_renewal_operations",
+      "tenant_addon_renewal_decisions", "tenant_owner_alerts", "user_quick_action_preferences",
+    ]) {
+      expect(migration).toMatch(new RegExp("create table if not exists public\\\\." + table, "i"));
+      expect(migration).toMatch(new RegExp("alter table public\\\\." + table + " enable row level security", "i"));
+    }
+    expect(migration).toMatch(/grant execute on function public\\.powerhub_admin_request_owner_access_recovery\\(bigint, bigint, text, text, text\\) to service_role/i);
+    expect(migration).toMatch(/grant execute on function public\\.powerhub_admin_renew_subscription_with_addons\\(bigint, bigint, timestamptz, text, jsonb, uuid\\) to service_role/i);
+    expect(migration).toMatch(/revoke all on table public\\.generator_owner_provisioning_operations from public, anon, authenticated, service_role/i);
+    expect(migration).toMatch(/grant all on table public\\.generator_owner_provisioning_operations to service_role/i);
+    expect(migration).toMatch(/drop function if exists public\\.powerhub_admin_request_owner_access_recovery\\(bigint, bigint, text\\)/i);
+    expect(migration).toMatch(/drop function if exists public\\.powerhub_admin_renew_subscription_with_addons\\(bigint, bigint, timestamptz, jsonb, uuid\\)/i);
   });
 });
