@@ -9,15 +9,19 @@ type SubscriberRow = { tenant_id: number | string; subscription_type: "residenti
 
 const numberId = (value: string | number | null) => value === null ? null : Number(value);
 
-function unavailable(error: { message: string; code?: string } | null) {
+function unavailable(error: { message: string; code?: string } | null, area = "admin.overview") {
   if (error) {
     // Read failures only: log the operation class and database error, never user or tenant identifiers.
     console.error("[PowerHub admin data read failed]", {
+      area,
       code: error.code ?? "unknown",
       message: error.message,
     });
   }
-  throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `تعذر تحميل ملخص إدارة المنصة من Supabase${error ? `: ${error.message}` : "."}` });
+  throw new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message: `تعذر تحميل بيانات إدارة المنصة من Supabase (${area})${error ? `: ${error.message}` : "."}`,
+  });
 }
 
 export async function ownerOverviewFromSupabase(tenantId?: number) {
@@ -25,7 +29,7 @@ export async function ownerOverviewFromSupabase(tenantId?: number) {
   let tenantQuery = admin.from("tenants").select("id, name, slug, status, created_at, updated_at").order("created_at", { ascending: false });
   if (tenantId) tenantQuery = tenantQuery.eq("id", tenantId);
   const { data: tenantRows, error: tenantsError } = await tenantQuery;
-  if (tenantsError) unavailable(tenantsError);
+  if (tenantsError) unavailable(tenantsError, "admin.overview.tenants");
   const tenants = (tenantRows ?? []) as TenantRow[];
   const tenantIds = tenants.map((tenant) => Number(tenant.id));
   if (!tenantIds.length) return [];
@@ -35,16 +39,16 @@ export async function ownerOverviewFromSupabase(tenantId?: number) {
     admin.from("tenant_subscriptions").select("id, tenant_id, package_code, status, billing_cycle, started_at, ends_at, auto_renew, renewal_count, last_renewed_at, notes, sms_plan_id, cancelled_at, read_only_until, archived_at, created_at, updated_at").in("tenant_id", tenantIds),
     admin.from("subscribers").select("tenant_id, subscription_type").in("tenant_id", tenantIds),
   ]);
-  if (ownersResult.error) unavailable(ownersResult.error);
-  if (subscriptionsResult.error) unavailable(subscriptionsResult.error);
-  if (subscribersResult.error) unavailable(subscribersResult.error);
+  if (ownersResult.error) unavailable(ownersResult.error, "admin.overview.ownerProfiles");
+  if (subscriptionsResult.error) unavailable(subscriptionsResult.error, "admin.overview.subscriptions");
+  if (subscribersResult.error) unavailable(subscribersResult.error, "admin.overview.subscribers");
 
   const owners = (ownersResult.data ?? []) as OwnerRow[];
   const ownerUserIds = owners.flatMap((owner) => owner.owner_user_id === null ? [] : [Number(owner.owner_user_id)]);
   const { data: userRows, error: usersError } = ownerUserIds.length
     ? await admin.from("users").select("id, name, email, last_signed_in").in("id", ownerUserIds)
     : { data: [], error: null };
-  if (usersError) unavailable(usersError);
+  if (usersError) unavailable(usersError, "admin.overview.ownerUsers");
 
   const ownerByTenant = new Map(owners.map((owner) => [Number(owner.tenant_id), owner]));
   const accountById = new Map(((userRows ?? []) as UserRow[]).map((user) => [Number(user.id), user]));
@@ -77,8 +81,8 @@ export async function ownerOverviewFromSupabase(tenantId?: number) {
 
 type EntityRow = Record<string, unknown>;
 
-function requireData<T>(result: { data: T[] | null; error: { message: string } | null }) {
-  if (result.error) unavailable(result.error);
+function requireData<T>(result: { data: T[] | null; error: { message: string; code?: string } | null }, area: string) {
+  if (result.error) unavailable(result.error, area);
   return result.data ?? [];
 }
 
@@ -122,22 +126,22 @@ export async function platformSnapshotFromSupabase() {
     admin.from("platform_access_invitations").select("id,email,platform_role,status,expires_at,created_at").eq("status","invited").order("created_at",{ascending:false}).limit(500),
   ]);
 
-  const generators = requireData(generatorsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const users = requireData(usersResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const staff = requireData(staffResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const memberships = requireData(membershipResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const invoices = requireData(invoicesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const payments = requireData(paymentsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const readings = requireData(readingsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const tenants = requireData(tenantsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const subscribers = requireData(subscribersResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const notifications = requireData(notificationsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const audit = requireData(auditResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const sites = requireData(sitesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const ownerProfiles = requireData(ownerProfilesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const employees = requireData(employeesResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const tenantInvitations = requireData(tenantInvitationsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
-  const platformInvitations = requireData(platformInvitationsResult as unknown as { data: EntityRow[] | null; error: { message: string } | null });
+  const generators = requireData(generatorsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.generators");
+  const users = requireData(usersResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.users");
+  const staff = requireData(staffResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.staffProfiles");
+  const memberships = requireData(membershipResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.tenantMembers");
+  const invoices = requireData(invoicesResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.invoices");
+  const payments = requireData(paymentsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.payments");
+  const readings = requireData(readingsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.meterReadings");
+  const tenants = requireData(tenantsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.tenants");
+  const subscribers = requireData(subscribersResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.subscribers");
+  const notifications = requireData(notificationsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.notifications");
+  const audit = requireData(auditResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.auditLogs");
+  const sites = requireData(sitesResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.sites");
+  const ownerProfiles = requireData(ownerProfilesResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.ownerProfiles");
+  const employees = requireData(employeesResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.employees");
+  const tenantInvitations = requireData(tenantInvitationsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.accessInvitations");
+  const platformInvitations = requireData(platformInvitationsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.platformAccessInvitations");
 
   const tenantById = new Map(tenants.map((tenant) => [numeric(tenant.id), String(tenant.name)]));
   const siteById = new Map(sites.map((site) => [numeric(site.id), String(site.name)]));
