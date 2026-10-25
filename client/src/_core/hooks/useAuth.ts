@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
-import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
+import { getSupabaseSession, isSupabaseRefreshBackoffActive, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
 
@@ -66,6 +66,7 @@ function useAuthController() {
     },
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    refetchInterval: (query) => query.state.status === "error" ? 15_000 : false,
   });
   type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
@@ -252,7 +253,8 @@ function useAuthController() {
   // auth.me check. This prevents protected tenant queries from racing the
   // login/session handshake and avoids transient 401/403 states in the UI.
   const meQueryErrorCode = (meQuery.error as { data?: { code?: string } } | null)?.data?.code;
-  const meQueryAuthorizationDenied = meQueryErrorCode === "UNAUTHORIZED" || meQueryErrorCode === "FORBIDDEN";
+  const meQueryAuthorizationDenied = meQueryErrorCode === "FORBIDDEN" ||
+    (meQueryErrorCode === "UNAUTHORIZED" && !isSupabaseRefreshBackoffActive());
   const meQueryTemporarilyUnavailable = Boolean(meQuery.error && !meQueryAuthorizationDenied);
   const isOnlineAuthenticated = Boolean(
     hasSession &&
