@@ -70,7 +70,7 @@ export default function OwnerSubscriptionRegistration({ rows, pending, onCreate,
           event.preventDefault();
           if (!creationAvailable) return;
           const data = new FormData(event.currentTarget);
-          void onCreate({
+          void Promise.resolve(onCreate({
             clientOperationId,
             companyName: String(data.get("companyName")).trim(),
             ownerName: String(data.get("ownerName")).trim(),
@@ -84,7 +84,7 @@ export default function OwnerSubscriptionRegistration({ rows, pending, onCreate,
             subscriptionDuration: Number(data.get("subscriptionDuration") || 1),
             trialEnabled: data.get("trialEnabled") === "on",
             trialDurationDays: data.get("trialEnabled") === "on" ? Number(data.get("trialDurationDays") || 8) : undefined
-          }).then(() => setClientOperationId(crypto.randomUUID())).catch(() => undefined);
+          })).then(() => setClientOperationId(crypto.randomUUID())).catch(() => undefined);
         }}>
           <fieldset disabled={!creationAvailable || pending} className="space-y-4 disabled:opacity-55">
             <Input required name="companyName" placeholder="اسم الشركة — مثال: مولدات الحي الشمالي" className={inputClass} />
