@@ -283,7 +283,7 @@ BEGIN
 
   FOR v_policy IN
     SELECT * FROM (VALUES
-      ('access_recovery_requests','access_recovery_tenant_isolation','access_recovery_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_management_admin'),
+      ('access_recovery_requests','access_recovery_tenant_isolation','access_recovery_scope_guard','powerhub_is_platform_management_admin','powerhub_is_platform_management_admin'),
       ('complaints','complaints_tenant_isolation','complaints_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
       ('meters','meters_tenant_isolation','meters_scope_guard','powerhub_has_tenant_access','powerhub_is_platform_admin'),
       ('platform_tariff_policies','platform_tariff_policies_platform_admin_only','platform_tariff_policies_admin_guard','powerhub_is_platform_admin',NULL),
