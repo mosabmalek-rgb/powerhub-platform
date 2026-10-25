@@ -92,13 +92,16 @@ INSERT INTO public.generators(id,tenant_id,site_id,code,name,rated_capacity_kw,f
 -- Baseline ACL matches production's intended client entry points: authenticated
 -- may call; anon/PUBLIC cannot. CREATE OR REPLACE must preserve this boundary.
 CREATE OR REPLACE FUNCTION public.powerhub_sync_generator_create(
-  bigint,text,text,text,numeric,text,text
+  p_site_id bigint,p_code text,p_name text,p_serial_number text,
+  p_rated_capacity_kw numeric,p_fuel_type text,p_client_operation_id text
 )
 RETURNS TABLE(id bigint,name text,replayed boolean)
 LANGUAGE sql SECURITY DEFINER SET search_path=public,pg_temp
 AS $stub$ SELECT NULL::bigint,NULL::text,false $stub$;
 CREATE OR REPLACE FUNCTION public.powerhub_sync_generator_update(
-  bigint,bigint,text,numeric,numeric,numeric,text,timestamptz,text
+  p_site_id bigint,p_generator_id bigint,p_name text,p_rated_capacity_kw numeric,
+  p_fuel_level_liters numeric,p_operating_hours numeric,p_status text,
+  p_expected_updated_at timestamptz,p_client_operation_id text
 )
 RETURNS TABLE(id bigint,name text,updated_at timestamptz,replayed boolean)
 LANGUAGE sql SECURITY DEFINER SET search_path=public,pg_temp
