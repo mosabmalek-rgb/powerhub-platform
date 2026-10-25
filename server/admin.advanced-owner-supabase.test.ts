@@ -43,7 +43,11 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
   });
 
   it("يستعيد حساب Auth الذي أنشأته العملية نفسها بعد انقطاع الاستجابة دون إنشاء حساب ثانٍ", async () => {
-    state.rpc.mockImplementation(async (name: string) => {
+    let expectedFingerprint = "";
+    state.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "powerhub_admin_begin_generator_owner_provisioning") {
+        expectedFingerprint = String(args.p_request_fingerprint);
+      }
       if (name === "powerhub_admin_begin_generator_owner_provisioning") return { data: [{
         operation_status: "pending", auth_user_id: null, success: false, tenant_id: null,
         owner_user_id: null, site_id: null, subscription_id: null, replayed: false,
@@ -51,7 +55,7 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
       }], error: null };
       if (name === "powerhub_admin_get_generator_owner_provisioning_reconciliation") return { data: [{
         operation_status: "pending", owner_email: input.ownerEmail, auth_creation_started_at: "2026-10-25T12:00:00Z",
-        auth_user_id: null, request_fingerprint: expect.anything(),
+        auth_user_id: null, request_fingerprint: expectedFingerprint,
       }], error: null };
       if (name === "powerhub_admin_attach_generator_owner_provisioning_auth") return { data: [{ attached: true, auth_user_id: "recovered-auth-user" }], error: null };
       if (name === "powerhub_admin_complete_generator_owner_provisioning") return { data: [{
@@ -63,7 +67,7 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
       id: "recovered-auth-user", email: input.ownerEmail,
       app_metadata: {
         powerhub_owner_provisioning_operation_id: input.clientOperationId,
-        powerhub_owner_provisioning_fingerprint: expect.anything(),
+        powerhub_owner_provisioning_fingerprint: expectedFingerprint,
       },
     }] }, error: null });
     await expect(caller().createGeneratorOwnerSubscription(input)).resolves.toMatchObject({ tenant_id: 101, subscription_id: 404 });
