@@ -27,6 +27,7 @@ describe("requestOwnerAccessRecovery Supabase adapter", () => {
       actorUserId: 12,
       tenantId: 44,
       note: "طلب اختبار",
+      clientOperationId: "11111111-1111-4111-8111-111111111111",
     })).resolves.toEqual({
       success: true,
       delivery: "deferred",
@@ -37,6 +38,8 @@ describe("requestOwnerAccessRecovery Supabase adapter", () => {
       p_actor_user_id: 12,
       p_tenant_id: 44,
       p_note: "طلب اختبار",
+      p_client_operation_id: "11111111-1111-4111-8111-111111111111",
+      p_request_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
   });
 
@@ -46,7 +49,7 @@ describe("requestOwnerAccessRecovery Supabase adapter", () => {
       error: { message: "FORBIDDEN: منصة PowerHub لا تملك صلاحية طلب استرداد الوصول." },
     });
 
-    await expect(requestOwnerAccessRecovery({ actorUserId: 12, tenantId: 44 }))
+    await expect(requestOwnerAccessRecovery({ actorUserId: 12, tenantId: 44, clientOperationId: "22222222-2222-4222-8222-222222222222" }))
       .rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
@@ -56,7 +59,7 @@ describe("requestOwnerAccessRecovery Supabase adapter", () => {
       error: { message: "OWNER_PROFILE_NOT_FOUND" },
     });
 
-    await expect(requestOwnerAccessRecovery({ actorUserId: 12, tenantId: 44 }))
+    await expect(requestOwnerAccessRecovery({ actorUserId: 12, tenantId: 44, clientOperationId: "33333333-3333-4333-8333-333333333333" }))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

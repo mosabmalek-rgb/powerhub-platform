@@ -31,3 +31,36 @@ export function selectAuthSnapshot<T>(
 ): T | null {
   return requestRevision === currentRevision ? snapshot : current;
 }
+
+
+/** Keep the browser client on Supabase's supported refresh-token lifecycle. */
+export const SUPABASE_BROWSER_AUTH_OPTIONS = {
+  persistSession: true,
+  autoRefreshToken: true,
+  detectSessionInUrl: true,
+} as const;
+
+export const SUPABASE_SESSION_REFRESH_LEEWAY_SECONDS = 60;
+
+/** A session is usable for an authenticated request only while its access token is unexpired. */
+export function isSupabaseSessionUsable(
+  session: { expires_at?: number } | null | undefined,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): boolean {
+  return Boolean(
+    session &&
+    typeof session.expires_at === "number" &&
+    Number.isFinite(session.expires_at) &&
+    session.expires_at > nowSeconds,
+  );
+}
+
+/** Refresh before expiry so requests never deliberately reuse a near-expiry token. */
+export function shouldRefreshSupabaseSession(
+  expiresAt: number | undefined | null,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): boolean {
+  return typeof expiresAt !== "number" ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= nowSeconds + SUPABASE_SESSION_REFRESH_LEEWAY_SECONDS;
+}

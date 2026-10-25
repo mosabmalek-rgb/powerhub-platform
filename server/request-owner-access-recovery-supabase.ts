@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { supabaseAdmin } from "./supabase-admin";
 
@@ -5,11 +6,20 @@ export async function requestOwnerAccessRecovery(input: {
   actorUserId: number;
   tenantId: number;
   note?: string;
+  clientOperationId: string;
 }) {
+  const normalizedNote = input.note?.trim() || null;
+  const requestFingerprint = createHash("sha256").update(JSON.stringify({
+    actorUserId: input.actorUserId,
+    tenantId: input.tenantId,
+    note: normalizedNote,
+  })).digest("hex");
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_request_owner_access_recovery", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
-    p_note: input.note ?? null,
+    p_note: normalizedNote,
+    p_client_operation_id: input.clientOperationId,
+    p_request_fingerprint: requestFingerprint,
   });
 
   const message = error?.message?.trim() ?? "";
