@@ -109,6 +109,22 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
     expect(state.rpc.mock.invocationCallOrder[3]).toBeLessThan(state.authDeleteUser.mock.invocationCallOrder[0]);
   });
 
+  it("لا يبلغ عن تعارض البريد إذا لم يتأكد إلغاء العملية بعد رفض Auth", async () => {
+    state.authCreateUser.mockResolvedValue({ data: { user: null }, error: { status: 422, message: "already registered" } });
+    state.rpc.mockImplementation(async (name: string) => {
+      if (name === "powerhub_admin_begin_generator_owner_provisioning") return { data: [{
+        operation_status: "pending", auth_user_id: null, success: false, can_create_auth: true, needs_reconciliation: false,
+      }], error: null };
+      if (name === "powerhub_admin_cancel_generator_owner_provisioning") return { data: [{ cancelled: false }], error: null };
+      return { data: null, error: null };
+    });
+    await expect(caller().createGeneratorOwnerSubscription(input)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(state.authCreateUser).toHaveBeenCalledTimes(1);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_cancel_generator_owner_provisioning", expect.objectContaining({
+      p_client_operation_id: input.clientOperationId, p_auth_user_id: null,
+    }));
+  });
+
   it("لا يحذف Auth إذا فشل إغلاق سجل العملية بعد رفض SQL", async () => {
     state.rpc.mockImplementation(async (name: string) => {
       if (name === "powerhub_admin_begin_generator_owner_provisioning") return { data: [{
