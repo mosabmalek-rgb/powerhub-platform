@@ -153,24 +153,26 @@ export function WorkspaceHome() {
   const dashboardDataFailures: string[] = [];
   if (sitesQuery.isError) dashboardDataFailures.push(`الفروع: ${sitesQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (accessQuery.isError) dashboardDataFailures.push(`صلاحيات الفرع: ${accessQuery.error?.message ?? "تعذر تحديد السبب"}`);
-  if (financialOverviewQuery.isError) dashboardDataFailures.push(`الملخص المالي: ${financialOverviewQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && financialOverviewQuery.isError) dashboardDataFailures.push(`الملخص المالي: ${financialOverviewQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (selectedScope === "all" && allBranchesSummaryQuery.isError) dashboardDataFailures.push(`ملخص جميع الفروع: ${allBranchesSummaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (selectedScope !== "all" && summaryQuery.isError) dashboardDataFailures.push(`مؤشرات الفرع: ${summaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
   const retryDashboardData = () => {
     void sitesQuery.refetch();
     void accessQuery.refetch();
-    void financialOverviewQuery.refetch();
-    dashboardPeriod.retry();
-    void periodMetricsQuery.refetch();
+    if (canViewFinancialOverview) {
+      void financialOverviewQuery.refetch();
+      dashboardPeriod.retry();
+      void periodMetricsQuery.refetch();
+    }
     if (selectedScope === "all") void allBranchesSummaryQuery.refetch();
     else void summaryQuery.refetch();
   };
-  const metricNumber = (value: unknown, fractionDigits = 0) => !canViewFinancialOverview || financialOverviewQuery.isError
-    ? "—"
-    : financialOverviewQuery.isLoading ? "…" : number(value, fractionDigits);
-  const metricRatio = (value: unknown) => !canViewFinancialOverview || financialOverviewQuery.isError
-    ? "—"
-    : financialOverviewQuery.isLoading ? "…" : ratio(value);
+  const metricNumber = (value: unknown, fractionDigits = 0) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
+    ? "…"
+    : !canViewFinancialOverview || financialOverviewQuery.isError ? "—" : number(value, fractionDigits);
+  const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
+    ? "…"
+    : !canViewFinancialOverview || financialOverviewQuery.isError ? "—" : ratio(value);
   const periodMetricsMatch = Boolean(
     periodMetricsQuery.data &&
     periodMetricsQuery.data.range.startDate === dashboardPeriod.startDate &&
