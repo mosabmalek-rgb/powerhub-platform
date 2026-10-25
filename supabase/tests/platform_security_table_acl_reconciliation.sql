@@ -144,7 +144,7 @@ BEGIN
   SELECT count(*) INTO v_settings FROM public.platform_security_settings;
   SELECT count(*) INTO v_recovery FROM public.access_recovery_requests;
   SELECT count(*) INTO v_preferences FROM public.user_quick_action_preferences;
-  IF v_events <> 0 OR v_settings <> 0 OR v_recovery <> 1 OR v_preferences <> 1 THEN
+  IF v_events <> 0 OR v_settings <> 0 OR v_recovery <> 0 OR v_preferences <> 1 THEN
     RAISE EXCEPTION 'TENANT_USER_SCOPE_MISMATCH: events=% settings=% recovery=% quick_preferences=%',v_events,v_settings,v_recovery,v_preferences;
   END IF;
 END
