@@ -39,6 +39,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate versioned Supabase migration release tooling
+        run: |
+          node --check scripts/check-supabase-migration-files.mjs
+          node --check scripts/supabase-migration-target.mjs
+          node --check scripts/supabase-migration-file.mjs
+          node --check scripts/supabase-migration-target.test.mjs
+          node --check scripts/release-supabase-migration.mjs
+          node scripts/check-supabase-migration-files.mjs
+          pnpm exec vitest run --maxWorkers=1 --minWorkers=1 scripts/supabase-migration-target.test.mjs
+
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs
 
