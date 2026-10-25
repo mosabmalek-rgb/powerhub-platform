@@ -32,8 +32,14 @@ async function refreshExpiredSupabaseSession(): Promise<Session | null> {
   if (Date.now() < expiredRefreshRetryAfter) {
     return isSupabaseSessionUsable(currentSession) ? currentSession : null;
   }
+  const requestRevision = authStateRevision;
   expiredSessionRefreshInFlight = supabase.auth.refreshSession()
     .then(({ data, error }) => {
+      // A newer auth event wins over this asynchronous response. In particular,
+      // never resurrect a session if the user explicitly signed out mid-refresh.
+      if (requestRevision !== authStateRevision) {
+        return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+      }
       if (error || !data.session) {
         expiredRefreshFailureCount += 1;
         expiredRefreshRetryAfter = Date.now() + Math.min(60_000, 5_000 * 2 ** Math.min(expiredRefreshFailureCount - 1, 4));
@@ -41,15 +47,14 @@ async function refreshExpiredSupabaseSession(): Promise<Session | null> {
       }
       expiredRefreshFailureCount = 0;
       expiredRefreshRetryAfter = 0;
-      // The auth listener is authoritative when it has already observed the
-      // refresh event; otherwise keep the returned live session as a fallback.
-      if (!isSupabaseSessionUsable(currentSession)) {
-        currentSession = data.session;
-        sessionInitialized = true;
-      }
+      currentSession = data.session;
+      sessionInitialized = true;
       return isSupabaseSessionUsable(currentSession) ? currentSession : null;
     })
     .catch(() => {
+      if (requestRevision !== authStateRevision) {
+        return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+      }
       expiredRefreshFailureCount += 1;
       expiredRefreshRetryAfter = Date.now() + Math.min(60_000, 5_000 * 2 ** Math.min(expiredRefreshFailureCount - 1, 4));
       return isSupabaseSessionUsable(currentSession) ? currentSession : null;
