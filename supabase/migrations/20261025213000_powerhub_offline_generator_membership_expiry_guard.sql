@@ -27,8 +27,7 @@ exception when unique_violation then
  if found and v_operation.operation_type='generator_create' then return query select (v_operation.response->>'id')::bigint,coalesce(v_operation.response->>'name',''),true; return; end if;
  select * into v_generator from public.generators g where g.client_operation_id=p_client_operation_id and g.tenant_id=v_tenant_id and g.site_id=p_site_id limit 1;
  if found then return query select v_generator.id,v_generator.name,true; return; end if; raise;
-end;$function$
-;
+end;$function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_sync_generator_update(p_site_id bigint, p_generator_id bigint, p_name text, p_rated_capacity_kw numeric, p_fuel_level_liters numeric, p_operating_hours numeric, p_status text, p_expected_updated_at timestamp with time zone, p_client_operation_id text)
  RETURNS TABLE(id bigint, name text, updated_at timestamp with time zone, replayed boolean)
