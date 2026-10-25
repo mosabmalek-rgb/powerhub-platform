@@ -61,8 +61,14 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   // A request can race the first Supabase auth event immediately after login.
   // Do not redirect on that transient 401; only redirect after a fresh session
   // read confirms that the browser is genuinely unauthenticated.
-  void import("./lib/supabase").then(({ getSupabaseSession }) => getSupabaseSession()).then((session) => {
-    if (session) return;
+  void import("./lib/supabase").then(async ({ getSupabaseSession, isSupabaseRefreshBackoffActive }) => {
+    const session = await getSupabaseSession();
+    return { session, refreshBackoffActive: isSupabaseRefreshBackoffActive() };
+  }).then(({ session, refreshBackoffActive }) => {
+    // A rate-limited/transient refresh failure is not confirmation that the
+    // user signed out. Keep the current route while the bounded retry window
+    // elapses; useAuth will retry profile validation after the backoff.
+    if (session || refreshBackoffActive) return;
     if (window.location.pathname !== "/login") window.location.assign("/login");
   });
 };
