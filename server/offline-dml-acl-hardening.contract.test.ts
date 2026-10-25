@@ -94,6 +94,6 @@ describe("offline server-write ACL hardening migration", () => {
     expect(normalizedMigration).toContain("revoke all on table public.generator_owner_provisioning_operations from public, anon, authenticated, service_role");
     expect(normalizedMigration).toContain("grant all on table public.generator_owner_provisioning_operations to service_role");
     expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_request_owner_access_recovery(bigint,bigint,text)");
-    expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_renew_subscription_with_addons( bigint,bigint,timestamptz,jsonb,uuid );");
+    expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb,uuid)");
   });
 });
