@@ -35,6 +35,9 @@ export function describeAuthFailure(error: unknown): string {
   if (name === "PowerHubSessionTokenUnavailableError") {
     return "المرحلة: لم يتمكن المتصفح من استخراج Access Token صالح من جلسة Supabase؛ لم يُرسل طلب API المحمي.";
   }
+  if (name === "PowerHubSessionReadTimeoutError") {
+    return "المرحلة: انتهت مهلة قراءة جلسة Supabase قبل استخراج الرمز؛ قد يكون تخزين الجلسة أو قفل التبويبات عالقًا. أُوقفت المحاولة ويمكن إعادة المحاولة.";
+  }
   if (name === "PowerHubDeviceIdentityUnavailableError") {
     return "المرحلة: تعذر إنشاء معرّف الجهاز أو التحقق من صيغته؛ لم يُرسل طلب API المحمي.";
   }
