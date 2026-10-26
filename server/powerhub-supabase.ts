@@ -1094,7 +1094,7 @@ function isMissingDashboardAggregateRpc(error: { code?: string; message?: string
   if (!error) return false;
   return error.code === "PGRST202"
     || error.code === "42883"
-    || new RegExp(`could not find .*\\${functionName}.*schema cache|function .*\\${functionName}.*does not exist`, "i").test(error.message ?? "");
+    || new RegExp(`could not find .*${functionName}.*schema cache|function .*${functionName}.*does not exist`, "i").test(error.message ?? "");
 }
 
 function dashboardRpcObject(data: unknown, area: string): Record<string, unknown> {
