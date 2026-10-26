@@ -9,6 +9,9 @@ const state = vi.hoisted(() => ({
   authLoading: false,
   isAuthenticated: true,
   user: { id: 4, role: "user", mustChangePassword: false } as { id: number; role: string; mustChangePassword: boolean } | null,
+  accessRole: "owner" as string,
+  financialOverviewEnabled: true,
+  periodMetricsEnabled: true,
   setLocation: vi.fn(),
   configured: true,
   isActive: true,
@@ -42,7 +45,7 @@ vi.mock("@/lib/trpc", () => ({
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: false }) }, branchPolicy: { useQuery: () => ({ data: state.branchPolicy, isLoading: false, isError: state.branchPolicyError, refetch: state.refetchBranchPolicy }) } },
       readingCycle: { currentBounds: { useQuery: () => ({ data: { cycleKey: "2026-10", cycleLabel: "أكتوبر 2026", billingPeriod: "2026-10", startAt: "2026-10-01T00:00:00.000Z", endAt: "2026-10-31T20:59:59.999Z" }, isLoading: false, isError: false, refetch: vi.fn() }) }, boundsAt: { useQuery: () => ({ data: { cycleKey: "2026-09", cycleLabel: "سبتمبر 2026", billingPeriod: "2026-09", startAt: "2026-09-01T00:00:00.000Z", endAt: "2026-09-30T20:59:59.999Z" }, isLoading: false, isError: false, refetch: vi.fn() }) } },
-      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: () => ({ data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: state.financialOverviewError, refetch: state.refetchFinancialOverview }) }, periodMetrics: { useQuery: (input: { siteId: number; scope: "branch" | "all"; startDate: string; endDate: string }) => ({ data: { range: { startDate: input.startDate, endDate: input.endDate }, scope: input.scope, summary: { invoiced: 0, collected: 0, collectionRate: 0, outstanding: 0, overdue: 0, overdueInvoiceCount: 0, overdueSubscriberCount: 0 }, outstandingInvoices: [] }, isLoading: false, isError: state.financialOverviewError, refetch: vi.fn() }) } },
+      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: (_input: unknown, options?: { enabled?: boolean }) => { state.financialOverviewEnabled = Boolean(options?.enabled); return { data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: state.financialOverviewError, refetch: state.refetchFinancialOverview }; } }, periodMetrics: { useQuery: (input: { siteId: number; scope: "branch" | "all"; startDate: string; endDate: string }, options?: { enabled?: boolean }) => { state.periodMetricsEnabled = Boolean(options?.enabled); return { data: { range: { startDate: input.startDate, endDate: input.endDate }, scope: input.scope, summary: { invoiced: 0, collected: 0, collectionRate: 0, outstanding: 0, overdue: 0, overdueInvoiceCount: 0, overdueSubscriberCount: 0 }, outstandingInvoices: [] }, isLoading: false, isError: state.financialOverviewError, refetch: vi.fn() }; } } },
       performance: {
         readingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
         allBranchesReadingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
@@ -52,7 +55,7 @@ vi.mock("@/lib/trpc", () => ({
       publicPackageCatalog: { useQuery: () => ({ data: { packages: [{ code: "basic", active: true }, { code: "advanced", active: true }, { code: "professional", active: true }, { code: "business", active: true }, { code: "vip", active: true }] }, isLoading: false, isError: false }) },
       companyAccounts: { list: { useQuery: () => ({ data: [], isLoading: false, isError: state.companyAccountsError, refetch: state.refetchCompanyAccounts }) } },
       subscribers: { quota: { useQuery: () => ({ data: state.subscriberQuota, isLoading: false, isError: false, refetch: vi.fn() }) } },
-      staff: { myAccess: { useQuery: () => ({ data: { role: "owner" } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
+      staff: { myAccess: { useQuery: () => ({ data: { role: state.accessRole } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
       messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null, providerMonthlyLimit: 2000, providerMonthlyUsed: 90 }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, smsCreditPackages: { useQuery: () => ({ data: [{ id: 11, code: "sms-1000", name: "حزمة 1000 رسالة", messages: 1000, price: 0, currency: "ILS" }], isLoading: false, isError: false }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false, isError: state.smsPackageRequestError, refetch: state.refetchSmsPackageRequest }) }, requestSmsPackage: { useMutation: () => ({ mutate: state.requestSmsPackage, isPending: false }) } },
       subscription: { ownerRenewalStatus: { useQuery: () => ({ data: { isOwner: false, subscription: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, currentUpgradeRequest: { useQuery: () => ({ data: null }) }, currentAddonRequests: { useQuery: () => ({ data: [] }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) }, requestAddon: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
     },
@@ -63,6 +66,9 @@ afterEach(() => {
   state.authLoading = false;
   state.isAuthenticated = true;
   state.user = { id: 4, role: "user", mustChangePassword: false };
+  state.accessRole = "owner";
+  state.financialOverviewEnabled = true;
+  state.periodMetricsEnabled = true;
   state.setLocation.mockReset();
   state.configured = true;
   state.isActive = true;
@@ -197,6 +203,14 @@ describe("بطاقة رصيد SMS في لوحة المالك", () => {
     expect(screen.getByText("فوترة الفترة: —")).toBeInTheDocument();
     expect(screen.getByText("نتيجة اليوم")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(2);
+  });
+
+  it("لا يطلب الملخص المالي ولا مؤشرات الفترة للأدوار التي لا يسمح لها الخادم بقراءتها", () => {
+    state.accessRole = "technician";
+    render(<WorkspaceHome />);
+    expect(state.financialOverviewEnabled).toBe(false);
+    expect(state.periodMetricsEnabled).toBe(false);
+    expect(screen.queryByText("تعذر تحميل بعض بيانات لوحة التحكم")).not.toBeInTheDocument();
   });
 
   it("يبقي لوحة التحكم مخصصة للمؤشرات ولا يكرر لوحة اختصارات مالية منفصلة", () => {

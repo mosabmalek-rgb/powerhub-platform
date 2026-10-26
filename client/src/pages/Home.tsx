@@ -98,6 +98,12 @@ export function WorkspaceHome() {
   const packageCatalogQuery = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
   const packageCodes = (packageCatalogQuery.data?.packages ?? []).filter((pkg: any) => pkg.active !== false).map((pkg: any) => String(pkg.code));
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  // The API intentionally restricts the financial overview to these roles. Do not
+  // fire a known-forbidden query for technicians/collectors and misreport that as
+  // a dashboard data-loading failure.
+  const canViewFinancialOverview = Boolean(
+    accessQuery.data && ["owner", "manager", "accountant", "viewer"].includes(accessQuery.data.role),
+  );
   const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
   const smsCreditPackagesQuery = trpc.powerhub.messaging.smsCreditPackages.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), staleTime: 60_000 });
   const branchPolicyQuery = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
@@ -125,7 +131,7 @@ export function WorkspaceHome() {
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
   const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword) });
-  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 20_000 });
+  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 20_000 });
   const periodMetricsQuery = trpc.powerhub.dashboard.periodMetrics.useQuery({
     siteId: siteId ?? 0,
     scope: selectedScope,
@@ -133,7 +139,7 @@ export function WorkspaceHome() {
     endDate: dashboardPeriod.endDate,
     includeDetails: false,
   }, {
-    enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword && dashboardPeriod.isReady),
+    enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword && dashboardPeriod.isReady),
     staleTime: 15_000,
     refetchOnWindowFocus: false,
   });
@@ -141,23 +147,32 @@ export function WorkspaceHome() {
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const requestAddon = trpc.powerhub.subscription.requestAddon.useMutation({ onSuccess: async (result) => { await addonRequestsQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب إضافة قيد المتابعة بالفعل." : "تم إرسال طلب الإضافة إلى إدارة PowerHub."); }, onError: (error) => toast.error(error.message) });
   const overview = financialOverviewQuery.data;
-  const dashboardDataError = sitesQuery.isError || accessQuery.isError || financialOverviewQuery.isError ||
+  const dashboardDataError = sitesQuery.isError || accessQuery.isError ||
+    (canViewFinancialOverview && financialOverviewQuery.isError) ||
     (selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError);
+  const dashboardDataFailures: string[] = [];
+  if (sitesQuery.isError) dashboardDataFailures.push(`الفروع: ${sitesQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (accessQuery.isError) dashboardDataFailures.push(`صلاحيات الفرع: ${accessQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && financialOverviewQuery.isError) dashboardDataFailures.push(`الملخص المالي: ${financialOverviewQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (selectedScope === "all" && allBranchesSummaryQuery.isError) dashboardDataFailures.push(`ملخص جميع الفروع: ${allBranchesSummaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (selectedScope !== "all" && summaryQuery.isError) dashboardDataFailures.push(`مؤشرات الفرع: ${summaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
   const retryDashboardData = () => {
     void sitesQuery.refetch();
     void accessQuery.refetch();
-    void financialOverviewQuery.refetch();
-    dashboardPeriod.retry();
-    void periodMetricsQuery.refetch();
+    if (canViewFinancialOverview) {
+      void financialOverviewQuery.refetch();
+      dashboardPeriod.retry();
+      void periodMetricsQuery.refetch();
+    }
     if (selectedScope === "all") void allBranchesSummaryQuery.refetch();
     else void summaryQuery.refetch();
   };
-  const metricNumber = (value: unknown, fractionDigits = 0) => financialOverviewQuery.isError
-    ? "—"
-    : financialOverviewQuery.isLoading ? "…" : number(value, fractionDigits);
-  const metricRatio = (value: unknown) => financialOverviewQuery.isError
-    ? "—"
-    : financialOverviewQuery.isLoading ? "…" : ratio(value);
+  const metricNumber = (value: unknown, fractionDigits = 0) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
+    ? "…"
+    : !canViewFinancialOverview || financialOverviewQuery.isError ? "—" : number(value, fractionDigits);
+  const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
+    ? "…"
+    : !canViewFinancialOverview || financialOverviewQuery.isError ? "—" : ratio(value);
   const periodMetricsMatch = Boolean(
     periodMetricsQuery.data &&
     periodMetricsQuery.data.range.startDate === dashboardPeriod.startDate &&
@@ -207,7 +222,7 @@ export function WorkspaceHome() {
     </header>
 
 
-    {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
+    {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p><ul className="mt-2 space-y-1 text-xs leading-5 text-amber-100/90">{dashboardDataFailures.map((failure) => <li key={failure}>{failure}</li>)}</ul></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
 
     <DashboardKpiPeriodFilter
       value={dashboardPeriod.preset}
