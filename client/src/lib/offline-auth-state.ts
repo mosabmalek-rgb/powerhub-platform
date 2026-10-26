@@ -1,3 +1,15 @@
+/**
+ * Only validate the online profile once the first PowerHub origin probe has
+ * succeeded. Offline lease/cache restoration is a separate local path.
+ */
+export function shouldValidateOnlineSession(
+  hasSession: boolean,
+  powerHubReachable: boolean,
+  connectivityChecking: boolean,
+): boolean {
+  return hasSession && powerHubReachable && !connectivityChecking;
+}
+
 export type OfflineAuthTransition =
   | "online-session"
   | "recover-offline-session"
