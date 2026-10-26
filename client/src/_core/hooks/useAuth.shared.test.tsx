@@ -212,6 +212,14 @@ describe("shared AuthProvider", () => {
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
+    });
+
+    // A completed read returning null must finish recovery immediately rather
+    // than leave the user on a spinner until the generic timeout.
+    expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
+    expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
+
+    await act(async () => {
       await vi.advanceTimersByTimeAsync(8_001);
     });
 
