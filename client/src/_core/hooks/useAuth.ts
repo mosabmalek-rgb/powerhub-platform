@@ -190,7 +190,8 @@ function useAuthController() {
             // not a reason to keep the route gate pending until its 8s timer.
             transientSignOutRecovery.current = false;
             setSessionRecoveryPending(false);
-            setSessionRecoveryTimedOut(true);
+            setSessionRecoveryTimedOut(false);
+            setSessionRecoveryFailed(true);
             setHasSession(false);
             setSessionReady(true);
             return;
