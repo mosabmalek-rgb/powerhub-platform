@@ -1,7 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { formatReportDate, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS } from "@/lib/report-design-system";
-import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
 import { PaymentMethodCollectionSummary } from "@/components/PaymentMethodCollectionSummary";
 import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { Badge } from "@/components/ui/badge";
