@@ -164,6 +164,63 @@ describe("shared AuthProvider", () => {
     queryClient.clear();
   });
 
+  it("keeps a known session stable across transient SIGNED_OUT and ends on a recovery screen", async () => {
+    vi.useFakeTimers();
+    let authListener: ((event: string, session: { user: { id: string } } | null) => void) | undefined;
+    const liveSession = {
+      user: { id: "user-1" },
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    };
+    let sessionRead: typeof liveSession | null = liveSession;
+    mocks.useQuery.mockReturnValue({
+      data: { id: "user-1", role: "owner" },
+      isPending: false,
+      isSuccess: true,
+      isError: false,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: { id: "user-1", role: "owner" } }),
+    });
+    mocks.getSession.mockImplementation(() => Promise.resolve(sessionRead));
+    mocks.subscribe.mockImplementation((listener: typeof authListener) => {
+      authListener = listener;
+      return vi.fn();
+    });
+    mocks.getLease.mockResolvedValue(null);
+    mocks.getOfflineUser.mockResolvedValue({ id: "user-1", role: "owner" });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
+
+    sessionRead = null;
+    act(() => authListener?.("SIGNED_OUT", null));
+    expect(screen.getByText("workspace: checking")).toBeInTheDocument();
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(8_001);
+    });
+
+    expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
+    expect(screen.getByText("workspace: anonymous")).toBeInTheDocument();
+    expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
+    queryClient.clear();
+  });
+
   it("breaks the endless session-check loading state and offers recovery when auth.me never settles", async () => {
     vi.useFakeTimers();
     mocks.useQuery.mockReturnValue({
