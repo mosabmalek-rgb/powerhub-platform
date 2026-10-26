@@ -87,7 +87,8 @@ $$;
 create or replace function public.powerhub_dashboard_financial_overview(
   p_tenant_id bigint,
   p_site_id bigint default null,
-  p_now timestamptz default now()
+  p_now timestamptz default now(),
+  p_include_details boolean default true
 )
 returns jsonb
 language plpgsql
@@ -239,6 +240,7 @@ begin
       from open_invoices i
       left join public.subscribers s
         on s.id = i.subscriber_id and s.tenant_id = p_tenant_id and s.site_id = i.site_id
+      where p_include_details
       order by (i.due_date < v_now) desc, i.balance_due desc,
         greatest(0, floor(extract(epoch from (v_now - i.due_date)) / 86400)::integer) desc,
         i.id desc
@@ -361,7 +363,7 @@ begin
       ),
       'branchSummaries', (select value from branch_json),
       'topDebtors', (select value from top_debtors_json),
-      'outstandingInvoices', (select value from outstanding_invoices_json),
+      'outstandingInvoices', case when p_include_details then (select value from outstanding_invoices_json) else '[]'::jsonb end,
       'trend', (select value from trend_json)
     )
   );
@@ -373,9 +375,9 @@ alter function public.powerhub_dashboard_operational_summary(bigint, bigint) own
 revoke all on function public.powerhub_dashboard_operational_summary(bigint, bigint) from public, anon, authenticated;
 grant execute on function public.powerhub_dashboard_operational_summary(bigint, bigint) to service_role;
 
-alter function public.powerhub_dashboard_financial_overview(bigint, bigint, timestamptz) owner to postgres;
-revoke all on function public.powerhub_dashboard_financial_overview(bigint, bigint, timestamptz) from public, anon, authenticated;
-grant execute on function public.powerhub_dashboard_financial_overview(bigint, bigint, timestamptz) to service_role;
+alter function public.powerhub_dashboard_financial_overview(bigint, bigint, timestamptz, boolean) owner to postgres;
+revoke all on function public.powerhub_dashboard_financial_overview(bigint, bigint, timestamptz, boolean) from public, anon, authenticated;
+grant execute on function public.powerhub_dashboard_financial_overview(bigint, bigint, timestamptz, boolean) to service_role;
 
 -- Support the hottest aggregate paths: open debt by branch/due date and scoped current-period reads.
 create index if not exists invoices_dashboard_open_debt_idx
