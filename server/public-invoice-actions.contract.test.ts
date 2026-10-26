@@ -82,8 +82,13 @@ describe("public invoice and inquiry actions", () => {
     expect(main).toContain("renderApp();");
     expect(main).toContain("void bootstrapOfflineState();");
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
-    expect(main).toContain("if (lease) await activateUser(lease.userId);");
-    expect(main).not.toContain("activateUser(lease?.userId ?? null)");
+    const transientSignOutStart = main.indexOf("// A transient SDK SIGNED_OUT");
+    const transientSignOutEnd = main.indexOf("if (!nextUserId)", transientSignOutStart);
+    expect(transientSignOutStart).toBeGreaterThanOrEqual(0);
+    expect(transientSignOutEnd).toBeGreaterThan(transientSignOutStart);
+    const transientSignOut = main.slice(transientSignOutStart, transientSignOutEnd);
+    expect(transientSignOut).toContain("if (lease) await activateUser(lease.userId);");
+    expect(transientSignOut).not.toContain("activateUser(lease?.userId ?? null)");
     expect(main).toContain('register("/sw.js?v=7")');
     const sw = read("client/public/sw.js");
     expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v7"');
