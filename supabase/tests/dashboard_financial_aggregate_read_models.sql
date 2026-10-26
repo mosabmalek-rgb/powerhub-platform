@@ -33,6 +33,18 @@ insert into public.expenses values
 insert into public.notification_messages values (1,1,100,'failed'),(2,1,103,'failed'),(3,2,200,'failed');
 
 \ir ../migrations/20261026101445_powerhub_dashboard_database_aggregates_20261026.sql
+-- Isolated fixture for the separate lifecycle-worker search_path hardening migration.
+-- The full lifecycle migration has its own schema prerequisites; this integration test
+-- only validates that the hardening migration safely alters an existing SECURITY DEFINER RPC.
+create function public.powerhub_process_subscription_lifecycle()
+returns jsonb
+language sql
+security definer
+set search_path = public, pg_temp
+as $ select '{}'::jsonb $;
+revoke all on function public.powerhub_process_subscription_lifecycle() from public, anon, authenticated;
+grant execute on function public.powerhub_process_subscription_lifecycle() to service_role;
+
 \ir ../migrations/20261026102654_powerhub_pin_subscription_lifecycle_search_path.sql
 
 do $test$
