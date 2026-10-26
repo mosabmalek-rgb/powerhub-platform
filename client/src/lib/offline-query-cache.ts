@@ -19,6 +19,10 @@ const CACHEABLE_PROCEDURES = new Set([
   "schedules",
 ]);
 
+// Only these list procedures currently have a corresponding Delta reconciliation
+// path. Other cached lists retain their original age and must refetch normally.
+const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs"]);
+
 const BLOCKED_PROCEDURES = new Set([
   "admin",
   "auth",
@@ -67,6 +71,15 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // must opt in explicitly rather than inheriting permission from the router name.
   if (segments.length < 3 || segments[2] !== "list") return false;
   return CACHEABLE_PROCEDURES.has(segments[1] ?? "");
+}
+
+export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
+  const segments = getPowerHubQuerySegments(queryKey);
+  return isOfflineCacheableQueryKey(queryKey) &&
+    segments.length >= 3 &&
+    segments[0] === "powerhub" &&
+    segments[2] === "list" &&
+    DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
 }
 
 export function offlineQueryCacheKey(queryKey: readonly unknown[]) {
@@ -185,7 +198,10 @@ export async function hydrateOfflineQueryCache(
       // response with an older local snapshot just because IndexedDB finished later.
       if (queryClient.getQueryData(queryKey) !== undefined) continue;
       const data = superjson.parse(record.serializedData);
-      queryClient.setQueryData(queryKey, data, { updatedAt: record.updatedAt });
+      // Treat Delta-backed snapshots as fresh only in this page's memory. The
+      // durable record keeps its real timestamp; Delta sync remains authoritative.
+      const hydratedAt = isDeltaSyncBackedQueryKey(queryKey) ? now : record.updatedAt;
+      queryClient.setQueryData(queryKey, data, { updatedAt: hydratedAt });
       hydrated += 1;
     } catch {
       // Ignore individual corrupt entries; a future online response will replace them.
