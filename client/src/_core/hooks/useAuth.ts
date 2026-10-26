@@ -2,7 +2,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { clearOfflineQueryCacheForUser, getOfflineAuthUser, persistOfflineAuthUser, removeOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
-import { resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition } from "@/lib/offline-auth-state";
+import { resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition, shouldValidateOnlineSession } from "@/lib/offline-auth-state";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -72,12 +72,17 @@ function useAuthController() {
   const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
   const [sessionRecoveryFailed, setSessionRecoveryFailed] = useState(false);
   const { isOnline: powerHubReachable, isChecking: powerHubConnectivityChecking } = usePowerHubConnectivity();
+  const canValidateOnlineSession = shouldValidateOnlineSession(
+    hasSession,
+    powerHubReachable,
+    powerHubConnectivityChecking,
+  );
   const explicitLogoutInProgress = useRef(false);
   const observedUserIdRef = useRef<string | null>(null);
   const transientSignOutRecovery = useRef(false);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
-    enabled: hasSession,
+    enabled: canValidateOnlineSession,
     // Retry transient server/network failures, but do not retry definitive
     // authorization failures as if they were connectivity problems.
     retry: (failureCount, error) => {
@@ -92,7 +97,7 @@ function useAuthController() {
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
 
   useEffect(() => {
-    if (!hasSession || !meQuery.isPending) {
+    if (!canValidateOnlineSession || !meQuery.isPending) {
       setAuthProfileCheckTimedOut(false);
       return;
     }
@@ -103,7 +108,7 @@ function useAuthController() {
       AUTH_PROFILE_CHECK_TIMEOUT_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [hasSession, meQuery.isPending, authValidationAttempt]);
+  }, [canValidateOnlineSession, meQuery.isPending, authValidationAttempt]);
   const [offlineLeaseUserId, setOfflineLeaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -408,20 +413,20 @@ function useAuthController() {
     (hasSession && meQuery.isPending && authProfileCheckTimedOut),
   );
   const isOnlineAuthenticated = Boolean(
-    hasSession &&
+    canValidateOnlineSession &&
       !meQueryAuthorizationDenied &&
       (meQuery.isSuccess && meQuery.data || cachedUser || meQueryTemporarilyUnavailable),
   );
   const offlineAuthenticated = Boolean(
-    !hasSession &&
-      offlineLeaseUserId &&
+    offlineLeaseUserId &&
       cachedUser &&
-      !powerHubReachable,
+      !powerHubReachable &&
+      !powerHubConnectivityChecking,
   );
   // Keep the last confirmed profile during a transient auth.me failure/refetch.
   // The server remains the authority for every protected operation; this prevents
   // a temporary profile/API error from looking like a real logout in the UI.
-  const user = sessionRecoveryTimedOut || sessionRecoveryFailed
+  const user = (sessionRecoveryTimedOut || sessionRecoveryFailed) && !offlineAuthenticated
     ? null
     : meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
@@ -433,13 +438,11 @@ function useAuthController() {
     // A terminal profile-check error must not keep the whole workspace in a
     // permanent loading state. It becomes a recoverable error with a retry path.
     loading: isLoggingOut || !sessionReady ||
-      Boolean(hasSession && meQuery.isPending && !authProfileCheckTimedOut) ||
+      Boolean(canValidateOnlineSession && meQuery.isPending && !authProfileCheckTimedOut) ||
       Boolean(sessionRecoveryPending && !sessionRecoveryTimedOut) ||
-      // When a valid signed offline lease and cached profile are already loaded,
-      // wait for the first real reachability result before redirecting to login.
-      // Otherwise a slow/offline health probe can cause /workspace -> /login ->
-      // /workspace loops because the hook starts with an optimistic online value.
-      Boolean(!hasSession && offlineLeaseUserId && cachedUser && powerHubConnectivityChecking),
+      // Don't decide the route until the first origin check settles when an
+      // online session or a restorable local snapshot exists.
+      Boolean(powerHubConnectivityChecking && (hasSession || (offlineLeaseUserId && cachedUser))),
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.
