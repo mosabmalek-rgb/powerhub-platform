@@ -27,7 +27,7 @@ function isBrowserOffline() {
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { isAuthenticated, loading: authLoading, hasSession: hasSupabaseSession } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -37,8 +37,8 @@ export default function LoginPage() {
     // Supabase persists a valid browser session across restarts by default.
     // If the user opens /login directly, do not ask for credentials again when
     // the shared AuthProvider has already restored and validated that session.
-    if (!authLoading && isAuthenticated) setLocation("/workspace");
-  }, [authLoading, isAuthenticated, setLocation]);
+    if (hasSupabaseSession || (!authLoading && isAuthenticated)) setLocation("/workspace");
+  }, [authLoading, hasSupabaseSession, isAuthenticated, setLocation]);
 
   useEffect(() => {
     let active = true;
