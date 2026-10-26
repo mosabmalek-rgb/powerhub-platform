@@ -73,10 +73,23 @@ const trpcClient = trpc.createClient({
         // token in PostgreSQL. Avoid unrelated session and device-ID reads for
         // this route; all protected pages keep their normal headers.
         if (isStandalonePublicInvoiceRoute()) return {};
-        const [{ getSupabaseAccessToken }, { getPowerHubDeviceId }] = await Promise.all([
+        const [{ getSupabaseAccessToken }, { getPowerHubDeviceId }, { getPowerHubConnectivitySnapshot }] = await Promise.all([
           import("./lib/supabase"),
           import("./lib/offline-auth"),
+          import("./lib/offline-connectivity"),
         ]);
+        // Do not trigger SDK token refresh or protected HTTP calls before the
+        // initial origin probe succeeds. Offline access remains local-only.
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          const error = new Error("PowerHub is offline; protected requests are deferred.");
+          error.name = "PowerHubOfflineRequestDeferredError";
+          throw error;
+        }
+        if (getPowerHubConnectivitySnapshot() !== true) {
+          const error = new Error("PowerHub reachability has not been confirmed.");
+          error.name = "PowerHubConnectivityUnresolvedError";
+          throw error;
+        }
         const token = await getSupabaseAccessToken();
         if (!token) {
           // Do not send an anonymous request when the browser cannot provide a
