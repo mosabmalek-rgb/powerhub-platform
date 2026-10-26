@@ -388,11 +388,11 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
       return words.every((word) => {
         if (searchableText.includes(word)) return true;
         // Match phone/reference digits even when the stored value contains +, spaces, or separators.
-        if (!/^[+]?[0-9s().-]+$/.test(word)) return false;
-        const digits = word.replace(/D/g, "");
+        if (!/^[+]?[\d\s().-]+$/.test(word)) return false;
+        const digits = word.replace(/\D/g, "");
         return digits.length > 0 &&
-          (normalizedPhone.replace(/D/g, "").includes(digits) ||
-           normalizedNumber.replace(/D/g, "").includes(digits));
+          (normalizedPhone.replace(/\D/g, "").includes(digits) ||
+           normalizedNumber.replace(/\D/g, "").includes(digits));
       });
     });
     const rank = (subscriber: any) => {
