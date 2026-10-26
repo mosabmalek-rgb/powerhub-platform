@@ -215,7 +215,10 @@ async function bootstrapOfflineState() {
         // current cache while checking the signed local offline lease.
         void getValidOfflineAuthLease().then(async (lease) => {
           if (authEventRevision !== eventRevision) return;
-          await activateUser(lease?.userId ?? null);
+          // No lease means there is no authorization to restore, but it does
+          // not turn a transient SDK event into explicit logout. Keep the
+          // existing in-memory snapshot; only a verified lease can switch scope.
+          if (lease) await activateUser(lease.userId);
         });
         return;
       }
