@@ -12,6 +12,7 @@ function findAuthError(error: unknown): AuthErrorLike | null {
     seen.add(current);
     const candidate = current as AuthErrorLike;
     if (candidate.name === "PowerHubSessionTokenUnavailableError" ||
+        candidate.name === "PowerHubSessionReadTimeoutError" ||
         candidate.name === "PowerHubDeviceIdentityUnavailableError" ||
         (candidate.data && typeof candidate.data.code === "string")) return candidate;
     current = candidate.cause;
