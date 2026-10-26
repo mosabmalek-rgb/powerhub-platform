@@ -216,7 +216,7 @@ const state = vi.hoisted(() => {
           outstanding: { total: sum(openInvoices,"balance_due"), overdue: overdueTotal, partialInvoices: openInvoices.filter(row=>row.status==="partially_paid").length, accountCount: debtors.size },
           branchSummaries,
           topDebtors: debtorRows.slice(0,10).map(d=>({...d,ageDays:d.isOverdue?Math.max(1,Math.floor((now.getTime()-d.oldestDueDate.getTime())/86400000)):0,oldestDueDate:d.oldestDueDate.toISOString()})),
-          outstandingInvoices: openInvoices.map(i=>{const sub=bySubscriber.get(Number(i.subscriber_id))??{};const due=new Date(String(i.due_date));return {siteId:Number(i.site_id),subscriberId:Number(i.subscriber_id),subscriber:String(sub.full_name??"مشترك"),subscriberNo:String(sub.subscriber_no??"—"),invoiceId:Number(i.id),invoiceNo:String(i.invoice_no??""),outstanding:Number(i.balance_due??0),dueDate:due.toISOString(),isOverdue:due<now,ageDays:due<now?Math.max(1,Math.floor((now.getTime()-due.getTime())/86400000)):0,partialInvoices:i.status==="partially_paid"?1:0,status:String(i.status)};}),
+          outstandingInvoices: input.p_include_details === false ? [] : openInvoices.map(i=>{const sub=bySubscriber.get(Number(i.subscriber_id))??{};const due=new Date(String(i.due_date));return {siteId:Number(i.site_id),subscriberId:Number(i.subscriber_id),subscriber:String(sub.full_name??"مشترك"),subscriberNo:String(sub.subscriber_no??"—"),invoiceId:Number(i.id),invoiceNo:String(i.invoice_no??""),outstanding:Number(i.balance_due??0),dueDate:due.toISOString(),isOverdue:due<now,ageDays:due<now?Math.max(1,Math.floor((now.getTime()-due.getTime())/86400000)):0,partialInvoices:i.status==="partially_paid"?1:0,status:String(i.status)};}),
           trend,
         });
       }
