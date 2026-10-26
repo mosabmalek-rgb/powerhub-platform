@@ -78,9 +78,12 @@ describe("public invoice and inquiry actions", () => {
     expect(publicInvoiceApp).not.toContain('from "@/lib/route-preload"');
     expect(main).not.toContain('import App from "./App"');
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) return {};");
-    expect(main).toContain("if (!isStandalonePublicInvoiceRoute()) {");
+    // Protected routes wait for bounded local-cache hydration inside the app
+    // bootstrap gate; standalone invoice links bypass that gate immediately.
+    expect(main).toContain("if (standalonePublicInvoice) return;");
+    expect(main).toContain("Promise.race([bootstrapOfflineState(), deadline])");
+    expect(main.indexOf("Promise.race([bootstrapOfflineState(), deadline])")).toBeLessThan(main.indexOf("<AuthProvider>"));
     expect(main).toContain("renderApp();");
-    expect(main).toContain("void bootstrapOfflineState();");
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
     const transientSignOutStart = main.indexOf("// A transient SDK SIGNED_OUT");
     const transientSignOutEnd = main.indexOf("if (!nextUserId)", transientSignOutStart);
