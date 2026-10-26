@@ -16,6 +16,12 @@ const AUTH_DATA_EVENTS = new Set(["INITIAL_SESSION", "SIGNED_IN", "SIGNED_OUT", 
 
 const OFFLINE_AUTH_BOOTSTRAP_TIMEOUT_MS = 1_500;
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 5_000;
+// A protected session check must not trap the app in an endless loading/redirect
+// loop if the network request or browser auth lock never settles.
+const AUTH_PROFILE_CHECK_TIMEOUT_MS = 8_000;
+const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = new Error(
+  "تعذر التحقق من جلسة الدخول في الوقت المحدد. أعد المحاولة لاستعادة البيانات.",
+);
 
 function withTimeoutFallback<T>(promise: Promise<T>, fallback: T, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve) => {
@@ -53,6 +59,8 @@ function useAuthController() {
   const [hasSession, setHasSession] = useState(false);
   const [authDataRevision, setAuthDataRevision] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [authProfileCheckTimedOut, setAuthProfileCheckTimedOut] = useState(false);
+  const [authValidationAttempt, setAuthValidationAttempt] = useState(0);
   const [powerHubReachable, setPowerHubReachable] = useState(() => onlineManager.isOnline());
   const explicitLogoutInProgress = useRef(false);
 
@@ -70,6 +78,20 @@ function useAuthController() {
   });
   type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
+
+  useEffect(() => {
+    if (!hasSession || !meQuery.isPending) {
+      setAuthProfileCheckTimedOut(false);
+      return;
+    }
+
+    setAuthProfileCheckTimedOut(false);
+    const timer = window.setTimeout(
+      () => setAuthProfileCheckTimedOut(true),
+      AUTH_PROFILE_CHECK_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [hasSession, meQuery.isPending, authValidationAttempt]);
   const [offlineLeaseUserId, setOfflineLeaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -264,7 +286,10 @@ function useAuthController() {
   // A transport failure does not invalidate an otherwise-present browser
   // session. Keep authentication recoverable, while route gates show a retry
   // surface if no last-confirmed profile is available.
-  const meQueryTemporarilyUnavailable = Boolean(meQuery.error && !meQueryAuthorizationDenied);
+  const meQueryTemporarilyUnavailable = Boolean(
+    (meQuery.error && !meQueryAuthorizationDenied) ||
+    (hasSession && meQuery.isPending && authProfileCheckTimedOut),
+  );
   const isOnlineAuthenticated = Boolean(
     hasSession &&
       !meQueryAuthorizationDenied &&
@@ -284,11 +309,11 @@ function useAuthController() {
     user,
     // A terminal profile-check error must not keep the whole workspace in a
     // permanent loading state. It becomes a recoverable error with a retry path.
-    loading: isLoggingOut || !sessionReady || Boolean(hasSession && meQuery.isPending),
+    loading: isLoggingOut || !sessionReady || Boolean(hasSession && meQuery.isPending && !authProfileCheckTimedOut),
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.
-    error: meQuery.error ?? null,
+    error: meQuery.error ?? (authProfileCheckTimedOut ? AUTH_PROFILE_CHECK_TIMEOUT_ERROR : null),
     isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
     isOnlineAuthenticated: !isLoggingOut && isOnlineAuthenticated,
     isLoggingOut,
@@ -297,7 +322,11 @@ function useAuthController() {
   return {
     ...state,
     powerHubReachable,
-    refresh: () => meQuery.refetch(),
+    refresh: () => {
+      setAuthProfileCheckTimedOut(false);
+      setAuthValidationAttempt((attempt) => attempt + 1);
+      return meQuery.refetch();
+    },
     logout,
   };
 }

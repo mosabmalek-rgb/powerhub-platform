@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "./useAuth";
@@ -46,13 +46,14 @@ vi.mock("@/lib/offline-query-cache", () => ({
 
 function Consumer({ label }: { label: string }) {
   const auth = useAuth();
-  return <p>{label}: {auth.loading ? "checking" : auth.isAuthenticated ? "authenticated" : "anonymous"}</p>;
+  return <><p>{label}: {auth.loading ? "checking" : auth.isAuthenticated ? "authenticated" : "anonymous"}</p>{auth.error && <p>{label}: recoverable-auth-error</p>}</>;
 }
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   onlineManager.setOnline(true);
+  vi.useRealTimers();
 });
 
 describe("shared AuthProvider", () => {
@@ -160,6 +161,50 @@ describe("shared AuthProvider", () => {
     await waitFor(() => {
       expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
     });
+    queryClient.clear();
+  });
+
+  it("breaks the endless session-check loading state and offers recovery when auth.me never settles", async () => {
+    vi.useFakeTimers();
+    mocks.useQuery.mockReturnValue({
+      data: undefined,
+      isPending: true,
+      isSuccess: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: undefined }),
+    });
+    mocks.getSession.mockResolvedValue({
+      user: { id: "user-1" },
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    });
+    mocks.subscribe.mockReturnValue(vi.fn());
+    mocks.getLease.mockResolvedValue(null);
+    mocks.getOfflineUser.mockResolvedValue(null);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("workspace: checking")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_001);
+    });
+
+    expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
+    expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
+    expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
     queryClient.clear();
   });
 
