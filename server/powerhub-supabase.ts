@@ -993,6 +993,20 @@ export async function listSupabaseReportSubscribers(input: {
 
 export async function getSupabaseFinancialOverview(site: SupabaseSite) {
   const admin = supabaseAdmin();
+  const tenantId = Number(site.tenant_id);
+  const aggregate = await admin.rpc("powerhub_dashboard_financial_overview", {
+    p_tenant_id: tenantId,
+    p_site_id: Number(site.id),
+    p_now: new Date().toISOString(),
+  });
+  if (!aggregate.error) {
+    return dashboardRpcObject(aggregate.data, "dashboard.financialOverview.aggregate");
+  }
+  if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_financial_overview")) {
+    logSupabaseDataReadFailure("dashboard.financialOverview.aggregate", aggregate.error);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
+  }
+  // Preserve compatibility until the matching SQL migration is installed.
   // Supabase's configured REST row cap can silently truncate ordinary selects.
   // Read every table in ordered, bounded pages so the debt totals and search workspace are complete.
   const readAllPages = async <T,>(area: string, readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>) => {
@@ -1076,8 +1090,48 @@ function logSupabaseDataReadFailure(area: string, error: { message: string; code
   });
 }
 
+function isMissingDashboardAggregateRpc(error: { code?: string; message?: string } | null | undefined, functionName: string) {
+  if (!error) return false;
+  return error.code === "PGRST202"
+    || error.code === "42883"
+    || new RegExp(`could not find .*\\${functionName}.*schema cache|function .*\\${functionName}.*does not exist`, "i").test(error.message ?? "");
+}
+
+function dashboardRpcObject(data: unknown, area: string): Record<string, unknown> {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `تعذر تحميل بيانات لوحة التحكم من Supabase (${area}).` });
+  }
+  return data as Record<string, unknown>;
+}
+
 export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {
   const admin = supabaseAdmin();
+  const aggregate = await admin.rpc("powerhub_dashboard_operational_summary", { p_tenant_id: tenantId, p_site_id: siteId });
+  if (!aggregate.error) {
+    const result = dashboardRpcObject(aggregate.data, "dashboard.summary.aggregate");
+    return {
+      subscribers: Number(result.subscribers ?? 0),
+      generators: {
+        active: Number(objectValue(result.generators).active ?? 0),
+        maintenance: Number(objectValue(result.generators).maintenance ?? 0),
+      },
+      financial: {
+        invoiced: Number(objectValue(result.financial).invoiced ?? 0),
+        collected: Number(objectValue(result.financial).collected ?? 0),
+        outstanding: Number(objectValue(result.financial).outstanding ?? 0),
+        expenses: Number(objectValue(result.financial).expenses ?? 0),
+        operatingProfit: Number(objectValue(result.financial).operatingProfit ?? 0),
+      },
+      energyKwh: Number(result.energyKwh ?? 0),
+      failedNotifications: Number(result.failedNotifications ?? 0),
+    };
+  }
+  if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_operational_summary")) {
+    logSupabaseDataReadFailure("dashboard.summary.aggregate", aggregate.error);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص لوحة التحكم من Supabase." });
+  }
+  // Compatibility during a migration-first rollout: use the existing paged path
+  // only when the aggregate function has not yet been installed, never on data/permission errors.
   // Avoid a preliminary round of SELECTs whose rows were discarded before the
   // complete paged reads below. The dashboard only needs these four projections.
   const readAllPages = async <T,>(area: string, readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>) => {
