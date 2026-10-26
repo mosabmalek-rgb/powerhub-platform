@@ -287,29 +287,55 @@ async function bootstrapOfflineState() {
     console.warn("[PowerHub] Offline cache bootstrap skipped", error);
   }
 }
-function renderApp() {
-  const app = isStandalonePublicInvoiceRoute()
+const OFFLINE_BOOTSTRAP_DEADLINE_MS = 6_000;
+
+function AppBootstrapGate() {
+  const standalonePublicInvoice = isStandalonePublicInvoiceRoute();
+  const [localBootstrapReady, setLocalBootstrapReady] = useState(standalonePublicInvoice);
+
+  useEffect(() => {
+    if (standalonePublicInvoice) return;
+    let active = true;
+    let timeoutId: number | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timeoutId = window.setTimeout(resolve, OFFLINE_BOOTSTRAP_DEADLINE_MS);
+    });
+
+    void Promise.race([bootstrapOfflineState(), deadline]).finally(() => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      if (active) setLocalBootstrapReady(true);
+    });
+
+    return () => {
+      active = false;
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [standalonePublicInvoice]);
+
+  if (!localBootstrapReady) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl" role="status" aria-live="polite">
+      <div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><p className="mt-3 text-sm text-slate-300">جارٍ استعادة جلسة العمل والبيانات المحفوظة…</p></div>
+    </main>;
+  }
+
+  return standalonePublicInvoice
     ? <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-400">جارٍ تحميل الفاتورة…</div>}><App /></Suspense>
     : <Suspense fallback={<div className="grid min-h-screen place-items-center">جارٍ تهيئة الجلسة…</div>}><AuthProvider><Suspense fallback={null}><OfflineDeltaSyncRuntime /></Suspense><App /></AuthProvider></Suspense>;
+}
 
+function renderApp() {
   createRoot(document.getElementById("root")!).render(
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        {app}
+        <AppBootstrapGate />
       </QueryClientProvider>
     </trpc.Provider>
   );
 }
 
-// Render public invoice links immediately. Offline/auth cache bootstrap is
-// unrelated to this public route and can wait several seconds on slow IndexedDB
-// or Supabase session reads. Protected app routes preserve the existing order.
-// Render immediately; cache/session hydration is an enhancement and must not
-// hold the whole app behind a slow IndexedDB lock or Supabase session read.
+// Public invoice links remain immediate. Protected application routes restore
+// the local cache before mounting route-level queries, with a bounded fallback.
 renderApp();
-if (!isStandalonePublicInvoiceRoute()) {
-  void bootstrapOfflineState();
-}
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
