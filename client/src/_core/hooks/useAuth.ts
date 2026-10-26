@@ -261,10 +261,14 @@ function useAuthController() {
   const meQueryErrorCode = (meQuery.error as { data?: { code?: string } } | null)?.data?.code;
   const meQueryAuthorizationDenied = meQueryErrorCode === "FORBIDDEN" ||
     (meQueryErrorCode === "UNAUTHORIZED" && !hasSession);
+  // A transport failure does not invalidate an otherwise-present browser
+  // session. Keep authentication recoverable, while route gates show a retry
+  // surface if no last-confirmed profile is available.
+  const meQueryTemporarilyUnavailable = Boolean(meQuery.error && !meQueryAuthorizationDenied);
   const isOnlineAuthenticated = Boolean(
     hasSession &&
       !meQueryAuthorizationDenied &&
-      (meQuery.isSuccess && meQuery.data || cachedUser),
+      (meQuery.isSuccess && meQuery.data || cachedUser || meQueryTemporarilyUnavailable),
   );
   const offlineAuthenticated = Boolean(
     !hasSession &&

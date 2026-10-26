@@ -15,7 +15,7 @@ export function RouteAccessGate({ children, platformAdminOnly = false, supportOn
   const isPlatformAdmin = user?.role === "admin" && ["platform_owner", "platform_admin"].includes(user.platformRole ?? "");
   const isPlatformSupport = user?.role === "admin" && user.platformRole === "platform_support";
   const isFinanceAdmin = user?.role === "admin" && user.platformRole === "finance_admin";
-  const authCheckFailed = !loading && Boolean(error) && !user && !isAuthenticated;
+  const authCheckFailed = !loading && Boolean(error) && !user;
   const shouldRedirectToLogin = !loading && !isAuthenticated && !authCheckFailed;
   const shouldRedirectUnauthorized = !loading && isAuthenticated && ((platformAdminOnly && !isPlatformAdmin) || (financeAdminOnly && !isFinanceAdmin) || (supportOnly && !isPlatformSupport));
 

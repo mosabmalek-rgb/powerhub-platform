@@ -511,7 +511,10 @@ describe("public invoice and inquiry actions", () => {
     expect(authState).toContain("return identityChanged && nextUserId !== null");
     const workspace = read("client/src/pages/Home.tsx");
     expect(workspace).toContain("if (!loading && !isAuthenticated && !error)");
+    expect(workspace).toContain("if (error && !user)");
     expect(workspace).toContain("تعذر استعادة جلسة الدخول");
+    const routeGate = read("client/src/components/RouteAccessGate.tsx");
+    expect(routeGate).toContain("!loading && Boolean(error) && !user");
     expect(workspace).toContain("إعادة المحاولة واستعادة البيانات");
   });
 
