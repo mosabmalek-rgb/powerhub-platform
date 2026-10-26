@@ -20,6 +20,9 @@ const paymentDocumentationPage = readFileSync(resolve(process.cwd(), "client/src
 const dashboardPage = readFileSync(resolve(process.cwd(), "client/src/pages/Home.tsx"), "utf8");
 const dashboardReads = readFileSync(resolve(process.cwd(), "server/powerhub-supabase.ts"), "utf8").split("export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {")[1]?.split("function objectValue(value: unknown)")[0] ?? "";
 const meterReadingsPage = readFileSync(resolve(process.cwd(), "client/src/pages/MeterReadingsPage.tsx"), "utf8");
+const networkDirectoryPage = readFileSync(resolve(process.cwd(), "client/src/pages/NetworkDirectoryPage.tsx"), "utf8");
+const dashboardAggregateMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261026133000_powerhub_dashboard_database_aggregates.sql"), "utf8");
+const dashboardRouter = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 
 describe("PowerHub offline collection, opening-reading, and notification contracts", () => {
   it("removes the redundant payment-documentation notice without changing the submit action", () => {
@@ -29,13 +32,18 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
 
   it("keeps dashboard KPI queries fresh in memory and avoids duplicate full summary reads", () => {
     expect(dashboardPage).toContain("dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 })");
-    expect(dashboardPage).toContain("dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 })");
+    expect(dashboardPage).toContain("dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 })");
     expect(dashboardPage).toContain("staleTime: 30_000,");
     expect(dashboardReads).toContain("const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([");
     expect(dashboardReads).not.toContain("const [subscriberResult, generatorResult, invoiceResult, expenseResult]");
     expect(meterReadingsPage).toContain('dashboard.financialOverview.invalidate({ siteId: refreshSiteId, scope: "branch" })');
     expect(meterReadingsPage).toContain('dashboard.periodMetrics.invalidate({ siteId: refreshSiteId, scope: "branch" })');
     expect(dashboardReads).not.toContain(".select(\"id, service_status\", { count: \"exact\" })");
+    expect(dashboardReads).toContain('powerhub_dashboard_operational_summary');
+    expect(dashboardAggregateMigration).toContain("p_include_details boolean default true");
+    expect(dashboardAggregateMigration).toContain("where p_include_details");
+    expect(dashboardRouter).toContain("includeDetails: z.boolean().default(true)");
+    expect(networkDirectoryPage).toContain('scope: "branch", includeDetails: false');
   });
 
   it("queues a subscriber with an opening reading as one idempotent subscriber operation", () => {
