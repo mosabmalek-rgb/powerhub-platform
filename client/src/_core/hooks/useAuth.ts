@@ -248,6 +248,7 @@ function useAuthController() {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
       explicitLogoutInProgress.current = false;
+      setIsLoggingOut(false);
     }
   }, [releaseDevice, utils, queryClient]);
 
