@@ -66,6 +66,7 @@ function useAuthController() {
   const [authValidationAttempt, setAuthValidationAttempt] = useState(0);
   const [sessionRecoveryPending, setSessionRecoveryPending] = useState(false);
   const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
+  const [sessionRecoveryFailed, setSessionRecoveryFailed] = useState(false);
   const [powerHubReachable, setPowerHubReachable] = useState(() => onlineManager.isOnline());
   const explicitLogoutInProgress = useRef(false);
   const observedUserIdRef = useRef<string | null>(null);
@@ -102,10 +103,7 @@ function useAuthController() {
   const [offlineLeaseUserId, setOfflineLeaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!sessionRecoveryPending) {
-      setSessionRecoveryTimedOut(false);
-      return;
-    }
+    if (!sessionRecoveryPending) return;
 
     setSessionRecoveryTimedOut(false);
     const timer = window.setTimeout(() => {
@@ -393,7 +391,7 @@ function useAuthController() {
   // Keep the last confirmed profile during a transient auth.me failure/refetch.
   // The server remains the authority for every protected operation; this prevents
   // a temporary profile/API error from looking like a real logout in the UI.
-  const user = sessionRecoveryTimedOut
+  const user = sessionRecoveryTimedOut || sessionRecoveryFailed
     ? null
     : meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
@@ -406,7 +404,9 @@ function useAuthController() {
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.
-    error: sessionRecoveryTimedOut
+    error: sessionRecoveryFailed
+      ? SESSION_RECOVERY_FAILED_ERROR
+      : sessionRecoveryTimedOut
       ? SESSION_RECOVERY_TIMEOUT_ERROR
       : meQuery.error ?? (authProfileCheckTimedOut ? AUTH_PROFILE_CHECK_TIMEOUT_ERROR : null),
     isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
@@ -425,6 +425,7 @@ function useAuthController() {
         transientSignOutRecovery.current = false;
         setSessionRecoveryPending(true);
         setSessionRecoveryTimedOut(false);
+        setSessionRecoveryFailed(false);
         setSessionReady(true);
         setHasSession(true);
         const recoveredSession = await withTimeoutFallback(
@@ -443,6 +444,7 @@ function useAuthController() {
           setOfflineLeaseUserId(recoveredUserId);
           setSessionRecoveryPending(false);
           setSessionRecoveryTimedOut(false);
+          setSessionRecoveryFailed(false);
           setHasSession(true);
           setSessionReady(true);
           await utils.auth.me.invalidate();
@@ -452,7 +454,8 @@ function useAuthController() {
           // no usable session can be restored. Keep local work untouched.
           transientSignOutRecovery.current = false;
           setSessionRecoveryPending(false);
-          setSessionRecoveryTimedOut(true);
+          setSessionRecoveryTimedOut(false);
+          setSessionRecoveryFailed(true);
           setHasSession(false);
           setSessionReady(true);
         }
