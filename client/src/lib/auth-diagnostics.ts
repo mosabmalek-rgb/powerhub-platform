@@ -16,6 +16,7 @@ function findAuthError(error: unknown): AuthErrorLike | null {
         candidate.name === "PowerHubSessionReadTimeoutError" ||
         candidate.name === "PowerHubAuthProfileCheckTimeoutError" ||
         candidate.name === "PowerHubSessionRecoveryTimeoutError" ||
+        candidate.name === "PowerHubSessionRecoveryFailedError" ||
         candidate.name === "PowerHubDeviceIdentityUnavailableError" ||
         (candidate.data && typeof candidate.data.code === "string")) return candidate;
     current = candidate.cause;
@@ -47,6 +48,9 @@ export function describeAuthFailure(error: unknown): string {
   }
   if (name === "PowerHubAuthProfileCheckTimeoutError") {
     return "المرحلة: استُخرجت الجلسة، لكن طلب auth.me لم يكتمل خلال المهلة؛ يلزم فحص اتصال API وسجلات الخادم.";
+  }
+  if (name === "PowerHubSessionRecoveryFailedError") {
+    return "المرحلة: اكتملت قراءة جلسة Supabase دون العثور على جلسة صالحة؛ لم يُنفذ تسجيل خروج تلقائي. أعد المحاولة أو افتح تسجيل الدخول.";
   }
   if (name === "PowerHubSessionRecoveryTimeoutError") {
     return "المرحلة: لم تصل جلسة صالحة بعد محاولة استعادة Supabase؛ لم يُنفذ تسجيل خروج تلقائي. أعد المحاولة أو افتح تسجيل الدخول.";

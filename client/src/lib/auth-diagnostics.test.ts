@@ -45,6 +45,17 @@ describe("safe authentication diagnostics", () => {
     expect(describeAuthFailure({ name: "PowerHubSessionRecoveryTimeoutError" })).toContain("لم تصل جلسة صالحة بعد محاولة استعادة Supabase");
   });
 
+  it("explains a completed recovery failure without confusing it with a timeout", () => {
+    const wrapped = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("private local session state"), { name: "PowerHubSessionRecoveryFailedError" }),
+    };
+    const hint = describeAuthFailure(wrapped);
+    expect(hint).toContain("اكتملت قراءة جلسة Supabase");
+    expect(hint).toContain("أعد المحاولة أو افتح تسجيل الدخول");
+    expect(hint).not.toContain("private local session state");
+  });
+
   it("recognizes device identity errors wrapped by the RPC client", () => {
     const wrapped = {
       name: "TRPCClientError",
