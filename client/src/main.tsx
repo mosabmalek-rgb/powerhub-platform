@@ -78,9 +78,15 @@ const trpcClient = trpc.createClient({
           import("./lib/offline-auth"),
         ]);
         const token = await getSupabaseAccessToken();
+        if (!token) {
+          // Never turn a temporary token-refresh race into an unauthenticated
+          // API request (which surfaces as Please login (10001) for every query).
+          // Failed active queries are retried when the SDK confirms TOKEN_REFRESHED.
+          throw new Error("PowerHub session is temporarily refreshing; request deferred.");
+        }
         const deviceId = await getPowerHubDeviceId().catch(() => null);
         return {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
           ...(deviceId ? { "x-powerhub-device-id": deviceId } : {}),
         };
       },
@@ -194,6 +200,16 @@ async function bootstrapOfflineState() {
       const eventRevision = authEventRevision;
       const previousUserId = activeOfflineUserId;
       const nextUserId = session?.user.id ?? null;
+
+      if (event === "TOKEN_REFRESHED" && nextUserId) {
+        // Requests that were deferred or failed during refresh must recover as
+        // soon as Supabase confirms a fresh token; do not leave dashboard data
+        // in an error state until a manual page reload.
+        void queryClient.refetchQueries({
+          type: "active",
+          predicate: (query) => query.state.status === "error",
+        });
+      }
 
       if (event === "SIGNED_OUT") {
         let explicitLogout = false;

@@ -2,6 +2,7 @@ import { createClient, type AuthChangeEvent, type Session } from "@supabase/supa
 import {
   isSupabaseSessionUsable,
   selectAuthSnapshot,
+  shouldManuallyRefreshExpiredSession,
   SUPABASE_BROWSER_AUTH_OPTIONS,
 } from "@/lib/offline-auth-state";
 
@@ -29,6 +30,15 @@ let expiredRefreshRetryAfter = 0;
 
 async function refreshExpiredSupabaseSession(): Promise<Session | null> {
   if (expiredSessionRefreshInFlight) return expiredSessionRefreshInFlight;
+  const visibilityState = typeof document === "undefined"
+    ? "unknown"
+    : document.visibilityState === "hidden" ? "hidden" : "visible";
+  if (!shouldManuallyRefreshExpiredSession(visibilityState)) {
+    // Hidden tabs must not compete with the visible tab for Supabase's rotating
+    // refresh token. The SDK pauses automatic refresh in the background and
+    // resumes it when a tab becomes visible; wait for its TOKEN_REFRESHED event.
+    return null;
+  }
   if (Date.now() < expiredRefreshRetryAfter) {
     return isSupabaseSessionUsable(currentSession) ? currentSession : null;
   }
