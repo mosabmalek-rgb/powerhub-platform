@@ -3337,6 +3337,30 @@ export const powerhubRouter = router({
     allBranchesSummary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
       const admin = supabaseAdmin();
+      const aggregate = await admin.rpc("powerhub_dashboard_operational_summary", { p_tenant_id: access.tenantId, p_site_id: null });
+      if (!aggregate.error) {
+        const result = aggregate.data as Record<string, unknown> | null;
+        if (!result || typeof result !== "object" || Array.isArray(result)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص لوحة التشغيل من Supabase." });
+        const generators = result.generators as Record<string, unknown> | null;
+        const financial = result.financial as Record<string, unknown> | null;
+        return {
+          branchCount: Number(result.branchCount ?? 0),
+          subscribers: Number(result.subscribers ?? 0),
+          generators: { active: Number(generators?.active ?? 0), maintenance: Number(generators?.maintenance ?? 0) },
+          financial: {
+            invoiced: Number(financial?.invoiced ?? 0), collected: Number(financial?.collected ?? 0),
+            outstanding: Number(financial?.outstanding ?? 0), expenses: Number(financial?.expenses ?? 0),
+            operatingProfit: Number(financial?.operatingProfit ?? 0),
+          },
+          energyKwh: Number(result.energyKwh ?? 0),
+          failedNotifications: Number(result.failedNotifications ?? 0),
+        };
+      }
+      if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_operational_summary")) {
+        logSupabaseDataReadFailure("dashboard.allBranchesSummary.aggregate", aggregate.error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص لوحة التشغيل من Supabase." });
+      }
+      // Migration-first rollout compatibility: use the paged implementation only when the RPC is not installed.
       const { data: branchRows, error: branchesError } = await admin.from("sites").select("id").eq("tenant_id", access.tenantId).neq("status", "archived");
       if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع المستأجر من Supabase." });
       const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
@@ -3389,6 +3413,19 @@ export const powerhubRouter = router({
       }
       const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
       const admin = supabaseAdmin();
+      const aggregate = await admin.rpc("powerhub_dashboard_financial_overview", {
+        p_tenant_id: access.tenantId, p_site_id: null, p_now: new Date().toISOString(),
+      });
+      if (!aggregate.error) {
+        const result = aggregate.data;
+        if (!result || typeof result !== "object" || Array.isArray(result)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
+        return result;
+      }
+      if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_financial_overview")) {
+        logSupabaseDataReadFailure("dashboard.financialOverview.all.aggregate", aggregate.error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
+      }
+      // Keep the paged fallback for databases that have not received the aggregate migration yet.
       const { data: branchRows, error: branchesError } = await admin.from("sites").select("id, name").eq("tenant_id", access.tenantId).neq("status", "archived").order("created_at", { ascending: false });
       if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع التقرير المالي من Supabase." });
       const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
