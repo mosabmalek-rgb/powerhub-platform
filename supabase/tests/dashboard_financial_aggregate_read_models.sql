@@ -74,8 +74,8 @@ begin
     or not has_function_privilege('service_role','public.powerhub_dashboard_operational_summary(bigint,bigint)','EXECUTE')
     then raise exception 'operational RPC grants are incorrect'; end if;
   if has_function_privilege('anon','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)','EXECUTE')
-    or has_function_privilege('authenticated','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone)','EXECUTE')
-    or not has_function_privilege('service_role','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)','EXECUTE')
     then raise exception 'financial RPC grants are incorrect'; end if;
 end
 $test$;
