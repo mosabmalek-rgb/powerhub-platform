@@ -10,8 +10,12 @@ describe("collection and entry form reset contracts", () => {
     expect(operations).toContain('collapsed={!collectionFormOpen}');
     expect(operations).toContain('setCollectionFormOpen((open) => !open)');
     expect(operations).toContain('normalizeSubscriberSearch(subscriberSearch)');
-    expect(operations).toContain('subscriber.fullName, subscriber.phone, subscriber.subscriberNo');
-    expect(operations).toContain('placeholder="الاسم أو رقم الجوال أو الرقم المرجعي"');
+    expect(operations).toContain('const searchableText = [normalizedName, normalizedPhone, normalizedNumber].filter(Boolean).join(" ")');
+    expect(operations).toContain('return words.every((word) => {');
+    expect(operations).toContain('aria-label="البحث واختيار المشترك للتحصيل"');
+    expect(operations).toContain('role="combobox"');
+    expect(operations).toContain('role="listbox"');
+    expect(operations).toContain('placeholder="ابحث واختر بالاسم أو رقم المشترك أو الهاتف..."');
     expect(operations).toContain('onToggleCollapse={() => setCollectionFormOpen((open) => !open)}');
   });
 
