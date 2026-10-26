@@ -13,7 +13,7 @@ export type OfflineSyncRefreshTarget =
   | "audit";
 
 export type OfflineSyncRefreshCandidate = {
-  item: Pick<QueuedOfflineWork, "kind">;
+  item: Pick<QueuedOfflineWork, "kind" | "payload">;
   outcome: string;
 };
 
@@ -45,6 +45,11 @@ export function getOfflineSyncRefreshTargets(
   for (const result of results) {
     if (!SUCCESS_OUTCOMES.has(result.outcome)) continue;
     for (const target of TARGETS_BY_KIND[result.item.kind] ?? []) targets.add(target);
+    if (result.item.kind === "subscriber_create" && typeof result.item.payload === "object" && result.item.payload !== null &&
+        "openingReading" in result.item.payload && Boolean(result.item.payload.openingReading)) {
+      // An opening baseline is created with the subscriber but does not issue an invoice.
+      targets.add("readings");
+    }
   }
   if (targets.size > 0) targets.add("audit");
   return [...targets];
