@@ -26,7 +26,7 @@ const MISSING_SYNC_METADATA_MESSAGE = "حالة المزامنة المحلية 
 function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["payload"] {
   if (item.kind === "subscriber_create") {
     const payload = item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft;
-    return { ...payload, offlineNumberClaim: undefined };
+    return { ...payload, offlineNumberClaim: undefined, openingReadingImageData: undefined, openingReadingImageMime: undefined };
   }
   if (item.kind === "reading_create") {
     const payload = item.payload as import("@/lib/offline-work-queue").ReadingCreateDraft;
