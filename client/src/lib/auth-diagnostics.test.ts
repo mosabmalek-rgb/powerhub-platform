@@ -12,6 +12,22 @@ describe("safe authentication diagnostics", () => {
     expect(hint).not.toContain("private token detail");
   });
 
+  it("recognizes session-token errors wrapped by the RPC client", () => {
+    const wrapped = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("wrapped detail"), { name: "PowerHubSessionTokenUnavailableError" }),
+    };
+    expect(describeAuthFailure(wrapped)).toContain("Access Token");
+  });
+
+  it("recognizes device identity errors wrapped by the RPC client", () => {
+    const wrapped = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("wrapped detail"), { name: "PowerHubDeviceIdentityUnavailableError" }),
+    };
+    expect(describeAuthFailure(wrapped)).toContain("معرّف الجهاز");
+  });
+
   it("identifies device identity failures before sending protected requests", () => {
     const error = Object.assign(new Error("raw detail"), {
       name: "PowerHubDeviceIdentityUnavailableError",
