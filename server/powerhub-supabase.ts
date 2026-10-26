@@ -1078,30 +1078,8 @@ function logSupabaseDataReadFailure(area: string, error: { message: string; code
 
 export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {
   const admin = supabaseAdmin();
-  const [subscriberResult, generatorResult, invoiceResult, expenseResult] = await Promise.all([
-    admin.from("subscribers").select("id, service_status", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null),
-    admin.from("generators").select("status", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
-    admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft"),
-    admin.from("expenses").select("amount", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
-  ]);
-  const initialReadErrors = [
-    ["subscribers", subscriberResult.error],
-    ["generators", generatorResult.error],
-    ["invoices", invoiceResult.error],
-    ["expenses", expenseResult.error],
-  ] as const;
-  const failedInitialReads = initialReadErrors.filter(([, error]) => Boolean(error));
-  if (failedInitialReads.length) {
-    for (const [table, error] of failedInitialReads) {
-      if (error) logSupabaseDataReadFailure(`dashboard.summary.${table}`, error);
-    }
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `تعذر تحميل مؤشرات لوحة التشغيل من Supabase: ${failedInitialReads.map(([table]) => table).join("، ")}.`,
-    });
-  }
-  // Supabase returns at most its configured page size for ordinary selects. Read all matching
-  // rows in bounded pages so dashboard totals do not silently truncate at 1,000 records.
+  // Avoid a preliminary round of SELECTs whose rows were discarded before the
+  // complete paged reads below. The dashboard only needs these four projections.
   const readAllPages = async <T,>(area: string, readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>) => {
     const result: T[] = [];
     for (let from = 0; ; from += 1000) {
@@ -1116,10 +1094,12 @@ export async function getSupabaseDashboardSummary(siteId: number, tenantId: numb
     }
     return result;
   };
-  const subscriberRows = await readAllPages("dashboard.summary.subscribers", (from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null).order("id", { ascending: true }).range(from, to));
-  const generatorRows = await readAllPages("dashboard.summary.generators", (from, to) => admin.from("generators").select("status").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
-  const invoiceRows = await readAllPages("dashboard.summary.invoices", (from, to) => admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to));
-  const expenseRows = await readAllPages("dashboard.summary.expenses", (from, to) => admin.from("expenses").select("amount").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
+  const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([
+    readAllPages("dashboard.summary.subscribers", (from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.summary.generators", (from, to) => admin.from("generators").select("status").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.summary.invoices", (from, to) => admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.summary.expenses", (from, to) => admin.from("expenses").select("amount").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to)),
+  ]);
   const subscriberIds = subscriberRows.map((row) => Number((row as { id: number }).id)).filter(Number.isInteger);
   const notificationRows = await readAllPages("dashboard.summary.notifications", (from, to) => admin.from("notification_messages").select("status").eq("tenant_id", tenantId).in("subscriber_id", subscriberIds.length ? subscriberIds : [-1]).order("id", { ascending: true }).range(from, to));
   const activeSubscribers = subscriberRows.filter((row) => (row as { service_status: string }).service_status === "active").length;
