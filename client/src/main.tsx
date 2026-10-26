@@ -79,15 +79,30 @@ const trpcClient = trpc.createClient({
         ]);
         const token = await getSupabaseAccessToken();
         if (!token) {
-          // Never turn a temporary token-refresh race into an unauthenticated
-          // API request (which surfaces as Please login (10001) for every query).
-          // Failed active queries are retried when the SDK confirms TOKEN_REFRESHED.
-          throw new Error("PowerHub session is temporarily refreshing; request deferred.");
+          // Do not send an anonymous request when the browser cannot provide a
+          // usable Supabase access token. Give the recovery UI a safe stage code.
+          const error = new Error("PowerHub could not obtain a usable Supabase access token.");
+          error.name = "PowerHubSessionTokenUnavailableError";
+          throw error;
         }
-        const deviceId = await getPowerHubDeviceId().catch(() => null);
+
+        let deviceId: string;
+        try {
+          deviceId = await getPowerHubDeviceId();
+        } catch {
+          const error = new Error("PowerHub could not resolve the current device identity.");
+          error.name = "PowerHubDeviceIdentityUnavailableError";
+          throw error;
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
+          const error = new Error("PowerHub produced an invalid device identity.");
+          error.name = "PowerHubDeviceIdentityUnavailableError";
+          throw error;
+        }
+
         return {
           Authorization: `Bearer ${token}`,
-          ...(deviceId ? { "x-powerhub-device-id": deviceId } : {}),
+          "x-powerhub-device-id": deviceId,
         };
       },
       fetch(input, init) {
