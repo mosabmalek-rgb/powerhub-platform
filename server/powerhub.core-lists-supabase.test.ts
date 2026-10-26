@@ -5,6 +5,7 @@ const state = vi.hoisted(() => {
   const updates: Array<{ table: string; values: unknown }> = [];
   const orderCalls: Array<{ table: string; column: string; options: unknown }> = [];
   const rpcCalls: Array<{ name: string; args: unknown }> = [];
+  const missingRpcs = new Set<string>();
   const site = { id: 10, tenant_id: 20, name: "الفرع الرئيسي", code: "MAIN", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, invoice_due_hours: 336, created_at: "2026-08-01T00:00:00.000Z" };
   const subscriber = { id: 30, tenant_id: 20, site_id: 10, subscriber_no: "MAIN-001", client_operation_id: null, full_name: "مشترك الاختبار", phone: "+970595000000", whatsapp_number: null, address: null, subscription_type: "residential", service_status: "active", archived_at: null, purge_after_at: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" };
   const tables: Record<string, unknown[]> = {
@@ -139,6 +140,86 @@ const state = vi.hoisted(() => {
     },
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
+      if (missingRpcs.has(name)) return Promise.resolve({ data: null, error: { code: "PGRST202", message: `Could not find the function public.${name} in the schema cache` } });
+      const recordRows = (table: string) => (tables[table] ?? []) as Array<Record<string, unknown>>;
+      if (name === "powerhub_dashboard_operational_summary") {
+        const input = args as { p_tenant_id: number; p_site_id: number | null };
+        const sites = recordRows("sites").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && row.status !== "archived" && (input.p_site_id == null || Number(row.id) === Number(input.p_site_id)));
+        const siteIds = new Set(sites.map(row => Number(row.id)));
+        const subscribers = recordRows("subscribers").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)) && row.archived_at == null);
+        const generators = recordRows("generators").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)));
+        const invoices = recordRows("invoices").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)) && !["cancelled", "draft"].includes(String(row.status)));
+        const expenses = recordRows("expenses").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)));
+        const subscriberIds = new Set(subscribers.map(row => Number(row.id)));
+        const failedNotifications = recordRows("notification_messages").filter(row => (!("tenant_id" in row) || Number(row.tenant_id) === Number(input.p_tenant_id)) && subscriberIds.has(Number(row.subscriber_id)) && row.status === "failed").length;
+        const sum = (rows: Array<Record<string, unknown>>, field: string) => rows.reduce((total, row) => total + Number(row[field] ?? 0), 0);
+        const collected = sum(invoices, "paid_amount"), expenseTotal = sum(expenses, "amount");
+        return resolved({
+          branchCount: sites.length,
+          subscribers: subscribers.filter(row => row.service_status === "active").length,
+          generators: { active: generators.filter(row => row.status === "active").length, maintenance: generators.filter(row => row.status === "maintenance").length },
+          financial: { invoiced: sum(invoices, "total_amount"), collected, outstanding: sum(invoices, "balance_due"), expenses: expenseTotal, operatingProfit: collected - expenseTotal },
+          energyKwh: sum(invoices, "consumption_kwh"),
+          failedNotifications,
+        });
+      }
+      if (name === "powerhub_dashboard_financial_overview") {
+        const input = args as { p_tenant_id: number; p_site_id: number | null; p_now?: string };
+        const now = new Date(input.p_now ?? new Date().toISOString());
+        const sites = recordRows("sites").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && row.status !== "archived" && (input.p_site_id == null || Number(row.id) === Number(input.p_site_id)));
+        const siteIds = new Set(sites.map(row => Number(row.id)));
+        const subscribers = recordRows("subscribers").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)));
+        const bySubscriber = new Map(subscribers.map(row => [Number(row.id), row]));
+        const invoices = recordRows("invoices").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)) && !["cancelled", "draft"].includes(String(row.status)));
+        const payments = recordRows("payments").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)) && row.status === "completed");
+        const expenses = recordRows("expenses").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)));
+        const utcDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        const tomorrow = new Date(utcDay); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+        const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+        const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+        const inRange = (value: unknown, start: Date, end: Date) => new Date(String(value)).getTime() >= start.getTime() && new Date(String(value)).getTime() < end.getTime();
+        const openInvoices = invoices.filter(row => Number(row.balance_due ?? 0) > 0);
+        const sum = (rows: Array<Record<string, unknown>>, field: string) => rows.reduce((total, row) => total + Number(row[field] ?? 0), 0);
+        const monthInvoices = invoices.filter(row => inRange(row.issue_date, monthStart, nextMonth));
+        const monthPayments = payments.filter(row => inRange(row.paid_at, monthStart, nextMonth));
+        const monthExpenses = expenses.filter(row => inRange(row.occurred_at, monthStart, nextMonth));
+        const debtors = new Map<string, { siteId: number; subscriberId: number; subscriber: string; subscriberNo: string; outstanding: number; invoiceCount: number; partialInvoices: number; invoiceId: number; invoiceNo: string; oldestDueDate: Date; isOverdue: boolean; branchName: string; lastPaymentAt: string | null }>();
+        for (const invoice of openInvoices) {
+          const siteId = Number(invoice.site_id), subscriberId = Number(invoice.subscriber_id), key = `${siteId}:${subscriberId}`;
+          const sub = bySubscriber.get(subscriberId) ?? {};
+          const due = new Date(String(invoice.due_date));
+          const previous = debtors.get(key);
+          const item = previous ?? { siteId, subscriberId, subscriber: String(sub.full_name ?? "مشترك"), subscriberNo: String(sub.subscriber_no ?? "—"), outstanding: 0, invoiceCount: 0, partialInvoices: 0, invoiceId: Number(invoice.id), invoiceNo: String(invoice.invoice_no ?? ""), oldestDueDate: due, isOverdue: false, branchName: String(sites.find(site => Number(site.id) === siteId)?.name ?? "فرع غير محدد"), lastPaymentAt: null };
+          item.outstanding += Number(invoice.balance_due ?? 0); item.invoiceCount++; if (invoice.status === "partially_paid") item.partialInvoices++;
+          if (due < item.oldestDueDate) { item.oldestDueDate = due; item.invoiceId = Number(invoice.id); item.invoiceNo = String(invoice.invoice_no ?? ""); }
+          item.isOverdue ||= due < now; debtors.set(key, item);
+        }
+        for (const debtor of debtors.values()) {
+          const matching = payments.filter(payment => Number(payment.site_id) === debtor.siteId && Number(payment.subscriber_id) === debtor.subscriberId);
+          debtor.lastPaymentAt = matching.length ? new Date(Math.max(...matching.map(payment => new Date(String(payment.paid_at)).getTime()))).toISOString() : null;
+        }
+        const debtorRows = Array.from(debtors.values()).sort((a,b) => Number(b.isOverdue)-Number(a.isOverdue) || b.outstanding-a.outstanding || a.siteId-b.siteId || a.subscriberId-b.subscriberId);
+        const branchSummaries = sites.map(site => {
+          const siteInvoices = monthInvoices.filter(row => Number(row.site_id) === Number(site.id));
+          const sitePayments = monthPayments.filter(row => Number(row.site_id) === Number(site.id));
+          const siteDebt = openInvoices.filter(row => Number(row.site_id) === Number(site.id));
+          const invoiced = sum(siteInvoices, "total_amount"), collected = sum(sitePayments, "amount");
+          return { id: Number(site.id), name: String(site.name), activeSubscribers: subscribers.filter(row => Number(row.site_id) === Number(site.id) && row.service_status === "active" && row.archived_at == null).length, invoiced, collected, outstanding: sum(siteDebt,"balance_due"), overdue: sum(siteDebt.filter(row => new Date(String(row.due_date)) < now),"balance_due"), partialInvoices: siteDebt.filter(row => row.status === "partially_paid").length, collectionRate: invoiced > 0 ? collected / invoiced * 100 : 0 };
+        }).sort((a,b) => b.outstanding-a.outstanding || a.collectionRate-b.collectionRate);
+        const days = Array.from({length:31},(_,idx)=>{const d=new Date(tomorrow);d.setUTCDate(d.getUTCDate()-31+idx);return d;});
+        const trend = days.map(day=>{const next=new Date(day);next.setUTCDate(next.getUTCDate()+1);const invoiced=sum(invoices.filter(row=>inRange(row.issue_date,day,next)),"total_amount");const collected=sum(payments.filter(row=>inRange(row.paid_at,day,next)),"amount");const expense=sum(expenses.filter(row=>inRange(row.occurred_at,day,next)),"amount");return {date:day.toISOString().slice(0,10),invoiced,collected,expenses:expense,netCash:collected-expense};});
+        const overdueTotal=sum(openInvoices.filter(row=>new Date(String(row.due_date))<now),"balance_due");
+        return resolved({
+          generatedAt: now.toISOString(), period: { today: utcDay.toISOString().slice(0,10), month: monthStart.toISOString().slice(0,7) },
+          today: { invoiced: sum(invoices.filter(row=>inRange(row.issue_date,utcDay,tomorrow)),"total_amount"), collected: sum(payments.filter(row=>inRange(row.paid_at,utcDay,tomorrow)),"amount"), collectionRate: 0 },
+          month: { invoiced: sum(monthInvoices,"total_amount"), collected: sum(monthPayments,"amount"), expenses: sum(monthExpenses,"amount"), netCash: sum(monthPayments,"amount")-sum(monthExpenses,"amount"), collectionRate: 0 },
+          outstanding: { total: sum(openInvoices,"balance_due"), overdue: overdueTotal, partialInvoices: openInvoices.filter(row=>row.status==="partially_paid").length, accountCount: debtors.size },
+          branchSummaries,
+          topDebtors: debtorRows.slice(0,10).map(d=>({...d,ageDays:d.isOverdue?Math.max(1,Math.floor((now.getTime()-d.oldestDueDate.getTime())/86400000)):0,oldestDueDate:d.oldestDueDate.toISOString()})),
+          outstandingInvoices: input.p_include_details === false ? [] : openInvoices.map(i=>{const sub=bySubscriber.get(Number(i.subscriber_id))??{};const due=new Date(String(i.due_date));return {siteId:Number(i.site_id),subscriberId:Number(i.subscriber_id),subscriber:String(sub.full_name??"مشترك"),subscriberNo:String(sub.subscriber_no??"—"),invoiceId:Number(i.id),invoiceNo:String(i.invoice_no??""),outstanding:Number(i.balance_due??0),dueDate:due.toISOString(),isOverdue:due<now,ageDays:due<now?Math.max(1,Math.floor((now.getTime()-due.getTime())/86400000)):0,partialInvoices:i.status==="partially_paid"?1:0,status:String(i.status)};}),
+          trend,
+        });
+      }
       if (name === "powerhub_subscriber_statement_summary") return resolved([{
         invoice_count: 1, payment_count: 1, reading_count: 1,
         total_invoiced: 100, total_collected: 25, total_outstanding: 75,
@@ -251,7 +332,7 @@ const state = vi.hoisted(() => {
     },
   };
   const defaultRpc = client.rpc;
-  return { client, tables, inserts, updates, orderCalls, rpcCalls, defaultRpc };
+  return { client, tables, inserts, updates, orderCalls, rpcCalls, missingRpcs, defaultRpc };
 });
 
 const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn(), processById: vi.fn() }));
@@ -287,6 +368,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.updates.splice(0);
     state.orderCalls.splice(0);
     state.rpcCalls.splice(0);
+    state.missingRpcs.clear();
     notificationWorker.processQueue.mockReset();
     notificationWorker.processById.mockReset();
   });
@@ -511,6 +593,13 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       outstanding: { total: 75, accountCount: 1 },
       topDebtors: [{ subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001" }],
     });
+    const kpiOnlyOverview = await caller.dashboard.financialOverview({ siteId: 10, scope: "all", includeDetails: false });
+    expect(kpiOnlyOverview.outstandingInvoices).toEqual([]);
+    expect(kpiOnlyOverview.outstanding).toMatchObject({ total: 75, accountCount: 1 });
+    expect(state.rpcCalls).toContainEqual(expect.objectContaining({
+      name: "powerhub_dashboard_financial_overview",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: null, p_include_details: false }),
+    }));
   });
 
   it("يرحّل كل صفحات بيانات النظرة المالية لجميع الأفرع عند تجاوز 1000 سجل", async () => {
@@ -521,6 +610,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       subscribers: state.tables.subscribers,
       notification_messages: state.tables.notification_messages,
     };
+    state.missingRpcs.add("powerhub_dashboard_operational_summary");
+    state.missingRpcs.add("powerhub_dashboard_financial_overview");
     const stamp = new Date().toISOString();
     const subscriberRows = Array.from({ length: 1001 }, (_, index) => ({
       id: 10000 + index,

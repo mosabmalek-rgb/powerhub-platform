@@ -29,6 +29,13 @@ import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
+
+function isMissingDashboardAggregateRpc(error: { code?: string; message?: string } | null | undefined, functionName: string) {
+  if (!error) return false;
+  return error.code === "PGRST202"
+    || error.code === "42883"
+    || (String(error.message ?? "").includes(functionName) && /could not find|schema cache|does not exist/i.test(error.message ?? ""));
+}
 type SupabaseRpcFailure = { code?: string; message?: string } | null | undefined;
 
 function isDefinitivePostgresRpcFailure(error: SupabaseRpcFailure): boolean {
@@ -3337,6 +3344,30 @@ export const powerhubRouter = router({
     allBranchesSummary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
       const admin = supabaseAdmin();
+      const aggregate = await admin.rpc("powerhub_dashboard_operational_summary", { p_tenant_id: access.tenantId, p_site_id: null });
+      if (!aggregate.error) {
+        const result = aggregate.data as Record<string, unknown> | null;
+        if (!result || typeof result !== "object" || Array.isArray(result)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص لوحة التشغيل من Supabase." });
+        const generators = result.generators as Record<string, unknown> | null;
+        const financial = result.financial as Record<string, unknown> | null;
+        return {
+          branchCount: Number(result.branchCount ?? 0),
+          subscribers: Number(result.subscribers ?? 0),
+          generators: { active: Number(generators?.active ?? 0), maintenance: Number(generators?.maintenance ?? 0) },
+          financial: {
+            invoiced: Number(financial?.invoiced ?? 0), collected: Number(financial?.collected ?? 0),
+            outstanding: Number(financial?.outstanding ?? 0), expenses: Number(financial?.expenses ?? 0),
+            operatingProfit: Number(financial?.operatingProfit ?? 0),
+          },
+          energyKwh: Number(result.energyKwh ?? 0),
+          failedNotifications: Number(result.failedNotifications ?? 0),
+        };
+      }
+      if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_operational_summary")) {
+        console.error("[PowerHub] dashboard.allBranchesSummary.aggregate failed", { code: aggregate.error.code, message: aggregate.error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص لوحة التشغيل من Supabase." });
+      }
+      // Migration-first rollout compatibility: use the paged implementation only when the RPC is not installed.
       const { data: branchRows, error: branchesError } = await admin.from("sites").select("id").eq("tenant_id", access.tenantId).neq("status", "archived");
       if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع المستأجر من Supabase." });
       const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
@@ -3381,14 +3412,29 @@ export const powerhubRouter = router({
     financialOverview: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       scope: z.enum(["branch", "all"]).default("branch"),
+      includeDetails: z.boolean().default(true),
     })).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
       if (input.scope === "branch") {
         const site = await getSupabaseSite(input.siteId);
-        return getSupabaseFinancialOverview(site);
+        return getSupabaseFinancialOverview(site, input.includeDetails);
       }
       const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
       const admin = supabaseAdmin();
+      const aggregate = await admin.rpc("powerhub_dashboard_financial_overview", {
+        p_tenant_id: access.tenantId, p_site_id: null, p_now: new Date().toISOString(),
+        p_include_details: input.includeDetails,
+      });
+      if (!aggregate.error) {
+        const result = aggregate.data;
+        if (!result || typeof result !== "object" || Array.isArray(result)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
+        return result;
+      }
+      if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_financial_overview")) {
+        console.error("[PowerHub] dashboard.financialOverview.all.aggregate failed", { code: aggregate.error.code, message: aggregate.error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
+      }
+      // Keep the paged fallback for databases that have not received the aggregate migration yet.
       const { data: branchRows, error: branchesError } = await admin.from("sites").select("id, name").eq("tenant_id", access.tenantId).neq("status", "archived").order("created_at", { ascending: false });
       if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع التقرير المالي من Supabase." });
       const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
@@ -3402,7 +3448,7 @@ export const powerhubRouter = router({
       const subscribersById = new Map(subscriberRows.map((subscriber) => [Number(subscriber.id), subscriber]));
       const subscriberCountBySite = new Map<number, number>();
       for (const subscriber of subscriberRows) { if (subscriber.service_status === "active") { const siteId = Number(subscriber.site_id); subscriberCountBySite.set(siteId, (subscriberCountBySite.get(siteId) ?? 0) + 1); } }
-      return buildFinancialOverview({
+      const overview = buildFinancialOverview({
         branches: (branchRows ?? []).map((branch) => ({ id: Number(branch.id), name: branch.name, activeSubscribers: subscriberCountBySite.get(Number(branch.id)) ?? 0 })),
         invoices: invoiceRows.flatMap((invoice) => {
           const subscriber = subscribersById.get(Number(invoice.subscriber_id));
@@ -3411,6 +3457,7 @@ export const powerhubRouter = router({
         payments: paymentRows.map((payment) => ({ siteId: Number(payment.site_id), subscriberId: Number(payment.subscriber_id), amount: Number(payment.amount), status: payment.status, paidAt: new Date(payment.paid_at) })),
         expenses: expenseRows.map((expense) => ({ siteId: Number(expense.site_id), amount: Number(expense.amount), occurredAt: new Date(expense.occurred_at) })),
       });
+      return input.includeDetails ? overview : { ...overview, outstandingInvoices: [] };
     }),
 
     periodMetrics: protectedProcedure.input(z.object({

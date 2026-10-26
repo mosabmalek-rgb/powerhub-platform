@@ -120,6 +120,8 @@ export default function MeterReadingsPage() {
       utils.powerhub.invoices.page.invalidate({ siteId: refreshSiteId, limit: 100 }),
       utils.powerhub.invoices.page.invalidate({ siteId: refreshSiteId, limit: 200 }),
       utils.powerhub.dashboard.summary.invalidate({ siteId: refreshSiteId }),
+      utils.powerhub.dashboard.financialOverview.invalidate({ siteId: refreshSiteId, scope: "branch" }),
+      utils.powerhub.dashboard.periodMetrics.invalidate({ siteId: refreshSiteId, scope: "branch" }),
       utils.powerhub.audit.list.invalidate({ siteId: refreshSiteId }),
     ]);
     await loadQueuedReadings();

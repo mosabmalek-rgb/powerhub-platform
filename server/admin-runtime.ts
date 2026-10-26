@@ -210,6 +210,7 @@ export const adminRouter = router({
       p_package_code: normalized.packageCode, p_billing_cycle: normalized.billingCycle,
       p_subscription_status: normalized.trialEnabled ? "trial" : "active",
       p_ends_at: endDate, p_trial_duration_days: normalized.trialDurationDays ?? 8,
+      p_subscription_duration: normalized.subscriptionDuration,
     });
     if (!result.error && result.data?.[0]?.success) {
       return {

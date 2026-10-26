@@ -233,9 +233,12 @@ function useAuthController() {
     }
 
     try {
-      // Device release is best-effort. A stale/missing server lock must never
-      // prevent Supabase from clearing the local session.
-      await releaseDevice.mutateAsync().catch(() => undefined);
+      // Release the device lock in the background with a hard deadline.
+      // Network latency must never keep the local session or logout button stuck.
+      await Promise.race([
+        releaseDevice.mutateAsync().catch(() => undefined),
+        new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+      ]);
     } finally {
       await supabaseSignOutSafely().catch(() => undefined);
       setCachedUser(null);
@@ -245,6 +248,7 @@ function useAuthController() {
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
       explicitLogoutInProgress.current = false;
+      setIsLoggingOut(false);
     }
   }, [releaseDevice, utils, queryClient]);
 

@@ -230,7 +230,7 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   }, [kind, siteId]);
 
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
-  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch" }, { enabled: enabled && kind === "subscribers" });
+  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch", includeDetails: false }, { enabled: enabled && kind === "subscribers", staleTime: 60_000 });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators" });
   const role = accessQuery.data?.role;
   const canEdit = kind === "subscribers" ? can(role, "manageSubscribers") : can(role, "manageGenerators");

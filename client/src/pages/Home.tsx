@@ -90,14 +90,14 @@ function CompanyBalancesDashboardCard({ accounts, loading, error = false, onOpen
 export function WorkspaceHome() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, loading, user } = useAuth();
-  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword });
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword, staleTime: 30_000 });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [scope, setScope] = useState<"branch" | "all">("branch");
-  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
-  const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
+  const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
   const packageCatalogQuery = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
   const packageCodes = (packageCatalogQuery.data?.packages ?? []).filter((pkg: any) => pkg.active !== false).map((pkg: any) => String(pkg.code));
-  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
   // The API intentionally restricts the financial overview to these roles. Do not
   // fire a known-forbidden query for technicians/collectors and misreport that as
   // a dashboard data-loading failure.
@@ -111,7 +111,7 @@ export function WorkspaceHome() {
   const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), refetchInterval: 15000 });
   const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { await Promise.all([smsPackageRequestQuery.refetch(), smsQuotaQuery.refetch()]); toast.success("تم إرسال طلب الحزمة للمراجعة."); }, onError: (error) => toast.error(error.message) });
   // Most owners have a single branch; skip the cross-branch permission query unless it can affect the UI.
-  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword) });
+  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword), staleTime: 30_000 });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const ownerRenewalQuery = trpc.powerhub.subscription.ownerRenewalStatus.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), refetchInterval: 5 * 60 * 1000 });
   const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
@@ -130,8 +130,8 @@ export function WorkspaceHome() {
   const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (sitesQuery.data?.length ?? 0) > 1);
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
-  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword) });
-  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 20_000 });
+  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword), staleTime: 30_000 });
+  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 });
   const periodMetricsQuery = trpc.powerhub.dashboard.periodMetrics.useQuery({
     siteId: siteId ?? 0,
     scope: selectedScope,
@@ -140,10 +140,10 @@ export function WorkspaceHome() {
     includeDetails: false,
   }, {
     enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword && dashboardPeriod.isReady),
-    staleTime: 15_000,
+    staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
-  const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
+  const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const requestAddon = trpc.powerhub.subscription.requestAddon.useMutation({ onSuccess: async (result) => { await addonRequestsQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب إضافة قيد المتابعة بالفعل." : "تم إرسال طلب الإضافة إلى إدارة PowerHub."); }, onError: (error) => toast.error(error.message) });
   const overview = financialOverviewQuery.data;
@@ -199,7 +199,7 @@ export function WorkspaceHome() {
     });
     setLocation(`/subscribers?${params.toString()}#subscriber-arrears`);
   };
-  const activeSubscribers = overview?.branchSummaries.reduce((sum, branch) => sum + branch.activeSubscribers, 0) ?? 0;
+  const activeSubscribers = overview?.branchSummaries.reduce((sum: number, branch: { activeSubscribers: number }) => sum + branch.activeSubscribers, 0) ?? 0;
   const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
 
   useEffect(() => {
