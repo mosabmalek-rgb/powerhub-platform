@@ -199,7 +199,7 @@ export function WorkspaceHome() {
     });
     setLocation(`/subscribers?${params.toString()}#subscriber-arrears`);
   };
-  const activeSubscribers = overview?.branchSummaries.reduce((sum, branch) => sum + branch.activeSubscribers, 0) ?? 0;
+  const activeSubscribers = overview?.branchSummaries.reduce((sum: number, branch: { activeSubscribers: number }) => sum + branch.activeSubscribers, 0) ?? 0;
   const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
 
   useEffect(() => {
