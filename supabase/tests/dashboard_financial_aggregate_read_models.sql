@@ -33,7 +33,7 @@ insert into public.expenses values
 insert into public.notification_messages values (1,1,100,'failed'),(2,1,103,'failed'),(3,2,200,'failed');
 
 \ir ../migrations/20261026101445_powerhub_dashboard_database_aggregates_20261026.sql
-\ir ../migrations/20261026104500_powerhub_pin_subscription_lifecycle_search_path.sql
+\ir ../migrations/20261026102654_powerhub_pin_subscription_lifecycle_search_path.sql
 
 do $test$
 declare op jsonb; branch_op jsonb; fin jsonb; fin_kpi_only jsonb; wrong_site_op jsonb; wrong_tenant_fin jsonb;
