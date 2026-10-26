@@ -25,6 +25,29 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
     expect(subscriberRouter).toContain("p_opening_reading_approved: Boolean(input.openingReading)");
   });
 
+  it("merges subscriber search and selection into one ranked smart picker", () => {
+    expect(operationsPage).toContain('aria-label="البحث واختيار المشترك للتحصيل"');
+    expect(operationsPage).toContain('role="combobox"');
+    expect(operationsPage).toContain('role="listbox"');
+    expect(operationsPage).toContain("const chooseSubscriber = (subscriberId: number)");
+    expect(operationsPage).toContain(".replace(/[أإآٱ]/g, \"ا\")");
+    expect(operationsPage).toContain(".replace(/[٠-٩]/g");
+    expect(operationsPage).toContain("return words.every((word) => searchableText.includes(word))");
+    expect(operationsPage).not.toContain('<Field label="بحث المشترك"><input aria-label="بحث المشترك للتحصيل"');
+  });
+
+  it("renders offline draft sync and collection sessions after the collection module", () => {
+    const renderStart = operationsPage.indexOf('{section === "collections" && <><CollectionsModule');
+    expect(renderStart).toBeGreaterThan(-1);
+    const collectionsRender = operationsPage.slice(renderStart);
+    const collectionIndex = collectionsRender.indexOf("<CollectionsModule");
+    const syncIndex = collectionsRender.indexOf("<OfflineWorkSyncPanel");
+    const sessionsIndex = collectionsRender.indexOf("<CollectorSessionsPanel");
+    expect(collectionIndex).toBeGreaterThan(-1);
+    expect(syncIndex).toBeGreaterThan(collectionIndex);
+    expect(sessionsIndex).toBeGreaterThan(syncIndex);
+  });
+
   it("queues network-ambiguous collection sends with the original operation ID", () => {
     expect(operationsPage).toContain("clientOperationId: payload.clientOperationId ?? crypto.randomUUID()");
     expect(operationsPage).toContain("clientOperationId: completePayload.clientOperationId");
