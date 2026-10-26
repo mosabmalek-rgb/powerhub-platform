@@ -101,6 +101,8 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
   it("keeps login in-app and makes logout independent from slow device-release networking", () => {
     expect(loginPage).toContain('setLocation("/workspace")');
     expect(loginPage).not.toContain('window.location.assign("/workspace")');
+    expect(loginPage).toContain("if (networkFailure)");
+    expect(loginPage).toContain("getValidOfflineAuthLease()");
     expect(authController).toContain("setTimeout(resolve, 1_000)");
     expect(authController).toContain("setIsLoggingOut(false)");
   });
