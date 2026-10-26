@@ -8,7 +8,6 @@ import {
   isOfflineCacheWriteCurrent,
   shouldRefreshSupabaseSession,
   SUPABASE_BROWSER_AUTH_OPTIONS,
-  shouldManuallyRefreshExpiredSession,
 } from "./offline-auth-state";
 
 describe("offline authentication state transitions", () => {
@@ -133,20 +132,19 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).not.toContain("autoRefreshToken: false");
     expect(source).not.toContain("scheduleSessionRefresh");
     expect(source).not.toContain("shouldRefreshSupabaseSession");
-    expect(source).toContain("refreshExpiredSupabaseSession");
+    expect(source).not.toContain("supabase.auth.refreshSession()");
+    expect(source).not.toContain("refreshExpiredSupabaseSession");
     expect(source).toContain("if (sessionInitialized && isSupabaseSessionUsable(currentSession, nowSeconds))");
+    expect(source).toContain("sessionReadInFlight = supabase.auth");
+    expect(source).toContain("The SDK's getSession() owns refresh-token rotation");
     expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) return null;");
+    const packageJson = readFileSync(new URL("../../../package.json", import.meta.url), "utf8");
+    const lockfile = readFileSync(new URL("../../../pnpm-lock.yaml", import.meta.url), "utf8");
+    expect(packageJson).toContain('"@supabase/supabase-js": "^2.117.2"');
+    expect(lockfile).toContain("'@supabase/auth-js@2.117.2':");
+    expect(lockfile).toContain("'@supabase/supabase-js@2.117.2':");
+    expect(lockfile).not.toContain("'@supabase/auth-js@2.112.3':");
   });
 });
 
 
-describe("expired-session refresh coordination", () => {
-  it("does not manually rotate refresh tokens from a hidden tab", () => {
-    expect(shouldManuallyRefreshExpiredSession("hidden")).toBe(false);
-  });
-
-  it("allows foreground recovery and non-browser fallback", () => {
-    expect(shouldManuallyRefreshExpiredSession("visible")).toBe(true);
-    expect(shouldManuallyRefreshExpiredSession("unknown")).toBe(true);
-  });
-});
