@@ -89,7 +89,7 @@ function CompanyBalancesDashboardCard({ accounts, loading, error = false, onOpen
 
 export function WorkspaceHome() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, loading, user } = useAuth();
+  const { isAuthenticated, loading, user, error, refresh } = useAuth();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword, staleTime: 30_000 });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [scope, setScope] = useState<"branch" | "all">("branch");
@@ -203,15 +203,18 @@ export function WorkspaceHome() {
   const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
 
   useEffect(() => {
-    if (!loading && !isAuthenticated) { setLocation("/login"); return; }
+    // A failed profile check is recoverable, not proof that the user signed out.
+    // Keep the user here so they can retry the session before leaving the workspace.
+    if (!loading && !isAuthenticated && !error) { setLocation("/login"); return; }
     if (!loading && isAuthenticated && user?.mustChangePassword) { setLocation("/profile"); return; }
     if (!loading && isAuthenticated && user?.role === "admin") window.location.assign(authenticatedHomePath(user));
-  }, [isAuthenticated, loading, setLocation, user]);
+  }, [isAuthenticated, loading, error, setLocation, user]);
 
   useEffect(() => { if (scope === "all" && !canUseAllBranches) setScope("branch"); }, [canUseAllBranches, scope]);
 
 
   if (loading) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ التحقق من جلسة الدخول…</h1><p className="mt-2 text-sm text-slate-400">لن نعيد توجيهك قبل اكتمال التحقق.</p></div></main>;
+  if (!isAuthenticated && error) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">تعذر استعادة جلسة الدخول</h1><p className="mt-2 text-sm leading-7 text-slate-400">لم ننهِ جلستك تلقائيًا. قد يكون الاتصال أو تحديث الرمز قد تعثر مؤقتًا؛ أعد المحاولة لاستعادة بيانات مساحة العمل.</p><Button type="button" onClick={() => void refresh()} className="mt-5 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إعادة المحاولة واستعادة البيانات</Button><Button type="button" variant="outline" onClick={() => setLocation("/login")} className="mr-2 mt-5 border-white/15 text-white">فتح تسجيل الدخول</Button></div></main>;
   if (!isAuthenticated) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى تسجيل الدخول…</h1></div></main>;
   if (user?.mustChangePassword || user?.role === "admin") return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ فتح المساحة المصرح بها…</h1></div></main>;
 

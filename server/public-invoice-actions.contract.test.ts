@@ -509,6 +509,10 @@ describe("public invoice and inquiry actions", () => {
     expect(auth).toContain("identityChanged");
     expect(authState).toContain("if (explicitLogoutRequested && !nextUserId) return true");
     expect(authState).toContain("return identityChanged && nextUserId !== null");
+    const workspace = read("client/src/pages/Home.tsx");
+    expect(workspace).toContain("if (!loading && !isAuthenticated && !error)");
+    expect(workspace).toContain("تعذر استعادة جلسة الدخول");
+    expect(workspace).toContain("إعادة المحاولة واستعادة البيانات");
   });
 
   it("surfaces billing adjustments on payment documentation and keeps status reads lightweight", () => {
