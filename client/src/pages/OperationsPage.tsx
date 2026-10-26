@@ -233,14 +233,47 @@ export default function OperationsPage({ section }: { section: Section }) {
   const submitPayment = async (payload: Parameters<typeof addPayment.mutate>[0]) => {
     const companyAccountId = Number(payload.companyAccountId);
     if (!Number.isInteger(companyAccountId) || companyAccountId <= 0) throw new Error("اختر الحساب المستقبِل من حسابات الشركة قبل تسجيل التحصيل.");
-    const completePayload = payload;
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      if (Number(completePayload.manualDiscountAmount ?? 0) > 0) throw new Error("لا يمكن اعتماد الخصم اليدوي دون اتصال؛ اتصل بالإنترنت ثم أعد تسجيل التحصيل حتى لا تضيع التسوية من المسودة.");
+    // Keep one operation ID across an uncertain network failure and later replay. The
+    // server's idempotency contract prevents a second payment if the first request committed.
+    const completePayload = { ...payload, clientOperationId: payload.clientOperationId ?? crypto.randomUUID() };
+    const queueDraft = async () => {
+      if (Number(completePayload.manualDiscountAmount ?? 0) > 0) {
+        throw new Error("تعذر تأكيد التحصيل مع الخصم اليدوي دون اتصال. لم نحفظه كتحصيل عادي؛ اتصل بالإنترنت وتحقق من الفاتورة قبل إعادة المحاولة.");
+      }
       if (!user?.id) throw new Error("تعذر معرفة المستخدم الحالي لحفظ مسودة التحصيل.");
-      await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "payment_create", payload: { subscriberId: completePayload.subscriberId, invoiceId: completePayload.invoiceId, paymentNo: completePayload.paymentNo, amount: completePayload.amount, paymentMethod: completePayload.paymentMethod ?? "cash", companyAccountId: completePayload.companyAccountId, transferFromAccount: completePayload.transferFromAccount, transferFromType: completePayload.transferFromType, referenceNo: completePayload.referenceNo, receiptImageData: completePayload.receiptImageData, receiptImageMime: completePayload.receiptImageMime } });
-      return { queued: true };
+      await enqueueOfflineWork({
+        userId: user.id,
+        siteId: siteId!,
+        kind: "payment_create",
+        clientOperationId: completePayload.clientOperationId,
+        payload: {
+          subscriberId: completePayload.subscriberId,
+          invoiceId: completePayload.invoiceId,
+          paymentNo: completePayload.paymentNo,
+          amount: completePayload.amount,
+          paymentMethod: completePayload.paymentMethod ?? "cash",
+          companyAccountId: completePayload.companyAccountId,
+          transferFromAccount: completePayload.transferFromAccount,
+          transferFromType: completePayload.transferFromType,
+          referenceNo: completePayload.referenceNo,
+          receiptImageData: completePayload.receiptImageData,
+          receiptImageMime: completePayload.receiptImageMime,
+        },
+      });
+      return { queued: true as const };
+    };
+    if (typeof navigator !== "undefined" && !navigator.onLine) return queueDraft();
+    try {
+      return await addPayment.mutateAsync(completePayload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? "");
+      const networkFailure = error instanceof TypeError ||
+        /failed to fetch|networkerror|network request failed|load failed|fetch failed|connection (?:lost|reset|refused)|timeout/i.test(message);
+      if (!networkFailure) throw error;
+      const queued = await queueDraft();
+      toast.warning("انقطع الاتصال أثناء إرسال التحصيل؛ حُفظت العملية كمسودة للمزامنة. سيُستخدم معرّف العملية نفسه لمنع تكرار التحصيل.");
+      return queued;
     }
-    await addPayment.mutateAsync(completePayload);
   };
   return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
