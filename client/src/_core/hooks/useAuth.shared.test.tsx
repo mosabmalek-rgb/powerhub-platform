@@ -218,6 +218,12 @@ describe("shared AuthProvider", () => {
     expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
     expect(screen.getByText("workspace: anonymous")).toBeInTheDocument();
     expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
+
+    // Repeated SDK null events after the bounded recovery timeout must not restart
+    // the checking/redirect loop.
+    act(() => authListener?.("SIGNED_OUT", null));
+    expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
+    expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
     queryClient.clear();
   });
 
