@@ -6,7 +6,7 @@ import LoginPage from "./LoginPage";
 
 const state = vi.hoisted(() => ({
   setLocation: vi.fn(),
-  useAuth: vi.fn(() => ({ isAuthenticated: false, loading: false })),
+  useAuth: vi.fn(() => ({ isAuthenticated: false, loading: false, hasSession: false })),
   signInWithPassword: vi.fn(),
   probePowerHubConnectivity: vi.fn(),
   signUp: vi.fn(),
@@ -34,7 +34,7 @@ afterEach(() => {
   cleanup();
   state.setLocation.mockReset();
   state.useAuth.mockReset();
-  state.useAuth.mockReturnValue({ isAuthenticated: false, loading: false });
+  state.useAuth.mockReturnValue({ isAuthenticated: false, loading: false, hasSession: false });
   state.signInWithPassword.mockReset();
   state.probePowerHubConnectivity.mockReset();
   state.signUp.mockReset();
@@ -56,8 +56,17 @@ describe("LoginPage", () => {
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
   });
 
+  it("leaves the login page while a restored session awaits profile validation", async () => {
+    state.useAuth.mockReturnValue({ isAuthenticated: false, loading: true, hasSession: true });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
+    expect(state.signInWithPassword).not.toHaveBeenCalled();
+  });
+
   it("returns to the workspace when a persisted online session is already restored", async () => {
-    state.useAuth.mockReturnValue({ isAuthenticated: true, loading: false });
+    state.useAuth.mockReturnValue({ isAuthenticated: true, loading: false, hasSession: true });
 
     render(<LoginPage />);
 
