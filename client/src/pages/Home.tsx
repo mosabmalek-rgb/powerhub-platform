@@ -13,6 +13,8 @@ import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { useDashboardKpiPeriod } from "@/hooks/useDashboardKpiPeriod";
 import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter";
 import { trpc } from "@/lib/trpc";
+import { describeAuthFailure } from "@/lib/auth-diagnostics";
+import { resetSupabaseSessionReadBackoff } from "@/lib/supabase";
 import { authenticatedHomePath } from "@/lib/role-routing";
 import { useLocation } from "wouter";
 import {
@@ -214,7 +216,7 @@ export function WorkspaceHome() {
 
 
   if (loading) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ التحقق من جلسة الدخول…</h1><p className="mt-2 text-sm text-slate-400">لن نعيد توجيهك قبل اكتمال التحقق.</p></div></main>;
-  if (error && !user) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">تعذر استعادة جلسة الدخول</h1><p className="mt-2 text-sm leading-7 text-slate-400">لم ننهِ جلستك تلقائيًا. قد يكون الاتصال أو تحديث الرمز قد تعثر مؤقتًا؛ أعد المحاولة لاستعادة بيانات مساحة العمل.</p><Button type="button" onClick={() => void refresh()} className="mt-5 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إعادة المحاولة واستعادة البيانات</Button><Button type="button" variant="outline" onClick={() => setLocation("/login")} className="mr-2 mt-5 border-white/15 text-white">فتح تسجيل الدخول</Button></div></main>;
+  if (error && !user) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">تعذر استعادة جلسة الدخول</h1><p className="mt-2 text-sm leading-7 text-slate-400">لم ننهِ جلستك تلقائيًا. قد يكون الاتصال أو تحديث الرمز قد تعثر مؤقتًا؛ أعد المحاولة لاستعادة بيانات مساحة العمل.</p><p role="status" aria-live="polite" className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-6 text-slate-300">{describeAuthFailure(error)}</p><Button type="button" onClick={() => { resetSupabaseSessionReadBackoff(); void refresh(); }} className="mt-5 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إعادة المحاولة واستعادة البيانات</Button><Button type="button" variant="outline" onClick={() => setLocation("/login")} className="mr-2 mt-5 border-white/15 text-white">فتح تسجيل الدخول</Button></div></main>;
   if (!isAuthenticated) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى تسجيل الدخول…</h1></div></main>;
   if (user?.mustChangePassword || user?.role === "admin") return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ فتح المساحة المصرح بها…</h1></div></main>;
 

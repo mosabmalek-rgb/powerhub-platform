@@ -19,12 +19,12 @@ const SESSION_BOOTSTRAP_TIMEOUT_MS = 5_000;
 // A protected session check must not trap the app in an endless loading/redirect
 // loop if the network request or browser auth lock never settles.
 const AUTH_PROFILE_CHECK_TIMEOUT_MS = 8_000;
-const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = new Error(
+const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر التحقق من جلسة الدخول في الوقت المحدد. أعد المحاولة لاستعادة البيانات.",
-);
-const SESSION_RECOVERY_TIMEOUT_ERROR = new Error(
+), { name: "PowerHubAuthProfileCheckTimeoutError" });
+const SESSION_RECOVERY_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر استعادة جلسة صالحة بعد محاولة التحقق. أعد المحاولة أو سجّل الدخول مجددًا.",
-);
+), { name: "PowerHubSessionRecoveryTimeoutError" });
 
 function withTimeoutFallback<T>(promise: Promise<T>, fallback: T, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve) => {

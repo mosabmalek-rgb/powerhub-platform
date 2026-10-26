@@ -4,6 +4,7 @@ import {
   isSupabaseSessionUsable,
   isSessionReadBackoffActive,
   SUPABASE_SESSION_READ_ERROR_BACKOFF_MS,
+  SUPABASE_SESSION_READ_TIMEOUT_MS,
   resolveOfflineAuthTransition,
   selectAuthSnapshot,
   shouldClearQueryCacheForAuthTransition,
@@ -95,6 +96,7 @@ describe("auth session snapshot ordering", () => {
 
 describe("Supabase browser session refresh policy", () => {
   it("bounds repeated failed session reads with a deterministic cooldown", () => {
+    expect(SUPABASE_SESSION_READ_TIMEOUT_MS).toBe(5_000);
     expect(SUPABASE_SESSION_READ_ERROR_BACKOFF_MS).toBe(15_000);
     expect(isSessionReadBackoffActive(20_000, 19_999)).toBe(true);
     expect(isSessionReadBackoffActive(20_000, 20_000)).toBe(false);
@@ -143,9 +145,13 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).not.toContain("supabase.auth.refreshSession()");
     expect(source).not.toContain("refreshExpiredSupabaseSession");
     expect(source).toContain("if (sessionInitialized && isSupabaseSessionUsable(currentSession, nowSeconds))");
-    expect(source).toContain("sessionReadInFlight = supabase.auth");
+    expect(source).toContain("const sdkRead = supabase.auth.getSession();");
+    expect(source).toContain("Promise.race([sdkRead, timeout])");
+    expect(source).toContain("SUPABASE_SESSION_READ_TIMEOUT_MS");
+    expect(source).toContain("sessionReadInFlight = null;");
     expect(source).toContain("The SDK's getSession() owns refresh-token rotation");
-    expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) return null;");
+    expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) {");
+    expect(source).toContain("PowerHubSessionReadTimeoutError");
     const packageJson = readFileSync(new URL("../../../package.json", import.meta.url), "utf8");
     const lockfile = readFileSync(new URL("../../../pnpm-lock.yaml", import.meta.url), "utf8");
     expect(packageJson).toContain('"@supabase/supabase-js": "^2.117.2"');
