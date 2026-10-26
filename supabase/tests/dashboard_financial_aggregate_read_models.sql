@@ -35,7 +35,7 @@ insert into public.notification_messages values (1,1,100,'failed'),(2,1,103,'fai
 \ir ../migrations/20261026133000_powerhub_dashboard_database_aggregates.sql
 
 do $test$
-declare op jsonb; branch_op jsonb; fin jsonb;
+declare op jsonb; branch_op jsonb; fin jsonb; fin_kpi_only jsonb;
 begin
   op := public.powerhub_dashboard_operational_summary(1,null);
   if (op->>'branchCount')::integer<>2 or (op->>'subscribers')::integer<>2
@@ -56,6 +56,12 @@ begin
     or jsonb_array_length(fin->'branchSummaries')<>2 or jsonb_array_length(fin->'topDebtors')<>3
     or jsonb_array_length(fin->'outstandingInvoices')<>3 or jsonb_array_length(fin->'trend')<>31
     then raise exception 'financial aggregate mismatch: %',fin; end if;
+  fin_kpi_only := public.powerhub_dashboard_financial_overview(1,null,'2026-10-26T12:00:00Z',false);
+  if jsonb_array_length(fin_kpi_only->'outstandingInvoices')<>0
+     or (fin_kpi_only->'outstanding'->>'total')::numeric<>180
+     or jsonb_array_length(fin_kpi_only->'topDebtors')<>3 then
+    raise exception 'KPI-only response must omit detail rows without changing aggregates: %',fin_kpi_only;
+  end if;
   if fin->'branchSummaries'->0->>'name'<>'الفرع الرئيسي'
     or (fin->'branchSummaries'->0->>'activeSubscribers')::integer<>1
     or (fin->'branchSummaries'->0->>'outstanding')::numeric<>100
@@ -67,7 +73,7 @@ begin
     or has_function_privilege('authenticated','public.powerhub_dashboard_operational_summary(bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_dashboard_operational_summary(bigint,bigint)','EXECUTE')
     then raise exception 'operational RPC grants are incorrect'; end if;
-  if has_function_privilege('anon','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone)','EXECUTE')
+  if has_function_privilege('anon','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone)','EXECUTE')
     then raise exception 'financial RPC grants are incorrect'; end if;
