@@ -356,11 +356,11 @@ grant execute on function public.powerhub_process_subscription_lifecycle() to se
 
 create extension if not exists pg_cron with schema pg_catalog;
 
-do $
+do $job$
 declare v_job_id bigint;
 begin
   select jobid into v_job_id from cron.job where jobname='powerhub-subscription-lifecycle' limit 1;
   if v_job_id is not null then perform cron.unschedule(v_job_id); end if;
   perform cron.schedule('powerhub-subscription-lifecycle','*/15 * * * *','select public.powerhub_process_subscription_lifecycle();');
 end;
-$$;
+$job$;
