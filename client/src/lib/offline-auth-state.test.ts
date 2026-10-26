@@ -66,6 +66,8 @@ describe("query-cache lifecycle across auth transitions", () => {
     expect(main).toContain("void bootstrapOfflineState();");
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
     expect(main).toContain("isOfflineCacheWriteCurrent(");
+    expect(main).toContain('if (event === "INITIAL_SESSION")');
+    expect(main).toContain("query.state.fetchStatus === \"fetching\"");
     expect(cache).toContain("queryClient.getQueryData(queryKey) !== undefined");
     expect(cache).toContain("isStillCurrent: () => boolean = () => true");
   });

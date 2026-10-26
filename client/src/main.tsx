@@ -134,6 +134,24 @@ async function bootstrapOfflineState() {
           Date.now(),
           () => activeOfflineUserId === nextUserId && activeOfflineGeneration === hydrationGeneration,
         );
+
+        // Queries may finish before the asynchronous bootstrap subscription is
+        // installed. Persist confirmed live results and attach ownership to any
+        // still-fetching query so the first load also seeds the offline snapshot.
+        const owner = { userId: nextUserId, generation: hydrationGeneration };
+        for (const query of queryClient.getQueryCache().getAll()) {
+          if (!isOfflineCacheWriteCurrent(
+            owner.userId,
+            owner.generation,
+            activeOfflineUserId,
+            activeOfflineGeneration,
+          )) break;
+          if (query.state.fetchStatus === "fetching") {
+            offlineQueryOwners.set(query, owner);
+          } else if (query.state.status === "success" && query.state.data !== undefined) {
+            void persistOfflineQuery(query, nextUserId);
+          }
+        }
       }
     };
 
@@ -202,7 +220,20 @@ async function bootstrapOfflineState() {
         return;
       }
 
-      if (!nextUserId || nextUserId === activeOfflineUserId) return;
+      if (!nextUserId) {
+        // Supabase can emit INITIAL_SESSION(null) after this listener is
+        // attached. If that races the initial getSession() read, this event
+        // must still restore the valid offline lease rather than leaving the
+        // local cache uninitialized forever.
+        if (event === "INITIAL_SESSION") {
+          void getValidOfflineAuthLease().then(async (lease) => {
+            if (authEventRevision !== eventRevision) return;
+            await activateUser(lease?.userId ?? null);
+          });
+        }
+        return;
+      }
+      if (nextUserId === activeOfflineUserId) return;
       void activateUser(nextUserId);
     });
 
