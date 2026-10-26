@@ -131,7 +131,7 @@ export function WorkspaceHome() {
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
   const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword), staleTime: 30_000 });
-  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 });
+  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 });
   const periodMetricsQuery = trpc.powerhub.dashboard.periodMetrics.useQuery({
     siteId: siteId ?? 0,
     scope: selectedScope,
