@@ -3,6 +3,8 @@ import {
   isSupabaseSessionUsable,
   selectAuthSnapshot,
   SUPABASE_BROWSER_AUTH_OPTIONS,
+  SUPABASE_SESSION_READ_ERROR_BACKOFF_MS,
+  isSessionReadBackoffActive,
 } from "@/lib/offline-auth-state";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -19,6 +21,7 @@ export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
 let currentSession: Session | null = null;
 let sessionInitialized = false;
 let sessionReadInFlight: Promise<Session | null> | null = null;
+let sessionReadRetryAfter = 0;
 let authSubscriptionReady = false;
 // Incremented for every accepted Supabase auth event. Async getSession/refresh
 // snapshots must not overwrite a newer sign-in/sign-out event when they finish.
@@ -42,6 +45,8 @@ function ensureAuthSubscription() {
     authStateRevision += 1;
     currentSession = session;
     sessionInitialized = true;
+    // A fresh SDK auth event supersedes cooldown from an earlier failed read.
+    sessionReadRetryAfter = 0;
 
     // Keep the Supabase callback synchronous. Consumers may perform async work
     // after React schedules their state updates; this avoids re-entrancy inside
@@ -54,6 +59,11 @@ export function subscribeSupabaseAuthState(subscriber: AuthSubscriber) {
   ensureAuthSubscription();
   authSubscribers.add(subscriber);
   return () => authSubscribers.delete(subscriber);
+}
+
+/** Clear the bounded session-read cooldown for an explicit user-initiated retry. */
+export function resetSupabaseSessionReadBackoff(): void {
+  sessionReadRetryAfter = 0;
 }
 
 export async function getSupabaseSession(): Promise<Session | null> {
@@ -71,6 +81,11 @@ export async function getSupabaseSession(): Promise<Session | null> {
 
   if (sessionReadInFlight) return sessionReadInFlight;
 
+  // Avoid having every concurrent tRPC batch immediately repeat a failed SDK
+  // storage/refresh read. A valid cached access token is still returned above;
+  // otherwise the next SDK auth event or cooldown expiry can resume recovery.
+  if (isSessionReadBackoffActive(sessionReadRetryAfter)) return null;
+
   const requestRevision = authStateRevision;
   sessionReadInFlight = supabase.auth
     .getSession()
@@ -78,8 +93,13 @@ export async function getSupabaseSession(): Promise<Session | null> {
       // Supabase's own initialize/refresh lifecycle may have updated the
       // auth listener while this read was waiting for its storage lock.
       if (error) {
+        if (requestRevision === authStateRevision) {
+          sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
+        }
         return isSupabaseSessionUsable(currentSession) ? currentSession : null;
       }
+
+      sessionReadRetryAfter = 0;
 
       // The SDK's getSession() owns refresh-token rotation and returns the
       // winning stored session if another tab completed rotation first. Never
@@ -92,6 +112,7 @@ export async function getSupabaseSession(): Promise<Session | null> {
       if (requestRevision !== authStateRevision) {
         return isSupabaseSessionUsable(currentSession) ? currentSession : null;
       }
+      sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
       // Never send an expired bearer token. A subsequent SDK auth event or
       // focus/reconnect-triggered query can recover without forcing a logout.
       if (isSupabaseSessionUsable(currentSession)) return currentSession;
