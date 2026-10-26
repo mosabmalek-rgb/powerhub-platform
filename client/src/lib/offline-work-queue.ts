@@ -28,6 +28,11 @@ export type SubscriberCreateDraft = {
   phone: string;
   address?: string;
   subscriptionType: "residential" | "commercial" | "institution" | "mosque";
+  openingReading?: string;
+  openingReadingAt?: string;
+  openingReadingApproved?: boolean;
+  openingReadingImageData?: string;
+  openingReadingImageMime?: "image/jpeg" | "image/png" | "image/webp";
   offlineNumberClaim?: SubscriberOfflineNumberClaim;
 };
 
