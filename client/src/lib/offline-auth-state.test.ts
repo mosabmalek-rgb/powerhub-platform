@@ -4,6 +4,8 @@ import {
   isSupabaseSessionUsable,
   resolveOfflineAuthTransition,
   selectAuthSnapshot,
+  shouldClearQueryCacheForAuthTransition,
+  isOfflineCacheWriteCurrent,
   shouldRefreshSupabaseSession,
   SUPABASE_BROWSER_AUTH_OPTIONS,
 } from "./offline-auth-state";
@@ -27,6 +29,45 @@ describe("offline authentication state transitions", () => {
 
   it("prefers a real online session when one is present", () => {
     expect(resolveOfflineAuthTransition("SIGNED_IN", "user-123", false)).toBe("online-session");
+  });
+});
+
+describe("query-cache lifecycle across auth transitions", () => {
+  it("preserves in-memory queries on a non-explicit transient sign-out", () => {
+    expect(shouldClearQueryCacheForAuthTransition("SIGNED_OUT", false, true, null)).toBe(false);
+  });
+
+  it("clears queries after explicit logout", () => {
+    expect(shouldClearQueryCacheForAuthTransition("SIGNED_OUT", true, true, null)).toBe(true);
+  });
+
+  it("clears queries when a different signed-in identity replaces the current user", () => {
+    expect(shouldClearQueryCacheForAuthTransition("SIGNED_IN", false, true, "user-b")).toBe(true);
+  });
+
+  it("does not clear queries for a refresh event belonging to the same identity", () => {
+    expect(shouldClearQueryCacheForAuthTransition("TOKEN_REFRESHED", false, false, "user-a")).toBe(false);
+  });
+
+  it("rejects a late cache write from the previous user generation", () => {
+    expect(isOfflineCacheWriteCurrent("user-a", 4, "user-b", 5)).toBe(false);
+  });
+
+  it("allows cache writes only while both user identity and generation match", () => {
+    expect(isOfflineCacheWriteCurrent("user-a", 4, "user-a", 4)).toBe(true);
+    expect(isOfflineCacheWriteCurrent("user-a", 3, "user-a", 4)).toBe(false);
+    expect(isOfflineCacheWriteCurrent("user-a", 4, null, 4)).toBe(false);
+  });
+
+  it("renders the app without waiting for offline bootstrap and does not overwrite live query data", () => {
+    const main = readFileSync(new URL("../main.tsx", import.meta.url), "utf8");
+    const cache = readFileSync(new URL("./offline-query-cache.ts", import.meta.url), "utf8");
+    expect(main).toContain("renderApp();");
+    expect(main).toContain("void bootstrapOfflineState();");
+    expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
+    expect(main).toContain("isOfflineCacheWriteCurrent(");
+    expect(cache).toContain("queryClient.getQueryData(queryKey) !== undefined");
+    expect(cache).toContain("isStillCurrent: () => boolean = () => true");
   });
 });
 

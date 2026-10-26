@@ -95,30 +95,85 @@ const trpcClient = trpc.createClient({
 });
 
 let activeOfflineUserId: string | null = null;
+let activeOfflineGeneration = 0;
+const offlineQueryOwners = new WeakMap<object, { userId: string; generation: number }>();
 
 async function bootstrapOfflineState() {
   try {
-    // Keep offline-cache and auth-storage code out of the initial public-invoice
-    // JavaScript bundle; only protected app routes need this module graph.
-    const [supabaseModule, offlineAuth, offlineCache] = await Promise.all([
+    // Storage hydration is deliberately non-blocking: the authenticated shell
+    // and its live queries must render even if IndexedDB/Supabase initialization stalls.
+    const [supabaseModule, offlineAuth, offlineCache, authState] = await Promise.all([
       import("./lib/supabase"),
       import("./lib/offline-auth"),
       import("./lib/offline-query-cache"),
+      import("./lib/offline-auth-state"),
     ]);
     const { getSupabaseSession, subscribeSupabaseAuthState } = supabaseModule;
     const { getValidOfflineAuthLease } = offlineAuth;
     const { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } = offlineCache;
+    const { isOfflineCacheWriteCurrent } = authState;
 
-    const session = await getSupabaseSession();
-    if (session?.user.id) {
-      activeOfflineUserId = session.user.id;
-    } else {
-      const offlineLease = await getValidOfflineAuthLease();
-      activeOfflineUserId = offlineLease?.userId ?? null;
-    }
-    if (activeOfflineUserId) await hydrateOfflineQueryCache(queryClient, activeOfflineUserId);
+    const activateUser = async (nextUserId: string | null) => {
+      if (nextUserId === activeOfflineUserId) return;
+      const previousUserId = activeOfflineUserId;
+      activeOfflineGeneration += 1;
+      activeOfflineUserId = nextUserId;
 
+      if (previousUserId && previousUserId !== nextUserId) {
+        // Invalidate in-flight query ownership before cancellation/clearing. A
+        // late response from the previous account must never be stored for the next.
+        void queryClient.cancelQueries();
+        queryClient.clear();
+        void clearOfflineQueryCacheForUser(previousUserId);
+      }
+      if (nextUserId) {
+        const hydrationGeneration = activeOfflineGeneration;
+        await hydrateOfflineQueryCache(
+          queryClient,
+          nextUserId,
+          Date.now(),
+          () => activeOfflineUserId === nextUserId && activeOfflineGeneration === hydrationGeneration,
+        );
+      }
+    };
+
+    // Bind each fetch to the identity that started it, not the identity active
+    // when it eventually resolves. WeakMap keys use query objects, not query hashes,
+    // because an old and a new account can issue the same query key concurrently.
+    queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated") return;
+      const queryIdentity = event.query;
+      if (event.action.type === "fetch") {
+        if (activeOfflineUserId) {
+          offlineQueryOwners.set(queryIdentity, {
+            userId: activeOfflineUserId,
+            generation: activeOfflineGeneration,
+          });
+        } else {
+          offlineQueryOwners.delete(queryIdentity);
+        }
+        return;
+      }
+      if (event.action.type === "error") {
+        offlineQueryOwners.delete(queryIdentity);
+        return;
+      }
+      if (event.action.type !== "success") return;
+      const owner = offlineQueryOwners.get(queryIdentity);
+      offlineQueryOwners.delete(queryIdentity);
+      if (!owner || !isOfflineCacheWriteCurrent(
+        owner.userId,
+        owner.generation,
+        activeOfflineUserId,
+        activeOfflineGeneration,
+      )) return;
+      void persistOfflineQuery(event.query, owner.userId);
+    });
+
+    let authEventRevision = 0;
     subscribeSupabaseAuthState((event, session) => {
+      authEventRevision += 1;
+      const eventRevision = authEventRevision;
       const previousUserId = activeOfflineUserId;
       const nextUserId = session?.user.id ?? null;
 
@@ -127,44 +182,42 @@ async function bootstrapOfflineState() {
         try {
           explicitLogout = window.localStorage.getItem("powerhub:explicit-logout") === "1";
         } catch {
-          // If storage is blocked, preserve the local cache; useAuth still revokes the lease.
+          // If storage is blocked, useAuth retains its in-memory logout intent.
         }
 
         if (explicitLogout) {
+          activeOfflineGeneration += 1;
+          activeOfflineUserId = null;
           queryClient.clear();
           if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
-          activeOfflineUserId = null;
           return;
         }
 
-        // Supabase can emit SIGNED_OUT after a transient session loss. Preserve the
-        // lease-scoped cache and restore it instead of treating that event as user intent.
+        // A transient SDK SIGNED_OUT is not proof of user intent. Preserve the
+        // current cache while checking the signed local offline lease.
         void getValidOfflineAuthLease().then(async (lease) => {
-          if (!lease) {
-            activeOfflineUserId = null;
-            return;
-          }
-          activeOfflineUserId = lease.userId;
-          await hydrateOfflineQueryCache(queryClient, lease.userId);
+          if (authEventRevision !== eventRevision) return;
+          await activateUser(lease?.userId ?? null);
         });
         return;
       }
 
-      // An initial null session can occur while offline. Keep the lease-scoped
-      // cache in that case; only switch/clear when a real account is established.
-      if (!nextUserId || nextUserId === previousUserId) return;
-
-      queryClient.clear();
-      if (previousUserId) void clearOfflineQueryCacheForUser(previousUserId);
-      activeOfflineUserId = nextUserId;
-      void hydrateOfflineQueryCache(queryClient, nextUserId);
+      if (!nextUserId || nextUserId === activeOfflineUserId) return;
+      void activateUser(nextUserId);
     });
 
-    queryClient.getQueryCache().subscribe((event) => {
-      if (!activeOfflineUserId) return;
-      if (event.type !== "updated" || event.action.type !== "success") return;
-      void persistOfflineQuery(event.query, activeOfflineUserId);
-    });
+    // Subscribe before the initial read; a newer auth event always wins over
+    // a delayed snapshot that might otherwise restore the wrong account.
+    const initialRevision = authEventRevision;
+    const session = await getSupabaseSession();
+    if (initialRevision !== authEventRevision) return;
+    if (session?.user.id) {
+      await activateUser(session.user.id);
+      return;
+    }
+    const offlineLease = await getValidOfflineAuthLease();
+    if (initialRevision !== authEventRevision) return;
+    await activateUser(offlineLease?.userId ?? null);
   } catch (error) {
     console.warn("[PowerHub] Offline cache bootstrap skipped", error);
   }
@@ -186,10 +239,11 @@ function renderApp() {
 // Render public invoice links immediately. Offline/auth cache bootstrap is
 // unrelated to this public route and can wait several seconds on slow IndexedDB
 // or Supabase session reads. Protected app routes preserve the existing order.
-if (isStandalonePublicInvoiceRoute()) {
-  renderApp();
-} else {
-  void bootstrapOfflineState().finally(renderApp);
+// Render immediately; cache/session hydration is an enhancement and must not
+// hold the whole app behind a slow IndexedDB lock or Supabase session read.
+renderApp();
+if (!isStandalonePublicInvoiceRoute()) {
+  void bootstrapOfflineState();
 }
 
 if ("serviceWorker" in navigator) {

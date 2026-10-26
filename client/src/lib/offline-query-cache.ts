@@ -161,7 +161,12 @@ export async function pruneOfflineQueryCache(now = Date.now()) {
   return pruneInFlight;
 }
 
-export async function hydrateOfflineQueryCache(queryClient: QueryClient, userId: string, now = Date.now()) {
+export async function hydrateOfflineQueryCache(
+  queryClient: QueryClient,
+  userId: string,
+  now = Date.now(),
+  isStillCurrent: () => boolean = () => true,
+) {
   let records: OfflineQueryRecord[] = [];
   try {
     await pruneOfflineQueryCache(now);
@@ -172,9 +177,13 @@ export async function hydrateOfflineQueryCache(queryClient: QueryClient, userId:
 
   let hydrated = 0;
   for (const record of records) {
+    if (!isStillCurrent()) return hydrated;
     if (!isOfflineQueryRecordUsable(record, userId, now)) continue;
     try {
       const queryKey = superjson.parse<readonly unknown[]>(record.serializedQueryKey);
+      // Startup hydration can race the live network. Never overwrite a current
+      // response with an older local snapshot just because IndexedDB finished later.
+      if (queryClient.getQueryData(queryKey) !== undefined) continue;
       const data = superjson.parse(record.serializedData);
       queryClient.setQueryData(queryKey, data, { updatedAt: record.updatedAt });
       hydrated += 1;
