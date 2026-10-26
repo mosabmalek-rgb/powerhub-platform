@@ -16,6 +16,15 @@ const AUTH_DATA_EVENTS = new Set(["INITIAL_SESSION", "SIGNED_IN", "SIGNED_OUT", 
 
 const OFFLINE_AUTH_BOOTSTRAP_TIMEOUT_MS = 1_500;
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 5_000;
+// A protected session check must not trap the app in an endless loading/redirect
+// loop if the network request or browser auth lock never settles.
+const AUTH_PROFILE_CHECK_TIMEOUT_MS = 8_000;
+const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = new Error(
+  "تعذر التحقق من جلسة الدخول في الوقت المحدد. أعد المحاولة لاستعادة البيانات.",
+);
+const SESSION_RECOVERY_TIMEOUT_ERROR = new Error(
+  "تعذر استعادة جلسة صالحة بعد محاولة التحقق. أعد المحاولة أو سجّل الدخول مجددًا.",
+);
 
 function withTimeoutFallback<T>(promise: Promise<T>, fallback: T, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve) => {
@@ -53,8 +62,14 @@ function useAuthController() {
   const [hasSession, setHasSession] = useState(false);
   const [authDataRevision, setAuthDataRevision] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [authProfileCheckTimedOut, setAuthProfileCheckTimedOut] = useState(false);
+  const [authValidationAttempt, setAuthValidationAttempt] = useState(0);
+  const [sessionRecoveryPending, setSessionRecoveryPending] = useState(false);
+  const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
   const [powerHubReachable, setPowerHubReachable] = useState(() => onlineManager.isOnline());
   const explicitLogoutInProgress = useRef(false);
+  const observedUserIdRef = useRef<string | null>(null);
+  const transientSignOutRecovery = useRef(false);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: hasSession,
@@ -70,11 +85,43 @@ function useAuthController() {
   });
   type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
+
+  useEffect(() => {
+    if (!hasSession || !meQuery.isPending) {
+      setAuthProfileCheckTimedOut(false);
+      return;
+    }
+
+    setAuthProfileCheckTimedOut(false);
+    const timer = window.setTimeout(
+      () => setAuthProfileCheckTimedOut(true),
+      AUTH_PROFILE_CHECK_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [hasSession, meQuery.isPending, authValidationAttempt]);
   const [offlineLeaseUserId, setOfflineLeaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!sessionRecoveryPending) {
+      setSessionRecoveryTimedOut(false);
+      return;
+    }
+
+    setSessionRecoveryTimedOut(false);
+    const timer = window.setTimeout(() => {
+      // If the SDK cannot restore a valid session, settle on a recovery screen.
+      // Do not alternate between "checking" and automatic login redirects.
+      setSessionRecoveryTimedOut(true);
+      setHasSession(false);
+      setCachedUser(null);
+      setOfflineLeaseUserId(null);
+      setSessionReady(true);
+    }, AUTH_PROFILE_CHECK_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [sessionRecoveryPending, authValidationAttempt]);
+
+  useEffect(() => {
     let active = true;
-    let observedUserId: string | null = null;
     let transitionRevision = 0;
 
     const restoreOfflineUser = async (expectedRevision: number) => {
@@ -112,7 +159,6 @@ function useAuthController() {
     };
 
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
-      const revision = ++transitionRevision;
       const nextUserId = session?.user.id ?? null;
       let explicitLogoutRequested = explicitLogoutInProgress.current;
       try {
@@ -122,15 +168,67 @@ function useAuthController() {
         // to distinguish a deliberate logout from startup/session restoration.
       }
 
+      const isTransientNullSessionEvent = (event === "SIGNED_OUT" || event === "INITIAL_SESSION") &&
+        !session && !explicitLogoutRequested && observedUserIdRef.current !== null;
+
+      // Repeated empty SDK events during one recovery attempt must not toggle the
+      // session back to signed-out and restart the route redirect cycle.
+      if (isTransientNullSessionEvent && transientSignOutRecovery.current) return;
+
+      const revision = ++transitionRevision;
+
+      if (isTransientNullSessionEvent) {
+        const previousUserId = observedUserIdRef.current;
+        transientSignOutRecovery.current = true;
+        setSessionReady(true);
+        setHasSession(true);
+        setSessionRecoveryPending(true);
+        setSessionRecoveryTimedOut(false);
+
+        void withTimeoutFallback(getSupabaseSession(), null, SESSION_BOOTSTRAP_TIMEOUT_MS).then((recoveredSession) => {
+          if (!active || transitionRevision !== revision || !recoveredSession?.user.id) return;
+
+          const recoveredUserId = recoveredSession.user.id;
+          if (previousUserId && previousUserId !== recoveredUserId) {
+            queryClient.clear();
+            setCachedUser(null);
+          }
+          observedUserIdRef.current = recoveredUserId;
+          transientSignOutRecovery.current = false;
+          setHasSession(true);
+          setSessionReady(true);
+          setSessionRecoveryPending(false);
+          setSessionRecoveryTimedOut(false);
+          setOfflineLeaseUserId(recoveredUserId);
+          void getOfflineAuthUser<CachedAuthUser>(recoveredUserId).then((cached) => {
+            if (!active || transitionRevision !== revision) return;
+            if (cached) setCachedUser(cached);
+          });
+          void utils.auth.me.invalidate();
+        });
+
+        if (AUTH_DATA_EVENTS.has(event)) setAuthDataRevision((value) => value + 1);
+        return;
+      }
+
+      if (session) {
+        transientSignOutRecovery.current = false;
+        setSessionRecoveryPending(false);
+        setSessionRecoveryTimedOut(false);
+      }
+
       const transition = resolveOfflineAuthTransition(event, nextUserId, explicitLogoutRequested);
-      const identityChanged = observedUserId !== nextUserId;
+      const identityChanged = observedUserIdRef.current !== nextUserId;
       if (shouldClearQueryCacheForAuthTransition(event, explicitLogoutRequested, identityChanged, nextUserId)) {
         queryClient.clear();
       }
-      observedUserId = nextUserId;
+      observedUserIdRef.current = nextUserId;
       setHasSession(Boolean(session));
 
       if (transition === "explicit-sign-out") {
+        transientSignOutRecovery.current = false;
+        setSessionRecoveryPending(false);
+        setSessionRecoveryTimedOut(false);
         setCachedUser(null);
         setOfflineLeaseUserId(null);
         void revokeOfflineAuthLease();
@@ -151,8 +249,11 @@ function useAuthController() {
           if (cached) setCachedUser(cached);
         });
       } else {
-        // INITIAL_SESSION(null), token/session recovery failures, and non-explicit
-        // SIGNED_OUT must try the local lease before the route gate decides to redirect.
+        // Initial unauthenticated startup may restore offline UI. A null event
+        // following a known session is handled by the bounded reconciliation path above.
+        transientSignOutRecovery.current = false;
+        setSessionRecoveryPending(false);
+        setSessionRecoveryTimedOut(false);
         setHasSession(false);
         void restoreOfflineUser(revision);
       }
@@ -173,7 +274,7 @@ function useAuthController() {
     ).then((session) => {
       if (!active || transitionRevision !== initialReadRevision) return;
       const revision = ++transitionRevision;
-      observedUserId = session?.user.id ?? null;
+      observedUserIdRef.current = session?.user.id ?? null;
       setHasSession(Boolean(session));
       if (session) {
         setOfflineLeaseUserId(session.user.id);
@@ -264,7 +365,10 @@ function useAuthController() {
   // A transport failure does not invalidate an otherwise-present browser
   // session. Keep authentication recoverable, while route gates show a retry
   // surface if no last-confirmed profile is available.
-  const meQueryTemporarilyUnavailable = Boolean(meQuery.error && !meQueryAuthorizationDenied);
+  const meQueryTemporarilyUnavailable = Boolean(
+    (meQuery.error && !meQueryAuthorizationDenied) ||
+    (hasSession && meQuery.isPending && authProfileCheckTimedOut),
+  );
   const isOnlineAuthenticated = Boolean(
     hasSession &&
       !meQueryAuthorizationDenied &&
@@ -279,16 +383,22 @@ function useAuthController() {
   // Keep the last confirmed profile during a transient auth.me failure/refetch.
   // The server remains the authority for every protected operation; this prevents
   // a temporary profile/API error from looking like a real logout in the UI.
-  const user = meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
+  const user = sessionRecoveryTimedOut
+    ? null
+    : meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
     user,
     // A terminal profile-check error must not keep the whole workspace in a
     // permanent loading state. It becomes a recoverable error with a retry path.
-    loading: isLoggingOut || !sessionReady || Boolean(hasSession && meQuery.isPending),
+    loading: isLoggingOut || !sessionReady ||
+      Boolean(hasSession && meQuery.isPending && !authProfileCheckTimedOut) ||
+      Boolean(sessionRecoveryPending && !sessionRecoveryTimedOut),
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.
-    error: meQuery.error ?? null,
+    error: sessionRecoveryTimedOut
+      ? SESSION_RECOVERY_TIMEOUT_ERROR
+      : meQuery.error ?? (authProfileCheckTimedOut ? AUTH_PROFILE_CHECK_TIMEOUT_ERROR : null),
     isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
     isOnlineAuthenticated: !isLoggingOut && isOnlineAuthenticated,
     isLoggingOut,
@@ -297,7 +407,40 @@ function useAuthController() {
   return {
     ...state,
     powerHubReachable,
-    refresh: () => meQuery.refetch(),
+    refresh: async () => {
+      setAuthProfileCheckTimedOut(false);
+      setAuthValidationAttempt((attempt) => attempt + 1);
+
+      if (sessionRecoveryPending || sessionRecoveryTimedOut) {
+        transientSignOutRecovery.current = false;
+        setSessionRecoveryPending(true);
+        setSessionRecoveryTimedOut(false);
+        setSessionReady(true);
+        setHasSession(true);
+        const recoveredSession = await withTimeoutFallback(
+          getSupabaseSession(),
+          null,
+          SESSION_BOOTSTRAP_TIMEOUT_MS,
+        );
+        if (recoveredSession?.user.id) {
+          const recoveredUserId = recoveredSession.user.id;
+          const previousUserId = observedUserIdRef.current;
+          if (previousUserId && previousUserId !== recoveredUserId) {
+            queryClient.clear();
+            setCachedUser(null);
+          }
+          observedUserIdRef.current = recoveredUserId;
+          setOfflineLeaseUserId(recoveredUserId);
+          setSessionRecoveryPending(false);
+          setSessionRecoveryTimedOut(false);
+          setHasSession(true);
+          setSessionReady(true);
+          await utils.auth.me.invalidate();
+        }
+      }
+
+      return meQuery.refetch();
+    },
     logout,
   };
 }

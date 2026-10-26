@@ -2,7 +2,6 @@ import { createClient, type AuthChangeEvent, type Session } from "@supabase/supa
 import {
   isSupabaseSessionUsable,
   selectAuthSnapshot,
-  shouldManuallyRefreshExpiredSession,
   SUPABASE_BROWSER_AUTH_OPTIONS,
 } from "@/lib/offline-auth-state";
 
@@ -24,55 +23,6 @@ let authSubscriptionReady = false;
 // Incremented for every accepted Supabase auth event. Async getSession/refresh
 // snapshots must not overwrite a newer sign-in/sign-out event when they finish.
 let authStateRevision = 0;
-let expiredSessionRefreshInFlight: Promise<Session | null> | null = null;
-let expiredRefreshFailureCount = 0;
-let expiredRefreshRetryAfter = 0;
-
-async function refreshExpiredSupabaseSession(): Promise<Session | null> {
-  if (expiredSessionRefreshInFlight) return expiredSessionRefreshInFlight;
-  const visibilityState = typeof document === "undefined"
-    ? "unknown"
-    : document.visibilityState === "hidden" ? "hidden" : "visible";
-  if (!shouldManuallyRefreshExpiredSession(visibilityState)) {
-    // Hidden tabs must not compete with the visible tab for Supabase's rotating
-    // refresh token. The SDK pauses automatic refresh in the background and
-    // resumes it when a tab becomes visible; wait for its TOKEN_REFRESHED event.
-    return null;
-  }
-  if (Date.now() < expiredRefreshRetryAfter) {
-    return isSupabaseSessionUsable(currentSession) ? currentSession : null;
-  }
-  const requestRevision = authStateRevision;
-  expiredSessionRefreshInFlight = supabase.auth.refreshSession()
-    .then(({ data, error }) => {
-      // A newer auth event wins over this asynchronous response. In particular,
-      // never resurrect a session if the user explicitly signed out mid-refresh.
-      if (requestRevision !== authStateRevision) {
-        return isSupabaseSessionUsable(currentSession) ? currentSession : null;
-      }
-      if (error || !data.session) {
-        expiredRefreshFailureCount += 1;
-        expiredRefreshRetryAfter = Date.now() + Math.min(60_000, 5_000 * 2 ** Math.min(expiredRefreshFailureCount - 1, 4));
-        return isSupabaseSessionUsable(currentSession) ? currentSession : null;
-      }
-      expiredRefreshFailureCount = 0;
-      expiredRefreshRetryAfter = 0;
-      currentSession = data.session;
-      sessionInitialized = true;
-      return isSupabaseSessionUsable(currentSession) ? currentSession : null;
-    })
-    .catch(() => {
-      if (requestRevision !== authStateRevision) {
-        return isSupabaseSessionUsable(currentSession) ? currentSession : null;
-      }
-      expiredRefreshFailureCount += 1;
-      expiredRefreshRetryAfter = Date.now() + Math.min(60_000, 5_000 * 2 ** Math.min(expiredRefreshFailureCount - 1, 4));
-      return isSupabaseSessionUsable(currentSession) ? currentSession : null;
-    })
-    .finally(() => { expiredSessionRefreshInFlight = null; });
-  return expiredSessionRefreshInFlight;
-}
-
 type AuthSubscriber = (event: AuthChangeEvent, session: Session | null) => void;
 const authSubscribers = new Set<AuthSubscriber>();
 
@@ -119,13 +69,6 @@ export async function getSupabaseSession(): Promise<Session | null> {
     return currentSession;
   }
 
-  // A manual refresh is permitted only after the access token has expired.
-  // Near-expiry tokens are returned while Supabase's built-in timer owns
-  // rotation; this avoids racing the SDK's one-time refresh-token lifecycle.
-  if (sessionInitialized && currentSession && !isSupabaseSessionUsable(currentSession, nowSeconds)) {
-    return refreshExpiredSupabaseSession();
-  }
-
   if (sessionReadInFlight) return sessionReadInFlight;
 
   const requestRevision = authStateRevision;
@@ -138,11 +81,11 @@ export async function getSupabaseSession(): Promise<Session | null> {
         return isSupabaseSessionUsable(currentSession) ? currentSession : null;
       }
 
+      // The SDK's getSession() owns refresh-token rotation and returns the
+      // winning stored session if another tab completed rotation first. Never
+      // call refreshSession() here: doing so races the SDK auto-refresh ticker.
       currentSession = selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision);
       sessionInitialized = true;
-      if (currentSession && !isSupabaseSessionUsable(currentSession)) {
-        return refreshExpiredSupabaseSession();
-      }
       return isSupabaseSessionUsable(currentSession) ? currentSession : null;
     })
     .catch(() => {
