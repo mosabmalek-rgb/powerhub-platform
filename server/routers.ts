@@ -37,6 +37,7 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     claimDevice: publicProcedure.input(z.object({ deviceId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      if (ctx.authError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الدخول مؤقتًا. أعد المحاولة." });
       if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "يجب تسجيل الدخول أولاً." });
       const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
         p_user_id: ctx.user.openId,
@@ -60,6 +61,7 @@ export const appRouter = router({
     }),
 
     me: publicProcedure.query(async ({ ctx }) => {
+      if (ctx.authError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الدخول مؤقتًا. أعد المحاولة." });
       if (!ctx.user) return null;
       const deviceId = ctx.req.headers["x-powerhub-device-id"];
       if (typeof deviceId !== "string" || !z.string().uuid().safeParse(deviceId).success) {
