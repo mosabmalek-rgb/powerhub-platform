@@ -250,7 +250,12 @@ function useAuthController() {
         setCachedUser(null);
         setOfflineLeaseUserId(null);
         void revokeOfflineAuthLease();
-        try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
+        // Keep the cross-runtime marker until logout() completes persistent
+        // cache cleanup. main.tsx listens to the same SDK event and must still
+        // recognize this as explicit sign-out rather than restore the lease.
+        if (!explicitLogoutInProgress.current) {
+          try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
+        }
         setSessionReady(true);
       } else if (transition === "online-session" && session) {
         if (identityChanged) {
