@@ -11,6 +11,7 @@ import {
   isOfflineCacheWriteCurrent,
   shouldRefreshSupabaseSession,
   SUPABASE_BROWSER_AUTH_OPTIONS,
+  shouldValidateOnlineSession,
 } from "./offline-auth-state";
 
 describe("offline authentication state transitions", () => {
@@ -162,3 +163,13 @@ describe("Supabase browser refresh wiring", () => {
 });
 
 
+
+
+describe("online auth validation readiness", () => {
+  it("waits for the first reachability probe before starting auth.me", () => {
+    expect(shouldValidateOnlineSession(true, true, true)).toBe(false);
+    expect(shouldValidateOnlineSession(true, false, false)).toBe(false);
+    expect(shouldValidateOnlineSession(false, true, false)).toBe(false);
+    expect(shouldValidateOnlineSession(true, true, false)).toBe(true);
+  });
+});
