@@ -20,11 +20,45 @@ function getSupabasePublicConfig() {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const publishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+  // Configuration failures are server faults, not evidence that a user session is invalid.
   if (!url || !publishableKey) {
-    throw ForbiddenError("Supabase Auth is not configured");
+    throw new Error("Supabase Auth is not configured");
   }
 
   return { url, publishableKey };
+}
+
+const RETRYABLE_AUTH_ERROR_CODES = new Set([
+  "over_request_rate_limit",
+  "request_timeout",
+  "unexpected_failure",
+  "server_error",
+  "auth_retryable_fetch_error",
+]);
+
+const INVALID_ACCESS_TOKEN_ERROR_CODES = new Set([
+  "bad_jwt",
+  "invalid_token",
+  "jwt_expired",
+  "no_authorization",
+  "session_not_found",
+  "user_not_found",
+]);
+
+/** Distinguish a rejected bearer token from throttling, transport, and Auth service failures. */
+export function isDefinitiveSupabaseAccessTokenRejection(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const value = error as { code?: unknown; status?: unknown; name?: unknown };
+  const code = typeof value.code === "string" ? value.code.toLowerCase() : "";
+  const name = typeof value.name === "string" ? value.name.toLowerCase() : "";
+  const status = typeof value.status === "number" ? value.status : null;
+
+  if (RETRYABLE_AUTH_ERROR_CODES.has(code) || name === "authretryablefetcherror") return false;
+  if (status === 408 || status === 429 || (status !== null && status >= 500)) return false;
+  if (INVALID_ACCESS_TOKEN_ERROR_CODES.has(code)) return true;
+  // Auth's 401 response indicates the access token was not accepted. Do not
+  // treat 403 generically: Supabase also uses it for unavailable Auth features.
+  return status === 401;
 }
 
 /**
@@ -44,10 +78,25 @@ export async function authenticateSupabaseRequest(req: Pick<Request, "headers">)
   const { data, error } = await supabase.auth.getUser(authHeader.slice(7));
   const authMs = Math.round(performance.now() - authStartedAt);
 
-  if (error || !data.user?.email) {
-    if (authMs >= 500) console.warn("[PowerHub auth latency]", { stage: "supabase.getUser", durationMs: authMs });
-    throw ForbiddenError("Invalid Supabase access token");
+  if (error) {
+    const authError = error as { code?: unknown; status?: unknown; name?: unknown };
+    if (authMs >= 500) {
+      console.warn("[PowerHub auth latency]", {
+        stage: "supabase.getUser",
+        durationMs: authMs,
+        errorName: typeof authError.name === "string" ? authError.name : undefined,
+        errorCode: typeof authError.code === "string" ? authError.code : undefined,
+        status: typeof authError.status === "number" ? authError.status : undefined,
+      });
+    }
+    if (isDefinitiveSupabaseAccessTokenRejection(error)) {
+      throw ForbiddenError("Invalid Supabase access token");
+    }
+    // Do not turn a timeout, 429, or Supabase 5xx into a false logout.
+    throw new Error("Supabase Auth is temporarily unavailable");
   }
+
+  if (!data.user?.email) throw ForbiddenError("Invalid Supabase access token");
 
   const profileStartedAt = performance.now();
   const user = await syncSupabaseProfile({
