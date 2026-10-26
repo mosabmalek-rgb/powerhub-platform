@@ -171,7 +171,7 @@ describe("site billing minimum and fractional settlement contract", () => {
 
   it("does not queue an offline payment if a manual discount would be lost", () => {
     const source = read("client/src/pages/OperationsPage.tsx");
-    expect(source).toContain("لا يمكن اعتماد الخصم اليدوي دون اتصال");
+    expect(source).toContain("تعذر تأكيد التحصيل مع الخصم اليدوي دون اتصال");
     expect(source).toContain("Number(completePayload.manualDiscountAmount ?? 0) > 0");
   });
 });
