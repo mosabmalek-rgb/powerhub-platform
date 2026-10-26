@@ -16,8 +16,25 @@ const notificationMigration = readFileSync(resolve(process.cwd(), "supabase/migr
 const authController = readFileSync(resolve(process.cwd(), "client/src/_core/hooks/useAuth.ts"), "utf8");
 const loginPage = readFileSync(resolve(process.cwd(), "client/src/pages/LoginPage.tsx"), "utf8");
 const adminRuntime = readFileSync(resolve(process.cwd(), "server/admin-runtime.ts"), "utf8");
+const paymentDocumentationPage = readFileSync(resolve(process.cwd(), "client/src/pages/PaymentDocumentationPage.tsx"), "utf8");
+const dashboardPage = readFileSync(resolve(process.cwd(), "client/src/pages/Home.tsx"), "utf8");
+const dashboardReads = readFileSync(resolve(process.cwd(), "server/powerhub-supabase.ts"), "utf8").split("export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {")[1]?.split("function objectValue(value: unknown)")[0] ?? "";
 
 describe("PowerHub offline collection, opening-reading, and notification contracts", () => {
+  it("removes the redundant payment-documentation notice without changing the submit action", () => {
+    expect(paymentDocumentationPage).not.toContain("المشترك والفاتورة مصدرهما رابط الفاتورة الموثوق");
+    expect(paymentDocumentationPage).toContain("إرسال للتحقق");
+  });
+
+  it("keeps dashboard KPI queries fresh in memory and avoids duplicate full summary reads", () => {
+    expect(dashboardPage).toContain("dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 })");
+    expect(dashboardPage).toContain("dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 })");
+    expect(dashboardPage).toContain("staleTime: 30_000,");
+    expect(dashboardReads).toContain("const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([");
+    expect(dashboardReads).not.toContain("const [subscriberResult, generatorResult, invoiceResult, expenseResult]");
+    expect(dashboardReads).not.toContain(".select(\"id, service_status\", { count: \"exact\" })");
+  });
+
   it("queues a subscriber with an opening reading as one idempotent subscriber operation", () => {
     expect(offlineQueue).toContain("openingReading?: string");
     expect(offlineQueue).toContain("openingReadingImageData?: string");
