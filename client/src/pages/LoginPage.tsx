@@ -1,3 +1,4 @@
+import { useAuth } from "@/_core/hooks/useAuth";
 import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,18 +27,27 @@ function isBrowserOffline() {
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
+  const { isAuthenticated, loading: authLoading, hasSession: hasSupabaseSession } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
+    // Supabase persists a valid browser session across restarts by default.
+    // If the user opens /login directly, do not ask for credentials again when
+    // the shared AuthProvider has already restored and validated that session.
+    if (hasSupabaseSession || (!authLoading && isAuthenticated)) setLocation("/workspace");
+  }, [authLoading, hasSupabaseSession, isAuthenticated, setLocation]);
+
+  useEffect(() => {
     let active = true;
 
     const restoreOfflineWorkspace = async () => {
-      // navigator.onLine is only a hint. Verify the PowerHub origin before
-      // treating this device as offline or restoring a cached workspace.
-      if (!isBrowserOffline()) return;
+      // navigator.onLine is only a hint and may stay true when Wi-Fi/VPN/DNS
+      // is broken. Probe the actual PowerHub origin on login-page mount so a
+      // previously validated offline lease can restore cached read-only work.
+      // This probe is background-only and never blocks the password form.
       const reachable = await probePowerHubConnectivity();
       if (!active || reachable) return;
 

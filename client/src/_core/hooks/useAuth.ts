@@ -1,11 +1,12 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
+import { clearOfflineQueryCacheForUser, getOfflineAuthUser, persistOfflineAuthUser, removeOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition } from "@/lib/offline-auth-state";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { onlineManager, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -70,7 +71,7 @@ function useAuthController() {
   const [sessionRecoveryPending, setSessionRecoveryPending] = useState(false);
   const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
   const [sessionRecoveryFailed, setSessionRecoveryFailed] = useState(false);
-  const [powerHubReachable, setPowerHubReachable] = useState(() => onlineManager.isOnline());
+  const { isOnline: powerHubReachable } = usePowerHubConnectivity();
   const explicitLogoutInProgress = useRef(false);
   const observedUserIdRef = useRef<string | null>(null);
   const transientSignOutRecovery = useRef(false);
@@ -249,7 +250,12 @@ function useAuthController() {
         setCachedUser(null);
         setOfflineLeaseUserId(null);
         void revokeOfflineAuthLease();
-        try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
+        // Keep the cross-runtime marker until logout() completes persistent
+        // cache cleanup. main.tsx listens to the same SDK event and must still
+        // recognize this as explicit sign-out rather than restore the lease.
+        if (!explicitLogoutInProgress.current) {
+          try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
+        }
         setSessionReady(true);
       } else if (transition === "online-session" && session) {
         if (identityChanged) {
@@ -312,12 +318,6 @@ function useAuthController() {
   }, [queryClient]);
 
   useEffect(() => {
-    const syncReachability = () => setPowerHubReachable(onlineManager.isOnline());
-    syncReachability();
-    return onlineManager.subscribe(syncReachability);
-  }, []);
-
-  useEffect(() => {
     if (authDataRevision === 0) return;
     void utils.auth.me.invalidate();
   }, [authDataRevision, utils.auth.me]);
@@ -341,6 +341,12 @@ function useAuthController() {
   }, [meQuery.data]);
 
   const logout = useCallback(async () => {
+    const cachedUserId = cachedUser && typeof cachedUser === "object" &&
+      "id" in cachedUser && typeof cachedUser.id === "string"
+      ? cachedUser.id
+      : null;
+    const userIdToClear = observedUserIdRef.current ?? offlineLeaseUserId ?? cachedUserId;
+
     explicitLogoutInProgress.current = true;
     setIsLoggingOut(true);
     queryClient.clear();
@@ -363,14 +369,29 @@ function useAuthController() {
       await supabaseSignOutSafely().catch(() => undefined);
       setCachedUser(null);
       setOfflineLeaseUserId(null);
-      await revokeOfflineAuthLease();
+      setHasSession(false);
+      setSessionReady(true);
+      setSessionRecoveryPending(false);
+      setSessionRecoveryTimedOut(false);
+      setSessionRecoveryFailed(false);
+
+      // Explicit logout revokes offline authorization and removes this user's
+      // persisted query/profile snapshots for privacy. Durable outbox/draft data
+      // is intentionally untouched so unsynced work is not discarded.
+      const cleanup = [revokeOfflineAuthLease()];
+      if (userIdToClear) {
+        cleanup.push(clearOfflineQueryCacheForUser(userIdToClear));
+        cleanup.push(removeOfflineAuthUser(userIdToClear));
+      }
+      await Promise.all(cleanup.map((operation) => operation.catch(() => undefined)));
+
       try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
       explicitLogoutInProgress.current = false;
       setIsLoggingOut(false);
     }
-  }, [releaseDevice, utils, queryClient]);
+  }, [releaseDevice, utils, queryClient, cachedUser, offlineLeaseUserId]);
 
   // A cached user is useful for offline mode, but must never authorize the
   // online workspace before the current Supabase session has completed a live
@@ -405,6 +426,10 @@ function useAuthController() {
     : meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
     user,
+    // Expose only whether the browser has a Supabase session snapshot so the
+    // login route can return to the workspace while auth.me completes. Route
+    // gates still enforce server validation before rendering protected content.
+    hasSession,
     // A terminal profile-check error must not keep the whole workspace in a
     // permanent loading state. It becomes a recoverable error with a retry path.
     loading: isLoggingOut || !sessionReady ||

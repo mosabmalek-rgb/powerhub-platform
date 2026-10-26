@@ -6,12 +6,15 @@ import LoginPage from "./LoginPage";
 
 const state = vi.hoisted(() => ({
   setLocation: vi.fn(),
+  useAuth: vi.fn(() => ({ isAuthenticated: false, loading: false, hasSession: false })),
   signInWithPassword: vi.fn(),
   probePowerHubConnectivity: vi.fn(),
   signUp: vi.fn(),
   getValidOfflineAuthLease: vi.fn(),
   getOfflineAuthUser: vi.fn(),
 }));
+
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: state.useAuth }));
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
@@ -30,6 +33,8 @@ vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 afterEach(() => {
   cleanup();
   state.setLocation.mockReset();
+  state.useAuth.mockReset();
+  state.useAuth.mockReturnValue({ isAuthenticated: false, loading: false, hasSession: false });
   state.signInWithPassword.mockReset();
   state.probePowerHubConnectivity.mockReset();
   state.signUp.mockReset();
@@ -51,8 +56,27 @@ describe("LoginPage", () => {
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
   });
 
+  it("leaves the login page while a restored session awaits profile validation", async () => {
+    state.useAuth.mockReturnValue({ isAuthenticated: false, loading: true, hasSession: true });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
+    expect(state.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("returns to the workspace when a persisted online session is already restored", async () => {
+    state.useAuth.mockReturnValue({ isAuthenticated: true, loading: false, hasSession: true });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
+    expect(state.signInWithPassword).not.toHaveBeenCalled();
+  });
+
   it("does not let a cached offline lease bypass password sign-in while online", async () => {
     vi.stubGlobal("navigator", { ...navigator, onLine: true });
+    state.probePowerHubConnectivity.mockResolvedValue(true);
     state.getValidOfflineAuthLease.mockResolvedValue({ userId: "cached-user", issuedAt: 1, expiresAt: Date.now() + 60_000 });
     state.getOfflineAuthUser.mockResolvedValue({ id: 123, email: "admin@powerhub.test" });
     state.signInWithPassword.mockResolvedValue({ error: { message: "Invalid login credentials" } });
@@ -80,6 +104,24 @@ describe("LoginPage", () => {
     await waitFor(() => expect(state.probePowerHubConnectivity).toHaveBeenCalled());
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "WrongPassword123" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحين.");
+  });
+
+  it("restores a cached workspace when navigator.online is stale but PowerHub is unreachable", async () => {
+    vi.stubGlobal("navigator", { ...navigator, onLine: true });
+    state.probePowerHubConnectivity.mockResolvedValue(false);
+    state.getValidOfflineAuthLease.mockResolvedValue({
+      userId: "cached-user",
+      issuedAt: Date.now() - 60_000,
+      expiresAt: Date.now() + 60_000,
+    });
+    state.getOfflineAuthUser.mockResolvedValue({ id: "cached-user", email: "admin@powerhub.test" });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
+    expect(state.getValidOfflineAuthLease).toHaveBeenCalled();
+    expect(state.getOfflineAuthUser).toHaveBeenCalledWith("cached-user");
+    expect(state.signInWithPassword).not.toHaveBeenCalled();
   });
 
   it("does not expose self-registration because accounts are created from Supabase administration", () => {
