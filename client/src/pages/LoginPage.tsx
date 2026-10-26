@@ -1,3 +1,4 @@
+import { useAuth } from "@/_core/hooks/useAuth";
 import { PowerHubLogo } from "@/components/PowerHubLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,10 +27,18 @@ function isBrowserOffline() {
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
+  const { isAuthenticated, loading: authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    // Supabase persists a valid browser session across restarts by default.
+    // If the user opens /login directly, do not ask for credentials again when
+    // the shared AuthProvider has already restored and validated that session.
+    if (!authLoading && isAuthenticated) setLocation("/workspace");
+  }, [authLoading, isAuthenticated, setLocation]);
 
   useEffect(() => {
     let active = true;
