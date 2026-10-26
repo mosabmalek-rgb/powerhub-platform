@@ -381,12 +381,19 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     const query = normalizeSubscriberSearch(subscriberSearch);
     const words = query.split(/\s+/).filter(Boolean);
     const matches = subscribers.filter((subscriber: any) => {
-      const searchableText = normalizeSubscriberSearch([
-        subscriber.fullName,
-        subscriber.phone,
-        subscriber.subscriberNo,
-      ].filter(Boolean).join(" "));
-      return words.every((word) => searchableText.includes(word));
+      const normalizedName = normalizeSubscriberSearch(subscriber.fullName);
+      const normalizedPhone = normalizeSubscriberSearch(subscriber.phone);
+      const normalizedNumber = normalizeSubscriberSearch(subscriber.subscriberNo);
+      const searchableText = [normalizedName, normalizedPhone, normalizedNumber].filter(Boolean).join(" ");
+      return words.every((word) => {
+        if (searchableText.includes(word)) return true;
+        // Match phone/reference digits even when the stored value contains +, spaces, or separators.
+        if (!/^[+]?[0-9s().-]+$/.test(word)) return false;
+        const digits = word.replace(/D/g, "");
+        return digits.length > 0 &&
+          (normalizedPhone.replace(/D/g, "").includes(digits) ||
+           normalizedNumber.replace(/D/g, "").includes(digits));
+      });
     });
     const rank = (subscriber: any) => {
       const name = normalizeSubscriberSearch(subscriber.fullName);
