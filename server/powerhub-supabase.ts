@@ -991,13 +991,14 @@ export async function listSupabaseReportSubscribers(input: {
   return result;
 }
 
-export async function getSupabaseFinancialOverview(site: SupabaseSite) {
+export async function getSupabaseFinancialOverview(site: SupabaseSite, includeDetails = true) {
   const admin = supabaseAdmin();
   const tenantId = Number(site.tenantId);
   const aggregate = await admin.rpc("powerhub_dashboard_financial_overview", {
     p_tenant_id: tenantId,
     p_site_id: Number(site.id),
     p_now: new Date().toISOString(),
+    p_include_details: includeDetails,
   });
   if (!aggregate.error) {
     return dashboardRpcObject(aggregate.data, "dashboard.financialOverview.aggregate");
@@ -1030,12 +1031,13 @@ export async function getSupabaseFinancialOverview(site: SupabaseSite) {
     readAllPages("dashboard.financialOverview.subscribers", (from, to) => admin.from("subscribers").select("id, full_name, subscriber_no, service_status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
   ]);
   const byId = new Map(subscribers.map((row) => [Number(row.id), row]));
-  return buildFinancialOverview({
+  const overview = buildFinancialOverview({
     branches: [{ id: site.id, name: site.name, activeSubscribers: subscribers.filter((row) => row.service_status === "active").length }],
     invoices: invoices.map((row) => ({ id: Number(row.id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), subscriberName: byId.get(Number(row.subscriber_id))?.full_name ?? "مشترك", subscriberNo: byId.get(Number(row.subscriber_id))?.subscriber_no ?? "—", invoiceNo: row.invoice_no, issueDate: new Date(row.issue_date), dueDate: new Date(row.due_date), totalAmount: Number(row.total_amount), paidAmount: Number(row.paid_amount), balanceDue: Number(row.balance_due), status: row.status })),
     payments: payments.map((row) => ({ siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), amount: Number(row.amount), status: row.status, paidAt: new Date(row.paid_at) })),
     expenses: expenses.map((row) => ({ siteId: Number(row.site_id), amount: Number(row.amount), occurredAt: new Date(row.occurred_at) })),
   });
+  return includeDetails ? overview : { ...overview, outstandingInvoices: [] };
 }
 
 export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; from?: Date | null; to?: Date | null }) {
