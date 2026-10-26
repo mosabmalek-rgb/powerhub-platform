@@ -19,6 +19,7 @@ const adminRuntime = readFileSync(resolve(process.cwd(), "server/admin-runtime.t
 const paymentDocumentationPage = readFileSync(resolve(process.cwd(), "client/src/pages/PaymentDocumentationPage.tsx"), "utf8");
 const dashboardPage = readFileSync(resolve(process.cwd(), "client/src/pages/Home.tsx"), "utf8");
 const dashboardReads = readFileSync(resolve(process.cwd(), "server/powerhub-supabase.ts"), "utf8").split("export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {")[1]?.split("function objectValue(value: unknown)")[0] ?? "";
+const meterReadingsPage = readFileSync(resolve(process.cwd(), "client/src/pages/MeterReadingsPage.tsx"), "utf8");
 
 describe("PowerHub offline collection, opening-reading, and notification contracts", () => {
   it("removes the redundant payment-documentation notice without changing the submit action", () => {
@@ -32,6 +33,8 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
     expect(dashboardPage).toContain("staleTime: 30_000,");
     expect(dashboardReads).toContain("const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([");
     expect(dashboardReads).not.toContain("const [subscriberResult, generatorResult, invoiceResult, expenseResult]");
+    expect(meterReadingsPage).toContain('dashboard.financialOverview.invalidate({ siteId: refreshSiteId, scope: "branch" })');
+    expect(meterReadingsPage).toContain('dashboard.periodMetrics.invalidate({ siteId: refreshSiteId, scope: "branch" })');
     expect(dashboardReads).not.toContain(".select(\"id, service_status\", { count: \"exact\" })");
   });
 
