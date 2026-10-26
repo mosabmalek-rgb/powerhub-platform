@@ -41,7 +41,7 @@ returns jsonb
 language sql
 security definer
 set search_path = public, pg_temp
-as $ select '{}'::jsonb $;
+as $fixture$ select '{}'::jsonb $fixture$;
 revoke all on function public.powerhub_process_subscription_lifecycle() from public, anon, authenticated;
 grant execute on function public.powerhub_process_subscription_lifecycle() to service_role;
 
