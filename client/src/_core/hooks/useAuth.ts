@@ -3,9 +3,10 @@ import { trpc } from "@/lib/trpc";
 import { clearOfflineQueryCacheForUser, getOfflineAuthUser, persistOfflineAuthUser, removeOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition } from "@/lib/offline-auth-state";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { onlineManager, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -70,7 +71,7 @@ function useAuthController() {
   const [sessionRecoveryPending, setSessionRecoveryPending] = useState(false);
   const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
   const [sessionRecoveryFailed, setSessionRecoveryFailed] = useState(false);
-  const [powerHubReachable, setPowerHubReachable] = useState(() => onlineManager.isOnline());
+  const { isOnline: powerHubReachable } = usePowerHubConnectivity();
   const explicitLogoutInProgress = useRef(false);
   const observedUserIdRef = useRef<string | null>(null);
   const transientSignOutRecovery = useRef(false);
@@ -310,12 +311,6 @@ function useAuthController() {
       unsubscribe();
     };
   }, [queryClient]);
-
-  useEffect(() => {
-    const syncReachability = () => setPowerHubReachable(onlineManager.isOnline());
-    syncReachability();
-    return onlineManager.subscribe(syncReachability);
-  }, []);
 
   useEffect(() => {
     if (authDataRevision === 0) return;
