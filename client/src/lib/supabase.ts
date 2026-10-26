@@ -61,6 +61,11 @@ export function subscribeSupabaseAuthState(subscriber: AuthSubscriber) {
   return () => authSubscribers.delete(subscriber);
 }
 
+/** Clear the bounded session-read cooldown for an explicit user-initiated retry. */
+export function resetSupabaseSessionReadBackoff(): void {
+  sessionReadRetryAfter = 0;
+}
+
 export async function getSupabaseSession(): Promise<Session | null> {
   ensureAuthSubscription();
 
