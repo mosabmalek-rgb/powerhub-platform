@@ -430,7 +430,7 @@ function useAuthController() {
       setAuthProfileCheckTimedOut(false);
       setAuthValidationAttempt((attempt) => attempt + 1);
 
-      if (sessionRecoveryPending || sessionRecoveryTimedOut) {
+      if (sessionRecoveryPending || sessionRecoveryTimedOut || sessionRecoveryFailed) {
         transientSignOutRecovery.current = false;
         setSessionRecoveryPending(true);
         setSessionRecoveryTimedOut(false);
