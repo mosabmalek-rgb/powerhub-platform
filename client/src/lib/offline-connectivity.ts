@@ -7,6 +7,15 @@ const PROBE_ATTEMPTS = 2;
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 let sharedProbe: Promise<boolean> | null = null;
+let lastVerifiedPowerHubReachability: boolean | null = null;
+
+/**
+ * null means no completed same-origin health probe exists for this page load.
+ * Protected request transport can use this to avoid requests before readiness.
+ */
+export function getPowerHubConnectivitySnapshot(): boolean | null {
+  return lastVerifiedPowerHubReachability;
+}
 
 async function runHealthProbe(fetcher: HealthFetch, timeoutMs: number): Promise<boolean> {
   // A single short network hiccup must not flip the whole app into offline
@@ -47,7 +56,10 @@ export function probePowerHubConnectivity(
   // fetch is the real signal of whether the app can reach its server.
   if (fetcher === globalThis.fetch) {
     if (sharedProbe) return sharedProbe;
-    sharedProbe = runHealthProbe(fetcher, timeoutMs).finally(() => {
+    sharedProbe = runHealthProbe(fetcher, timeoutMs).then((reachable) => {
+      lastVerifiedPowerHubReachability = reachable;
+      return reachable;
+    }).finally(() => {
       sharedProbe = null;
     });
     return sharedProbe;
