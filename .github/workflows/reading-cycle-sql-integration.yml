@@ -82,6 +82,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres messaging_automation_state_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname messaging_automation_state_test --set ON_ERROR_STOP=1 --file supabase/tests/unified_messaging_automation_state.sql
 
+      - name: Verify dashboard financial aggregate read models
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE dashboard_financial_aggregate_test"
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname dashboard_financial_aggregate_test --set ON_ERROR_STOP=1 --file supabase/tests/dashboard_financial_aggregate_read_models.sql
+
       - name: Create isolated all-branch dashboard KPI database
         env:
           PGPASSWORD: postgres
