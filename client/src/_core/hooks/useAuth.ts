@@ -426,6 +426,10 @@ function useAuthController() {
     : meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
     user,
+    // Expose only whether the browser has a Supabase session snapshot so the
+    // login route can return to the workspace while auth.me completes. Route
+    // gates still enforce server validation before rendering protected content.
+    hasSession,
     // A terminal profile-check error must not keep the whole workspace in a
     // permanent loading state. It becomes a recoverable error with a retry path.
     loading: isLoggingOut || !sessionReady ||
