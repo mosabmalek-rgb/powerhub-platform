@@ -8,6 +8,7 @@ import {
   isOfflineCacheWriteCurrent,
   shouldRefreshSupabaseSession,
   SUPABASE_BROWSER_AUTH_OPTIONS,
+  shouldManuallyRefreshExpiredSession,
 } from "./offline-auth-state";
 
 describe("offline authentication state transitions", () => {
@@ -66,6 +67,9 @@ describe("query-cache lifecycle across auth transitions", () => {
     expect(main).toContain("void bootstrapOfflineState();");
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
     expect(main).toContain("isOfflineCacheWriteCurrent(");
+    expect(main).toContain("if (!token)");
+    expect(main).toContain('event === "TOKEN_REFRESHED" && nextUserId');
+    expect(main).toContain('query.state.status === "error"');
     expect(main).toContain('if (event === "INITIAL_SESSION")');
     expect(main).toContain("query.state.fetchStatus === \"fetching\"");
     expect(cache).toContain("queryClient.getQueryData(queryKey) !== undefined");
@@ -132,5 +136,17 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).toContain("refreshExpiredSupabaseSession");
     expect(source).toContain("if (sessionInitialized && isSupabaseSessionUsable(currentSession, nowSeconds))");
     expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) return null;");
+  });
+});
+
+
+describe("expired-session refresh coordination", () => {
+  it("does not manually rotate refresh tokens from a hidden tab", () => {
+    expect(shouldManuallyRefreshExpiredSession("hidden")).toBe(false);
+  });
+
+  it("allows foreground recovery and non-browser fallback", () => {
+    expect(shouldManuallyRefreshExpiredSession("visible")).toBe(true);
+    expect(shouldManuallyRefreshExpiredSession("unknown")).toBe(true);
   });
 });

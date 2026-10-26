@@ -90,3 +90,13 @@ export function shouldRefreshSupabaseSession(
     !Number.isFinite(expiresAt) ||
     expiresAt <= nowSeconds + SUPABASE_SESSION_REFRESH_LEEWAY_SECONDS;
 }
+
+
+/**
+ * Expired sessions in hidden tabs must not start their own manual refresh.
+ * Supabase's visibility-aware auto-refresh owns background/foreground rotation;
+ * a hidden tab can otherwise race the visible tab with the same rotating token.
+ */
+export function shouldManuallyRefreshExpiredSession(visibilityState: "visible" | "hidden" | "unknown"): boolean {
+  return visibilityState !== "hidden";
+}
