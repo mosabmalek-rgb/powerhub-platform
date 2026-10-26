@@ -18,6 +18,32 @@ export function resolveOfflineAuthTransition(
   return "recover-offline-session";
 }
 
+/** Do not erase useful cached queries for a transient SDK sign-out event. */
+export function shouldClearQueryCacheForAuthTransition(
+  _event: string,
+  explicitLogoutRequested: boolean,
+  identityChanged: boolean,
+  nextUserId: string | null,
+): boolean {
+  if (explicitLogoutRequested && !nextUserId) return true;
+  return identityChanged && nextUserId !== null;
+}
+
+/** A query may be persisted only for the identity/generation that started it. */
+export function isOfflineCacheWriteCurrent(
+  ownerUserId: string,
+  ownerGeneration: number,
+  activeUserId: string | null,
+  activeGeneration: number,
+): boolean {
+  return Boolean(
+    ownerUserId &&
+    activeUserId &&
+    ownerUserId === activeUserId &&
+    ownerGeneration === activeGeneration,
+  );
+}
+
 /**
  * A getSession/refreshSession snapshot may finish after a newer auth event.
  * In that case, the session updated by the event must win over the stale

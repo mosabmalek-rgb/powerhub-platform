@@ -78,8 +78,17 @@ describe("public invoice and inquiry actions", () => {
     expect(publicInvoiceApp).not.toContain('from "@/lib/route-preload"');
     expect(main).not.toContain('import App from "./App"');
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) return {};");
-    expect(main).toContain("if (isStandalonePublicInvoiceRoute()) {");
-    expect(main).toContain("void bootstrapOfflineState().finally(renderApp)");
+    expect(main).toContain("if (!isStandalonePublicInvoiceRoute()) {");
+    expect(main).toContain("renderApp();");
+    expect(main).toContain("void bootstrapOfflineState();");
+    expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
+    const transientSignOutStart = main.indexOf("// A transient SDK SIGNED_OUT");
+    const transientSignOutEnd = main.indexOf("if (!nextUserId)", transientSignOutStart);
+    expect(transientSignOutStart).toBeGreaterThanOrEqual(0);
+    expect(transientSignOutEnd).toBeGreaterThan(transientSignOutStart);
+    const transientSignOut = main.slice(transientSignOutStart, transientSignOutEnd);
+    expect(transientSignOut).toContain("if (lease) await activateUser(lease.userId);");
+    expect(transientSignOut).not.toContain("activateUser(lease?.userId ?? null)");
     expect(main).toContain('register("/sw.js?v=7")');
     const sw = read("client/public/sw.js");
     expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v7"');
@@ -501,9 +510,19 @@ describe("public invoice and inquiry actions", () => {
     expect(paymentPage).toContain("invalidatePaymentDocumentationReview");
     expect(paymentPage).toContain('staleTime: 0, refetchOnMount: "always"');
     const auth = read("client/src/_core/hooks/useAuth.ts");
+    const authState = read("client/src/lib/offline-auth-state.ts");
     expect(auth).toContain("queryClient.clear()");
-    expect(auth).toContain('event === "SIGNED_OUT"');
+    expect(auth).toContain("shouldClearQueryCacheForAuthTransition");
     expect(auth).toContain("identityChanged");
+    expect(authState).toContain("if (explicitLogoutRequested && !nextUserId) return true");
+    expect(authState).toContain("return identityChanged && nextUserId !== null");
+    const workspace = read("client/src/pages/Home.tsx");
+    expect(workspace).toContain("if (!loading && !isAuthenticated && !error)");
+    expect(workspace).toContain("if (error && !user)");
+    expect(workspace).toContain("تعذر استعادة جلسة الدخول");
+    const routeGate = read("client/src/components/RouteAccessGate.tsx");
+    expect(routeGate).toContain("!loading && Boolean(error) && !user");
+    expect(workspace).toContain("إعادة المحاولة واستعادة البيانات");
   });
 
   it("surfaces billing adjustments on payment documentation and keeps status reads lightweight", () => {

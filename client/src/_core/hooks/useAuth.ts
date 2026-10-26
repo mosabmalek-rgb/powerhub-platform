@@ -2,7 +2,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
-import { resolveOfflineAuthTransition } from "@/lib/offline-auth-state";
+import { resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition } from "@/lib/offline-auth-state";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
@@ -124,7 +124,9 @@ function useAuthController() {
 
       const transition = resolveOfflineAuthTransition(event, nextUserId, explicitLogoutRequested);
       const identityChanged = observedUserId !== nextUserId;
-      if (event === "SIGNED_OUT" || (identityChanged && nextUserId !== null)) queryClient.clear();
+      if (shouldClearQueryCacheForAuthTransition(event, explicitLogoutRequested, identityChanged, nextUserId)) {
+        queryClient.clear();
+      }
       observedUserId = nextUserId;
       setHasSession(Boolean(session));
 
@@ -259,6 +261,9 @@ function useAuthController() {
   const meQueryErrorCode = (meQuery.error as { data?: { code?: string } } | null)?.data?.code;
   const meQueryAuthorizationDenied = meQueryErrorCode === "FORBIDDEN" ||
     (meQueryErrorCode === "UNAUTHORIZED" && !hasSession);
+  // A transport failure does not invalidate an otherwise-present browser
+  // session. Keep authentication recoverable, while route gates show a retry
+  // surface if no last-confirmed profile is available.
   const meQueryTemporarilyUnavailable = Boolean(meQuery.error && !meQueryAuthorizationDenied);
   const isOnlineAuthenticated = Boolean(
     hasSession &&
@@ -277,11 +282,13 @@ function useAuthController() {
   const user = meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
     user,
-    loading: isLoggingOut || !sessionReady || Boolean(hasSession && (meQuery.isPending || (meQuery.isError && !meQuery.data && !cachedUser && !meQueryAuthorizationDenied))),
+    // A terminal profile-check error must not keep the whole workspace in a
+    // permanent loading state. It becomes a recoverable error with a retry path.
+    loading: isLoggingOut || !sessionReady || Boolean(hasSession && meQuery.isPending),
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.
-    error: hasSession && meQueryErrorCode === "UNAUTHORIZED" ? null : meQuery.error ?? null,
+    error: meQuery.error ?? null,
     isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
     isOnlineAuthenticated: !isLoggingOut && isOnlineAuthenticated,
     isLoggingOut,
