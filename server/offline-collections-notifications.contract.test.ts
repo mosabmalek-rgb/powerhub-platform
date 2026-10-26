@@ -45,8 +45,9 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
     const syncIndex = collectionsRender.indexOf("<OfflineWorkSyncPanel");
     const sessionsIndex = collectionsRender.indexOf("<CollectorSessionsPanel");
     expect(collectionIndex).toBeGreaterThan(-1);
-    expect(syncIndex).toBeGreaterThan(collectionIndex);
-    expect(sessionsIndex).toBeGreaterThan(syncIndex);
+    expect(syncIndex).toBe(-1);
+    expect(sessionsIndex).toBeGreaterThan(collectionIndex);
+    expect(readFileSync(resolve(process.cwd(), "client/src/pages/OfflineSyncPage.tsx"), "utf8")).toContain("<OfflineWorkSyncPanel siteId={siteId} userId={user.id} />");
   });
 
   it("queues network-ambiguous collection sends with the original operation ID", () => {
