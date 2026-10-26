@@ -88,6 +88,23 @@ export default function LoginPage() {
       // second shared session read here, which may still hold an older snapshot.
       setLocation("/workspace");
     } catch (submitError) {
+      const networkFailure = submitError instanceof TypeError ||
+        /failed to fetch|networkerror|network request failed|load failed|fetch failed|network.*(?:unavailable|offline)|connection (?:lost|reset|refused)|timeout/i.test(
+          submitError instanceof Error ? submitError.message : String(submitError ?? ""),
+        );
+      // navigator.onLine can remain true while DNS, the API, or Supabase is
+      // unreachable. Fall back to the previously validated device lease only
+      // for network failures, never for invalid credentials or authorization errors.
+      if (networkFailure) {
+        const offlineLease = await getValidOfflineAuthLease();
+        if (offlineLease) {
+          const cachedUser = await getOfflineAuthUser(offlineLease.userId);
+          if (cachedUser) {
+            setLocation("/workspace");
+            return;
+          }
+        }
+      }
       setError(authMessage(submitError));
     } finally {
       setPending(false);
