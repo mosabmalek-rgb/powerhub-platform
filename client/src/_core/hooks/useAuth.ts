@@ -191,7 +191,10 @@ function useAuthController() {
           if (!recoveredSession?.user.id) {
             // A completed read with no usable session is a failed recovery,
             // not a reason to keep the route gate pending until its 8s timer.
-            transientSignOutRecovery.current = false;
+            // Keep the transient-recovery latch closed after a confirmed failure.
+            // Further null events must not restart the route gate; explicit retry
+            // clears this latch in refresh(), and a valid session event clears it too.
+            transientSignOutRecovery.current = true;
             setSessionRecoveryPending(false);
             setSessionRecoveryTimedOut(false);
             setSessionRecoveryFailed(true);
@@ -456,7 +459,8 @@ function useAuthController() {
         else {
           // Stop the recovery spinner as soon as a bounded read confirms that
           // no usable session can be restored. Keep local work untouched.
-          transientSignOutRecovery.current = false;
+          // Require an explicit retry after a completed failed read.
+          transientSignOutRecovery.current = true;
           setSessionRecoveryPending(false);
           setSessionRecoveryTimedOut(false);
           setSessionRecoveryFailed(true);
