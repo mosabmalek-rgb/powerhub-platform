@@ -593,6 +593,13 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       outstanding: { total: 75, accountCount: 1 },
       topDebtors: [{ subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001" }],
     });
+    const kpiOnlyOverview = await caller.dashboard.financialOverview({ siteId: 10, scope: "all", includeDetails: false });
+    expect(kpiOnlyOverview.outstandingInvoices).toEqual([]);
+    expect(kpiOnlyOverview.outstanding).toMatchObject({ total: 75, accountCount: 1 });
+    expect(state.rpcCalls).toContainEqual(expect.objectContaining({
+      name: "powerhub_dashboard_financial_overview",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: null, p_include_details: false }),
+    }));
   });
 
   it("يرحّل كل صفحات بيانات النظرة المالية لجميع الأفرع عند تجاوز 1000 سجل", async () => {
