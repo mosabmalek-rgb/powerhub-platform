@@ -68,7 +68,7 @@ export default function LoginPage() {
         if (offlineLease) {
           const cachedUser = await getOfflineAuthUser(offlineLease.userId);
           if (cachedUser) {
-            window.location.assign("/workspace");
+            setLocation("/workspace");
             return;
           }
         }
@@ -86,7 +86,7 @@ export default function LoginPage() {
 
       // The sign-in response itself contains the newly-created session. Avoid a
       // second shared session read here, which may still hold an older snapshot.
-      window.location.assign("/workspace");
+      setLocation("/workspace");
     } catch (submitError) {
       setError(authMessage(submitError));
     } finally {
