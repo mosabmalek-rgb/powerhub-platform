@@ -78,7 +78,7 @@ describe("public invoice and inquiry actions", () => {
     expect(publicInvoiceApp).not.toContain('from "@/lib/route-preload"');
     expect(main).not.toContain('import App from "./App"');
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) return {};");
-    expect(main).toContain("if (isStandalonePublicInvoiceRoute()) {");
+    expect(main).toContain("if (!isStandalonePublicInvoiceRoute()) {");
     expect(main).toContain("renderApp();");
     expect(main).toContain("void bootstrapOfflineState();");
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
