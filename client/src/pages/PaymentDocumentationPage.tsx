@@ -290,7 +290,6 @@ function PublicPaymentDocumentationView({ token, loading, error, context, submit
           <div><Label className="text-slate-300">الرقم المرجعي للتحويل</Label><Input value={referenceNo} onChange={e=>setReferenceNo(e.target.value)} placeholder="اختياري" className="mt-2 bg-white/[.03] text-white"/></div>
           <div><Label className="text-slate-300">صورة التحويل</Label><Input type="file" accept="image/jpeg,image/png,image/webp" disabled={method==="cash"} onChange={e=>setFile(e.target.files?.[0]??null)} className="mt-2 text-slate-300"/><p className="mt-1 text-xs text-slate-500">{method==="cash"?"غير مطلوبة للدفع النقدي":"مطلوبة لعمليات التحويل."}</p></div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/10 p-4 text-sm text-slate-400">المشترك والفاتورة مصدرهما رابط الفاتورة الموثوق ولا يمكن تغييرهما من الصفحة. إرسال الطلب يبقى توثيقاً قيد المراجعة ولا ينشئ حركة مالية قبل الاعتماد.</div>
         <Button disabled={submit.isPending} onClick={()=>void send()} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{submit.isPending?<Loader2 className="animate-spin"/>:<Upload className="ml-2 h-4 w-4"/>}إرسال للتحقق</Button>
       </>}
     </section>
