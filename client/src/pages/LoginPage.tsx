@@ -35,9 +35,10 @@ export default function LoginPage() {
     let active = true;
 
     const restoreOfflineWorkspace = async () => {
-      // navigator.onLine is only a hint. Verify the PowerHub origin before
-      // treating this device as offline or restoring a cached workspace.
-      if (!isBrowserOffline()) return;
+      // navigator.onLine is only a hint and may stay true when Wi-Fi/VPN/DNS
+      // is broken. Probe the actual PowerHub origin on login-page mount so a
+      // previously validated offline lease can restore cached read-only work.
+      // This probe is background-only and never blocks the password form.
       const reachable = await probePowerHubConnectivity();
       if (!active || reachable) return;
 
