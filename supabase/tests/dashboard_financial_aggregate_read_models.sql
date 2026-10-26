@@ -33,6 +33,7 @@ insert into public.expenses values
 insert into public.notification_messages values (1,1,100,'failed'),(2,1,103,'failed'),(3,2,200,'failed');
 
 \ir ../migrations/20261026101445_powerhub_dashboard_database_aggregates_20261026.sql
+\ir ../migrations/20261026104500_powerhub_pin_subscription_lifecycle_search_path.sql
 
 do $test$
 declare op jsonb; branch_op jsonb; fin jsonb; fin_kpi_only jsonb; wrong_site_op jsonb; wrong_tenant_fin jsonb;
@@ -84,6 +85,9 @@ begin
     or has_function_privilege('authenticated','public.powerhub_dashboard_operational_summary(bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_dashboard_operational_summary(bigint,bigint)','EXECUTE')
     then raise exception 'operational RPC grants are incorrect'; end if;
+  if (select proconfig from pg_proc where oid='public.powerhub_process_subscription_lifecycle()'::regprocedure) is distinct from array['search_path=""']::text[] then
+    raise exception 'subscription lifecycle SECURITY DEFINER worker must pin an empty search_path';
+  end if;
   if (select proconfig from pg_proc where oid='public.powerhub_dashboard_operational_summary(bigint,bigint)'::regprocedure) is distinct from array['search_path=""']::text[]
     or (select proconfig from pg_proc where oid='public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)'::regprocedure) is distinct from array['search_path=""']::text[] then
     raise exception 'aggregate SECURITY DEFINER RPCs must pin an empty search_path';
