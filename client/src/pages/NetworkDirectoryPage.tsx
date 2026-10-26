@@ -306,14 +306,36 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const submitSubscriber = async (values: Values) => {
     const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial" | "institution" | "mosque", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected", openingReading: values.openingReading ? String(values.openingReading) : undefined, openingReadingAt: values.openingReadingAt ? String(values.openingReadingAt) : undefined, openingReadingApproved: Boolean(values.openingReading), openingReadingImageData: values.openingReadingImageData ? String(values.openingReadingImageData) : undefined, openingReadingImageMime: values.openingReadingImageMime ? String(values.openingReadingImageMime) as "image/jpeg" | "image/png" | "image/webp" : undefined };
     if (!isOnline) {
-      if (!editing && (base.openingReading || base.openingReadingAt || base.openingReadingApproved || base.openingReadingImageData)) return toast.error("إضافة القراءة الافتتاحية تحتاج اتصالاً بالإنترنت؛ لم يتم حفظ المشترك كمسودة حتى لا تُفقد القراءة أو صورتها.");
       if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ المسودة محلياً.");
+      if (!editing && (!Number.isSafeInteger(activeTenantId) || activeTenantId <= 0)) {
+        return toast.error("تعذر تحديد المستأجر الحالي؛ لم تُحفظ مسودة المشترك.");
+      }
       try {
         let reservedNumber: string | undefined;
         if (editing) {
           await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "subscriber_update", payload: { subscriberId: editing.id, fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType, serviceStatus: base.serviceStatus, expectedUpdatedAt: new Date(editing.updatedAt).toISOString() } });
+        } else if (base.openingReading) {
+          // The opening-reading RPC atomically creates the subscriber and approved baseline.
+          // It allocates the authoritative subscriber number during sync; never pair a reserved-number
+          // claim with opening-reading data because that RPC intentionally rejects the combination.
+          await enqueueOfflineWork({
+            userId: user.id,
+            tenantId: activeTenantId,
+            siteId: siteId!,
+            kind: "subscriber_create",
+            payload: {
+              fullName: base.fullName,
+              phone: base.phone,
+              address: base.address,
+              subscriptionType: base.subscriptionType,
+              openingReading: base.openingReading,
+              openingReadingAt: base.openingReadingAt,
+              openingReadingApproved: base.openingReadingApproved,
+              openingReadingImageData: base.openingReadingImageData,
+              openingReadingImageMime: base.openingReadingImageMime,
+            },
+          });
         } else {
-          if (!Number.isSafeInteger(activeTenantId) || activeTenantId <= 0) return toast.error("تعذر تحديد المستأجر الحالي؛ لم تُحفظ مسودة المشترك.");
           const deviceId = await getPowerHubDeviceId();
           const queued = await enqueueOfflineSubscriberCreateWithNumber({
             scope: { userId: Number(user.id), tenantId: activeTenantId, siteId: siteId!, deviceId },
@@ -323,7 +345,7 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
         }
         setEditing(null);
         if (!editing) setSubscriberFormResetKey((key) => key + 1);
-        toast.success(editing ? "حُفظ تعديل المشترك كمسودة محلية؛ راجع مركز المزامنة عند عودة الاتصال." : `حُفظ المشترك كمسودة برقم محجوز محليًا ${reservedNumber}؛ لا يُعتمد الرقم ولا يُنشأ السجل النهائي إلا بعد تأكيد الخادم عند المزامنة.`);
+        toast.success(editing ? "حُفظ تعديل المشترك كمسودة محلية؛ راجع مركز المزامنة عند عودة الاتصال." : base.openingReading ? "حُفظ المشترك وقراءته الافتتاحية كمسودة واحدة؛ سيُعتمدان معًا عند المزامنة ويُخصص الرقم النهائي من الخادم." : `حُفظ المشترك كمسودة برقم محجوز محليًا ${reservedNumber}؛ لا يُعتمد الرقم ولا يُنشأ السجل النهائي إلا بعد تأكيد الخادم عند المزامنة.`);
       } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر حفظ المسودة المحلية."); }
       return;
     }
