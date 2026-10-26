@@ -25,6 +25,9 @@ const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = Object.assign(new Error(
 const SESSION_RECOVERY_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر استعادة جلسة صالحة بعد محاولة التحقق. أعد المحاولة أو سجّل الدخول مجددًا.",
 ), { name: "PowerHubSessionRecoveryTimeoutError" });
+const SESSION_RECOVERY_FAILED_ERROR = Object.assign(new Error(
+  "تعذر استعادة جلسة صالحة من Supabase. أعد المحاولة أو افتح تسجيل الدخول.",
+), { name: "PowerHubSessionRecoveryFailedError" });
 
 function withTimeoutFallback<T>(promise: Promise<T>, fallback: T, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve) => {
@@ -66,6 +69,7 @@ function useAuthController() {
   const [authValidationAttempt, setAuthValidationAttempt] = useState(0);
   const [sessionRecoveryPending, setSessionRecoveryPending] = useState(false);
   const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
+  const [sessionRecoveryFailed, setSessionRecoveryFailed] = useState(false);
   const [powerHubReachable, setPowerHubReachable] = useState(() => onlineManager.isOnline());
   const explicitLogoutInProgress = useRef(false);
   const observedUserIdRef = useRef<string | null>(null);
@@ -102,10 +106,7 @@ function useAuthController() {
   const [offlineLeaseUserId, setOfflineLeaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!sessionRecoveryPending) {
-      setSessionRecoveryTimedOut(false);
-      return;
-    }
+    if (!sessionRecoveryPending) return;
 
     setSessionRecoveryTimedOut(false);
     const timer = window.setTimeout(() => {
@@ -186,7 +187,21 @@ function useAuthController() {
         setSessionRecoveryTimedOut(false);
 
         void withTimeoutFallback(getSupabaseSession(), null, SESSION_BOOTSTRAP_TIMEOUT_MS).then((recoveredSession) => {
-          if (!active || transitionRevision !== revision || !recoveredSession?.user.id) return;
+          if (!active || transitionRevision !== revision) return;
+          if (!recoveredSession?.user.id) {
+            // A completed read with no usable session is a failed recovery,
+            // not a reason to keep the route gate pending until its 8s timer.
+            // Keep the transient-recovery latch closed after a confirmed failure.
+            // Further null events must not restart the route gate; explicit retry
+            // clears this latch in refresh(), and a valid session event clears it too.
+            transientSignOutRecovery.current = true;
+            setSessionRecoveryPending(false);
+            setSessionRecoveryTimedOut(false);
+            setSessionRecoveryFailed(true);
+            setHasSession(false);
+            setSessionReady(true);
+            return;
+          }
 
           const recoveredUserId = recoveredSession.user.id;
           if (previousUserId && previousUserId !== recoveredUserId) {
@@ -215,6 +230,7 @@ function useAuthController() {
         transientSignOutRecovery.current = false;
         setSessionRecoveryPending(false);
         setSessionRecoveryTimedOut(false);
+        setSessionRecoveryFailed(false);
       }
 
       const transition = resolveOfflineAuthTransition(event, nextUserId, explicitLogoutRequested);
@@ -229,6 +245,7 @@ function useAuthController() {
         transientSignOutRecovery.current = false;
         setSessionRecoveryPending(false);
         setSessionRecoveryTimedOut(false);
+        setSessionRecoveryFailed(false);
         setCachedUser(null);
         setOfflineLeaseUserId(null);
         void revokeOfflineAuthLease();
@@ -383,7 +400,7 @@ function useAuthController() {
   // Keep the last confirmed profile during a transient auth.me failure/refetch.
   // The server remains the authority for every protected operation; this prevents
   // a temporary profile/API error from looking like a real logout in the UI.
-  const user = sessionRecoveryTimedOut
+  const user = sessionRecoveryTimedOut || sessionRecoveryFailed
     ? null
     : meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
@@ -396,7 +413,9 @@ function useAuthController() {
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.
-    error: sessionRecoveryTimedOut
+    error: sessionRecoveryFailed
+      ? SESSION_RECOVERY_FAILED_ERROR
+      : sessionRecoveryTimedOut
       ? SESSION_RECOVERY_TIMEOUT_ERROR
       : meQuery.error ?? (authProfileCheckTimedOut ? AUTH_PROFILE_CHECK_TIMEOUT_ERROR : null),
     isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
@@ -411,10 +430,11 @@ function useAuthController() {
       setAuthProfileCheckTimedOut(false);
       setAuthValidationAttempt((attempt) => attempt + 1);
 
-      if (sessionRecoveryPending || sessionRecoveryTimedOut) {
+      if (sessionRecoveryPending || sessionRecoveryTimedOut || sessionRecoveryFailed) {
         transientSignOutRecovery.current = false;
         setSessionRecoveryPending(true);
         setSessionRecoveryTimedOut(false);
+        setSessionRecoveryFailed(false);
         setSessionReady(true);
         setHasSession(true);
         const recoveredSession = await withTimeoutFallback(
@@ -433,9 +453,21 @@ function useAuthController() {
           setOfflineLeaseUserId(recoveredUserId);
           setSessionRecoveryPending(false);
           setSessionRecoveryTimedOut(false);
+          setSessionRecoveryFailed(false);
           setHasSession(true);
           setSessionReady(true);
           await utils.auth.me.invalidate();
+        }
+        else {
+          // Stop the recovery spinner as soon as a bounded read confirms that
+          // no usable session can be restored. Keep local work untouched.
+          // Require an explicit retry after a completed failed read.
+          transientSignOutRecovery.current = true;
+          setSessionRecoveryPending(false);
+          setSessionRecoveryTimedOut(false);
+          setSessionRecoveryFailed(true);
+          setHasSession(false);
+          setSessionReady(true);
         }
       }
 

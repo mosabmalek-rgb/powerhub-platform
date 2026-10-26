@@ -12,6 +12,16 @@ describe("safe authentication diagnostics", () => {
     expect(hint).not.toContain("private token detail");
   });
 
+  it("explains Supabase refresh rate limiting without exposing raw SDK errors", () => {
+    const wrapped = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("private refresh token payload"), { name: "PowerHubSupabaseRateLimitError" }),
+    };
+    const hint = describeAuthFailure(wrapped);
+    expect(hint).toContain("حدّ Supabase مؤقتًا");
+    expect(hint).not.toContain("private refresh token payload");
+  });
+
   it("recognizes session-token errors wrapped by the RPC client", () => {
     const wrapped = {
       name: "TRPCClientError",
@@ -32,7 +42,7 @@ describe("safe authentication diagnostics", () => {
 
   it("distinguishes a stalled auth profile check from a session read failure", () => {
     expect(describeAuthFailure({ name: "PowerHubAuthProfileCheckTimeoutError" })).toContain("طلب auth.me");
-    expect(describeAuthFailure({ name: "PowerHubSessionRecoveryTimeoutError" })).toContain("انتهت مهلة استعادة جلسة Supabase");
+    expect(describeAuthFailure({ name: "PowerHubSessionRecoveryTimeoutError" })).toContain("لم تصل جلسة صالحة بعد محاولة استعادة Supabase");
   });
 
   it("recognizes device identity errors wrapped by the RPC client", () => {

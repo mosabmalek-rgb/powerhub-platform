@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, useAuth } from "./useAuth";
@@ -46,7 +46,7 @@ vi.mock("@/lib/offline-query-cache", () => ({
 
 function Consumer({ label }: { label: string }) {
   const auth = useAuth();
-  return <><p>{label}: {auth.loading ? "checking" : auth.isAuthenticated ? "authenticated" : "anonymous"}</p>{auth.error && <p>{label}: recoverable-auth-error</p>}</>;
+  return <><p>{label}: {auth.loading ? "checking" : auth.isAuthenticated ? "authenticated" : "anonymous"}</p>{auth.error && <p>{label}: recoverable-auth-error</p>}<button type="button" onClick={() => void auth.refresh()}>retry authentication</button></>;
 }
 
 afterEach(() => {
@@ -212,6 +212,14 @@ describe("shared AuthProvider", () => {
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
+    });
+
+    // A completed read returning null must finish recovery immediately rather
+    // than leave the user on a spinner until the generic timeout.
+    expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
+    expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
+
+    await act(async () => {
       await vi.advanceTimersByTimeAsync(8_001);
     });
 
@@ -224,6 +232,71 @@ describe("shared AuthProvider", () => {
     act(() => authListener?.("SIGNED_OUT", null));
     expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
     expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it("allows an explicit retry to recover after a completed null-session failure", async () => {
+    let authListener: ((event: string, session: { user: { id: string } } | null) => void) | undefined;
+    const liveSession = {
+      user: { id: "user-1" },
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    };
+    let sessionRead: typeof liveSession | null = liveSession;
+    mocks.useQuery.mockReturnValue({
+      data: { id: "user-1", role: "owner" },
+      isPending: false,
+      isSuccess: true,
+      isError: false,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: { id: "user-1", role: "owner" } }),
+    });
+    mocks.getSession.mockImplementation(() => Promise.resolve(sessionRead));
+    mocks.subscribe.mockImplementation((listener: typeof authListener) => {
+      authListener = listener;
+      return vi.fn();
+    });
+    mocks.getLease.mockResolvedValue(null);
+    mocks.getOfflineUser.mockResolvedValue({ id: "user-1", role: "owner" });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
+
+    sessionRead = null;
+    act(() => authListener?.("SIGNED_OUT", null));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
+    expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
+    const readsBeforeRetry = mocks.getSession.mock.calls.length;
+
+    sessionRead = liveSession;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "retry authentication" }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.getSession.mock.calls.length).toBeGreaterThan(readsBeforeRetry);
+    expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
+    expect(screen.queryByText("workspace: recoverable-auth-error")).not.toBeInTheDocument();
     queryClient.clear();
   });
 
