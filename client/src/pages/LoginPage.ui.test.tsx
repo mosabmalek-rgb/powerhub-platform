@@ -6,12 +6,15 @@ import LoginPage from "./LoginPage";
 
 const state = vi.hoisted(() => ({
   setLocation: vi.fn(),
+  useAuth: vi.fn(() => ({ isAuthenticated: false, loading: false })),
   signInWithPassword: vi.fn(),
   probePowerHubConnectivity: vi.fn(),
   signUp: vi.fn(),
   getValidOfflineAuthLease: vi.fn(),
   getOfflineAuthUser: vi.fn(),
 }));
+
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: state.useAuth }));
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
@@ -30,6 +33,8 @@ vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 afterEach(() => {
   cleanup();
   state.setLocation.mockReset();
+  state.useAuth.mockReset();
+  state.useAuth.mockReturnValue({ isAuthenticated: false, loading: false });
   state.signInWithPassword.mockReset();
   state.probePowerHubConnectivity.mockReset();
   state.signUp.mockReset();
@@ -49,6 +54,15 @@ describe("LoginPage", () => {
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "SecurePass123" } });
     fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
+  });
+
+  it("returns to the workspace when a persisted online session is already restored", async () => {
+    state.useAuth.mockReturnValue({ isAuthenticated: true, loading: false });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
+    expect(state.signInWithPassword).not.toHaveBeenCalled();
   });
 
   it("does not let a cached offline lease bypass password sign-in while online", async () => {
