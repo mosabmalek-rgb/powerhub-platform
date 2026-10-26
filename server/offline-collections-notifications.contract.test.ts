@@ -9,6 +9,13 @@ const notificationCenter = readFileSync(resolve(process.cwd(), "client/src/compo
 const subscriberRouter = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const queryCache = readFileSync(resolve(process.cwd(), "client/src/lib/offline-query-cache.ts"), "utf8");
 const main = readFileSync(resolve(process.cwd(), "client/src/main.tsx"), "utf8");
+const billingPage = readFileSync(resolve(process.cwd(), "client/src/pages/BillingPage.tsx"), "utf8");
+const lifecycleMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261026120000_powerhub_trial_subscription_lifecycle.sql"), "utf8");
+const fieldSyncMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261020175000_powerhub_field_sync_notification_contract_fix.sql"), "utf8");
+const notificationMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261020170000_powerhub_unified_notifications.sql"), "utf8");
+const authController = readFileSync(resolve(process.cwd(), "client/src/_core/hooks/useAuth.ts"), "utf8");
+const loginPage = readFileSync(resolve(process.cwd(), "client/src/pages/LoginPage.tsx"), "utf8");
+const adminRuntime = readFileSync(resolve(process.cwd(), "server/admin-runtime.ts"), "utf8");
 
 describe("PowerHub offline collection, opening-reading, and notification contracts", () => {
   it("queues a subscriber with an opening reading as one idempotent subscriber operation", () => {
@@ -47,6 +54,7 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
     expect(collectionIndex).toBeGreaterThan(-1);
     expect(syncIndex).toBe(-1);
     expect(sessionsIndex).toBeGreaterThan(collectionIndex);
+    expect(billingPage).not.toContain("<OfflineWorkSyncPanel");
     expect(readFileSync(resolve(process.cwd(), "client/src/pages/OfflineSyncPage.tsx"), "utf8")).toContain("<OfflineWorkSyncPanel siteId={siteId} userId={user.id} />");
   });
 
@@ -66,6 +74,35 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
     expect(notificationCenter).toContain("powerhub_notification_mark_read");
     expect(notificationCenter).toContain("markChatNotificationRead");
     expect(notificationCenter).toContain("markAnnouncementRead.mutateAsync");
+  });
+
+  it("starts the selected paid package only after trial and honors the selected duration", () => {
+    expect(lifecycleMigration).toContain("trial_ends_at timestamptz");
+    expect(lifecycleMigration).toContain("p_subscription_duration integer DEFAULT 1");
+    expect(lifecycleMigration).toContain("make_interval(months=>p_subscription_duration)");
+    expect(lifecycleMigration).toContain("make_interval(years=>p_subscription_duration)");
+    expect(lifecycleMigration).toContain("trial_ends_at <= now()");
+    expect(lifecycleMigration).toContain("powerhub-subscription-lifecycle");
+    expect(lifecycleMigration).toContain("subscription-trial-ending:");
+    expect(lifecycleMigration).toContain("subscription-ending:");
+    expect(adminRuntime).toContain("p_subscription_duration: normalized.subscriptionDuration");
+  });
+
+  it("creates immediate database notifications for payment documentation and field-app readings", () => {
+    expect(notificationMigration).toContain("powerhub_notify_payment_documentation_request_after_insert");
+    expect(notificationMigration).toContain("powerhub_notify_field_sync_received_after_insert");
+    expect(notificationMigration).toContain("payment_documentation_request");
+    expect(fieldSyncMigration).toContain("new.event_type <> 'sync_cycle'");
+    expect(fieldSyncMigration).toContain("'field_readings_received'");
+    expect(notificationCenter).toContain('supabase.channel("powerhub-notifications-"');
+    expect(notificationCenter).toContain("invalidateQueries({queryKey:[...EVENT_QUERY_KEY,userId]})");
+  });
+
+  it("keeps login in-app and makes logout independent from slow device-release networking", () => {
+    expect(loginPage).toContain('setLocation("/workspace")');
+    expect(loginPage).not.toContain('window.location.assign("/workspace")');
+    expect(authController).toContain("setTimeout(resolve, 1_000)");
+    expect(authController).toContain("setIsLoggingOut(false)");
   });
 
   it("keeps the offline cache scoped and bounded without caching financial or access-sensitive data", () => {
