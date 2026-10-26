@@ -39,7 +39,18 @@ const moduleMeta: Record<Section, { title: string; subtitle: string; icon: typeo
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 const selectClass = `${inputClass} appearance-none`;
 
-function normalizeSubscriberSearch(value: unknown) { return String(value ?? "").normalize("NFKC").toLocaleLowerCase("ar").trim(); }
+function normalizeSubscriberSearch(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ar")
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function formatValue(value: unknown, fractionDigits = 0) {
   const numeric = Number(value ?? 0);
@@ -275,7 +286,7 @@ export default function OperationsPage({ section }: { section: Section }) {
       return queued;
     }
   };
-  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <>{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
+  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} />{canCreateFinancialRecord && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}<CollectorSessionsPanel siteId={siteId!} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
 
 function SubscribersOverview({ data, canManage }: { data: any[]; canManage: boolean }) {
@@ -351,6 +362,8 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
   const [selectedSubscriberId, setSelectedSubscriberId] = useState<number>(initialSubscriberId);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
   const [subscriberSearch, setSubscriberSearch] = useState("");
+  const [subscriberPickerOpen, setSubscriberPickerOpen] = useState(false);
+  const subscriberPickerRef = useRef<HTMLDivElement | null>(null);
   const [collectionFormOpen, setCollectionFormOpen] = useState(false);
   const [collectionAmount, setCollectionAmount] = useState("");
   const [paymentNo, setPaymentNo] = useState(() => `PAY-${Date.now()}`);
@@ -360,13 +373,50 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
   useEffect(()=>{setSelectedInvoiceIds((ids)=>ids.filter((id)=>unpaidInvoicesForSubscriber.some((x:any)=>Number(x.id)===id)));},[selectedSubscriberId,unpaidInvoicesForSubscriber]);
   const selectedInvoicesDue = selectedInvoiceIds.reduce((sum,id)=>sum+Number(unpaidInvoicesForSubscriber.find((x:any)=>Number(x.id)===id)?.balanceDue??0),0);
   useEffect(()=>{setCollectionAmount(selectedInvoiceIds.length ? selectedInvoicesDue.toFixed(2) : "");},[selectedInvoiceIds, selectedInvoicesDue]);
+  const selectedSubscriber = useMemo(
+    () => subscribers.find((subscriber: any) => Number(subscriber.id) === selectedSubscriberId),
+    [subscribers, selectedSubscriberId],
+  );
   const searchedSubscribers = useMemo(() => {
     const query = normalizeSubscriberSearch(subscriberSearch);
-    if (!query) return subscribers;
-    return subscribers.filter((subscriber: any) => [subscriber.fullName, subscriber.phone, subscriber.subscriberNo].some((value) => normalizeSubscriberSearch(value).includes(query)));
+    const words = query.split(/\s+/).filter(Boolean);
+    const matches = subscribers.filter((subscriber: any) => {
+      const searchableText = normalizeSubscriberSearch([
+        subscriber.fullName,
+        subscriber.phone,
+        subscriber.subscriberNo,
+      ].filter(Boolean).join(" "));
+      return words.every((word) => searchableText.includes(word));
+    });
+    const rank = (subscriber: any) => {
+      const name = normalizeSubscriberSearch(subscriber.fullName);
+      const phone = normalizeSubscriberSearch(subscriber.phone);
+      const number = normalizeSubscriberSearch(subscriber.subscriberNo);
+      if (query && number === query) return 0;
+      if (query && phone === query) return 1;
+      if (query && name === query) return 2;
+      if (query && name.startsWith(query)) return 3;
+      if (query && (number.startsWith(query) || phone.startsWith(query))) return 4;
+      return 5;
+    };
+    return matches.sort((a: any, b: any) => rank(a) - rank(b)).slice(0, query ? 30 : 15);
   }, [subscribers, subscriberSearch]);
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!subscriberPickerRef.current?.contains(event.target as Node)) setSubscriberPickerOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+  const chooseSubscriber = (subscriberId: number) => {
+    setSelectedSubscriberId(subscriberId);
+    setSubscriberSearch("");
+    setSubscriberPickerOpen(false);
+    setSelectedInvoiceIds([]);
+    setCollectionAmount("");
+  };
   const resetCollectionForm = (form: HTMLFormElement | null = collectionFormRef.current) => {
-    form?.reset(); setReceiptFile(null); setSubscriberSearch(""); setSelectedSubscriberId(0); setSelectedInvoiceIds([]); setCollectionAmount(""); setPaymentNo(`PAY-${Date.now()}`);
+    form?.reset(); setReceiptFile(null); setSubscriberSearch(""); setSubscriberPickerOpen(false); setSelectedSubscriberId(0); setSelectedInvoiceIds([]); setCollectionAmount(""); setPaymentNo(`PAY-${Date.now()}`);
   };
   const receiverTypes = Array.from(new Set(accounts.map((account: any) => String(account.accountType ?? "")).filter(Boolean)));
   const receiverAccountsForType = accounts.filter((account: any) => paymentReceiverType === "all" || String(account.accountType) === paymentReceiverType);
@@ -507,7 +557,63 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
       </Field>
       {accountsQuery.isLoading ? <p className="mt-2 text-xs text-slate-400">جارٍ تحميل حسابات الشركة…</p> : accountsQuery.isError ? <p role="alert" className="mt-2 text-xs text-rose-200">تعذر تحميل حسابات الشركة. لا يمكن تسجيل التحصيل قبل نجاح التحميل.</p> : !accounts.length ? <p className="mt-2 text-xs text-rose-200">لا توجد حسابات مالية فعالة مرتبطة بهذه المحطة. أضف حسابًا من إدارة حسابات الشركة أولًا.</p> : selectedCompanyAccount?.accountType === "other" ? <p className="mt-2 text-xs text-rose-200">نوع هذا الحساب غير مدعوم كطريقة تحصيل؛ اختر حسابًا نقديًا أو إلكترونيًا مدعومًا.</p> : selectedCompanyAccount ? <p className="mt-2 text-xs text-amber-100">سيُسجل التحصيل في حساب <strong>{selectedCompanyAccount.name}</strong>.</p> : <p className="mt-2 text-xs text-slate-400">اختيار الحساب إلزامي؛ سيظهر الرصيد والحركة على الحساب الذي تحدده.</p>}
     </div>
-    <Field label="بحث المشترك"><input aria-label="بحث المشترك للتحصيل" value={subscriberSearch} onChange={(event) => { setSubscriberSearch(event.target.value); setSelectedSubscriberId(0); setSelectedInvoiceIds([]); setCollectionAmount(""); }} className={inputClass} placeholder="الاسم أو رقم الجوال أو الرقم المرجعي" autoComplete="off" /></Field><Field label="المشترك"><select required name="subscriberId" value={selectedSubscriberId || ""} onChange={(event)=>{setSelectedSubscriberId(Number(event.target.value)||0); setSubscriberSearch(""); setSelectedInvoiceIds([]); setCollectionAmount("");}} className={selectClass}><option value="">اختر المشترك من القائمة</option>{searchedSubscribers.map((x: any) => <option key={x.id} value={x.id}>{x.fullName} — {x.phone ?? "بدون هاتف"} — {x.subscriberNo ?? ""}</option>)}</select></Field><div><label className="text-xs text-slate-400">الفواتير غير المسددة</label><div className="mt-1 rounded-xl border border-white/10 bg-white/[.02] p-3">{selectedSubscriberId && unpaidInvoicesForSubscriber.length?<><div className="mb-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{selectedInvoiceIds.length} محددة من {unpaidInvoicesForSubscriber.length}</span><Button type="button" size="sm" variant="ghost" onClick={()=>setSelectedInvoiceIds(selectedInvoiceIds.length===unpaidInvoicesForSubscriber.length?[]:unpaidInvoicesForSubscriber.map((x:any)=>Number(x.id)))} className="text-[#F5B800]">{selectedInvoiceIds.length===unpaidInvoicesForSubscriber.length?"إلغاء تحديد الكل":"تحديد الكل"}</Button></div><div className="max-h-48 space-y-1 overflow-auto">{unpaidInvoicesForSubscriber.map((x:any)=><label key={x.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[.03]"><input type="checkbox" checked={selectedInvoiceIds.includes(Number(x.id))} onChange={()=>setSelectedInvoiceIds((ids)=>ids.includes(Number(x.id))?ids.filter((id)=>id!==Number(x.id)):[...ids,Number(x.id)])} className="accent-[#F5B800]" /><span className="flex-1 text-sm text-white" dir="ltr">{x.invoiceNo}</span><span className="text-xs text-rose-300">{formatValue(x.balanceDue,2)}</span></label>)}</div></>:<p className="py-3 text-xs text-slate-500">{selectedSubscriberId?"لا توجد فواتير غير مسددة لهذا المشترك.":"اختر المشترك أولاً."}</p>}</div></div><Field label="رقم الإيصال"><input required name="paymentNo" value={paymentNo} onChange={(event) => setPaymentNo(event.target.value)} className={inputClass} dir="ltr" /></Field><Field label="المبلغ"><input required name="amount" type="number" min="0.01" step="0.01" value={collectionAmount} onChange={(event) => setCollectionAmount(event.target.value)} className={inputClass} dir="ltr" /></Field>{canDiscount ? <div className="grid gap-3 rounded-xl border border-white/8 p-3 sm:grid-cols-2"><Field label="خصم يدوي (اختياري)"><input name="manualDiscountAmount" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} dir="ltr" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">يقلل رصيد الفاتورة ولا يُحتسب مبلغًا نقديًا محصّلًا. لا يتجاوز الرصيد المتبقي.</span></Field><Field label="سبب الخصم (إلزامي عند إدخال خصم)"><input name="manualDiscountReason" maxLength={300} className={inputClass} placeholder="مثال: تسوية متفق عليها" /></Field></div> : null}<input type="hidden" name="method" value={selectedCompanyAccount?.accountType ?? ""} />{selectedCompanyAccount && selectedCompanyAccount.accountType !== "cash" && <div className="grid gap-3 rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3 sm:grid-cols-2"><div className="sm:col-span-2 text-xs leading-6 text-amber-200">نوع الحساب المستقبِل المحدد: <strong>{paymentMethodLabel[selectedCompanyAccount.accountType] ?? selectedCompanyAccount.accountType}</strong>. أدخل الحساب الذي جاءت منه الدفعة ونوعه.</div><Field label="الحساب المحوِّل منه"><input required name="transferFromAccount" className={inputClass} dir="ltr" placeholder="+97059xxxxxxx" /></Field><Field label="نوع الحساب المحوِّل"><select required name="transferFromType" className={selectClass}><option value="">اختر النوع</option><option value="jawwal_pay">جوال Pay</option><option value="palpay">PalPay</option><option value="bank_of_palestine">بنك فلسطين</option></select></Field></div>}<Field label="مرجع العملية"><input name="reference" className={inputClass} placeholder="رقم التحويل أو العملية — اختياري" /></Field><div><input id="payment-receipt-image" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => setReceiptFile(event.target.files?.[0] ?? null)} /><label htmlFor="payment-receipt-image" className="flex cursor-pointer items-center justify-between rounded-xl border border-dashed border-white/15 bg-white/[.015] p-3 transition hover:border-[#F5B800]/50"><span className="flex items-center gap-2 text-sm text-slate-300"><ImagePlus className="h-4 w-4 text-[#F5B800]" />{receiptFile ? receiptFile.name : "إرفاق صورة إيصال الدفع (اختياري)"}</span><span className="text-xs text-slate-500">JPG · PNG · WebP · حتى 7MB — تُضغط تلقائيًا قبل الرفع</span></label></div><div className="grid gap-2 sm:grid-cols-2"><Button type="button" variant="outline" onClick={() => resetCollectionForm()} className="border-white/10 text-slate-300">إفراغ الحقول</Button><Button type="submit" disabled={pending || !subscribers.length || !companyAccountId || accountsQuery.isLoading || accountsQuery.isError || selectedCompanyAccount?.accountType === "other"} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تسجيل الدفعة</Button></div><p className="text-xs leading-5 text-amber-100">دون اتصال: تُحفظ الدفعة وصورة الإيصال محلياً ضمن مسودة محكومة بالمستخدم، ولا تُرفع الصورة ولا يتغير الرصيد ولا يصدر إيصال رسمي قبل قبول الخادم للمزامنة.</p></form> : <Empty text="دورك يتيح مراجعة التحصيلات فقط؛ تسجيل الدفعات متاح للمالك والمدير والمحاسب والمحصل." />}</SectionCard>
+    <div className="space-y-1" ref={subscriberPickerRef}>
+      <Field label="المشترك">
+        <div className="relative">
+          <div className="relative">
+            <input
+              aria-label="البحث واختيار المشترك للتحصيل"
+              aria-autocomplete="list"
+              aria-expanded={subscriberPickerOpen}
+              aria-controls="collection-subscriber-options"
+              role="combobox"
+              value={subscriberPickerOpen ? subscriberSearch : selectedSubscriber ? `${selectedSubscriber.fullName} — ${selectedSubscriber.subscriberNo ?? ""}${selectedSubscriber.phone ? ` · ${selectedSubscriber.phone}` : ""}` : subscriberSearch}
+              onFocus={() => { setSubscriberPickerOpen(true); setSubscriberSearch(""); }}
+              onChange={(event) => {
+                setSubscriberSearch(event.target.value);
+                setSubscriberPickerOpen(true);
+                setSelectedSubscriberId(0);
+                setSelectedInvoiceIds([]);
+                setCollectionAmount("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSubscriberPickerOpen(false);
+                } else if (event.key === "Enter" && subscriberPickerOpen && searchedSubscribers.length) {
+                  event.preventDefault();
+                  chooseSubscriber(Number(searchedSubscribers[0].id));
+                }
+              }}
+              className={`${inputClass} pr-10`}
+              placeholder="ابحث واختر بالاسم أو رقم المشترك أو الهاتف..."
+              autoComplete="off"
+            />
+            <button type="button" aria-label={subscriberPickerOpen ? "إغلاق قائمة المشتركين" : "فتح قائمة المشتركين"} onClick={() => { setSubscriberPickerOpen((open) => !open); setSubscriberSearch(""); }} className="absolute inset-y-0 left-0 flex w-10 items-center justify-center text-slate-400 hover:text-white">
+              <ChevronDown className={`h-4 w-4 transition-transform ${subscriberPickerOpen ? "rotate-180" : ""}`} />
+            </button>
+          </div>
+          {subscriberPickerOpen ? <div id="collection-subscriber-options" role="listbox" aria-label="نتائج المشتركين" className="absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-xl border border-white/10 bg-[#111823] p-1 shadow-2xl">
+            {searchedSubscribers.length ? searchedSubscribers.map((subscriber: any) => <button
+              key={subscriber.id}
+              type="button"
+              role="option"
+              aria-selected={Number(subscriber.id) === selectedSubscriberId}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseSubscriber(Number(subscriber.id))}
+              className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-right hover:bg-white/[.06] ${Number(subscriber.id) === selectedSubscriberId ? "bg-white/[.05]" : ""}`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-white">{subscriber.fullName}</span>
+                <span className="mt-1 block truncate text-xs text-slate-400" dir="ltr">{subscriber.subscriberNo ?? "بدون رقم مرجعي"}{subscriber.phone ? ` · ${subscriber.phone}` : ""}</span>
+              </span>
+              {Number(subscriber.id) === selectedSubscriberId ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> : null}
+            </button>) : <p className="px-3 py-5 text-center text-sm text-slate-400">لا توجد نتائج مطابقة. جرّب الاسم أو جزءًا من رقم الهاتف أو الرقم المرجعي.</p>}
+            {searchedSubscribers.length ? <p className="border-t border-white/8 px-3 py-2 text-[11px] text-slate-500">{subscriberSearch.trim() ? `تم العثور على ${searchedSubscribers.length} نتيجة مطابقة.` : "اكتب للبحث أو اختر مشتركًا من القائمة."}</p> : null}
+          </div> : null}
+        </div>
+      </Field>
+      <input type="hidden" name="subscriberId" value={selectedSubscriberId || ""} />
+    </div><div><label className="text-xs text-slate-400">الفواتير غير المسددة</label><div className="mt-1 rounded-xl border border-white/10 bg-white/[.02] p-3">{selectedSubscriberId && unpaidInvoicesForSubscriber.length?<><div className="mb-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{selectedInvoiceIds.length} محددة من {unpaidInvoicesForSubscriber.length}</span><Button type="button" size="sm" variant="ghost" onClick={()=>setSelectedInvoiceIds(selectedInvoiceIds.length===unpaidInvoicesForSubscriber.length?[]:unpaidInvoicesForSubscriber.map((x:any)=>Number(x.id)))} className="text-[#F5B800]">{selectedInvoiceIds.length===unpaidInvoicesForSubscriber.length?"إلغاء تحديد الكل":"تحديد الكل"}</Button></div><div className="max-h-48 space-y-1 overflow-auto">{unpaidInvoicesForSubscriber.map((x:any)=><label key={x.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-white/[.03]"><input type="checkbox" checked={selectedInvoiceIds.includes(Number(x.id))} onChange={()=>setSelectedInvoiceIds((ids)=>ids.includes(Number(x.id))?ids.filter((id)=>id!==Number(x.id)):[...ids,Number(x.id)])} className="accent-[#F5B800]" /><span className="flex-1 text-sm text-white" dir="ltr">{x.invoiceNo}</span><span className="text-xs text-rose-300">{formatValue(x.balanceDue,2)}</span></label>)}</div></>:<p className="py-3 text-xs text-slate-500">{selectedSubscriberId?"لا توجد فواتير غير مسددة لهذا المشترك.":"اختر المشترك أولاً."}</p>}</div></div><Field label="رقم الإيصال"><input required name="paymentNo" value={paymentNo} onChange={(event) => setPaymentNo(event.target.value)} className={inputClass} dir="ltr" /></Field><Field label="المبلغ"><input required name="amount" type="number" min="0.01" step="0.01" value={collectionAmount} onChange={(event) => setCollectionAmount(event.target.value)} className={inputClass} dir="ltr" /></Field>{canDiscount ? <div className="grid gap-3 rounded-xl border border-white/8 p-3 sm:grid-cols-2"><Field label="خصم يدوي (اختياري)"><input name="manualDiscountAmount" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} dir="ltr" /><span className="mt-1 block text-[11px] leading-5 text-slate-500">يقلل رصيد الفاتورة ولا يُحتسب مبلغًا نقديًا محصّلًا. لا يتجاوز الرصيد المتبقي.</span></Field><Field label="سبب الخصم (إلزامي عند إدخال خصم)"><input name="manualDiscountReason" maxLength={300} className={inputClass} placeholder="مثال: تسوية متفق عليها" /></Field></div> : null}<input type="hidden" name="method" value={selectedCompanyAccount?.accountType ?? ""} />{selectedCompanyAccount && selectedCompanyAccount.accountType !== "cash" && <div className="grid gap-3 rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.04] p-3 sm:grid-cols-2"><div className="sm:col-span-2 text-xs leading-6 text-amber-200">نوع الحساب المستقبِل المحدد: <strong>{paymentMethodLabel[selectedCompanyAccount.accountType] ?? selectedCompanyAccount.accountType}</strong>. أدخل الحساب الذي جاءت منه الدفعة ونوعه.</div><Field label="الحساب المحوِّل منه"><input required name="transferFromAccount" className={inputClass} dir="ltr" placeholder="+97059xxxxxxx" /></Field><Field label="نوع الحساب المحوِّل"><select required name="transferFromType" className={selectClass}><option value="">اختر النوع</option><option value="jawwal_pay">جوال Pay</option><option value="palpay">PalPay</option><option value="bank_of_palestine">بنك فلسطين</option></select></Field></div>}<Field label="مرجع العملية"><input name="reference" className={inputClass} placeholder="رقم التحويل أو العملية — اختياري" /></Field><div><input id="payment-receipt-image" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => setReceiptFile(event.target.files?.[0] ?? null)} /><label htmlFor="payment-receipt-image" className="flex cursor-pointer items-center justify-between rounded-xl border border-dashed border-white/15 bg-white/[.015] p-3 transition hover:border-[#F5B800]/50"><span className="flex items-center gap-2 text-sm text-slate-300"><ImagePlus className="h-4 w-4 text-[#F5B800]" />{receiptFile ? receiptFile.name : "إرفاق صورة إيصال الدفع (اختياري)"}</span><span className="text-xs text-slate-500">JPG · PNG · WebP · حتى 7MB — تُضغط تلقائيًا قبل الرفع</span></label></div><div className="grid gap-2 sm:grid-cols-2"><Button type="button" variant="outline" onClick={() => resetCollectionForm()} className="border-white/10 text-slate-300">إفراغ الحقول</Button><Button type="submit" disabled={pending || !subscribers.length || !companyAccountId || accountsQuery.isLoading || accountsQuery.isError || selectedCompanyAccount?.accountType === "other"} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تسجيل الدفعة</Button></div><p className="text-xs leading-5 text-amber-100">دون اتصال: تُحفظ الدفعة وصورة الإيصال محلياً ضمن مسودة محكومة بالمستخدم، ولا تُرفع الصورة ولا يتغير الرصيد ولا يصدر إيصال رسمي قبل قبول الخادم للمزامنة.</p></form> : <Empty text="دورك يتيح مراجعة التحصيلات فقط؛ تسجيل الدفعات متاح للمالك والمدير والمحاسب والمحصل." />}</SectionCard>
     <SectionCard title={`الدفعات (${filteredPayments.length} من ${payments.length})`} className="w-full min-w-0"><div className="mb-4 grid gap-3 rounded-xl border border-white/8 bg-white/[.018] p-3 sm:grid-cols-2 xl:grid-cols-4">
       <label className="text-xs text-slate-400">بحث برقم الحساب أو الإيصال<input aria-label="بحث دفعات برقم الحساب" value={paymentSearch} onChange={(event) => setPaymentSearch(event.target.value)} className={`${inputClass} mt-1 w-full`} placeholder="رقم الحساب المحوِّل أو المستقبِل" /></label>
       <label className="text-xs text-slate-400">الفترة الزمنية<select aria-label="الفترة الزمنية للدفعات" value={paymentPeriod} onChange={(event) => setPaymentPeriod(event.target.value as typeof paymentPeriod)} className={`${inputClass} mt-1 w-full`}><option value="today">اليوم</option><option value="current_cycle">هذه الدورة</option><option value="month_end">آخر الشهر</option><option value="custom">مخصص</option></select></label>
