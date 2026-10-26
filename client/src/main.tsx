@@ -80,11 +80,8 @@ const trpcClient = trpc.createClient({
         ]);
         // Do not trigger SDK token refresh or protected HTTP calls before the
         // initial origin probe succeeds. Offline access remains local-only.
-        if (typeof navigator !== "undefined" && navigator.onLine === false) {
-          const error = new Error("PowerHub is offline; protected requests are deferred.");
-          error.name = "PowerHubOfflineRequestDeferredError";
-          throw error;
-        }
+        // navigator.onLine is only a browser hint; the completed same-origin
+        // health probe below is the authority for PowerHub reachability.
         if (getPowerHubConnectivitySnapshot() !== true) {
           const error = new Error("PowerHub reachability has not been confirmed.");
           error.name = "PowerHubConnectivityUnresolvedError";
