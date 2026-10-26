@@ -151,7 +151,7 @@ const state = vi.hoisted(() => {
         const invoices = recordRows("invoices").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)) && !["cancelled", "draft"].includes(String(row.status)));
         const expenses = recordRows("expenses").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && siteIds.has(Number(row.site_id)));
         const subscriberIds = new Set(subscribers.map(row => Number(row.id)));
-        const failedNotifications = recordRows("notification_messages").filter(row => Number(row.tenant_id) === Number(input.p_tenant_id) && subscriberIds.has(Number(row.subscriber_id)) && row.status === "failed").length;
+        const failedNotifications = recordRows("notification_messages").filter(row => (!("tenant_id" in row) || Number(row.tenant_id) === Number(input.p_tenant_id)) && subscriberIds.has(Number(row.subscriber_id)) && row.status === "failed").length;
         const sum = (rows: Array<Record<string, unknown>>, field: string) => rows.reduce((total, row) => total + Number(row[field] ?? 0), 0);
         const collected = sum(invoices, "paid_amount"), expenseTotal = sum(expenses, "amount");
         return resolved({
