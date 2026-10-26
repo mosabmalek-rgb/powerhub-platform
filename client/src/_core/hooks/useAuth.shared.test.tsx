@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "./useAuth";
 
 const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
+  powerHubReachable: true,
   invalidate: vi.fn(),
   setData: vi.fn(),
   signOut: vi.fn(),
@@ -21,6 +22,10 @@ const mocks = vi.hoisted(() => ({
   renewLease: vi.fn(),
   revokeLease: vi.fn(),
   releaseDevice: vi.fn(),
+}));
+
+vi.mock("@/lib/offline-connectivity", () => ({
+  usePowerHubConnectivity: () => ({ isOnline: mocks.powerHubReachable }),
 }));
 
 vi.mock("@/lib/trpc", () => ({
@@ -61,6 +66,7 @@ afterEach(() => {
   mocks.signOut.mockReset();
   mocks.clearOfflineQueryCache.mockReset();
   mocks.removeOfflineUser.mockReset();
+  mocks.powerHubReachable = true;
   onlineManager.setOnline(true);
   vi.useRealTimers();
 });
