@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
   invalidate: vi.fn(),
   setData: vi.fn(),
+  signOut: vi.fn(),
+  clearOfflineQueryCache: vi.fn(),
+  removeOfflineUser: vi.fn(),
   getSession: vi.fn(),
   isRefreshBackoffActive: vi.fn(() => false),
   subscribe: vi.fn(),
@@ -30,6 +33,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 vi.mock("@/lib/supabase", () => ({
+  supabase: { auth: { signOut: mocks.signOut } },
   getSupabaseSession: mocks.getSession,
   isSupabaseRefreshBackoffActive: mocks.isRefreshBackoffActive,
   subscribeSupabaseAuthState: mocks.subscribe,
@@ -40,13 +44,15 @@ vi.mock("@/lib/offline-auth", () => ({
   revokeOfflineAuthLease: mocks.revokeLease,
 }));
 vi.mock("@/lib/offline-query-cache", () => ({
+  clearOfflineQueryCacheForUser: mocks.clearOfflineQueryCache,
   getOfflineAuthUser: mocks.getOfflineUser,
   persistOfflineAuthUser: mocks.persistOfflineUser,
+  removeOfflineAuthUser: mocks.removeOfflineUser,
 }));
 
 function Consumer({ label }: { label: string }) {
   const auth = useAuth();
-  return <><p>{label}: {auth.loading ? "checking" : auth.isAuthenticated ? "authenticated" : "anonymous"}</p>{auth.error && <p>{label}: recoverable-auth-error</p>}<button type="button" onClick={() => void auth.refresh()}>retry authentication</button></>;
+  return <><p>{label}: {auth.loading ? "checking" : auth.isAuthenticated ? "authenticated" : "anonymous"}</p>{auth.error && <p>{label}: recoverable-auth-error</p>}<button type="button" onClick={() => void auth.refresh()}>retry authentication</button><button type="button" onClick={() => void auth.logout()}>logout authentication</button></>;
 }
 
 afterEach(() => {
@@ -297,6 +303,63 @@ describe("shared AuthProvider", () => {
     expect(mocks.getSession.mock.calls.length).toBeGreaterThan(readsBeforeRetry);
     expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
     expect(screen.queryByText("workspace: recoverable-auth-error")).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it("ends the local session and clears persisted user cache on explicit logout", async () => {
+    let authListener: ((event: string, session: { user: { id: string } } | null) => void) | undefined;
+    const liveSession = {
+      user: { id: "user-1" },
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    };
+    mocks.useQuery.mockReturnValue({
+      data: { id: "user-1", role: "owner" },
+      isPending: false,
+      isSuccess: true,
+      isError: false,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: null }),
+    });
+    mocks.getSession.mockResolvedValue(liveSession);
+    mocks.subscribe.mockImplementation((listener: typeof authListener) => {
+      authListener = listener;
+      return vi.fn();
+    });
+    mocks.getLease.mockResolvedValue({ userId: "user-1", issuedAt: 1, expiresAt: Date.now() + 60_000 });
+    mocks.getOfflineUser.mockResolvedValue({ id: "user-1", role: "owner" });
+    mocks.releaseDevice.mockResolvedValue(undefined);
+    mocks.signOut.mockImplementation(async () => {
+      authListener?.("SIGNED_OUT", null);
+      return { error: null };
+    });
+    mocks.revokeLease.mockResolvedValue(undefined);
+    mocks.clearOfflineQueryCache.mockResolvedValue(undefined);
+    mocks.removeOfflineUser.mockResolvedValue(undefined);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("workspace: authenticated")).toBeInTheDocument());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "logout authentication" }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.signOut).toHaveBeenCalledWith({ scope: "local" });
+    expect(mocks.revokeLease).toHaveBeenCalled();
+    expect(mocks.clearOfflineQueryCache).toHaveBeenCalledWith("user-1");
+    expect(mocks.removeOfflineUser).toHaveBeenCalledWith("user-1");
+    expect(screen.getByText("workspace: anonymous")).toBeInTheDocument();
+    expect(window.localStorage.getItem("powerhub:explicit-logout")).toBeNull();
     queryClient.clear();
   });
 
