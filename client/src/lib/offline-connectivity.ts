@@ -80,6 +80,7 @@ export function usePowerHubConnectivity() {
   // Avoid displaying a false offline banner based solely on the browser hint
   // while the first same-origin reachability probe is still running.
   const [isOnline, setIsOnline] = useState(true);
+  const [initialCheckComplete, setInitialCheckComplete] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
 
   useEffect(() => {
@@ -90,6 +91,7 @@ export function usePowerHubConnectivity() {
       const reachable = await probePowerHubConnectivity();
       if (!active) return;
       setIsOnline(reachable);
+      setInitialCheckComplete(true);
       if (reachable && lastReachable === false) setReconnectGeneration((generation) => generation + 1);
       lastReachable = reachable;
     };
@@ -118,5 +120,5 @@ export function usePowerHubConnectivity() {
     };
   }, []);
 
-  return { isOnline, reconnectGeneration };
+  return { isOnline, isChecking: !initialCheckComplete, reconnectGeneration };
 }
