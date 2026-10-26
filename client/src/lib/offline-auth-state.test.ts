@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isSupabaseSessionUsable,
+  isSessionReadBackoffActive,
+  SUPABASE_SESSION_READ_ERROR_BACKOFF_MS,
   resolveOfflineAuthTransition,
   selectAuthSnapshot,
   shouldClearQueryCacheForAuthTransition,
@@ -92,6 +94,12 @@ describe("auth session snapshot ordering", () => {
 
 
 describe("Supabase browser session refresh policy", () => {
+  it("bounds repeated failed session reads with a deterministic cooldown", () => {
+    expect(SUPABASE_SESSION_READ_ERROR_BACKOFF_MS).toBe(15_000);
+    expect(isSessionReadBackoffActive(20_000, 19_999)).toBe(true);
+    expect(isSessionReadBackoffActive(20_000, 20_000)).toBe(false);
+  });
+
   it("keeps automatic refresh enabled with persisted sessions", () => {
     expect(SUPABASE_BROWSER_AUTH_OPTIONS).toEqual({
       persistSession: true,
