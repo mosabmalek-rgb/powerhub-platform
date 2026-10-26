@@ -25,6 +25,9 @@ const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = Object.assign(new Error(
 const SESSION_RECOVERY_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر استعادة جلسة صالحة بعد محاولة التحقق. أعد المحاولة أو سجّل الدخول مجددًا.",
 ), { name: "PowerHubSessionRecoveryTimeoutError" });
+const SESSION_RECOVERY_FAILED_ERROR = Object.assign(new Error(
+  "تعذر استعادة جلسة صالحة من Supabase. أعد المحاولة أو افتح تسجيل الدخول.",
+), { name: "PowerHubSessionRecoveryFailedError" });
 
 function withTimeoutFallback<T>(promise: Promise<T>, fallback: T, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve) => {
