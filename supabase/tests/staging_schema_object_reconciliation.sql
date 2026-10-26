@@ -222,7 +222,7 @@ DECLARE
     'public.powerhub_admin_attach_generator_owner_provisioning_auth(bigint,uuid,uuid,text)',
     'public.powerhub_admin_cancel_generator_owner_provisioning(bigint,uuid,text,uuid)',
     'public.powerhub_admin_get_generator_owner_provisioning_reconciliation(bigint,uuid,text)',
-    'public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,integer,timestamptz,integer)',
+    'public.powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,integer,text,text,text,timestamptz,integer)',
     'public.powerhub_admin_create_tariff_policy(bigint,numeric,numeric,timestamptz,boolean,text)',
     'public.powerhub_admin_grant_tenant_addon(bigint,bigint,text,integer,text,text,uuid)',
     'public.powerhub_admin_renew_subscription_idempotent(bigint,bigint,integer,text)',
