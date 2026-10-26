@@ -35,7 +35,7 @@ insert into public.notification_messages values (1,1,100,'failed'),(2,1,103,'fai
 \ir ../migrations/20261026101445_powerhub_dashboard_database_aggregates_20261026.sql
 
 do $test$
-declare op jsonb; branch_op jsonb; fin jsonb; fin_kpi_only jsonb;
+declare op jsonb; branch_op jsonb; fin jsonb; fin_kpi_only jsonb; wrong_site_op jsonb; wrong_tenant_fin jsonb;
 begin
   op := public.powerhub_dashboard_operational_summary(1,null);
   if (op->>'branchCount')::integer<>2 or (op->>'subscribers')::integer<>2
@@ -47,6 +47,17 @@ begin
   branch_op := public.powerhub_dashboard_operational_summary(1,10);
   if (branch_op->>'branchCount')::integer<>1 or (branch_op->>'subscribers')::integer<>1
     or (branch_op->'financial'->>'invoiced')::numeric<>255-80 then raise exception 'branch aggregate mismatch: %',branch_op; end if;
+  -- A site belonging to another tenant must never enter an otherwise valid scope.
+  wrong_site_op := public.powerhub_dashboard_operational_summary(1,20);
+  wrong_tenant_fin := public.powerhub_dashboard_financial_overview(2,10,'2026-10-26T12:00:00Z',false);
+  if (wrong_site_op->>'branchCount')::integer<>0
+    or (wrong_site_op->>'subscribers')::integer<>0
+    or (wrong_site_op->'financial'->>'invoiced')::numeric<>0
+    or jsonb_array_length(wrong_tenant_fin->'branchSummaries')<>0
+    or (wrong_tenant_fin->'outstanding'->>'total')::numeric<>0
+    or (wrong_tenant_fin->'month'->>'collected')::numeric<>0
+    then raise exception 'cross-tenant site scope leaked aggregate data: operational %, financial %',wrong_site_op,wrong_tenant_fin; end if;
+
   fin := public.powerhub_dashboard_financial_overview(1,null,'2026-10-26T12:00:00Z');
   if (fin->'today'->>'invoiced')::numeric<>100 or (fin->'today'->>'collected')::numeric<>30
     or (fin->'month'->>'invoiced')::numeric<>255 or (fin->'month'->>'collected')::numeric<>50
@@ -73,6 +84,10 @@ begin
     or has_function_privilege('authenticated','public.powerhub_dashboard_operational_summary(bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_dashboard_operational_summary(bigint,bigint)','EXECUTE')
     then raise exception 'operational RPC grants are incorrect'; end if;
+  if (select proconfig from pg_proc where oid='public.powerhub_dashboard_operational_summary(bigint,bigint)'::regprocedure) is distinct from array['search_path=""']::text[]
+    or (select proconfig from pg_proc where oid='public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)'::regprocedure) is distinct from array['search_path=""']::text[] then
+    raise exception 'aggregate SECURITY DEFINER RPCs must pin an empty search_path';
+  end if;
   if has_function_privilege('anon','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)','EXECUTE')
