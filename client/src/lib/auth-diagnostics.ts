@@ -1,16 +1,31 @@
 type AuthErrorLike = {
   name?: unknown;
+  message?: unknown;
   data?: { code?: unknown } | null;
+  cause?: unknown;
+};
+
+function findAuthError(error: unknown): AuthErrorLike | null {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current && typeof current === "object" && !seen.has(current); depth += 1) {
+    seen.add(current);
+    const candidate = current as AuthErrorLike;
+    if (candidate.name === "PowerHubSessionTokenUnavailableError" ||
+        candidate.name === "PowerHubDeviceIdentityUnavailableError" ||
+        (candidate.data && typeof candidate.data.code === "string")) return candidate;
+    current = candidate.cause;
+  }
+  return error && typeof error === "object" ? error as AuthErrorLike : null;
 };
 
 function errorName(error: unknown): string {
-  return error && typeof error === "object" && typeof (error as AuthErrorLike).name === "string"
-    ? (error as AuthErrorLike).name as string
-    : "";
+  const candidate = findAuthError(error);
+  return typeof candidate?.name === "string" ? candidate.name : "";
 }
 
 function errorCode(error: unknown): string {
-  const data = error && typeof error === "object" ? (error as AuthErrorLike).data : null;
+  const data = findAuthError(error)?.data;
   return data && typeof data.code === "string" ? data.code : "";
 }
 
