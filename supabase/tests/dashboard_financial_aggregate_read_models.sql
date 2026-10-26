@@ -32,7 +32,7 @@ insert into public.expenses values
 (3,1,10,1000,'2025-10-26T10:00:00Z'),(4,2,20,999,'2026-10-26T10:00:00Z');
 insert into public.notification_messages values (1,1,100,'failed'),(2,1,103,'failed'),(3,2,200,'failed');
 
-\ir ../migrations/20261026133000_powerhub_dashboard_database_aggregates.sql
+\ir ../migrations/20261026101445_powerhub_dashboard_database_aggregates_20261026.sql
 
 do $test$
 declare op jsonb; branch_op jsonb; fin jsonb; fin_kpi_only jsonb;
