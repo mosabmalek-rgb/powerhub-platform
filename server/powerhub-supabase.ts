@@ -993,7 +993,7 @@ export async function listSupabaseReportSubscribers(input: {
 
 export async function getSupabaseFinancialOverview(site: SupabaseSite) {
   const admin = supabaseAdmin();
-  const tenantId = Number(site.tenant_id);
+  const tenantId = Number(site.tenantId);
   const aggregate = await admin.rpc("powerhub_dashboard_financial_overview", {
     p_tenant_id: tenantId,
     p_site_id: Number(site.id),
