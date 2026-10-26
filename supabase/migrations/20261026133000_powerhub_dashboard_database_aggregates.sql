@@ -191,7 +191,7 @@ begin
     branch_rows as (
       select ss.id, ss.name,
         (select count(*)::bigint from public.subscribers s
-          where s.tenant_id = p_tenant_id and s.site_id = ss.id and s.service_status = 'active') as active_subscribers,
+          where s.tenant_id = p_tenant_id and s.site_id = ss.id and s.service_status = 'active' and s.archived_at is null) as active_subscribers,
         coalesce((select sum(i.total_amount) from current_month_invoices i where i.site_id = ss.id), 0)::numeric as invoiced,
         coalesce((select sum(p.amount) from payment_window p
           where p.site_id = ss.id and p.paid_at >= v_month_start and p.paid_at < v_next_month_start), 0)::numeric as collected,
@@ -229,6 +229,36 @@ begin
       ) last_payment on true
       order by d.is_overdue desc, d.outstanding desc, d.site_id, d.subscriber_id
       limit 10
+    ),
+    outstanding_invoice_rows as (
+      select i.*,
+        coalesce(s.full_name, 'مشترك') as subscriber_name,
+        coalesce(s.subscriber_no, '—') as subscriber_no,
+        (i.due_date < v_now) as is_overdue,
+        case when i.due_date < v_now then greatest(1, floor(extract(epoch from (v_now - i.due_date)) / 86400)::integer) else 0 end as age_days
+      from open_invoices i
+      left join public.subscribers s
+        on s.id = i.subscriber_id and s.tenant_id = p_tenant_id and s.site_id = i.site_id
+      order by (i.due_date < v_now) desc, i.balance_due desc,
+        greatest(0, floor(extract(epoch from (v_now - i.due_date)) / 86400)::integer) desc,
+        i.id desc
+    ),
+    outstanding_invoices_json as (
+      select coalesce(jsonb_agg(jsonb_build_object(
+        'siteId', i.site_id,
+        'subscriberId', i.subscriber_id,
+        'subscriber', i.subscriber_name,
+        'subscriberNo', i.subscriber_no,
+        'invoiceId', i.id,
+        'invoiceNo', i.invoice_no,
+        'outstanding', i.balance_due,
+        'dueDate', to_char(i.due_date at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        'isOverdue', i.is_overdue,
+        'ageDays', i.age_days,
+        'partialInvoices', case when i.status = 'partially_paid' then 1 else 0 end,
+        'status', i.status
+      ) order by i.is_overdue desc, i.balance_due desc, i.age_days desc, i.id desc), '[]'::jsonb) as value
+      from outstanding_invoice_rows i
     ),
     top_debtors_json as (
       select coalesce(jsonb_agg(jsonb_build_object(
@@ -331,6 +361,7 @@ begin
       ),
       'branchSummaries', (select value from branch_json),
       'topDebtors', (select value from top_debtors_json),
+      'outstandingInvoices', (select value from outstanding_invoices_json),
       'trend', (select value from trend_json)
     )
   );
