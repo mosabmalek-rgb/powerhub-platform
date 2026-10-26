@@ -49,7 +49,7 @@ export function describeAuthFailure(error: unknown): string {
     return "المرحلة: استُخرجت الجلسة، لكن طلب auth.me لم يكتمل خلال المهلة؛ يلزم فحص اتصال API وسجلات الخادم.";
   }
   if (name === "PowerHubSessionRecoveryTimeoutError") {
-    return "المرحلة: انتهت مهلة استعادة جلسة Supabase ولم تصل جلسة صالحة؛ لم يُنفذ تسجيل خروج تلقائي.";
+    return "المرحلة: لم تصل جلسة صالحة بعد محاولة استعادة Supabase؛ لم يُنفذ تسجيل خروج تلقائي. أعد المحاولة أو افتح تسجيل الدخول.";
   }
   if (name === "PowerHubDeviceIdentityUnavailableError") {
     return "المرحلة: تعذر إنشاء معرّف الجهاز أو التحقق من صيغته؛ لم يُرسل طلب API المحمي.";
