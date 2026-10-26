@@ -29,6 +29,13 @@ import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
 import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
+
+function isMissingDashboardAggregateRpc(error: { code?: string; message?: string } | null | undefined, functionName: string) {
+  if (!error) return false;
+  return error.code === "PGRST202"
+    || error.code === "42883"
+    || new RegExp(`could not find .*\${functionName}.*schema cache|function .*\${functionName}.*does not exist`, "i").test(error.message ?? "");
+}
 type SupabaseRpcFailure = { code?: string; message?: string } | null | undefined;
 
 function isDefinitivePostgresRpcFailure(error: SupabaseRpcFailure): boolean {
@@ -3357,7 +3364,7 @@ export const powerhubRouter = router({
         };
       }
       if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_operational_summary")) {
-        logSupabaseDataReadFailure("dashboard.allBranchesSummary.aggregate", aggregate.error);
+        console.error("[PowerHub] dashboard.allBranchesSummary.aggregate failed", { code: aggregate.error.code, message: aggregate.error.message });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص لوحة التشغيل من Supabase." });
       }
       // Migration-first rollout compatibility: use the paged implementation only when the RPC is not installed.
@@ -3422,7 +3429,7 @@ export const powerhubRouter = router({
         return result;
       }
       if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_financial_overview")) {
-        logSupabaseDataReadFailure("dashboard.financialOverview.all.aggregate", aggregate.error);
+        console.error("[PowerHub] dashboard.financialOverview.all.aggregate failed", { code: aggregate.error.code, message: aggregate.error.message });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
       }
       // Keep the paged fallback for databases that have not received the aggregate migration yet.
