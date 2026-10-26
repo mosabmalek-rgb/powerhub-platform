@@ -68,6 +68,13 @@ export const SUPABASE_BROWSER_AUTH_OPTIONS = {
 
 export const SUPABASE_SESSION_REFRESH_LEEWAY_SECONDS = 60;
 
+/** Cool down repeated getSession reads after a failed storage/refresh operation. */
+export const SUPABASE_SESSION_READ_ERROR_BACKOFF_MS = 15_000;
+
+export function isSessionReadBackoffActive(retryAfterMs: number, nowMs = Date.now()): boolean {
+  return retryAfterMs > nowMs;
+}
+
 /** A session is usable for an authenticated request only while its access token is unexpired. */
 export function isSupabaseSessionUsable(
   session: { expires_at?: number } | null | undefined,
