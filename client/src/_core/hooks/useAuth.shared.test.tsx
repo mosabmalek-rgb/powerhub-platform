@@ -58,6 +58,9 @@ function Consumer({ label }: { label: string }) {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mocks.signOut.mockReset();
+  mocks.clearOfflineQueryCache.mockReset();
+  mocks.removeOfflineUser.mockReset();
   onlineManager.setOnline(true);
   vi.useRealTimers();
 });
@@ -350,8 +353,10 @@ describe("shared AuthProvider", () => {
       fireEvent.click(screen.getByRole("button", { name: "logout authentication" }));
       await Promise.resolve();
       await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(mocks.clearOfflineQueryCache).toHaveBeenCalledWith("user-1");
+      expect(mocks.removeOfflineUser).toHaveBeenCalledWith("user-1");
     });
 
     expect(mocks.signOut).toHaveBeenCalledWith({ scope: "local" });
