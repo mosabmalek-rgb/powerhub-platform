@@ -501,9 +501,12 @@ describe("public invoice and inquiry actions", () => {
     expect(paymentPage).toContain("invalidatePaymentDocumentationReview");
     expect(paymentPage).toContain('staleTime: 0, refetchOnMount: "always"');
     const auth = read("client/src/_core/hooks/useAuth.ts");
+    const authState = read("client/src/lib/offline-auth-state.ts");
     expect(auth).toContain("queryClient.clear()");
-    expect(auth).toContain('event === "SIGNED_OUT"');
+    expect(auth).toContain("shouldClearQueryCacheForAuthTransition");
     expect(auth).toContain("identityChanged");
+    expect(authState).toContain("if (explicitLogoutRequested && !nextUserId) return true");
+    expect(authState).toContain("return identityChanged && nextUserId !== null");
   });
 
   it("surfaces billing adjustments on payment documentation and keeps status reads lightweight", () => {
