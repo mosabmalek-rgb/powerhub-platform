@@ -30,6 +30,11 @@ describe("safe authentication diagnostics", () => {
     expect(hint).not.toContain("storage lock details");
   });
 
+  it("distinguishes a stalled auth profile check from a session read failure", () => {
+    expect(describeAuthFailure({ name: "PowerHubAuthProfileCheckTimeoutError" })).toContain("طلب auth.me");
+    expect(describeAuthFailure({ name: "PowerHubSessionRecoveryTimeoutError" })).toContain("انتهت مهلة استعادة جلسة Supabase");
+  });
+
   it("recognizes device identity errors wrapped by the RPC client", () => {
     const wrapped = {
       name: "TRPCClientError",
