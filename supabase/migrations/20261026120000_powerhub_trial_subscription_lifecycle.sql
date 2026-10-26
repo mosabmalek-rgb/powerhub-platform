@@ -24,8 +24,8 @@ create index if not exists tenant_subscriptions_trial_ends_at_idx
   on public.tenant_subscriptions (trial_ends_at)
   where status='trial' and trial_ends_at is not null;
 
-DROP FUNCTION IF EXISTS public.powerhub_admin_complete_generator_owner_provisioning(bigint, uuid, uuid, text, text, text, text, text, text, text, text, text, text, text, text, text, text, text, timestamp with time zone, integer);
-
+-- Keep the previous RPC signature during rollout so the currently deployed server
+-- remains compatible until the application release switches to the new duration-aware signature.
 CREATE FUNCTION public.powerhub_admin_complete_generator_owner_provisioning(p_actor_user_id bigint, p_client_operation_id uuid, p_auth_user_id uuid, p_tenant_name text, p_slug text, p_company_name text, p_owner_name text, p_identity_ciphertext text, p_identity_iv text, p_identity_last4 text, p_owner_phone text, p_owner_whatsapp text, p_owner_email text, p_site_name text, p_site_code text, p_package_code text DEFAULT 'basic'::text, p_billing_cycle text DEFAULT 'monthly'::text, p_subscription_status text DEFAULT 'trial'::text, p_ends_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_trial_duration_days integer DEFAULT 8, p_subscription_duration integer DEFAULT 1)
  RETURNS TABLE(success boolean, tenant_id bigint, owner_user_id bigint, site_id bigint, subscription_id bigint, replayed boolean)
  LANGUAGE plpgsql
