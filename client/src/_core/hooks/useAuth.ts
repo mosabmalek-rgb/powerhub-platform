@@ -71,7 +71,7 @@ function useAuthController() {
   const [sessionRecoveryPending, setSessionRecoveryPending] = useState(false);
   const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
   const [sessionRecoveryFailed, setSessionRecoveryFailed] = useState(false);
-  const { isOnline: powerHubReachable } = usePowerHubConnectivity();
+  const { isOnline: powerHubReachable, isChecking: powerHubConnectivityChecking } = usePowerHubConnectivity();
   const explicitLogoutInProgress = useRef(false);
   const observedUserIdRef = useRef<string | null>(null);
   const transientSignOutRecovery = useRef(false);
@@ -434,7 +434,12 @@ function useAuthController() {
     // permanent loading state. It becomes a recoverable error with a retry path.
     loading: isLoggingOut || !sessionReady ||
       Boolean(hasSession && meQuery.isPending && !authProfileCheckTimedOut) ||
-      Boolean(sessionRecoveryPending && !sessionRecoveryTimedOut),
+      Boolean(sessionRecoveryPending && !sessionRecoveryTimedOut) ||
+      // When a valid signed offline lease and cached profile are already loaded,
+      // wait for the first real reachability result before redirecting to login.
+      // Otherwise a slow/offline health probe can cause /workspace -> /login ->
+      // /workspace loops because the hook starts with an optimistic online value.
+      Boolean(!hasSession && offlineLeaseUserId && cachedUser && powerHubConnectivityChecking),
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.

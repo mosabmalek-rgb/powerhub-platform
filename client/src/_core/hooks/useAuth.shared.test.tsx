@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "./useAuth";
 const mocks = vi.hoisted(() => ({
   useQuery: vi.fn(),
   powerHubReachable: true,
+  powerHubConnectivityChecking: false,
   invalidate: vi.fn(),
   setData: vi.fn(),
   signOut: vi.fn(),
@@ -25,7 +26,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/offline-connectivity", () => ({
-  usePowerHubConnectivity: () => ({ isOnline: mocks.powerHubReachable }),
+  usePowerHubConnectivity: () => ({ isOnline: mocks.powerHubReachable, isChecking: mocks.powerHubConnectivityChecking }),
 }));
 
 vi.mock("@/lib/trpc", () => ({
@@ -67,6 +68,7 @@ afterEach(() => {
   mocks.clearOfflineQueryCache.mockReset();
   mocks.removeOfflineUser.mockReset();
   mocks.powerHubReachable = true;
+  mocks.powerHubConnectivityChecking = false;
   onlineManager.setOnline(true);
   vi.useRealTimers();
 });
@@ -312,6 +314,62 @@ describe("shared AuthProvider", () => {
     expect(mocks.getSession.mock.calls.length).toBeGreaterThan(readsBeforeRetry);
     expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
     expect(screen.queryByText("workspace: recoverable-auth-error")).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it("waits for the first PowerHub connectivity result before deciding an offline lease is unauthenticated", async () => {
+    mocks.powerHubReachable = true;
+    mocks.powerHubConnectivityChecking = true;
+    mocks.useQuery.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      isSuccess: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: undefined }),
+    });
+    mocks.getSession.mockResolvedValue(null);
+    mocks.subscribe.mockReturnValue(vi.fn());
+    mocks.getLease.mockResolvedValue({
+      userId: "user-1",
+      issuedAt: Date.now() - 60_000,
+      expiresAt: Date.now() + 60_000,
+    });
+    mocks.getOfflineUser.mockResolvedValue({ id: "user-1", role: "owner" });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("workspace: checking")).toBeInTheDocument();
+
+    mocks.powerHubReachable = false;
+    mocks.powerHubConnectivityChecking = false;
+    await act(async () => {
+      view.rerender(
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <Consumer label="workspace" />
+          </AuthProvider>
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
+    expect(screen.queryByText("workspace: anonymous")).not.toBeInTheDocument();
     queryClient.clear();
   });
 
