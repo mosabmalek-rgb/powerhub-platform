@@ -186,7 +186,17 @@ function useAuthController() {
         setSessionRecoveryTimedOut(false);
 
         void withTimeoutFallback(getSupabaseSession(), null, SESSION_BOOTSTRAP_TIMEOUT_MS).then((recoveredSession) => {
-          if (!active || transitionRevision !== revision || !recoveredSession?.user.id) return;
+          if (!active || transitionRevision !== revision) return;
+          if (!recoveredSession?.user.id) {
+            // A completed read with no usable session is a failed recovery,
+            // not a reason to keep the route gate pending until its 8s timer.
+            transientSignOutRecovery.current = false;
+            setSessionRecoveryPending(false);
+            setSessionRecoveryTimedOut(true);
+            setHasSession(false);
+            setSessionReady(true);
+            return;
+          }
 
           const recoveredUserId = recoveredSession.user.id;
           if (previousUserId && previousUserId !== recoveredUserId) {
@@ -436,6 +446,15 @@ function useAuthController() {
           setHasSession(true);
           setSessionReady(true);
           await utils.auth.me.invalidate();
+        }
+        else {
+          // Stop the recovery spinner as soon as a bounded read confirms that
+          // no usable session can be restored. Keep local work untouched.
+          transientSignOutRecovery.current = false;
+          setSessionRecoveryPending(false);
+          setSessionRecoveryTimedOut(true);
+          setHasSession(false);
+          setSessionReady(true);
         }
       }
 
