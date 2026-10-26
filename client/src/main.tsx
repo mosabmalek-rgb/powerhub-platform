@@ -2,7 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import superjson from "superjson";
 const App = lazy(() => import("./App"));
 import "./index.css";
