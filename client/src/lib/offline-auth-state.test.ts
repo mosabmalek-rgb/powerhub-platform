@@ -63,11 +63,13 @@ describe("query-cache lifecycle across auth transitions", () => {
     expect(isOfflineCacheWriteCurrent("user-a", 4, null, 4)).toBe(false);
   });
 
-  it("renders the app without waiting for offline bootstrap and does not overwrite live query data", () => {
+  it("restores the local query cache before mounting protected routes with a bounded startup gate", () => {
     const main = readFileSync(new URL("../main.tsx", import.meta.url), "utf8");
     const cache = readFileSync(new URL("./offline-query-cache.ts", import.meta.url), "utf8");
     expect(main).toContain("renderApp();");
-    expect(main).toContain("void bootstrapOfflineState();");
+    expect(main).toContain("Promise.race([bootstrapOfflineState(), deadline])");
+    expect(main.indexOf("Promise.race([bootstrapOfflineState(), deadline])")).toBeLessThan(main.indexOf("<AuthProvider>"));
+    expect(main).toContain("if (standalonePublicInvoice) return;");
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
     expect(main).toContain("isOfflineCacheWriteCurrent(");
     expect(main).toContain("if (!token)");
