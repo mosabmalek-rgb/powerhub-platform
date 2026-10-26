@@ -47,9 +47,13 @@ function ensureAuthSubscription() {
     authStateRevision += 1;
     currentSession = session;
     sessionInitialized = true;
-    // A fresh SDK auth event supersedes cooldown from an earlier failed read.
-    sessionReadRetryAfter = 0;
-    lastSessionReadError = null;
+    // Only a real, usable session proves recovery succeeded. Null events can
+    // arrive during transient refresh failures; they must not bypass the retry
+    // cooldown or erase the failure that the recovery UI needs to explain.
+    if (isSupabaseSessionUsable(session)) {
+      sessionReadRetryAfter = 0;
+      lastSessionReadError = null;
+    }
 
     // Keep the Supabase callback synchronous. Consumers may perform async work
     // after React schedules their state updates; this avoids re-entrancy inside
@@ -109,11 +113,19 @@ export async function getSupabaseSession(): Promise<Session | null> {
       // Supabase's own initialize/refresh lifecycle may have updated the
       // auth listener while this read was waiting for its storage lock.
       if (error) {
-        if (requestRevision === authStateRevision) {
-          lastSessionReadError = error instanceof Error ? error : new Error("Supabase session read failed.");
-          sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
+        // A newer valid session event wins over the failed/stale read. If there
+        // is no usable session, record the failure and throttle retries even if
+        // an unrelated null auth event advanced the revision while it waited.
+        if (isSupabaseSessionUsable(currentSession)) {
+          if (requestRevision === authStateRevision) {
+            lastSessionReadError = null;
+            sessionReadRetryAfter = 0;
+          }
+          return currentSession;
         }
-        return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+        lastSessionReadError = error instanceof Error ? error : new Error("Supabase session read failed.");
+        sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
+        return null;
       }
 
       lastSessionReadError = null;
@@ -127,14 +139,18 @@ export async function getSupabaseSession(): Promise<Session | null> {
       return isSupabaseSessionUsable(currentSession) ? currentSession : null;
     })
     .catch((error: unknown) => {
-      if (requestRevision !== authStateRevision) {
-        return isSupabaseSessionUsable(currentSession) ? currentSession : null;
+      // Keep a newer usable session; never allow a late failed snapshot to
+      // replace it. Otherwise retain the concrete cause and apply cooldown
+      // regardless of revision changes (e.g. a concurrent null INITIAL_SESSION).
+      if (isSupabaseSessionUsable(currentSession)) {
+        if (requestRevision === authStateRevision) {
+          lastSessionReadError = null;
+          sessionReadRetryAfter = 0;
+        }
+        return currentSession;
       }
       lastSessionReadError = error instanceof Error ? error : new Error("Supabase session read failed.");
       sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
-      // Never send an expired bearer token. A subsequent SDK auth event or
-      // focus/reconnect-triggered query can recover without forcing a logout.
-      if (isSupabaseSessionUsable(currentSession)) return currentSession;
       sessionInitialized = true;
       return null;
     })
@@ -149,10 +165,18 @@ export async function getSupabaseSession(): Promise<Session | null> {
 export async function getSupabaseAccessToken() {
   const session = await getSupabaseSession();
   if (!session || !isSupabaseSessionUsable(session)) {
-    if (lastSessionReadError?.name === "PowerHubSessionReadTimeoutError") {
-      const error = new Error("Supabase session restoration timed out before a usable access token was available.");
-      error.name = "PowerHubSessionReadTimeoutError";
-      throw error;
+    const cause = lastSessionReadError as (Error & { code?: unknown; status?: unknown; statusCode?: unknown }) | null;
+    if (cause && (cause.status === 429 || cause.statusCode === 429 || cause.code === "over_request_rate_limit")) {
+      throw Object.assign(new Error("Supabase rate-limited the session refresh request."), {
+        name: "PowerHubSupabaseRateLimitError",
+        cause,
+      });
+    }
+    if (cause?.name === "PowerHubSessionReadTimeoutError") {
+      throw Object.assign(new Error("Supabase session restoration timed out before a usable access token was available."), {
+        name: "PowerHubSessionReadTimeoutError",
+        cause,
+      });
     }
     return null;
   }
