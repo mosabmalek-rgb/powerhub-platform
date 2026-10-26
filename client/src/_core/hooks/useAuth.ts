@@ -1,6 +1,6 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { getOfflineAuthUser, persistOfflineAuthUser } from "@/lib/offline-query-cache";
+import { clearOfflineQueryCacheForUser, getOfflineAuthUser, persistOfflineAuthUser, removeOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition } from "@/lib/offline-auth-state";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
@@ -341,6 +341,12 @@ function useAuthController() {
   }, [meQuery.data]);
 
   const logout = useCallback(async () => {
+    const cachedUserId = cachedUser && typeof cachedUser === "object" &&
+      "id" in cachedUser && typeof cachedUser.id === "string"
+      ? cachedUser.id
+      : null;
+    const userIdToClear = observedUserIdRef.current ?? offlineLeaseUserId ?? cachedUserId;
+
     explicitLogoutInProgress.current = true;
     setIsLoggingOut(true);
     queryClient.clear();
@@ -363,14 +369,29 @@ function useAuthController() {
       await supabaseSignOutSafely().catch(() => undefined);
       setCachedUser(null);
       setOfflineLeaseUserId(null);
-      await revokeOfflineAuthLease();
+      setHasSession(false);
+      setSessionReady(true);
+      setSessionRecoveryPending(false);
+      setSessionRecoveryTimedOut(false);
+      setSessionRecoveryFailed(false);
+
+      // Explicit logout revokes offline authorization and removes this user's
+      // persisted query/profile snapshots for privacy. Durable outbox/draft data
+      // is intentionally untouched so unsynced work is not discarded.
+      const cleanup = [revokeOfflineAuthLease()];
+      if (userIdToClear) {
+        cleanup.push(clearOfflineQueryCacheForUser(userIdToClear));
+        cleanup.push(removeOfflineAuthUser(userIdToClear));
+      }
+      await Promise.all(cleanup.map((operation) => operation.catch(() => undefined)));
+
       try { window.localStorage.removeItem("powerhub:explicit-logout"); } catch { /* best effort */ }
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
       explicitLogoutInProgress.current = false;
       setIsLoggingOut(false);
     }
-  }, [releaseDevice, utils, queryClient]);
+  }, [releaseDevice, utils, queryClient, cachedUser, offlineLeaseUserId]);
 
   // A cached user is useful for offline mode, but must never authorize the
   // online workspace before the current Supabase session has completed a live
