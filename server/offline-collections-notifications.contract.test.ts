@@ -78,7 +78,7 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
 
   it("starts the selected paid package only after trial and honors the selected duration", () => {
     expect(lifecycleMigration).toContain("trial_ends_at timestamptz");
-    expect(lifecycleMigration).toContain("p_subscription_duration integer DEFAULT 1");
+    expect(lifecycleMigration).toContain("p_subscription_duration integer, p_ends_at timestamp with time zone DEFAULT NULL::timestamp with time zone");
     expect(lifecycleMigration).toContain("make_interval(months=>p_subscription_duration)");
     expect(lifecycleMigration).toContain("make_interval(years=>p_subscription_duration)");
     expect(lifecycleMigration).toContain("trial_ends_at <= now()");
