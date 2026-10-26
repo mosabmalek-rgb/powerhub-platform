@@ -136,16 +136,18 @@ async function bootstrapOfflineState() {
   try {
     // Storage hydration is deliberately non-blocking: the authenticated shell
     // and its live queries must render even if IndexedDB/Supabase initialization stalls.
-    const [supabaseModule, offlineAuth, offlineCache, authState] = await Promise.all([
+    const [supabaseModule, offlineAuth, offlineCache, authState, connectivity] = await Promise.all([
       import("./lib/supabase"),
       import("./lib/offline-auth"),
       import("./lib/offline-query-cache"),
       import("./lib/offline-auth-state"),
+      import("./lib/offline-connectivity"),
     ]);
     const { getSupabaseSession, subscribeSupabaseAuthState } = supabaseModule;
     const { getValidOfflineAuthLease } = offlineAuth;
     const { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } = offlineCache;
     const { isOfflineCacheWriteCurrent } = authState;
+    const { probePowerHubConnectivity } = connectivity;
 
     const activateUser = async (nextUserId: string | null) => {
       if (nextUserId === activeOfflineUserId) return;
@@ -284,10 +286,31 @@ async function bootstrapOfflineState() {
       void activateUser(nextUserId);
     });
 
-    // Subscribe before the initial read; a newer auth event always wins over
-    // a delayed snapshot that might otherwise restore the wrong account.
+    // Subscribe before both reads so a newer auth event always wins. Race the
+    // bounded SDK session read with origin reachability: an offline browser
+    // should hydrate its lease/cache without waiting for session recovery.
     const initialRevision = authEventRevision;
-    const session = await getSupabaseSession();
+    const sessionRead = getSupabaseSession();
+    const reachabilityRead = probePowerHubConnectivity();
+    const firstResult = await Promise.race([
+      sessionRead.then((session) => ({ kind: "session" as const, session })),
+      reachabilityRead.then((reachable) => ({ kind: "reachability" as const, reachable })),
+    ]);
+
+    if (firstResult.kind === "reachability" && !firstResult.reachable) {
+      const offlineLease = await getValidOfflineAuthLease();
+      if (initialRevision !== authEventRevision) return;
+      await activateUser(offlineLease?.userId ?? null);
+      // If an online session resolves later, reconcile it only if no newer auth
+      // event has superseded this startup snapshot.
+      void sessionRead.then((session) => {
+        if (!session?.user.id || authEventRevision !== initialRevision) return;
+        void activateUser(session.user.id);
+      }).catch(() => undefined);
+      return;
+    }
+
+    const session = firstResult.kind === "session" ? firstResult.session : await sessionRead;
     if (initialRevision !== authEventRevision) return;
     if (session?.user.id) {
       await activateUser(session.user.id);
