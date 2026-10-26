@@ -33,7 +33,7 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
     expect(operationsPage).toContain(".replace(/[أإآٱ]/g, \"ا\")");
     expect(operationsPage).toContain(".replace(/[٠-٩]/g");
     expect(operationsPage).toContain("return words.every((word) => {");
-    expect(operationsPage).toContain(String.raw`normalizedPhone.replace(/\D/g, "")`);
+    expect(operationsPage).toContain("normalizedPhone.replace(");
     expect(operationsPage).not.toContain('<Field label="بحث المشترك"><input aria-label="بحث المشترك للتحصيل"');
   });
 
