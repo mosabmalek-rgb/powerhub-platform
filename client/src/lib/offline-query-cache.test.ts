@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isOfflineCacheableQueryKey,
+  isDeltaSyncBackedQueryKey,
   isOfflineQueryRecordUsable,
   offlineQueryCacheKey,
 } from "./offline-query-cache";
@@ -82,5 +83,18 @@ describe("offline query cache policy", () => {
         1_000,
       ),
     ).toBe(false);
+  });
+});
+
+
+describe("Delta-backed local snapshots", () => {
+  it("only marks supported whole-list procedures as Delta-backed", () => {
+    expect(isDeltaSyncBackedQueryKey(["powerhub", "sites", "list"])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "list", { siteId: 7 }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub", "readings", "list", { siteId: 7 }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub.tariffs.list", { input: { siteId: 7 }, type: "query" }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub", "schedules", "list", { siteId: 7 }])).toBe(false);
+    expect(isDeltaSyncBackedQueryKey(["powerhub", "payments", "list", { siteId: 7 }])).toBe(false);
+    expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "getById", { siteId: 7, id: 1 }])).toBe(false);
   });
 });
