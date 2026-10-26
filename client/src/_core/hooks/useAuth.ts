@@ -230,6 +230,7 @@ function useAuthController() {
         transientSignOutRecovery.current = false;
         setSessionRecoveryPending(false);
         setSessionRecoveryTimedOut(false);
+        setSessionRecoveryFailed(false);
       }
 
       const transition = resolveOfflineAuthTransition(event, nextUserId, explicitLogoutRequested);
@@ -244,6 +245,7 @@ function useAuthController() {
         transientSignOutRecovery.current = false;
         setSessionRecoveryPending(false);
         setSessionRecoveryTimedOut(false);
+        setSessionRecoveryFailed(false);
         setCachedUser(null);
         setOfflineLeaseUserId(null);
         void revokeOfflineAuthLease();
