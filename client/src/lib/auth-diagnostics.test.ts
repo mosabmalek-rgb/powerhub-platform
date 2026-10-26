@@ -20,6 +20,16 @@ describe("safe authentication diagnostics", () => {
     expect(describeAuthFailure(wrapped)).toContain("Access Token");
   });
 
+  it("recognizes a wrapped Supabase session-read timeout without exposing internals", () => {
+    const wrapped = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("storage lock details"), { name: "PowerHubSessionReadTimeoutError" }),
+    };
+    const hint = describeAuthFailure(wrapped);
+    expect(hint).toContain("انتهت مهلة قراءة جلسة Supabase");
+    expect(hint).not.toContain("storage lock details");
+  });
+
   it("recognizes device identity errors wrapped by the RPC client", () => {
     const wrapped = {
       name: "TRPCClientError",
