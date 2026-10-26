@@ -13,6 +13,8 @@ function findAuthError(error: unknown): AuthErrorLike | null {
     const candidate = current as AuthErrorLike;
     if (candidate.name === "PowerHubSessionTokenUnavailableError" ||
         candidate.name === "PowerHubSessionReadTimeoutError" ||
+        candidate.name === "PowerHubAuthProfileCheckTimeoutError" ||
+        candidate.name === "PowerHubSessionRecoveryTimeoutError" ||
         candidate.name === "PowerHubDeviceIdentityUnavailableError" ||
         (candidate.data && typeof candidate.data.code === "string")) return candidate;
     current = candidate.cause;
@@ -38,6 +40,12 @@ export function describeAuthFailure(error: unknown): string {
   }
   if (name === "PowerHubSessionReadTimeoutError") {
     return "المرحلة: انتهت مهلة قراءة جلسة Supabase قبل استخراج الرمز؛ قد يكون تخزين الجلسة أو قفل التبويبات عالقًا. أُوقفت المحاولة ويمكن إعادة المحاولة.";
+  }
+  if (name === "PowerHubAuthProfileCheckTimeoutError") {
+    return "المرحلة: استُخرجت الجلسة، لكن طلب auth.me لم يكتمل خلال المهلة؛ يلزم فحص اتصال API وسجلات الخادم.";
+  }
+  if (name === "PowerHubSessionRecoveryTimeoutError") {
+    return "المرحلة: انتهت مهلة استعادة جلسة Supabase ولم تصل جلسة صالحة؛ لم يُنفذ تسجيل خروج تلقائي.";
   }
   if (name === "PowerHubDeviceIdentityUnavailableError") {
     return "المرحلة: تعذر إنشاء معرّف الجهاز أو التحقق من صيغته؛ لم يُرسل طلب API المحمي.";
