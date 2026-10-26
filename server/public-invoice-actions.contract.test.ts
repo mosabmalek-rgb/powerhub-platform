@@ -79,7 +79,9 @@ describe("public invoice and inquiry actions", () => {
     expect(main).not.toContain('import App from "./App"');
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) return {};");
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) {");
-    expect(main).toContain("void bootstrapOfflineState().finally(renderApp)");
+    expect(main).toContain("renderApp();");
+    expect(main).toContain("void bootstrapOfflineState();");
+    expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
     expect(main).toContain('register("/sw.js?v=7")');
     const sw = read("client/public/sw.js");
     expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v7"');
