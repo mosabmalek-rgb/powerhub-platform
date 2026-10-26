@@ -10,7 +10,7 @@ const subscriberRouter = readFileSync(resolve(process.cwd(), "server/powerhub.ts
 const queryCache = readFileSync(resolve(process.cwd(), "client/src/lib/offline-query-cache.ts"), "utf8");
 const main = readFileSync(resolve(process.cwd(), "client/src/main.tsx"), "utf8");
 const billingPage = readFileSync(resolve(process.cwd(), "client/src/pages/BillingPage.tsx"), "utf8");
-const lifecycleMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261026120000_powerhub_trial_subscription_lifecycle.sql"), "utf8");
+const lifecycleMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261026101438_powerhub_trial_subscription_lifecycle_20261026.sql"), "utf8");
 const fieldSyncMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261020175000_powerhub_field_sync_notification_contract_fix.sql"), "utf8");
 const notificationMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261020170000_powerhub_unified_notifications.sql"), "utf8");
 const authController = readFileSync(resolve(process.cwd(), "client/src/_core/hooks/useAuth.ts"), "utf8");
@@ -21,7 +21,7 @@ const dashboardPage = readFileSync(resolve(process.cwd(), "client/src/pages/Home
 const dashboardReads = readFileSync(resolve(process.cwd(), "server/powerhub-supabase.ts"), "utf8").split("export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {")[1]?.split("function objectValue(value: unknown)")[0] ?? "";
 const meterReadingsPage = readFileSync(resolve(process.cwd(), "client/src/pages/MeterReadingsPage.tsx"), "utf8");
 const networkDirectoryPage = readFileSync(resolve(process.cwd(), "client/src/pages/NetworkDirectoryPage.tsx"), "utf8");
-const dashboardAggregateMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261026133000_powerhub_dashboard_database_aggregates.sql"), "utf8");
+const dashboardAggregateMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261026101445_powerhub_dashboard_database_aggregates_20261026.sql"), "utf8");
 const dashboardRouter = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 
 describe("PowerHub offline collection, opening-reading, and notification contracts", () => {
