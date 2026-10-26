@@ -991,8 +991,23 @@ export async function listSupabaseReportSubscribers(input: {
   return result;
 }
 
-export async function getSupabaseFinancialOverview(site: SupabaseSite) {
+export async function getSupabaseFinancialOverview(site: SupabaseSite, includeDetails = true) {
   const admin = supabaseAdmin();
+  const tenantId = Number(site.tenantId);
+  const aggregate = await admin.rpc("powerhub_dashboard_financial_overview", {
+    p_tenant_id: tenantId,
+    p_site_id: Number(site.id),
+    p_now: new Date().toISOString(),
+    p_include_details: includeDetails,
+  });
+  if (!aggregate.error) {
+    return dashboardRpcObject(aggregate.data, "dashboard.financialOverview.aggregate");
+  }
+  if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_financial_overview")) {
+    logSupabaseDataReadFailure("dashboard.financialOverview.aggregate", aggregate.error);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي من Supabase." });
+  }
+  // Preserve compatibility until the matching SQL migration is installed.
   // Supabase's configured REST row cap can silently truncate ordinary selects.
   // Read every table in ordered, bounded pages so the debt totals and search workspace are complete.
   const readAllPages = async <T,>(area: string, readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>) => {
@@ -1016,12 +1031,13 @@ export async function getSupabaseFinancialOverview(site: SupabaseSite) {
     readAllPages("dashboard.financialOverview.subscribers", (from, to) => admin.from("subscribers").select("id, full_name, subscriber_no, service_status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
   ]);
   const byId = new Map(subscribers.map((row) => [Number(row.id), row]));
-  return buildFinancialOverview({
+  const overview = buildFinancialOverview({
     branches: [{ id: site.id, name: site.name, activeSubscribers: subscribers.filter((row) => row.service_status === "active").length }],
     invoices: invoices.map((row) => ({ id: Number(row.id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), subscriberName: byId.get(Number(row.subscriber_id))?.full_name ?? "مشترك", subscriberNo: byId.get(Number(row.subscriber_id))?.subscriber_no ?? "—", invoiceNo: row.invoice_no, issueDate: new Date(row.issue_date), dueDate: new Date(row.due_date), totalAmount: Number(row.total_amount), paidAmount: Number(row.paid_amount), balanceDue: Number(row.balance_due), status: row.status })),
     payments: payments.map((row) => ({ siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), amount: Number(row.amount), status: row.status, paidAt: new Date(row.paid_at) })),
     expenses: expenses.map((row) => ({ siteId: Number(row.site_id), amount: Number(row.amount), occurredAt: new Date(row.occurred_at) })),
   });
+  return includeDetails ? overview : { ...overview, outstandingInvoices: [] };
 }
 
 export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; from?: Date | null; to?: Date | null }) {
@@ -1076,32 +1092,50 @@ function logSupabaseDataReadFailure(area: string, error: { message: string; code
   });
 }
 
+function isMissingDashboardAggregateRpc(error: { code?: string; message?: string } | null | undefined, functionName: string) {
+  if (!error) return false;
+  return error.code === "PGRST202"
+    || error.code === "42883"
+    || new RegExp(`could not find .*${functionName}.*schema cache|function .*${functionName}.*does not exist`, "i").test(error.message ?? "");
+}
+
+function dashboardRpcObject(data: unknown, area: string): Record<string, unknown> {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `تعذر تحميل بيانات لوحة التحكم من Supabase (${area}).` });
+  }
+  return data as Record<string, unknown>;
+}
+
 export async function getSupabaseDashboardSummary(siteId: number, tenantId: number) {
   const admin = supabaseAdmin();
-  const [subscriberResult, generatorResult, invoiceResult, expenseResult] = await Promise.all([
-    admin.from("subscribers").select("id, service_status", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null),
-    admin.from("generators").select("status", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
-    admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft"),
-    admin.from("expenses").select("amount", { count: "exact" }).eq("tenant_id", tenantId).eq("site_id", siteId),
-  ]);
-  const initialReadErrors = [
-    ["subscribers", subscriberResult.error],
-    ["generators", generatorResult.error],
-    ["invoices", invoiceResult.error],
-    ["expenses", expenseResult.error],
-  ] as const;
-  const failedInitialReads = initialReadErrors.filter(([, error]) => Boolean(error));
-  if (failedInitialReads.length) {
-    for (const [table, error] of failedInitialReads) {
-      if (error) logSupabaseDataReadFailure(`dashboard.summary.${table}`, error);
-    }
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `تعذر تحميل مؤشرات لوحة التشغيل من Supabase: ${failedInitialReads.map(([table]) => table).join("، ")}.`,
-    });
+  const aggregate = await admin.rpc("powerhub_dashboard_operational_summary", { p_tenant_id: tenantId, p_site_id: siteId });
+  if (!aggregate.error) {
+    const result = dashboardRpcObject(aggregate.data, "dashboard.summary.aggregate");
+    return {
+      subscribers: Number(result.subscribers ?? 0),
+      generators: {
+        active: Number(objectValue(result.generators).active ?? 0),
+        maintenance: Number(objectValue(result.generators).maintenance ?? 0),
+      },
+      financial: {
+        invoiced: Number(objectValue(result.financial).invoiced ?? 0),
+        collected: Number(objectValue(result.financial).collected ?? 0),
+        outstanding: Number(objectValue(result.financial).outstanding ?? 0),
+        expenses: Number(objectValue(result.financial).expenses ?? 0),
+        operatingProfit: Number(objectValue(result.financial).operatingProfit ?? 0),
+      },
+      energyKwh: Number(result.energyKwh ?? 0),
+      failedNotifications: Number(result.failedNotifications ?? 0),
+    };
   }
-  // Supabase returns at most its configured page size for ordinary selects. Read all matching
-  // rows in bounded pages so dashboard totals do not silently truncate at 1,000 records.
+  if (!isMissingDashboardAggregateRpc(aggregate.error, "powerhub_dashboard_operational_summary")) {
+    logSupabaseDataReadFailure("dashboard.summary.aggregate", aggregate.error);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص لوحة التحكم من Supabase." });
+  }
+  // Compatibility during a migration-first rollout: use the existing paged path
+  // only when the aggregate function has not yet been installed, never on data/permission errors.
+  // Avoid a preliminary round of SELECTs whose rows were discarded before the
+  // complete paged reads below. The dashboard only needs these four projections.
   const readAllPages = async <T,>(area: string, readPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>) => {
     const result: T[] = [];
     for (let from = 0; ; from += 1000) {
@@ -1116,10 +1150,12 @@ export async function getSupabaseDashboardSummary(siteId: number, tenantId: numb
     }
     return result;
   };
-  const subscriberRows = await readAllPages("dashboard.summary.subscribers", (from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null).order("id", { ascending: true }).range(from, to));
-  const generatorRows = await readAllPages("dashboard.summary.generators", (from, to) => admin.from("generators").select("status").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
-  const invoiceRows = await readAllPages("dashboard.summary.invoices", (from, to) => admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to));
-  const expenseRows = await readAllPages("dashboard.summary.expenses", (from, to) => admin.from("expenses").select("amount").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to));
+  const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([
+    readAllPages("dashboard.summary.subscribers", (from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", tenantId).eq("site_id", siteId).is("archived_at", null).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.summary.generators", (from, to) => admin.from("generators").select("status").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.summary.invoices", (from, to) => admin.from("invoices").select("total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", tenantId).eq("site_id", siteId).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.summary.expenses", (from, to) => admin.from("expenses").select("amount").eq("tenant_id", tenantId).eq("site_id", siteId).order("id", { ascending: true }).range(from, to)),
+  ]);
   const subscriberIds = subscriberRows.map((row) => Number((row as { id: number }).id)).filter(Number.isInteger);
   const notificationRows = await readAllPages("dashboard.summary.notifications", (from, to) => admin.from("notification_messages").select("status").eq("tenant_id", tenantId).in("subscriber_id", subscriberIds.length ? subscriberIds : [-1]).order("id", { ascending: true }).range(from, to));
   const activeSubscribers = subscriberRows.filter((row) => (row as { service_status: string }).service_status === "active").length;

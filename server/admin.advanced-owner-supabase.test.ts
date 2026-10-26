@@ -169,9 +169,9 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
   });
 
   it("يمرر مدة تجربة مخصصة إلى المعاملة الذرية", async () => {
-    await expect(caller().createGeneratorOwnerSubscription({ ...input, trialEnabled: true, trialDurationDays: 21 })).resolves.toMatchObject({ subscription_id: 404 });
+    await expect(caller().createGeneratorOwnerSubscription({ ...input, trialEnabled: true, trialDurationDays: 21, subscriptionDuration: 12 })).resolves.toMatchObject({ subscription_id: 404 });
     expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_complete_generator_owner_provisioning", expect.objectContaining({
-      p_trial_duration_days: 21, p_subscription_status: "trial",
+      p_trial_duration_days: 21, p_subscription_status: "trial", p_subscription_duration: 12,
     }));
   });
 
