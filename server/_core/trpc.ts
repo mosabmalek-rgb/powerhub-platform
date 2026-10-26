@@ -60,6 +60,9 @@ async function enforceSingleDeviceSession(ctx: TrpcContext) {
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
 
+  if (ctx.authError) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الدخول مؤقتًا. أعد المحاولة." });
+  }
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
@@ -196,6 +199,9 @@ export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
+    if (ctx.authError) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الدخول مؤقتًا. أعد المحاولة." });
+    }
     if (!isActivePlatformAdmin(ctx.user)) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
