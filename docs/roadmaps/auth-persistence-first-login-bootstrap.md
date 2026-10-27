@@ -357,3 +357,13 @@ type AuthDeviceContext = {
 - **بوابات CI عند مراجعة الرأس `92ddba5b431171439acf715843eaae85ef1b16a9`:** PowerHub CI (`40407835059`)، PowerHub Security (`40407835169`)، Supabase Admin Guard (`40407835029`) وReading Cycle PostgreSQL Integration (`40407835024`) جميعها `success`. CodeQL وDependency Review لا يُحسبان نجاحًا ما داما `skipped`.
 - **خطوة المعاينة الصحيحة:** عند طلب نشر/اختيار فرع في Vercel، اختر أو أدخل `feat/auth-local-first-single-pr` فقط؛ لا تستخدم عنوان PR أو رسالة commit كاسم فرع. لا نغيّر إعدادات المشروع أو قاعدة البيانات بسبب خطأ اختيار الاسم.
 - **ما يزال مفتوحًا:** نشر معاينة من أحدث SHA بعد التحديث التوثيقي عند الحاجة، والتحقق الحي من login/reload/browser restart/offline/reconnect وقياس refresh متعدد التبويبات. لا يُدمج PR بناءً على نجاح CI وحده.
+
+
+## متابعة — نتيجة معاينة Vercel واختبار الصحة (2026-10-27)
+
+- **نشر المعاينة:** نجح النشر إلى `READY` في بيئة `staging` على deployment ID `dpl_FU26RzWdNp4LianVVcQzSCUio2Lr`, من الفرع الصحيح `feat/auth-local-first-single-pr` وعلى SHA `73b054d8af25ad0ad5faba43a3abdbc65dd5966f`.
+- **رابط المعاينة:** https://powerhub-platform-epx64az2w-mosabmalek-rgb.vercel.app
+- **اختبار الصحة:** الصفحة الرئيسية أعادت HTTP 200، و`/api/health` أعاد HTTP 200 مع `{"status":"ok","service":"powerhub-platform"}`. هذا يثبت أن الحزمة منشورة وتستجيب؛ لا يثبت صحة المصادقة أو استعادة بيانات المستخدم.
+- **CI على SHA النشر:** PowerHub Security (`40475855318`)، Supabase Admin Guard (`40475855436`)، وReading Cycle PostgreSQL Integration (`40475855368`) اجتازت جميعها. PowerHub CI (`40475855441`) كان لا يزال `in_progress` في خطوة `Run tests` عند آخر تحقق؛ TypeScript check نجح، ولم تتوفر سجلات الاختبار أثناء التنفيذ. لا يُعد ذلك نجاحًا كاملًا.
+- **بوابات القبول المفتوحة:** تأكيد PowerHub CI على أحدث رأس نهائي، ثم اختبار متصفح فعلي لتسجيل الدخول وإعادة الفتح والعمل Offline وإعادة الاتصال وmulti-tab refresh. لا تغييرات على الإنتاج أو قاعدة البيانات؛ PR #359 ما زال مفتوحًا وDraft.
+- **تنبيه رأس الفرع:** أي تحديث توثيقي بعد هذه النقطة يغير SHA الفرع ويستلزم التحقق من حالة CI الجديدة؛ لا يُستنتج نجاح CI على SHA لاحق من نجاحه على SHA سابق.
