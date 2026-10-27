@@ -518,7 +518,7 @@ export const powerhubRouter = router({
   deltaSync: router({
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments"]),
       afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
       throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
       pageSize: z.number().int().min(1).max(500).default(200),
@@ -532,6 +532,7 @@ export const powerhubRouter = router({
         readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         tariffs: ["owner", "manager", "accountant", "viewer"],
         invoices: ["owner", "manager", "accountant", "collector", "viewer"],
+        payments: ["owner", "manager", "accountant", "collector", "viewer"],
       } as const;
       const access = await requireSupabaseSiteRole(
         ctx.user.id,
@@ -574,7 +575,7 @@ export const powerhubRouter = router({
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments"]),
     })).query(async ({ ctx, input }) => {
       const readRolesByEntity = {
         sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
@@ -583,6 +584,7 @@ export const powerhubRouter = router({
         readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         tariffs: ["owner", "manager", "accountant", "viewer"],
         invoices: ["owner", "manager", "accountant", "collector", "viewer"],
+        payments: ["owner", "manager", "accountant", "collector", "viewer"],
       } as const;
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_sync_snapshot", {

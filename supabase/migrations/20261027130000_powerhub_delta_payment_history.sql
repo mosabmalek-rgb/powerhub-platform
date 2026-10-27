@@ -154,9 +154,33 @@ as $$
   end
 $$;
 alter function public.powerhub_delta_sync_project_row(text,jsonb) owner to postgres;
+revoke all on function public.powerhub_delta_sync_project_payment(bigint,bigint,bigint) from public,anon,authenticated;
 revoke all on function public.powerhub_delta_sync_project_row(text,jsonb) from public,anon,authenticated;
 grant execute on function public.powerhub_delta_sync_project_row(text,jsonb) to service_role;
 
+
+-- Joined page projection: scoped payment + subscriber + invoice label; omit receipt secrets.
+create or replace function public.powerhub_delta_sync_project_payment(
+  p_tenant_id bigint, p_site_id bigint, p_payment_id bigint
+) returns jsonb
+language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+  select jsonb_build_object(
+    'id', p.id, 'tenant_id', p.tenant_id, 'site_id', p.site_id,
+    'payment', public.powerhub_delta_sync_project_row('payments', to_jsonb(p)),
+    'subscriber', public.powerhub_delta_sync_project_row('subscribers', to_jsonb(s)),
+    'invoice_no', i.invoice_no
+  )
+  from public.payments p
+  join public.sites site_scope on site_scope.id=p.site_id and site_scope.tenant_id=p.tenant_id
+  join public.subscribers s on s.id=p.subscriber_id and s.tenant_id=p.tenant_id and s.site_id=p.site_id
+  left join public.invoices i on i.id=p.invoice_id and i.tenant_id=p.tenant_id and i.site_id=p.site_id
+  where p.id=p_payment_id and p.tenant_id=p_tenant_id and p.site_id=p_site_id;
+$;
+alter function public.powerhub_delta_sync_project_payment(bigint,bigint,bigint) owner to postgres;
+revoke all on function public.powerhub_delta_sync_project_payment(bigint,bigint,bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_delta_sync_project_payment(bigint,bigint,bigint) to service_role;
 
 create or replace function public.powerhub_get_sync_snapshot(
   p_tenant_id bigint, p_site_id bigint, p_entity_type text
@@ -209,7 +233,7 @@ begin
         into v_rows from public.invoices i
         where i.tenant_id=p_tenant_id and i.site_id=p_site_id;
     when 'payments' then
-      select coalesce(jsonb_agg(public.powerhub_delta_sync_project_row('payments',to_jsonb(p))
+      select coalesce(jsonb_agg(public.powerhub_delta_sync_project_payment(p_tenant_id,p_site_id,p.id)
         order by p.paid_at desc,p.id desc),'[]'::jsonb)
         into v_rows
       from public.payments p
@@ -317,7 +341,14 @@ begin
       if coalesce(v_new ->> 'archived_at', '') <> '' then
         perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'delete', null);
       else
-        v_projected_new := public.powerhub_delta_sync_project_row(v_entity_type, v_new);
+        if TG_TABLE_NAME = 'payments' then
+          v_projected_new := public.powerhub_delta_sync_project_payment(v_new_tenant, v_new_site, nullif(v_new ->> 'id', '')::bigint);
+          if v_projected_new is null then
+            raise exception 'POWERHUB_SYNC_PAYMENT_PROJECTION_MISSING' using errcode = 'P0001';
+          end if;
+        else
+          v_projected_new := public.powerhub_delta_sync_project_row(v_entity_type, v_new);
+        end if;
         perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'upsert', v_projected_new);
       end if;
     end if;
@@ -351,7 +382,14 @@ begin
         perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'delete', null);
       end if;
     else
-      v_projected_new := public.powerhub_delta_sync_project_row(v_entity_type, v_new);
+      if TG_TABLE_NAME = 'payments' then
+          v_projected_new := public.powerhub_delta_sync_project_payment(v_new_tenant, v_new_site, nullif(v_new ->> 'id', '')::bigint);
+          if v_projected_new is null then
+            raise exception 'POWERHUB_SYNC_PAYMENT_PROJECTION_MISSING' using errcode = 'P0001';
+          end if;
+        else
+          v_projected_new := public.powerhub_delta_sync_project_row(v_entity_type, v_new);
+        end if;
       perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, v_entity_type, v_new ->> 'id', 'upsert', v_projected_new);
     end if;
   end if;

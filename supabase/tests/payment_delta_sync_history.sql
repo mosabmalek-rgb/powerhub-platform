@@ -81,26 +81,30 @@ begin
   if v_snapshot->>'snapshot_cursor' is distinct from '1'
     or jsonb_array_length(v_snapshot->'rows') <> 1
     or v_snapshot #>> '{rows,0,id}' is distinct from '900'
-    or v_snapshot #>> '{rows,0,amount}' is distinct from '25'
-    or v_snapshot #>> '{rows,0,has_receipt_image}' is distinct from 'true'
-    or v_snapshot #> '{rows,0,receipt_image_key}' is not null
-    or v_snapshot #> '{rows,0,receipt_image_hash}' is not null then
+    or v_snapshot #>> '{rows,0,payment,amount}' is distinct from '25'
+    or v_snapshot #>> '{rows,0,payment,has_receipt_image}' is distinct from 'true'
+    or v_snapshot #> '{rows,0,payment,receipt_image_key}' is not null
+    or v_snapshot #> '{rows,0,payment,receipt_image_hash}' is not null
+     or v_snapshot #>> '{rows,0,subscriber,full_name}' is distinct from 'Subscriber One'
+     or v_snapshot #>> '{rows,0,invoice_no}' is distinct from 'INV-TEST-501' then
     raise exception 'Payment snapshot or receipt secret filter failed: %',v_snapshot;
   end if;
 
   v_delta := public.powerhub_pull_sync_delta(1,10,'payments',0,null,200);
   if jsonb_array_length(v_delta->'changes') <> 1
     or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
-    or v_delta #>> '{changes,0,row_data,amount}' is distinct from '25'
-    or v_delta #> '{changes,0,row_data,receipt_image_key}' is not null then
+    or v_delta #>> '{changes,0,row_data,payment,amount}' is distinct from '25'
+    or v_delta #> '{changes,0,row_data,payment,receipt_image_key}' is not null
+     or v_delta #>> '{changes,0,row_data,subscriber,full_name}' is distinct from 'Subscriber One'
+     or v_delta #>> '{changes,0,row_data,invoice_no}' is distinct from 'INV-TEST-501' then
     raise exception 'Payment insert Delta failed: %',v_delta;
   end if;
 
   update public.payments set amount=30,status='corrected',reference_no='REF-900' where id=900;
   v_delta := public.powerhub_pull_sync_delta(1,10,'payments',1,null,200);
   if jsonb_array_length(v_delta->'changes') <> 1
-    or v_delta #>> '{changes,0,row_data,amount}' is distinct from '30'
-    or v_delta #>> '{changes,0,row_data,status}' is distinct from 'corrected' then
+    or v_delta #>> '{changes,0,row_data,payment,amount}' is distinct from '30'
+    or v_delta #>> '{changes,0,row_data,payment,status}' is distinct from 'corrected' then
     raise exception 'Payment update Delta failed: %',v_delta;
   end if;
 
