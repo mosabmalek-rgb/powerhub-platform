@@ -79,6 +79,59 @@ async function withStore<T>(storeName: string, mode: IDBTransactionMode, action:
   });
 }
 
+
+// Unlike the best-effort cache helpers, Delta checkpoints must wait for the
+// IndexedDB transaction's complete event. A request's onsuccess can fire before
+// the transaction commits and therefore is not, by itself, proof of durability.
+async function withCommittedStore<T>(
+  storeName: string,
+  mode: IDBTransactionMode,
+  action: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  const database = await openDatabase();
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let requestSucceeded = false;
+    let requestResult: T;
+    let transaction: IDBTransaction | undefined;
+
+    const closeDatabase = () => {
+      try { database.close(); } catch { /* closing is best effort after settlement */ }
+    };
+    const fail = (reason: unknown, fallback: string) => {
+      if (settled) return;
+      settled = true;
+      closeDatabase();
+      reject(reason instanceof Error ? reason : new Error(fallback));
+    };
+
+    try {
+      transaction = database.transaction(storeName, mode);
+      const request = action(transaction.objectStore(storeName));
+      request.onsuccess = () => {
+        requestSucceeded = true;
+        requestResult = request.result;
+      };
+      request.onerror = () => fail(request.error, "تعذر تنفيذ طلب التخزين المحلي الإلزامي.");
+      transaction.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        closeDatabase();
+        if (!requestSucceeded) {
+          reject(new Error("اكتملت معاملة التخزين دون نجاح طلب الحفظ المطلوب."));
+          return;
+        }
+        resolve(requestResult);
+      };
+      transaction.onerror = () => fail(transaction.error, "فشلت معاملة التخزين المحلي الإلزامي.");
+      transaction.onabort = () => fail(transaction.error, "أُلغيت معاملة التخزين المحلي الإلزامي.");
+    } catch (error) {
+      try { transaction?.abort(); } catch { /* transaction may not have started */ }
+      fail(error, "تعذر بدء معاملة التخزين المحلي الإلزامي.");
+    }
+  });
+}
+
 async function deleteQueryCacheKeys(keys: readonly string[]) {
   if (!keys.length) return;
   const database = await openDatabase();
@@ -188,14 +241,28 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   }) };
 }
 
-export async function persistOfflineQuery(query: Query, userId: string, now = Date.now()) {
-  if (query.state.status !== "success" || query.state.data === undefined) return;
-  if (!isOfflineCacheableQueryKey(query.queryKey)) return;
+async function persistOfflineQueryWithPolicy(
+  query: Query,
+  userId: string,
+  now: number,
+  requiredForDeltaSync: boolean,
+): Promise<void> {
+  if (query.state.status !== "success" || query.state.data === undefined) {
+    if (requiredForDeltaSync) throw new Error("لا يمكن تثبيت مؤشر Delta دون بيانات استعلام ناجحة قابلة للحفظ.");
+    return;
+  }
+  if (!isOfflineCacheableQueryKey(query.queryKey)) {
+    if (requiredForDeltaSync) throw new Error("استعلام Delta المطلوب غير مصرح بحفظه في الكاش المحلي.");
+    return;
+  }
 
   const serializedQueryKey = offlineQueryCacheKey(query.queryKey);
   const safeData = sanitizeOfflineQueryData(query.queryKey, query.state.data);
   const serializedData = superjson.stringify(safeData);
   if (new TextEncoder().encode(serializedData).byteLength > OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES) {
+    if (requiredForDeltaSync) {
+      throw new Error("تجاوزت نسخة Delta الحد الأقصى لحجم سجل الكاش المحلي؛ لم يُثبّت المؤشر.");
+    }
     await deleteQueryCacheKeys([userId + ":" + serializedQueryKey]).catch(() => undefined);
     return;
   }
@@ -211,15 +278,41 @@ export async function persistOfflineQuery(query: Query, userId: string, now = Da
   };
 
   try {
-    await withStore("queries", "readwrite", (store) => store.put(record));
-    successfulWritesSincePrune += 1;
-    if (successfulWritesSincePrune >= 20) {
-      successfulWritesSincePrune = 0;
-      void pruneOfflineQueryCache(now);
+    if (requiredForDeltaSync) {
+      await withCommittedStore("queries", "readwrite", (store) => store.put(record));
+    } else {
+      await withStore("queries", "readwrite", (store) => store.put(record));
     }
-  } catch {
+    // Do not launch cache pruning from the required path before the Delta cursor
+    // is committed. Maintenance stays attached to ordinary best-effort writes.
+    if (!requiredForDeltaSync) {
+      successfulWritesSincePrune += 1;
+      if (successfulWritesSincePrune >= 20) {
+        successfulWritesSincePrune = 0;
+        void pruneOfflineQueryCache(now);
+      }
+    }
+  } catch (error) {
+    if (requiredForDeltaSync) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`تعذر حفظ نسخة الكاش المطلوبة قبل تثبيت مؤشر Delta: ${detail}`);
+    }
     // Offline persistence is an enhancement; never let it break the live query.
   }
+}
+
+/** Best-effort persistence for ordinary successful queries; storage failure never blocks live UX. */
+export async function persistOfflineQuery(query: Query, userId: string, now = Date.now()) {
+  await persistOfflineQueryWithPolicy(query, userId, now, false);
+}
+
+/**
+ * Mandatory durable persistence for a query snapshot that is about to be
+ * checkpointed by Delta sync. Rejects if the record cannot be saved or its
+ * IndexedDB transaction fails, including an abort after request.onsuccess.
+ */
+export async function persistOfflineQueryForDeltaSync(query: Query, userId: string, now = Date.now()) {
+  await persistOfflineQueryWithPolicy(query, userId, now, true);
 }
 
 export async function clearOfflineQueryCacheForUser(userId: string) {
