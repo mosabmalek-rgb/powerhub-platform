@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261024140000_powerhub_delta_sync_engine.sql"), "utf8");
 const invoiceMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027110000_powerhub_delta_invoice_history.sql"), "utf8");
+const paymentMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027130000_powerhub_delta_payment_history.sql"), "utf8");
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-delta-sync.ts"), "utf8");
 
@@ -35,7 +36,7 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments"])');
     expect(router).toContain("requireSupabaseSiteRole(");
     expect(router).toContain('supabaseAdmin().rpc("powerhub_pull_sync_delta"');
     expect(router).toContain("input.pageSize");
@@ -68,5 +69,18 @@ describe("invoice Delta extension", () => {
     expect(invoiceMigration).toContain("grant execute on function public.powerhub_pull_sync_delta");
     expect(router).toContain('invoices: ["owner", "manager", "accountant", "collector", "viewer"]');
     expect(client).toContain('"invoices"');
+  });
+});
+
+describe("payment Delta extension", () => {
+  it("uses scoped joined payment projections and excludes receipt-storage secrets", () => {
+    expect(paymentMigration).toContain("check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices','payments'))");
+    expect(paymentMigration).toContain("powerhub_delta_sync_project_payment(p_tenant_id,p_site_id,p.id)");
+    expect(paymentMigration).toContain("'has_receipt_image'");
+    expect(paymentMigration).not.toContain("'receipt_image_key',p_row->'receipt_image_key'");
+    expect(paymentMigration).toContain("after insert or update or delete on public.payments");
+    expect(paymentMigration).toContain("revoke all on function public.powerhub_delta_sync_project_payment");
+    expect(router).toContain('payments: ["owner", "manager", "accountant", "collector", "viewer"]');
+    expect(client).toContain('"payments"');
   });
 });
