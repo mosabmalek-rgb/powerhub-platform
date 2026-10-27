@@ -164,7 +164,7 @@ create or replace function public.powerhub_delta_sync_project_payment(
 ) returns jsonb
 language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
   select jsonb_build_object(
     'id', p.id, 'tenant_id', p.tenant_id, 'site_id', p.site_id,
     'payment', public.powerhub_delta_sync_project_row('payments', to_jsonb(p)),
@@ -176,7 +176,7 @@ as $
   join public.subscribers s on s.id=p.subscriber_id and s.tenant_id=p.tenant_id and s.site_id=p.site_id
   left join public.invoices i on i.id=p.invoice_id and i.tenant_id=p.tenant_id and i.site_id=p.site_id
   where p.id=p_payment_id and p.tenant_id=p_tenant_id and p.site_id=p_site_id;
-$;
+$$;
 alter function public.powerhub_delta_sync_project_payment(bigint,bigint,bigint) owner to postgres;
 revoke all on function public.powerhub_delta_sync_project_payment(bigint,bigint,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_delta_sync_project_payment(bigint,bigint,bigint) to service_role;
