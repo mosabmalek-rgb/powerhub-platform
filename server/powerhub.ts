@@ -518,7 +518,7 @@ export const powerhubRouter = router({
   deltaSync: router({
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"]),
       afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
       throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
       pageSize: z.number().int().min(1).max(500).default(200),
@@ -534,12 +534,16 @@ export const powerhubRouter = router({
         invoices: ["owner", "manager", "accountant", "collector", "viewer"],
         payments: ["owner", "manager", "accountant", "collector", "viewer"],
         expenses: ["owner", "manager", "accountant", "viewer"],
+        company_accounts: ["owner", "manager", "accountant"],
+        company_accounts_all: ["owner", "manager", "accountant"],
       } as const;
-      const access = await requireSupabaseSiteRole(
-        ctx.user.id,
-        input.siteId,
-        [...readRolesByEntity[input.entityType]],
-      );
+      const access = input.entityType === "company_accounts_all"
+        ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
+        : await requireSupabaseSiteRole(
+            ctx.user.id,
+            input.siteId,
+            [...readRolesByEntity[input.entityType]],
+          );
       const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
       const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
       const { data, error } = await supabaseAdmin().rpc("powerhub_pull_sync_delta", {
@@ -576,7 +580,7 @@ export const powerhubRouter = router({
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"]),
     })).query(async ({ ctx, input }) => {
       const readRolesByEntity = {
         sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
@@ -587,8 +591,12 @@ export const powerhubRouter = router({
         invoices: ["owner", "manager", "accountant", "collector", "viewer"],
         payments: ["owner", "manager", "accountant", "collector", "viewer"],
         expenses: ["owner", "manager", "accountant", "viewer"],
+        company_accounts: ["owner", "manager", "accountant"],
+        company_accounts_all: ["owner", "manager", "accountant"],
       } as const;
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]]);
+      const access = input.entityType === "company_accounts_all"
+        ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
+        : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_sync_snapshot", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
       });
