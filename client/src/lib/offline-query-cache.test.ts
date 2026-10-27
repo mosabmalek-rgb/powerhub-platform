@@ -230,7 +230,8 @@ describe("offline query freshness policy", () => {
     expect(getOfflineQueryStaleTime(["powerhub.schedules.list", {
       input: { siteId: 7 }, type: "query",
     }])).toBe(30_000);
-  });});
+  });
+});
 
 describe("Delta-backed local snapshots", () => {
   it("only marks supported whole-list procedures as Delta-backed", () => {
