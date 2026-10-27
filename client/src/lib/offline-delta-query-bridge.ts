@@ -103,6 +103,18 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
         updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
       };
+    case "expenses": {
+      return {
+        id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId), generatorId: optionalNumber(raw.generator_id ?? raw.generatorId),
+        companyAccountId: optionalNumber(raw.company_account_id ?? raw.companyAccountId),
+        category: String(raw.category ?? "other"), description: String(raw.description ?? ""),
+        amount: String(raw.amount ?? 0), occurredAt: dateOrNow(raw.occurred_at ?? raw.occurredAt),
+        referenceNo: (raw.reference_no ?? raw.referenceNo ?? null) as string | null,
+        createdByUserId: optionalNumber(raw.created_by_user_id ?? raw.createdByUserId),
+        createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
+      };
+    }
     case "payments": {
       const rawPayment = isRow(raw.payment) ? raw.payment : raw;
       const payment = {
@@ -363,6 +375,53 @@ export function projectReadingDeltaPage(
     hasNext,
     nextCursor: hasNext && last ? encodeReadingPageCursor(last) : null,
   };
+}
+
+
+
+function decodeExpensePageCursor(value: string): { at: number; id: number } {
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const parsed = JSON.parse(normalized + "=".repeat((4 - normalized.length % 4) % 4)) as { at?: unknown; id?: unknown };
+    const at = typeof parsed.at === "string" ? Date.parse(parsed.at) : NaN;
+    const id = Number(parsed.id);
+    if (!Number.isFinite(at) || !Number.isSafeInteger(id) || id < 1) throw new Error("invalid");
+    return { at, id };
+  } catch { throw new Error("مؤشر صفحة المصروفات المحلي غير صالح؛ يلزم تحديث الصفحة من الخادم."); }
+}
+function encodeExpensePageCursor(row: Row): string {
+  const at = dateOrNull(row.occurredAt), id = Number(row.id);
+  if (!at || !Number.isSafeInteger(id) || id < 1) throw new Error("تعذر إنشاء مؤشر صفحة المصروفات المحلي.");
+  return btoa(JSON.stringify({ at: at.toISOString(), id })).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
+}
+function expenseDateBoundary(dateKey: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || new Date(dateKey + "T00:00:00.000Z").toISOString().slice(0,10) !== dateKey) throw new Error("تاريخ فلتر المصروفات المحلي غير صالح.");
+  const [y,m,d] = dateKey.split("-").map(Number), wall = Date.UTC(y,m-1,d);
+  const fmt = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Gaza",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"});
+  let candidate = wall;
+  for(let i=0;i<4;i++){const parts=fmt.formatToParts(new Date(candidate));const get=(k:string)=>Number(parts.find(p=>p.type===k)?.value??0);const represented=Date.UTC(get("year"),get("month")-1,get("day"),get("hour"),get("minute"),get("second"));const delta=represented-candidate;if(delta===0)break;candidate=wall-delta;}
+  return candidate;
+}
+function nextExpenseDateKey(dateKey: string): string {
+  const [y,m,d]=dateKey.split("-").map(Number), next=new Date(Date.UTC(y,m-1,d+1));
+  return next.toISOString().slice(0,10);
+}
+export function projectExpenseDeltaPage(rows: readonly Row[], input: {siteId?:unknown;limit?:unknown;cursor?:unknown;startDate?:unknown;endDate?:unknown;companyAccountId?:unknown}, previousData: unknown, scope: DeltaCursorScope): Row & {items:Row[];hasNext:boolean;nextCursor:string|null} {
+  if(Number(input.siteId)!==scope.siteId) throw new Error("نطاق صفحة المصروفات لا يطابق الفرع الجاري مزامنته.");
+  const limit=input.limit===undefined?50:Number(input.limit);
+  if(!Number.isSafeInteger(limit)||limit<1||limit>200) throw new Error("حجم صفحة المصروفات المحلي غير صالح.");
+  const start=input.startDate===undefined?null:String(input.startDate), end=input.endDate===undefined?null:String(input.endDate);
+  if(Boolean(start)!==Boolean(end)) throw new Error("يلزم تحديد تاريخ البداية والنهاية معًا.");
+  if(start&&end&&start>end) throw new Error("تاريخ بداية المصروفات يجب ألا يتجاوز تاريخ النهاية.");
+  const startAt=start?expenseDateBoundary(start):null, endAt=end?expenseDateBoundary(nextExpenseDateKey(end)):null;
+  const account=input.companyAccountId===undefined?null:Number(input.companyAccountId);
+  if(account!==null&&(!Number.isSafeInteger(account)||account<1)) throw new Error("حساب فلتر المصروفات المحلي غير صالح.");
+  const cursor=typeof input.cursor==="string"&&input.cursor?decodeExpensePageCursor(input.cursor):null;
+  const ordered=rows.filter(r=>{const at=dateOrNull(r.occurredAt);return Number(r.tenantId)===scope.tenantId&&Number(r.siteId)===scope.siteId&&Number.isSafeInteger(Number(r.id))&&Number(r.id)>0&&at!==null&&(account===null||Number(r.companyAccountId)===account)&&(startAt===null||at.getTime()>=startAt)&&(endAt===null||at.getTime()<endAt);})
+    .filter(r=>{if(!cursor)return true;const at=dateOrNull(r.occurredAt)!.getTime(),id=Number(r.id);return at<cursor.at||(at===cursor.at&&id<cursor.id);})
+    .sort((a,b)=>dateOrNull(b.occurredAt)!.getTime()-dateOrNull(a.occurredAt)!.getTime()||Number(b.id)-Number(a.id));
+  const hasNext=ordered.length>limit,items=ordered.slice(0,limit),last=items.at(-1);
+  return {...(isRow(previousData)?previousData:{}),items,hasNext,nextCursor:hasNext&&last?encodeExpensePageCursor(last):null};
 }
 
 
