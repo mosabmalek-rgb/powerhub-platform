@@ -55,6 +55,45 @@ function scopeKey(scope: DeltaCursorScope) {
   return [scope.userId, scope.tenantId, scope.siteId, scope.entityType].join(":");
 }
 
+type DeltaSyncLockManager = {
+  request<T>(name: string, options: { mode: "exclusive" }, callback: () => Promise<T>): Promise<T>;
+};
+
+const inProcessDeltaRuns = new Map<string, Promise<void>>();
+
+function browserDeltaSyncLockManager(): DeltaSyncLockManager | undefined {
+  if (typeof navigator === "undefined" || !("locks" in navigator)) return undefined;
+  return (navigator as Navigator & { locks?: DeltaSyncLockManager }).locks;
+}
+
+/**
+ * Serializes one user's tenant/site/entity sync across tabs when Web Locks are
+ * available. The fallback serializes callers in this tab; IndexedDB cursor
+ * compare-and-commit still fails closed if a non-cooperating tab races it.
+ */
+export async function withDeltaSyncLock<T>(
+  scope: DeltaCursorScope,
+  task: () => Promise<T>,
+  lockManager: DeltaSyncLockManager | null | undefined = browserDeltaSyncLockManager(),
+): Promise<T> {
+  const name = `powerhub:delta-sync:${scopeKey(scope)}`;
+  if (lockManager) {
+    return lockManager.request(name, { mode: "exclusive" }, task);
+  }
+
+  const previous = inProcessDeltaRuns.get(name);
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  inProcessDeltaRuns.set(name, current);
+  if (previous) await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (inProcessDeltaRuns.get(name) === current) inProcessDeltaRuns.delete(name);
+  }
+}
+
 export function compareDeltaCursors(a: string, b: string) {
   const left = BigInt(assertCursor(a));
   const right = BigInt(assertCursor(b));
