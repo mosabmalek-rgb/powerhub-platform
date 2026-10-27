@@ -35,6 +35,9 @@ describe("offline query cache policy", () => {
 
     expect(isOfflineCacheableQueryKey(pageOne)).toBe(true);
     expect(isOfflineCacheableQueryKey(pageTwo)).toBe(true);
+    expect(isOfflineCacheableQueryKey([["powerhub", "subscribers", "directoryPage"], {
+      input: { siteId: 7, page: 1, pageSize: 20, search: "" }, type: "query",
+    }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
       input: { siteId: 7, page: 1, pageSize: 20, search: "أحمد" }, type: "query",
     }])).toBe(false);
