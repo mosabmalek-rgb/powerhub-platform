@@ -92,9 +92,8 @@ describe("public invoice and inquiry actions", () => {
     const transientSignOut = main.slice(transientSignOutStart, transientSignOutEnd);
     expect(transientSignOut).toContain("if (lease) await activateUser(lease.userId);");
     expect(transientSignOut).not.toContain("activateUser(lease?.userId ?? null)");
-    expect(main).toContain('register("/sw.js?v=7")');
+    expect(main).toContain('navigator.serviceWorker.register("/sw.js?v=8")');
     const sw = read("client/public/sw.js");
-    const main = read("client/src/main.tsx");
     expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v8"');
     expect(sw).toContain('const ASSET_CACHE = "powerhub-assets-v7"');
     expect(sw).not.toContain("NAVIGATION_TIMEOUT_MS");
