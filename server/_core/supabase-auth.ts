@@ -45,7 +45,7 @@ const INVALID_ACCESS_TOKEN_ERROR_CODES = new Set([
   "user_not_found",
 ]);
 
-const AUTH_UPSTREAM_TIMEOUT_MS = 5_000;
+const AUTH_UPSTREAM_TIMEOUT_MS = 3_500;
 
 async function withAuthUpstreamDeadline<T>(stage: string, operation: Promise<T>): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
