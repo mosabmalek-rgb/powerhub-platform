@@ -16,6 +16,10 @@ import { trpc } from "@/lib/trpc";
 import { describeAuthFailure } from "@/lib/auth-diagnostics";
 import { resetSupabaseSessionReadBackoff } from "@/lib/supabase";
 import { authenticatedHomePath } from "@/lib/role-routing";
+import {
+  shouldRedirectToLoginWhenNoSession,
+  shouldShowSessionRecovery,
+} from "@/lib/auth-routing";
 import { useLocation } from "wouter";
 import {
   ArrowUpLeft, BellRing, CalendarDays, ChevronLeft, CircleAlert,
@@ -91,7 +95,15 @@ function CompanyBalancesDashboardCard({ accounts, loading, error = false, onOpen
 
 export function WorkspaceHome() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, loading, user, error, refresh } = useAuth();
+  const {
+    isAuthenticated,
+    loading,
+    user,
+    error,
+    refresh,
+    hasSession,
+    powerHubReachable,
+  } = useAuth();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword, staleTime: 30_000 });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [scope, setScope] = useState<"branch" | "all">("branch");
@@ -207,16 +219,32 @@ export function WorkspaceHome() {
   useEffect(() => {
     // A failed profile check is recoverable, not proof that the user signed out.
     // Keep the user here so they can retry the session before leaving the workspace.
-    if (!loading && !isAuthenticated && !error) { setLocation("/login"); return; }
+    if (shouldRedirectToLoginWhenNoSession({
+      loading,
+      isAuthenticated,
+      hasSession,
+      hasError: Boolean(error),
+      hasUser: Boolean(user),
+    })) {
+      setLocation("/login");
+      return;
+    }
     if (!loading && isAuthenticated && user?.mustChangePassword) { setLocation("/profile"); return; }
     if (!loading && isAuthenticated && user?.role === "admin") window.location.assign(authenticatedHomePath(user));
-  }, [isAuthenticated, loading, error, setLocation, user]);
+  }, [isAuthenticated, loading, error, hasSession, setLocation, user]);
 
   useEffect(() => { if (scope === "all" && !canUseAllBranches) setScope("branch"); }, [canUseAllBranches, scope]);
 
 
   if (loading) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ التحقق من جلسة الدخول…</h1><p className="mt-2 text-sm text-slate-400">لن نعيد توجيهك قبل اكتمال التحقق.</p></div></main>;
   if (error && !user) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">تعذر استعادة جلسة الدخول</h1><p className="mt-2 text-sm leading-7 text-slate-400">لم ننهِ جلستك تلقائيًا. قد يكون الاتصال أو تحديث الرمز قد تعثر مؤقتًا؛ أعد المحاولة لاستعادة بيانات مساحة العمل.</p><p role="status" aria-live="polite" className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-6 text-slate-300">{describeAuthFailure(error)}</p><Button type="button" onClick={() => { resetSupabaseSessionReadBackoff(); void refresh(); }} className="mt-5 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إعادة المحاولة واستعادة البيانات</Button><Button type="button" variant="outline" onClick={() => setLocation("/login")} className="mr-2 mt-5 border-white/15 text-white">فتح تسجيل الدخول</Button></div></main>;
+  if (shouldShowSessionRecovery({
+    loading,
+    isAuthenticated,
+    hasSession,
+    hasError: Boolean(error),
+    hasUser: Boolean(user),
+  })) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">لم يكتمل التحقق من الجلسة</h1><p className="mt-2 text-sm leading-7 text-slate-400">وجدنا حالة جلسة محفوظة، لكن لم نثبت بعد أن الخادم يستطيع التحقق منها. سنبقيك هنا بدل التنقل المتكرر بين تسجيل الدخول والمساحة، ولن نحذف بياناتك المحلية.</p><p role="status" aria-live="polite" className="mt-3 text-xs leading-6 text-slate-300">{powerHubReachable ? "الخادم قابل للوصول؛ أعد محاولة التحقق من الجلسة." : "تعذر الوصول إلى خادم PowerHub حاليًا. هذا لا يثبت أن الإنترنت منقطع عن جهازك."}</p><div className="mt-6 flex flex-wrap justify-center gap-3"><Button type="button" onClick={() => { resetSupabaseSessionReadBackoff(); void refresh(); }} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إعادة المحاولة واستعادة البيانات</Button><Button type="button" variant="outline" onClick={() => setLocation("/login")} className="border-white/15 text-white">فتح تسجيل الدخول</Button></div></div></main>;
   if (!isAuthenticated) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى تسجيل الدخول…</h1></div></main>;
   if (user?.mustChangePassword || user?.role === "admin") return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ فتح المساحة المصرح بها…</h1></div></main>;
 

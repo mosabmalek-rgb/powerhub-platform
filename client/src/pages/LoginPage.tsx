@@ -5,8 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getValidOfflineAuthLease } from "@/lib/offline-auth";
 import { getOfflineAuthUser } from "@/lib/offline-query-cache";
-import { supabase } from "@/lib/supabase";
+import { resetSupabaseSessionReadBackoff, supabase } from "@/lib/supabase";
 import { probePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { shouldRedirectToWorkspaceAfterAuthentication } from "@/lib/auth-routing";
+import { describeAuthFailure } from "@/lib/auth-diagnostics";
 import { ArrowRight, KeyRound, Loader2, Mail } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
@@ -16,7 +18,7 @@ function authMessage(error: unknown) {
   if (/invalid login credentials/i.test(message)) return "البريد الإلكتروني أو كلمة المرور غير صحيحين.";
   if (/email not confirmed/i.test(message)) return "يرجى تأكيد البريد الإلكتروني من الرسالة المرسلة قبل تسجيل الدخول.";
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
-    return "لا يوجد اتصال بالإنترنت. إذا كانت جلستك السابقة ما تزال محفوظة على هذا الجهاز، أعد فتح PowerHub وسيتم الدخول تلقائيًا. أما تسجيل الدخول بعد تسجيل الخروج فيتطلب اتصالًا بالإنترنت.";
+    return "تعذر الوصول إلى خدمة الدخول أو خادم PowerHub مؤقتًا. هذا لا يثبت انقطاع الإنترنت عن جهازك؛ تحقق من الاتصال بالخادم ثم أعد المحاولة.";
   }
   return message;
 }
@@ -27,18 +29,28 @@ function isBrowserOffline() {
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, loading: authLoading, hasSession: hasSupabaseSession } = useAuth();
+  const {
+    isAuthenticated,
+    loading: authLoading,
+    hasSession: hasSupabaseSession,
+    error: authError,
+    refresh,
+    powerHubReachable,
+  } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    // Supabase persists a valid browser session across restarts by default.
-    // If the user opens /login directly, do not ask for credentials again when
-    // the shared AuthProvider has already restored and validated that session.
-    if (hasSupabaseSession || (!authLoading && isAuthenticated)) setLocation("/workspace");
-  }, [authLoading, hasSupabaseSession, isAuthenticated, setLocation]);
+    // A session snapshot alone is not server validation. Navigating to
+    // /workspace merely because hasSession=true causes a loop when the
+    // workspace correctly refuses an unvalidated session and returns to /login.
+    if (shouldRedirectToWorkspaceAfterAuthentication({
+      loading: authLoading,
+      isAuthenticated,
+    })) setLocation("/workspace");
+  }, [authLoading, isAuthenticated, setLocation]);
 
   useEffect(() => {
     let active = true;
@@ -139,6 +151,32 @@ export default function LoginPage() {
           <p className="text-sm font-bold text-[#F5B800]">حساب PowerHub</p>
           <h2 className="mt-2 text-2xl font-extrabold">تسجيل الدخول</h2>
           <p className="mt-2 text-sm leading-6 text-slate-400">أدخل بريدك وكلمة المرور للوصول إلى المساحة المصرح بها.</p>
+          {hasSupabaseSession && !isAuthenticated ? (
+            <div role="status" aria-live="polite" className="mt-5 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-sm leading-6 text-amber-900">
+              <p className="font-bold text-amber-800">
+                {authLoading ? "جارٍ التحقق من الجلسة المحفوظة…" : "الجلسة موجودة، لكن التحقق من الحساب لم يكتمل."}
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                {authError
+                  ? describeAuthFailure(authError)
+                  : powerHubReachable
+                    ? "لم نعتمد الجلسة بعد. أعد المحاولة؛ لن نعيد التوجيه تلقائيًا قبل اكتمال التحقق."
+                    : "تعذر الوصول إلى خادم PowerHub حاليًا. هذا لا يعني بالضرورة انقطاع الإنترنت، ولن نمسح الجلسة أو بيانات العمل."}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={authLoading}
+                onClick={() => {
+                  resetSupabaseSessionReadBackoff();
+                  void refresh();
+                }}
+                className="mt-3 border-amber-700/30 text-amber-900"
+              >
+                {authLoading ? "جارٍ التحقق…" : "إعادة التحقق من الجلسة"}
+              </Button>
+            </div>
+          ) : null}
           <form className="mt-7 space-y-5" onSubmit={submit}>
             <div className="space-y-2"><Label htmlFor="email" className="text-[#263546]">البريد الإلكتروني</Label><div className="relative"><Mail className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="email" type="email" autoComplete="email" dir="ltr" value={email} onChange={(event) => setEmail(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="you@example.com" /></div></div>
             <div className="space-y-2"><Label htmlFor="password" className="text-[#263546]">كلمة المرور</Label><div className="relative"><KeyRound className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="password" type="password" autoComplete="current-password" dir="ltr" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="••••••••" /></div></div>
