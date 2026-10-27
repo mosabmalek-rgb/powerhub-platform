@@ -106,14 +106,15 @@ async function withCommittedStore<T>(
     };
 
     try {
-      transaction = database.transaction(storeName, mode);
-      const request = action(transaction.objectStore(storeName));
+      const tx = database.transaction(storeName, mode);
+      transaction = tx;
+      const request = action(tx.objectStore(storeName));
       request.onsuccess = () => {
         requestSucceeded = true;
         requestResult = request.result;
       };
       request.onerror = () => fail(request.error, "تعذر تنفيذ طلب التخزين المحلي الإلزامي.");
-      transaction.oncomplete = () => {
+      tx.oncomplete = () => {
         if (settled) return;
         settled = true;
         closeDatabase();
@@ -123,8 +124,8 @@ async function withCommittedStore<T>(
         }
         resolve(requestResult);
       };
-      transaction.onerror = () => fail(transaction.error, "فشلت معاملة التخزين المحلي الإلزامي.");
-      transaction.onabort = () => fail(transaction.error, "أُلغيت معاملة التخزين المحلي الإلزامي.");
+      tx.onerror = () => fail(tx.error, "فشلت معاملة التخزين المحلي الإلزامي.");
+      tx.onabort = () => fail(tx.error, "أُلغيت معاملة التخزين المحلي الإلزامي.");
     } catch (error) {
       try { transaction?.abort(); } catch { /* transaction may not have started */ }
       fail(error, "تعذر بدء معاملة التخزين المحلي الإلزامي.");
