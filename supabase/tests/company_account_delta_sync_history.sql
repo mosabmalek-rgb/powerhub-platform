@@ -246,3 +246,87 @@ begin
  then raise exception 'service_role cannot execute company-account Delta functions'; end if;
 end;
 $company_account_test$;
+
+-- Updating an existing branch link must remove the old scoped copy, publish
+-- the new scoped copy, and refresh the tenant-wide feed without a full reload.
+do $company_account_link_move_test$
+declare
+  v_snapshot jsonb;
+  v_delta jsonb;
+  v_site20_cursor bigint;
+  v_site40_cursor bigint;
+  v_all_cursor bigint;
+begin
+  insert into public.sites(id,tenant_id,name) values (40,1,'Move Test Destination');
+  insert into public.company_accounts(id,tenant_id,name,account_type,opening_balance,is_active)
+  values (701,1,'Move Test Account','cash',10,true);
+  insert into public.company_account_sites(tenant_id,account_id,site_id)
+  values (1,701,20);
+
+  v_snapshot := public.powerhub_get_sync_snapshot(1,20,'company_accounts');
+  if not exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') row_value
+    where row_value->>'id'='701'
+  ) then
+    raise exception 'Move test setup failed: source branch does not contain account';
+  end if;
+  v_site20_cursor := (v_snapshot->>'snapshot_cursor')::bigint;
+
+  v_snapshot := public.powerhub_get_sync_snapshot(1,40,'company_accounts');
+  if jsonb_array_length(v_snapshot->'rows')<>0 then
+    raise exception 'Move test setup failed: destination branch already contains account';
+  end if;
+  v_site40_cursor := (v_snapshot->>'snapshot_cursor')::bigint;
+
+  v_snapshot := public.powerhub_get_sync_snapshot(1,10,'company_accounts_all');
+  if not exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') row_value
+    where row_value->>'id'='701'
+  ) then
+    raise exception 'Move test setup failed: all-branches feed lacks account';
+  end if;
+  v_all_cursor := (v_snapshot->>'snapshot_cursor')::bigint;
+
+  update public.company_account_sites
+  set site_id=40
+  where tenant_id=1 and account_id=701 and site_id=20;
+
+  v_delta := public.powerhub_pull_sync_delta(1,20,'company_accounts',v_site20_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '701' then
+    raise exception 'Branch-link move did not tombstone the source branch: %',v_delta;
+  end if;
+
+  v_delta := public.powerhub_pull_sync_delta(1,40,'company_accounts',v_site40_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
+     or v_delta #>> '{changes,0,row_data,id}' is distinct from '701'
+     or v_delta #>> '{changes,0,row_data,site_id}' is distinct from '40' then
+    raise exception 'Branch-link move did not publish the destination upsert: %',v_delta;
+  end if;
+
+  v_snapshot := public.powerhub_get_sync_snapshot(1,20,'company_accounts');
+  if exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') row_value
+    where row_value->>'id'='701'
+  ) then
+    raise exception 'Moved account remained visible in the source branch snapshot';
+  end if;
+  v_snapshot := public.powerhub_get_sync_snapshot(1,40,'company_accounts');
+  if not exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') row_value
+    where row_value->>'id'='701'
+  ) then
+    raise exception 'Moved account missing from destination branch snapshot';
+  end if;
+
+  v_delta := public.powerhub_pull_sync_delta(1,10,'company_accounts_all',v_all_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
+     or v_delta #>> '{changes,0,row_data,id}' is distinct from '701' then
+    raise exception 'Branch-link move did not refresh the all-branches feed: %',v_delta;
+  end if;
+end;
+$company_account_link_move_test$;
+
