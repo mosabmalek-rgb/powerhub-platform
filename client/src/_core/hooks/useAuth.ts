@@ -19,7 +19,7 @@ const OFFLINE_AUTH_BOOTSTRAP_TIMEOUT_MS = 1_500;
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 5_000;
 // A protected session check must not trap the app in an endless loading/redirect
 // loop if the network request or browser auth lock never settles.
-const AUTH_PROFILE_CHECK_TIMEOUT_MS = 8_000;
+const AUTH_PROFILE_CHECK_TIMEOUT_MS = 10_000;
 const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر التحقق من جلسة الدخول في الوقت المحدد. أعد المحاولة لاستعادة البيانات.",
 ), { name: "PowerHubAuthProfileCheckTimeoutError" });
