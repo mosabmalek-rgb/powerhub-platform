@@ -92,7 +92,7 @@ async function withCommittedStore<T>(
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     let requestSucceeded = false;
-    let requestResult: T;
+    let requestResult!: T;
     let transaction: IDBTransaction | undefined;
 
     const closeDatabase = () => {
