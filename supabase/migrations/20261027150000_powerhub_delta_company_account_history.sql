@@ -234,7 +234,7 @@ as $
   )
   from public.company_accounts ca
   where ca.tenant_id = p_tenant_id and ca.id = p_account_id and ca.is_active = true;
-$;
+$$;
 alter function public.powerhub_delta_sync_project_company_account(bigint,bigint,bigint) owner to postgres;
 revoke all on function public.powerhub_delta_sync_project_company_account(bigint,bigint,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_delta_sync_project_company_account(bigint,bigint,bigint) to service_role;
