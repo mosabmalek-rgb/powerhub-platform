@@ -61,6 +61,44 @@ export function compareDeltaCursors(a: string, b: string) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+/** Fail closed when a server snapshot/change contains a row outside its requested tenant/site. */
+export function assertDeltaRowWithinScope(
+  entityType: DeltaEntityType,
+  row: Record<string, unknown>,
+  scope: Pick<DeltaCursorScope, "tenantId" | "siteId">,
+): void {
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  const valueOf = (record: Record<string, unknown>, camel: string, snake: string) =>
+    record[camel] ?? record[snake];
+  const primary = entityType === "readings" && isRecord(row.reading) ? row.reading : row;
+  const tenantId = Number(valueOf(primary, "tenantId", "tenant_id"));
+  const siteId = Number(valueOf(primary, "siteId", "site_id"));
+  const identityMatches = entityType === "sites"
+    ? Number(primary.id) === scope.siteId && tenantId === scope.tenantId
+    : tenantId === scope.tenantId && siteId === scope.siteId;
+  if (!identityMatches) {
+    throw new Error("سجل المزامنة خارج نطاق المستأجر أو الفرع المطلوب.");
+  }
+
+  // Joined page projections must not smuggle a related record from another scope.
+  const related: Array<{ label: string; value: unknown }> = [];
+  if (entityType === "readings" && isRecord(row.subscriber)) {
+    related.push({ label: "subscriber", value: row.subscriber });
+  }
+  if (entityType === "payments") {
+    if (isRecord(row.payment)) related.push({ label: "payment", value: row.payment });
+    if (isRecord(row.subscriber)) related.push({ label: "subscriber", value: row.subscriber });
+  }
+  for (const relation of related) {
+    const record = relation.value as Record<string, unknown>;
+    if (Number(valueOf(record, "tenantId", "tenant_id")) !== scope.tenantId ||
+        Number(valueOf(record, "siteId", "site_id")) !== scope.siteId) {
+      throw new Error(`العلاقة ${relation.label} في سجل المزامنة خارج نطاق المستأجر أو الفرع.`);
+    }
+  }
+}
+
 export function applyDeltaChanges<Row extends Record<string, unknown>>(
   current: readonly Row[],
   changes: readonly DeltaChange<Row>[],
@@ -282,12 +320,11 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
       throw new Error("ترتيب تغييرات المزامنة غير صالح.");
     }
     priorChangeCursor = change.cursor;
-    if (change.operation === "upsert" && (!change.row_data || String(change.row_data.id ?? "") !== change.entity_id)) {
-      throw new Error("بيانات التغيير لا تطابق معرّف السجل.");
-    }
-    if (scope.entityType === "invoices" && change.operation === "upsert" &&
-        (Number(change.row_data?.tenantId) !== scope.tenantId || Number(change.row_data?.siteId) !== scope.siteId)) {
-      throw new Error("تغيير الفاتورة خارج نطاق المستأجر أو الفرع.");
+    if (change.operation === "upsert") {
+      if (!change.row_data || String(change.row_data.id ?? "") !== change.entity_id) {
+        throw new Error("بيانات التغيير لا تطابق معرّف السجل.");
+      }
+      assertDeltaRowWithinScope(scope.entityType, change.row_data, scope);
     }
     if (change.operation === "delete" && change.row_data !== null) throw new Error("علامة حذف المزامنة تحتوي بيانات غير متوقعة.");
     if (compareDeltaCursors(change.cursor, page.through_cursor) > 0 ||
@@ -360,10 +397,7 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
   for (const row of rows) {
     const id = row.id;
     if (id === undefined || id === null || String(id).length === 0) throw new Error("لقطة المزامنة تحتوي سجلًا دون معرّف.");
-    if (scope.entityType === "invoices" &&
-        (Number(row.tenantId) !== scope.tenantId || Number(row.siteId) !== scope.siteId)) {
-      throw new Error("لقطة الفواتير تتضمن سجلاً خارج نطاق المستأجر أو الفرع.");
-    }
+    assertDeltaRowWithinScope(scope.entityType, row, scope);
     normalized.set(String(id), row);
   }
   const db = await openDatabase();

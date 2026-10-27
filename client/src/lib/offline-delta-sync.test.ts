@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyDeltaChanges,
+  assertDeltaRowWithinScope,
   compareDeltaCursors,
   pullDeltaPages,
   type DeltaPage,
@@ -40,6 +41,57 @@ function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>
     clearUser: async () => { cursor = "0"; rows.clear(); },
   };
 }
+
+describe("Delta row scope validation", () => {
+  const scoped = { tenantId: 1, siteId: 7 };
+  it("accepts correctly scoped rows for every operational entity", () => {
+    const rows: Array<[import("./offline-delta-sync").DeltaEntityType, Record<string, unknown>]> = [
+      ["sites", { id: 7, tenantId: 1 }],
+      ["subscribers", { id: 11, tenantId: 1, siteId: 7 }],
+      ["generators", { id: 12, tenantId: 1, siteId: 7 }],
+      ["readings", { id: 13, tenantId: 1, siteId: 7 }],
+      ["tariffs", { id: 14, tenantId: 1, siteId: 7 }],
+      ["invoices", { id: 15, tenantId: 1, siteId: 7 }],
+      ["payments", {
+        id: 16, tenantId: 1, siteId: 7,
+        payment: { id: 16, tenantId: 1, siteId: 7 },
+        subscriber: { id: 11, tenantId: 1, siteId: 7 },
+      }],
+      ["expenses", { id: 17, tenantId: 1, siteId: 7 }],
+    ];
+    for (const [entityType, row] of rows) {
+      expect(() => assertDeltaRowWithinScope(entityType, row, scoped), entityType).not.toThrow();
+    }
+  });
+
+  it("rejects cross-tenant, cross-site and wrong-site rows, not only invoices", () => {
+    for (const entityType of ["subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses"] as const) {
+      expect(() => assertDeltaRowWithinScope(entityType, { id: 1, tenantId: 2, siteId: 7 }, scoped), entityType)
+        .toThrow(/خارج نطاق المستأجر أو الفرع/);
+      expect(() => assertDeltaRowWithinScope(entityType, { id: 1, tenantId: 1, siteId: 8 }, scoped), entityType)
+        .toThrow(/خارج نطاق المستأجر أو الفرع/);
+    }
+    expect(() => assertDeltaRowWithinScope("sites", { id: 8, tenantId: 1 }, scoped))
+      .toThrow(/خارج نطاق المستأجر أو الفرع/);
+  });
+
+  it("validates joined payment and reading relations independently", () => {
+    expect(() => assertDeltaRowWithinScope("payments", {
+      id: 16, tenantId: 1, siteId: 7,
+      payment: { id: 16, tenantId: 1, siteId: 8 },
+      subscriber: { id: 11, tenantId: 1, siteId: 7 },
+    }, scoped)).toThrow(/العلاقة payment/);
+    expect(() => assertDeltaRowWithinScope("payments", {
+      id: 16, tenantId: 1, siteId: 7,
+      payment: { id: 16, tenantId: 1, siteId: 7 },
+      subscriber: { id: 11, tenantId: 2, siteId: 7 },
+    }, scoped)).toThrow(/العلاقة subscriber/);
+    expect(() => assertDeltaRowWithinScope("readings", {
+      id: 13, tenantId: 1, siteId: 7,
+      subscriber: { id: 11, tenantId: 1, siteId: 8 },
+    }, scoped)).toThrow(/العلاقة subscriber/);
+  });
+});
 
 describe("offline delta sync", () => {
   it("compares bigint cursors without precision loss", () => {
