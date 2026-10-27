@@ -142,7 +142,13 @@ export async function hydrateOfflineQueryCache(
       // Startup hydration can race the live network. Never overwrite a current
       // response with an older local snapshot just because IndexedDB finished later.
       if (queryClient.getQueryData(queryKey) !== undefined) continue;
-      const data = superjson.parse(record.serializedData);
+      const rawData = superjson.parse(record.serializedData);
+      const data = sanitizeOfflineQueryData(queryKey, rawData);
+      const safeSerializedData = superjson.stringify(data);
+      if (safeSerializedData !== record.serializedData) {
+        const sanitizedRecord = { ...record, serializedData: safeSerializedData };
+        await withStore("queries", "readwrite", (store) => store.put(sanitizedRecord)).catch(() => undefined);
+      }
       // Treat Delta-backed snapshots as fresh only in this page's memory. The
       // durable record keeps its real timestamp; Delta sync remains authoritative.
       const hydratedAt = isDeltaSyncBackedQueryKey(queryKey) ? now : record.updatedAt;
@@ -155,12 +161,34 @@ export async function hydrateOfflineQueryCache(
   return hydrated;
 }
 
+export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unknown): unknown {
+  const first = queryKey[0];
+  const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string" ? first.split(".") : [];
+  if (segments[0] !== "powerhub" || segments[1] !== "payments" || segments[2] !== "page" ||
+      !data || typeof data !== "object" || Array.isArray(data)) return data;
+  const page = data as Record<string, unknown>;
+  if (!Array.isArray(page.items)) return data;
+  return { ...page, items: page.items.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    const row = item as Record<string, unknown>;
+    if (!row.payment || typeof row.payment !== "object" || Array.isArray(row.payment)) return item;
+    const payment = row.payment as Record<string, unknown>;
+    const hasReceiptImage = Boolean(payment.hasReceiptImage || payment.receiptImageKey ||
+      payment.receipt_image_key || payment.receiptImageUrl);
+    const { receiptImageUrl: _url, receiptImageKey: _key, receiptImageHash: _hash,
+      receipt_image_key: _snakeKey, receipt_image_hash: _snakeHash, ...safePayment } = payment;
+    return { ...row, payment: { ...safePayment, hasReceiptImage } };
+  }) };
+}
+
 export async function persistOfflineQuery(query: Query, userId: string, now = Date.now()) {
   if (query.state.status !== "success" || query.state.data === undefined) return;
   if (!isOfflineCacheableQueryKey(query.queryKey)) return;
 
   const serializedQueryKey = offlineQueryCacheKey(query.queryKey);
-  const serializedData = superjson.stringify(query.state.data);
+  const safeData = sanitizeOfflineQueryData(query.queryKey, query.state.data);
+  const serializedData = superjson.stringify(safeData);
   if (new TextEncoder().encode(serializedData).byteLength > OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES) {
     await deleteQueryCacheKeys([userId + ":" + serializedQueryKey]).catch(() => undefined);
     return;

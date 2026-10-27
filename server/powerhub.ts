@@ -2671,6 +2671,15 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       return listSupabasePaymentPage(input.siteId, input);
     }),
+    getReceiptImage: protectedProcedure.input(siteScoped.extend({ paymentId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "collectPayments");
+      const { data: payment, error } = await supabaseAdmin().from("payments").select("id, receipt_image_key")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.paymentId).maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صورة إيصال الدفع." });
+      if (!payment?.receipt_image_key) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد صورة إيصال مرفقة بهذه الدفعة." });
+      try { return { url: (await storageGet(payment.receipt_image_key)).url }; }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "تعذر إنشاء رابط آمن لصورة الإيصال." }); }
+    }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
       paymentNo: z.string().min(3).max(60), amount: z.number().positive().refine(hasAtMostTwoDecimalPlaces, "مبلغ التحصيل يجب ألا يتجاوز منزلتين عشريتين."), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(), manualDiscountAmount: z.number().min(0).max(100000000).refine(hasAtMostTwoDecimalPlaces, "مبلغ الخصم يجب ألا يتجاوز منزلتين عشريتين.").default(0), manualDiscountReason: z.string().trim().max(300).optional(),
