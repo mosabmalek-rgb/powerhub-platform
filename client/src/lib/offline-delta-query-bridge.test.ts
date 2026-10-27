@@ -7,6 +7,8 @@ import {
   refreshReadingSubscriberProjection,
   snapshotRowsFromQuery,
   projectInvoiceDeltaPage,
+  projectPaymentDeltaPage,
+  refreshPaymentRelatedProjection,
   projectReadingDeltaPage,
 } from "./offline-delta-query-bridge";
 
@@ -155,6 +157,28 @@ describe("reading Delta page materialization", () => {
   });
 });
 
+describe("payment Delta page materialization",()=>{
+ const scope:DeltaCursorScope={userId:7,tenantId:2,siteId:10,entityType:"payments"};
+ const row=(id:number,paidAt:string,extra:Record<string,unknown>={})=>({id,tenantId:2,siteId:10,payment:{id,tenantId:2,siteId:10,subscriberId:id+100,invoiceId:id+200,paymentNo:"PAY-"+id,amount:"25.00",paymentMethod:"cash",status:"completed",paidAt:new Date(paidAt),hasReceiptImage:true,receiptImageUrl:null},subscriber:{id:id+100,tenantId:2,siteId:10,fullName:"Subscriber "+id},invoiceNo:"INV-"+(id+200),...extra});
+ it("materializes stable keyset pages and never returns receipt URLs",()=>{
+  const rows=[row(8,"2026-10-27T10:00:00Z"),row(7,"2026-10-27T10:00:00Z"),row(6,"2026-10-26T10:00:00Z")];
+  const first=projectPaymentDeltaPage(rows,{siteId:10,limit:2},undefined,scope);
+  expect(first.items.map(x=>x.payment.id)).toEqual([8,7]);expect(first.hasNext).toBe(true);expect(first.items[0].payment.receiptImageUrl).toBeNull();
+  const second=projectPaymentDeltaPage(rows,{siteId:10,limit:2,cursor:first.nextCursor},undefined,scope);
+  expect(second.items.map(x=>x.payment.id)).toEqual([6]);expect(second.hasNext).toBe(false);
+ });
+ it("rejects another site and filters cross-scope joined rows",()=>{
+  const rows=[row(1,"2026-10-27T10:00:00Z"),row(2,"2026-10-26T10:00:00Z",{tenantId:99}),row(3,"2026-10-25T10:00:00Z",{subscriber:{id:103,tenantId:2,siteId:99,fullName:"wrong"}})];
+  expect(projectPaymentDeltaPage(rows,{siteId:10,limit:10},undefined,scope).items.map(x=>x.payment.id)).toEqual([1]);
+  expect(()=>projectPaymentDeltaPage(rows,{siteId:99,limit:10},undefined,scope)).toThrow(/نطاق صفحة المدفوعات/);
+ });
+ it("refreshes related subscriber and invoice labels from Delta",()=>{
+  const rows=[row(1,"2026-10-27T10:00:00Z")];
+  const make=(entity_type:"subscribers"|"invoices",entity_id:string,row_data:Record<string,unknown>):DeltaPage<any>=>({status:"ok",entity_type,current_cursor:"2",retained_from_cursor:"0",snapshot_cursor:null,through_cursor:"2",next_cursor:"2",has_more:false,changes:[{cursor:"2",entity_type,entity_id,operation:"upsert",row_data,changed_at:"2026-10-27T12:00:00Z"}]});
+  expect((refreshPaymentRelatedProjection(rows,make("subscribers","101",{id:101,tenantId:2,siteId:10,fullName:"Updated"}),scope,"subscribers") as any[])[0].subscriber.fullName).toBe("Updated");
+  expect((refreshPaymentRelatedProjection(rows,make("invoices","201",{id:201,tenantId:2,siteId:10,invoiceNo:"INV-NEW"}),scope,"invoices") as any[])[0].invoiceNo).toBe("INV-NEW");
+ });
+});
 describe("invoice Delta page materialization", () => {
   const invoiceScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "invoices" };
   const invoice = (id: number, issueDate: string, extra: Record<string, unknown> = {}) => ({

@@ -103,6 +103,37 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
         updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
       };
+    case "payments": {
+      const rawPayment = isRow(raw.payment) ? raw.payment : raw;
+      const payment = {
+        id: toNumber(rawPayment.id), tenantId: toNumber(rawPayment.tenant_id ?? rawPayment.tenantId),
+        siteId: toNumber(rawPayment.site_id ?? rawPayment.siteId),
+        subscriberId: toNumber(rawPayment.subscriber_id ?? rawPayment.subscriberId),
+        invoiceId: optionalNumber(rawPayment.invoice_id ?? rawPayment.invoiceId),
+        paymentNo: String(rawPayment.payment_no ?? rawPayment.paymentNo ?? ""),
+        clientOperationId: (rawPayment.client_operation_id ?? rawPayment.clientOperationId ?? null) as string | null,
+        amount: String(rawPayment.amount ?? 0), paymentMethod: String(rawPayment.payment_method ?? rawPayment.paymentMethod ?? "cash"),
+        transferFromAccount: (rawPayment.transfer_from_account ?? rawPayment.transferFromAccount ?? null) as string | null,
+        transferFromType: (rawPayment.transfer_from_type ?? rawPayment.transferFromType ?? null) as string | null,
+        transferToAccount: (rawPayment.transfer_to_account ?? rawPayment.transferToAccount ?? null) as string | null,
+        transferToType: (rawPayment.transfer_to_type ?? rawPayment.transferToType ?? null) as string | null,
+        referenceNo: (rawPayment.reference_no ?? rawPayment.referenceNo ?? null) as string | null,
+        hasReceiptImage: Boolean(rawPayment.has_receipt_image ?? rawPayment.hasReceiptImage),
+        status: String(rawPayment.status ?? "completed"),
+        collectedByUserId: optionalNumber(rawPayment.collected_by_user_id ?? rawPayment.collectedByUserId),
+        collectorSessionId: optionalNumber(rawPayment.collector_session_id ?? rawPayment.collectorSessionId),
+        paidAt: dateOrNow(rawPayment.paid_at ?? rawPayment.paidAt),
+        createdAt: dateOrNow(rawPayment.created_at ?? rawPayment.createdAt), receiptImageUrl: null,
+      };
+      const rawSubscriber = isRow(raw.subscriber) ? raw.subscriber : null;
+      return {
+        id: toNumber(raw.id ?? rawPayment.id),
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId ?? rawPayment.tenant_id ?? rawPayment.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId ?? rawPayment.site_id ?? rawPayment.siteId),
+        payment, subscriber: rawSubscriber ? normalizeDeltaEntityRow("subscribers", rawSubscriber) : null,
+        invoiceNo: (raw.invoice_no ?? raw.invoiceNo ?? null) as string | null,
+      };
+    }
     case "invoices":
       return {
         id: toNumber(raw.id),
@@ -332,6 +363,73 @@ export function projectReadingDeltaPage(
     hasNext,
     nextCursor: hasNext && last ? encodeReadingPageCursor(last) : null,
   };
+}
+
+
+function decodePaymentPageCursor(value: string): { at: number; id: number } {
+  try {
+    const normalized=value.replace(/-/g,"+").replace(/_/g,"/");
+    const padded=normalized+"=".repeat((4-normalized.length%4)%4);
+    const parsed=JSON.parse(atob(padded)) as {at?:unknown;id?:unknown};
+    const at=typeof parsed.at==="string"?Date.parse(parsed.at):Number.NaN;
+    const id=Number(parsed.id);
+    if(!Number.isFinite(at)||!Number.isSafeInteger(id)||id<1) throw new Error("invalid");
+    return {at,id};
+  } catch { throw new Error("مؤشر صفحة المدفوعات المحلي غير صالح؛ يلزم تحديث الصفحة من الخادم."); }
+}
+function encodePaymentPageCursor(payment: Row): string {
+  const paidAt=dateOrNull(payment.paidAt), id=Number(payment.id);
+  if(!paidAt||!Number.isSafeInteger(id)||id<1) throw new Error("تعذر إنشاء مؤشر صفحة المدفوعات المحلي.");
+  return btoa(JSON.stringify({at:paidAt.toISOString(),id})).replaceAll("+","-").replaceAll("/","_").replace(/=+$/g,"");
+}
+export function projectPaymentDeltaPage(
+  rows: readonly Row[], input: {siteId?:unknown;limit?:unknown;cursor?:unknown}, previousData: unknown, scope: DeltaCursorScope,
+): Row & {items:Array<{payment:Row;subscriber:Row;invoiceNo:string|null}>;hasNext:boolean;nextCursor:string|null} {
+  if(Number(input.siteId)!==scope.siteId) throw new Error("نطاق صفحة المدفوعات لا يطابق الفرع الجاري مزامنته.");
+  const limit=input.limit===undefined?50:Number(input.limit);
+  if(!Number.isSafeInteger(limit)||limit<1||limit>200) throw new Error("حجم صفحة المدفوعات المحلي غير صالح.");
+  const cursor=typeof input.cursor==="string"&&input.cursor.length?decodePaymentPageCursor(input.cursor):null;
+  const ordered=rows.filter(row=>{
+    if(!isRow(row)||!isRow(row.payment)||!isRow(row.subscriber)) return false;
+    const payment=row.payment, subscriber=row.subscriber, paidAt=dateOrNull(payment.paidAt);
+    return Number(row.tenantId)===scope.tenantId&&Number(row.siteId)===scope.siteId&&
+      Number(payment.tenantId)===scope.tenantId&&Number(payment.siteId)===scope.siteId&&
+      Number(subscriber.tenantId)===scope.tenantId&&Number(subscriber.siteId)===scope.siteId&&
+      Number.isSafeInteger(Number(payment.id))&&Number(payment.id)>0&&paidAt!==null;
+  }).filter(row=>{
+    if(!cursor)return true;
+    const payment=row.payment as Row, at=dateOrNull(payment.paidAt)!.getTime(), id=Number(payment.id);
+    return at<cursor.at||(at===cursor.at&&id<cursor.id);
+  }).sort((a,b)=>{
+    const left=a.payment as Row,right=b.payment as Row;
+    return dateOrNull(right.paidAt)!.getTime()-dateOrNull(left.paidAt)!.getTime()||Number(right.id)-Number(left.id);
+  });
+  const hasNext=ordered.length>limit;
+  const items=ordered.slice(0,limit).map(row=>({payment:{...(row.payment as Row),receiptImageUrl:null},subscriber:row.subscriber as Row,invoiceNo:typeof row.invoiceNo==="string"?row.invoiceNo:null}));
+  const last=items.at(-1);
+  return {...(isRow(previousData)?previousData:{}),items,hasNext,nextCursor:hasNext&&last?encodePaymentPageCursor(last.payment):null};
+}
+export function refreshPaymentRelatedProjection(current: readonly unknown[], page: DeltaPage<Row>, scope: DeltaCursorScope, relation: "subscribers"|"invoices"): unknown[] {
+  const upserts=new Map<string,Row>(), deleted=new Set<string>();
+  for(const change of page.changes){
+    if(change.operation==="delete") deleted.add(change.entity_id);
+    else if(isRow(change.row_data)&&scopedTo(change.row_data,scope)) upserts.set(change.entity_id,change.row_data);
+  }
+  return current.map(entry=>{
+    if(!isRow(entry)||!isRow(entry.payment))return entry;
+    const payment=entry.payment as Row;
+    if(relation==="subscribers"&&upserts.has(String(payment.subscriberId))){
+      const subscriber=isRow(entry.subscriber)?entry.subscriber:{};
+      return {...entry,subscriber:{...subscriber,...upserts.get(String(payment.subscriberId))}};
+    }
+    if(relation==="invoices"&&payment.invoiceId!=null){
+      const id=String(payment.invoiceId);
+      if(deleted.has(id))return {...entry,invoiceNo:null};
+      const invoice=upserts.get(id);
+      if(invoice&&typeof invoice.invoiceNo==="string")return {...entry,invoiceNo:invoice.invoiceNo};
+    }
+    return entry;
+  });
 }
 
 function decodeInvoicePageCursor(value: string): { at: number; id: number } {

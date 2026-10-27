@@ -23,7 +23,9 @@ import {
   normalizeDeltaEntityRow,
   snapshotRowsFromQuery,
   projectInvoiceDeltaPage,
+  projectPaymentDeltaPage,
   projectReadingDeltaPage,
+  refreshPaymentRelatedProjection,
   type DeltaOperationalEntity,
 } from "@/lib/offline-delta-query-bridge";
 import { isOfflineCacheableQueryKey } from "@/lib/offline-query-cache";
@@ -85,7 +87,7 @@ function getQueryRows(query: Query): AnyRow[] | null {
   const segments = getSegments(query.queryKey);
   const data = query.state.data;
   if (segments[0] === "powerhub" &&
-      (segments[1] === "invoices" || segments[1] === "readings") &&
+      (segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments") &&
       segments[2] === "page" && data !== null && typeof data === "object" && !Array.isArray(data)) {
     const items = (data as Record<string, unknown>).items;
     return Array.isArray(items) ? items as AnyRow[] : null;
@@ -97,8 +99,8 @@ function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
   if (!isOfflineCacheableQueryKey(query.queryKey)) return null;
   const segments = getSegments(query.queryKey);
   if (segments[0] !== "powerhub") return null;
-  if ((segments[1] === "invoices" || segments[1] === "readings") && segments[2] === "page" && getQueryRows(query)) {
-    return segments[1] as "invoices" | "readings";
+  if ((segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments") && segments[2] === "page" && getQueryRows(query)) {
+    return segments[1] as "invoices" | "readings" | "payments";
   }
   if (segments[2] !== "list" || !getQueryRows(query)) return null;
   if (segments[1] === "sites" || segments[1] === "subscribers" || segments[1] === "generators" || segments[1] === "readings" || segments[1] === "tariffs") {
@@ -175,11 +177,13 @@ async function patchQueryCaches(
   const subscribers = subscriberRowsForSite(queries, scope.siteId, scope.tenantId);
   let invoiceRowsAfterPage: AnyRow[] | null = null;
   let readingRowsAfterPage: AnyRow[] | null = null;
-  if ((entityType === "invoices" || entityType === "readings") && page.changes.length > 0) {
+  let paymentRowsAfterPage: AnyRow[] | null = null;
+  if ((entityType === "invoices" || entityType === "readings" || entityType === "payments") && page.changes.length > 0) {
     const local = await listDeltaEntities<AnyRow>(scope);
     const nextRows = applyDeltaChanges(local.map((record) => record.rowData), page.changes);
     if (entityType === "invoices") invoiceRowsAfterPage = nextRows;
-    else readingRowsAfterPage = nextRows;
+    else if (entityType === "readings") readingRowsAfterPage = nextRows;
+    else paymentRowsAfterPage = nextRows;
   }
 
   for (const query of queries) {
@@ -201,15 +205,19 @@ async function patchQueryCaches(
         ));
       } else if (entityType === "readings" && segments[2] === "page") {
         if (!readingRowsAfterPage) continue;
-        queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(
-          readingRowsAfterPage, subscribers, getOfflineQueryInput(query.queryKey), query.state.data, scope,
-        ));
+        queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(readingRowsAfterPage, subscribers, getOfflineQueryInput(query.queryKey), query.state.data, scope));
+      } else if (entityType === "payments" && segments[2] === "page") {
+        if (!paymentRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(paymentRowsAfterPage, getOfflineQueryInput(query.queryKey), query.state.data, scope));
       } else {
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, page, scope, subscribers));
       }
       changedQueries.add(query);
     } else if (entityType === "subscribers" && queryEntity === "readings") {
       queryClient.setQueryData(query.queryKey, refreshReadingSubscriberProjection(rows, page, scope));
+      changedQueries.add(query);
+    } else if ((entityType === "subscribers" || entityType === "invoices") && queryEntity === "payments" && segments[2] === "page") {
+      queryClient.setQueryData(query.queryKey, refreshPaymentRelatedProjection(rows, page, scope, entityType));
       changedQueries.add(query);
     }
   }
@@ -313,11 +321,9 @@ export function OfflineDeltaSyncRuntime() {
               queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), query.state.data, scope,
             ));
           } else if (candidate.entityType === "readings" && getSegments(query.queryKey)[2] === "page") {
-            queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(
-              snapshotRowsFromQuery("readings", queryRows),
-              subscriberRowsForSite(queryClient.getQueryCache().findAll(), candidate.siteId, candidate.tenantId),
-              getOfflineQueryInput(query.queryKey), query.state.data, scope,
-            ));
+            queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(snapshotRowsFromQuery("readings", queryRows), subscriberRowsForSite(queryClient.getQueryCache().findAll(), candidate.siteId, candidate.tenantId), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "payments" && getSegments(query.queryKey)[2] === "page") {
+            queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else {
             queryClient.setQueryData(query.queryKey, queryRows);
           }

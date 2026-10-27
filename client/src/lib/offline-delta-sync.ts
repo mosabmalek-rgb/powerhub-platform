@@ -1,5 +1,5 @@
 import { openLegacyOfflineDatabaseIfPresent, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
-export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs" | "invoices";
+export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs" | "invoices" | "payments";
 
 export type DeltaChange<Row extends Record<string, unknown> = Record<string, unknown>> = {
   cursor: string;

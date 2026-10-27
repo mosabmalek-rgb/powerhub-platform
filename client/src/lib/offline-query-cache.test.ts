@@ -44,11 +44,12 @@ describe("offline query cache policy", () => {
     }
 
     // Reading and invoice history pages are materialized from their scoped Delta change feeds.
-    // Payment and expense pages remain cache-only until their own server change-feed contracts are complete.
+    // Expense pages remain cache-only until their server change-feed contract is complete.
     expect(isDeltaSyncBackedQueryKey(readingPage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(invoicePage)).toBe(true);
-    expect(isDeltaSyncBackedQueryKey(paymentPage)).toBe(false);
+    expect(isDeltaSyncBackedQueryKey(paymentPage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(expensePage)).toBe(false);
+    expect(getOfflineQueryStaleTime(paymentPage)).toBe(Number.POSITIVE_INFINITY);
 
     expect(isOfflineCacheableQueryKey(["powerhub.readings.page", {
       input: { siteId: 0, limit: 100 }, type: "query",
