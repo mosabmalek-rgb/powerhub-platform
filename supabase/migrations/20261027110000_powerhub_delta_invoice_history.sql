@@ -21,7 +21,7 @@ returns bigint
 language plpgsql
 security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare
   v_cursor bigint;
   v_cutoff bigint;
@@ -75,7 +75,7 @@ begin
 
   return v_cursor;
 end;
-$;
+$$;
 alter function public.powerhub_append_sync_change(bigint, bigint, text, text, text, jsonb) owner to postgres;
 revoke all on function public.powerhub_append_sync_change(bigint, bigint, text, text, text, jsonb) from public, anon, authenticated;
 grant execute on function public.powerhub_append_sync_change(bigint, bigint, text, text, text, jsonb) to service_role;

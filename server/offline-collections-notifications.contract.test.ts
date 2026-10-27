@@ -8,6 +8,7 @@ const operationsPage = readFileSync(resolve(process.cwd(), "client/src/pages/Ope
 const notificationCenter = readFileSync(resolve(process.cwd(), "client/src/components/NotificationCenter.tsx"), "utf8");
 const subscriberRouter = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const queryCache = readFileSync(resolve(process.cwd(), "client/src/lib/offline-query-cache.ts"), "utf8");
+const offlinePolicy = readFileSync(resolve(process.cwd(), "client/src/lib/offline-query-policy.ts"), "utf8");
 const main = readFileSync(resolve(process.cwd(), "client/src/main.tsx"), "utf8");
 const billingPage = readFileSync(resolve(process.cwd(), "client/src/pages/BillingPage.tsx"), "utf8");
 const lifecycleMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261026101438_powerhub_trial_subscription_lifecycle_20261026.sql"), "utf8");
@@ -138,11 +139,11 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
   it("keeps the offline cache scoped and bounded without caching financial or access-sensitive data", () => {
     expect(queryCache).toContain("OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER = 200");
     expect(queryCache).toContain("OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024");
-    expect(queryCache).toContain('const BLOCKED_PROCEDURES = new Set([');
-    expect(queryCache).toContain('"payments"');
-    expect(queryCache).toContain('"admin"');
+    expect(offlinePolicy).toContain('const BLOCKED_PROCEDURES = new Set([');
+    expect(offlinePolicy).toContain('"payments"');
+    expect(offlinePolicy).toContain('"admin"');
     expect(queryCache).toContain("record.userId !== userId");
-    expect(main).toContain('staleTime: 30_000');
-    expect(main).toContain("refetchOnReconnect: true");
+    expect(main).toContain("staleTime: (query) => getOfflineQueryStaleTime(query.queryKey)");
+    expect(main).toContain("refetchOnReconnect: (query) => !isDeltaSyncBackedQueryKey(query.queryKey)");
   });
 });

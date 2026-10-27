@@ -488,7 +488,8 @@ describe("public invoice and inquiry actions", () => {
     const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
     const paymentPage = read("client/src/pages/PaymentDocumentationPage.tsx");
 
-    expect(main).toContain("staleTime: 30_000");
+    expect(main).toContain("staleTime: (query) => getOfflineQueryStaleTime(query.queryKey)");
+    expect(main).toContain("refetchOnReconnect: (query) => !isDeltaSyncBackedQueryKey(query.queryKey)");
     const subscriptionCard = home.indexOf("<SubscriptionRenewalDashboardCard");
     const branchPerformance = home.indexOf("{selectedScope === \"all\" && <BranchPerformanceCard");
     expect(subscriptionCard).toBeGreaterThan(branchPerformance);
