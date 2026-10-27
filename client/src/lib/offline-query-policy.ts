@@ -211,6 +211,6 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
   if (segments[1] === "companyAccounts") return "company_accounts";
   if (segments[1] === "sites" || segments[1] === "subscribers" ||
       segments[1] === "generators" || segments[1] === "readings" ||
-      segments[1] === "tariffs") return segments[1];
+      segments[1] === "tariffs") return segments[1] as "sites" | "subscribers" | "generators" | "readings" | "tariffs";
   return null;
 }
