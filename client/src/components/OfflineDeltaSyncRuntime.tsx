@@ -3,7 +3,7 @@ import { onlineManager, useQueryClient, type Query } from "@tanstack/react-query
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getSupabaseSession } from "@/lib/supabase";
-import { persistOfflineQuery } from "@/lib/offline-query-cache";
+import { persistOfflineQueryForDeltaSync } from "@/lib/offline-query-cache";
 import {
   clearDeltaSyncDataForUser,
   applyDeltaChanges,
@@ -228,7 +228,7 @@ async function patchQueryCaches(
     }
   }
   // The cursor is committed only after every affected durable query snapshot is written.
-  for (const query of changedQueries) await persistOfflineQuery(query, cacheOwnerId);
+  for (const query of changedQueries) await persistOfflineQueryForDeltaSync(query, cacheOwnerId);
 }
 
 export function OfflineDeltaSyncRuntime() {
@@ -335,7 +335,7 @@ export function OfflineDeltaSyncRuntime() {
           } else {
             queryClient.setQueryData(query.queryKey, queryRows);
           }
-          await persistOfflineQuery(query, cacheOwnerId);
+          await persistOfflineQueryForDeltaSync(query, cacheOwnerId);
         }
         return {
           cursor: snapshot.snapshot_cursor,
