@@ -62,10 +62,49 @@ function getPowerHubQuerySegments(queryKey: readonly unknown[]) {
   return [];
 }
 
+const SUBSCRIBER_DIRECTORY_PAGE_SIZE = 20;
+const MAX_CACHEABLE_SUBSCRIBER_DIRECTORY_PAGE = 200;
+const SUBSCRIBER_DIRECTORY_INPUT_KEYS = new Set([
+  "siteId",
+  "page",
+  "pageSize",
+  "search",
+  "subscriptionType",
+]);
+
+function getOfflineQueryInput(queryKey: readonly unknown[]): Record<string, unknown> | null {
+  const options = queryKey[1];
+  if (!options || typeof options !== "object" || Array.isArray(options)) return null;
+  const wrapper = options as Record<string, unknown>;
+  const input = Object.prototype.hasOwnProperty.call(wrapper, "input") ? wrapper.input : wrapper;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  return input as Record<string, unknown>;
+}
+
+function isSafeUnfilteredSubscriberDirectoryPage(queryKey: readonly unknown[]) {
+  const input = getOfflineQueryInput(queryKey);
+  if (!input || Object.keys(input).some((key) => !SUBSCRIBER_DIRECTORY_INPUT_KEYS.has(key))) return false;
+  return Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0 &&
+    Number.isSafeInteger(input.page) && Number(input.page) >= 1 &&
+    Number(input.page) <= MAX_CACHEABLE_SUBSCRIBER_DIRECTORY_PAGE &&
+    input.pageSize === SUBSCRIBER_DIRECTORY_PAGE_SIZE &&
+    input.search === "" &&
+    input.subscriptionType === undefined;
+}
+
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
   if (segments.some((value) => BLOCKED_PROCEDURES.has(value))) return false;
+
+  // Cache only the unfiltered, fixed-size subscriber directory pages. Search
+  // results and type-filtered pages may contain a user's ad-hoc selections and
+  // are intentionally not persisted. The input contract also bounds page size
+  // and rejects extra query fields so unrelated procedures cannot opt in.
+  if (segments[1] === "subscribers" && segments[2] === "directoryPage") {
+    return isSafeUnfilteredSubscriberDirectoryPage(queryKey);
+  }
+
   // Only stable whole-list query shapes are persisted. Search pages, details,
   // summaries, mutations and other methods under an otherwise cacheable router
   // must opt in explicitly rather than inheriting permission from the router name.
