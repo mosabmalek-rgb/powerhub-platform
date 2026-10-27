@@ -77,7 +77,7 @@ const trpcClient = trpc.createClient({
         // token in PostgreSQL. Avoid unrelated session and device-ID reads for
         // this route; all protected pages keep their normal headers.
         if (isStandalonePublicInvoiceRoute()) return {};
-        const [{ getSupabaseAccessToken }, { getPowerHubDeviceId }, { getPowerHubConnectivitySnapshot }] = await Promise.all([
+        const [{ getSupabaseAccessToken, getSupabaseSessionDiagnostics }, { getPowerHubDeviceId }, { getPowerHubConnectivitySnapshot }] = await Promise.all([
           import("./lib/supabase"),
           import("./lib/offline-auth"),
           import("./lib/offline-connectivity"),
@@ -93,10 +93,29 @@ const trpcClient = trpc.createClient({
         }
         const token = await getSupabaseAccessToken();
         if (!token) {
-          // Do not send an anonymous request when the browser cannot provide a
-          // usable Supabase access token. Give the recovery UI a safe stage code.
+          // Log only token-free state so persistent browser failures can be
+          // diagnosed without exposing access/refresh tokens or user data.
+          const diagnostics = getSupabaseSessionDiagnostics();
           const error = new Error("PowerHub could not obtain a usable Supabase access token.");
           error.name = "PowerHubSessionTokenUnavailableError";
+          Object.assign(error, {
+            authStage: !diagnostics.hasCurrentSession
+              ? "session_absent"
+              : !diagnostics.hasAccessToken
+                ? "access_token_absent"
+                : !diagnostics.tokenUsable
+                  ? "access_token_expired_or_unreadable"
+                  : "session_unresolved",
+            sessionInitialized: diagnostics.sessionInitialized,
+            tokenExpirySource: diagnostics.tokenExpirySource,
+            tokenExpiresAt: diagnostics.tokenExpiresAt,
+            tokenUsable: diagnostics.tokenUsable,
+            readInFlight: diagnostics.readInFlight,
+            readBackoffActive: diagnostics.readBackoffActive,
+            lastReadErrorName: diagnostics.lastReadErrorName,
+            lastReadErrorMessage: diagnostics.lastReadErrorMessage,
+            authStateRevision: diagnostics.authStateRevision,
+          });
           throw error;
         }
 
