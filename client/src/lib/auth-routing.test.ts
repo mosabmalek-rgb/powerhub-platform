@@ -58,6 +58,13 @@ describe("auth route transition policy", () => {
       hasError: false,
       hasUser: false,
     })).toBe(false);
+    expect(shouldRedirectToLoginWhenNoSession({
+      loading: false,
+      isAuthenticated: false,
+      hasSession: false,
+      hasError: false,
+      hasUser: true,
+    })).toBe(false);
   });
 
   it("does not decide routing while authentication is still loading", () => {

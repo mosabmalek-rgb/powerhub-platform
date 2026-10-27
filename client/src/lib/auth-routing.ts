@@ -30,7 +30,8 @@ export function shouldRedirectToLoginWhenNoSession(
   return !state.loading &&
     !state.isAuthenticated &&
     !state.hasSession &&
-    !state.hasError;
+    !state.hasError &&
+    !state.hasUser;
 }
 
 /** Keep an unverified-but-present session on a recoverable screen, not a redirect. */
