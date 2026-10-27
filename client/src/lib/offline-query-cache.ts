@@ -92,9 +92,59 @@ function isSafeUnfilteredSubscriberDirectoryPage(queryKey: readonly unknown[]) {
     input.subscriptionType === undefined;
 }
 
+const OFFLINE_PAGE_READ_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
+  "readings.page": new Set(["siteId", "limit"]),
+  "invoices.page": new Set(["siteId", "limit", "cursor"]),
+  "payments.page": new Set(["siteId", "limit", "cursor"]),
+  "expenses.page": new Set(["siteId", "limit", "startDate", "endDate", "companyAccountId"]),
+};
+
+function isValidOfflineDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * Cache only bounded, site-scoped page snapshots whose inputs are explicitly
+ * known. These pages are display snapshots, not offline financial authority;
+ * until their server change-feed adapters exist, they are deliberately not
+ * marked Delta-backed and must refresh from their exact page key on reconnect.
+ */
+function isSafeScopedOfflinePage(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3 || segments[2] !== "page") return false;
+  const procedure = `${segments[1]}.${segments[2]}`;
+  const allowedKeys = OFFLINE_PAGE_READ_INPUT_KEYS[procedure];
+  if (!allowedKeys) return false;
+
+  const input = getOfflineQueryInput(queryKey);
+  if (!input || Object.keys(input).some((key) => !allowedKeys.has(key))) return false;
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1) return false;
+  if (input.limit !== undefined &&
+      (!Number.isSafeInteger(input.limit) || Number(input.limit) < 1 || Number(input.limit) > 200)) return false;
+
+  if ((procedure === "invoices.page" || procedure === "payments.page") &&
+      input.cursor !== undefined &&
+      (typeof input.cursor !== "string" || input.cursor.length === 0 || input.cursor.length > 500)) return false;
+
+  if (procedure === "expenses.page") {
+    const hasStart = input.startDate !== undefined;
+    const hasEnd = input.endDate !== undefined;
+    if (hasStart !== hasEnd) return false;
+    if (hasStart && (!isValidOfflineDate(input.startDate) || !isValidOfflineDate(input.endDate) ||
+        String(input.startDate) > String(input.endDate))) return false;
+    if (input.companyAccountId !== undefined &&
+        (!Number.isSafeInteger(input.companyAccountId) || Number(input.companyAccountId) < 1)) return false;
+  }
+  return true;
+}
+
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
+  // Explicit site-scoped page allowlist is evaluated before BLOCKED_PROCEDURES:
+  // only the named read pages above may persist, never their list/mutation/summaries.
+  if (isSafeScopedOfflinePage(queryKey, segments)) return true;
   if (segments.some((value) => BLOCKED_PROCEDURES.has(value))) return false;
 
   // Cache only the unfiltered, fixed-size subscriber directory pages. Search

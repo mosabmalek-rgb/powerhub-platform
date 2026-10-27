@@ -23,6 +23,46 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
   });
 
+  it("persists only bounded site-scoped reading and ledger pages without claiming Delta support", () => {
+    const readingPage = ["powerhub.readings.page", {
+      input: { siteId: 7, limit: 200 }, type: "query",
+    }];
+    const invoicePage = ["powerhub.invoices.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }];
+    const paymentPage = ["powerhub.payments.page", {
+      input: { siteId: 7, limit: 100, cursor: "next-page-token" }, type: "query",
+    }];
+    const expensePage = ["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100, startDate: "2026-10-01", endDate: "2026-10-27", companyAccountId: 12 },
+      type: "query",
+    }];
+
+    for (const key of [readingPage, invoicePage, paymentPage, expensePage]) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    }
+
+    expect(isOfflineCacheableQueryKey(["powerhub.readings.page", {
+      input: { siteId: 0, limit: 100 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.invoices.page", {
+      input: { siteId: 7, limit: 201 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.payments.page", {
+      input: { siteId: 7, limit: 100, includeOtherSites: true }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100, startDate: "2026-10-28" }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.payments.list", {
+      input: { siteId: 7 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100, companyAccountId: 0 }, type: "query",
+    }])).toBe(false);
+  });
+
   it("persists only bounded, unfiltered subscriber directory pages for a valid site", () => {
     const pageOne = ["powerhub.subscribers.directoryPage", {
       input: { siteId: 7, page: 1, pageSize: 20, search: "" },

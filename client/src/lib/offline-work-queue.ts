@@ -473,12 +473,35 @@ export async function updateOfflineWork(
   patch: Partial<
     Pick<QueuedOfflineWork, "status" | "error" | "appliedEntityId" | "appliedLabel" | "payload">
   >,
-) {
-  const existing = await transact<QueuedOfflineWork | undefined>("readonly", (store) => store.get(id));
-  if (!existing) return;
-  await transact("readwrite", (store) =>
-    store.put({ ...existing, ...patch, updatedAt: Date.now() }),
-  );
+): Promise<void> {
+  // Read and write the same row in one readwrite transaction. A separate readonly
+  // transaction can race an executor/retry worker and overwrite a newer terminal
+  // status or payload with an older snapshot.
+  const database = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(storeName, "readwrite");
+    const store = transaction.objectStore(storeName);
+    const request = store.get(id);
+    request.onsuccess = () => {
+      const existing = request.result as QueuedOfflineWork | undefined;
+      if (!existing) return;
+      store.put({ ...existing, ...patch, updatedAt: Date.now() });
+    };
+    request.onerror = () => {
+      try { transaction.abort(); } catch {}
+    };
+    transaction.oncomplete = () => { database.close(); resolve(); };
+    transaction.onerror = () => {
+      const error = transaction.error;
+      database.close();
+      reject(error ?? new OfflineWorkQueueError("تعذر تحديث المسودة المحلية."));
+    };
+    transaction.onabort = () => {
+      const error = transaction.error;
+      database.close();
+      reject(error ?? new OfflineWorkQueueError("أُلغي تحديث المسودة المحلية."));
+    };
+  });
 }
 
 /**
