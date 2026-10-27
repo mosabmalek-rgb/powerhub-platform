@@ -164,11 +164,12 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
 
 export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
-  return isOfflineCacheableQueryKey(queryKey) &&
-    segments.length >= 3 &&
-    segments[0] === "powerhub" &&
-    segments[2] === "list" &&
-    DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
+  if (!isOfflineCacheableQueryKey(queryKey) || segments.length < 3 || segments[0] !== "powerhub") return false;
+
+  // Invoice history uses an object with items/hasNext/nextCursor rather than a bare list.
+  if (segments[1] === "invoices" && segments[2] === "page") return true;
+
+  return segments[2] === "list" && DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
 }
 
 export function offlineQueryCacheKey(queryKey: readonly unknown[]) {
