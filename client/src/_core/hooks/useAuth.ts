@@ -402,24 +402,24 @@ function useAuthController() {
     }
   }, [releaseDevice, utils, queryClient, cachedUser, offlineLeaseUserId]);
 
-  // A cached user is useful for offline mode, but must never authorize the
-  // online workspace before the current Supabase session has completed a live
-  // auth.me check. This prevents protected tenant queries from racing the
-  // login/session handshake and avoids transient 401/403 states in the UI.
+  // A cached user is useful for offline rendering only. It must never
+  // authorize online routes or protected queries when this browser cannot
+  // obtain a Supabase token and the current auth.me check has not succeeded.
   const meQueryErrorCode = (meQuery.error as { data?: { code?: string } } | null)?.data?.code;
   const meQueryAuthorizationDenied = meQueryErrorCode === "FORBIDDEN" ||
     (meQueryErrorCode === "UNAUTHORIZED" && !hasSession);
-  // A transport failure does not invalidate an otherwise-present browser
-  // session. Keep authentication recoverable, while route gates show a retry
-  // surface if no last-confirmed profile is available.
   const meQueryTemporarilyUnavailable = Boolean(
     (meQuery.error && !meQueryAuthorizationDenied) ||
     (hasSession && meQuery.isPending && authProfileCheckTimedOut),
   );
+  // Online authentication requires a successful server-validated auth.me
+  // result. Transient failures retain the session/cache for recovery UI, but
+  // cannot unlock the online workspace or fan out more protected requests.
   const isOnlineAuthenticated = Boolean(
     canValidateOnlineSession &&
       !meQueryAuthorizationDenied &&
-      (meQuery.isSuccess && meQuery.data || cachedUser || meQueryTemporarilyUnavailable),
+      meQuery.isSuccess &&
+      meQuery.data,
   );
   const offlineAuthenticated = Boolean(
     offlineLeaseUserId &&
