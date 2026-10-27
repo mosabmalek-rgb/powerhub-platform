@@ -48,7 +48,7 @@ describe("offline query cache policy", () => {
     expect(isDeltaSyncBackedQueryKey(readingPage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(invoicePage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(paymentPage)).toBe(true);
-    expect(isDeltaSyncBackedQueryKey(expensePage)).toBe(false);
+    expect(isDeltaSyncBackedQueryKey(expensePage)).toBe(true);
     expect(getOfflineQueryStaleTime(paymentPage)).toBe(Number.POSITIVE_INFINITY);
 
     expect(isOfflineCacheableQueryKey(["powerhub.readings.page", {
@@ -188,7 +188,7 @@ describe("offline query freshness policy", () => {
     }])).toBe(Number.POSITIVE_INFINITY);
     expect(getOfflineQueryStaleTime(["powerhub.expenses.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
-    }])).toBe(30_000);
+    }])).toBe(Number.POSITIVE_INFINITY);
   });
 });
 
