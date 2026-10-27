@@ -6,6 +6,8 @@ import { getSupabaseSession } from "@/lib/supabase";
 import { persistOfflineQuery } from "@/lib/offline-query-cache";
 import {
   clearDeltaSyncDataForUser,
+  applyDeltaChanges,
+  listDeltaEntities,
   getDeltaCursor,
   getDeltaSyncStatus,
   saveDeltaSyncStatus,
@@ -20,6 +22,7 @@ import {
   refreshReadingSubscriberProjection,
   normalizeDeltaEntityRow,
   snapshotRowsFromQuery,
+  projectInvoiceDeltaPage,
   type DeltaOperationalEntity,
 } from "@/lib/offline-delta-query-bridge";
 import { isOfflineCacheableQueryKey } from "@/lib/offline-query-cache";
@@ -69,10 +72,31 @@ function rowTenantId(value: unknown): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
-  if (!isOfflineCacheableQueryKey(query.queryKey) || !Array.isArray(query.state.data)) return null;
+function getOfflineQueryInput(queryKey: readonly unknown[]): Record<string, unknown> {
+  const options = queryKey[1];
+  if (!options || typeof options !== "object" || Array.isArray(options)) return {};
+  const wrapper = options as Record<string, unknown>;
+  const input = Object.prototype.hasOwnProperty.call(wrapper, "input") ? wrapper.input : wrapper;
+  return input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+}
+
+function getQueryRows(query: Query): AnyRow[] | null {
   const segments = getSegments(query.queryKey);
-  if (segments[0] !== "powerhub" || segments[2] !== "list") return null;
+  const data = query.state.data;
+  if (segments[0] === "powerhub" && segments[1] === "invoices" && segments[2] === "page" &&
+      data !== null && typeof data === "object" && !Array.isArray(data)) {
+    const items = (data as Record<string, unknown>).items;
+    return Array.isArray(items) ? items as AnyRow[] : null;
+  }
+  return Array.isArray(data) ? data as AnyRow[] : null;
+}
+
+function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
+  if (!isOfflineCacheableQueryKey(query.queryKey)) return null;
+  const segments = getSegments(query.queryKey);
+  if (segments[0] !== "powerhub") return null;
+  if (segments[1] === "invoices" && segments[2] === "page" && getQueryRows(query)) return "invoices";
+  if (segments[2] !== "list" || !getQueryRows(query)) return null;
   if (segments[1] === "sites" || segments[1] === "subscribers" || segments[1] === "generators" || segments[1] === "readings" || segments[1] === "tariffs") {
     return segments[1];
   }
@@ -103,7 +127,7 @@ function makeCandidates(queries: Query[]): Candidate[] {
   for (const query of queries) {
     const entityType = queryIsSupportedList(query);
     if (!entityType) continue;
-    const data = query.state.data as unknown[];
+    const data = getQueryRows(query) ?? [];
     if (entityType === "sites") {
       for (const site of data) {
         if (!site || typeof site !== "object") continue;
@@ -145,6 +169,12 @@ async function patchQueryCaches(
   const changedQueries = new Set<Query>();
   const queries = queryClient.getQueryCache().findAll();
   const subscribers = subscriberRowsForSite(queries, scope.siteId, scope.tenantId);
+  let invoiceRowsAfterPage: AnyRow[] | null = null;
+  if (entityType === "invoices" && page.changes.length > 0) {
+    const local = await listDeltaEntities<AnyRow>(scope);
+    invoiceRowsAfterPage = applyDeltaChanges(local.map((record) => record.rowData), page.changes);
+  }
+
   for (const query of queries) {
     const queryEntity = queryIsSupportedList(query);
     if (!queryEntity) continue;
@@ -154,18 +184,24 @@ async function patchQueryCaches(
     } else if (findNumberProperty(query.queryKey, "siteId") !== scope.siteId) {
       continue;
     }
-    const rows = query.state.data;
-    if (!Array.isArray(rows)) continue;
+    const rows = getQueryRows(query);
+    if (!rows) continue;
     if (queryEntity === entityType) {
-      queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, page, scope, subscribers));
+      if (entityType === "invoices") {
+        if (!invoiceRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
+          invoiceRowsAfterPage, getOfflineQueryInput(query.queryKey), query.state.data, scope,
+        ));
+      } else {
+        queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, page, scope, subscribers));
+      }
       changedQueries.add(query);
     } else if (entityType === "subscribers" && queryEntity === "readings") {
       queryClient.setQueryData(query.queryKey, refreshReadingSubscriberProjection(rows, page, scope));
       changedQueries.add(query);
     }
   }
-  // The cursor is committed only after every affected durable query snapshot is
-  // written, so a browser restart cannot resume beyond a change absent from cache.
+  // The cursor is committed only after every affected durable query snapshot is written.
   for (const query of changedQueries) await persistOfflineQuery(query, cacheOwnerId);
 }
 
@@ -239,7 +275,7 @@ export function OfflineDeltaSyncRuntime() {
           }
         }
         const matchingQueries = queryClient.getQueryCache().findAll().filter((query) => {
-          if (queryIsSupportedList(query) !== candidate.entityType || !Array.isArray(query.state.data)) return false;
+          if (queryIsSupportedList(query) !== candidate.entityType || !getQueryRows(query)) return false;
           if (candidate.entityType === "sites") {
             const segments = getSegments(query.queryKey);
             return segments[0] === "powerhub" && segments[1] === "sites" && segments[2] === "list";
@@ -260,6 +296,10 @@ export function OfflineDeltaSyncRuntime() {
               return bDate - aDate;
             });
             queryClient.setQueryData(query.queryKey, merged);
+          } else if (candidate.entityType === "invoices") {
+            queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
+              queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), query.state.data, scope,
+            ));
           } else {
             queryClient.setQueryData(query.queryKey, queryRows);
           }
