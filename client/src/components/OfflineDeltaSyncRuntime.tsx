@@ -151,7 +151,7 @@ function makeCandidates(queries: Query[]): Candidate[] {
     const siteId = entityType === "company_accounts"
       ? Number(queryInput.branchId)
       : findNumberProperty(query.queryKey, "siteId");
-    if (!Number.isSafeInteger(siteId) || siteId < 1) continue;
+    if (siteId === null || !Number.isSafeInteger(siteId) || siteId < 1) continue;
     const tenantId = tenants.get(siteId) ?? data.map(rowTenantId).find((value) => value !== null) ?? null;
     if (!tenantId) continue;
     const candidate = { entityType, siteId, tenantId };
