@@ -231,7 +231,7 @@ begin
    v_delta:=public.powerhub_pull_sync_delta(1,20,'company_accounts',v_cursor,null,200);
  end if;
  if jsonb_array_length(v_delta->'changes')<1
-   or not exists(select 1 from jsonb_array_elements(v_delta->'changes') c where c->>'operation'='delete' and c->>'entity_id'='700')
+   or not exists(select 1 from jsonb_array_elements(v_delta->'changes') as c(value) where value->>'operation'='delete' and value->>'entity_id'='700')
  then raise exception 'Inactive account tombstone failed: %',v_delta; end if;
 
  begin
