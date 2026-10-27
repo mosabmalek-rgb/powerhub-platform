@@ -4,6 +4,7 @@ import {
   isDeltaSyncBackedQueryKey,
   isOfflineQueryRecordUsable,
   offlineQueryCacheKey,
+  sanitizeOfflineQueryData,
 } from "./offline-query-cache";
 import { getOfflineQueryStaleTime } from "./offline-query-policy";
 
@@ -169,6 +170,41 @@ describe("offline query cache policy", () => {
   });
 });
 
+
+describe("offline cache privacy sanitization", () => {
+  it("strips current and legacy receipt URLs, private keys, and hashes before persistence/hydration", () => {
+    const queryKey = ["powerhub.payments.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }];
+    const raw = {
+      items: [{
+        payment: {
+          id: 4, hasReceiptImage: false,
+          receiptImageUrl: "https://signed.example/temporary?token=secret",
+          receiptImageKey: "private/payment-receipts/4.png",
+          receiptImageHash: "private-hash",
+          receipt_image_url: "https://signed.example/legacy?token=legacy",
+          receipt_image_key: "private/legacy.png",
+          receipt_image_hash: "legacy-hash",
+        },
+        subscriber: { id: 9, fullName: "Subscriber" },
+      }],
+      hasNext: false, nextCursor: null,
+    };
+    const safe = sanitizeOfflineQueryData(queryKey, raw) as typeof raw;
+    expect(safe.items[0].payment.hasReceiptImage).toBe(true);
+    for (const key of [
+      "receiptImageUrl", "receiptImageKey", "receiptImageHash",
+      "receipt_image_url", "receipt_image_key", "receipt_image_hash",
+    ]) expect(safe.items[0].payment).not.toHaveProperty(key);
+    expect(safe.items[0].subscriber.fullName).toBe("Subscriber");
+  });
+
+  it("does not alter unrelated query payloads", () => {
+    const data = { items: [{ receipt_image_url: "preserve-other-domain" }] };
+    expect(sanitizeOfflineQueryData(["powerhub.subscribers.list", { siteId: 7 }], data)).toEqual(data);
+  });
+});
 
 describe("offline query freshness policy", () => {
   it("prevents full-query refetches for Delta-backed snapshots after reload", () => {

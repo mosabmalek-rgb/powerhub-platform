@@ -175,10 +175,16 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
     if (!row.payment || typeof row.payment !== "object" || Array.isArray(row.payment)) return item;
     const payment = row.payment as Record<string, unknown>;
     const hasReceiptImage = Boolean(payment.hasReceiptImage || payment.receiptImageKey ||
-      payment.receipt_image_key || payment.receiptImageUrl);
-    const { receiptImageUrl: _url, receiptImageKey: _key, receiptImageHash: _hash,
-      receipt_image_key: _snakeKey, receipt_image_hash: _snakeHash, ...safePayment } = payment;
-    return { ...row, payment: { ...safePayment, hasReceiptImage } };
+      payment.receipt_image_key || payment.receiptImageUrl || payment.receipt_image_url);
+    const safePayment = { ...payment };
+    // Strip both current and legacy snake/camel-case names so pre-upgrade cache
+    // records cannot retain signed URLs, private storage paths, or image hashes.
+    for (const key of [
+      "receiptImageUrl", "receiptImageKey", "receiptImageHash",
+      "receipt_image_url", "receipt_image_key", "receipt_image_hash",
+    ]) delete safePayment[key];
+    safePayment.hasReceiptImage = hasReceiptImage;
+    return { ...row, payment: safePayment };
   }) };
 }
 
