@@ -267,7 +267,7 @@ function encodeInvoicePageCursor(row: Row): string {
   const id = Number(row.id);
   if (!issueDate || !Number.isSafeInteger(id) || id < 1) throw new Error("تعذر إنشاء مؤشر صفحة الفواتير المحلي.");
   return btoa(JSON.stringify({ at: issueDate.toISOString(), id }))
-    .replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 }
 
 /** Rebuilds the keyset page from the full scoped invoice Delta snapshot. */
