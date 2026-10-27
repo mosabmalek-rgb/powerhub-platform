@@ -12,6 +12,7 @@ import {
   getDeltaSyncStatus,
   saveDeltaSyncStatus,
   pullDeltaPages,
+  withDeltaSyncLock,
   type DeltaCursorScope,
   type DeltaEntityType,
   type DeltaPage,
@@ -261,6 +262,7 @@ export function OfflineDeltaSyncRuntime() {
         siteId: candidate.siteId,
         entityType: candidate.entityType,
       };
+      await withDeltaSyncLock(scope, async () => {
       const afterCursor = await getDeltaCursor(scope);
       const pull = async (args: { afterCursor: string | null; throughCursor: string | null; pageSize: number }) => {
         const response = await utils.powerhub.deltaSync.pull.fetch({
@@ -382,6 +384,7 @@ export function OfflineDeltaSyncRuntime() {
           detail: { userId: activeUserId, siteId: candidate.siteId },
         }));
       }
+      });
     };
 
     const run = async () => {
