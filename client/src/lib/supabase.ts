@@ -164,8 +164,48 @@ export async function getSupabaseSession(): Promise<Session | null> {
   return sessionReadInFlight;
 }
 
-export async function getSupabaseAccessToken() {
-  const session = await getSupabaseSession();
+const TOKEN_AUTH_EVENT_WAIT_MS = 1_200;
+let accessTokenReadInFlight: Promise<string | null> | null = null;
+
+/**
+ * A tRPC batch can start in the same turn as Supabase finishes restoring or
+ * rotating a session. Give the SDK's authoritative auth event one short,
+ * bounded opportunity to publish that session before declaring no token.
+ * This is not an offline lease and never sends an anonymous protected request.
+ */
+function waitForAuthStateChange(timeoutMs = TOKEN_AUTH_EVENT_WAIT_MS): Promise<void> {
+  ensureAuthSubscription();
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      authSubscribers.delete(subscriber);
+      resolve();
+    };
+    const subscriber: AuthSubscriber = (event, session) => {
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" ||
+          event === "USER_UPDATED" || event === "SIGNED_OUT" ||
+          isSupabaseSessionUsable(session)) finish();
+    };
+    authSubscribers.add(subscriber);
+    timer = setTimeout(finish, timeoutMs);
+    // Close the race where a usable event landed immediately before subscription.
+    if (isSupabaseSessionUsable(currentSession)) finish();
+  });
+}
+
+async function readSupabaseAccessToken(): Promise<string | null> {
+  let session = await getSupabaseSession();
+  if (!session || !isSupabaseSessionUsable(session)) {
+    // A single bounded reconciliation handles startup/sign-in/token-refresh
+    // ordering without a refreshSession storm across concurrent tRPC requests.
+    await waitForAuthStateChange();
+    session = await getSupabaseSession();
+  }
+
   if (!session || !isSupabaseSessionUsable(session)) {
     const cause = lastSessionReadError as (Error & { code?: unknown; status?: unknown; statusCode?: unknown }) | null;
     if (cause && (cause.status === 429 || cause.statusCode === 429 || cause.code === "over_request_rate_limit")) {
@@ -191,4 +231,16 @@ export async function getSupabaseAccessToken() {
   return typeof session.access_token === "string" && session.access_token.trim().length > 0
     ? session.access_token
     : null;
+}
+
+/**
+ * All simultaneous API batches share one bounded token acquisition/recovery
+ * attempt. Do not trigger refreshSession here; Supabase owns token rotation.
+ */
+export function getSupabaseAccessToken(): Promise<string | null> {
+  if (accessTokenReadInFlight) return accessTokenReadInFlight;
+  accessTokenReadInFlight = readSupabaseAccessToken().finally(() => {
+    accessTokenReadInFlight = null;
+  });
+  return accessTokenReadInFlight;
 }
