@@ -257,6 +257,53 @@ describe("offline delta sync", () => {
     expect(indexedDb.writeAttempts()).toBe(2);
   });
 
+  it("keeps the Delta cursor and entity snapshot unchanged when the page commit aborts, then replays the same page", async () => {
+    const durable = memoryStorage("3");
+    let commitAttempts = 0;
+    const storage: DeltaSyncStorage = {
+      getCursor: (...args) => durable.getCursor(...args),
+      listEntities: (...args) => durable.listEntities(...args),
+      commitPage: async (targetScope, deltaPage, nextCursor) => {
+        commitAttempts += 1;
+        // Model an IndexedDB readwrite transaction that aborts before commit:
+        // neither entity mutations nor its cursor become durable.
+        if (commitAttempts === 1) throw new Error("Injected Delta IndexedDB transaction abort");
+        await durable.commitPage(targetScope, deltaPage, nextCursor);
+      },
+      replaceSnapshot: (...args) => durable.replaceSnapshot(...args),
+      clearUser: (...args) => durable.clearUser(...args),
+    };
+    const expectedPage = page({
+      current_cursor: "4",
+      through_cursor: "4",
+      next_cursor: "4",
+      changes: [change("4", "7", "upsert", { id: 7, tenantId: 1, siteId: 7, name: "Recovered" })],
+    });
+    const pull = vi.fn(async () => expectedPage);
+    const input = {
+      scope,
+      storage,
+      afterCursor: "3",
+      pull,
+      applyPage: async () => undefined,
+      rebuildSnapshot: async (cursor: string) => ({ cursor, rows: [] }),
+    };
+
+    await expect(pullDeltaPages(input)).rejects.toThrow(/Injected Delta IndexedDB transaction abort/);
+    expect(await storage.getCursor(scope)).toBe("3");
+    expect(await storage.listEntities(scope)).toEqual([]);
+    expect(commitAttempts).toBe(1);
+
+    const result = await pullDeltaPages(input);
+    expect(pull).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ cursor: "4", appliedChanges: 1, resetRequired: false });
+    expect(await storage.getCursor(scope)).toBe("4");
+    expect((await storage.listEntities(scope)).map(row => row.rowData)).toEqual([
+      { id: 7, tenantId: 1, siteId: 7, name: "Recovered" },
+    ]);
+    expect(commitAttempts).toBe(2);
+  });
+
   it("rebuilds and atomically checkpoints when server retention requires a snapshot", async () => {
     const storage = memoryStorage();
     const pull = vi.fn()
