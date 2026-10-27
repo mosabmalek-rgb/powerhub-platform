@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261024140000_powerhub_delta_sync_engine.sql"), "utf8");
+const invoiceMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027110000_powerhub_delta_invoice_history.sql"), "utf8");
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-delta-sync.ts"), "utf8");
 
@@ -34,7 +35,7 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices"])');
     expect(router).toContain("requireSupabaseSiteRole(");
     expect(router).toContain('supabaseAdmin().rpc("powerhub_pull_sync_delta"');
     expect(router).toContain("input.pageSize");
@@ -53,5 +54,19 @@ describe("PowerHub delta sync contract", () => {
     expect(client).toContain("change.row_data[idKey]");
     expect(client).toContain("page.through_cursor");
     expect(client).toContain("setDeltaCursor");
+  });
+});
+
+
+describe("invoice Delta extension", () => {
+  it("keeps invoice snapshots scoped and projects only the explicit invoice fields", () => {
+    expect(invoiceMigration).toContain("check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices'))");
+    expect(invoiceMigration).toContain("when 'invoices' then jsonb_build_object(");
+    expect(invoiceMigration).toContain("'balance_due',p_row->'balance_due'");
+    expect(invoiceMigration).toContain("where i.tenant_id=p_tenant_id and i.site_id=p_site_id");
+    expect(invoiceMigration).toContain("after insert or update or delete on public.invoices");
+    expect(invoiceMigration).toContain("grant execute on function public.powerhub_pull_sync_delta");
+    expect(router).toContain('invoices: ["owner", "manager", "accountant", "collector", "viewer"]');
+    expect(client).toContain('"invoices"');
   });
 });
