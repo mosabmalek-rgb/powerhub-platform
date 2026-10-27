@@ -226,7 +226,7 @@ describe("offline query freshness policy", () => {
     }])).toBe(Number.POSITIVE_INFINITY);
     expect(getOfflineQueryStaleTime(["powerhub.expenses.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
-    }])).toBe(Number.POSITIVE_INFINITY);
+    }])).toBe(30_000);
   });
 });
 
