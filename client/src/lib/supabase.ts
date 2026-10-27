@@ -41,9 +41,8 @@ function ensureAuthSubscription() {
     // persisted session. It is not a sign-out: don't advance the revision or
     // overwrite the snapshot that the in-flight read may return.
     if (isNonAuthoritativeInitialNullSessionEvent(event, session)) {
-      if (currentSession === null) {
-        for (const subscriber of authSubscribers) subscriber(event, session);
-      }
+      // Do not fan this initial empty snapshot out to consumers either: their
+      // independent startup revisions would otherwise invalidate getSession().
       return;
     }
 

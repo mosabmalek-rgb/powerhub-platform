@@ -95,6 +95,9 @@ describe("Supabase initial session event ordering", () => {
     const guard = source.indexOf("if (isNonAuthoritativeInitialNullSessionEvent(event, session))");
     expect(guard).toBeGreaterThanOrEqual(0);
     expect(guard).toBeLessThan(source.indexOf("authStateRevision += 1;"));
+    const initialNullGuard = source.slice(guard, source.indexOf("authStateRevision += 1;"));
+    expect(initialNullGuard).toContain("return;");
+    expect(initialNullGuard).not.toContain("subscriber(event, session)");
   });
 });
 
