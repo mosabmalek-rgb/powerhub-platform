@@ -234,6 +234,8 @@ describe("Delta-backed local snapshots", () => {
   it("only marks supported whole-list procedures as Delta-backed", () => {
     expect(isDeltaSyncBackedQueryKey(["powerhub", "sites", "list"])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "list", { siteId: 7 }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "readings", "list", { siteId: 7 }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub.tariffs.list", { input: { siteId: 7 }, type: "query" }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub.invoices.page", {
@@ -244,7 +246,7 @@ describe("Delta-backed local snapshots", () => {
     }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub.expenses.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
-    }])).toBe(true);
+    }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "schedules", "list", { siteId: 7 }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "payments", "list", { siteId: 7 }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "getById", { siteId: 7, id: 1 }])).toBe(false);
