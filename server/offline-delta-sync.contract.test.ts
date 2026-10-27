@@ -37,7 +37,7 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"])');
     expect(router).toContain("requireSupabaseSiteRole(");
     expect(router).toContain('supabaseAdmin().rpc("powerhub_pull_sync_delta"');
     expect(router).toContain("input.pageSize");
