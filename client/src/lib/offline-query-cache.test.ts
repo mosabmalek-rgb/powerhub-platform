@@ -51,7 +51,7 @@ describe("offline query cache policy", () => {
     expect(isDeltaSyncBackedQueryKey(readingPage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(invoicePage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(paymentPage)).toBe(true);
-    expect(isDeltaSyncBackedQueryKey(expensePage)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(expensePage)).toBe(false);
     expect(getOfflineQueryStaleTime(paymentPage)).toBe(Number.POSITIVE_INFINITY);
 
     expect(isOfflineCacheableQueryKey(["powerhub.readings.page", {
@@ -220,6 +220,9 @@ describe("offline query freshness policy", () => {
   it("keeps cache-only pages on the bounded normal freshness window", () => {
     expect(getOfflineQueryStaleTime(["powerhub.readings.page", {
       input: { siteId: 7, limit: 200 }, type: "query",
+    }])).toBe(Number.POSITIVE_INFINITY);
+    expect(getOfflineQueryStaleTime(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
     }])).toBe(30_000);
     expect(getOfflineQueryStaleTime(["powerhub.payments.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
