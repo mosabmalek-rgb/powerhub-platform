@@ -206,7 +206,7 @@ describe("Delta-backed local snapshots", () => {
     }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub.expenses.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
-    }])).toBe(false);
+    }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "schedules", "list", { siteId: 7 }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "payments", "list", { siteId: 7 }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "getById", { siteId: 7, id: 1 }])).toBe(false);
