@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isOfflineCacheableQueryKey,
   isDeltaSyncBackedQueryKey,
   isOfflineQueryRecordUsable,
   offlineQueryCacheKey,
+  persistOfflineQuery,
+  persistOfflineQueryForDeltaSync,
   sanitizeOfflineQueryData,
 } from "./offline-query-cache";
 import { getOfflineQueryStaleTime } from "./offline-query-policy";
@@ -246,5 +248,95 @@ describe("Delta-backed local snapshots", () => {
     expect(isDeltaSyncBackedQueryKey(["powerhub", "schedules", "list", { siteId: 7 }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "payments", "list", { siteId: 7 }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "getById", { siteId: 7, id: 1 }])).toBe(false);
+  });
+});
+
+
+describe("offline query cache persistence failure policy", () => {
+  let transactionOutcome: "commit" | "abort" = "commit";
+  let putCount = 0;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    transactionOutcome = "commit";
+    putCount = 0;
+  });
+
+  function installIndexedDbMock() {
+    const database = {
+      objectStoreNames: { contains: (_name: string) => false },
+      createObjectStore: vi.fn(),
+      close: vi.fn(),
+      transaction: vi.fn((_storeName: string, _mode: IDBTransactionMode) => {
+        const transaction: Record<string, unknown> = {
+          objectStore: () => ({
+            put: vi.fn(() => {
+              putCount += 1;
+              const request: Record<string, unknown> = {};
+              queueMicrotask(() => {
+                (request.onsuccess as (() => void) | undefined)?.();
+                // Simulate the subtle IndexedDB case where the request succeeds,
+                // but the enclosing transaction later aborts.
+                queueMicrotask(() => {
+                  if (transactionOutcome === "commit") {
+                    (transaction.oncomplete as (() => void) | undefined)?.();
+                  } else {
+                    (transaction.onabort as (() => void) | undefined)?.();
+                  }
+                });
+              });
+              return request;
+            }),
+          }),
+        };
+        return transaction;
+      }),
+    };
+
+    const indexedDb = {
+      open: vi.fn(() => {
+        const request: Record<string, unknown> = { result: database };
+        queueMicrotask(() => {
+          (request.onupgradeneeded as (() => void) | undefined)?.();
+          (request.onsuccess as (() => void) | undefined)?.();
+        });
+        return request;
+      }),
+    };
+    vi.stubGlobal("indexedDB", indexedDb as unknown as IDBFactory);
+  }
+
+  const successfulQuery = {
+    queryKey: ["powerhub", "subscribers", "list", { siteId: 7 }],
+    state: {
+      status: "success",
+      data: [{ id: 11, tenantId: 1, siteId: 7, name: "Subscriber" }],
+      dataUpdatedAt: 1_000,
+    },
+  };
+
+  it("keeps ordinary query-cache persistence best-effort after an IndexedDB transaction abort", async () => {
+    installIndexedDbMock();
+    transactionOutcome = "abort";
+
+    await expect(persistOfflineQuery(successfulQuery as never, "user-1", 1_000)).resolves.toBeUndefined();
+    expect(putCount).toBe(1);
+  });
+
+  it("requires the transaction to commit before treating a Delta snapshot as durable", async () => {
+    installIndexedDbMock();
+    transactionOutcome = "abort";
+
+    await expect(persistOfflineQueryForDeltaSync(successfulQuery as never, "user-1", 1_000))
+      .rejects.toThrow(/حفظ نسخة الكاش المطلوبة قبل تثبيت مؤشر Delta/);
+    expect(putCount).toBe(1);
+  });
+
+  it("resolves required Delta persistence only after IndexedDB transaction completion", async () => {
+    installIndexedDbMock();
+    transactionOutcome = "commit";
+
+    await expect(persistOfflineQueryForDeltaSync(successfulQuery as never, "user-1", 1_000)).resolves.toBeUndefined();
+    expect(putCount).toBe(1);
   });
 });
