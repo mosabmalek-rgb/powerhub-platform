@@ -51,8 +51,10 @@ async function withAuthUpstreamDeadline<T>(stage: string, operation: Promise<T>)
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
-      const error = new Error(`PowerHub auth upstream stage timed out: ${stage}`);
-      error.name = "PowerHubAuthUpstreamTimeoutError";
+      const error = Object.assign(new Error(`PowerHub auth upstream stage timed out: ${stage}`), {
+        name: "PowerHubAuthUpstreamTimeoutError",
+        authStage: stage,
+      });
       console.warn("[PowerHub auth upstream timeout]", { stage, timeoutMs: AUTH_UPSTREAM_TIMEOUT_MS });
       reject(error);
     }, AUTH_UPSTREAM_TIMEOUT_MS);
