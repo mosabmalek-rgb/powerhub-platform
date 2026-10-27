@@ -518,7 +518,7 @@ export const powerhubRouter = router({
   deltaSync: router({
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices"]),
       afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
       throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
       pageSize: z.number().int().min(1).max(500).default(200),
@@ -531,6 +531,7 @@ export const powerhubRouter = router({
         generators: ["owner", "manager", "technician", "viewer"],
         readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         tariffs: ["owner", "manager", "accountant", "viewer"],
+        invoices: ["owner", "manager", "accountant", "collector", "viewer"],
       } as const;
       const access = await requireSupabaseSiteRole(
         ctx.user.id,
@@ -573,7 +574,7 @@ export const powerhubRouter = router({
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices"]),
     })).query(async ({ ctx, input }) => {
       const readRolesByEntity = {
         sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
@@ -581,6 +582,7 @@ export const powerhubRouter = router({
         generators: ["owner", "manager", "technician", "viewer"],
         readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         tariffs: ["owner", "manager", "accountant", "viewer"],
+        invoices: ["owner", "manager", "accountant", "collector", "viewer"],
       } as const;
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_get_sync_snapshot", {
