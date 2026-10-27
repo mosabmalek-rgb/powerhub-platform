@@ -100,7 +100,7 @@ function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
   if (!isOfflineCacheableQueryKey(query.queryKey)) return null;
   const segments = getSegments(query.queryKey);
   if (segments[0] !== "powerhub") return null;
-  if ((segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments") && segments[2] === "page" && getQueryRows(query)) {
+  if ((segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page" && getQueryRows(query)) {
     return segments[1] as "invoices" | "readings" | "payments" | "expenses";
   }
   if (segments[2] !== "list" || !getQueryRows(query)) return null;
@@ -212,6 +212,9 @@ async function patchQueryCaches(
       } else if (entityType === "payments" && segments[2] === "page") {
         if (!paymentRowsAfterPage) continue;
         queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(paymentRowsAfterPage, getOfflineQueryInput(query.queryKey), query.state.data, scope));
+      } else if (entityType === "expenses" && segments[2] === "page") {
+        if (!expenseRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(expenseRowsAfterPage, getOfflineQueryInput(query.queryKey), query.state.data, scope));
       } else {
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, page, scope, subscribers));
       }
@@ -327,6 +330,8 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(snapshotRowsFromQuery("readings", queryRows), subscriberRowsForSite(queryClient.getQueryCache().findAll(), candidate.siteId, candidate.tenantId), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else if (candidate.entityType === "payments" && getSegments(query.queryKey)[2] === "page") {
             queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
+            queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else {
             queryClient.setQueryData(query.queryKey, queryRows);
           }
