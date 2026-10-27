@@ -180,9 +180,8 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
       };
     case "company_accounts":
     case "company_accounts_all": {
-      const linkedSites = Array.isArray(raw.linked_sites ?? raw.linkedSites)
-        ? (raw.linked_sites ?? raw.linkedSites as unknown[] as unknown[] as unknown[]) as unknown[]
-        : [];
+      const rawLinkedSites = raw.linked_sites ?? raw.linkedSites;
+      const linkedSites: unknown[] = Array.isArray(rawLinkedSites) ? rawLinkedSites : [];
       const transactions = Array.isArray(raw.transactions) ? raw.transactions.filter(isRow).map((tx) => ({
         id: toNumber(tx.id),
         tenantId: toNumber(tx.tenant_id ?? tx.tenantId),
