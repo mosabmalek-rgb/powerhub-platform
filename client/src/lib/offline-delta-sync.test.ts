@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyDeltaChanges,
   assertDeltaRowWithinScope,
@@ -8,8 +8,11 @@ import {
   type DeltaSyncStorage,
   type DeltaCursorScope,
 } from "./offline-delta-sync";
+import { persistOfflineQueryForDeltaSync } from "./offline-query-cache";
 
 const scope: DeltaCursorScope = { userId: 1, tenantId: 1, siteId: 7, entityType: "subscribers" };
+
+afterEach(() => { vi.unstubAllGlobals(); });
 const change = (cursor: string, entityId: string, operation: "upsert" | "delete", row_data: Record<string, unknown> | null) => ({
   cursor, entity_type: "subscribers" as const, entity_id: entityId, operation, row_data, changed_at: "2026-10-24T10:00:00Z",
 });
@@ -17,6 +20,56 @@ const page = (overrides: Partial<DeltaPage> = {}): DeltaPage => ({
   status: "ok", entity_type: "subscribers", current_cursor: "3", retained_from_cursor: "0",
   snapshot_cursor: null, through_cursor: "3", next_cursor: "3", has_more: false, changes: [], ...overrides,
 });
+
+
+function installCacheWriteAbortMock() {
+  let transactionCount = 0;
+  const database = {
+    objectStoreNames: { contains: (_name: string) => true },
+    createObjectStore: vi.fn(),
+    close: vi.fn(),
+    transaction: vi.fn(() => {
+      transactionCount += 1;
+      const shouldAbort = transactionCount === 1;
+      const transaction: Record<string, unknown> = {
+        objectStore: () => ({
+          put: vi.fn(() => {
+            const request: Record<string, unknown> = {};
+            queueMicrotask(() => {
+              (request.onsuccess as (() => void) | undefined)?.();
+              queueMicrotask(() => {
+                const handler = shouldAbort ? transaction.onabort : transaction.oncomplete;
+                (handler as (() => void) | undefined)?.();
+              });
+            });
+            return request;
+          }),
+        }),
+      };
+      return transaction;
+    }),
+  };
+  vi.stubGlobal("indexedDB", {
+    open: vi.fn(() => {
+      const request: Record<string, unknown> = { result: database };
+      queueMicrotask(() => {
+        (request.onupgradeneeded as (() => void) | undefined)?.();
+        (request.onsuccess as (() => void) | undefined)?.();
+      });
+      return request;
+    }),
+  } as unknown as IDBFactory);
+  return { writeAttempts: () => transactionCount };
+}
+
+const deltaCacheQuery = {
+  queryKey: ["powerhub", "subscribers", "list", { siteId: 7 }],
+  state: {
+    status: "success",
+    data: [{ id: 7, tenantId: 1, siteId: 7, name: "Recovered" }],
+    dataUpdatedAt: 1_000,
+  },
+} as never;
 
 function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>[] = []): DeltaSyncStorage {
   let cursor = initialCursor;
@@ -137,29 +190,35 @@ describe("offline delta sync", () => {
   });
 
 
-  it("does not advance the durable cursor when applying a page to the live cache fails", async () => {
+  it("keeps the durable cursor unchanged when IndexedDB aborts after a Delta-cache put succeeds, then retries the page", async () => {
     const storage = memoryStorage("3");
+    const indexedDb = installCacheWriteAbortMock();
     const expectedPage = page({
       current_cursor: "4", through_cursor: "4", next_cursor: "4",
       changes: [change("4", "7", "upsert", { id: 7, name: "Recovered" })],
     });
-    const pull = async () => expectedPage;
+    const pull = vi.fn(async () => expectedPage);
+    const applyPage = async () => persistOfflineQueryForDeltaSync(deltaCacheQuery, "1", 1_000);
+    const rebuildSnapshot = async (cursor: string) => ({ cursor, rows: [] });
+
+    // The IDB request succeeds, but transaction.onabort fires afterward. The
+    // required write must reject rather than inherit best-effort cache semantics.
     await expect(pullDeltaPages({
-      scope, storage, afterCursor: "3", pull,
-      applyPage: async () => { throw new Error("simulated cache persistence failure"); },
-      rebuildSnapshot: async cursor => ({ cursor, rows: [] }),
-    })).rejects.toThrow(/simulated cache persistence failure/);
+      scope, storage, afterCursor: "3", pull, applyPage, rebuildSnapshot,
+    })).rejects.toThrow(/حفظ نسخة الكاش المطلوبة قبل تثبيت مؤشر Delta/);
     expect(await storage.getCursor(scope)).toBe("3");
     expect(await storage.listEntities(scope)).toEqual([]);
+    expect(indexedDb.writeAttempts()).toBe(1);
 
+    // The old cursor makes retry replay the exact same server page safely.
     const result = await pullDeltaPages({
-      scope, storage, afterCursor: "3", pull,
-      applyPage: async () => {},
-      rebuildSnapshot: async cursor => ({ cursor, rows: [] }),
+      scope, storage, afterCursor: "3", pull, applyPage, rebuildSnapshot,
     });
-    expect(result.cursor).toBe("4");
+    expect(pull).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ cursor: "4", appliedChanges: 1, resetRequired: false });
     expect(await storage.getCursor(scope)).toBe("4");
     expect((await storage.listEntities(scope)).map(row => row.rowData)).toEqual([{ id: 7, name: "Recovered" }]);
+    expect(indexedDb.writeAttempts()).toBe(2);
   });
 
   it("rebuilds and atomically checkpoints when server retention requires a snapshot", async () => {
