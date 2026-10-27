@@ -24,7 +24,7 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
   });
 
-  it("persists bounded reading and ledger pages and declares invoice Delta support explicitly", () => {
+  it("persists bounded history pages and distinguishes reading/invoice Delta from cache-only ledgers", () => {
     const readingPage = ["powerhub.readings.page", {
       input: { siteId: 7, limit: 200 }, type: "query",
     }];
@@ -43,10 +43,9 @@ describe("offline query cache policy", () => {
       expect(isOfflineCacheableQueryKey(key)).toBe(true);
     }
 
-    // Only invoices.page is wired to the invoice Delta snapshot/pull path.
-    // Reading, payment and expense pages remain cache-only until their own
-    // pagination-aware Delta contracts and server capture paths are complete.
-    expect(isDeltaSyncBackedQueryKey(readingPage)).toBe(false);
+    // Reading and invoice history pages are materialized from their scoped Delta change feeds.
+    // Payment and expense pages remain cache-only until their own server change-feed contracts are complete.
+    expect(isDeltaSyncBackedQueryKey(readingPage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(invoicePage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(paymentPage)).toBe(false);
     expect(isDeltaSyncBackedQueryKey(expensePage)).toBe(false);
@@ -182,7 +181,7 @@ describe("offline query freshness policy", () => {
   it("keeps cache-only pages on the bounded normal freshness window", () => {
     expect(getOfflineQueryStaleTime(["powerhub.readings.page", {
       input: { siteId: 7, limit: 200 }, type: "query",
-    }])).toBe(30_000);
+    }])).toBe(Number.POSITIVE_INFINITY);
     expect(getOfflineQueryStaleTime(["powerhub.payments.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
     }])).toBe(30_000);

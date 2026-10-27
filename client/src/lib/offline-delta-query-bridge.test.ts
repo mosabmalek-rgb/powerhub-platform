@@ -7,6 +7,7 @@ import {
   refreshReadingSubscriberProjection,
   snapshotRowsFromQuery,
   projectInvoiceDeltaPage,
+  projectReadingDeltaPage,
 } from "./offline-delta-query-bridge";
 
 const scope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "subscribers" };
@@ -95,6 +96,64 @@ describe("delta-query bridge", () => {
   });
 });
 
+
+describe("reading Delta page materialization", () => {
+  const readingScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "readings" };
+  const reading = (id: number, readingAt: string, extra: Record<string, unknown> = {}) => ({
+    id, tenantId: 2, subscriberId: id + 100, readingAt: new Date(readingAt),
+    readingValue: "100.00", status: "approved", ...extra,
+  });
+  const subscriber = (id: number, extra: Record<string, unknown> = {}) => ({
+    id, tenantId: 2, siteId: 10, fullName: "Subscriber " + id, serviceStatus: "active", ...extra,
+  });
+
+  it("rebuilds keyset pages with reading/subscriber pairs without gaps or duplicates", () => {
+    const all = [
+      reading(8, "2026-10-27T10:00:00.000Z"),
+      reading(7, "2026-10-27T10:00:00.000Z"),
+      reading(6, "2026-10-26T10:00:00.000Z"),
+    ];
+    const subscribers = all.map((row) => subscriber(row.subscriberId));
+    const first = projectReadingDeltaPage(all, subscribers, { siteId: 10, limit: 2 }, undefined, readingScope);
+    expect(first.items.map((row: any) => row.reading.id)).toEqual([8, 7]);
+    expect(first.items[0].subscriber.fullName).toBe("Subscriber 108");
+    expect(first.hasNext).toBe(true);
+    expect(typeof first.nextCursor).toBe("string");
+    const second = projectReadingDeltaPage(all, subscribers, { siteId: 10, limit: 2, cursor: first.nextCursor }, undefined, readingScope);
+    expect(second.items.map((row: any) => row.reading.id)).toEqual([6]);
+    expect(second.hasNext).toBe(false);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("filters tenant/site leaks and rejects a page cursor for a different site", () => {
+    const rows = [
+      reading(1, "2026-10-27T10:00:00.000Z"),
+      reading(2, "2026-10-26T10:00:00.000Z", { tenantId: 99 }),
+      reading(3, "2026-10-25T10:00:00.000Z"),
+    ];
+    const subscribers = [
+      subscriber(101),
+      subscriber(102, { tenantId: 99 }),
+      subscriber(103, { siteId: 99 }),
+    ];
+    const page = projectReadingDeltaPage(rows, subscribers, { siteId: 10, limit: 10 }, undefined, readingScope);
+    expect(page.items.map((row: any) => row.reading.id)).toEqual([1]);
+    expect(() => projectReadingDeltaPage(rows, subscribers, { siteId: 99, limit: 10 }, undefined, readingScope))
+      .toThrow(/نطاق صفحة القراءات/);
+  });
+
+  it("preserves page response metadata while refreshing the materialized items", () => {
+    const projected = projectReadingDeltaPage(
+      [reading(1, "2026-10-27T10:00:00.000Z")],
+      [subscriber(101)],
+      { siteId: 10, limit: 20 },
+      { items: [], hasNext: false, nextCursor: null, uiMarker: "keep" },
+      readingScope,
+    );
+    expect(projected.uiMarker).toBe("keep");
+    expect(projected.items).toHaveLength(1);
+  });
+});
 
 describe("invoice Delta page materialization", () => {
   const invoiceScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "invoices" };

@@ -70,7 +70,7 @@ function isSafeUnfilteredSubscriberDirectoryPage(queryKey: readonly unknown[]) {
 }
 
 const OFFLINE_PAGE_READ_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
-  "readings.page": new Set(["siteId", "limit"]),
+  "readings.page": new Set(["siteId", "limit", "cursor"]),
   "invoices.page": new Set(["siteId", "limit", "cursor"]),
   "payments.page": new Set(["siteId", "limit", "cursor"]),
   "expenses.page": new Set(["siteId", "limit", "startDate", "endDate", "companyAccountId"]),
@@ -85,8 +85,7 @@ function isValidOfflineDate(value: unknown): value is string {
 /**
  * Cache only bounded, site-scoped page snapshots whose inputs are explicitly
  * known. These pages are display snapshots, not offline financial authority;
- * until their server change-feed adapters exist, they are deliberately not
- * marked Delta-backed and must refresh from their exact page key on reconnect.
+ * until their server change-feed adapters exist, they remain cache-only and refresh from their exact page key on reconnect.
  */
 function isSafeScopedOfflinePage(queryKey: readonly unknown[], segments: string[]) {
   if (segments.length !== 3 || segments[2] !== "page") return false;
@@ -100,7 +99,7 @@ function isSafeScopedOfflinePage(queryKey: readonly unknown[], segments: string[
   if (input.limit !== undefined &&
       (!Number.isSafeInteger(input.limit) || Number(input.limit) < 1 || Number(input.limit) > 200)) return false;
 
-  if ((procedure === "invoices.page" || procedure === "payments.page") &&
+  if ((procedure === "readings.page" || procedure === "invoices.page" || procedure === "payments.page") &&
       input.cursor !== undefined &&
       (typeof input.cursor !== "string" || input.cursor.length === 0 || input.cursor.length > 500)) return false;
 
@@ -143,8 +142,9 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (!isOfflineCacheableQueryKey(queryKey) || segments.length < 3 || segments[0] !== "powerhub") return false;
 
-  // Invoice history uses an object with items/hasNext/nextCursor rather than a bare list.
-  if (segments[1] === "invoices" && segments[2] === "page") return true;
+  // Reading and invoice history are materialized from their full scoped Delta
+  // snapshots into the exact keyset page shape expected by the UI.
+  if ((segments[1] === "readings" || segments[1] === "invoices") && segments[2] === "page") return true;
 
   return segments[2] === "list" && DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
 }

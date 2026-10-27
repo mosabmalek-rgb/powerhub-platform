@@ -248,6 +248,92 @@ export function refreshReadingSubscriberProjection(
 }
 
 
+
+function decodeReadingPageCursor(value: string): { at: number; id: number } {
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    const parsed = JSON.parse(atob(padded)) as { at?: unknown; id?: unknown };
+    const at = typeof parsed.at === "string" ? Date.parse(parsed.at) : Number.NaN;
+    const id = Number(parsed.id);
+    if (!Number.isFinite(at) || !Number.isSafeInteger(id) || id < 1) throw new Error("invalid");
+    return { at, id };
+  } catch {
+    throw new Error("مؤشر صفحة القراءات المحلي غير صالح؛ يلزم تحديث الصفحة من الخادم.");
+  }
+}
+
+function encodeReadingPageCursor(row: Row): string {
+  const readingAt = dateOrNull(row.readingAt);
+  const id = Number(row.id);
+  if (!readingAt || !Number.isSafeInteger(id) || id < 1) throw new Error("تعذر إنشاء مؤشر صفحة القراءات المحلي.");
+  return btoa(JSON.stringify({ at: readingAt.toISOString(), id }))
+    .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
+}
+
+/** Rebuilds a keyset reading page from the full scoped reading Delta snapshot. */
+export function projectReadingDeltaPage(
+  rows: readonly Row[],
+  subscriberRows: readonly Row[],
+  input: { siteId?: unknown; limit?: unknown; cursor?: unknown },
+  previousData: unknown,
+  scope: DeltaCursorScope,
+): Row & { items: Array<{ reading: Row; subscriber: Row }>; hasNext: boolean; nextCursor: string | null } {
+  if (Number(input.siteId) !== scope.siteId) throw new Error("نطاق صفحة القراءات لا يطابق الفرع الجاري مزامنته.");
+  const limit = input.limit === undefined ? 50 : Number(input.limit);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new Error("حجم صفحة القراءات المحلي غير صالح.");
+  const cursor = typeof input.cursor === "string" && input.cursor.length ? decodeReadingPageCursor(input.cursor) : null;
+
+  // Prefer the current subscribers.list projection, while allowing rows already
+  // present in this exact page to be used as a bounded fallback during startup.
+  const subscribersById = new Map<string, Row>();
+  for (const subscriber of subscriberRows) {
+    if (Number(subscriber.tenantId) === scope.tenantId && Number(subscriber.siteId) === scope.siteId) {
+      subscribersById.set(String(subscriber.id), subscriber);
+    }
+  }
+  if (isRow(previousData) && Array.isArray(previousData.items)) {
+    for (const item of previousData.items) {
+      if (!isRow(item) || !isRow(item.subscriber)) continue;
+      const subscriber = item.subscriber;
+      if (Number(subscriber.tenantId) === scope.tenantId && Number(subscriber.siteId) === scope.siteId &&
+          !subscribersById.has(String(subscriber.id))) {
+        subscribersById.set(String(subscriber.id), subscriber);
+      }
+    }
+  }
+
+  const ordered = rows.filter((row) => {
+    const readingAt = dateOrNull(row.readingAt);
+    const subscriber = subscribersById.get(String(row.subscriberId));
+    return Number(row.tenantId) === scope.tenantId &&
+      Number.isSafeInteger(Number(row.id)) && Number(row.id) > 0 &&
+      readingAt !== null && Boolean(subscriber);
+  }).filter((row) => {
+    if (!cursor) return true;
+    const at = dateOrNull(row.readingAt)!.getTime();
+    const id = Number(row.id);
+    return at < cursor.at || (at === cursor.at && id < cursor.id);
+  }).sort((a, b) => {
+    const byDate = dateOrNull(b.readingAt)!.getTime() - dateOrNull(a.readingAt)!.getTime();
+    return byDate || Number(b.id) - Number(a.id);
+  });
+
+  const hasNext = ordered.length > limit;
+  const readingItems = ordered.slice(0, limit);
+  const items = readingItems.map((reading) => ({
+    reading,
+    subscriber: subscribersById.get(String(reading.subscriberId))!,
+  }));
+  const last = readingItems.at(-1);
+  return {
+    ...(isRow(previousData) ? previousData : {}),
+    items,
+    hasNext,
+    nextCursor: hasNext && last ? encodeReadingPageCursor(last) : null,
+  };
+}
+
 function decodeInvoicePageCursor(value: string): { at: number; id: number } {
   try {
     const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
