@@ -6,6 +6,7 @@ import {
   normalizeDeltaPage,
   refreshReadingSubscriberProjection,
   snapshotRowsFromQuery,
+  projectInvoiceDeltaPage,
 } from "./offline-delta-query-bridge";
 
 const scope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "subscribers" };
@@ -91,5 +92,52 @@ describe("delta-query bridge", () => {
     }]);
     expect(refreshReadingSubscriberProjection([{ reading: { id: 30 }, subscriber: { id: 4, fullName: "Old" } }], subPage, scope))
       .toEqual([{ reading: { id: 30 }, subscriber: { id: 4, fullName: "New name", tenantId: 2, siteId: 10 } }]);
+  });
+});
+
+
+describe("invoice Delta page materialization", () => {
+  const invoiceScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "invoices" };
+  const invoice = (id: number, issueDate: string, extra: Record<string, unknown> = {}) => ({
+    id, tenantId: 2, siteId: 10, invoiceNo: `INV-${id}`, issueDate: new Date(issueDate),
+    dueDate: new Date("2026-11-10T00:00:00.000Z"), totalAmount: "100.00",
+    paidAmount: "0.00", balanceDue: "100.00", status: "issued", ...extra,
+  });
+
+  it("rebuilds keyset pages without gaps or duplicates", () => {
+    const all = [
+      invoice(8, "2026-10-27T10:00:00.000Z"),
+      invoice(7, "2026-10-27T10:00:00.000Z"),
+      invoice(6, "2026-10-26T10:00:00.000Z"),
+    ];
+    const first = projectInvoiceDeltaPage(all, { siteId: 10, limit: 2 }, undefined, invoiceScope);
+    expect(first.items.map((row: any) => row.id)).toEqual([8, 7]);
+    expect(first.hasNext).toBe(true);
+    expect(typeof first.nextCursor).toBe("string");
+    const second = projectInvoiceDeltaPage(all, { siteId: 10, limit: 2, cursor: first.nextCursor }, undefined, invoiceScope);
+    expect(second.items.map((row: any) => row.id)).toEqual([6]);
+    expect(second.hasNext).toBe(false);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("excludes invoice rows outside tenant/site and rejects a mismatched page key", () => {
+    const rows = [
+      invoice(1, "2026-10-27T10:00:00.000Z"),
+      invoice(2, "2026-10-26T10:00:00.000Z", { tenantId: 99 }),
+      invoice(3, "2026-10-25T10:00:00.000Z", { siteId: 99 }),
+    ];
+    expect(projectInvoiceDeltaPage(rows, { siteId: 10, limit: 10 }, undefined, invoiceScope).items.map((r: any) => r.id)).toEqual([1]);
+    expect(() => projectInvoiceDeltaPage(rows, { siteId: 99, limit: 10 }, undefined, invoiceScope)).toThrow(/نطاق صفحة الفواتير/);
+  });
+
+  it("preserves non-page response metadata", () => {
+    const projected = projectInvoiceDeltaPage(
+      [invoice(1, "2026-10-27T10:00:00.000Z")],
+      { siteId: 10, limit: 20 },
+      { items: [], hasNext: false, nextCursor: null, uiMarker: "keep" },
+      invoiceScope,
+    );
+    expect(projected.uiMarker).toBe("keep");
+    expect(projected.items).toHaveLength(1);
   });
 });
