@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261024140000_powerhub_delta_sync_engine.sql"), "utf8");
 const invoiceMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027110000_powerhub_delta_invoice_history.sql"), "utf8");
 const paymentMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027130000_powerhub_delta_payment_history.sql"), "utf8");
+const expenseMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027140000_powerhub_delta_expense_history.sql"), "utf8");
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-delta-sync.ts"), "utf8");
 
@@ -36,7 +37,7 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses"])');
     expect(router).toContain("requireSupabaseSiteRole(");
     expect(router).toContain('supabaseAdmin().rpc("powerhub_pull_sync_delta"');
     expect(router).toContain("input.pageSize");
@@ -83,4 +84,15 @@ describe("payment Delta extension", () => {
     expect(router).toContain('payments: ["owner", "manager", "accountant", "collector", "viewer"]');
     expect(client).toContain('"payments"');
   });
+});
+
+
+describe("expense Delta extension", () => {
+ it("keeps expense history scoped and journal writes private", () => {
+  expect(expenseMigration).toContain("when 'expenses' then jsonb_build_object(");
+  expect(expenseMigration).toContain("after insert or update or delete on public.expenses");
+  expect(expenseMigration).toContain("where e.tenant_id=p_tenant_id and e.site_id=p_site_id");
+  expect(router).toContain('expenses: ["owner", "manager", "accountant", "viewer"]');
+  expect(client).toContain('"expenses"');
+ });
 });
