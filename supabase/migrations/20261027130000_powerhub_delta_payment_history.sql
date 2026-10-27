@@ -154,7 +154,6 @@ as $$
   end
 $$;
 alter function public.powerhub_delta_sync_project_row(text,jsonb) owner to postgres;
-revoke all on function public.powerhub_delta_sync_project_payment(bigint,bigint,bigint) from public,anon,authenticated;
 revoke all on function public.powerhub_delta_sync_project_row(text,jsonb) from public,anon,authenticated;
 grant execute on function public.powerhub_delta_sync_project_row(text,jsonb) to service_role;
 
