@@ -64,6 +64,18 @@ describe("offline query cache policy", () => {
       input: { siteId: 7, limit: 100, includeOtherSites: true }, type: "query",
     }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100, cursor: "next-page-token" }, type: "query",
+    }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100, cursor: "next-page-token" }, type: "query",
+    }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100, cursor: "" }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100, cursor: "x".repeat(501) }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.expenses.page", {
       input: { siteId: 7, limit: 100, startDate: "2026-10-28" }, type: "query",
     }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.payments.list", {
