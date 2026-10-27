@@ -107,8 +107,6 @@ begin
  if has_function_privilege('anon','public.powerhub_delta_sync_project_row(text,jsonb)','EXECUTE')
  or has_function_privilege('authenticated','public.powerhub_pull_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
  or has_table_privilege('anon','public.powerhub_sync_changes','SELECT') then raise exception 'expense Delta ACL boundary weakened'; end if;
-end
-
   insert into public.meter_readings(id,tenant_id,subscriber_id,reading_at)
   values (700,1,101,timestamptz '2026-10-27 10:00:00+00');
   v_snapshot := public.powerhub_get_sync_snapshot(1,10,'readings');
@@ -140,4 +138,5 @@ end
     raise exception 'Reading destination upsert missing site scope: %',v_delta;
   end if;
 
+end
 $test$;
