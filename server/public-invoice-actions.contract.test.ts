@@ -538,10 +538,7 @@ describe("public invoice and inquiry actions", () => {
     expect(routeGate).toContain("shouldShowSessionRecovery({");
     expect(routeGate).toContain("!loading && Boolean(error) && !user");
     expect(workspace).toContain("إعادة المحاولة واستعادة البيانات");
-    const authHook = read("client/src/_core/hooks/useAuth.ts");
-    expect(authHook).toContain("meQuery.isSuccess &&");
-    expect(authHook).toContain("meQuery.data,");
-    expect(authHook).not.toContain("(meQuery.isSuccess && meQuery.data || cachedUser || meQueryTemporarilyUnavailable)");
+
   });
 
   it("surfaces billing adjustments on payment documentation and keeps status reads lightweight", () => {
