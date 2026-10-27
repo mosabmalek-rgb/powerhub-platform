@@ -71,7 +71,7 @@ describe("delta-query bridge", () => {
 
   it("flattens the current paired readings snapshot without changing its public query shape", () => {
     const readings = snapshotRowsFromQuery("readings", [{ reading: { id: 3, tenantId: 2, subscriberId: 4, readingValue: "12.5" }, subscriber: { id: 4 } }]);
-    expect(readings).toEqual([{ id: 3, tenantId: 2, subscriberId: 4, readingValue: "12.5", previousReadingValue: null, consumptionKwh: null, clientOperationId: null, readingAt: new Date(0), captureMethod: "manual", imageKey: null, imageHash: null, status: "pending", enteredByUserId: null, reviewedByUserId: null, reviewedAt: null, siteId: null, notes: null, versionNo: 0, createdAt: new Date(0), updatedAt: new Date(0) }]);
+    expect(readings).toEqual([{ id: 3, tenantId: 2, subscriberId: 4, readingValue: "12.5", previousReadingValue: null, consumptionKwh: null, clientOperationId: null, readingAt: new Date(0), captureMethod: "manual", imageKey: null, imageHash: null, status: "pending", enteredByUserId: null, reviewedByUserId: null, reviewedAt: null, notes: null, versionNo: 0, createdAt: new Date(0), updatedAt: new Date(0) }]);
   });
 
   it("applies scoped upserts and tombstones to the same list without leaking another tenant", () => {
