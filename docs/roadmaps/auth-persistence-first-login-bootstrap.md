@@ -416,3 +416,11 @@ type AuthDeviceContext = {
 - **معاينة Vercel:** deployment `dpl_8vgPT8YQvt8rFNpaK8GtS9TZVEBp` على SHA نفسه أصبح `READY`. الرابط المباشر: https://powerhub-platform-bwz0fc3df-mosabmalek-rgb.vercel.app — واسم فرع المعاينة: https://powerhub-platform-git-feat-auth-local-fir-c7c0ef-mosabmalek-rgb.vercel.app.
 - **فحوص الخدمة الحية:** `/api/health` أعاد HTTP 200 و`status=ok`؛ `/api/ready` أعاد HTTP 200 مع `application=true` و`supabaseConfig=true` و`supabaseConnectivity=true`؛ ومسار `/subscribers` أعاد HTML التطبيق HTTP 200. لم تُكتشف أخطاء Runtime مجمعة في نافذة آخر 30 دقيقة أثناء الفحص. لا تثبت هذه الفحوص سلوك IndexedDB داخل متصفح المستخدم.
 - **القبول اليدوي لم يُغلق بعد:** لا يوجد في هذه الجلسة إثبات متصفح فعلي يعيد تحميل قائمة المشتركين دون اتصال؛ يجب تجربة عرض القائمة مرة Online بعد التحديث، ثم إعادة تحميلها أثناء Offline، ثم إعادة Online والتحقق من التحديث الخلفي. لم تُجرَ أي عملية تعديل بيانات خلال فحوص النشر، ولم تتغير قاعدة البيانات أو RLS.
+
+### متابعة عقد الكاش وDelta في PR #359 — 2026-10-27
+
+- عند استعادة كاش الحسابات بعد إعادة تحميل الصفحة، يجب ألا تكتفي المنصة بتعيين staleTime غير محدود؛ يلزم أن يكون الاستعلام مربوطًا فعليًا بكيان Delta وبنطاق الفرع نفسه.
+- وحّد PR #359 تحويل query key إلى Delta entity بين سياسة الكاش وOfflineDeltaSyncRuntime، وربط companyAccounts.list بفرع branchId المحدد، مع دعم شكل مفتاح tRPC المغلّف والمسطّح.
+- صفحات expenses.page أصبحت Delta-backed في سياسة freshness لأن مسار snapshot/pull والإسقاط المحلي موجود؛ أما أي استعلام آخر لا يملك مسار مصالحة مثبتًا فيظل على نافذة freshness العادية.
+- هذه التعديلات لا تثبت بعد تجربة المستخدم في المتصفح. بوابات CI الأربع يجب أن تنجح على SHA واحد، ثم يلزم اختبار browser E2E لإعادة التحميل، وبدء العمل دون اتصال على الجهاز نفسه، والعودة مع تحديث Delta، والتحقق من عدم جلب القوائم المدعومة كاملة.
+- لا تُعتبر الجلسة المحلية تفويضًا لطلبات tRPC، ولا يمنح كاش الحسابات سلطة تنفيذ مالية دون اتصال. لم تُطبق migrations على الإنتاج ولم يُدمج PR.
