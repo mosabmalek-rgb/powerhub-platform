@@ -45,6 +45,25 @@ const INVALID_ACCESS_TOKEN_ERROR_CODES = new Set([
   "user_not_found",
 ]);
 
+const AUTH_UPSTREAM_TIMEOUT_MS = 5_000;
+
+async function withAuthUpstreamDeadline<T>(stage: string, operation: Promise<T>): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error(`PowerHub auth upstream stage timed out: ${stage}`);
+      error.name = "PowerHubAuthUpstreamTimeoutError";
+      console.warn("[PowerHub auth upstream timeout]", { stage, timeoutMs: AUTH_UPSTREAM_TIMEOUT_MS });
+      reject(error);
+    }, AUTH_UPSTREAM_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
 /** Distinguish a rejected bearer token from throttling, transport, and Auth service failures. */
 export function isDefinitiveSupabaseAccessTokenRejection(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -75,7 +94,7 @@ export async function authenticateSupabaseRequest(req: Pick<Request, "headers">)
   const { url, publishableKey } = getSupabasePublicConfig();
   const supabase = getSupabaseAuthClient(url, publishableKey);
   const authStartedAt = performance.now();
-  const { data, error } = await supabase.auth.getUser(authHeader.slice(7));
+  const { data, error } = await withAuthUpstreamDeadline("supabase.getUser", supabase.auth.getUser(authHeader.slice(7)));
   const authMs = Math.round(performance.now() - authStartedAt);
 
   if (error) {
@@ -99,11 +118,11 @@ export async function authenticateSupabaseRequest(req: Pick<Request, "headers">)
   if (!data.user?.email) throw ForbiddenError("Invalid Supabase access token");
 
   const profileStartedAt = performance.now();
-  const user = await syncSupabaseProfile({
+  const user = await withAuthUpstreamDeadline("auth.profileSync", syncSupabaseProfile({
     id: data.user.id,
     email: data.user.email,
     name: (data.user.user_metadata?.name as string | undefined) ?? data.user.email.split("@")[0],
-  });
+  }));
   const profileMs = Math.round(performance.now() - profileStartedAt);
   const totalMs = Math.round(performance.now() - startedAt);
 
