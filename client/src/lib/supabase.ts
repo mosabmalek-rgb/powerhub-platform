@@ -80,6 +80,37 @@ export function getSupabaseSessionReadError(): Error | null {
   return lastSessionReadError;
 }
 
+/** Safe, token-free diagnostics for distinguishing absent storage from an unusable session. */
+export function getSupabaseSessionDiagnostics() {
+  const session = currentSession;
+  const token = typeof session?.access_token === "string" ? session.access_token : "";
+  const jwtExp = token ? (() => {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    try {
+      const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+      const claims = JSON.parse(atob(padded)) as { exp?: unknown };
+      return typeof claims.exp === "number" && Number.isFinite(claims.exp) ? claims.exp : null;
+    } catch {
+      return null;
+    }
+  })() : null;
+  return {
+    sessionInitialized,
+    hasCurrentSession: Boolean(session),
+    hasAccessToken: token.trim().length > 0,
+    tokenExpirySource: typeof session?.expires_at === "number" ? "expires_at" : jwtExp !== null ? "jwt_exp" : "missing",
+    tokenExpiresAt: typeof session?.expires_at === "number" ? session.expires_at : jwtExp,
+    tokenUsable: isSupabaseSessionUsable(session),
+    readInFlight: sessionReadInFlight !== null,
+    readBackoffActive: isSessionReadBackoffActive(sessionReadRetryAfter),
+    lastReadErrorName: lastSessionReadError?.name ?? null,
+    lastReadErrorMessage: lastSessionReadError?.message ?? null,
+    authStateRevision,
+  };
+}
+
 export async function getSupabaseSession(): Promise<Session | null> {
   ensureAuthSubscription();
 
