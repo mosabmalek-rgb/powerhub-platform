@@ -220,7 +220,7 @@ describe("offline query freshness policy", () => {
   it("keeps cache-only pages on the bounded normal freshness window", () => {
     expect(getOfflineQueryStaleTime(["powerhub.readings.page", {
       input: { siteId: 7, limit: 200 }, type: "query",
-    }])).toBe(Number.POSITIVE_INFINITY);
+    }])).toBe(30_000);
     expect(getOfflineQueryStaleTime(["powerhub.payments.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
     }])).toBe(Number.POSITIVE_INFINITY);
