@@ -761,3 +761,13 @@
 - أضيفت اختبارات تثبت أن تخزين الاستعلام العادي يظل Best-Effort، وأن المسار الإلزامي يرفض إجهاض المعاملة حتى بعد نجاح طلب `put`، وأن اختبار مزامنة مباشرًا يبقي المؤشر عند `3` بعد الفشل ثم يعيد تشغيل الصفحة نفسها ويثبت `4` عند نجاح الحفظ.
 - **حدود القبول المتبقية:** يجب التحقق من اختبارات TypeScript/Vitest وبوابات `PowerHub CI` و`PowerHub Security` و`Supabase Admin Guard` و`Reading Cycle PostgreSQL Integration` على نفس SHA النهائي، ومراجعة سجلات أي فشل. لم يُعتبر نجاح تشغيل أقدم دليلًا على هذا الإصلاح، ولم يُنفذ E2E متصفح لإعادة التحميل والانقطاع/العودة. لا دمج ولا نشر ترحيلات إنتاج ضمن هذه المرحلة.
 
+#### نتائج بوابات مرحلة حفظ الكاش الإلزامي
+
+- الالتزام المختبر: `117e2b9a4225dde9975e5de0333a0a4be63171b6`.
+- [PowerHub CI](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/40523621699): نجح فحص TypeScript، ومجموعة Vitest الكاملة بما فيها اختبارات سياسة التخزين وإعادة المحاولة، وبناء الإنتاج.
+- [PowerHub Security](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/40523621636): Success.
+- [Supabase Admin Guard](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/40523621795): Success.
+- [Reading Cycle PostgreSQL Integration](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/40523621705): Success.
+- أصلح فشل TypeScript ظهر في التشغيل الأول (`TS18048` على مرجع المعاملة الاختياري) باستخدام مرجع محلي ضيق النوع، ثم أعيد تشغيل البوابات على الالتزام المذكور واجتازها.
+- **ملاحظة إثبات:** التوثيق الحالي هو تحديث تالٍ للالتزام المختبر؛ لذلك يلزم إعادة البوابات على HEAD الناتج عن هذا التحديث قبل وصف الرأس الجديد بأنه اجتاز CI. لا يزال E2E في متصفح حقيقي لاستعادة التخزين بعد reload والعودة من الانقطاع بوابة مفتوحة، كما لم تُطبق ترحيلات على الإنتاج.
+
