@@ -4,6 +4,7 @@ import {
   assertDeltaRowWithinScope,
   compareDeltaCursors,
   pullDeltaPages,
+  withDeltaSyncLock,
   type DeltaPage,
   type DeltaSyncStorage,
   type DeltaCursorScope,
@@ -153,6 +154,41 @@ describe("Delta row scope validation", () => {
 });
 
 describe("offline delta sync", () => {
+  it("serializes same-scope runs while keeping other entities independent", async () => {
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    let signalFirstStarted!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const firstStarted = new Promise<void>((resolve) => { signalFirstStarted = resolve; });
+
+    const first = withDeltaSyncLock(scope, async () => {
+      order.push("first:start");
+      signalFirstStarted();
+      await firstGate;
+      order.push("first:end");
+      return "first";
+    }, null);
+    await firstStarted;
+
+    const second = withDeltaSyncLock(scope, async () => {
+      order.push("second:start");
+      order.push("second:end");
+      return "second";
+    }, null);
+    const independent = await withDeltaSyncLock({ ...scope, entityType: "invoices" }, async () => {
+      order.push("independent");
+      return "independent";
+    }, null);
+
+    expect(independent).toBe("independent");
+    expect(order).toEqual(["first:start", "independent"]);
+    releaseFirst();
+    await expect(Promise.all([first, second])).resolves.toEqual(["first", "second"]);
+    expect(order).toEqual([
+      "first:start", "independent", "first:end", "second:start", "second:end",
+    ]);
+  });
+
   it("compares bigint cursors without precision loss", () => {
     expect(compareDeltaCursors("9007199254740993", "9007199254740992")).toBe(1);
     expect(() => compareDeltaCursors("0002", "2")).toThrow(/مؤشر المزامنة/);
