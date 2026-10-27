@@ -87,7 +87,7 @@ const OFFLINE_PAGE_READ_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "readings.page": new Set(["siteId", "limit", "cursor"]),
   "invoices.page": new Set(["siteId", "limit", "cursor"]),
   "payments.page": new Set(["siteId", "limit", "cursor"]),
-  "expenses.page": new Set(["siteId", "limit", "startDate", "endDate", "companyAccountId"]),
+  "expenses.page": new Set(["siteId", "limit", "cursor", "startDate", "endDate", "companyAccountId"]),
 };
 
 function isValidOfflineDate(value: unknown): value is string {
@@ -98,8 +98,8 @@ function isValidOfflineDate(value: unknown): value is string {
 
 /**
  * Cache only bounded, site-scoped page snapshots whose inputs are explicitly
- * known. These pages are display snapshots, not offline financial authority;
- * until their server change-feed adapters exist, they remain cache-only and refresh from their exact page key on reconnect.
+ * known. These are display snapshots, not offline financial authority. A page is
+ * Delta-backed only when its key maps to a matching server feed and runtime projection.
  */
 function isSafeScopedOfflinePage(queryKey: readonly unknown[], segments: string[]) {
   if (segments.length !== 3 || segments[2] !== "page") return false;
@@ -113,7 +113,7 @@ function isSafeScopedOfflinePage(queryKey: readonly unknown[], segments: string[
   if (input.limit !== undefined &&
       (!Number.isSafeInteger(input.limit) || Number(input.limit) < 1 || Number(input.limit) > 200)) return false;
 
-  if ((procedure === "readings.page" || procedure === "invoices.page" || procedure === "payments.page") &&
+  if (["readings.page", "invoices.page", "payments.page", "expenses.page"].includes(procedure) &&
       input.cursor !== undefined &&
       (typeof input.cursor !== "string" || input.cursor.length === 0 || input.cursor.length > 500)) return false;
 
