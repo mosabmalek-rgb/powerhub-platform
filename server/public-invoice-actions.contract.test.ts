@@ -94,7 +94,13 @@ describe("public invoice and inquiry actions", () => {
     expect(transientSignOut).not.toContain("activateUser(lease?.userId ?? null)");
     expect(main).toContain('register("/sw.js?v=7")');
     const sw = read("client/public/sw.js");
-    expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v7"');
+    const main = read("client/src/main.tsx");
+    expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v8"');
+    expect(sw).toContain('const ASSET_CACHE = "powerhub-assets-v7"');
+    expect(sw).not.toContain("NAVIGATION_TIMEOUT_MS");
+    expect(sw).not.toContain("fetchWithTimeout");
+    expect(sw).toContain('fetch(request, { cache: "no-store" })');
+    expect(main).toContain('navigator.serviceWorker.register("/sw.js?v=8")');
     expect(sw).toContain("isPublicInvoiceNavigation(url)");
     expect(sw.indexOf('if (request.mode === "navigate" && isPublicInvoiceNavigation(url)) return;')).toBeLessThan(sw.indexOf('if (request.mode === "navigate") {'));
     const viteConfig = read("vite.config.ts");
