@@ -23,6 +23,38 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
   });
 
+  it("persists only bounded, unfiltered subscriber directory pages for a valid site", () => {
+    const pageOne = ["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 1, pageSize: 20, search: "" },
+      type: "query",
+    }];
+    const pageTwo = ["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 2, pageSize: 20, search: "" },
+      type: "query",
+    }];
+
+    expect(isOfflineCacheableQueryKey(pageOne)).toBe(true);
+    expect(isOfflineCacheableQueryKey(pageTwo)).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 1, pageSize: 20, search: "أحمد" }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 1, pageSize: 20, search: "", subscriptionType: "commercial" }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 1, pageSize: 200, search: "" }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 0, pageSize: 20, search: "" }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
+      input: { siteId: 0, page: 1, pageSize: 20, search: "" }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 1, pageSize: 20, search: "", includeFinancial: true }, type: "query",
+    }])).toBe(false);
+  });
+
   it("rejects unrelated namespaces and similarly named nested data", () => {
     expect(isOfflineCacheableQueryKey(["users", "list"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["settings", "get"])).toBe(false);
