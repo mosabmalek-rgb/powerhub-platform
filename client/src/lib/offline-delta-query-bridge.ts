@@ -382,7 +382,8 @@ export function projectReadingDeltaPage(
 function decodeExpensePageCursor(value: string): { at: number; id: number } {
   try {
     const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-    const parsed = JSON.parse(normalized + "=".repeat((4 - normalized.length % 4) % 4)) as { at?: unknown; id?: unknown };
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    const parsed = JSON.parse(atob(padded)) as { at?: unknown; id?: unknown };
     const at = typeof parsed.at === "string" ? Date.parse(parsed.at) : NaN;
     const id = Number(parsed.id);
     if (!Number.isFinite(at) || !Number.isSafeInteger(id) || id < 1) throw new Error("invalid");

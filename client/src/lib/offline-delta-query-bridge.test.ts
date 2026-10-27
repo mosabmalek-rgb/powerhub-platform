@@ -248,6 +248,20 @@ describe("expense Delta page materialization", () => {
     const filtered = projectExpenseDeltaPage(rows, { siteId: 10, limit: 10, startDate: "2026-10-27", endDate: "2026-10-27", companyAccountId: 55 }, undefined, expenseScope);
     expect(filtered.items.map((r) => r.id)).toEqual([8, 7]);
   });
+  it("decodes generated base64url cursors and rejects malformed cursor tokens", () => {
+    const rows = [
+      expense(8, "2026-10-27T10:00:00.000Z"),
+      expense(7, "2026-10-27T10:00:00.000Z"),
+      expense(6, "2026-10-26T10:00:00.000Z"),
+    ];
+    const first = projectExpenseDeltaPage(rows, { siteId: 10, limit: 2, companyAccountId: 55 }, undefined, expenseScope);
+    expect(first.nextCursor).toBeTruthy();
+    const next = projectExpenseDeltaPage(rows, { siteId: 10, limit: 2, companyAccountId: 55, cursor: first.nextCursor }, undefined, expenseScope);
+    expect(next.items.map((row) => row.id)).toEqual([6]);
+    expect(() => projectExpenseDeltaPage(rows, { siteId: 10, cursor: "not-a-base64url-cursor" }, undefined, expenseScope))
+      .toThrow(/مؤشر صفحة المصروفات المحلي غير صالح/);
+  });
+
   it("rejects mismatched scopes and invalid filters", () => {
     const rows = [expense(1, "2026-10-27T10:00:00.000Z")];
     expect(() => projectExpenseDeltaPage(rows, { siteId: 99 }, undefined, expenseScope)).toThrow(/نطاق صفحة المصروفات/);
