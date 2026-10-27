@@ -108,4 +108,36 @@ begin
  or has_function_privilege('authenticated','public.powerhub_pull_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
  or has_table_privilege('anon','public.powerhub_sync_changes','SELECT') then raise exception 'expense Delta ACL boundary weakened'; end if;
 end
+
+  insert into public.meter_readings(id,tenant_id,subscriber_id,reading_at)
+  values (700,1,101,timestamptz '2026-10-27 10:00:00+00');
+  v_snapshot := public.powerhub_get_sync_snapshot(1,10,'readings');
+  if jsonb_array_length(v_snapshot->'rows') <> 1
+     or v_snapshot #>> '{rows,0,reading,id}' is distinct from '700'
+     or v_snapshot #>> '{rows,0,reading,site_id}' is distinct from '10' then
+    raise exception 'Reading snapshot missing resolved site scope: %',v_snapshot;
+  end if;
+  v_delta := public.powerhub_pull_sync_delta(1,10,'readings',0,null,200);
+  if jsonb_array_length(v_delta->'changes') <> 1
+     or v_delta #>> '{changes,0,row_data,site_id}' is distinct from '10' then
+    raise exception 'Reading upsert missing resolved site scope: %',v_delta;
+  end if;
+  update public.subscribers set site_id=20 where id=101;
+  v_delta := public.powerhub_pull_sync_delta(1,10,'readings',1,null,200);
+  if jsonb_array_length(v_delta->'changes') <> 1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '700' then
+    raise exception 'Reading old-scope tombstone missing: %',v_delta;
+  end if;
+  v_snapshot := public.powerhub_get_sync_snapshot(1,20,'readings');
+  if jsonb_array_length(v_snapshot->'rows') <> 1
+     or v_snapshot #>> '{rows,0,reading,site_id}' is distinct from '20' then
+    raise exception 'Reading destination snapshot missing site scope: %',v_snapshot;
+  end if;
+  v_delta := public.powerhub_pull_sync_delta(1,20,'readings',0,null,200);
+  if jsonb_array_length(v_delta->'changes') <> 1
+     or v_delta #>> '{changes,0,row_data,site_id}' is distinct from '20' then
+    raise exception 'Reading destination upsert missing site scope: %',v_delta;
+  end if;
+
 $test$;

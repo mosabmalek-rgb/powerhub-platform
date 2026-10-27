@@ -83,6 +83,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
       return {
         id: toNumber(raw.id),
         tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: optionalNumber(raw.site_id ?? raw.siteId),
         subscriberId: toNumber(raw.subscriber_id ?? raw.subscriberId),
         clientOperationId: (raw.client_operation_id ?? raw.clientOperationId ?? null) as string | null,
         readingAt: dateOrNow(raw.reading_at ?? raw.readingAt),

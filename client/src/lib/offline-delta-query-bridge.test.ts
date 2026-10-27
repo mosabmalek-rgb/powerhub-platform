@@ -269,3 +269,10 @@ describe("expense Delta page materialization", () => {
     expect(() => projectExpenseDeltaPage(rows, { siteId: 10, startDate: "2026-10-28", endDate: "2026-10-27" }, undefined, expenseScope)).toThrow(/تاريخ بداية المصروفات/);
   });
 });
+
+describe("reading Delta site scope projection", () => {
+  it("preserves resolved site_id from server projections", () => {
+    expect(normalizeDeltaEntityRow("readings", { id:700, tenant_id:1, site_id:10, subscriber_id:101, reading_at:"2026-10-27T10:00:00Z", reading_value:120 }))
+      .toMatchObject({ id:700, tenantId:1, siteId:10, subscriberId:101 });
+  });
+});

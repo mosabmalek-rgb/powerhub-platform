@@ -107,7 +107,7 @@ as $$
       'created_at',p_row->'created_at','updated_at',p_row->'updated_at'
     )
     when 'readings' then jsonb_build_object(
-      'id',p_row->'id','tenant_id',p_row->'tenant_id','subscriber_id',p_row->'subscriber_id',
+      'id',p_row->'id','tenant_id',p_row->'tenant_id','site_id',p_row->'site_id','subscriber_id',p_row->'subscriber_id',
       'client_operation_id',p_row->'client_operation_id','reading_at',p_row->'reading_at',
       'reading_value',p_row->'reading_value','previous_reading_value',p_row->'previous_reading_value',
       'consumption_kwh',p_row->'consumption_kwh','capture_method',p_row->'capture_method',
@@ -205,7 +205,7 @@ begin
         into v_rows from public.generators g
         where g.tenant_id=p_tenant_id and g.site_id=p_site_id;
     when 'readings' then
-      select coalesce(jsonb_agg(jsonb_build_object('reading',public.powerhub_delta_sync_project_row('readings',to_jsonb(r)),'subscriber',public.powerhub_delta_sync_project_row('subscribers',to_jsonb(s)))
+      select coalesce(jsonb_agg(jsonb_build_object('reading',public.powerhub_delta_sync_project_row('readings',to_jsonb(r) || jsonb_build_object('site_id',s.site_id)),'subscriber',public.powerhub_delta_sync_project_row('subscribers',to_jsonb(s)))
         order by r.reading_at desc,r.id desc),'[]'::jsonb)
         into v_rows from public.meter_readings r
         join public.subscribers s on s.id=r.subscriber_id and s.tenant_id=r.tenant_id
@@ -324,6 +324,11 @@ begin
     end if;
   end if;
 
+  if TG_TABLE_NAME = 'meter_readings' then
+    if v_old is not null and v_old_site is not null then v_old := v_old || jsonb_build_object('site_id',v_old_site); end if;
+    if v_new is not null and v_new_site is not null then v_new := v_new || jsonb_build_object('site_id',v_new_site); end if;
+  end if;
+
   if TG_OP = 'INSERT' then
     if v_new_tenant is not null and v_new_site is not null then
       if coalesce(v_new ->> 'archived_at', '') <> '' then
@@ -398,7 +403,7 @@ begin
       perform public.powerhub_append_sync_change(v_old_tenant, v_old_site, 'readings', v_reading.row_data ->> 'id', 'delete', null);
       if v_reading.reading_tenant_id = v_new_tenant then
         perform public.powerhub_append_sync_change(v_new_tenant, v_new_site, 'readings', v_reading.row_data ->> 'id', 'upsert',
-          public.powerhub_delta_sync_project_row('readings', v_reading.row_data));
+          public.powerhub_delta_sync_project_row('readings', v_reading.row_data || jsonb_build_object('site_id', v_new_site)));
       end if;
     end loop;
   end if;

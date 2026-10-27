@@ -75,6 +75,12 @@ describe("Delta row scope validation", () => {
       .toThrow(/خارج نطاق المستأجر أو الفرع/);
   });
 
+  it("rejects readings without resolved site scope", () => {
+    expect(() => assertDeltaRowWithinScope("readings", { id:700, tenantId:1, subscriberId:101 }, scoped))
+      .toThrow(/خارج نطاق المستأجر أو الفرع/);
+    expect(() => assertDeltaRowWithinScope("readings", { id:700, tenantId:1, siteId:7, subscriberId:101 }, scoped)).not.toThrow();
+  });
+
   it("validates joined payment and reading relations independently", () => {
     expect(() => assertDeltaRowWithinScope("payments", {
       id: 16, tenantId: 1, siteId: 7,
