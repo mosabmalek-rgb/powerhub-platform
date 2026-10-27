@@ -5,6 +5,7 @@ import {
   isOfflineQueryRecordUsable,
   offlineQueryCacheKey,
 } from "./offline-query-cache";
+import { getOfflineQueryStaleTime } from "./offline-query-policy";
 
 describe("offline query cache policy", () => {
   it("caches tenant-scoped operational PowerHub queries", () => {
@@ -168,6 +169,28 @@ describe("offline query cache policy", () => {
   });
 });
 
+
+describe("offline query freshness policy", () => {
+  it("prevents full-query refetches for Delta-backed snapshots after reload", () => {
+    expect(getOfflineQueryStaleTime(["powerhub", "sites", "list"])).toBe(Number.POSITIVE_INFINITY);
+    expect(getOfflineQueryStaleTime(["powerhub", "subscribers", "list", { siteId: 7 }])).toBe(Number.POSITIVE_INFINITY);
+    expect(getOfflineQueryStaleTime(["powerhub.invoices.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }])).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("keeps cache-only pages on the bounded normal freshness window", () => {
+    expect(getOfflineQueryStaleTime(["powerhub.readings.page", {
+      input: { siteId: 7, limit: 200 }, type: "query",
+    }])).toBe(30_000);
+    expect(getOfflineQueryStaleTime(["powerhub.payments.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }])).toBe(30_000);
+    expect(getOfflineQueryStaleTime(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }])).toBe(30_000);
+  });
+});
 
 describe("Delta-backed local snapshots", () => {
   it("only marks supported whole-list procedures as Delta-backed", () => {

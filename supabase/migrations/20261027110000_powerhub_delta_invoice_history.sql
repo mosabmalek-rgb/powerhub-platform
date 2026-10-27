@@ -7,6 +7,80 @@ alter table public.powerhub_sync_changes drop constraint if exists powerhub_sync
 alter table public.powerhub_sync_changes add constraint powerhub_sync_changes_entity_type_check
   check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices'));
 
+-- The invoice capture trigger must be able to append invoice journal entries too.
+-- Keep per-scope cursor locking/retention and the server-only execution boundary.
+create or replace function public.powerhub_append_sync_change(
+  p_tenant_id bigint,
+  p_site_id bigint,
+  p_entity_type text,
+  p_entity_id text,
+  p_change_type text,
+  p_row_data jsonb
+)
+returns bigint
+language plpgsql
+security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare
+  v_cursor bigint;
+  v_cutoff bigint;
+begin
+  if p_tenant_id is null or p_tenant_id < 1
+     or p_site_id is null or p_site_id < 1
+     or p_entity_type is null
+     or p_entity_type not in ('sites', 'subscribers', 'generators', 'readings', 'tariffs', 'invoices')
+     or p_entity_id is null or length(p_entity_id) < 1 or length(p_entity_id) > 100
+     or p_change_type is null
+     or p_change_type not in ('upsert', 'delete')
+     or (p_change_type = 'upsert' and p_row_data is null)
+     or (p_change_type = 'delete' and p_row_data is not null) then
+    raise exception 'POWERHUB_SYNC_CHANGE_INVALID' using errcode = 'P0001';
+  end if;
+
+  insert into public.powerhub_sync_scope_state (
+    tenant_id, site_id, entity_type, last_cursor, retained_from_cursor, updated_at
+  ) values (
+    p_tenant_id, p_site_id, p_entity_type, 1, 0, clock_timestamp()
+  )
+  on conflict (tenant_id, site_id, entity_type)
+  do update set
+    last_cursor = public.powerhub_sync_scope_state.last_cursor + 1,
+    updated_at = clock_timestamp()
+  returning last_cursor into v_cursor;
+
+  insert into public.powerhub_sync_changes (
+    tenant_id, site_id, entity_type, cursor, entity_id, change_type, row_data, changed_at
+  ) values (
+    p_tenant_id, p_site_id, p_entity_type, v_cursor, p_entity_id,
+    p_change_type, p_row_data, clock_timestamp()
+  );
+
+  -- Retain the newest 10,000 positions for each tenant/site/entity scope.
+  if v_cursor > 10000 and mod(v_cursor, 500) = 0 then
+    v_cutoff := v_cursor - 10000;
+    delete from public.powerhub_sync_changes c
+    where c.tenant_id = p_tenant_id
+      and c.site_id = p_site_id
+      and c.entity_type = p_entity_type
+      and c.cursor <= v_cutoff;
+
+    update public.powerhub_sync_scope_state s
+    set retained_from_cursor = greatest(s.retained_from_cursor, v_cutoff),
+        updated_at = clock_timestamp()
+    where s.tenant_id = p_tenant_id
+      and s.site_id = p_site_id
+      and s.entity_type = p_entity_type;
+  end if;
+
+  return v_cursor;
+end;
+$;
+alter function public.powerhub_append_sync_change(bigint, bigint, text, text, text, jsonb) owner to postgres;
+revoke all on function public.powerhub_append_sync_change(bigint, bigint, text, text, text, jsonb) from public, anon, authenticated;
+grant execute on function public.powerhub_append_sync_change(bigint, bigint, text, text, text, jsonb) to service_role;
+
+
 create or replace function public.powerhub_delta_sync_project_row(p_entity_type text, p_row jsonb)
 returns jsonb
 language sql immutable

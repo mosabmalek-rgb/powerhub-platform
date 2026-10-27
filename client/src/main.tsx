@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
+import { getOfflineQueryStaleTime, isDeltaSyncBackedQueryKey } from "./lib/offline-query-policy";
 import { httpBatchLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -20,8 +21,10 @@ const queryClient = new QueryClient({
       networkMode: "offlineFirst",
       // Keep recently used tab data warm in memory to avoid a refetch on every route switch.
       // Mutations must invalidate the affected keys; sensitive access checks can opt out per query.
-      staleTime: 30_000,
-      refetchOnReconnect: true,
+      // Delta-backed queries are reconciled by the shared Delta runtime, not by re-fetching full pages.
+      staleTime: (query) => getOfflineQueryStaleTime(query.queryKey),
+      refetchOnReconnect: (query) => !isDeltaSyncBackedQueryKey(query.queryKey),
+      refetchOnWindowFocus: (query) => !isDeltaSyncBackedQueryKey(query.queryKey),
     },
   },
 });
