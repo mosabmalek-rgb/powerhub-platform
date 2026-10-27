@@ -29,7 +29,6 @@ const BLOCKED_PROCEDURES = new Set([
   "expenses",
   "payroll",
   "attendance",
-  "expenses",
 ]);
 
 function getPowerHubQuerySegments(queryKey: readonly unknown[]) {
