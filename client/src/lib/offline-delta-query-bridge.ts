@@ -178,6 +178,47 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
         updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
       };
+    case "company_accounts":
+    case "company_accounts_all": {
+      const linkedSites = Array.isArray(raw.linked_sites ?? raw.linkedSites)
+        ? (raw.linked_sites ?? raw.linkedSites as unknown[] as unknown[] as unknown[]) as unknown[]
+        : [];
+      const transactions = Array.isArray(raw.transactions) ? raw.transactions.filter(isRow).map((tx) => ({
+        id: toNumber(tx.id),
+        tenantId: toNumber(tx.tenant_id ?? tx.tenantId),
+        accountId: toNumber(tx.account_id ?? tx.accountId),
+        transactionType: String(tx.transaction_type ?? tx.transactionType ?? ""),
+        amount: String(tx.amount ?? 0),
+        description: (tx.description ?? null) as string | null,
+        referenceNo: (tx.reference_no ?? tx.referenceNo ?? null) as string | null,
+        relatedPaymentId: optionalNumber(tx.related_payment_id ?? tx.relatedPaymentId),
+        relatedAccountId: optionalNumber(tx.related_account_id ?? tx.relatedAccountId),
+        createdByUserId: optionalNumber(tx.created_by_user_id ?? tx.createdByUserId),
+        occurredAt: dateOrNow(tx.occurred_at ?? tx.occurredAt),
+        createdAt: dateOrNow(tx.created_at ?? tx.createdAt),
+      })) : [];
+      return {
+        id: toNumber(raw.id),
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: optionalNumber(raw.site_id ?? raw.siteId),
+        name: String(raw.name ?? ""),
+        accountType: String(raw.account_type ?? raw.accountType ?? "other"),
+        phoneNumber: (raw.phone_number ?? raw.phoneNumber ?? null) as string | null,
+        color: (raw.color ?? null) as string | null,
+        openingBalance: String(raw.opening_balance ?? raw.openingBalance ?? 0),
+        balance: String(raw.balance ?? 0),
+        isActive: Boolean(raw.is_active ?? raw.isActive),
+        allowPaymentDocumentation: Boolean(raw.allow_payment_documentation ?? raw.allowPaymentDocumentation),
+        createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
+        updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
+        linkedSites: linkedSites.filter(isRow).map((site) => ({
+          accountId: toNumber(site.account_id ?? site.accountId),
+          siteId: toNumber(site.site_id ?? site.siteId),
+          siteName: String(site.site_name ?? site.siteName ?? ""),
+        })),
+        transactions,
+      };
+    }
     case "tariffs":
       return {
         id: toNumber(raw.id),
