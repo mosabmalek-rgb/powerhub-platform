@@ -31,6 +31,7 @@ import {
   type DeltaOperationalEntity,
 } from "@/lib/offline-delta-query-bridge";
 import { isOfflineCacheableQueryKey } from "@/lib/offline-query-cache";
+import { getOfflineQueryDeltaEntity } from "@/lib/offline-query-policy";
 
 type AnyRow = Record<string, unknown>;
 type Candidate = { entityType: DeltaOperationalEntity; siteId: number; tenantId: number };
@@ -79,10 +80,16 @@ function rowTenantId(value: unknown): number | null {
 
 function getOfflineQueryInput(queryKey: readonly unknown[]): Record<string, unknown> {
   const options = queryKey[1];
-  if (!options || typeof options !== "object" || Array.isArray(options)) return {};
-  const wrapper = options as Record<string, unknown>;
-  const input = Object.prototype.hasOwnProperty.call(wrapper, "input") ? wrapper.input : wrapper;
-  return input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  if (options && typeof options === "object" && !Array.isArray(options)) {
+    const wrapper = options as Record<string, unknown>;
+    const input = Object.prototype.hasOwnProperty.call(wrapper, "input") ? wrapper.input : wrapper;
+    if (input && typeof input === "object" && !Array.isArray(input)) return input as Record<string, unknown>;
+  }
+  // tRPC's flattened cache-key shape ends with the procedure input object.
+  const trailing = queryKey[queryKey.length - 1];
+  return trailing && typeof trailing === "object" && !Array.isArray(trailing)
+    ? trailing as Record<string, unknown>
+    : {};
 }
 
 function getQueryRows(query: Query): AnyRow[] | null {
@@ -98,17 +105,8 @@ function getQueryRows(query: Query): AnyRow[] | null {
 }
 
 function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
-  if (!isOfflineCacheableQueryKey(query.queryKey)) return null;
-  const segments = getSegments(query.queryKey);
-  if (segments[0] !== "powerhub") return null;
-  if ((segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page" && getQueryRows(query)) {
-    return segments[1] as "invoices" | "readings" | "payments" | "expenses";
-  }
-  if (segments[2] !== "list" || !getQueryRows(query)) return null;
-  if (segments[1] === "sites" || segments[1] === "subscribers" || segments[1] === "generators" || segments[1] === "readings" || segments[1] === "tariffs") {
-    return segments[1];
-  }
-  return null;
+  if (!isOfflineCacheableQueryKey(query.queryKey) || !getQueryRows(query)) return null;
+  return getOfflineQueryDeltaEntity(query.queryKey);
 }
 
 function getLoadedSiteTenants(queries: Query[]) {
@@ -147,8 +145,13 @@ function makeCandidates(queries: Query[]): Candidate[] {
       }
       continue;
     }
-    const siteId = findNumberProperty(query.queryKey, "siteId");
-    if (!siteId) continue;
+    const queryInput = getOfflineQueryInput(query.queryKey);
+    // Company-account lists are scoped to the selected branchId, while siteId
+    // is the anchor used by the authorization procedure and may be a different branch.
+    const siteId = entityType === "company_accounts"
+      ? Number(queryInput.branchId)
+      : findNumberProperty(query.queryKey, "siteId");
+    if (!Number.isSafeInteger(siteId) || siteId < 1) continue;
     const tenantId = tenants.get(siteId) ?? data.map(rowTenantId).find((value) => value !== null) ?? null;
     if (!tenantId) continue;
     const candidate = { entityType, siteId, tenantId };
@@ -196,7 +199,11 @@ async function patchQueryCaches(
     const segments = getSegments(query.queryKey);
     if (queryEntity === "sites") {
       if (segments[0] !== "powerhub" || segments[1] !== "sites" || segments[2] !== "list") continue;
-    } else if (findNumberProperty(query.queryKey, "siteId") !== scope.siteId) {
+    } else if (
+      (queryEntity === "company_accounts"
+        ? Number(getOfflineQueryInput(query.queryKey).branchId)
+        : findNumberProperty(query.queryKey, "siteId")) !== scope.siteId
+    ) {
       continue;
     }
     const rows = getQueryRows(query);
@@ -308,7 +315,9 @@ export function OfflineDeltaSyncRuntime() {
             const segments = getSegments(query.queryKey);
             return segments[0] === "powerhub" && segments[1] === "sites" && segments[2] === "list";
           }
-          return findNumberProperty(query.queryKey, "siteId") === candidate.siteId;
+          return (candidate.entityType === "company_accounts"
+            ? Number(getOfflineQueryInput(query.queryKey).branchId)
+            : findNumberProperty(query.queryKey, "siteId")) === candidate.siteId;
         });
         if (matchingQueries.length === 0) throw new Error("لا يوجد استعلام قائمة لاستقبال لقطة المزامنة.");
         for (const query of matchingQueries) {
