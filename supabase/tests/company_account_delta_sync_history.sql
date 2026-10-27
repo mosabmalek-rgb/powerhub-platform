@@ -223,13 +223,9 @@ begin
    or (v_snapshot #>> '{rows,0,balance}')::numeric<>100
  then raise exception 'Account remained missing from its still-linked branch: %',v_snapshot; end if;
 
+ v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
  update public.company_accounts set is_active=false where id=700 and tenant_id=1;
- v_delta:=public.powerhub_pull_sync_delta(1,20,'company_accounts',0,null,200);
- if v_delta->>'status' is distinct from 'reset_required' then
-   -- Cursor zero may be retained; query the actual branch cursor to assert its tombstone.
-   v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
-   v_delta:=public.powerhub_pull_sync_delta(1,20,'company_accounts',v_cursor,null,200);
- end if;
+ v_delta:=public.powerhub_pull_sync_delta(1,20,'company_accounts',v_cursor,null,200);
  if jsonb_array_length(v_delta->'changes')<1
    or not exists(select 1 from jsonb_array_elements(v_delta->'changes') as c(value) where value->>'operation'='delete' and value->>'entity_id'='700')
  then raise exception 'Inactive account tombstone failed: %',v_delta; end if;
