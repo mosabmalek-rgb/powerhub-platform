@@ -3567,7 +3567,9 @@ declare
   v_low_dispatches integer;
   v_rate_dispatches integer;
   v_alert_notifications integer;
-  v_local_today date := (now() at time zone 'Asia/Gaza')::date;
+  -- Anchor the fixture date to the same instant used by v_end_time so a run
+  -- crossing Gaza midnight cannot classify the ending readings as historical.
+  v_local_today date := ((now() - interval '1 minute') at time zone 'Asia/Gaza')::date;
   v_opening_time timestamptz := ((v_local_today-2)::timestamp + interval '20 hours') at time zone 'Asia/Gaza';
   v_fill_time timestamptz := ((v_local_today-1)::timestamp + interval '23 hours 30 minutes') at time zone 'Asia/Gaza';
   -- Keep all later correction timestamps safely before wall-clock maintenance close-out tests.
