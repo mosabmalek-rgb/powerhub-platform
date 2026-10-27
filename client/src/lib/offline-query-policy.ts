@@ -165,7 +165,7 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
 
   // Reading and invoice history are materialized from their full scoped Delta
   // snapshots into the exact keyset page shape expected by the UI.
-  if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments") && segments[2] === "page") return true;
+  if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") return true;
 
   return segments[2] === "list" && DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
 }
@@ -177,3 +177,40 @@ export function getOfflineQueryStaleTime(queryKey: readonly unknown[]): number {
   return isDeltaSyncBackedQueryKey(queryKey) ? Number.POSITIVE_INFINITY : 30_000;
 }
 
+
+
+/** Canonical mapping shared by the Delta runtime and its query-policy tests. */
+export type OfflineQueryDeltaEntity =
+  | "sites"
+  | "subscribers"
+  | "generators"
+  | "readings"
+  | "tariffs"
+  | "invoices"
+  | "payments"
+  | "expenses"
+  | "company_accounts";
+
+/**
+ * Returns the server change-feed entity only when this exact query key is
+ * cacheable and Delta-backed. Keep UI procedure names mapped explicitly to
+ * backend entity names so a stale-time declaration cannot silently outpace
+ * runtime support.
+ */
+export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): OfflineQueryDeltaEntity | null {
+  if (!isDeltaSyncBackedQueryKey(queryKey)) return null;
+  const segments = getPowerHubQuerySegments(queryKey);
+  if (segments[2] === "page") {
+    if (segments[1] === "readings" || segments[1] === "invoices" ||
+        segments[1] === "payments" || segments[1] === "expenses") {
+      return segments[1];
+    }
+    return null;
+  }
+  if (segments[2] !== "list") return null;
+  if (segments[1] === "companyAccounts") return "company_accounts";
+  if (segments[1] === "sites" || segments[1] === "subscribers" ||
+      segments[1] === "generators" || segments[1] === "readings" ||
+      segments[1] === "tariffs") return segments[1];
+  return null;
+}
