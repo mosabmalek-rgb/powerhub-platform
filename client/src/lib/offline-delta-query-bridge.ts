@@ -103,6 +103,37 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
         updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
       };
+    case "invoices":
+      return {
+        id: toNumber(raw.id),
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId),
+        subscriberId: toNumber(raw.subscriber_id ?? raw.subscriberId),
+        readingId: optionalNumber(raw.reading_id ?? raw.readingId),
+        tariffId: optionalNumber(raw.tariff_id ?? raw.tariffId),
+        invoiceNo: String(raw.invoice_no ?? raw.invoiceNo ?? ""),
+        clientOperationId: (raw.client_operation_id ?? raw.clientOperationId ?? null) as string | null,
+        billingPeriod: String(raw.billing_period ?? raw.billingPeriod ?? ""),
+        issueDate: dateOrNow(raw.issue_date ?? raw.issueDate),
+        dueDate: dateOrNow(raw.due_date ?? raw.dueDate),
+        previousReading: raw.previous_reading == null && raw.previousReading == null ? null : String(raw.previous_reading ?? raw.previousReading),
+        currentReading: raw.current_reading == null && raw.currentReading == null ? null : String(raw.current_reading ?? raw.currentReading),
+        consumptionKwh: String(raw.consumption_kwh ?? raw.consumptionKwh ?? 0),
+        pricePerKwh: String(raw.price_per_kwh ?? raw.pricePerKwh ?? 0),
+        fixedFee: String(raw.fixed_fee ?? raw.fixedFee ?? 0),
+        taxAmount: String(raw.tax_amount ?? raw.taxAmount ?? 0),
+        discountAmount: String(raw.discount_amount ?? raw.discountAmount ?? 0),
+        totalAmount: String(raw.total_amount ?? raw.totalAmount ?? 0),
+        paidAmount: String(raw.paid_amount ?? raw.paidAmount ?? 0),
+        balanceDue: String(raw.balance_due ?? raw.balanceDue ?? 0),
+        status: String(raw.status ?? "draft"),
+        cycleKey: (raw.cycle_key ?? raw.cycleKey ?? null) as string | null,
+        cycleStartAt: dateOrNull(raw.cycle_start_at ?? raw.cycleStartAt),
+        cycleEndAt: dateOrNull(raw.cycle_end_at ?? raw.cycleEndAt),
+        createdByUserId: optionalNumber(raw.created_by_user_id ?? raw.createdByUserId),
+        createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
+        updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
+      };
     case "tariffs":
       return {
         id: toNumber(raw.id),
@@ -214,4 +245,61 @@ export function refreshReadingSubscriberProjection(
     const row = updatedSubscribers.get(String(item.subscriber.id));
     return row ? { ...item, subscriber: { ...item.subscriber, ...row } } : item;
   });
+}
+
+
+function decodeInvoicePageCursor(value: string): { at: number; id: number } {
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    const parsed = JSON.parse(atob(padded)) as { at?: unknown; id?: unknown };
+    const at = typeof parsed.at === "string" ? Date.parse(parsed.at) : Number.NaN;
+    const id = Number(parsed.id);
+    if (!Number.isFinite(at) || !Number.isSafeInteger(id) || id < 1) throw new Error("invalid");
+    return { at, id };
+  } catch {
+    throw new Error("مؤشر صفحة الفواتير المحلي غير صالح؛ يلزم تحديث الصفحة من الخادم.");
+  }
+}
+
+function encodeInvoicePageCursor(row: Row): string {
+  const issueDate = dateOrNull(row.issueDate);
+  const id = Number(row.id);
+  if (!issueDate || !Number.isSafeInteger(id) || id < 1) throw new Error("تعذر إنشاء مؤشر صفحة الفواتير المحلي.");
+  return btoa(JSON.stringify({ at: issueDate.toISOString(), id }))
+    .replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+}
+
+/** Rebuilds the keyset page from the full scoped invoice Delta snapshot. */
+export function projectInvoiceDeltaPage(
+  rows: readonly Row[],
+  input: { siteId?: unknown; limit?: unknown; cursor?: unknown },
+  previousData: unknown,
+  scope: DeltaCursorScope,
+): Row {
+  if (Number(input.siteId) !== scope.siteId) throw new Error("نطاق صفحة الفواتير لا يطابق الفرع الجاري مزامنته.");
+  const limit = input.limit === undefined ? 50 : Number(input.limit);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new Error("حجم صفحة الفواتير المحلي غير صالح.");
+  const cursor = typeof input.cursor === "string" && input.cursor.length ? decodeInvoicePageCursor(input.cursor) : null;
+  const ordered = rows.filter(row =>
+    Number(row.tenantId) === scope.tenantId && Number(row.siteId) === scope.siteId &&
+    Number.isSafeInteger(Number(row.id)) && dateOrNull(row.issueDate) !== null
+  ).filter(row => {
+    if (!cursor) return true;
+    const at = dateOrNull(row.issueDate)!.getTime();
+    const id = Number(row.id);
+    return at < cursor.at || (at === cursor.at && id < cursor.id);
+  }).sort((a,b) => {
+    const byDate = dateOrNull(b.issueDate)!.getTime() - dateOrNull(a.issueDate)!.getTime();
+    return byDate || Number(b.id) - Number(a.id);
+  });
+  const hasNext = ordered.length > limit;
+  const items = ordered.slice(0, limit);
+  const last = items.at(-1);
+  return {
+    ...(isRow(previousData) ? previousData : {}),
+    items,
+    hasNext,
+    nextCursor: hasNext && last ? encodeInvoicePageCursor(last) : null,
+  };
 }
