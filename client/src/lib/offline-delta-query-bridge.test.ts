@@ -8,6 +8,7 @@ import {
   snapshotRowsFromQuery,
   projectInvoiceDeltaPage,
   projectPaymentDeltaPage,
+  projectExpenseDeltaPage,
   refreshPaymentRelatedProjection,
   projectReadingDeltaPage,
 } from "./offline-delta-query-bridge";
@@ -222,5 +223,35 @@ describe("invoice Delta page materialization", () => {
     );
     expect(projected.uiMarker).toBe("keep");
     expect(projected.items).toHaveLength(1);
+  });
+});
+
+describe("expense Delta page materialization", () => {
+  const expenseScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "expenses" };
+  const expense = (id: number, occurredAt: string, extra: Record<string, unknown> = {}) => ({
+    id, tenantId: 2, siteId: 10, companyAccountId: 55, category: "fuel", description: "Fuel",
+    amount: "25.00", occurredAt: new Date(occurredAt), referenceNo: "EXP-" + id, ...extra,
+  });
+  it("applies account/date filters and stable cursor paging", () => {
+    const rows = [
+      expense(8, "2026-10-27T10:00:00.000Z"),
+      expense(7, "2026-10-27T10:00:00.000Z"),
+      expense(6, "2026-10-26T10:00:00.000Z"),
+      expense(9, "2026-10-27T10:00:00.000Z", { companyAccountId: 77 }),
+      expense(10, "2026-10-28T10:00:00.000Z", { tenantId: 99 }),
+    ];
+    const first = projectExpenseDeltaPage(rows, { siteId: 10, limit: 2 }, undefined, expenseScope);
+    expect(first.items.map((r) => r.id)).toEqual([8, 7]);
+    expect(first.hasNext).toBe(true);
+    const second = projectExpenseDeltaPage(rows, { siteId: 10, limit: 2, cursor: first.nextCursor }, undefined, expenseScope);
+    expect(second.items.map((r) => r.id)).toEqual([6]);
+    const filtered = projectExpenseDeltaPage(rows, { siteId: 10, limit: 10, startDate: "2026-10-27", endDate: "2026-10-27", companyAccountId: 55 }, undefined, expenseScope);
+    expect(filtered.items.map((r) => r.id)).toEqual([8, 7]);
+  });
+  it("rejects mismatched scopes and invalid filters", () => {
+    const rows = [expense(1, "2026-10-27T10:00:00.000Z")];
+    expect(() => projectExpenseDeltaPage(rows, { siteId: 99 }, undefined, expenseScope)).toThrow(/نطاق صفحة المصروفات/);
+    expect(() => projectExpenseDeltaPage(rows, { siteId: 10, startDate: "2026-02-30", endDate: "2026-03-01" }, undefined, expenseScope)).toThrow(/تاريخ فلتر المصروفات/);
+    expect(() => projectExpenseDeltaPage(rows, { siteId: 10, startDate: "2026-10-28", endDate: "2026-10-27" }, undefined, expenseScope)).toThrow(/تاريخ بداية المصروفات/);
   });
 });
