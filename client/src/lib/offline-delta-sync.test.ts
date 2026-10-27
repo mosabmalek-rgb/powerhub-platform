@@ -154,7 +154,7 @@ describe("Delta row scope validation", () => {
 });
 
 describe("offline delta sync", () => {
-  it("serializes same-scope runs while keeping other entities independent", async () => {
+  it("serializes all shared projections for one user while keeping other users independent", async () => {
     const order: string[] = [];
     let releaseFirst!: () => void;
     let signalFirstStarted!: () => void;
@@ -175,7 +175,7 @@ describe("offline delta sync", () => {
       order.push("second:end");
       return "second";
     }, null);
-    const independent = await withDeltaSyncLock({ ...scope, entityType: "invoices" }, async () => {
+    const independent = await withDeltaSyncLock({ ...scope, userId: 2, entityType: "invoices" }, async () => {
       order.push("independent");
       return "independent";
     }, null);
