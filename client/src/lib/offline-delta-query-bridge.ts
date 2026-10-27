@@ -276,7 +276,7 @@ export function projectInvoiceDeltaPage(
   input: { siteId?: unknown; limit?: unknown; cursor?: unknown },
   previousData: unknown,
   scope: DeltaCursorScope,
-): Row {
+): Row & { items: Row[]; hasNext: boolean; nextCursor: string | null } {
   if (Number(input.siteId) !== scope.siteId) throw new Error("نطاق صفحة الفواتير لا يطابق الفرع الجاري مزامنته.");
   const limit = input.limit === undefined ? 50 : Number(input.limit);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new Error("حجم صفحة الفواتير المحلي غير صالح.");
