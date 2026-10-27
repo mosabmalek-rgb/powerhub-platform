@@ -74,6 +74,7 @@ describe("query-cache lifecycle across auth transitions", () => {
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
     expect(main).toContain("isOfflineCacheWriteCurrent(");
     expect(main).toContain("if (!token)");
+    expect(main).toContain("if (getPowerHubConnectivitySnapshot() === false)");
     expect(main).toContain('event === "TOKEN_REFRESHED" && nextUserId');
     expect(main).toContain('query.state.status === "error"');
     expect(main).toContain('if (event === "INITIAL_SESSION")');
@@ -163,6 +164,14 @@ describe("Supabase browser session refresh policy", () => {
     expect(isSupabaseSessionUsable({ expires_at: 1_001 }, 1_000)).toBe(false);
     expect(isSupabaseSessionUsable({ access_token: "", expires_at: 1_001 }, 1_000)).toBe(false);
     expect(isSupabaseSessionUsable(null, 1_000)).toBe(false);
+  });
+
+  it("uses the JWT exp claim when Supabase omits optional expires_at", () => {
+    const payload = btoa(JSON.stringify({ exp: 1_001 }));
+    const session = { access_token: `header.${payload}.signature` };
+    expect(isSupabaseSessionUsable(session, 1_000)).toBe(true);
+    expect(isSupabaseSessionUsable(session, 1_001)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "opaque-token" }, 1_000)).toBe(false);
   });
 });
 

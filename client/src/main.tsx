@@ -82,12 +82,12 @@ const trpcClient = trpc.createClient({
           import("./lib/offline-auth"),
           import("./lib/offline-connectivity"),
         ]);
-        // Do not trigger SDK token refresh or protected HTTP calls before the
-        // initial origin probe succeeds. Offline access remains local-only.
-        // navigator.onLine is only a browser hint; the completed same-origin
-        // health probe below is the authority for PowerHub reachability.
-        if (getPowerHubConnectivitySnapshot() !== true) {
-          const error = new Error("PowerHub reachability has not been confirmed.");
+        // A confirmed unreachable origin prevents futile protected requests.
+        // A still-unknown probe is not proof of being offline: allow the normal
+        // token + server-validation path to proceed, while keeping all protected
+        // requests gated on a real Supabase Access Token and device identity.
+        if (getPowerHubConnectivitySnapshot() === false) {
+          const error = new Error("The PowerHub origin is repeatedly unreachable.");
           error.name = "PowerHubConnectivityUnresolvedError";
           throw error;
         }

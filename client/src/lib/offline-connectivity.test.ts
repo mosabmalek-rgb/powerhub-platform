@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { probePowerHubConnectivity, subscribeBrowserNetworkStatus } from "./offline-connectivity";
+import { nextPowerHubReachabilityState, probePowerHubConnectivity, subscribeBrowserNetworkStatus } from "./offline-connectivity";
 
 describe("PowerHub connectivity probe", () => {
   it("trusts a successful origin check even when the browser reports offline", async () => {
@@ -64,5 +64,37 @@ describe("browser network status", () => {
     online = false;
     target.dispatchEvent(new Event("offline"));
     expect(states).toHaveLength(countBeforeCleanup);
+  });
+});
+
+
+describe("PowerHub stable reachability state", () => {
+  it("does not classify one failed probe cycle as offline", () => {
+    expect(nextPowerHubReachabilityState(null, 0, false)).toEqual({
+      reachable: null,
+      consecutiveFailures: 1,
+    });
+    expect(nextPowerHubReachabilityState(true, 0, false)).toEqual({
+      reachable: true,
+      consecutiveFailures: 1,
+    });
+  });
+
+  it("declares the origin unavailable only after repeated failed probe cycles", () => {
+    expect(nextPowerHubReachabilityState(null, 1, false)).toEqual({
+      reachable: false,
+      consecutiveFailures: 2,
+    });
+    expect(nextPowerHubReachabilityState(true, 1, false)).toEqual({
+      reachable: false,
+      consecutiveFailures: 2,
+    });
+  });
+
+  it("restores reachability immediately after a successful probe", () => {
+    expect(nextPowerHubReachabilityState(false, 5, true)).toEqual({
+      reachable: true,
+      consecutiveFailures: 0,
+    });
   });
 });

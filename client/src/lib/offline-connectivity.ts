@@ -2,12 +2,29 @@ import { useEffect, useState } from "react";
 
 export const POWERHUB_CONNECTIVITY_PROBE_TIMEOUT_MS = 3_500;
 export const POWERHUB_CONNECTIVITY_RECHECK_INTERVAL_MS = 15_000;
+const UNKNOWN_REACHABILITY_RETRY_DELAY_MS = 1_500;
+const FAILED_PROBE_CYCLES_TO_DECLARE_OFFLINE = 2;
 const HEALTH_PATH = "/api/health";
 const PROBE_ATTEMPTS = 2;
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 let sharedProbe: Promise<boolean> | null = null;
 let lastVerifiedPowerHubReachability: boolean | null = null;
+let consecutiveFailedProbeCycles = 0;
+
+/** Require repeated failed health-check cycles before declaring the origin unavailable. */
+export function nextPowerHubReachabilityState(
+  current: boolean | null,
+  consecutiveFailures: number,
+  probeReachable: boolean,
+): { reachable: boolean | null; consecutiveFailures: number } {
+  if (probeReachable) return { reachable: true, consecutiveFailures: 0 };
+  const nextFailures = consecutiveFailures + 1;
+  return {
+    reachable: nextFailures >= FAILED_PROBE_CYCLES_TO_DECLARE_OFFLINE ? false : current,
+    consecutiveFailures: nextFailures,
+  };
+}
 
 /**
  * null means no completed same-origin health probe exists for this page load.
@@ -57,7 +74,13 @@ export function probePowerHubConnectivity(
   if (fetcher === globalThis.fetch) {
     if (sharedProbe) return sharedProbe;
     sharedProbe = runHealthProbe(fetcher, timeoutMs).then((reachable) => {
-      lastVerifiedPowerHubReachability = reachable;
+      const next = nextPowerHubReachabilityState(
+        lastVerifiedPowerHubReachability,
+        consecutiveFailedProbeCycles,
+        reachable,
+      );
+      lastVerifiedPowerHubReachability = next.reachable;
+      consecutiveFailedProbeCycles = next.consecutiveFailures;
       return reachable;
     }).finally(() => {
       sharedProbe = null;
@@ -89,27 +112,54 @@ export function subscribeBrowserNetworkStatus(
 
 /** Verified reachability and a counter that increments only after a real reconnection. */
 export function usePowerHubConnectivity() {
-  // Avoid displaying a false offline banner based solely on the browser hint
-  // while the first same-origin reachability probe is still running.
+  // Unknown reachability is not an offline verdict. Keep authentication and
+  // the shell recoverable while a repeated origin check resolves the signal.
   const [isOnline, setIsOnline] = useState(true);
   const [initialCheckComplete, setInitialCheckComplete] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
 
   useEffect(() => {
     let active = true;
-    let lastReachable: boolean | null = null;
+    let lastReachable: boolean | null = getPowerHubConnectivitySnapshot();
+    let unknownRetryId: number | undefined;
+
+    const clearUnknownRetry = () => {
+      if (unknownRetryId !== undefined) {
+        window.clearTimeout(unknownRetryId);
+        unknownRetryId = undefined;
+      }
+    };
 
     const check = async () => {
-      const reachable = await probePowerHubConnectivity();
+      const probeReachable = await probePowerHubConnectivity();
       if (!active) return;
-      setIsOnline(reachable);
+
+      const verifiedReachability = getPowerHubConnectivitySnapshot();
       setInitialCheckComplete(true);
-      if (reachable && lastReachable === false) setReconnectGeneration((generation) => generation + 1);
-      lastReachable = reachable;
+      if (verifiedReachability === null) {
+        // One failed probe is inconclusive. Do not flip the banner or prevent
+        // a fresh login merely because the health endpoint had one transient miss.
+        setIsOnline(true);
+        if (!probeReachable && unknownRetryId === undefined) {
+          unknownRetryId = window.setTimeout(() => {
+            unknownRetryId = undefined;
+            void check();
+          }, UNKNOWN_REACHABILITY_RETRY_DELAY_MS);
+        } else if (probeReachable) {
+          clearUnknownRetry();
+        }
+        return;
+      }
+
+      clearUnknownRetry();
+      setIsOnline(verifiedReachability);
+      if (verifiedReachability && lastReachable === false) {
+        setReconnectGeneration((generation) => generation + 1);
+      }
+      lastReachable = verifiedReachability;
     };
-    // An "offline" browser event may be a false positive. Verify the app origin
-    // before changing the UI/React Query network state instead of flipping it
-    // offline immediately.
+    // Browser online/offline events are hints; the health endpoint and repeated
+    // probe result determine whether the PowerHub origin is actually reachable.
     const handleOffline = () => { void check(); };
     const handleOnline = () => { void check(); };
     const handleVisible = () => {
@@ -120,11 +170,10 @@ export function usePowerHubConnectivity() {
     window.addEventListener("offline", handleOffline);
     document.addEventListener("visibilitychange", handleVisible);
     void check();
-    // Recover from a transient health-check failure even if the browser emits
-    // no new online event (common after a brief API/Vercel cold-start hiccup).
     const retryId = window.setInterval(() => { void check(); }, POWERHUB_CONNECTIVITY_RECHECK_INTERVAL_MS);
     return () => {
       active = false;
+      clearUnknownRetry();
       window.clearInterval(retryId);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);

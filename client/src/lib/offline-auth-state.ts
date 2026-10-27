@@ -95,19 +95,44 @@ export function isSessionReadBackoffActive(retryAfterMs: number, nowMs = Date.no
   return retryAfterMs > nowMs;
 }
 
-/** A session is usable for an authenticated request only while its access token is unexpired. */
+/** Read exp from a JWT only as a client-side expiry hint; APIs must still verify the token. */
+function getJwtExpirationSeconds(accessToken: string): number | null {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return null;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const claims = JSON.parse(atob(padded)) as { exp?: unknown };
+    return typeof claims.exp === "number" && Number.isFinite(claims.exp)
+      ? claims.exp
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Supabase Session.expires_at is optional in the SDK contract. Prefer it when
+ * present; otherwise read the JWT exp claim so a valid persisted session is not
+ * misclassified as a missing token. This never replaces server-side validation.
+ */
 export function isSupabaseSessionUsable(
   session: { access_token?: unknown; expires_at?: number } | null | undefined,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): boolean {
-  return Boolean(
-    session &&
-    typeof session.access_token === "string" &&
-    session.access_token.trim().length > 0 &&
-    typeof session.expires_at === "number" &&
-    Number.isFinite(session.expires_at) &&
-    session.expires_at > nowSeconds,
-  );
+  if (
+    !session ||
+    typeof session.access_token !== "string" ||
+    session.access_token.trim().length === 0
+  ) return false;
+
+  const explicitExpiry = session.expires_at;
+  const expiresAt = typeof explicitExpiry === "number" && Number.isFinite(explicitExpiry)
+    ? explicitExpiry
+    : getJwtExpirationSeconds(session.access_token);
+
+  return typeof expiresAt === "number" && expiresAt > nowSeconds;
 }
 
 /** Refresh before expiry so requests never deliberately reuse a near-expiry token. */
