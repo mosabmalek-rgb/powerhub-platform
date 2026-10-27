@@ -58,6 +58,12 @@ function getOfflineQueryInput(queryKey: readonly unknown[]): Record<string, unkn
   return input as Record<string, unknown>;
 }
 
+function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
+  const input = getOfflineQueryInput(queryKey);
+  if (!input || Object.keys(input).some((key) => !["siteId", "branchId"].includes(key))) return false;
+  return Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0 &&
+    Number.isSafeInteger(input.branchId) && Number(input.branchId) > 0;
+}
 function isSafeUnfilteredSubscriberDirectoryPage(queryKey: readonly unknown[]) {
   const input = getOfflineQueryInput(queryKey);
   if (!input || Object.keys(input).some((key) => !SUBSCRIBER_DIRECTORY_INPUT_KEYS.has(key))) return false;
@@ -129,6 +135,13 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // and rejects extra query fields so unrelated procedures cannot opt in.
   if (segments[1] === "subscribers" && segments[2] === "directoryPage") {
     return isSafeUnfilteredSubscriberDirectoryPage(queryKey);
+  }
+
+  // Company-account Delta currently reconciles explicit single-branch lists only.
+  // All-branch/date-filtered lists remain uncached until their exact projection is
+  // materialized by the matching Delta scope.
+  if (segments[1] === "companyAccounts" && segments[2] === "list") {
+    return isSafeBranchScopedCompanyAccountList(queryKey);
   }
 
   // Only stable whole-list query shapes are persisted. Search pages, details,
