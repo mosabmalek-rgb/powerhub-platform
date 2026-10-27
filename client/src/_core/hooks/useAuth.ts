@@ -2,7 +2,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { clearOfflineQueryCacheForUser, getOfflineAuthUser, persistOfflineAuthUser, removeOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
-import { resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition, shouldValidateOnlineSession } from "@/lib/offline-auth-state";
+import { isNonAuthoritativeInitialNullSessionEvent, resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition, shouldValidateOnlineSession } from "@/lib/offline-auth-state";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -166,6 +166,10 @@ function useAuthController() {
     };
 
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
+      // The shared Supabase client filters this event too, but keep this
+      // consumer boundary defensive: a null initial snapshot must not advance
+      // transitionRevision and invalidate the pending persisted-session read.
+      if (isNonAuthoritativeInitialNullSessionEvent(event, session)) return;
       const nextUserId = session?.user.id ?? null;
       let explicitLogoutRequested = explicitLogoutInProgress.current;
       try {

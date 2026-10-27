@@ -90,14 +90,22 @@ describe("Supabase initial session event ordering", () => {
     expect(isNonAuthoritativeInitialNullSessionEvent("INITIAL_SESSION", { user: { id: "user-a" } })).toBe(false);
   });
 
-  it("filters the initial null before the shared session revision is advanced", () => {
-    const source = readFileSync(new URL("./supabase.ts", import.meta.url), "utf8");
-    const guard = source.indexOf("if (isNonAuthoritativeInitialNullSessionEvent(event, session))");
-    expect(guard).toBeGreaterThanOrEqual(0);
-    expect(guard).toBeLessThan(source.indexOf("authStateRevision += 1;"));
-    const initialNullGuard = source.slice(guard, source.indexOf("authStateRevision += 1;"));
-    expect(initialNullGuard).toContain("return;");
-    expect(initialNullGuard).not.toContain("subscriber(event, session)");
+  it("filters the initial null before every auth consumer advances its startup revision", () => {
+    const supabase = readFileSync(new URL("./supabase.ts", import.meta.url), "utf8");
+    const main = readFileSync(new URL("../main.tsx", import.meta.url), "utf8");
+    const auth = readFileSync(new URL("../_core/hooks/useAuth.ts", import.meta.url), "utf8");
+    const cases = [
+      { source: supabase, revision: "authStateRevision += 1;" },
+      { source: main, revision: "authEventRevision += 1;" },
+      { source: auth, revision: "const revision = ++transitionRevision;" },
+    ];
+    for (const item of cases) {
+      const guard = item.source.indexOf("if (isNonAuthoritativeInitialNullSessionEvent(event, session))");
+      expect(guard, "missing INITIAL_SESSION(null) guard").toBeGreaterThanOrEqual(0);
+      expect(guard).toBeLessThan(item.source.indexOf(item.revision));
+      expect(item.source.slice(guard, item.source.indexOf(item.revision))).toContain("return;");
+    }
+    expect(supabase.slice(supabase.indexOf("if (isNonAuthoritativeInitialNullSessionEvent(event, session))"), supabase.indexOf("authStateRevision += 1;"))).not.toContain("subscriber(event, session)");
   });
 });
 

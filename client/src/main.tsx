@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { getOfflineQueryStaleTime, isDeltaSyncBackedQueryKey } from "./lib/offline-query-policy";
+import { isNonAuthoritativeInitialNullSessionEvent } from "./lib/offline-auth-state";
 import { httpBatchLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -226,6 +227,9 @@ async function bootstrapOfflineState() {
 
     let authEventRevision = 0;
     subscribeSupabaseAuthState((event, session) => {
+      // INITIAL_SESSION(null) is not authoritative. Do not let it invalidate
+      // the independent getSession() bootstrap revision below.
+      if (isNonAuthoritativeInitialNullSessionEvent(event, session)) return;
       authEventRevision += 1;
       const eventRevision = authEventRevision;
       const previousUserId = activeOfflineUserId;
