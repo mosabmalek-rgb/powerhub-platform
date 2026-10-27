@@ -19,6 +19,25 @@ const basePage = (changes: any[], entityType: any = "subscribers"): DeltaPage<Re
   snapshot_cursor: null, through_cursor: "4", next_cursor: "4", has_more: false, changes,
 });
 
+describe("company account Delta projection", () => {
+  it("normalizes tenant-scoped account balance and transaction projections", () => {
+    const row = normalizeDeltaEntityRow("company_accounts", {
+      id: 77, tenant_id: 2, site_id: 10, name: "Main", account_type: "cash",
+      opening_balance: "100.00", balance: "155.50", is_active: true,
+      allow_payment_documentation: true, created_at: "2026-10-27T10:00:00Z",
+      linked_sites: [{ account_id: 77, site_id: 10, site_name: "Site A" }],
+      transactions: [{ id: 901, tenant_id: 2, account_id: 77, transaction_type: "deposit", amount: "55.50", occurred_at: "2026-10-27T11:00:00Z" }],
+    });
+    expect(row).toMatchObject({ id: 77, tenantId: 2, siteId: 10, name: "Main", accountType: "cash", openingBalance: "100.00", balance: "155.50", isActive: true, linkedSites: [{ accountId: 77, siteId: 10, siteName: "Site A" }], transactions: [{ id: 901, accountId: 77, amount: "55.50", transactionType: "deposit" }] });
+    expect((row.transactions as any[])[0].occurredAt).toBeInstanceOf(Date);
+  });
+
+  it("normalizes all-branch accounts without inventing a branch scope", () => {
+    const row = normalizeDeltaEntityRow("company_accounts_all", { id: 78, tenant_id: 2, name: "Tenant account", balance: "0", linked_sites: [], transactions: [] });
+    expect(row).toMatchObject({ id: 78, tenantId: 2, siteId: null, linkedSites: [], transactions: [] });
+  });
+});
+
 describe("delta-query bridge", () => {
   it("normalizes site projections including tenant label and due-time policy", () => {
     const row = normalizeDeltaEntityRow("sites", {
