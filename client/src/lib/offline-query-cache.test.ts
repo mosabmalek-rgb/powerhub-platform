@@ -168,6 +168,15 @@ describe("Delta-backed local snapshots", () => {
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "list", { siteId: 7 }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "readings", "list", { siteId: 7 }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub.tariffs.list", { input: { siteId: 7 }, type: "query" }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub.invoices.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub.payments.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }])).toBe(false);
+    expect(isDeltaSyncBackedQueryKey(["powerhub.expenses.page", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "schedules", "list", { siteId: 7 }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "payments", "list", { siteId: 7 }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "getById", { siteId: 7, id: 1 }])).toBe(false);
