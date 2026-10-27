@@ -118,6 +118,9 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     staleTime: 60 * 60 * 1000,
     gcTime: 2 * 60 * 60 * 1000,
     placeholderData: (previousData) => previousData,
+    // Show the persisted page immediately; always refresh it in the background
+    // after connectivity returns, even when its one-hour in-memory window remains fresh.
+    refetchOnReconnect: "always",
     refetchOnWindowFocus: false,
   });
   // Render page 1 as soon as it arrives; warm all remaining pages in the background in batches of 3.
