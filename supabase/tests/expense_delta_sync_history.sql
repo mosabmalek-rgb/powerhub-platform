@@ -138,5 +138,5 @@ begin
     raise exception 'Reading destination upsert missing site scope: %',v_delta;
   end if;
 
-end
+end;
 $test$;

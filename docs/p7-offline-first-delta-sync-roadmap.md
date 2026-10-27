@@ -743,3 +743,9 @@
 - احتفظ مطبّع العميل بحقل `siteId` حتى لا يفقده قبل التحقق من نطاق Delta.
 - أضيفت اختبارات عميل وPostgreSQL للّقطة وupsert وtombstone للفرع القديم وupsert للفرع الجديد عند نقل المشترك.
 - لا يُقبل التعديل قبل نجاح CI وPostgreSQL Integration على الرأس الجديد.
+
+
+### CI 修复跟进 — 2026-10-27
+
+- 依据最新运行日志修复两项回归：保持旧版 readings query shape（仅在服务端明确返回 `site_id` 时加入 `siteId`），并补全 PostgreSQL 测试 DO 块的 `END;` 终止符。
+- 必须重新运行 PowerHub CI 与 PostgreSQL Integration，不能以此前成功的旧提交替代。
