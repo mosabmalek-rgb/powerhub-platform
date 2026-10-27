@@ -12,6 +12,17 @@ describe("safe authentication diagnostics", () => {
     expect(hint).not.toContain("private token detail");
   });
 
+  it("explains an underlying session-read failure instead of masking it as a missing token", () => {
+    const wrapped = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("private refresh storage detail"), { name: "PowerHubSessionReadFailedError" }),
+    };
+    const hint = describeAuthFailure(wrapped);
+    expect(hint).toContain("فشلت قراءة جلسة Supabase");
+    expect(hint).toContain("لم يُرسل طلب API المحمي");
+    expect(hint).not.toContain("private refresh storage detail");
+  });
+
   it("explains Supabase refresh rate limiting without exposing raw SDK errors", () => {
     const wrapped = {
       name: "TRPCClientError",

@@ -61,6 +61,13 @@ export function isOfflineCacheWriteCurrent(
  * In that case, the session updated by the event must win over the stale
  * async response, especially when that response contains null.
  */
+/** INITIAL_SESSION(null) is only an initial SDK snapshot, not a sign-out.
+ * It must not invalidate a persisted-session read still in progress.
+ */
+export function isNonAuthoritativeInitialNullSessionEvent(event: string, session: unknown): boolean {
+  return event === "INITIAL_SESSION" && session === null;
+}
+
 export function selectAuthSnapshot<T>(
   snapshot: T | null,
   current: T | null,
@@ -90,11 +97,13 @@ export function isSessionReadBackoffActive(retryAfterMs: number, nowMs = Date.no
 
 /** A session is usable for an authenticated request only while its access token is unexpired. */
 export function isSupabaseSessionUsable(
-  session: { expires_at?: number } | null | undefined,
+  session: { access_token?: unknown; expires_at?: number } | null | undefined,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): boolean {
   return Boolean(
     session &&
+    typeof session.access_token === "string" &&
+    session.access_token.trim().length > 0 &&
     typeof session.expires_at === "number" &&
     Number.isFinite(session.expires_at) &&
     session.expires_at > nowSeconds,

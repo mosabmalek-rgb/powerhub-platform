@@ -12,6 +12,7 @@ function findAuthError(error: unknown): AuthErrorLike | null {
     seen.add(current);
     const candidate = current as AuthErrorLike;
     if (candidate.name === "PowerHubSessionTokenUnavailableError" ||
+        candidate.name === "PowerHubSessionReadFailedError" ||
         candidate.name === "PowerHubSupabaseRateLimitError" ||
         candidate.name === "PowerHubSessionReadTimeoutError" ||
         candidate.name === "PowerHubAuthProfileCheckTimeoutError" ||
@@ -39,6 +40,9 @@ export function describeAuthFailure(error: unknown): string {
   const name = errorName(error);
   if (name === "PowerHubSupabaseRateLimitError") {
     return "المرحلة: حدّ Supabase مؤقتًا من تجديد الجلسة بسبب كثرة الطلبات؛ أوقف التطبيق التكرار ويمكن فتح تسجيل الدخول لإعادة التحقق دون مسح البيانات المحلية.";
+  }
+  if (name === "PowerHubSessionReadFailedError") {
+    return "المرحلة: فشلت قراءة جلسة Supabase أو استعادتها من التخزين/تحديث الرمز؛ لم يُرسل طلب API المحمي. أعد المحاولة، وإذا استمر العطل افتح تسجيل الدخول.";
   }
   if (name === "PowerHubSessionTokenUnavailableError") {
     return "المرحلة: لم يتمكن المتصفح من استخراج Access Token صالح من جلسة Supabase؛ لم يُرسل طلب API المحمي.";

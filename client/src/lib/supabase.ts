@@ -1,6 +1,7 @@
 import { createClient, type AuthChangeEvent, type Session } from "@supabase/supabase-js";
 import {
   isSupabaseSessionUsable,
+  isNonAuthoritativeInitialNullSessionEvent,
   selectAuthSnapshot,
   SUPABASE_BROWSER_AUTH_OPTIONS,
   SUPABASE_SESSION_READ_ERROR_BACKOFF_MS,
@@ -36,11 +37,13 @@ function ensureAuthSubscription() {
   authSubscriptionReady = true;
 
   supabase.auth.onAuthStateChange((event, session) => {
-    // Supabase can deliver INITIAL_SESSION asynchronously. If a login has
-    // already established a session, do not let a stale null initialization
-    // event briefly erase it and make protected routes redirect to /login.
-    if (event === "INITIAL_SESSION" && session === null && currentSession !== null) {
-      sessionInitialized = true;
+    // INITIAL_SESSION(null) can arrive while getSession() is reading the
+    // persisted session. It is not a sign-out: don't advance the revision or
+    // overwrite the snapshot that the in-flight read may return.
+    if (isNonAuthoritativeInitialNullSessionEvent(event, session)) {
+      if (currentSession === null) {
+        for (const subscriber of authSubscribers) subscriber(event, session);
+      }
       return;
     }
 
@@ -178,7 +181,15 @@ export async function getSupabaseAccessToken() {
         cause,
       });
     }
+    if (cause) {
+      throw Object.assign(new Error("Supabase could not read or restore a session before a usable access token was available."), {
+        name: "PowerHubSessionReadFailedError",
+        cause,
+      });
+    }
     return null;
   }
-  return session.access_token;
+  return typeof session.access_token === "string" && session.access_token.trim().length > 0
+    ? session.access_token
+    : null;
 }

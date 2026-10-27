@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isSupabaseSessionUsable,
+  isNonAuthoritativeInitialNullSessionEvent,
   isSessionReadBackoffActive,
   SUPABASE_SESSION_READ_ERROR_BACKOFF_MS,
   SUPABASE_SESSION_READ_TIMEOUT_MS,
@@ -82,6 +83,21 @@ describe("query-cache lifecycle across auth transitions", () => {
   });
 });
 
+describe("Supabase initial session event ordering", () => {
+  it("ignores INITIAL_SESSION(null) as an authoritative sign-out", () => {
+    expect(isNonAuthoritativeInitialNullSessionEvent("INITIAL_SESSION", null)).toBe(true);
+    expect(isNonAuthoritativeInitialNullSessionEvent("SIGNED_OUT", null)).toBe(false);
+    expect(isNonAuthoritativeInitialNullSessionEvent("INITIAL_SESSION", { user: { id: "user-a" } })).toBe(false);
+  });
+
+  it("filters the initial null before the shared session revision is advanced", () => {
+    const source = readFileSync(new URL("./supabase.ts", import.meta.url), "utf8");
+    const guard = source.indexOf("if (isNonAuthoritativeInitialNullSessionEvent(event, session))");
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(guard).toBeLessThan(source.indexOf("authStateRevision += 1;"));
+  });
+});
+
 describe("auth session snapshot ordering", () => {
   it("does not let an older empty session snapshot erase a newer sign-in event", () => {
     expect(selectAuthSnapshot(null, "fresh-session", 4, 5)).toBe("fresh-session");
@@ -128,11 +144,13 @@ describe("Supabase browser session refresh policy", () => {
     expect(shouldRefreshSupabaseSession(null, 1_000)).toBe(true);
   });
 
-  it("only treats a session as usable while its access token is unexpired", () => {
-    expect(isSupabaseSessionUsable({ expires_at: 1_001 }, 1_000)).toBe(true);
-    expect(isSupabaseSessionUsable({ expires_at: 1_000 }, 1_000)).toBe(false);
-    expect(isSupabaseSessionUsable({ expires_at: 999 }, 1_000)).toBe(false);
-    expect(isSupabaseSessionUsable({ expires_at: Number.NaN }, 1_000)).toBe(false);
+  it("requires a non-empty access token and a future expiry", () => {
+    expect(isSupabaseSessionUsable({ access_token: "valid.jwt.token", expires_at: 1_001 }, 1_000)).toBe(true);
+    expect(isSupabaseSessionUsable({ access_token: "valid.jwt.token", expires_at: 1_000 }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "valid.jwt.token", expires_at: 999 }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "valid.jwt.token", expires_at: Number.NaN }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ expires_at: 1_001 }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "", expires_at: 1_001 }, 1_000)).toBe(false);
     expect(isSupabaseSessionUsable(null, 1_000)).toBe(false);
   });
 });
