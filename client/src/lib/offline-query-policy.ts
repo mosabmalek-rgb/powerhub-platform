@@ -9,11 +9,12 @@ const CACHEABLE_PROCEDURES = new Set([
   "readings",
   "tariffs",
   "schedules",
+  "companyAccounts",
 ]);
 
 // Only these list procedures currently have a corresponding Delta reconciliation
 // path. Other cached lists retain their original age and must refetch normally.
-const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs"]);
+const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs", "companyAccounts"]);
 
 const BLOCKED_PROCEDURES = new Set([
   "admin",
@@ -25,10 +26,10 @@ const BLOCKED_PROCEDURES = new Set([
   "finance",
   "financialDashboard",
   "financialSettlements",
-  "companyAccounts",
   "expenses",
   "payroll",
   "attendance",
+  "expenses",
 ]);
 
 function getPowerHubQuerySegments(queryKey: readonly unknown[]) {
@@ -144,7 +145,11 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
 
   // Reading and invoice history are materialized from their full scoped Delta
   // snapshots into the exact keyset page shape expected by the UI.
-  if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") return true;
+  if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") {
+    // Expense filters do not match the full branch Delta feed. Keep cached snapshots,
+    // but do not claim Delta reconciliation until a filter-aware materializer exists.
+    return segments[1] !== "expenses";
+  }
 
   return segments[2] === "list" && DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
 }
