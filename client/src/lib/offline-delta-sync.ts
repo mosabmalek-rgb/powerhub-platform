@@ -67,16 +67,22 @@ function browserDeltaSyncLockManager(): DeltaSyncLockManager | undefined {
 }
 
 /**
- * Serializes one user's tenant/site/entity sync across tabs when Web Locks are
- * available. The fallback serializes callers in this tab; IndexedDB cursor
- * compare-and-commit still fails closed if a non-cooperating tab races it.
+ * Serializes one user's Delta work across tabs when Web Locks are available.
+ * Query projections can be shared across sites and entity feeds, so a per-cursor
+ * lock would still allow stale writes into the same persisted query record. The
+ * fallback serializes callers in this tab; cursor compare-and-commit still
+ * fails closed if a non-cooperating tab races it.
  */
 export async function withDeltaSyncLock<T>(
   scope: DeltaCursorScope,
   task: () => Promise<T>,
   lockManager: DeltaSyncLockManager | null | undefined = browserDeltaSyncLockManager(),
 ): Promise<T> {
-  const name = `powerhub:delta-sync:${scopeKey(scope)}`;
+  // Query-cache projections can be shared by several sites and entity feeds
+  // (for example sites.list and payment/subscriber relationship projections).
+  // Serialize a user's entire Delta run, not merely one entity cursor scope.
+  scopeKey(scope); // Validate every cursor-scope component before acquiring any lock.
+  const name = `powerhub:delta-sync:user:${scope.userId}`;
   if (lockManager) {
     return lockManager.request(name, { mode: "exclusive" }, task);
   }
