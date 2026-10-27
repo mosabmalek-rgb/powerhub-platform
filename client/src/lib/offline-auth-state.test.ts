@@ -193,6 +193,11 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).toContain("The SDK's getSession() owns refresh-token rotation");
     expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) {");
     expect(source).toContain("PowerHubSessionReadTimeoutError");
+    expect(source).toContain("TOKEN_AUTH_EVENT_WAIT_MS = 1_200");
+    expect(source).toContain("waitForAuthStateChange");
+    expect(source).toContain("accessTokenReadInFlight");
+    expect(source).toContain("function readSupabaseAccessToken()");
+    expect(source).not.toContain("supabase.auth.refreshSession()");
     const packageJson = readFileSync(new URL("../../../package.json", import.meta.url), "utf8");
     const lockfile = readFileSync(new URL("../../../pnpm-lock.yaml", import.meta.url), "utf8");
     expect(packageJson).toContain('"@supabase/supabase-js": "^2.117.2"');
