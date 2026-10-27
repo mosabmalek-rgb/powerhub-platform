@@ -8,7 +8,7 @@ import {
   persistOfflineQueryForDeltaSync,
   sanitizeOfflineQueryData,
 } from "./offline-query-cache";
-import { getOfflineQueryStaleTime } from "./offline-query-policy";
+import { getOfflineQueryDeltaEntity, getOfflineQueryStaleTime } from "./offline-query-policy";
 
 describe("offline query cache policy", () => {
   it("caches tenant-scoped operational PowerHub queries", () => {
@@ -27,7 +27,7 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
   });
 
-  it("persists bounded history pages and distinguishes reading/invoice Delta from cache-only ledgers", () => {
+  it("persists bounded history pages and maps supported pages to their Delta feeds", () => {
     const readingPage = ["powerhub.readings.page", {
       input: { siteId: 7, limit: 200 }, type: "query",
     }];
@@ -46,12 +46,12 @@ describe("offline query cache policy", () => {
       expect(isOfflineCacheableQueryKey(key)).toBe(true);
     }
 
-    // Reading and invoice history pages are materialized from their scoped Delta change feeds.
-    // Expense pages remain cache-only until their server change-feed contract is complete.
+    // Every page marked Delta-backed here has a corresponding scoped server feed and runtime projection.
     expect(isDeltaSyncBackedQueryKey(readingPage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(invoicePage)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(paymentPage)).toBe(true);
-    expect(isDeltaSyncBackedQueryKey(expensePage)).toBe(false);
+    expect(isDeltaSyncBackedQueryKey(expensePage)).toBe(true);
+    expect(getOfflineQueryDeltaEntity(expensePage)).toBe("expenses");
     expect(getOfflineQueryStaleTime(paymentPage)).toBe(Number.POSITIVE_INFINITY);
 
     expect(isOfflineCacheableQueryKey(["powerhub.readings.page", {
@@ -239,6 +239,7 @@ describe("Delta-backed local snapshots", () => {
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "list", { siteId: 7 }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7, branchId: 7 }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7, branchId: 7 }])).toBe(true);
+    expect(getOfflineQueryDeltaEntity(["powerhub", "companyAccounts", "list", { siteId: 7, branchId: 7 }])).toBe("company_accounts");
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7, fromDate: "2026-10-01" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7, branchId: 7, toDate: "2026-10-27" }])).toBe(false);
