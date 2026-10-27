@@ -1,5 +1,5 @@
 import { openLegacyOfflineDatabaseIfPresent, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
-export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs";
+export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs" | "invoices";
 
 export type DeltaChange<Row extends Record<string, unknown> = Record<string, unknown>> = {
   cursor: string;
@@ -285,6 +285,10 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
     if (change.operation === "upsert" && (!change.row_data || String(change.row_data.id ?? "") !== change.entity_id)) {
       throw new Error("بيانات التغيير لا تطابق معرّف السجل.");
     }
+    if (scope.entityType === "invoices" && change.operation === "upsert" &&
+        (Number(change.row_data?.tenantId) !== scope.tenantId || Number(change.row_data?.siteId) !== scope.siteId)) {
+      throw new Error("تغيير الفاتورة خارج نطاق المستأجر أو الفرع.");
+    }
     if (change.operation === "delete" && change.row_data !== null) throw new Error("علامة حذف المزامنة تحتوي بيانات غير متوقعة.");
     if (compareDeltaCursors(change.cursor, page.through_cursor) > 0 ||
         compareDeltaCursors(change.cursor, nextCursor) > 0) {
@@ -356,6 +360,10 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
   for (const row of rows) {
     const id = row.id;
     if (id === undefined || id === null || String(id).length === 0) throw new Error("لقطة المزامنة تحتوي سجلًا دون معرّف.");
+    if (scope.entityType === "invoices" &&
+        (Number(row.tenantId) !== scope.tenantId || Number(row.siteId) !== scope.siteId)) {
+      throw new Error("لقطة الفواتير تتضمن سجلاً خارج نطاق المستأجر أو الفرع.");
+    }
     normalized.set(String(id), row);
   }
   const db = await openDatabase();
