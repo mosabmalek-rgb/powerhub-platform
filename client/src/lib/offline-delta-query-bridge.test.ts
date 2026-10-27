@@ -240,10 +240,10 @@ describe("expense Delta page materialization", () => {
       expense(9, "2026-10-27T10:00:00.000Z", { companyAccountId: 77 }),
       expense(10, "2026-10-28T10:00:00.000Z", { tenantId: 99 }),
     ];
-    const first = projectExpenseDeltaPage(rows, { siteId: 10, limit: 2 }, undefined, expenseScope);
+    const first = projectExpenseDeltaPage(rows, { siteId: 10, limit: 2, companyAccountId: 55 }, undefined, expenseScope);
     expect(first.items.map((r) => r.id)).toEqual([8, 7]);
     expect(first.hasNext).toBe(true);
-    const second = projectExpenseDeltaPage(rows, { siteId: 10, limit: 2, cursor: first.nextCursor }, undefined, expenseScope);
+    const second = projectExpenseDeltaPage(rows, { siteId: 10, limit: 2, companyAccountId: 55, cursor: first.nextCursor }, undefined, expenseScope);
     expect(second.items.map((r) => r.id)).toEqual([6]);
     const filtered = projectExpenseDeltaPage(rows, { siteId: 10, limit: 10, startDate: "2026-10-27", endDate: "2026-10-27", companyAccountId: 55 }, undefined, expenseScope);
     expect(filtered.items.map((r) => r.id)).toEqual([8, 7]);
