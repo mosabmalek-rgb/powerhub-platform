@@ -175,7 +175,7 @@ create or replace function public.powerhub_delta_sync_project_company_account(
 ) returns jsonb
 language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
   select jsonb_build_object(
     'id', ca.id,
     'tenant_id', ca.tenant_id,
