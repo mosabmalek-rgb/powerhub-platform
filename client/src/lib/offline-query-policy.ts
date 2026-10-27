@@ -51,11 +51,19 @@ const SUBSCRIBER_DIRECTORY_INPUT_KEYS = new Set([
 
 function getOfflineQueryInput(queryKey: readonly unknown[]): Record<string, unknown> | null {
   const options = queryKey[1];
-  if (!options || typeof options !== "object" || Array.isArray(options)) return null;
-  const wrapper = options as Record<string, unknown>;
-  const input = Object.prototype.hasOwnProperty.call(wrapper, "input") ? wrapper.input : wrapper;
-  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
-  return input as Record<string, unknown>;
+  if (options && typeof options === "object" && !Array.isArray(options)) {
+    const wrapper = options as Record<string, unknown>;
+    const input = Object.prototype.hasOwnProperty.call(wrapper, "input") ? wrapper.input : wrapper;
+    if (input && typeof input === "object" && !Array.isArray(input)) return input as Record<string, unknown>;
+  }
+  // Support the legacy flattened query-key shape used by cache policy callers/tests:
+  // ["powerhub", router, procedure, input]. Keep this fallback restricted to a
+  // plain trailing object so malformed keys do not become cacheable by accident.
+  const trailing = queryKey[queryKey.length - 1];
+  if (trailing && typeof trailing === "object" && !Array.isArray(trailing)) {
+    return trailing as Record<string, unknown>;
+  }
+  return null;
 }
 
 function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
