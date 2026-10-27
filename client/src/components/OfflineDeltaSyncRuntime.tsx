@@ -24,6 +24,7 @@ import {
   snapshotRowsFromQuery,
   projectInvoiceDeltaPage,
   projectPaymentDeltaPage,
+  projectExpenseDeltaPage,
   projectReadingDeltaPage,
   refreshPaymentRelatedProjection,
   type DeltaOperationalEntity,
@@ -87,7 +88,7 @@ function getQueryRows(query: Query): AnyRow[] | null {
   const segments = getSegments(query.queryKey);
   const data = query.state.data;
   if (segments[0] === "powerhub" &&
-      (segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments") &&
+      (segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments" || segments[1] === "expenses") &&
       segments[2] === "page" && data !== null && typeof data === "object" && !Array.isArray(data)) {
     const items = (data as Record<string, unknown>).items;
     return Array.isArray(items) ? items as AnyRow[] : null;
@@ -100,7 +101,7 @@ function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
   const segments = getSegments(query.queryKey);
   if (segments[0] !== "powerhub") return null;
   if ((segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments") && segments[2] === "page" && getQueryRows(query)) {
-    return segments[1] as "invoices" | "readings" | "payments";
+    return segments[1] as "invoices" | "readings" | "payments" | "expenses";
   }
   if (segments[2] !== "list" || !getQueryRows(query)) return null;
   if (segments[1] === "sites" || segments[1] === "subscribers" || segments[1] === "generators" || segments[1] === "readings" || segments[1] === "tariffs") {
@@ -178,12 +179,14 @@ async function patchQueryCaches(
   let invoiceRowsAfterPage: AnyRow[] | null = null;
   let readingRowsAfterPage: AnyRow[] | null = null;
   let paymentRowsAfterPage: AnyRow[] | null = null;
-  if ((entityType === "invoices" || entityType === "readings" || entityType === "payments") && page.changes.length > 0) {
+  let expenseRowsAfterPage: AnyRow[] | null = null;
+  if ((entityType === "invoices" || entityType === "readings" || entityType === "payments" || entityType === "expenses") && page.changes.length > 0) {
     const local = await listDeltaEntities<AnyRow>(scope);
     const nextRows = applyDeltaChanges(local.map((record) => record.rowData), page.changes);
     if (entityType === "invoices") invoiceRowsAfterPage = nextRows;
     else if (entityType === "readings") readingRowsAfterPage = nextRows;
-    else paymentRowsAfterPage = nextRows;
+    else if (entityType === "payments") paymentRowsAfterPage = nextRows;
+    else expenseRowsAfterPage = nextRows;
   }
 
   for (const query of queries) {
