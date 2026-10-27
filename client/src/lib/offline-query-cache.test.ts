@@ -185,7 +185,7 @@ describe("offline query freshness policy", () => {
     }])).toBe(Number.POSITIVE_INFINITY);
     expect(getOfflineQueryStaleTime(["powerhub.payments.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
-    }])).toBe(30_000);
+    }])).toBe(Number.POSITIVE_INFINITY);
     expect(getOfflineQueryStaleTime(["powerhub.expenses.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
     }])).toBe(30_000);
@@ -203,7 +203,7 @@ describe("Delta-backed local snapshots", () => {
     }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub.payments.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
-    }])).toBe(false);
+    }])).toBe(true);
     expect(isDeltaSyncBackedQueryKey(["powerhub.expenses.page", {
       input: { siteId: 7, limit: 100 }, type: "query",
     }])).toBe(false);
