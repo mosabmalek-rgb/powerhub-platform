@@ -18,6 +18,10 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "sites", "list"])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub", "generators", "list", { siteId: 7 }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub.tariffs.list", { input: { siteId: 7 }, type: "query" }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub", "schedules", "list", { siteId: 7 }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub", "subscribers", "list"])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.list", { input: { siteId: 7, includeInactive: true }, type: "query" }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.schedules.list", { input: { siteId: 0 }, type: "query" }])).toBe(false);
   });
 
   it("caches only default active inventory directory lists without granting Delta freshness", () => {
