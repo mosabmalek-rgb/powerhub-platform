@@ -42,6 +42,9 @@ vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 
 afterEach(() => {
   cleanup();
+  // Restore per-test globals (especially location) before configuring the
+  // common navigator stub, so forceLogin query state cannot leak to later tests.
+  vi.unstubAllGlobals();
   state.setLocation.mockReset();
   state.useAuth.mockReset();
   state.useAuth.mockReturnValue({ isAuthenticated: false, loading: false, hasSession: false });
