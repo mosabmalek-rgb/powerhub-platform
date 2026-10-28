@@ -17,6 +17,7 @@ export default defineConfig({
     environment: "node",
     include: [
       "client/src/pages/role-guards.ui.test.tsx",
+      "client/src/pages/LoginPage.ui.test.tsx",
       "client/src/pages/BillingPage.test.tsx",
       "client/src/pages/OperationsPage.test.tsx",
       "client/src/pages/SettingsPage.test.tsx",
