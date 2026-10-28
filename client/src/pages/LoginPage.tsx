@@ -15,13 +15,20 @@ import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
 function authMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "تعذر إتمام العملية، حاول مرة أخرى.";
+  // Supabase AuthError responses are not guaranteed to inherit from Error.
+  // Normalize only the message for known, user-safe mappings; never stringify
+  // the whole response object because it may contain implementation details.
+  const message = error instanceof Error
+    ? error.message
+    : error && typeof error === "object" && "message" in error && typeof error.message === "string"
+      ? error.message
+      : "";
   if (/invalid login credentials/i.test(message)) return "البريد الإلكتروني أو كلمة المرور غير صحيحين.";
   if (/email not confirmed/i.test(message)) return "يرجى تأكيد البريد الإلكتروني من الرسالة المرسلة قبل تسجيل الدخول.";
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
     return "تعذر الوصول إلى خدمة الدخول أو خادم PowerHub مؤقتًا. هذا لا يثبت انقطاع الإنترنت عن جهازك؛ تحقق من الاتصال بالخادم ثم أعد المحاولة.";
   }
-  return message;
+  return message || "تعذر إتمام العملية، حاول مرة أخرى.";
 }
 
 function isBrowserOffline() {
@@ -90,7 +97,7 @@ export default function LoginPage() {
       const lease = await getValidOfflineAuthLease();
       if (!active || !lease) return;
       const cachedUser = await getOfflineAuthUser(lease.userId);
-      if (active && cachedUser) window.location.replace("/workspace");
+      if (active && cachedUser) setLocation("/workspace");
     };
 
     void restoreOfflineWorkspace().catch(() => {
@@ -264,6 +271,9 @@ export default function LoginPage() {
               />
             ) : null}
           </div>
+          <p className="mt-4 text-center text-xs leading-6 text-slate-500">
+            تُنشأ الحسابات ودعوات الوصول من الإدارة المعتمدة؛ لا يتوفر إنشاء حساب ذاتي من هذه الصفحة.
+          </p>
         </section>
       </div>
     </main>
