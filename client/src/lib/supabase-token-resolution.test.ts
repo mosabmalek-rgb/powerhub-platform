@@ -17,7 +17,7 @@ function harness(initial: Session | null) {
   let readError: Error | null = null;
   const now = vi.fn(() => 1_000_000); // 1,000 seconds.
   const getSupabaseSession = vi.fn(async () => current);
-  const refreshSession = vi.fn(async (_session: Session, _timeoutMs: number): Promise<Session | null> => current);
+  const refreshSession = vi.fn(async (_session: Session | null, _timeoutMs: number): Promise<Session | null> => current);
   const waitForAuthStateChange = vi.fn(async (_timeoutMs: number) => false);
 
   const getAccessToken = createSupabaseAccessTokenResolver<Session>({
@@ -114,6 +114,22 @@ describe("refresh-aware async access-token resolution", () => {
     await expect(h.getAccessToken()).resolves.toBeNull();
     expect(h.waitForAuthStateChange).not.toHaveBeenCalled();
     expect(h.refreshSession).not.toHaveBeenCalled();
+  });
+
+  it("uses one bounded SDK refresh to restore a persisted session when memory is empty after an inconclusive read", async () => {
+    const fresh = session("restored-from-storage-token", 4_600);
+    const h = harness(null);
+    h.getSupabaseSession.mockResolvedValueOnce(null); // The read cooldown is not proof that the user signed out.
+    h.setReadError(Object.assign(new Error("previous storage read timed out"), { name: "PowerHubSessionReadTimeoutError" }));
+    h.refreshSession.mockImplementationOnce(async (previousSession) => {
+      expect(previousSession).toBeNull();
+      h.setCurrent(fresh);
+      return fresh;
+    });
+
+    await expect(h.getAccessToken()).resolves.toBe("restored-from-storage-token");
+    expect(h.refreshSession).toHaveBeenCalledTimes(1);
+    expect(h.refreshSession).toHaveBeenCalledWith(null, expect.any(Number));
   });
 
   it("waits for auth-state recovery after an inconclusive session-storage read", async () => {

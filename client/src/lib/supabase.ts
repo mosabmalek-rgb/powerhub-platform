@@ -208,7 +208,7 @@ let accessTokenRefreshInFlight: Promise<Session | null> | null = null;
  * Revision protection prevents a late result from resurrecting a signed-out or
  * different user's session.
  */
-function refreshSupabaseSessionForAccessToken(session: Session, timeoutMs: number): Promise<Session | null> {
+function refreshSupabaseSessionForAccessToken(session: Session | null, timeoutMs: number): Promise<Session | null> {
   if (accessTokenRefreshInFlight) return accessTokenRefreshInFlight;
   const requestRevision = authStateRevision;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -219,7 +219,12 @@ function refreshSupabaseSessionForAccessToken(session: Session, timeoutMs: numbe
       }));
     }, timeoutMs);
   });
-  const sdkRefresh = supabase.auth.refreshSession(session).then(({ data, error }) => {
+  // No argument asks the SDK to retrieve the persisted session through its normal
+  // auth lifecycle. This is only used after a storage read was inconclusive.
+  const sdkRefresh = (session
+    ? supabase.auth.refreshSession(session)
+    : supabase.auth.refreshSession()
+  ).then(({ data, error }) => {
     if (error) throw error;
     currentSession = selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision);
     sessionInitialized = true;

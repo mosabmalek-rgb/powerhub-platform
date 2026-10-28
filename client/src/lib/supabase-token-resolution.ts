@@ -8,7 +8,7 @@ export type SupabaseTokenSession = {
 export type SupabaseTokenResolutionDependencies<TSession extends SupabaseTokenSession> = {
   getCurrentSession: () => TSession | null;
   getSupabaseSession: () => Promise<TSession | null>;
-  refreshSession: (session: TSession, timeoutMs: number) => Promise<TSession | null>;
+  refreshSession: (session: TSession | null, timeoutMs: number) => Promise<TSession | null>;
   waitForAuthStateChange: (timeoutMs: number) => Promise<boolean>;
   isUsable: (session: TSession | null) => boolean;
   shouldRefresh: (session: TSession) => boolean;
@@ -99,11 +99,18 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
       }
       try {
         session = await dependencies.getSupabaseSession();
+        // A completed SDK read is authoritative about whether a session exists;
+        // don't carry a stale error forward if the read itself succeeded.
+        sessionReadError = dependencies.getLastSessionReadError();
       } catch (error) {
         sessionReadError = asError(error);
       }
       session = session ?? dependencies.getCurrentSession();
-      sessionReadError = dependencies.getLastSessionReadError() ?? sessionReadError;
+      if (session) {
+        sessionReadError = null;
+      } else {
+        sessionReadError = dependencies.getLastSessionReadError() ?? sessionReadError;
+      }
     }
 
     const usableToken = (candidate: TSession | null): string | null => {
@@ -128,9 +135,14 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
 
     const canRefresh = typeof session?.refresh_token === "string" && session.refresh_token.trim().length > 0;
     if (existingToken && !canRefresh) return existingToken;
+    // getSupabaseSession() deliberately avoids storming storage during its cooldown.
+    // If that read was inconclusive and no in-memory session exists, let the SDK
+    // make one bounded refreshSession() attempt to restore the persisted session.
+    // A confirmed signed-out read has no error and therefore never reaches this path.
+    const shouldRestorePersistedSession = !session && Boolean(sessionReadError) && !isRateLimited(sessionReadError);
 
     let refreshError: Error | null = null;
-    if (session && canRefresh) {
+    if ((session && canRefresh) || shouldRestorePersistedSession) {
       if (refreshRetryAfter > now()) {
         // Avoid repeating a failed/429 refresh for every query. A token can be
         // reused only if it has not actually expired.
