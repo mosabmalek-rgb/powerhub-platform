@@ -44,6 +44,7 @@ vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signOut: mocks.signOut } },
   getSupabaseSession: mocks.getSession,
   isSupabaseRefreshBackoffActive: mocks.isRefreshBackoffActive,
+  resetSupabaseSessionReadBackoff: vi.fn(),
   subscribeSupabaseAuthState: mocks.subscribe,
 }));
 vi.mock("@/lib/offline-auth", () => ({
