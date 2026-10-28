@@ -26,6 +26,11 @@ export function isDeviceClockOffsetOutsideTolerance(offsetMs: number | null | un
 export function getPowerHubClockDiagnostics() {
   return { sampleAvailable: lastPowerHubClockOffsetMs !== null, localMinusServerMs: lastPowerHubClockOffsetMs, skewDetected: isDeviceClockOffsetOutsideTolerance(lastPowerHubClockOffsetMs), thresholdMs: POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS };
 }
+
+/** Clear only the cached clock observation; the next health probe must supply a fresh sample. */
+export function resetPowerHubClockObservation(): void {
+  lastPowerHubClockOffsetMs = null;
+}
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 let sharedProbe: Promise<boolean> | null = null;
