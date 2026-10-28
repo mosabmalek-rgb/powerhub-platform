@@ -259,23 +259,27 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
     case "suppliers":
       return {
         id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        supplier_code: (raw.supplier_code ?? raw.supplierCode ?? null) as string | null,
         supplierCode: (raw.supplier_code ?? raw.supplierCode ?? null) as string | null,
-        name: String(raw.name ?? ""), contactName: (raw.contact_name ?? raw.contactName ?? null) as string | null,
+        name: String(raw.name ?? ""), contact_name: (raw.contact_name ?? raw.contactName ?? null) as string | null, contactName: (raw.contact_name ?? raw.contactName ?? null) as string | null,
         phone: (raw.phone ?? null) as string | null, email: (raw.email ?? null) as string | null,
         address: (raw.address ?? null) as string | null, taxNumber: (raw.tax_number ?? raw.taxNumber ?? null) as string | null,
+        default_payment_terms_days: toNumber(raw.default_payment_terms_days ?? raw.defaultPaymentTermsDays),
         defaultPaymentTermsDays: toNumber(raw.default_payment_terms_days ?? raw.defaultPaymentTermsDays),
+        supplier_type: String(raw.supplier_type ?? raw.supplierType ?? "permanent"),
         supplierType: String(raw.supplier_type ?? raw.supplierType ?? "permanent"),
         notes: (raw.notes ?? null) as string | null,
-        isActive: Boolean(raw.is_active ?? raw.isActive),
+        is_active: Boolean(raw.is_active ?? raw.isActive), isActive: Boolean(raw.is_active ?? raw.isActive),
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt), updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
       };
     case "inventory_warehouses":
       return {
         id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
         siteId: toNumber(raw.site_id ?? raw.siteId), code: String(raw.code ?? ""), name: String(raw.name ?? ""),
-        notes: (raw.notes ?? null) as string | null, isActive: Boolean(raw.is_active ?? raw.isActive),
+        notes: (raw.notes ?? null) as string | null, is_active: Boolean(raw.is_active ?? raw.isActive), isActive: Boolean(raw.is_active ?? raw.isActive),
+        location_type: String(raw.location_type ?? raw.locationType ?? "branch_warehouse"),
         locationType: String(raw.location_type ?? raw.locationType ?? "branch_warehouse"),
-        generatorId: optionalNumber(raw.generator_id ?? raw.generatorId),
+        generator_id: optionalNumber(raw.generator_id ?? raw.generatorId), generatorId: optionalNumber(raw.generator_id ?? raw.generatorId),
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt), updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
       };
   }
