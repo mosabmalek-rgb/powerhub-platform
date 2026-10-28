@@ -196,6 +196,19 @@ function isSafeScopedOfflinePage(queryKey: readonly unknown[], segments: string[
   return true;
 }
 
+function isSafeStableOfflineList(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3 || segments[2] !== "list" || !CACHEABLE_PROCEDURES.has(segments[1] ?? "")) return false;
+  const input = getOfflineQueryInput(queryKey);
+  if (segments[1] === "sites") {
+    // Site listing is the authenticated user's own accessible-site index; it has no
+    // caller-supplied tenant/site filter and must not accept extra input fields.
+    if (!input) return true;
+    return Object.keys(input).length === 1 && input.type === "query";
+  }
+  if (!input || Object.keys(input).length !== 1 || !Object.prototype.hasOwnProperty.call(input, "siteId")) return false;
+  return Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0;
+}
+
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
@@ -232,8 +245,7 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // Only stable whole-list query shapes are persisted. Search pages, details,
   // summaries, mutations and other methods under an otherwise cacheable router
   // must opt in explicitly rather than inheriting permission from the router name.
-  if (segments.length < 3 || segments[2] !== "list") return false;
-  return CACHEABLE_PROCEDURES.has(segments[1] ?? "");
+  return isSafeStableOfflineList(queryKey, segments);
 }
 
 export function isOfflineDashboardRevisionQueryKey(queryKey: readonly unknown[]) {
