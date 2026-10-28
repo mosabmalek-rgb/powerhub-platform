@@ -20,7 +20,11 @@ const state = vi.hoisted(() => ({
   getValidOfflineAuthLease: vi.fn(),
   getOfflineAuthUser: vi.fn(),
   acceptSupabaseSignInSession: vi.fn(),
-  collectSafeClientDiagnostics: vi.fn(async () => ({ schemaVersion: 1, origin: "https://powerhub-platform.vercel.app", privacy: { includesTokens: false } })),
+  collectSafeClientDiagnostics: vi.fn<() => Promise<Record<string, unknown>>>(async () => ({
+    schemaVersion: 1,
+    origin: "https://powerhub-platform.vercel.app",
+    privacy: { includesTokens: false },
+  })),
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: state.useAuth }));
