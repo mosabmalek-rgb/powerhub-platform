@@ -3458,9 +3458,12 @@ export const powerhubRouter = router({
         console.error("[PowerHub] dashboard.deltaRevision failed", { code: error.code, message: error.message });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تحديث مؤشرات لوحة التحكم." });
       }
-      const revision = (data ?? []).map((row) =>
+      const revisionPayload = (data ?? []).map((row) =>
         `${row.site_id}:${row.entity_type}:${row.last_cursor}`,
       ).join("|") || "0";
+      // Keep the response bounded for tenants with many branches while preserving
+      // an exact fingerprint of the scoped journal cursors.
+      const revision = createHash("sha256").update(revisionPayload).digest("hex");
       return { revision, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
     }),
     financialOverview: protectedProcedure.input(z.object({
