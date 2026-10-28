@@ -170,7 +170,8 @@ export function WorkspaceHome() {
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const requestAddon = trpc.powerhub.subscription.requestAddon.useMutation({ onSuccess: async (result) => { await addonRequestsQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب إضافة قيد المتابعة بالفعل." : "تم إرسال طلب الإضافة إلى إدارة PowerHub."); }, onError: (error) => toast.error(error.message) });
-  const overview = financialOverviewQuery.data;
+  // A persisted financial snapshot is display-only and must never substitute for a verified role.
+  const overview = canViewFinancialOverview ? financialOverviewQuery.data : undefined;
   const dashboardDataError = sitesQuery.isError || accessQuery.isError ||
     (canViewFinancialOverview && financialOverviewQuery.isError) ||
     (selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError);
@@ -204,14 +205,14 @@ export function WorkspaceHome() {
     periodMetricsQuery.data.scope === selectedScope
   );
   const periodMetricsLoading = dashboardPeriod.isLoading || !dashboardPeriod.isReady || periodMetricsQuery.isLoading || !periodMetricsMatch;
-  const periodMetricNumber = (value: unknown, fractionDigits = 2) => dashboardPeriod.isError || (periodMetricsQuery.isError && !periodMetricsQuery.data)
+  const periodMetricNumber = (value: unknown, fractionDigits = 2) => !canViewFinancialOverview || dashboardPeriod.isError || (periodMetricsQuery.isError && !periodMetricsQuery.data)
     ? "—"
     : periodMetricsLoading ? "…" : number(value, fractionDigits);
-  const periodMetricRatio = (value: unknown) => dashboardPeriod.isError || (periodMetricsQuery.isError && !periodMetricsQuery.data)
+  const periodMetricRatio = (value: unknown) => !canViewFinancialOverview || dashboardPeriod.isError || (periodMetricsQuery.isError && !periodMetricsQuery.data)
     ? "—"
     : periodMetricsLoading ? "…" : ratio(value);
   const openPeriodArrears = () => {
-    if (!siteId || !dashboardPeriod.isReady || !dashboardPeriod.startDate || !dashboardPeriod.endDate) return;
+    if (!canViewFinancialOverview || !siteId || !dashboardPeriod.isReady || !dashboardPeriod.startDate || !dashboardPeriod.endDate) return;
     const params = new URLSearchParams({
       siteId: String(siteId),
       debtorScope: selectedScope,
@@ -320,7 +321,7 @@ export function WorkspaceHome() {
 
     <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
 
-    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={financialOverviewQuery.isError && !financialOverviewQuery.data} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data : summaryQuery.isError && !summaryQuery.data} loading={(financialOverviewQuery.isLoading && !financialOverviewQuery.data) || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading && !allBranchesSummaryQuery.data : summaryQuery.isLoading && !summaryQuery.data)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
+    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={!canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data)} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data : summaryQuery.isError && !summaryQuery.data} loading={(financialOverviewQuery.isLoading && !financialOverviewQuery.data) || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading && !allBranchesSummaryQuery.data : summaryQuery.isLoading && !summaryQuery.data)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {failedQuotaLabels.length > 0 ? <QuotaLoadErrorCard labels={failedQuotaLabels} onRetry={retryFailedQuotaQueries} /> : null}
     {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} packages={smsCreditPackagesQuery.data ?? []} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} onRetryPackageRequest={() => smsPackageRequestQuery.refetch()} onRequestPackage={(packageId, note) => requestSmsPackage.mutate({ siteId: siteId!, packageId, note })} onOpen={() => setLocation("/notifications")} /> : null}
