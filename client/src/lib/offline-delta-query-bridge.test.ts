@@ -38,6 +38,45 @@ describe("company account Delta projection", () => {
   });
 });
 
+describe("inventory catalog Delta projection", () => {
+  it("normalizes catalog fields while preserving the snake-case UI contract", () => {
+    expect(normalizeDeltaEntityRow("inventory_items", {
+      id: 1101, tenant_id: 2, sku: "SKU-1101", name: "Diesel", category: "fuel",
+      base_unit: "liter", reorder_point: "10.000", is_active: true,
+      created_at: "2026-10-29T10:00:00Z", updated_at: "2026-10-29T10:00:00Z",
+    })).toMatchObject({ id: 1101, tenantId: 2, base_unit: "liter", baseUnit: "liter", reorder_point: "10.000", is_active: true, isActive: true });
+
+    expect(normalizeDeltaEntityRow("inventory_item_units", {
+      id: 1201, tenant_id: 2, item_id: 1101, unit_label: "barrel",
+      factor_to_base: "200.000000", is_active: true,
+    })).toMatchObject({ id: 1201, tenantId: 2, itemId: 1101, unit_label: "barrel", unitLabel: "barrel", factor_to_base: "200.000000" });
+
+    expect(normalizeDeltaEntityRow("suppliers", {
+      id: 1301, tenant_id: 2, supplier_code: "SUP-1301", supplier_type: "permanent",
+      default_payment_terms_days: 30, is_active: true,
+    })).toMatchObject({ id: 1301, tenantId: 2, supplier_code: "SUP-1301", supplier_type: "permanent", default_payment_terms_days: 30, is_active: true });
+
+    expect(normalizeDeltaEntityRow("inventory_warehouses", {
+      id: 1401, tenant_id: 2, site_id: 10, code: "WH-1", name: "Branch",
+      location_type: "branch_warehouse", generator_id: null, is_active: true,
+    })).toMatchObject({ id: 1401, tenantId: 2, siteId: 10, location_type: "branch_warehouse", generator_id: null, is_active: true });
+  });
+
+  it("applies tenant-wide catalog updates without accepting another tenant's row", () => {
+    const catalogScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "inventory_items" };
+    const current = [{ id: 1101, tenantId: 2, name: "Old", base_unit: "liter" }];
+    const page = basePage([
+      { cursor: "5", entity_type: "inventory_items", entity_id: "1101", operation: "upsert",
+        row_data: normalizeDeltaEntityRow("inventory_items", { id: 1101, tenant_id: 2, name: "New", base_unit: "liter", is_active: true }), changed_at: "2026-10-29T10:00:00Z" },
+      { cursor: "6", entity_type: "inventory_items", entity_id: "1102", operation: "upsert",
+        row_data: normalizeDeltaEntityRow("inventory_items", { id: 1102, tenant_id: 999, name: "Foreign", base_unit: "liter", is_active: true }), changed_at: "2026-10-29T10:00:01Z" },
+    ], "inventory_items");
+    expect(applyDeltaPageToList("inventory_items", current, page, catalogScope)).toMatchObject([
+      { id: 1101, tenantId: 2, name: "New" },
+    ]);
+  });
+});
+
 describe("delta-query bridge", () => {
   it("normalizes site projections including tenant label and due-time policy", () => {
     const row = normalizeDeltaEntityRow("sites", {
