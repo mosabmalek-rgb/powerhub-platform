@@ -109,6 +109,24 @@ describe("refresh-aware async access-token resolution", () => {
     expect(h.resolveLatestSession).toHaveBeenCalledTimes(1);
   });
 
+  it("never returns another user's token when identity changes during session resolution", async () => {
+    const oldSession = session("user-a-token", 1_059);
+    const otherUserSession: Session = {
+      ...session("user-b-token", 4_600),
+      user: { id: "user-b" },
+    };
+    const h = harness(oldSession);
+    h.resolveLatestSession.mockImplementationOnce(async () => {
+      h.setCurrent(otherUserSession);
+      return otherUserSession;
+    });
+
+    await expect(h.getAccessToken()).rejects.toMatchObject({
+      name: "PowerHubSessionIdentityChangedError",
+    });
+    expect(h.resolveLatestSession).toHaveBeenCalledTimes(1);
+  });
+
   it("never returns an expired token when refresh fails", async () => {
     const expired = session("expired-token", 999);
     const h = harness(expired);

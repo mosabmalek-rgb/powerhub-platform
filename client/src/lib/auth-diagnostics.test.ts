@@ -66,6 +66,17 @@ describe("safe authentication diagnostics", () => {
     expect(describeAuthFailure(failed)).not.toContain("private refresh token data");
   });
 
+  it("explains identity changes without exposing session details", () => {
+    const error = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("user-b token should never be logged"), {
+        name: "PowerHubSessionIdentityChangedError",
+      }),
+    };
+    expect(describeAuthFailure(error)).toContain("تغيّرت هوية حساب Supabase");
+    expect(describeAuthFailure(error)).not.toContain("user-b token");
+  });
+
   it("distinguishes a stalled auth profile check from a session read failure", () => {
     expect(describeAuthFailure({ name: "PowerHubAuthProfileCheckTimeoutError" })).toContain("طلب auth.me");
     expect(describeAuthFailure({ name: "PowerHubSessionRecoveryTimeoutError" })).toContain("لم تصل جلسة صالحة بعد محاولة استعادة Supabase");

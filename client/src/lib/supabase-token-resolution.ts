@@ -51,9 +51,12 @@ function normalizeRefreshError(error: unknown): Error {
     return userSafeError("PowerHubSupabaseRateLimitError", "Supabase temporarily rate-limited session refresh.", error);
   }
   if (errorDetails(error).name === "PowerHubSessionRefreshTimeoutError") {
-    return userSafeError("PowerHubSessionRefreshTimeoutError", "Supabase session refresh exceeded its bounded deadline.", error);
+    return userSafeError("PowerHubSessionRefreshTimeoutError", "Supabase session resolution exceeded its bounded deadline.", error);
   }
-  return userSafeError("PowerHubSessionRefreshFailedError", "Supabase could not refresh the current session before a usable access token was available.", error);
+  if (errorDetails(error).name === "PowerHubSessionIdentityChangedError") {
+    return userSafeError("PowerHubSessionIdentityChangedError", "The Supabase user changed while the protected request token was being resolved.", error);
+  }
+  return userSafeError("PowerHubSessionRefreshFailedError", "Supabase could not resolve a usable access token for the current session.", error);
 }
 
 function normalizeReadError(error: unknown): Error {
@@ -164,6 +167,13 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
           Math.min(SUPABASE_SESSION_REFRESH_TIMEOUT_MS, remaining),
         );
         const resolved = resolvedSession ?? currentSessionForExpectedUser();
+        if (expectedUserId && resolved?.user?.id !== expectedUserId) {
+          throw userSafeError(
+            "PowerHubSessionIdentityChangedError",
+            "Supabase identity changed while resolving the protected request token.",
+            null,
+          );
+        }
         const refreshedToken = usableToken(resolved);
         if (refreshedToken) {
           // getSession() may return the still-valid stored winner while the
@@ -178,6 +188,11 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
         refreshError = new Error("Supabase session lookup completed without a usable session.");
       } catch (error) {
         refreshError = asError(error);
+        if (errorDetails(refreshError).name === "PowerHubSessionIdentityChangedError") {
+          lastRefreshError = normalizeRefreshError(refreshError);
+          refreshRetryAfter = now() + TRANSIENT_REFRESH_RETRY_BACKOFF_MS;
+          throw lastRefreshError;
+        }
       }
 
       lastRefreshError = refreshError;

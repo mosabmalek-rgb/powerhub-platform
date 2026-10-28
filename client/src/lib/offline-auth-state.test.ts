@@ -206,6 +206,8 @@ describe("Supabase browser refresh wiring", () => {
     expect(resolver).toContain("SUPABASE_SESSION_REFRESH_TIMEOUT_MS = 6_000");
     expect(resolver).toContain("if (refreshRetryAfter > now())");
     expect(resolver).toContain("if (stillValid) return stillValid");
+    expect(resolver).toContain("expectedUserId && resolved?.user?.id !== expectedUserId");
+    expect(resolver).toContain("PowerHubSessionIdentityChangedError");
     expect(resolver).toContain("PowerHubSessionRefreshTimeoutError");
     expect(main).toContain("await getSupabaseAccessToken()");
     expect(main.indexOf("deviceId = await getPowerHubDeviceId()")).toBeLessThan(main.indexOf("await getSupabaseAccessToken()"));

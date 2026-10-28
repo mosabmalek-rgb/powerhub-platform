@@ -17,6 +17,7 @@ function findAuthError(error: unknown): AuthErrorLike | null {
         candidate.name === "PowerHubSessionReadTimeoutError" ||
         candidate.name === "PowerHubSessionRefreshTimeoutError" ||
         candidate.name === "PowerHubSessionRefreshFailedError" ||
+        candidate.name === "PowerHubSessionIdentityChangedError" ||
         candidate.name === "PowerHubAuthProfileCheckTimeoutError" ||
         candidate.name === "PowerHubSessionRecoveryTimeoutError" ||
         candidate.name === "PowerHubSessionRecoveryFailedError" ||
@@ -57,6 +58,9 @@ export function describeAuthFailure(error: unknown): string {
   }
   if (name === "PowerHubSessionRefreshFailedError") {
     return "المرحلة: فشل تجديد جلسة Supabase قبل إرسال الطلب المحمي. لم تُمسح بيانات العمل؛ أعد المحاولة بعد استقرار الاتصال.";
+  }
+  if (name === "PowerHubSessionIdentityChangedError") {
+    return "المرحلة: تغيّرت هوية حساب Supabase أثناء تجهيز الطلب؛ أوقفنا الإرسال لمنع استخدام رمز حساب آخر. أعد المحاولة بعد استقرار الجلسة.";
   }
   if (name === "PowerHubAuthProfileCheckTimeoutError") {
     return "المرحلة: استُخرجت الجلسة، لكن طلب auth.me لم يكتمل خلال المهلة؛ يلزم فحص اتصال API وسجلات الخادم.";
