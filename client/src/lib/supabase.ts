@@ -107,6 +107,7 @@ export function acceptSupabaseSignInSession(session: Session): void {
 export function resetSupabaseSessionReadBackoff(): void {
   sessionReadRetryAfter = 0;
   lastSessionReadError = null;
+  resolveSupabaseAccessToken.resetBackoff();
 }
 
 export function getSupabaseSessionReadError(): Error | null {
