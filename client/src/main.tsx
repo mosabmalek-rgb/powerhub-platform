@@ -76,6 +76,11 @@ async function resolvePowerHubTRPCHeaders() {
     import("./lib/offline-connectivity"),
   ]);
   const clock = getPowerHubClockDiagnostics();
+  if (clock.clockCheckPending) {
+    const error = new Error("PowerHub is verifying the device clock against a fresh server-time sample. Retry when the check completes.");
+    error.name = "PowerHubDeviceClockVerificationPendingError";
+    throw error;
+  }
   if (clock.skewDetected) {
     const error = new Error(POWERHUB_DEVICE_CLOCK_SKEW_USER_MESSAGE);
     error.name = "PowerHubDeviceClockSkewError";
