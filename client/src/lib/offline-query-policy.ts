@@ -66,6 +66,39 @@ function getOfflineQueryInput(queryKey: readonly unknown[]): Record<string, unkn
   return null;
 }
 
+const DASHBOARD_SNAPSHOT_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
+  "dashboard.summary": new Set(["siteId"]),
+  "dashboard.allBranchesSummary": new Set(["siteId"]),
+  "dashboard.financialOverview": new Set(["siteId", "scope", "includeDetails"]),
+  "dashboard.periodMetrics": new Set(["siteId", "scope", "startDate", "endDate", "includeDetails"]),
+  "dashboard.deltaRevision": new Set(["siteId", "scope"]),
+};
+
+function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3 || segments[1] !== "dashboard") return false;
+  const procedure = `dashboard.${segments[2]}`;
+  const allowedKeys = DASHBOARD_SNAPSHOT_INPUT_KEYS[procedure];
+  if (!allowedKeys) return false;
+  const input = getOfflineQueryInput(queryKey);
+  if (!input || Object.keys(input).some((key) => !allowedKeys.has(key))) return false;
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1) return false;
+
+  if (procedure === "dashboard.summary" || procedure === "dashboard.allBranchesSummary") {
+    return Object.keys(input).length === 1;
+  }
+  if (procedure === "dashboard.deltaRevision") {
+    return Object.keys(input).length === 2 && (input.scope === "branch" || input.scope === "all");
+  }
+  if (input.scope !== "branch" && input.scope !== "all" || input.includeDetails !== false) return false;
+  if (procedure === "dashboard.financialOverview") return Object.keys(input).length === 3;
+
+  if (Object.keys(input).length !== 5 ||
+      !isValidOfflineDate(input.startDate) ||
+      !isValidOfflineDate(input.endDate) ||
+      String(input.startDate) > String(input.endDate)) return false;
+  return true;
+}
+
 function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
   const input = getOfflineQueryInput(queryKey);
   if (!input || Object.keys(input).some((key) => !["siteId", "branchId"].includes(key))) return false;
@@ -136,6 +169,11 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // only the named read pages above may persist, never their list/mutation/summaries.
   if (isSafeScopedOfflinePage(queryKey, segments)) return true;
   if (segments.some((value) => BLOCKED_PROCEDURES.has(value))) return false;
+
+  // Dashboard totals are persisted as bounded display snapshots only. The UI
+  // revalidates them against the server-side change journal; they are never
+  // reconstructed from partial client-side financial rows.
+  if (isSafeDashboardSnapshot(queryKey, segments)) return true;
 
   // Cache only the unfiltered, fixed-size subscriber directory pages. Search
   // results and type-filtered pages may contain a user's ad-hoc selections and
