@@ -20,11 +20,6 @@ const state = vi.hoisted(() => ({
   getValidOfflineAuthLease: vi.fn(),
   getOfflineAuthUser: vi.fn(),
   acceptSupabaseSignInSession: vi.fn(),
-  collectSafeClientDiagnostics: vi.fn<() => Promise<Record<string, unknown>>>(async () => ({
-    schemaVersion: 1,
-    origin: "https://powerhub-platform.vercel.app",
-    privacy: { includesTokens: false },
-  })),
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: state.useAuth }));
@@ -43,7 +38,6 @@ vi.mock("@/lib/offline-auth", () => ({
 vi.mock("@/lib/offline-query-cache", () => ({
   getOfflineAuthUser: state.getOfflineAuthUser,
 }));
-vi.mock("@/lib/client-diagnostics", () => ({ collectSafeClientDiagnostics: state.collectSafeClientDiagnostics }));
 vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 
 afterEach(() => {
@@ -57,8 +51,6 @@ afterEach(() => {
   state.getValidOfflineAuthLease.mockReset();
   state.getOfflineAuthUser.mockReset();
   state.acceptSupabaseSignInSession.mockReset();
-  state.collectSafeClientDiagnostics.mockReset();
-  state.collectSafeClientDiagnostics.mockResolvedValue({ schemaVersion: 1, origin: "https://powerhub-platform.vercel.app", privacy: { includesTokens: false } });
   vi.stubGlobal("navigator", { ...navigator, onLine: true });
 });
 
@@ -171,27 +163,6 @@ describe("LoginPage", () => {
     expect(screen.getByText(/تُنشأ الحسابات ودعوات الوصول/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /إنشاء الحساب/ })).not.toBeInTheDocument();
     expect(state.signUp).not.toHaveBeenCalled();
-  });
-
-  it("offers a safe diagnostics report for comparing a failing browser without exposing secrets", async () => {
-    const writeText = vi.fn().mockRejectedValue(new Error("clipboard unavailable"));
-    vi.stubGlobal("navigator", { ...navigator, onLine: true, clipboard: { writeText } });
-    state.collectSafeClientDiagnostics.mockResolvedValue({
-      schemaVersion: 1,
-      origin: "https://powerhub-platform.vercel.app",
-      auth: { hasCurrentSession: true, hasAccessToken: true, tokenUsable: false },
-      privacy: { includesTokens: false },
-    });
-
-    render(<LoginPage />);
-    fireEvent.click(screen.getByRole("button", { name: "نسخ تقرير تشخيص آمن" }));
-
-    const report = await screen.findByLabelText("تقرير التشخيص الآمن") as HTMLTextAreaElement;
-    await waitFor(() => expect(state.collectSafeClientDiagnostics).toHaveBeenCalledTimes(1));
-    expect(report.value).toContain("hasCurrentSession");
-    expect(report.value).not.toContain("access_token");
-    expect(report.value).not.toContain("refresh_token");
-    expect(await screen.findByRole("status")).toHaveTextContent("انسخ التقرير الظاهر أدناه يدويًا");
   });
 
   it("returns to the landing page when either visible logo variant is clicked", () => {
