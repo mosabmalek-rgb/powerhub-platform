@@ -176,7 +176,7 @@ describe("LoginPage", () => {
       schemaVersion: 1,
       origin: "https://powerhub-platform.vercel.app",
       auth: { hasCurrentSession: true, hasAccessToken: true, tokenUsable: false },
-      privacy: { includesTokens: false, includesEmail: false, includesDeviceId: false },
+      privacy: { includesTokens: false },
     });
 
     render(<LoginPage />);
