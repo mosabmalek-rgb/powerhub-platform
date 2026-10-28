@@ -43,6 +43,37 @@ export function resetPowerHubClockObservation(): void {
   lastPowerHubClockOffsetMs = null;
   clockRecoveryCheckPending = true;
 }
+
+export type PowerHubClockVerificationResult = {
+  reachable: boolean;
+  sampleAvailable: boolean;
+  localMinusServerMs: number | null;
+  skewDetected: boolean;
+  clockCheckPending: boolean;
+  thresholdMs: number;
+};
+
+/**
+ * Run a dedicated, fresh health request for an explicit auth retry.
+ *
+ * It intentionally bypasses the connectivity probe's shared in-flight promise:
+ * that promise may have started before the user corrected the device clock.
+ * This is diagnostic only; it neither changes token expiry nor grants auth.
+ */
+export async function verifyPowerHubClockForRetry(
+  fetcher: HealthFetch = globalThis.fetch,
+  timeoutMs = POWERHUB_CONNECTIVITY_PROBE_TIMEOUT_MS,
+): Promise<PowerHubClockVerificationResult> {
+  resetPowerHubClockObservation();
+  // runHealthProbe updates the module-scoped clock sample but this wrapper
+  // deliberately avoids joining sharedProbe. The caller receives the exact
+  // result of the fresh check and must keep requests blocked without a sample.
+  const reachable = await runHealthProbe(fetcher === globalThis.fetch
+    ? ((input, init) => globalThis.fetch(input, init))
+    : fetcher, timeoutMs);
+  return { reachable, ...getPowerHubClockDiagnostics() };
+}
+
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 let sharedProbe: Promise<boolean> | null = null;
