@@ -13,6 +13,7 @@ const PROBE_ATTEMPTS = 2;
 export const POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS = 5 * 60 * 1_000;
 export const POWERHUB_DEVICE_CLOCK_SKEW_USER_MESSAGE = "ساعة جهازك غير متزامنة مع وقت خادم PowerHub. صحّح التاريخ والوقت والمنطقة الزمنية وفعّل المزامنة التلقائية، ثم أعد تحميل الصفحة وحاول مرة أخرى. لم تُمسح بيانات العمل أو العمليات المعلقة.";
 let lastPowerHubClockOffsetMs: number | null = null;
+let clockRecoveryCheckPending = false;
 
 export function estimatePowerHubDeviceClockOffsetMs(serverDateHeader: string | null | undefined, requestStartedAtMs: number, responseReceivedAtMs: number): number | null {
   if (!serverDateHeader || !Number.isFinite(requestStartedAtMs) || !Number.isFinite(responseReceivedAtMs) || responseReceivedAtMs < requestStartedAtMs) return null;
@@ -24,12 +25,23 @@ export function isDeviceClockOffsetOutsideTolerance(offsetMs: number | null | un
   return typeof offsetMs === "number" && Number.isFinite(offsetMs) && Math.abs(offsetMs) > POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS;
 }
 export function getPowerHubClockDiagnostics() {
-  return { sampleAvailable: lastPowerHubClockOffsetMs !== null, localMinusServerMs: lastPowerHubClockOffsetMs, skewDetected: isDeviceClockOffsetOutsideTolerance(lastPowerHubClockOffsetMs), thresholdMs: POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS };
+  return {
+    sampleAvailable: lastPowerHubClockOffsetMs !== null,
+    localMinusServerMs: lastPowerHubClockOffsetMs,
+    skewDetected: isDeviceClockOffsetOutsideTolerance(lastPowerHubClockOffsetMs),
+    clockCheckPending: clockRecoveryCheckPending,
+    thresholdMs: POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS,
+  };
 }
 
-/** Clear only the cached clock observation; the next health probe must supply a fresh sample. */
+/**
+ * Start a fresh clock-recovery check. Until a health response supplies a valid
+ * Date sample, protected requests remain blocked; absence of a sample must not
+ * accidentally clear a previously confirmed skew condition.
+ */
 export function resetPowerHubClockObservation(): void {
   lastPowerHubClockOffsetMs = null;
+  clockRecoveryCheckPending = true;
 }
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -83,7 +95,10 @@ async function runHealthProbe(fetcher: HealthFetch, timeoutMs: number): Promise<
         signal: controller.signal,
       });
       const offsetMs = estimatePowerHubDeviceClockOffsetMs(response.headers.get("date"), requestStartedAtMs, Date.now());
-      if (offsetMs !== null) lastPowerHubClockOffsetMs = offsetMs;
+      if (offsetMs !== null) {
+        lastPowerHubClockOffsetMs = offsetMs;
+        clockRecoveryCheckPending = false;
+      }
       if (response.ok) return true;
     } catch {
       // Retry once: browser connectivity hints and transient request failures
