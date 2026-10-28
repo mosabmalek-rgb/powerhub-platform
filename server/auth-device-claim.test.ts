@@ -67,13 +67,14 @@ describe("claimPowerHubDevice", () => {
     }));
     mockRpcResponse(request);
 
-    const pending = claimPowerHubDevice(input);
-    await vi.advanceTimersByTimeAsync(POWERHUB_DEVICE_CLAIM_TIMEOUT_MS + 1);
-
-    await expect(pending).rejects.toMatchObject({
+    // Attach the rejection assertion before advancing fake timers so Vitest
+    // observes the expected timeout rejection immediately (no unhandled promise).
+    const rejection = expect(claimPowerHubDevice(input)).rejects.toMatchObject({
       code: "GATEWAY_TIMEOUT",
       message: input.timeoutMessage,
     });
+    await vi.advanceTimersByTimeAsync(POWERHUB_DEVICE_CLAIM_TIMEOUT_MS + 1);
+    await rejection;
     expect(getSignal()?.aborted).toBe(true);
   });
 });
