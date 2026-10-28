@@ -90,7 +90,7 @@ describe("refresh-aware async access-token resolution", () => {
     const h = harness(winningSession);
     // auth-js' getSession path can return the still-valid stored session after
     // another tab wins a rotation; do not force another rotation from this tab.
-    h.resolveLatestSession.mockResolvedValueOnce(winningSession);
+    h.resolveLatestSession.mockResolvedValueOnce(null);
 
     await expect(h.getAccessToken()).resolves.toBe("stored-winner-token");
     expect(h.resolveLatestSession).toHaveBeenCalledTimes(1);
