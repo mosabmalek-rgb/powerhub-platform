@@ -73,6 +73,16 @@ const DASHBOARD_SNAPSHOT_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "dashboard.periodMetrics": new Set(["siteId", "scope", "startDate", "endDate", "includeDetails"]),
 };
 
+function isSafeDashboardRevision(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3 || segments[1] !== "dashboard" || segments[2] !== "deltaRevision") return false;
+  const input = getOfflineQueryInput(queryKey);
+  return Boolean(input &&
+    Object.keys(input).length === 2 &&
+    Object.keys(input).every((key) => key === "siteId" || key === "scope") &&
+    Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0 &&
+    (input.scope === "branch" || input.scope === "all"));
+}
+
 function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[]) {
   if (segments.length !== 3 || segments[1] !== "dashboard") return false;
   const procedure = `dashboard.${segments[2]}`;
@@ -169,6 +179,7 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // Dashboard totals are persisted as bounded display snapshots only. The UI
   // revalidates them against the server-side change journal; they are never
   // reconstructed from partial client-side financial rows.
+  if (isSafeDashboardRevision(queryKey, segments)) return true;
   if (isSafeDashboardSnapshot(queryKey, segments)) return true;
 
   // Cache only the unfiltered, fixed-size subscriber directory pages. Search
@@ -191,6 +202,11 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // must opt in explicitly rather than inheriting permission from the router name.
   if (segments.length < 3 || segments[2] !== "list") return false;
   return CACHEABLE_PROCEDURES.has(segments[1] ?? "");
+}
+
+export function isOfflineDashboardRevisionQueryKey(queryKey: readonly unknown[]) {
+  const segments = getPowerHubQuerySegments(queryKey);
+  return isSafeDashboardRevision(queryKey, segments);
 }
 
 export function isOfflineDashboardSnapshotQueryKey(queryKey: readonly unknown[]) {
