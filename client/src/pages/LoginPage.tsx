@@ -43,17 +43,33 @@ export default function LoginPage() {
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    // Never route on the sign-in response or a session snapshot alone. Wait
-    // until the shared AuthProvider has validated the account state.
-    // A real session should leave /login even while auth.me is pending.
-    // The protected workspace route remains responsible for server validation.
-    if (hasSupabaseSession || shouldRedirectToWorkspaceAfterAuthentication({
+    // A Supabase snapshot proves only that local session state exists. Do not
+    // route on it alone; wait for the shared AuthProvider's settled account
+    // state so a stale/revoked session cannot trigger /login ↔ /workspace churn.
+    if (shouldRedirectToWorkspaceAfterAuthentication({
       loading: authLoading,
       isAuthenticated,
     })) {
+      setAwaitingSignInConfirmation(false);
       setLocation("/workspace");
+      return;
     }
-  }, [hasSupabaseSession, authLoading, isAuthenticated, setLocation]);
+
+    // AuthProvider has a bounded recovery path. Once it reports a settled
+    // failure after a successful password exchange, leave the login form on
+    // screen and expose its recovery/error UI instead of forcing a route hop.
+    if (awaitingSignInConfirmation && !authLoading && !isAuthenticated && authError) {
+      setAwaitingSignInConfirmation(false);
+      if (!hasSupabaseSession) setError(describeAuthFailure(authError));
+    }
+  }, [
+    awaitingSignInConfirmation,
+    authLoading,
+    isAuthenticated,
+    authError,
+    hasSupabaseSession,
+    setLocation,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -109,11 +125,11 @@ export default function LoginPage() {
       if (signInError) throw signInError;
       if (!data.session) throw new Error("تعذر تثبيت جلسة الدخول. حاول مرة أخرى.");
 
-      // Seed the shared session from the authoritative sign-in response, then
-      // enter the protected workspace. RouteAccessGate holds protected data
-      // until its independent server-side auth.me validation succeeds.
+      // Hand the authoritative sign-in result to the one shared Supabase
+      // session state immediately, but do not route yet. AuthProvider must
+      // complete its normal PowerHub validation/recovery transition first.
       acceptSupabaseSignInSession(data.session);
-      setLocation("/workspace");
+      setAwaitingSignInConfirmation(true);
     } catch (submitError) {
       const networkFailure = submitError instanceof TypeError ||
         /failed to fetch|networkerror|network request failed|load failed|fetch failed|network.*(?:unavailable|offline)|connection (?:lost|reset|refused)|timeout/i.test(
@@ -156,6 +172,12 @@ export default function LoginPage() {
           <p className="text-sm font-bold text-[#F5B800]">حساب PowerHub</p>
           <h2 className="mt-2 text-2xl font-extrabold">تسجيل الدخول</h2>
           <p className="mt-2 text-sm leading-6 text-slate-400">أدخل بريدك وكلمة المرور للوصول إلى المساحة المصرح بها.</p>
+          {awaitingSignInConfirmation ? (
+            <div role="status" aria-live="polite" className="mt-5 rounded-xl border border-sky-500/25 bg-sky-500/5 p-3 text-sm leading-6 text-sky-900">
+              <p className="font-bold text-sky-800">تم قبول بيانات الدخول؛ جارٍ التحقق من جلسة PowerHub…</p>
+              <p className="mt-1 text-xs text-sky-800">لن نعرض مساحة العمل قبل اكتمال التحقق. إذا تعذر التحقق، ستبقى هنا مع خيار إعادة المحاولة؛ لن تُمسح البيانات المحلية.</p>
+            </div>
+          ) : null}
           {hasSupabaseSession && !isAuthenticated ? (
             <div role="status" aria-live="polite" className="mt-5 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-sm leading-6 text-amber-900">
               <p className="font-bold text-amber-800">

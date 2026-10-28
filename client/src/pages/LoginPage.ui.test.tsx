@@ -48,41 +48,51 @@ afterEach(() => {
 });
 
 describe("LoginPage", () => {
-  it("adopts the successful Supabase session and enters the guarded workspace without waiting for auth.me", async () => {
+  it("adopts the successful Supabase session but waits for provider validation before routing", async () => {
     const session = {
       access_token: "fresh-access-token",
       refresh_token: "fresh-refresh-token",
       expires_at: Math.floor(Date.now() / 1000) + 3600,
       user: { id: "user-1", email: "admin@powerhub.test" },
     };
+    state.probePowerHubConnectivity.mockResolvedValue(true);
     state.signInWithPassword.mockResolvedValue({ data: { session }, error: null });
-    // Provider state is deliberately still pending: the route gate, not the login
-    // form timer, owns server-side auth.me validation and protected-content access.
     state.useAuth.mockReturnValue({ isAuthenticated: false, loading: true, hasSession: false });
 
-    render(<LoginPage />);
+    const view = render(<LoginPage />);
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "admin@powerhub.test" } });
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "SecurePass123" } });
     fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
 
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
-    await waitFor(() => {
-      expect(state.acceptSupabaseSignInSession).toHaveBeenCalledWith(session);
-      expect(state.setLocation).toHaveBeenCalledWith("/workspace");
-    });
-    expect(screen.queryByText(/تهيئة جلسة PowerHub لم تكتمل/)).not.toBeInTheDocument();
+    await waitFor(() => expect(state.acceptSupabaseSignInSession).toHaveBeenCalledWith(session));
+    expect(await screen.findByText(/تم قبول بيانات الدخول؛ جارٍ التحقق/)).toBeInTheDocument();
+    expect(state.setLocation).not.toHaveBeenCalledWith("/workspace");
+
+    state.useAuth.mockReturnValue({ isAuthenticated: true, loading: false, hasSession: true });
+    view.rerender(<LoginPage />);
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
   });
 
-  it("leaves the login page while a restored session awaits profile validation", async () => {
-    state.useAuth.mockReturnValue({ isAuthenticated: false, loading: true, hasSession: true });
+  it("keeps a present but unvalidated session on the recoverable login screen", async () => {
+    state.useAuth.mockReturnValue({
+      isAuthenticated: false,
+      loading: false,
+      hasSession: true,
+      error: new Error("auth.me temporarily unavailable"),
+      powerHubReachable: true,
+      refresh: vi.fn(),
+    });
 
     render(<LoginPage />);
 
-    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
+    expect(await screen.findByText("الجلسة موجودة، لكن التحقق من الحساب لم يكتمل.")).toBeInTheDocument();
+    expect(state.setLocation).not.toHaveBeenCalledWith("/workspace");
+    expect(screen.getByRole("button", { name: "إعادة التحقق من الجلسة" })).toBeInTheDocument();
     expect(state.signInWithPassword).not.toHaveBeenCalled();
   });
 
-  it("returns to the workspace when a persisted online session is already restored", async () => {
+  it("returns to the workspace when a persisted online session has already been validated", async () => {
     state.useAuth.mockReturnValue({ isAuthenticated: true, loading: false, hasSession: true });
 
     render(<LoginPage />);
