@@ -14,7 +14,7 @@ const CACHEABLE_PROCEDURES = new Set([
 
 // Only these list procedures currently have a corresponding Delta reconciliation
 // path. Other cached lists retain their original age and must refetch normally.
-const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs", "companyAccounts"]);
+const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs", "companyAccounts", "inventory"]);
 
 const BLOCKED_PROCEDURES = new Set([
   "admin",
@@ -119,18 +119,15 @@ function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: stri
   if (!allowedKeys) return false;
   const input = getOfflineQueryInput(queryKey);
   if (!input || Object.keys(input).some((key) => !allowedKeys.has(key))) return false;
-  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1 || typeof input.includeInactive !== "boolean") return false;
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1) return false;
+  if (input.includeInactive !== undefined && input.includeInactive !== false) return false;
   if (procedure === "inventory.listItemUnits") {
-    return Object.keys(input).length === 3 &&
-      Number.isSafeInteger(input.itemId) && Number(input.itemId) > 0;
+    return Number.isSafeInteger(input.itemId) && Number(input.itemId) > 0 &&
+      Object.keys(input).every((key) => ["siteId", "itemId", "includeInactive"].includes(key));
   }
-  if (input.includeInactive !== false) return false;
   if ((procedure === "inventory.listItems" || procedure === "inventory.listSuppliers") &&
       input.search !== undefined) return false;
-  return Object.keys(input).every((key) => key === "siteId" || key === "includeInactive" || key === "search") &&
-    (procedure === "inventory.listItems" || procedure === "inventory.listSuppliers"
-      ? Object.keys(input).length >= 2 && Object.keys(input).length <= 3
-      : Object.keys(input).length === 2);
+  return Object.keys(input).every((key) => ["siteId", "includeInactive", "search"].includes(key));
 }
 
 function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
@@ -266,6 +263,9 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   // snapshots into the exact keyset page shape expected by the UI.
   if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") return true;
 
+  if (segments[1] === "inventory") {
+    return ["listItems", "listItemUnits", "listSuppliers", "listWarehouses"].includes(segments[2] ?? "");
+  }
   return segments[2] === "list" && DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
 }
 
@@ -288,7 +288,11 @@ export type OfflineQueryDeltaEntity =
   | "invoices"
   | "payments"
   | "expenses"
-  | "company_accounts";
+  | "company_accounts"
+  | "inventory_items"
+  | "inventory_item_units"
+  | "suppliers"
+  | "inventory_warehouses";
 
 /**
  * Returns the server change-feed entity only when this exact query key is
@@ -304,6 +308,13 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
         segments[1] === "payments" || segments[1] === "expenses") {
       return segments[1];
     }
+    return null;
+  }
+  if (segments[1] === "inventory") {
+    if (segments[2] === "listItems") return "inventory_items";
+    if (segments[2] === "listItemUnits") return "inventory_item_units";
+    if (segments[2] === "listSuppliers") return "suppliers";
+    if (segments[2] === "listWarehouses") return "inventory_warehouses";
     return null;
   }
   if (segments[2] !== "list") return null;
