@@ -2,7 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { getOfflineQueryStaleTime, isDeltaSyncBackedQueryKey } from "./lib/offline-query-policy";
 import { isNonAuthoritativeInitialNullSessionEvent } from "./lib/offline-auth-state";
-import { httpBatchLink } from "@trpc/client";
+import { httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import { lazy, Suspense, useEffect, useState } from "react";
 import superjson from "superjson";
@@ -67,92 +67,90 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+async function resolvePowerHubTRPCHeaders() {
+  if (isStandalonePublicInvoiceRoute()) return {};
+  const [{ getSupabaseAccessToken, getSupabaseSessionDiagnostics }, { getPowerHubDeviceId }, { getPowerHubConnectivitySnapshot }] = await Promise.all([
+    import("./lib/supabase"),
+    import("./lib/offline-auth"),
+    import("./lib/offline-connectivity"),
+  ]);
+  if (getPowerHubConnectivitySnapshot() === false) {
+    const error = new Error("The PowerHub origin is repeatedly unreachable.");
+    error.name = "PowerHubConnectivityUnresolvedError";
+    throw error;
+  }
+  let deviceId: string;
+  try {
+    deviceId = await getPowerHubDeviceId();
+  } catch {
+    const error = new Error("PowerHub could not resolve the current device identity.");
+    error.name = "PowerHubDeviceIdentityUnavailableError";
+    throw error;
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
+    const error = new Error("PowerHub produced an invalid device identity.");
+    error.name = "PowerHubDeviceIdentityUnavailableError";
+    throw error;
+  }
+  let token: string | null;
+  try {
+    token = await getSupabaseAccessToken();
+  } catch (cause) {
+    const error = new Error("PowerHub could not finish Supabase access-token resolution.");
+    error.name = cause instanceof Error ? cause.name : "PowerHubSessionTokenUnavailableError";
+    Object.assign(error, { cause, tokenResolution: getSupabaseSessionDiagnostics() });
+    throw error;
+  }
+  if (!token) {
+    const diagnostics = getSupabaseSessionDiagnostics();
+    const error = new Error("PowerHub could not obtain a usable Supabase access token.");
+    error.name = "PowerHubSessionTokenUnavailableError";
+    Object.assign(error, {
+      authStage: !diagnostics.hasCurrentSession ? "session_absent"
+        : !diagnostics.hasAccessToken ? "access_token_absent"
+          : !diagnostics.tokenUsable ? "access_token_expired_or_unreadable"
+            : "session_unresolved",
+      sessionInitialized: diagnostics.sessionInitialized,
+      tokenExpirySource: diagnostics.tokenExpirySource,
+      tokenExpiresAt: diagnostics.tokenExpiresAt,
+      tokenUsable: diagnostics.tokenUsable,
+      readInFlight: diagnostics.readInFlight,
+      readBackoffActive: diagnostics.readBackoffActive,
+      lastReadErrorName: diagnostics.lastReadErrorName,
+      refreshInFlight: diagnostics.refreshInFlight,
+      tokenResolution: diagnostics.tokenResolution,
+      authStateRevision: diagnostics.authStateRevision,
+    });
+    throw error;
+  }
+  return {
+    Authorization: `Bearer ${token}`,
+    "x-powerhub-device-id": deviceId,
+  };
+}
+
+function powerHubTRPCFetch(input: RequestInfo | URL, init?: RequestInit) {
+  return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+}
+
 const trpcClient = trpc.createClient({
   links: [
-    httpBatchLink({
-      url: "/api/trpc",
-      transformer: superjson,
-      async headers() {
-        // A public invoice lookup is authenticated by its unguessable share
-        // token in PostgreSQL. Avoid unrelated session and device-ID reads for
-        // this route; all protected pages keep their normal headers.
-        if (isStandalonePublicInvoiceRoute()) return {};
-        const [{ getSupabaseAccessToken, getSupabaseSessionDiagnostics }, { getPowerHubDeviceId }, { getPowerHubConnectivitySnapshot }] = await Promise.all([
-          import("./lib/supabase"),
-          import("./lib/offline-auth"),
-          import("./lib/offline-connectivity"),
-        ]);
-        // A confirmed unreachable origin prevents futile protected requests.
-        // A still-unknown probe is not proof of being offline: allow the normal
-        // token + server-validation path to proceed, while keeping all protected
-        // requests gated on a real Supabase Access Token and device identity.
-        if (getPowerHubConnectivitySnapshot() === false) {
-          const error = new Error("The PowerHub origin is repeatedly unreachable.");
-          error.name = "PowerHubConnectivityUnresolvedError";
-          throw error;
-        }
-        // Resolve device identity first and access token last to minimize the
-        // interval in which a near-expiry token could age before dispatch.
-        let deviceId: string;
-        try {
-          deviceId = await getPowerHubDeviceId();
-        } catch {
-          const error = new Error("PowerHub could not resolve the current device identity.");
-          error.name = "PowerHubDeviceIdentityUnavailableError";
-          throw error;
-        }
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
-          const error = new Error("PowerHub produced an invalid device identity.");
-          error.name = "PowerHubDeviceIdentityUnavailableError";
-          throw error;
-        }
-
-        let token: string | null;
-        try {
-          token = await getSupabaseAccessToken();
-        } catch (cause) {
-          const error = new Error("PowerHub could not finish Supabase access-token resolution.");
-          error.name = cause instanceof Error ? cause.name : "PowerHubSessionTokenUnavailableError";
-          Object.assign(error, { cause, tokenResolution: getSupabaseSessionDiagnostics() });
-          throw error;
-        }
-        if (!token) {
-          const diagnostics = getSupabaseSessionDiagnostics();
-          const error = new Error("PowerHub could not obtain a usable Supabase access token.");
-          error.name = "PowerHubSessionTokenUnavailableError";
-          Object.assign(error, {
-            authStage: !diagnostics.hasCurrentSession
-              ? "session_absent"
-              : !diagnostics.hasAccessToken
-                ? "access_token_absent"
-                : !diagnostics.tokenUsable
-                  ? "access_token_expired_or_unreadable"
-                  : "session_unresolved",
-            sessionInitialized: diagnostics.sessionInitialized,
-            tokenExpirySource: diagnostics.tokenExpirySource,
-            tokenExpiresAt: diagnostics.tokenExpiresAt,
-            tokenUsable: diagnostics.tokenUsable,
-            readInFlight: diagnostics.readInFlight,
-            readBackoffActive: diagnostics.readBackoffActive,
-            lastReadErrorName: diagnostics.lastReadErrorName,
-            refreshInFlight: diagnostics.refreshInFlight,
-            tokenResolution: diagnostics.tokenResolution,
-            authStateRevision: diagnostics.authStateRevision,
-          });
-          throw error;
-        }
-
-        return {
-          Authorization: `Bearer ${token}`,
-          "x-powerhub-device-id": deviceId,
-        };
-      },
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
-      },
+    splitLink({
+      // auth.me is the bootstrap gate: never let an unrelated data query in the
+      // initial batch delay session validation.
+      condition: (op) => op.path === "auth.me",
+      true: httpLink({
+        url: "/api/trpc",
+        transformer: superjson,
+        headers: resolvePowerHubTRPCHeaders,
+        fetch: powerHubTRPCFetch,
+      }),
+      false: httpBatchLink({
+        url: "/api/trpc",
+        transformer: superjson,
+        headers: resolvePowerHubTRPCHeaders,
+        fetch: powerHubTRPCFetch,
+      }),
     }),
   ],
 });

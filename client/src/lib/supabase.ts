@@ -110,107 +110,22 @@ export function getSupabaseSessionDiagnostics() {
     readBackoffActive: isSessionReadBackoffActive(sessionReadRetryAfter),
     lastReadErrorName: lastSessionReadError?.name ?? null,
     lastReadErrorMessage: lastSessionReadError?.message ?? null,
-    refreshInFlight: accessTokenRefreshInFlight !== null,
+    refreshInFlight: sessionReadInFlight !== null,
     tokenResolution: resolveSupabaseAccessToken.getDiagnostics(),
     authStateRevision,
   };
 }
 
-export async function getSupabaseSession(): Promise<Session | null> {
-  ensureAuthSubscription();
-
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  // Supabase's browser client owns token rotation (autoRefreshToken=true).
-  // Do not call refreshSession from this per-request accessor: concurrent API
-  // headers, startup bootstrap, and the SDK timer can otherwise compete to
-  // rotate the same one-time refresh token. A still-valid access token remains
-  // usable inside the safety window; the SDK refreshes it in the background.
-  if (sessionInitialized && isSupabaseSessionUsable(currentSession, nowSeconds)) {
-    return currentSession;
-  }
-
-  if (sessionReadInFlight) return sessionReadInFlight;
-
-  // Avoid having every concurrent tRPC batch immediately repeat a failed SDK
-  // storage/refresh read. A valid cached access token is still returned above;
-  // otherwise the next SDK auth event or cooldown expiry can resume recovery.
-  if (isSessionReadBackoffActive(sessionReadRetryAfter)) return null;
-
-  const requestRevision = authStateRevision;
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const sdkRead = supabase.auth.getSession();
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      const error = new Error("Supabase session storage/refresh read did not settle before the deadline.");
-      error.name = "PowerHubSessionReadTimeoutError";
-      reject(error);
-    }, SUPABASE_SESSION_READ_TIMEOUT_MS);
-  });
-  sessionReadInFlight = Promise.race([sdkRead, timeout])
-    .then(({ data, error }) => {
-      // Supabase's own initialize/refresh lifecycle may have updated the
-      // auth listener while this read was waiting for its storage lock.
-      if (error) {
-        // A newer valid session event wins over the failed/stale read. If there
-        // is no usable session, record the failure and throttle retries even if
-        // an unrelated null auth event advanced the revision while it waited.
-        if (isSupabaseSessionUsable(currentSession)) {
-          if (requestRevision === authStateRevision) {
-            lastSessionReadError = null;
-            sessionReadRetryAfter = 0;
-          }
-          return currentSession;
-        }
-        lastSessionReadError = error instanceof Error ? error : new Error("Supabase session read failed.");
-        sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
-        return null;
-      }
-
-      lastSessionReadError = null;
-      sessionReadRetryAfter = 0;
-
-      // The SDK's getSession() owns refresh-token rotation and returns the
-      // winning stored session if another tab completed rotation first. Never
-      // call refreshSession() here: doing so races the SDK auto-refresh ticker.
-      currentSession = selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision);
-      sessionInitialized = true;
-      return isSupabaseSessionUsable(currentSession) ? currentSession : null;
-    })
-    .catch((error: unknown) => {
-      // Keep a newer usable session; never allow a late failed snapshot to
-      // replace it. Otherwise retain the concrete cause and apply cooldown
-      // regardless of revision changes (e.g. a concurrent null INITIAL_SESSION).
-      if (isSupabaseSessionUsable(currentSession)) {
-        if (requestRevision === authStateRevision) {
-          lastSessionReadError = null;
-          sessionReadRetryAfter = 0;
-        }
-        return currentSession;
-      }
-      lastSessionReadError = error instanceof Error ? error : new Error("Supabase session read failed.");
-      sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
-      sessionInitialized = true;
-      return null;
-    })
-    .finally(() => {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-      sessionReadInFlight = null;
-    });
-
-  return sessionReadInFlight;
-}
-
-let accessTokenRefreshInFlight: Promise<Session | null> | null = null;
-
-function awaitSessionResolution(
+function awaitSupabaseSessionRead(
   operation: Promise<Session | null>,
   timeoutMs: number,
+  timeoutName: "PowerHubSessionReadTimeoutError" | "PowerHubSessionRefreshTimeoutError",
 ): Promise<Session | null> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(Object.assign(new Error("Supabase session resolution did not settle before the bounded deadline."), {
-        name: "PowerHubSessionRefreshTimeoutError",
+      reject(Object.assign(new Error("Supabase session storage/refresh read did not settle before the deadline."), {
+        name: timeoutName,
       }));
     }, timeoutMs);
   });
@@ -220,35 +135,26 @@ function awaitSessionResolution(
 }
 
 /**
- * Resolve Supabase's authoritative stored session for a protected API request.
- * Avoid refreshSession(oldSession): the old refresh token can already have been
- * rotated by Supabase auto-refresh or another tab. getSession() uses auth-js'
- * own single-flight refresh and the stored-winner recovery added in 2.117.1.
- *
- * The lock stores the underlying SDK operation, never the per-caller timed-out
- * Promise. Every caller gets its own deadline, while all callers await the same
- * storage/refresh operation. A null result without a newer auth event cannot
- * erase a still-valid snapshot; SIGNED_OUT/account switching remain authoritative.
+ * The only place allowed to call supabase.auth.getSession().
+ * The lock holds the underlying SDK promise, not any caller's timeout wrapper.
  */
-function resolveLatestSupabaseSessionForAccessToken(timeoutMs: number): Promise<Session | null> {
-  if (accessTokenRefreshInFlight) {
-    return awaitSessionResolution(accessTokenRefreshInFlight, timeoutMs);
-  }
+function startOrJoinSupabaseSdkSessionRead(): Promise<Session | null> {
+  if (sessionReadInFlight) return sessionReadInFlight;
 
   const requestRevision = authStateRevision;
   const previousSession = currentSession;
   const sdkRead = supabase.auth.getSession().then(({ data, error }) => {
     if (error) throw error;
+
     const sdkSession = data.session ?? null;
     const selected = selectAuthSnapshot(sdkSession, currentSession, requestRevision, authStateRevision);
-
     if (requestRevision !== authStateRevision) {
       currentSession = selected;
     } else if (sdkSession) {
       currentSession = selected;
     } else {
-      // A competing refresh can produce a temporarily empty snapshot. Keep the
-      // prior session only while its own access token is demonstrably unexpired.
+      // A transient empty result after another tab wins a refresh must not erase
+      // a still-valid session, but a real sign-out/account switch remains final.
       currentSession = isSupabaseSessionUsable(currentSession)
         ? currentSession
         : isSupabaseSessionUsable(previousSession)
@@ -259,31 +165,79 @@ function resolveLatestSupabaseSessionForAccessToken(timeoutMs: number): Promise<
     sessionInitialized = true;
     lastSessionReadError = null;
     sessionReadRetryAfter = 0;
-    return currentSession;
+    return isSupabaseSessionUsable(currentSession) ? currentSession : null;
   }).catch((error: unknown) => {
-    const cause = error instanceof Error ? error : new Error("Supabase session resolution failed.");
-    lastSessionReadError = cause;
-    sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
-
-    // A transient read/refresh timeout cannot force a redirect while the
-    // previous user's access token remains valid. Never fall back after a
-    // newer auth event because that may represent logout/account switching.
+    const cause = error instanceof Error ? error : new Error("Supabase session read failed.");
     const fallback = requestRevision === authStateRevision
       ? (isSupabaseSessionUsable(currentSession) ? currentSession : previousSession)
       : currentSession;
     if (isSupabaseSessionUsable(fallback)) {
       currentSession = fallback;
+      sessionInitialized = true;
+      if (requestRevision === authStateRevision) {
+        lastSessionReadError = null;
+        sessionReadRetryAfter = 0;
+      }
       return currentSession;
     }
+    lastSessionReadError = cause;
+    sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
+    sessionInitialized = true;
     throw cause;
   });
 
   let pending!: Promise<Session | null>;
   pending = sdkRead.finally(() => {
-    if (accessTokenRefreshInFlight === pending) accessTokenRefreshInFlight = null;
+    // Caller timeout does not release the lock while auth-js still owns its
+    // storage/refresh operation. Every access path joins this same promise.
+    if (sessionReadInFlight === pending) sessionReadInFlight = null;
   });
-  accessTokenRefreshInFlight = pending;
-  return awaitSessionResolution(pending, timeoutMs);
+  sessionReadInFlight = pending;
+  return pending;
+}
+
+export async function getSupabaseSession(): Promise<Session | null> {
+  ensureAuthSubscription();
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (sessionInitialized && isSupabaseSessionUsable(currentSession, nowSeconds)) {
+    return currentSession;
+  }
+
+  // Existing SDK work wins over cooldown so all callers join it.
+  const operation = sessionReadInFlight ??
+    (isSessionReadBackoffActive(sessionReadRetryAfter) ? null : startOrJoinSupabaseSdkSessionRead());
+  if (!operation) return null;
+  try {
+    return await awaitSupabaseSessionRead(
+      operation,
+      SUPABASE_SESSION_READ_TIMEOUT_MS,
+      "PowerHubSessionReadTimeoutError",
+    );
+  } catch (error) {
+    const cause = error instanceof Error ? error : new Error("Supabase session read failed.");
+    if (isSupabaseSessionUsable(currentSession)) return currentSession;
+    lastSessionReadError = cause;
+    sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
+    sessionInitialized = true;
+    return null;
+  }
+}
+
+/** The recovery path joins the same SDK read, bypassing only the retry cooldown. */
+function resolveLatestSupabaseSessionForAccessToken(timeoutMs: number): Promise<Session | null> {
+  ensureAuthSubscription();
+  const operation = startOrJoinSupabaseSdkSessionRead();
+  return awaitSupabaseSessionRead(
+    operation,
+    timeoutMs,
+    "PowerHubSessionRefreshTimeoutError",
+  ).catch((error: unknown) => {
+    const cause = error instanceof Error ? error : new Error("Supabase session resolution failed.");
+    if (isSupabaseSessionUsable(currentSession)) return currentSession;
+    lastSessionReadError = cause;
+    sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
+    throw cause;
+  });
 }
 
 function waitForAuthStateChange(timeoutMs: number): Promise<boolean> {
