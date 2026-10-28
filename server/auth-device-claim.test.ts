@@ -62,9 +62,9 @@ describe("claimPowerHubDevice", () => {
 
   it("aborts a stalled claim and reports a bounded gateway timeout", async () => {
     vi.useFakeTimers();
-    const { request, getSignal } = abortable(new Promise((resolve) => {
-      setTimeout(() => resolve({ data: [{ allowed: true }], error: null }), 60_000);
-    }));
+    // Keep the simulated upstream permanently pending: the timeout under test,
+    // not a second 60s timer, must settle this request.
+    const { request, getSignal } = abortable(new Promise<{ data: unknown; error: null }>(() => undefined));
     mockRpcResponse(request);
 
     // Attach the rejection assertion before advancing fake timers so Vitest
