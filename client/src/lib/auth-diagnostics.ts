@@ -22,6 +22,7 @@ function findAuthError(error: unknown): AuthErrorLike | null {
         candidate.name === "PowerHubSessionRecoveryTimeoutError" ||
         candidate.name === "PowerHubSessionRecoveryFailedError" ||
         candidate.name === "PowerHubDeviceIdentityUnavailableError" ||
+        candidate.name === "PowerHubDeviceClockSkewError" ||
         (candidate.data && typeof candidate.data.code === "string")) return candidate;
     current = candidate.cause;
   }
