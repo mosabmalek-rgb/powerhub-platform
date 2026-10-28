@@ -38,6 +38,23 @@ function errorCode(error: unknown): string {
   return data && typeof data.code === "string" ? data.code : "";
 }
 
+/**
+ * Search the complete RPC error cause chain for a known server-message pattern.
+ * tRPC wrappers may expose a top-level FORBIDDEN code while the actionable
+ * server message sits on a nested cause.
+ */
+function hasServerMessage(error: unknown, pattern: RegExp): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current && typeof current === "object" && !seen.has(current); depth += 1) {
+    seen.add(current);
+    const message = (current as AuthErrorLike).message;
+    if (typeof message === "string" && pattern.test(message)) return true;
+    current = (current as AuthErrorLike).cause;
+  }
+  return false;
+}
+
 /** User-safe diagnostics; never display access tokens or raw server messages. */
 export function describeAuthFailure(error: unknown): string {
   const name = errorName(error);
@@ -77,13 +94,10 @@ export function describeAuthFailure(error: unknown): string {
 
   // A device-lock denial is a specific, actionable server decision. Do not
   // infer it from FORBIDDEN alone: that code also covers ordinary RBAC denial.
-  const serverMessage = findAuthError(error)?.message;
-  if (typeof serverMessage === "string" &&
-      /هذا الحساب مستخدم حاليًا على جهاز آخر|يجب استخدام جهاز PowerHub المسجل لهذا الحساب/.test(serverMessage)) {
+  if (hasServerMessage(error, /هذا الحساب مستخدم حاليًا على جهاز آخر|يجب استخدام جهاز PowerHub المسجل لهذا الحساب/)) {
     return "المرحلة: الحساب مقيد بجهاز آخر حاليًا. إذا كنت تستخدم الجهاز نفسه، أعد المحاولة بعد استقرار الاتصال؛ وإذا أردت الانتقال إلى جهاز جديد، سجّل الخروج صراحةً من الجهاز السابق أولًا. لن نمسح الكاش أو العمليات المحلية المعلقة تلقائيًا.";
   }
-  if (typeof serverMessage === "string" &&
-      /تعذر التحقق من جهاز الدخول|تعذر تثبيت جهاز الدخول|تعذر التحقق من جلسة الجهاز/.test(serverMessage)) {
+  if (hasServerMessage(error, /تعذر التحقق من جهاز الدخول|تعذر تثبيت جهاز الدخول|تعذر التحقق من جلسة الجهاز/)) {
     return "المرحلة: تعذر التحقق من هوية جهاز الدخول. لم نعتبر ذلك تسجيل خروج ولم نمسح بيانات العمل؛ أعد المحاولة، وإذا استمر الرفض فافحص إعدادات الجهاز والخادم.";
   }
 

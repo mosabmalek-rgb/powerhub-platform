@@ -124,6 +124,22 @@ describe("safe authentication diagnostics", () => {
     expect(describeAuthFailure(ordinaryPermission)).not.toContain("مقيد بجهاز آخر");
   });
 
+  it("finds a device-lock reason inside a wrapped tRPC error without misclassifying other FORBIDDEN errors", () => {
+    const wrappedDeviceLock = {
+      name: "TRPCClientError",
+      message: "Request failed",
+      data: { code: "FORBIDDEN" },
+      cause: {
+        name: "Error",
+        message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى.",
+      },
+    };
+    const hint = describeAuthFailure(wrappedDeviceLock);
+    expect(hint).toContain("مقيد بجهاز آخر");
+    expect(hint).toContain("لن نمسح الكاش");
+    expect(hint).not.toContain("سجّل الخروج من الجهاز الآخر");
+  });
+
   it("explains an invalid device identity without leaking the raw server message", () => {
     const hint = describeAuthFailure({
       message: "تعذر التحقق من جهاز الدخول.",
