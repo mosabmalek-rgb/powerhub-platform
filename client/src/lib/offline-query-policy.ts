@@ -105,6 +105,28 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
   return true;
 }
 
+const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
+  "inventory.listItems": new Set(["siteId", "includeInactive"]),
+  "inventory.listSuppliers": new Set(["siteId", "includeInactive"]),
+  "inventory.listWarehouses": new Set(["siteId", "includeInactive"]),
+  "inventory.listItemUnits": new Set(["siteId", "itemId", "includeInactive"]),
+};
+
+function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3 || segments[1] !== "inventory") return false;
+  const procedure = `inventory.${segments[2]}`;
+  const allowedKeys = INVENTORY_OFFLINE_LIST_INPUT_KEYS[procedure];
+  if (!allowedKeys) return false;
+  const input = getOfflineQueryInput(queryKey);
+  if (!input || Object.keys(input).some((key) => !allowedKeys.has(key))) return false;
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1 || input.includeInactive !== false) return false;
+  if (procedure === "inventory.listItemUnits") {
+    return Object.keys(input).length === 3 &&
+      Number.isSafeInteger(input.itemId) && Number(input.itemId) > 0;
+  }
+  return Object.keys(input).length === 2;
+}
+
 function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
   const input = getOfflineQueryInput(queryKey);
   if (!input || Object.keys(input).some((key) => !["siteId", "branchId"].includes(key))) return false;
@@ -179,6 +201,10 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // Dashboard totals are persisted as bounded display snapshots only. The UI
   // revalidates them against the server-side change journal; they are never
   // reconstructed from partial client-side financial rows.
+  // Inventory directory lists are persisted only in their default active,
+  // unfiltered form. They are cache-only (not Delta-backed) until matching
+  // server journal projections exist for inventory entities.
+  if (isSafeInventoryOfflineList(queryKey, segments)) return true;
   if (isSafeDashboardRevision(queryKey, segments)) return true;
   if (isSafeDashboardSnapshot(queryKey, segments)) return true;
 
