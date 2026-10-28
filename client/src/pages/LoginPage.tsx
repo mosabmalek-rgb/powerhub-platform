@@ -9,7 +9,8 @@ import { acceptSupabaseSignInSession, resetSupabaseSessionReadBackoff, supabase 
 import { probePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { shouldRedirectToWorkspaceAfterAuthentication } from "@/lib/auth-routing";
 import { describeAuthFailure } from "@/lib/auth-diagnostics";
-import { ArrowRight, KeyRound, Loader2, Mail } from "lucide-react";
+import { collectSafeClientDiagnostics } from "@/lib/client-diagnostics";
+import { ArrowRight, ClipboardCopy, KeyRound, Loader2, Mail } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -42,6 +43,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [awaitingSignInConfirmation, setAwaitingSignInConfirmation] = useState(false);
+  const [diagnosticsPending, setDiagnosticsPending] = useState(false);
+  const [diagnosticsReport, setDiagnosticsReport] = useState<string | null>(null);
+  const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
 
   useEffect(() => {
     // A Supabase snapshot proves only that local session state exists. Do not
@@ -97,6 +101,27 @@ export default function LoginPage() {
       active = false;
     };
   }, []);
+
+  const copySafeDiagnostics = async () => {
+    setDiagnosticsPending(true);
+    setDiagnosticsReport(null);
+    setDiagnosticsMessage(null);
+    try {
+      const report = JSON.stringify(await collectSafeClientDiagnostics(), null, 2);
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(report);
+        setDiagnosticsMessage("تم نسخ التقرير الآمن. أرسله للدعم للمقارنة بين هذا المتصفح والجهاز الذي يعمل.");
+      } catch {
+        setDiagnosticsReport(report);
+        setDiagnosticsMessage("تعذر النسخ التلقائي؛ انسخ التقرير الظاهر أدناه يدويًا. لا يحتوي على رموز الدخول أو بيانات العمل.");
+      }
+    } catch {
+      setDiagnosticsMessage("تعذر جمع التقرير من هذا المتصفح. لم تُمسح أي بيانات.");
+    } finally {
+      setDiagnosticsPending(false);
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -211,6 +236,34 @@ export default function LoginPage() {
             {error && <p role="alert" className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-700">{error}</p>}
             <Button disabled={pending} type="submit" className="h-11 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ المتابعة…</> : "تسجيل الدخول"}</Button>
           </form>
+          <div className="mt-6 border-t border-slate-200 pt-4">
+            <p className="text-xs leading-6 text-slate-500">
+              إذا تعطل الدخول على هذا الجهاز بينما يعمل على جهاز آخر، انسخ تقريرًا تقنيًا آمنًا للمقارنة. التقرير لا يتضمن كلمات المرور أو رموز الجلسة أو البريد أو محتوى بيانات العمل.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={diagnosticsPending}
+              onClick={() => { void copySafeDiagnostics(); }}
+              className="mt-3 w-full border-slate-300 text-slate-700"
+            >
+              <ClipboardCopy className="ml-2 h-4 w-4" />
+              {diagnosticsPending ? "جارٍ جمع التشخيص…" : "نسخ تقرير تشخيص آمن"}
+            </Button>
+            {diagnosticsMessage ? (
+              <p role="status" aria-live="polite" className="mt-2 text-xs leading-6 text-slate-600">{diagnosticsMessage}</p>
+            ) : null}
+            {diagnosticsReport ? (
+              <textarea
+                aria-label="تقرير التشخيص الآمن"
+                readOnly
+                value={diagnosticsReport}
+                rows={8}
+                dir="ltr"
+                className="mt-3 w-full rounded-lg border border-slate-300 bg-slate-50 p-2 font-mono text-xs text-slate-800"
+              />
+            ) : null}
+          </div>
         </section>
       </div>
     </main>
