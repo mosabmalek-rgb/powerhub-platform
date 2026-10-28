@@ -302,9 +302,11 @@ export function OfflineDeltaSyncRuntime() {
           : snapshot.rows.map((row: any) => normalizeDeltaEntityRow(candidate.entityType, row));
         for (const row of queryRows) {
           const scoped = (candidate.entityType === "readings" ? row.subscriber : row) as Record<string, unknown> | undefined;
+          const sharedInventoryEntity = candidate.entityType === "inventory_items" || candidate.entityType === "inventory_item_units" || candidate.entityType === "suppliers";
           const matchesScope = candidate.entityType === "sites"
             ? Number(scoped?.id) === candidate.siteId && Number(scoped?.tenantId) === candidate.tenantId
-            : Number(scoped?.tenantId) === candidate.tenantId && Number(scoped?.siteId) === candidate.siteId;
+            : Number(scoped?.tenantId) === candidate.tenantId &&
+              (sharedInventoryEntity || Number(scoped?.siteId) === candidate.siteId);
           if (!matchesScope) {
             throw new Error("لقطة المزامنة تحتوي بيانات خارج نطاق الفرع.");
           }
@@ -343,6 +345,9 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
             queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "inventory_item_units") {
+            const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
+            queryClient.setQueryData(query.queryKey, queryRows.filter((row: AnyRow) => Number(row.itemId ?? row.item_id) === itemId));
           } else {
             queryClient.setQueryData(query.queryKey, queryRows);
           }
