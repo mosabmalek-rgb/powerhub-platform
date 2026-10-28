@@ -83,10 +83,11 @@ describe("PowerHub offline number range foundation contract", () => {
 
   it("keeps the outbox, number ranges, delta state, and conflicts in one versioned operational IndexedDB", () => {
     expect(workspace).toContain('OFFLINE_WORKSPACE_DATABASE_NAME = "powerhub-offline-workspace"');
-    expect(workspace).toContain("OFFLINE_WORKSPACE_DATABASE_VERSION = 4");
+    expect(workspace).toContain("OFFLINE_WORKSPACE_DATABASE_VERSION = 5");
     expect(workspace).toContain('ensureStore(db, tx, "operations", "id")');
     expect(workspace).toContain('ensureStore(db, tx, "grants", "id"');
     expect(workspace).toContain('ensureStore(db, tx, "claims", "id"');
+    expect(workspace).toContain('ensureStore(db, tx, "bootstrapState", "scopeKey"');
     expect(workspace).toContain('ensureStore(db, tx, "cursors", ["userId", "tenantId", "siteId", "entityType"])');
     expect(workspace).toContain('ensureStore(db, tx, "entities", ["scopeKey", "entityId"]');
     expect(workspace).toContain('ensureStore(db, tx, "syncState"');

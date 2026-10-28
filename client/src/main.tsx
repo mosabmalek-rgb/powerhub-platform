@@ -11,6 +11,7 @@ import "./index.css";
 
 const AuthProvider = lazy(() => import("@/_core/hooks/useAuth").then((module) => ({ default: module.AuthProvider })));
 const OfflineDeltaSyncRuntime = lazy(() => import("./components/OfflineDeltaSyncRuntime").then((module) => ({ default: module.OfflineDeltaSyncRuntime })));
+const OfflineDeviceBootstrapRuntime = lazy(() => import("./components/OfflineDeviceBootstrapRuntime").then((module) => ({ default: module.OfflineDeviceBootstrapRuntime })));
 
 function isStandalonePublicInvoiceRoute(): boolean {
   return typeof window !== "undefined" && /^\/invoice\/[^/]+\/?$/.test(window.location.pathname);
@@ -437,7 +438,7 @@ function AppBootstrapGate() {
 
   return standalonePublicInvoice
     ? <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-400">جارٍ تحميل الفاتورة…</div>}><App /></Suspense>
-    : <Suspense fallback={<div className="grid min-h-screen place-items-center">جارٍ تهيئة الجلسة…</div>}><AuthProvider><Suspense fallback={null}><OfflineDeltaSyncRuntime /></Suspense><App /></AuthProvider></Suspense>;
+    : <Suspense fallback={<div className="grid min-h-screen place-items-center">جارٍ تهيئة الجلسة…</div>}><AuthProvider><Suspense fallback={null}><OfflineDeltaSyncRuntime /><OfflineDeviceBootstrapRuntime /></Suspense><App /></AuthProvider></Suspense>;
 }
 
 function renderApp() {

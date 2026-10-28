@@ -4,7 +4,7 @@
  * Query cache and authentication intentionally remain isolated in their own DBs.
  */
 export const OFFLINE_WORKSPACE_DATABASE_NAME = "powerhub-offline-workspace";
-export const OFFLINE_WORKSPACE_DATABASE_VERSION = 4;
+export const OFFLINE_WORKSPACE_DATABASE_VERSION = 5;
 
 function ensureStore(
   db: IDBDatabase,
@@ -71,6 +71,10 @@ export function openOfflineWorkspaceDatabase(): Promise<IDBDatabase> {
       ]);
       ensureStore(db, tx, "orphanedFieldReadings", "id", [
         { name: "byQuarantineReason", keyPath: "quarantineReason" },
+      ]);
+      ensureStore(db, tx, "bootstrapState", "scopeKey", [
+        { name: "byUser", keyPath: "userId" },
+        { name: "bySite", keyPath: ["userId", "tenantId", "siteId"] },
       ]);
     };
     request.onsuccess = () => {
