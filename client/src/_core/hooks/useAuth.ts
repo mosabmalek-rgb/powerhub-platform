@@ -39,6 +39,18 @@ const NON_RETRYABLE_AUTH_BOOTSTRAP_ERROR_NAMES = new Set([
   "PowerHubDeviceIdentityUnavailableError",
   "PowerHubConnectivityUnresolvedError",
 ]);
+
+function isNonRetryableAuthBootstrapError(error: unknown): boolean {
+  let cause: unknown = error;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < 5 && cause && typeof cause === "object" && !seen.has(cause); depth += 1) {
+    seen.add(cause);
+    const name = (cause as { name?: unknown }).name;
+    if (typeof name === "string" && NON_RETRYABLE_AUTH_BOOTSTRAP_ERROR_NAMES.has(name)) return true;
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return false;
+}
 const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر التحقق من جلسة الدخول في الوقت المحدد. أعد المحاولة لاستعادة البيانات.",
 ), { name: "PowerHubAuthProfileCheckTimeoutError" });
@@ -107,22 +119,16 @@ function useAuthController() {
     retry: (failureCount, error) => {
       const code = (error as { data?: { code?: string } } | null)?.data?.code;
       if (code === "FORBIDDEN") return false;
-      let cause: unknown = error;
-      const seen = new Set<unknown>();
-      for (let depth = 0; depth < 5 && cause && typeof cause === "object" && !seen.has(cause); depth += 1) {
-        seen.add(cause);
-        const name = (cause as { name?: unknown }).name;
-        if (typeof name === "string" && NON_RETRYABLE_AUTH_BOOTSTRAP_ERROR_NAMES.has(name)) {
-          return false;
-        }
-        cause = (cause as { cause?: unknown }).cause;
-      }
+      if (isNonRetryableAuthBootstrapError(error)) return false;
       if (code === "GATEWAY_TIMEOUT") return failureCount < 1;
       return failureCount < 2;
     },
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchInterval: (query) => query.state.status === "error" ? 15_000 : false,
+    // Do not keep replaying a known token/device bootstrap failure every 15s.
+    // Generic transport errors retain a low-frequency recovery attempt.
+    refetchInterval: (query) => query.state.status === "error" &&
+      !isNonRetryableAuthBootstrapError(query.state.error) ? 15_000 : false,
   });
   type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
