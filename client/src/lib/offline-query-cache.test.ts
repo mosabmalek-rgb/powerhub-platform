@@ -24,23 +24,24 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.schedules.list", { input: { siteId: 0 }, type: "query" }])).toBe(false);
   });
 
-  it("caches only default active inventory directory lists without granting Delta freshness", () => {
+  it("persists only safe inventory catalog lists and binds them to their Delta feeds", () => {
     const allowed = [
       ["powerhub.inventory.listItems", { input: { siteId: 7, search: undefined, includeInactive: false }, type: "query" }],
       ["powerhub.inventory.listSuppliers", { input: { siteId: 7, search: undefined, includeInactive: false }, type: "query" }],
       ["powerhub.inventory.listWarehouses", { input: { siteId: 7, includeInactive: false }, type: "query" }],
-      ["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12, includeInactive: true }, type: "query" }],
+      ["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12 }, type: "query" }],
     ] as const;
     for (const key of allowed) {
       expect(isOfflineCacheableQueryKey(key)).toBe(true);
-      expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
-      expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(true);
+      expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
     }
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItems", { input: { siteId: 7, search: "fuel", includeInactive: false }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItems", { input: { siteId: 7, includeInactive: false }, type: "query" }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listSuppliers", { input: { siteId: 7, search: undefined, includeInactive: true }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listWarehouses", { input: { siteId: 0, includeInactive: false }, type: "query" }])).toBe(false);
-    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 0, includeInactive: false }, type: "query" }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 0 }, type: "query" }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12, includeInactive: true }, type: "query" }])).toBe(false);
   });
 
   it("persists only safe dashboard aggregate snapshots and never treats them as Delta-backed lists", () => {
@@ -323,6 +324,10 @@ describe("Delta-backed local snapshots", () => {
     expect(getOfflineQueryDeltaEntity(["powerhub.companyAccounts.list", {
       input: { siteId: 7, branchId: 8 }, type: "query",
     }])).toBe("company_accounts");
+    expect(getOfflineQueryDeltaEntity(["powerhub.inventory.listItems", { input: { siteId: 7 }, type: "query" }])).toBe("inventory_items");
+    expect(getOfflineQueryDeltaEntity(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12 }, type: "query" }])).toBe("inventory_item_units");
+    expect(getOfflineQueryDeltaEntity(["powerhub.inventory.listSuppliers", { input: { siteId: 7 }, type: "query" }])).toBe("suppliers");
+    expect(getOfflineQueryDeltaEntity(["powerhub.inventory.listWarehouses", { input: { siteId: 7 }, type: "query" }])).toBe("inventory_warehouses");
     expect(getOfflineQueryDeltaEntity(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(null);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7, fromDate: "2026-10-01" }])).toBe(false);
