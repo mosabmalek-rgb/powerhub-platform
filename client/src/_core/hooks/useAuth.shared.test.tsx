@@ -479,8 +479,13 @@ describe("shared AuthProvider", () => {
 
   it("does not automatically retry a failed token/device bootstrap, but retries transient transport errors", async () => {
     let retryPolicy: ((failureCount: number, error: unknown) => boolean) | undefined;
-    mocks.useQuery.mockImplementation((_input: unknown, options: { retry?: (failureCount: number, error: unknown) => boolean }) => {
+    let refetchIntervalPolicy: ((query: { state: { status: string; error: unknown } }) => number | false) | undefined;
+    mocks.useQuery.mockImplementation((_input: unknown, options: {
+      retry?: (failureCount: number, error: unknown) => boolean;
+      refetchInterval?: (query: { state: { status: string; error: unknown } }) => number | false;
+    }) => {
       retryPolicy = options.retry;
+      refetchIntervalPolicy = options.refetchInterval;
       return {
         data: undefined,
         isPending: false,
@@ -508,14 +513,19 @@ describe("shared AuthProvider", () => {
     );
 
     await waitFor(() => expect(retryPolicy).toBeTypeOf("function"));
-    expect(retryPolicy?.(0, Object.assign(new Error("expired token"), {
+    const expiredTokenError = Object.assign(new Error("expired token"), {
       name: "PowerHubSessionRefreshFailedError",
-    }))).toBe(false);
-    expect(retryPolicy?.(0, Object.assign(new Error("missing token"), {
+    });
+    const missingTokenError = Object.assign(new Error("missing token"), {
       name: "PowerHubSessionTokenUnavailableError",
-    }))).toBe(false);
+    });
+    expect(retryPolicy?.(0, expiredTokenError)).toBe(false);
+    expect(retryPolicy?.(0, missingTokenError)).toBe(false);
     expect(retryPolicy?.(0, new Error("Failed to fetch"))).toBe(true);
     expect(retryPolicy?.(0, { data: { code: "FORBIDDEN" } })).toBe(false);
+    expect(refetchIntervalPolicy?.({ state: { status: "error", error: expiredTokenError } })).toBe(false);
+    expect(refetchIntervalPolicy?.({ state: { status: "error", error: missingTokenError } })).toBe(false);
+    expect(refetchIntervalPolicy?.({ state: { status: "error", error: new Error("Failed to fetch") } })).toBe(15_000);
     queryClient.clear();
   });
 
