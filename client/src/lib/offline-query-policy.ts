@@ -106,8 +106,8 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
 }
 
 const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
-  "inventory.listItems": new Set(["siteId", "includeInactive"]),
-  "inventory.listSuppliers": new Set(["siteId", "includeInactive"]),
+  "inventory.listItems": new Set(["siteId", "search", "includeInactive"]),
+  "inventory.listSuppliers": new Set(["siteId", "search", "includeInactive"]),
   "inventory.listWarehouses": new Set(["siteId", "includeInactive"]),
   "inventory.listItemUnits": new Set(["siteId", "itemId", "includeInactive"]),
 };
@@ -119,12 +119,18 @@ function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: stri
   if (!allowedKeys) return false;
   const input = getOfflineQueryInput(queryKey);
   if (!input || Object.keys(input).some((key) => !allowedKeys.has(key))) return false;
-  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1 || input.includeInactive !== false) return false;
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1 || typeof input.includeInactive !== "boolean") return false;
   if (procedure === "inventory.listItemUnits") {
     return Object.keys(input).length === 3 &&
       Number.isSafeInteger(input.itemId) && Number(input.itemId) > 0;
   }
-  return Object.keys(input).length === 2;
+  if (input.includeInactive !== false) return false;
+  if ((procedure === "inventory.listItems" || procedure === "inventory.listSuppliers") &&
+      input.search !== undefined) return false;
+  return Object.keys(input).every((key) => key === "siteId" || key === "includeInactive" || key === "search") &&
+    (procedure === "inventory.listItems" || procedure === "inventory.listSuppliers"
+      ? Object.keys(input).length >= 2 && Object.keys(input).length <= 3
+      : Object.keys(input).length === 2);
 }
 
 function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
