@@ -3,8 +3,8 @@ import { trpc } from "@/lib/trpc";
 import { clearOfflineQueryCacheForUser, getOfflineAuthUser, persistOfflineAuthUser, removeOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { isNonAuthoritativeInitialNullSessionEvent, resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition, shouldValidateOnlineSession } from "@/lib/offline-auth-state";
-import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
-import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
+import { probePowerHubConnectivity, resetPowerHubClockObservation, usePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { getSupabaseSession, resetSupabaseSessionReadBackoff, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -504,6 +504,13 @@ function useAuthController() {
     refresh: async () => {
       setAuthProfileCheckTimedOut(false);
       setAuthValidationAttempt((attempt) => attempt + 1);
+
+      // Explicit retry obtains a fresh server-time sample before retrying auth.me.
+      // Never keep blocking protected calls on a stale clock observation after
+      // the user has corrected their device clock.
+      resetPowerHubClockObservation();
+      resetSupabaseSessionReadBackoff();
+      await probePowerHubConnectivity().catch(() => false);
 
       if (sessionRecoveryPending || sessionRecoveryTimedOut || sessionRecoveryFailed) {
         transientSignOutRecovery.current = false;
