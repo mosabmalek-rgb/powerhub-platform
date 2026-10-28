@@ -9,7 +9,7 @@ import {
   persistOfflineQueryForDeltaSync,
   sanitizeOfflineQueryData,
 } from "./offline-query-cache";
-import { getOfflineQueryDeltaEntity, getOfflineQueryStaleTime, isOfflineDashboardSnapshotQueryKey } from "./offline-query-policy";
+import { getOfflineQueryDeltaEntity, getOfflineQueryStaleTime, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey } from "./offline-query-policy";
 
 describe("offline query cache policy", () => {
   it("caches tenant-scoped operational PowerHub queries", () => {
@@ -35,7 +35,9 @@ describe("offline query cache policy", () => {
       expect(isOfflineDashboardSnapshotQueryKey(key)).toBe(true);
       expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
     }
-    expect(isOfflineCacheableQueryKey(revision)).toBe(false);
+    expect(isOfflineCacheableQueryKey(revision)).toBe(true);
+    expect(isOfflineDashboardRevisionQueryKey(revision)).toBe(true);
+    expect(isOfflineDashboardSnapshotQueryKey(revision)).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.dashboard.financialOverview", {
       input: { siteId: 7, scope: "branch", includeDetails: true }, type: "query",
     }])).toBe(false);
@@ -47,9 +49,6 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["auth", "me"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
     expect(OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS).toBe(24 * 60 * 60 * 1000);
-    expect(isOfflineCacheableQueryKey(["powerhub", "admin", "tenants"])).toBe(false);
-    expect(isOfflineCacheableQueryKey(["auth", "me"])).toBe(false);
-    expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
   });
 
   it("persists bounded history pages and maps supported pages to their Delta feeds", () => {
