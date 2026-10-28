@@ -396,6 +396,13 @@ begin
      or v_delta #>> '{changes,0,row_data,factor_to_base}' is distinct from '200' then
     raise exception 'Inventory item-unit Delta failed: %',v_delta;
   end if;
+  update public.inventory_item_units set is_active=false where tenant_id=1 and id=1201;
+  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,20,'inventory_item_units',1,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '1201' then
+    raise exception 'Inactive item-unit tombstone failed: %',v_delta;
+  end if;
 
   insert into public.suppliers(id,tenant_id,supplier_code,name,supplier_type,is_active)
   values (1301,1,'SUP-1301','Supplier Delta Test','permanent',true);
