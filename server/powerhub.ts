@@ -3432,6 +3432,37 @@ export const powerhubRouter = router({
         failedNotifications: notificationRows.filter((row) => row.status === "failed").length,
       };
     }),
+    // Lightweight revision fingerprint for dashboard snapshots. This exposes no
+    // row data; it lets clients know when server-authoritative aggregates need
+    // refetching after an operational Delta feed advances.
+    deltaRevision: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+    })).query(async ({ ctx, input }) => {
+      const access = input.scope === "all"
+        ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"])
+        : await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
+      const entityTypes = [
+        "sites", "subscribers", "generators", "readings", "tariffs",
+        "invoices", "payments", "expenses", "company_accounts", "company_accounts_all",
+      ];
+      let query = supabaseAdmin().from("powerhub_sync_scope_state")
+        .select("site_id,entity_type,last_cursor")
+        .eq("tenant_id", access.tenantId)
+        .in("entity_type", entityTypes)
+        .order("site_id", { ascending: true })
+        .order("entity_type", { ascending: true });
+      if (input.scope === "branch") query = query.eq("site_id", input.siteId);
+      const { data, error } = await query;
+      if (error) {
+        console.error("[PowerHub] dashboard.deltaRevision failed", { code: error.code, message: error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تحديث مؤشرات لوحة التحكم." });
+      }
+      const revision = (data ?? []).map((row) =>
+        `${row.site_id}:${row.entity_type}:${row.last_cursor}`,
+      ).join("|") || "0";
+      return { revision, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
+    }),
     financialOverview: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       scope: z.enum(["branch", "all"]).default("branch"),
