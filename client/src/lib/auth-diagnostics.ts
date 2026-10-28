@@ -23,6 +23,7 @@ function findAuthError(error: unknown): AuthErrorLike | null {
         candidate.name === "PowerHubSessionRecoveryFailedError" ||
         candidate.name === "PowerHubDeviceIdentityUnavailableError" ||
         candidate.name === "PowerHubDeviceClockSkewError" ||
+        candidate.name === "PowerHubDeviceClockVerificationPendingError" ||
         (candidate.data && typeof candidate.data.code === "string")) return candidate;
     current = candidate.cause;
   }
@@ -59,6 +60,9 @@ function hasServerMessage(error: unknown, pattern: RegExp): boolean {
 /** User-safe diagnostics; never display access tokens or raw server messages. */
 export function describeAuthFailure(error: unknown): string {
   const name = errorName(error);
+  if (name === "PowerHubDeviceClockVerificationPendingError") {
+    return "لم تكتمل إعادة التحقق من وقت خادم PowerHub. لم نعد إرسال طلب التحقق أو نغيّر الجلسة؛ تحقق من الاتصال ثم أعد المحاولة.";
+  }
   if (name === "PowerHubDeviceClockSkewError") {
     return "ساعة جهازك تختلف بوضوح عن وقت خادم PowerHub. فعّل ضبط الوقت والتاريخ تلقائيًا، وتأكد من المنطقة الزمنية، ثم أعد تحميل الصفحة والمحاولة. لا يعني هذا تسجيل خروج، ولم تُمسح البيانات المحلية أو العمليات المعلقة.";
   }
