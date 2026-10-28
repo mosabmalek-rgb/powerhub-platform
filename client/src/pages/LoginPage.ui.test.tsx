@@ -6,7 +6,14 @@ import LoginPage from "./LoginPage";
 
 const state = vi.hoisted(() => ({
   setLocation: vi.fn(),
-  useAuth: vi.fn(() => ({ isAuthenticated: false, loading: false, hasSession: false })),
+  useAuth: vi.fn((): {
+    isAuthenticated: boolean;
+    loading: boolean;
+    hasSession: boolean;
+    error?: Error | null;
+    powerHubReachable?: boolean;
+    refresh?: () => unknown;
+  } => ({ isAuthenticated: false, loading: false, hasSession: false })),
   signInWithPassword: vi.fn(),
   probePowerHubConnectivity: vi.fn(),
   signUp: vi.fn(),
