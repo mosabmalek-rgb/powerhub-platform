@@ -6,6 +6,7 @@ const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261
 const invoiceMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027110000_powerhub_delta_invoice_history.sql"), "utf8");
 const paymentMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027130000_powerhub_delta_payment_history.sql"), "utf8");
 const expenseMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027140000_powerhub_delta_expense_history.sql"), "utf8");
+const inventoryMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029000000_powerhub_delta_inventory_catalog.sql"), "utf8");
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-delta-sync.ts"), "utf8");
 
@@ -37,9 +38,9 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"])');
     expect(router).toContain("requireSupabaseSiteRole(");
-    expect(router).toContain('supabaseAdmin().rpc("powerhub_pull_sync_delta"');
+    expect(router).toContain('inventoryCatalogEntity ? "powerhub_pull_inventory_catalog_sync_delta" : "powerhub_pull_sync_delta"');
     expect(router).toContain("input.pageSize");
   });
 
@@ -59,6 +60,22 @@ describe("PowerHub delta sync contract", () => {
   });
 });
 
+
+describe("inventory catalog Delta extension", () => {
+  it("keeps tenant-wide catalogs and branch warehouses on explicit private feeds", () => {
+    expect(inventoryMigration).toContain("'inventory_items','inventory_item_units','suppliers','inventory_warehouses'");
+    expect(inventoryMigration).toContain("powerhub_get_inventory_catalog_sync_snapshot");
+    expect(inventoryMigration).toContain("powerhub_pull_inventory_catalog_sync_delta");
+    expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_items");
+    expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_item_units");
+    expect(inventoryMigration).toContain("after insert or update or delete on public.suppliers");
+    expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_warehouses");
+    expect(inventoryMigration).toContain("revoke all on function public.powerhub_pull_inventory_catalog_sync_delta");
+    expect(router).toContain('input.entityType === "suppliers" ? "viewSuppliers"');
+    expect(router).toContain('? "viewInventory" : undefined');
+    expect(client).toContain('"inventory_item_units"');
+  });
+});
 
 describe("invoice Delta extension", () => {
   it("keeps invoice snapshots scoped and projects only the explicit invoice fields", () => {
