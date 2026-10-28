@@ -233,6 +233,51 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         effectiveFrom: dateOrNow(raw.effective_from ?? raw.effectiveFrom),
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
       };
+    case "inventory_items":
+      return {
+        id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        sku: (raw.sku ?? null) as string | null, name: String(raw.name ?? ""),
+        category: String(raw.category ?? "other"), base_unit: String(raw.base_unit ?? raw.baseUnit ?? ""),
+        baseUnit: String(raw.base_unit ?? raw.baseUnit ?? ""),
+        reorder_point: String(raw.reorder_point ?? raw.reorderPoint ?? 0),
+        reorderPoint: String(raw.reorder_point ?? raw.reorderPoint ?? 0),
+        specification: (raw.specification ?? null) as string | null,
+        notes: (raw.notes ?? null) as string | null,
+        is_active: Boolean(raw.is_active ?? raw.isActive), isActive: Boolean(raw.is_active ?? raw.isActive),
+        createdAt: dateOrNow(raw.created_at ?? raw.createdAt), updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
+      };
+    case "inventory_item_units":
+      return {
+        id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        itemId: toNumber(raw.item_id ?? raw.itemId), unit_label: String(raw.unit_label ?? raw.unitLabel ?? ""),
+        unitLabel: String(raw.unit_label ?? raw.unitLabel ?? ""),
+        factor_to_base: String(raw.factor_to_base ?? raw.factorToBase ?? 1),
+        factorToBase: String(raw.factor_to_base ?? raw.factorToBase ?? 1),
+        is_active: Boolean(raw.is_active ?? raw.isActive), isActive: Boolean(raw.is_active ?? raw.isActive),
+        createdAt: dateOrNow(raw.created_at ?? raw.createdAt), updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
+      };
+    case "suppliers":
+      return {
+        id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        supplierCode: (raw.supplier_code ?? raw.supplierCode ?? null) as string | null,
+        name: String(raw.name ?? ""), contactName: (raw.contact_name ?? raw.contactName ?? null) as string | null,
+        phone: (raw.phone ?? null) as string | null, email: (raw.email ?? null) as string | null,
+        address: (raw.address ?? null) as string | null, taxNumber: (raw.tax_number ?? raw.taxNumber ?? null) as string | null,
+        defaultPaymentTermsDays: toNumber(raw.default_payment_terms_days ?? raw.defaultPaymentTermsDays),
+        supplierType: String(raw.supplier_type ?? raw.supplierType ?? "permanent"),
+        notes: (raw.notes ?? null) as string | null,
+        isActive: Boolean(raw.is_active ?? raw.isActive),
+        createdAt: dateOrNow(raw.created_at ?? raw.createdAt), updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
+      };
+    case "inventory_warehouses":
+      return {
+        id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId), code: String(raw.code ?? ""), name: String(raw.name ?? ""),
+        notes: (raw.notes ?? null) as string | null, isActive: Boolean(raw.is_active ?? raw.isActive),
+        locationType: String(raw.location_type ?? raw.locationType ?? "branch_warehouse"),
+        generatorId: optionalNumber(raw.generator_id ?? raw.generatorId),
+        createdAt: dateOrNow(raw.created_at ?? raw.createdAt), updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
+      };
   }
 }
 
