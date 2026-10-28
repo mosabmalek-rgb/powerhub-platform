@@ -85,6 +85,7 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
     refreshBackoffActive: boolean;
     lastRefreshErrorName: string | null;
   };
+  resetBackoff: () => void;
 } {
   const now = dependencies.now ?? Date.now;
   let tokenResolutionInFlight: Promise<string | null> | null = null;
@@ -234,5 +235,11 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
       refreshBackoffActive: refreshRetryAfter > now(),
       lastRefreshErrorName: lastRefreshError?.name ?? null,
     }),
+    // Explicit user retry may follow a corrected clock, network, or SDK state.
+    // Reset only throttling metadata; never mutate or delete the session itself.
+    resetBackoff: () => {
+      refreshRetryAfter = 0;
+      lastRefreshError = null;
+    },
   });
 }
