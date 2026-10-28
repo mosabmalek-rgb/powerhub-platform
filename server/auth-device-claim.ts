@@ -2,7 +2,9 @@ import { TRPCError } from "@trpc/server";
 import { measureSlowStage, withAbortSignalIfSupported, withTimeout } from "./performance-telemetry";
 import { supabaseAdmin } from "./supabase-admin";
 
-export const POWERHUB_DEVICE_CLAIM_TIMEOUT_MS = 3_500;
+// Keep the sequential auth.me path within its 10s client recovery deadline:
+// getUser (3.5s) + profile sync (3.5s) + device claim (2s) = 9s server-side.
+export const POWERHUB_DEVICE_CLAIM_TIMEOUT_MS = 2_000;
 
 export type PowerHubDeviceClaimOperation =
   | "auth.claimDevice"
