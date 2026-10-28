@@ -38,6 +38,7 @@ const NON_RETRYABLE_AUTH_BOOTSTRAP_ERROR_NAMES = new Set([
   "PowerHubSessionTokenUnavailableError",
   "PowerHubDeviceIdentityUnavailableError",
   "PowerHubConnectivityUnresolvedError",
+  "PowerHubDeviceClockSkewError",
 ]);
 
 function isNonRetryableAuthBootstrapError(error: unknown): boolean {
