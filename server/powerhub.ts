@@ -518,7 +518,7 @@ export const powerhubRouter = router({
   deltaSync: router({
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"]),
       afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
       throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
       pageSize: z.number().int().min(1).max(500).default(200),
@@ -536,24 +536,24 @@ export const powerhubRouter = router({
         expenses: ["owner", "manager", "accountant", "viewer"],
         company_accounts: ["owner", "manager", "accountant"],
         company_accounts_all: ["owner", "manager", "accountant"],
+        inventory_items: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_item_units: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        suppliers: ["owner", "manager", "accountant", "collector", "viewer"],
+        inventory_warehouses: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
       } as const;
+      const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
+        : ["inventory_items", "inventory_item_units", "inventory_warehouses"].includes(input.entityType) ? "viewInventory" : undefined;
       const access = input.entityType === "company_accounts_all"
         ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
-        : await requireSupabaseSiteRole(
-            ctx.user.id,
-            input.siteId,
-            [...readRolesByEntity[input.entityType]],
-          );
+        : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]], inventoryCapability);
       const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
       const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
-      const { data, error } = await supabaseAdmin().rpc("powerhub_pull_sync_delta", {
-        p_tenant_id: access.tenantId,
-        p_site_id: input.siteId,
-        p_entity_type: input.entityType,
-        p_after_cursor: afterCursor,
-        p_through_cursor: throughCursor,
-        p_page_size: input.pageSize,
-      });
+      const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"].includes(input.entityType);
+      const { data, error } = await supabaseAdmin().rpc(
+        inventoryCatalogEntity ? "powerhub_pull_inventory_catalog_sync_delta" : "powerhub_pull_sync_delta",
+        { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
+          p_after_cursor: afterCursor, p_through_cursor: throughCursor, p_page_size: input.pageSize },
+      );
       if (error) {
         if (error.message.includes("POWERHUB_SYNC_CURSOR_INVALID") || error.message.includes("POWERHUB_SYNC_TARGET_CURSOR_INVALID")) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر المزامنة غير صالح؛ أعد تحميل لقطة البيانات." });
@@ -580,7 +580,7 @@ export const powerhubRouter = router({
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"]),
     })).query(async ({ ctx, input }) => {
       const readRolesByEntity = {
         sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
@@ -593,13 +593,21 @@ export const powerhubRouter = router({
         expenses: ["owner", "manager", "accountant", "viewer"],
         company_accounts: ["owner", "manager", "accountant"],
         company_accounts_all: ["owner", "manager", "accountant"],
+        inventory_items: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_item_units: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        suppliers: ["owner", "manager", "accountant", "collector", "viewer"],
+        inventory_warehouses: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
       } as const;
+      const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
+        : ["inventory_items", "inventory_item_units", "inventory_warehouses"].includes(input.entityType) ? "viewInventory" : undefined;
       const access = input.entityType === "company_accounts_all"
         ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
-        : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]]);
-      const { data, error } = await supabaseAdmin().rpc("powerhub_get_sync_snapshot", {
-        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
-      });
+        : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]], inventoryCapability);
+      const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"].includes(input.entityType);
+      const { data, error } = await supabaseAdmin().rpc(
+        inventoryCatalogEntity ? "powerhub_get_inventory_catalog_sync_snapshot" : "powerhub_get_sync_snapshot",
+        { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType },
+      );
       if (error) {
         if (error.message.includes("SITE_OUT_OF_SCOPE")) {
           throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الوصول إلى هذا الفرع." });
@@ -3444,7 +3452,7 @@ export const powerhubRouter = router({
         : await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
       const entityTypes = [
         "sites", "subscribers", "generators", "readings", "tariffs",
-        "invoices", "payments", "expenses", "company_accounts", "company_accounts_all",
+        "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses",
       ];
       let query = supabaseAdmin().from("powerhub_sync_scope_state")
         .select("site_id,entity_type,last_cursor")
