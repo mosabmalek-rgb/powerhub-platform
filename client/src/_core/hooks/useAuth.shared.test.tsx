@@ -467,7 +467,8 @@ describe("shared AuthProvider", () => {
     expect(screen.getByText("workspace: checking")).toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(8_001);
+      // Match the production deadline and advance beyond it, rather than timing out early.
+      await vi.advanceTimersByTimeAsync(10_001);
     });
 
     expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();

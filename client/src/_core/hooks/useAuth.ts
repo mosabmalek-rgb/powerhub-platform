@@ -87,7 +87,11 @@ function useAuthController() {
     // authorization failures as if they were connectivity problems.
     retry: (failureCount, error) => {
       const code = (error as { data?: { code?: string } } | null)?.data?.code;
-      return failureCount < 2 && code !== "FORBIDDEN";
+      if (code === "FORBIDDEN") return false;
+      // Device-claim deadlines cancel the upstream request where supported.
+      // Permit one bounded retry, then settle into the recoverable-auth UI.
+      if (code === "GATEWAY_TIMEOUT") return failureCount < 1;
+      return failureCount < 2;
     },
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
