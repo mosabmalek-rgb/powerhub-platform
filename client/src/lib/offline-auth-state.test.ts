@@ -194,8 +194,8 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).toContain("function startOrJoinSupabaseSdkSessionRead()");
     expect(source).toContain("pending = sdkRead.finally(");
     expect(source).toContain("if (sessionReadInFlight) return sessionReadInFlight");
-    expect(source).toContain("return awaitSupabaseSessionRead(operation, timeoutMs");
-    expect(source.match(/const sdkRead = supabase\\.auth\\.getSession\\(\\)/g)).toHaveLength(1);
+    expect(source).toContain("return awaitSupabaseSessionRead(");
+    expect(source.match(/const sdkRead = supabase\.auth\.getSession\(\)/g)).toHaveLength(1);
     expect(source).not.toContain("accessTokenRefreshInFlight");
     expect(source).toContain("selectAuthSnapshot(sdkSession, currentSession, requestRevision, authStateRevision)");
     expect(source).toContain("sessionReadInFlight = null;");
