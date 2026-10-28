@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { clearOfflineQueryCacheForUser, getOfflineAuthUser, persistOfflineAuthUser, removeOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
 import { isNonAuthoritativeInitialNullSessionEvent, resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition, shouldValidateOnlineSession } from "@/lib/offline-auth-state";
-import { probePowerHubConnectivity, resetPowerHubClockObservation, usePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { verifyPowerHubClockForRetry, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { getSupabaseSession, resetSupabaseSessionReadBackoff, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -103,6 +103,7 @@ function useAuthController() {
   const [sessionRecoveryPending, setSessionRecoveryPending] = useState(false);
   const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
   const [sessionRecoveryFailed, setSessionRecoveryFailed] = useState(false);
+  const [explicitRetryError, setExplicitRetryError] = useState<Error | null>(null);
   const { isOnline: powerHubReachable, isChecking: powerHubConnectivityChecking } = usePowerHubConnectivity();
   const canValidateOnlineSession = shouldValidateOnlineSession(
     hasSession,
@@ -488,11 +489,11 @@ function useAuthController() {
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.
-    error: sessionRecoveryFailed
+    error: explicitRetryError ?? (sessionRecoveryFailed
       ? SESSION_RECOVERY_FAILED_ERROR
       : sessionRecoveryTimedOut
       ? SESSION_RECOVERY_TIMEOUT_ERROR
-      : meQuery.error ?? (authProfileCheckTimedOut ? AUTH_PROFILE_CHECK_TIMEOUT_ERROR : null),
+      : meQuery.error ?? (authProfileCheckTimedOut ? AUTH_PROFILE_CHECK_TIMEOUT_ERROR : null)),
     isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
     isOnlineAuthenticated: !isLoggingOut && isOnlineAuthenticated,
     isLoggingOut,
@@ -503,14 +504,41 @@ function useAuthController() {
     powerHubReachable,
     refresh: async () => {
       setAuthProfileCheckTimedOut(false);
+      setExplicitRetryError(null);
       setAuthValidationAttempt((attempt) => attempt + 1);
 
-      // Explicit retry obtains a fresh server-time sample before retrying auth.me.
-      // Never keep blocking protected calls on a stale clock observation after
-      // the user has corrected their device clock.
-      resetPowerHubClockObservation();
+      // Always run a dedicated health request started after the user pressed
+      // retry. Do not join an older connectivity probe that may have captured
+      // the pre-correction device clock.
+      const clockCheck = await verifyPowerHubClockForRetry().catch(() => ({
+        reachable: false, sampleAvailable: false, localMinusServerMs: null,
+        skewDetected: false, clockCheckPending: true, thresholdMs: 300_000,
+      }));
+      if (clockCheck.skewDetected) {
+        const error = Object.assign(new Error("ساعة جهازك غير متزامنة مع وقت خادم PowerHub."), {
+          name: "PowerHubDeviceClockSkewError",
+          deviceClockSkewMs: clockCheck.localMinusServerMs,
+          deviceClockSkewThresholdMs: clockCheck.thresholdMs,
+        });
+        setExplicitRetryError(error);
+        return;
+      }
+      if (!clockCheck.sampleAvailable || clockCheck.clockCheckPending) {
+        setExplicitRetryError(Object.assign(
+          new Error("تعذر الحصول على عينة وقت حديثة من خادم PowerHub. تحقق من الاتصال ثم أعد المحاولة."),
+          { name: "PowerHubDeviceClockVerificationPendingError" },
+        ));
+        return;
+      }
+      if (!clockCheck.reachable) {
+        setExplicitRetryError(Object.assign(
+          new Error("تعذر الوصول إلى خادم PowerHub للتحقق من الجلسة. أعد المحاولة عند استقرار الاتصال."),
+          { name: "PowerHubConnectivityUnresolvedError" },
+        ));
+        return;
+      }
+
       resetSupabaseSessionReadBackoff();
-      await probePowerHubConnectivity().catch(() => false);
 
       if (sessionRecoveryPending || sessionRecoveryTimedOut || sessionRecoveryFailed) {
         transientSignOutRecovery.current = false;
