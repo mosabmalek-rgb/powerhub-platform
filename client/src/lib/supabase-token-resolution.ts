@@ -76,7 +76,13 @@ function normalizeReadError(error: unknown): Error {
  */
 export function createSupabaseAccessTokenResolver<TSession extends SupabaseTokenSession>(
   dependencies: SupabaseTokenResolutionDependencies<TSession>,
-): () => Promise<string | null> {
+): (() => Promise<string | null>) & {
+  getDiagnostics: () => {
+    resolutionInFlight: boolean;
+    refreshBackoffActive: boolean;
+    lastRefreshErrorName: string | null;
+  };
+} {
   const now = dependencies.now ?? Date.now;
   let tokenResolutionInFlight: Promise<string | null> | null = null;
   let refreshRetryAfter = 0;
