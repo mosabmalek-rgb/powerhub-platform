@@ -236,17 +236,18 @@ export function WorkspaceHome() {
     // Changing branch/scope already changes the aggregate query keys; only
     // trigger a refresh when the same scoped server fingerprint advances.
     if (!previous || previous.key !== key || previous.revision === revision) return;
-    void Promise.all([
-      summaryQuery.refetch(),
-      allBranchesSummaryQuery.refetch(),
-      ...(canViewFinancialOverview ? [financialOverviewQuery.refetch(), periodMetricsQuery.refetch()] : []),
-    ]);
+    void (selectedScope === "all" ? allBranchesSummaryQuery.refetch() : summaryQuery.refetch());
+    if (canViewFinancialOverview) {
+      void financialOverviewQuery.refetch();
+      if (dashboardPeriod.isReady) void periodMetricsQuery.refetch();
+    }
   }, [
     dashboardRevisionQuery.data?.revision,
     siteId,
     selectedScope,
     user?.id,
     canViewFinancialOverview,
+    dashboardPeriod.isReady,
     summaryQuery.refetch,
     allBranchesSummaryQuery.refetch,
     financialOverviewQuery.refetch,
