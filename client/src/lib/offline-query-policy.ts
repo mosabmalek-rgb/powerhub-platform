@@ -14,7 +14,7 @@ const CACHEABLE_PROCEDURES = new Set([
 
 // Only these list procedures currently have a corresponding Delta reconciliation
 // path. Other cached lists retain their original age and must refetch normally.
-const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs", "companyAccounts", "inventory"]);
+const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs", "companyAccounts"]);
 
 const BLOCKED_PROCEDURES = new Set([
   "admin",
@@ -217,9 +217,8 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // Dashboard totals are persisted as bounded display snapshots only. The UI
   // revalidates them against the server-side change journal; they are never
   // reconstructed from partial client-side financial rows.
-  // Inventory directory lists are persisted only in their default active,
-  // unfiltered form. They are cache-only (not Delta-backed) until matching
-  // server journal projections exist for inventory entities.
+  // Inventory catalog lists are persisted only in their default active,
+  // unfiltered form and use the matching tenant/site-scoped Delta catalog feed.
   if (isSafeInventoryOfflineList(queryKey, segments)) return true;
   if (isSafeDashboardRevision(queryKey, segments)) return true;
   if (isSafeDashboardSnapshot(queryKey, segments)) return true;
