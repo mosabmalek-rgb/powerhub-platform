@@ -202,20 +202,10 @@ export async function getSupabaseSession(): Promise<Session | null> {
 
 let accessTokenRefreshInFlight: Promise<Session | null> | null = null;
 
-/**
- * Resolve Supabase's authoritative stored session for a protected API request.
- * Avoid refreshSession(oldSession): the old refresh token can already have been
- * rotated by Supabase auto-refresh or another tab. getSession() uses auth-js'
- * own single-flight refresh and the stored-winner recovery added in 2.117.1.
- *
- * A null result without a newer auth event is not enough to discard a still
- * valid session snapshot. A real sign-out/account switch increments revision
- * and remains authoritative.
- */
-function resolveLatestSupabaseSessionForAccessToken(timeoutMs: number): Promise<Session | null> {
-  if (accessTokenRefreshInFlight) return accessTokenRefreshInFlight;
-  const requestRevision = authStateRevision;
-  const previousSession = currentSession;
+function awaitSessionResolution(
+  operation: Promise<Session | null>,
+  timeoutMs: number,
+): Promise<Session | null> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -224,20 +214,41 @@ function resolveLatestSupabaseSessionForAccessToken(timeoutMs: number): Promise<
       }));
     }, timeoutMs);
   });
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  });
+}
 
+/**
+ * Resolve Supabase's authoritative stored session for a protected API request.
+ * Avoid refreshSession(oldSession): the old refresh token can already have been
+ * rotated by Supabase auto-refresh or another tab. getSession() uses auth-js'
+ * own single-flight refresh and the stored-winner recovery added in 2.117.1.
+ *
+ * The lock stores the underlying SDK operation, never the per-caller timed-out
+ * Promise. Every caller gets its own deadline, while all callers await the same
+ * storage/refresh operation. A null result without a newer auth event cannot
+ * erase a still-valid snapshot; SIGNED_OUT/account switching remain authoritative.
+ */
+function resolveLatestSupabaseSessionForAccessToken(timeoutMs: number): Promise<Session | null> {
+  if (accessTokenRefreshInFlight) {
+    return awaitSessionResolution(accessTokenRefreshInFlight, timeoutMs);
+  }
+
+  const requestRevision = authStateRevision;
+  const previousSession = currentSession;
   const sdkRead = supabase.auth.getSession().then(({ data, error }) => {
     if (error) throw error;
     const sdkSession = data.session ?? null;
     const selected = selectAuthSnapshot(sdkSession, currentSession, requestRevision, authStateRevision);
 
     if (requestRevision !== authStateRevision) {
-      // A newer auth event (including SIGNED_OUT) wins over this SDK read.
       currentSession = selected;
     } else if (sdkSession) {
       currentSession = selected;
     } else {
-      // Never allow one inconclusive empty snapshot to erase a valid stored
-      // winner after concurrent token rotation.
+      // A competing refresh can produce a temporarily empty snapshot. Keep the
+      // prior session only while its own access token is demonstrably unexpired.
       currentSession = isSupabaseSessionUsable(currentSession)
         ? currentSession
         : isSupabaseSessionUsable(previousSession)
@@ -249,44 +260,30 @@ function resolveLatestSupabaseSessionForAccessToken(timeoutMs: number): Promise<
     lastSessionReadError = null;
     sessionReadRetryAfter = 0;
     return currentSession;
+  }).catch((error: unknown) => {
+    const cause = error instanceof Error ? error : new Error("Supabase session resolution failed.");
+    lastSessionReadError = cause;
+    sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
+
+    // A transient read/refresh timeout cannot force a redirect while the
+    // previous user's access token remains valid. Never fall back after a
+    // newer auth event because that may represent logout/account switching.
+    const fallback = requestRevision === authStateRevision
+      ? (isSupabaseSessionUsable(currentSession) ? currentSession : previousSession)
+      : currentSession;
+    if (isSupabaseSessionUsable(fallback)) {
+      currentSession = fallback;
+      return currentSession;
+    }
+    throw cause;
   });
 
   let pending!: Promise<Session | null>;
-  pending = Promise.race([sdkRead, timeout])
-    .catch((error: unknown) => {
-      const cause = error instanceof Error ? error : new Error("Supabase session resolution failed.");
-      lastSessionReadError = cause;
-      sessionReadRetryAfter = Date.now() + SUPABASE_SESSION_READ_ERROR_BACKOFF_MS;
-
-      // A transient read/refresh timeout cannot force a redirect while the
-      // previous user's access token remains valid. Never fall back after a
-      // newer auth event because that may represent logout/account switching.
-      const fallback = requestRevision === authStateRevision
-        ? (isSupabaseSessionUsable(currentSession) ? currentSession : previousSession)
-        : currentSession;
-      if (isSupabaseSessionUsable(fallback)) {
-        currentSession = fallback;
-        return currentSession;
-      }
-      throw cause;
-    })
-    .finally(() => {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-    });
-
+  pending = sdkRead.finally(() => {
+    if (accessTokenRefreshInFlight === pending) accessTokenRefreshInFlight = null;
+  });
   accessTokenRefreshInFlight = pending;
-  // Keep the single-flight gate held if the caller deadline expires before the
-  // underlying SDK operation settles; otherwise each new tRPC batch could
-  // stack a new session read on a still-running refresh.
-  void sdkRead.then(
-    () => {
-      if (accessTokenRefreshInFlight === pending) accessTokenRefreshInFlight = null;
-    },
-    () => {
-      if (accessTokenRefreshInFlight === pending) accessTokenRefreshInFlight = null;
-    },
-  );
-  return pending;
+  return awaitSessionResolution(pending, timeoutMs);
 }
 
 function waitForAuthStateChange(timeoutMs: number): Promise<boolean> {

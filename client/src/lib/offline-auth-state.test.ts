@@ -194,7 +194,11 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).toContain("accessTokenRefreshInFlight");
     expect(source).toContain("previousSession");
     expect(source).toContain("accessTokenRefreshInFlight");
-    expect(source).toContain("selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision)");
+    expect(source).toContain("selectAuthSnapshot(sdkSession, currentSession, requestRevision, authStateRevision)");
+    expect(source).toContain("function awaitSessionResolution(");
+    expect(source).toContain("pending = sdkRead.finally(");
+    expect(source).toContain("awaitSessionResolution(accessTokenRefreshInFlight, timeoutMs)");
+    expect(source).not.toContain("supabase.auth.refreshSession(session)");
     expect(source).toContain("sessionReadInFlight = null;");
     expect(source).toContain("getSupabaseAccessToken(): Promise<string | null>");
     expect(source).toContain("createSupabaseAccessTokenResolver<Session>");
