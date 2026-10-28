@@ -477,6 +477,48 @@ describe("shared AuthProvider", () => {
     queryClient.clear();
   });
 
+  it("does not automatically retry a failed token/device bootstrap, but retries transient transport errors", async () => {
+    let retryPolicy: ((failureCount: number, error: unknown) => boolean) | undefined;
+    mocks.useQuery.mockImplementation((_input: unknown, options: { retry?: (failureCount: number, error: unknown) => boolean }) => {
+      retryPolicy = options.retry;
+      return {
+        data: undefined,
+        isPending: false,
+        isSuccess: false,
+        isError: true,
+        error: new Error("PowerHub could not obtain a usable Supabase access token."),
+        refetch: vi.fn(),
+      };
+    });
+    mocks.getSession.mockResolvedValue({
+      user: { id: "user-1" },
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    });
+    mocks.subscribe.mockReturnValue(vi.fn());
+    mocks.getLease.mockResolvedValue(null);
+    mocks.getOfflineUser.mockResolvedValue(null);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(retryPolicy).toBeTypeOf("function"));
+    expect(retryPolicy?.(0, Object.assign(new Error("expired token"), {
+      name: "PowerHubSessionRefreshFailedError",
+    }))).toBe(false);
+    expect(retryPolicy?.(0, Object.assign(new Error("missing token"), {
+      name: "PowerHubSessionTokenUnavailableError",
+    }))).toBe(false);
+    expect(retryPolicy?.(0, new Error("Failed to fetch"))).toBe(true);
+    expect(retryPolicy?.(0, { data: { code: "FORBIDDEN" } })).toBe(false);
+    queryClient.clear();
+  });
+
   it("does not treat an unauthorized profile response as logout while a live session exists", async () => {
     const unauthorized = Object.assign(new Error("Unauthorized"), {
       data: { code: "UNAUTHORIZED" },
