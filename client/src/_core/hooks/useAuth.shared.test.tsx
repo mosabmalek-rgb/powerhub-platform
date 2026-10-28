@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/offline-connectivity", () => ({
   usePowerHubConnectivity: () => ({ isOnline: mocks.powerHubReachable, isChecking: mocks.powerHubConnectivityChecking }),
+  resetPowerHubClockObservation: vi.fn(),
+  probePowerHubConnectivity: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/trpc", () => ({
