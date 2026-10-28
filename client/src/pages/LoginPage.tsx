@@ -49,6 +49,11 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [awaitingSignInConfirmation, setAwaitingSignInConfirmation] = useState(false);
+  // An explicit "Open login" action must win over automatic offline-cache
+  // restoration; otherwise the login page can redirect straight back to the
+  // workspace and make the button appear broken.
+  const forceLoginRequested = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("forceLogin") === "1";
 
   useEffect(() => {
     // A Supabase snapshot proves only that local session state exists. Do not
@@ -80,6 +85,8 @@ export default function LoginPage() {
   ]);
 
   useEffect(() => {
+    if (forceLoginRequested) return;
+
     let active = true;
 
     const restoreOfflineWorkspace = async () => {
@@ -103,7 +110,7 @@ export default function LoginPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [forceLoginRequested]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
