@@ -221,7 +221,10 @@ describe("Supabase browser refresh wiring", () => {
     expect(main).toContain("fetch: powerHubTRPCFetch");
     const login = readFileSync(new URL("../pages/LoginPage.tsx", import.meta.url), "utf8");
     expect(login).toContain("acceptSupabaseSignInSession(data.session)");
-    expect(login).not.toContain("awaitingSignInConfirmation");
+    // The sign-in response is adopted immediately, but navigation waits for provider validation.
+    expect(login).toContain("setAwaitingSignInConfirmation(true)");
+    expect(login).toContain("shouldRedirectToWorkspaceAfterAuthentication({");
+    expect(login).not.toContain("if (hasSupabaseSession ||");
     expect(login).not.toContain("تهيئة جلسة PowerHub لم تكتمل");
     const packageJson = readFileSync(new URL("../../../package.json", import.meta.url), "utf8");
     const lockfile = readFileSync(new URL("../../../pnpm-lock.yaml", import.meta.url), "utf8");
