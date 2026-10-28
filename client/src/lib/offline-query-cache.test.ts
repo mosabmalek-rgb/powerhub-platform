@@ -22,10 +22,10 @@ describe("offline query cache policy", () => {
 
   it("caches only default active inventory directory lists without granting Delta freshness", () => {
     const allowed = [
-      ["powerhub.inventory.listItems", { input: { siteId: 7, includeInactive: false }, type: "query" }],
-      ["powerhub.inventory.listSuppliers", { input: { siteId: 7, includeInactive: false }, type: "query" }],
+      ["powerhub.inventory.listItems", { input: { siteId: 7, search: undefined, includeInactive: false }, type: "query" }],
+      ["powerhub.inventory.listSuppliers", { input: { siteId: 7, search: undefined, includeInactive: false }, type: "query" }],
       ["powerhub.inventory.listWarehouses", { input: { siteId: 7, includeInactive: false }, type: "query" }],
-      ["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12, includeInactive: false }, type: "query" }],
+      ["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12, includeInactive: true }, type: "query" }],
     ] as const;
     for (const key of allowed) {
       expect(isOfflineCacheableQueryKey(key)).toBe(true);
@@ -33,7 +33,8 @@ describe("offline query cache policy", () => {
       expect(getOfflineQueryStaleTime(key)).toBe(30_000);
     }
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItems", { input: { siteId: 7, search: "fuel", includeInactive: false }, type: "query" }])).toBe(false);
-    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listSuppliers", { input: { siteId: 7, includeInactive: true }, type: "query" }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItems", { input: { siteId: 7, includeInactive: false }, type: "query" }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listSuppliers", { input: { siteId: 7, search: undefined, includeInactive: true }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listWarehouses", { input: { siteId: 0, includeInactive: false }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 0, includeInactive: false }, type: "query" }])).toBe(false);
   });
