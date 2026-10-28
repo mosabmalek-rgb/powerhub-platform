@@ -58,6 +58,9 @@ function hasServerMessage(error: unknown, pattern: RegExp): boolean {
 /** User-safe diagnostics; never display access tokens or raw server messages. */
 export function describeAuthFailure(error: unknown): string {
   const name = errorName(error);
+  if (name === "PowerHubDeviceClockSkewError") {
+    return "ساعة جهازك تختلف بوضوح عن وقت خادم PowerHub. فعّل ضبط الوقت والتاريخ تلقائيًا، وتأكد من المنطقة الزمنية، ثم أعد تحميل الصفحة والمحاولة. لا يعني هذا تسجيل خروج، ولم تُمسح البيانات المحلية أو العمليات المعلقة.";
+  }
   if (name === "PowerHubSupabaseRateLimitError") {
     return "المرحلة: حدّ Supabase مؤقتًا من تجديد الجلسة بسبب كثرة الطلبات؛ أوقف التطبيق التكرار ويمكن فتح تسجيل الدخول لإعادة التحقق دون مسح البيانات المحلية.";
   }

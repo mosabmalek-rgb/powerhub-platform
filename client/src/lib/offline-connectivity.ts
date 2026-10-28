@@ -8,6 +8,24 @@ const INITIAL_FAILED_PROBE_CYCLES_TO_DECLARE_OFFLINE = 3;
 const MIN_FAILED_PROBE_DURATION_MS = 8_000;
 const HEALTH_PATH = "/api/health";
 const PROBE_ATTEMPTS = 2;
+
+// Observe server time for clock-skew diagnostics; never extend token validity.
+export const POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS = 5 * 60 * 1_000;
+export const POWERHUB_DEVICE_CLOCK_SKEW_USER_MESSAGE = "ساعة جهازك غير متزامنة مع وقت خادم PowerHub. صحّح التاريخ والوقت والمنطقة الزمنية وفعّل المزامنة التلقائية، ثم أعد تحميل الصفحة وحاول مرة أخرى. لم تُمسح بيانات العمل أو العمليات المعلقة.";
+let lastPowerHubClockOffsetMs: number | null = null;
+
+export function estimatePowerHubDeviceClockOffsetMs(serverDateHeader: string | null | undefined, requestStartedAtMs: number, responseReceivedAtMs: number): number | null {
+  if (!serverDateHeader || !Number.isFinite(requestStartedAtMs) || !Number.isFinite(responseReceivedAtMs) || responseReceivedAtMs < requestStartedAtMs) return null;
+  const serverTimeMs = Date.parse(serverDateHeader);
+  if (!Number.isFinite(serverTimeMs)) return null;
+  return Math.round(requestStartedAtMs + (responseReceivedAtMs - requestStartedAtMs) / 2 - serverTimeMs);
+}
+export function isDeviceClockOffsetOutsideTolerance(offsetMs: number | null | undefined): boolean {
+  return typeof offsetMs === "number" && Number.isFinite(offsetMs) && Math.abs(offsetMs) > POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS;
+}
+export function getPowerHubClockDiagnostics() {
+  return { sampleAvailable: lastPowerHubClockOffsetMs !== null, localMinusServerMs: lastPowerHubClockOffsetMs, skewDetected: isDeviceClockOffsetOutsideTolerance(lastPowerHubClockOffsetMs), thresholdMs: POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS };
+}
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 let sharedProbe: Promise<boolean> | null = null;
@@ -51,6 +69,7 @@ async function runHealthProbe(fetcher: HealthFetch, timeoutMs: number): Promise<
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), attemptTimeoutMs);
     try {
+      const requestStartedAtMs = Date.now();
       const response = await fetcher(HEALTH_PATH, {
         method: "GET",
         cache: "no-store",
@@ -58,6 +77,8 @@ async function runHealthProbe(fetcher: HealthFetch, timeoutMs: number): Promise<
         headers: { "cache-control": "no-cache" },
         signal: controller.signal,
       });
+      const offsetMs = estimatePowerHubDeviceClockOffsetMs(response.headers.get("date"), requestStartedAtMs, Date.now());
+      if (offsetMs !== null) lastPowerHubClockOffsetMs = offsetMs;
       if (response.ok) return true;
     } catch {
       // Retry once: browser connectivity hints and transient request failures

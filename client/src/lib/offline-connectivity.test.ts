@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { nextPowerHubReachabilityState, probePowerHubConnectivity, subscribeBrowserNetworkStatus } from "./offline-connectivity";
+import { estimatePowerHubDeviceClockOffsetMs, getPowerHubClockDiagnostics, isDeviceClockOffsetOutsideTolerance, nextPowerHubReachabilityState, probePowerHubConnectivity, subscribeBrowserNetworkStatus, POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS } from "./offline-connectivity";
 
 describe("PowerHub connectivity probe", () => {
   it("trusts a successful origin check even when the browser reports offline", async () => {
@@ -39,6 +39,26 @@ describe("PowerHub connectivity probe", () => {
   });
 });
 
+
+describe("PowerHub device clock observation", () => {
+  it("estimates clock offset from server Date and rejects malformed samples", () => {
+    const start = Date.parse("2026-10-28T20:00:00.000Z"); const end = Date.parse("2026-10-28T20:00:02.000Z");
+    const offset = estimatePowerHubDeviceClockOffsetMs("Wed, 28 Oct 2026 18:00:00 GMT", start, end);
+    expect(offset).toBeGreaterThanOrEqual(7_200_000); expect(offset).toBeLessThanOrEqual(7_201_000);
+    expect(isDeviceClockOffsetOutsideTolerance(offset)).toBe(true);
+    expect(isDeviceClockOffsetOutsideTolerance(POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS)).toBe(false);
+    expect(isDeviceClockOffsetOutsideTolerance(-POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS - 1)).toBe(true);
+    expect(estimatePowerHubDeviceClockOffsetMs(null, start, end)).toBeNull();
+  });
+  it("records clock offset from a successful health response", async () => {
+    const spy = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-28T20:00:00.000Z"));
+    try {
+      const fetcher = vi.fn(async () => new Response("ok", { status: 200, headers: { date: "Wed, 28 Oct 2026 18:00:00 GMT" } }));
+      await expect(probePowerHubConnectivity(fetcher, true)).resolves.toBe(true);
+      expect(getPowerHubClockDiagnostics()).toMatchObject({ sampleAvailable: true, localMinusServerMs: 7_200_000, skewDetected: true });
+    } finally { spy.mockRestore(); }
+  });
+});
 
 describe("browser network status", () => {
   it("tracks browser online/offline events independently of health endpoint probes", () => {

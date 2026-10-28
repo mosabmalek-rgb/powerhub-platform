@@ -69,11 +69,18 @@ queryClient.getMutationCache().subscribe(event => {
 
 async function resolvePowerHubTRPCHeaders() {
   if (isStandalonePublicInvoiceRoute()) return {};
-  const [{ getSupabaseAccessToken, getSupabaseSessionDiagnostics }, { getPowerHubDeviceId }, { getPowerHubConnectivitySnapshot }] = await Promise.all([
+  const [{ getSupabaseAccessToken, getSupabaseSessionDiagnostics }, { getPowerHubDeviceId }, { getPowerHubConnectivitySnapshot, getPowerHubClockDiagnostics, POWERHUB_DEVICE_CLOCK_SKEW_USER_MESSAGE }] = await Promise.all([
     import("./lib/supabase"),
     import("./lib/offline-auth"),
     import("./lib/offline-connectivity"),
   ]);
+  const clock = getPowerHubClockDiagnostics();
+  if (clock.skewDetected) {
+    const error = new Error(POWERHUB_DEVICE_CLOCK_SKEW_USER_MESSAGE);
+    error.name = "PowerHubDeviceClockSkewError";
+    Object.assign(error, { deviceClockSkewMs: clock.localMinusServerMs, deviceClockSkewThresholdMs: clock.thresholdMs });
+    throw error;
+  }
   if (getPowerHubConnectivitySnapshot() === false) {
     const error = new Error("The PowerHub origin is repeatedly unreachable.");
     error.name = "PowerHubConnectivityUnresolvedError";
