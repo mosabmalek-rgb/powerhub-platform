@@ -71,7 +71,6 @@ const DASHBOARD_SNAPSHOT_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "dashboard.allBranchesSummary": new Set(["siteId"]),
   "dashboard.financialOverview": new Set(["siteId", "scope", "includeDetails"]),
   "dashboard.periodMetrics": new Set(["siteId", "scope", "startDate", "endDate", "includeDetails"]),
-  "dashboard.deltaRevision": new Set(["siteId", "scope"]),
 };
 
 function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[]) {
@@ -85,9 +84,6 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
 
   if (procedure === "dashboard.summary" || procedure === "dashboard.allBranchesSummary") {
     return Object.keys(input).length === 1;
-  }
-  if (procedure === "dashboard.deltaRevision") {
-    return Object.keys(input).length === 2 && (input.scope === "branch" || input.scope === "all");
   }
   if (input.scope !== "branch" && input.scope !== "all" || input.includeDetails !== false) return false;
   if (procedure === "dashboard.financialOverview") return Object.keys(input).length === 3;
@@ -195,6 +191,11 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // must opt in explicitly rather than inheriting permission from the router name.
   if (segments.length < 3 || segments[2] !== "list") return false;
   return CACHEABLE_PROCEDURES.has(segments[1] ?? "");
+}
+
+export function isOfflineDashboardSnapshotQueryKey(queryKey: readonly unknown[]) {
+  const segments = getPowerHubQuerySegments(queryKey);
+  return isSafeDashboardSnapshot(queryKey, segments);
 }
 
 export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
