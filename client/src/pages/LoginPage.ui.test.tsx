@@ -140,6 +140,25 @@ describe("LoginPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحين.");
   });
 
+  it("keeps the explicit login route open instead of restoring a cached offline workspace", async () => {
+    vi.stubGlobal("navigator", { ...navigator, onLine: true });
+    vi.stubGlobal("location", new URL("https://powerhub.test/login?forceLogin=1"));
+    state.probePowerHubConnectivity.mockResolvedValue(false);
+    state.getValidOfflineAuthLease.mockResolvedValue({
+      userId: "cached-user",
+      issuedAt: Date.now() - 60_000,
+      expiresAt: Date.now() + 60_000,
+    });
+    state.getOfflineAuthUser.mockResolvedValue({ id: "cached-user", email: "admin@powerhub.test" });
+
+    render(<LoginPage />);
+
+    await waitFor(() => expect(state.probePowerHubConnectivity).toHaveBeenCalled());
+    expect(state.setLocation).not.toHaveBeenCalledWith("/workspace");
+    expect(state.getValidOfflineAuthLease).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "تسجيل الدخول" })).toBeInTheDocument();
+  });
+
   it("restores a cached workspace when navigator.online is stale but PowerHub is unreachable", async () => {
     vi.stubGlobal("navigator", { ...navigator, onLine: true });
     state.probePowerHubConnectivity.mockResolvedValue(false);
