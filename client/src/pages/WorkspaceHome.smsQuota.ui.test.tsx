@@ -21,6 +21,8 @@ const state = vi.hoisted(() => ({
   smsUsed: 42,
   branchPolicyError: false,
   financialOverviewError: false,
+  dashboardCachedOnError: false,
+  dashboardRevisionError: false,
   companyAccountsError: false,
   refetchFinancialOverview: vi.fn(),
   refetchCompanyAccounts: vi.fn(),
@@ -45,7 +47,7 @@ vi.mock("@/lib/trpc", () => ({
     powerhub: {
       sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: false }) }, branchPolicy: { useQuery: () => ({ data: state.branchPolicy, isLoading: false, isError: state.branchPolicyError, refetch: state.refetchBranchPolicy }) } },
       readingCycle: { currentBounds: { useQuery: () => ({ data: { cycleKey: "2026-10", cycleLabel: "أكتوبر 2026", billingPeriod: "2026-10", startAt: "2026-10-01T00:00:00.000Z", endAt: "2026-10-31T20:59:59.999Z" }, isLoading: false, isError: false, refetch: vi.fn() }) }, boundsAt: { useQuery: () => ({ data: { cycleKey: "2026-09", cycleLabel: "سبتمبر 2026", billingPeriod: "2026-09", startAt: "2026-09-01T00:00:00.000Z", endAt: "2026-09-30T20:59:59.999Z" }, isLoading: false, isError: false, refetch: vi.fn() }) } },
-      dashboard: { deltaRevision: { useQuery: () => ({ data: { revision: "0", observedAt: "2026-10-29T00:00:00.000Z", scope: "branch", siteId: 1 }, isLoading: false, isError: false, refetch: vi.fn() }) }, summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: (_input: unknown, options?: { enabled?: boolean }) => { state.financialOverviewEnabled = Boolean(options?.enabled); return { data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: state.financialOverviewError, refetch: state.refetchFinancialOverview }; } }, periodMetrics: { useQuery: (input: { siteId: number; scope: "branch" | "all"; startDate: string; endDate: string }, options?: { enabled?: boolean }) => { state.periodMetricsEnabled = Boolean(options?.enabled); return { data: { range: { startDate: input.startDate, endDate: input.endDate }, scope: input.scope, summary: { invoiced: 0, collected: 0, collectionRate: 0, outstanding: 0, overdue: 0, overdueInvoiceCount: 0, overdueSubscriberCount: 0 }, outstandingInvoices: [] }, isLoading: false, isError: state.financialOverviewError, refetch: vi.fn() }; } } },
+      dashboard: { deltaRevision: { useQuery: () => ({ data: { revision: "0", observedAt: "2026-10-29T00:00:00.000Z", scope: "branch", siteId: 1 }, isLoading: false, isError: state.dashboardRevisionError, refetch: vi.fn() }) }, summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: (_input: unknown, options?: { enabled?: boolean }) => { state.financialOverviewEnabled = Boolean(options?.enabled); return { data: state.financialOverviewError && !state.dashboardCachedOnError ? undefined : { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: state.financialOverviewError, refetch: state.refetchFinancialOverview }; } }, periodMetrics: { useQuery: (input: { siteId: number; scope: "branch" | "all"; startDate: string; endDate: string }, options?: { enabled?: boolean }) => { state.periodMetricsEnabled = Boolean(options?.enabled); return { data: state.financialOverviewError && !state.dashboardCachedOnError ? undefined : { range: { startDate: input.startDate, endDate: input.endDate }, scope: input.scope, summary: { invoiced: 0, collected: 0, collectionRate: 0, outstanding: 0, overdue: 0, overdueInvoiceCount: 0, overdueSubscriberCount: 0 }, outstandingInvoices: [] }, isLoading: false, isError: state.financialOverviewError, refetch: vi.fn() }; } } },
       performance: {
         readingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
         allBranchesReadingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
@@ -78,6 +80,8 @@ afterEach(() => {
   state.smsUsed = 42;
   state.branchPolicyError = false;
   state.financialOverviewError = false;
+  state.dashboardCachedOnError = false;
+  state.dashboardRevisionError = false;
   state.companyAccountsError = false;
   state.refetchFinancialOverview.mockReset();
   state.refetchCompanyAccounts.mockReset();
@@ -203,6 +207,16 @@ describe("بطاقة رصيد SMS في لوحة المالك", () => {
     expect(screen.getByText("فوترة الفترة: —")).toBeInTheDocument();
     expect(screen.getByText("نتيجة اليوم")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(2);
+  });
+
+  it("يعرض اللقطة المحفوظة عند تعذر الشبكة ويصرّح بأنها غير مؤكدة الحداثة", () => {
+    state.financialOverviewError = true;
+    state.dashboardCachedOnError = true;
+    state.dashboardRevisionError = true;
+    render(<WorkspaceHome />);
+    expect(screen.getByRole("status")).toHaveTextContent("تعذر التحقق من حداثة لقطة لوحة التحكم");
+    expect(screen.getByText("فوترة الفترة: 0")).toBeInTheDocument();
+    expect(screen.getByText("تحصيل الفترة: 0")).toBeInTheDocument();
   });
 
   it("لا يطلب الملخص المالي ولا مؤشرات الفترة للأدوار التي لا يسمح لها الخادم بقراءتها", () => {
