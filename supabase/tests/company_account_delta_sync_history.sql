@@ -81,11 +81,34 @@ create table public.account_transactions (
  amount numeric not null, description text, reference_no text, related_payment_id bigint, related_account_id bigint,
  created_by_user_id bigint, occurred_at timestamptz not null default now(), created_at timestamptz not null default now()
 );
+create table public.inventory_items (
+ id bigint primary key, tenant_id bigint not null, sku text, name text not null, category text not null,
+ base_unit text not null, reorder_point numeric not null default 0, specification text, notes text,
+ is_active boolean not null default true, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table public.inventory_item_units (
+ id bigint primary key, tenant_id bigint not null, item_id bigint not null, unit_label text not null,
+ factor_to_base numeric not null, is_active boolean not null default true,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table public.suppliers (
+ id bigint primary key, tenant_id bigint not null, supplier_code text, name text not null,
+ contact_name text, phone text, email text, address text, tax_number text,
+ default_payment_terms_days integer not null default 0, supplier_type text not null default 'permanent',
+ notes text, is_active boolean not null default true,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table public.inventory_warehouses (
+ id bigint primary key, tenant_id bigint not null, site_id bigint not null, code text not null, name text not null,
+ notes text, is_active boolean not null default true, location_type text not null default 'branch_warehouse',
+ generator_id bigint, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
 \ir ../migrations/20261027110000_powerhub_delta_invoice_history.sql
 \ir ../migrations/20261027130000_powerhub_delta_payment_history.sql
 \ir ../migrations/20261027140000_powerhub_delta_expense_history.sql
 \ir ../migrations/20261027150000_powerhub_delta_company_account_history.sql
+\ir ../migrations/20261029000000_powerhub_delta_inventory_catalog.sql
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
 begin
@@ -330,3 +353,98 @@ begin
 end;
 $company_account_link_move_test$;
 
+-- Inventory catalog Delta: tenant-wide catalog changes must reach each tenant site;
+-- warehouse changes are branch-scoped and inactive rows must emit tombstones.
+do $inventory_catalog_delta_test$
+declare
+  v_snapshot jsonb;
+  v_delta jsonb;
+  v_cursor10 bigint;
+  v_cursor20 bigint;
+begin
+  insert into public.inventory_items(id,tenant_id,sku,name,category,base_unit,reorder_point,is_active)
+  values (1101,1,'SKU-1101','Diesel','fuel','liter',10,true);
+  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,10,'inventory_items');
+  if jsonb_array_length(v_snapshot->'rows')<>1 or v_snapshot #>> '{rows,0,id}' is distinct from '1101' then
+    raise exception 'Inventory item snapshot failed: %',v_snapshot;
+  end if;
+  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,20,'inventory_items');
+  if jsonb_array_length(v_snapshot->'rows')<>1 or v_snapshot #>> '{rows,0,id}' is distinct from '1101' then
+    raise exception 'Tenant-wide inventory item did not reach second site: %',v_snapshot;
+  end if;
+  v_cursor10:=(v_snapshot->>'snapshot_cursor')::bigint;
+  update public.inventory_items set is_active=false where tenant_id=1 and id=1101;
+  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,20,'inventory_items',v_cursor10,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '1101' then
+    raise exception 'Inactive item tombstone failed: %',v_delta;
+  end if;
+
+  update public.inventory_items set is_active=true where tenant_id=1 and id=1101;
+  insert into public.inventory_item_units(id,tenant_id,item_id,unit_label,factor_to_base,is_active)
+  values (1201,1,1101,'barrel',200,true);
+  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,10,'inventory_item_units');
+  if jsonb_array_length(v_snapshot->'rows')<>1
+     or v_snapshot #>> '{rows,0,item_id}' is distinct from '1101'
+     or v_snapshot #>> '{rows,0,id}' is distinct from '1201' then
+    raise exception 'Inventory item-unit snapshot failed: %',v_snapshot;
+  end if;
+  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,20,'inventory_item_units',0,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
+     or v_delta #>> '{changes,0,row_data,factor_to_base}' is distinct from '200' then
+    raise exception 'Inventory item-unit Delta failed: %',v_delta;
+  end if;
+
+  insert into public.suppliers(id,tenant_id,supplier_code,name,supplier_type,is_active)
+  values (1301,1,'SUP-1301','Supplier Delta Test','permanent',true);
+  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,10,'suppliers');
+  if jsonb_array_length(v_snapshot->'rows')<>1
+     or v_snapshot #>> '{rows,0,id}' is distinct from '1301'
+     or v_snapshot #>> '{rows,0,supplier_type}' is distinct from 'permanent' then
+    raise exception 'Supplier catalog snapshot failed: %',v_snapshot;
+  end if;
+
+  insert into public.inventory_warehouses(id,tenant_id,site_id,code,name,is_active)
+  values (1401,1,10,'WH-1401','Branch Warehouse',true);
+  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,10,'inventory_warehouses');
+  if jsonb_array_length(v_snapshot->'rows')<>1 or v_snapshot #>> '{rows,0,id}' is distinct from '1401' then
+    raise exception 'Warehouse snapshot failed: %',v_snapshot;
+  end if;
+  v_cursor10:=(v_snapshot->>'snapshot_cursor')::bigint;
+  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,20,'inventory_warehouses');
+  if jsonb_array_length(v_snapshot->'rows')<>0 then
+    raise exception 'Warehouse leaked into unrelated branch: %',v_snapshot;
+  end if;
+  v_cursor20:=(v_snapshot->>'snapshot_cursor')::bigint;
+  update public.inventory_warehouses set site_id=20 where tenant_id=1 and id=1401;
+  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,10,'inventory_warehouses',v_cursor10,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,operation}' is distinct from 'delete' then
+    raise exception 'Warehouse move did not tombstone old branch: %',v_delta;
+  end if;
+  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,20,'inventory_warehouses',v_cursor20,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
+     or v_delta #>> '{changes,0,row_data,site_id}' is distinct from '20' then
+    raise exception 'Warehouse move did not publish new branch: %',v_delta;
+  end if;
+
+  begin
+    perform public.powerhub_get_inventory_catalog_sync_snapshot(2,10,'inventory_items');
+    raise exception 'Expected inventory snapshot to reject cross-tenant site';
+  exception when others then if sqlerrm<>'SITE_OUT_OF_SCOPE' then raise; end if; end;
+
+  if has_function_privilege('anon','public.powerhub_get_inventory_catalog_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_pull_inventory_catalog_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_append_inventory_catalog_sync_change(bigint,bigint,text,text,text,jsonb)','EXECUTE')
+     or has_table_privilege('anon','public.powerhub_sync_changes','SELECT')
+     or has_table_privilege('authenticated','public.powerhub_sync_scope_state','SELECT') then
+    raise exception 'Inventory Delta server-only ACL boundary was weakened';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_get_inventory_catalog_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_pull_inventory_catalog_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'service_role cannot execute inventory Delta functions';
+  end if;
+end;
+$inventory_catalog_delta_test$;
