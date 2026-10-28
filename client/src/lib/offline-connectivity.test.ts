@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { estimatePowerHubDeviceClockOffsetMs, getPowerHubClockDiagnostics, isDeviceClockOffsetOutsideTolerance, nextPowerHubReachabilityState, probePowerHubConnectivity, subscribeBrowserNetworkStatus, POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS } from "./offline-connectivity";
+import { estimatePowerHubDeviceClockOffsetMs, getPowerHubClockDiagnostics, isDeviceClockOffsetOutsideTolerance, nextPowerHubReachabilityState, probePowerHubConnectivity, resetPowerHubClockObservation, subscribeBrowserNetworkStatus, POWERHUB_DEVICE_CLOCK_SKEW_THRESHOLD_MS } from "./offline-connectivity";
 
 describe("PowerHub connectivity probe", () => {
   it("trusts a successful origin check even when the browser reports offline", async () => {
@@ -57,6 +57,28 @@ describe("PowerHub device clock observation", () => {
       await expect(probePowerHubConnectivity(fetcher, true)).resolves.toBe(true);
       expect(getPowerHubClockDiagnostics()).toMatchObject({ sampleAvailable: true, localMinusServerMs: 7_200_000, skewDetected: true });
     } finally { spy.mockRestore(); }
+  });
+
+  it("clears a stale skew observation so a corrected clock is decided by a fresh server sample", async () => {
+    resetPowerHubClockObservation();
+    const skewedTime = Date.parse("2026-10-28T20:00:00.000Z");
+    const spy = vi.spyOn(Date, "now").mockReturnValue(skewedTime);
+    try {
+      await probePowerHubConnectivity(vi.fn(async () =>
+        new Response("ok", { status: 200, headers: { date: "Wed, 28 Oct 2026 18:00:00 GMT" } })), true);
+      expect(getPowerHubClockDiagnostics().skewDetected).toBe(true);
+
+      resetPowerHubClockObservation();
+      expect(getPowerHubClockDiagnostics()).toMatchObject({ sampleAvailable: false, localMinusServerMs: null, skewDetected: false });
+
+      spy.mockReturnValue(Date.parse("2026-10-28T18:00:00.000Z"));
+      await probePowerHubConnectivity(vi.fn(async () =>
+        new Response("ok", { status: 200, headers: { date: "Wed, 28 Oct 2026 18:00:00 GMT" } })), true);
+      expect(getPowerHubClockDiagnostics()).toMatchObject({ sampleAvailable: true, skewDetected: false });
+    } finally {
+      spy.mockRestore();
+      resetPowerHubClockObservation();
+    }
   });
 });
 
