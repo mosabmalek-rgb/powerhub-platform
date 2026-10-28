@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getValidOfflineAuthLease } from "@/lib/offline-auth";
 import { getOfflineAuthUser } from "@/lib/offline-query-cache";
-import { resetSupabaseSessionReadBackoff, supabase } from "@/lib/supabase";
+import { acceptSupabaseSignInSession, resetSupabaseSessionReadBackoff, supabase } from "@/lib/supabase";
 import { probePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { shouldRedirectToWorkspaceAfterAuthentication } from "@/lib/auth-routing";
 import { describeAuthFailure } from "@/lib/auth-diagnostics";
@@ -41,30 +41,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [awaitingSignInConfirmation, setAwaitingSignInConfirmation] = useState(false);
 
   useEffect(() => {
     // Never route on the sign-in response or a session snapshot alone. Wait
     // until the shared AuthProvider has validated the account state.
-    if (shouldRedirectToWorkspaceAfterAuthentication({
+    // A real session should leave /login even while auth.me is pending.
+    // The protected workspace route remains responsible for server validation.
+    if (hasSupabaseSession || shouldRedirectToWorkspaceAfterAuthentication({
       loading: authLoading,
       isAuthenticated,
     })) {
-      setAwaitingSignInConfirmation(false);
       setLocation("/workspace");
     }
-  }, [authLoading, isAuthenticated, setLocation]);
-
-  useEffect(() => {
-    if (!awaitingSignInConfirmation || isAuthenticated) return;
-    // A successful password response followed by a missing AuthProvider
-    // transition must settle visibly instead of bouncing between routes.
-    const timer = window.setTimeout(() => {
-      setAwaitingSignInConfirmation(false);
-      setError("تم قبول بيانات الدخول، لكن تهيئة جلسة PowerHub لم تكتمل. أعد المحاولة؛ لم تُمسح البيانات المحلية.");
-    }, 8_000);
-    return () => window.clearTimeout(timer);
-  }, [awaitingSignInConfirmation, isAuthenticated]);
+  }, [hasSupabaseSession, authLoading, isAuthenticated, setLocation]);
 
   useEffect(() => {
     let active = true;
@@ -120,10 +109,11 @@ export default function LoginPage() {
       if (signInError) throw signInError;
       if (!data.session) throw new Error("تعذر تثبيت جلسة الدخول. حاول مرة أخرى.");
 
-      // The sign-in response confirms the password exchange, not that the
-      // shared AuthProvider/auth.me transition has finished. Let the effect
-      // above navigate only after isAuthenticated becomes true.
-      setAwaitingSignInConfirmation(true);
+      // Seed the shared session from the authoritative sign-in response, then
+      // enter the protected workspace. RouteAccessGate holds protected data
+      // until its independent server-side auth.me validation succeeds.
+      acceptSupabaseSignInSession(data.session);
+      setLocation("/workspace");
     } catch (submitError) {
       const networkFailure = submitError instanceof TypeError ||
         /failed to fetch|networkerror|network request failed|load failed|fetch failed|network.*(?:unavailable|offline)|connection (?:lost|reset|refused)|timeout/i.test(
@@ -166,12 +156,6 @@ export default function LoginPage() {
           <p className="text-sm font-bold text-[#F5B800]">حساب PowerHub</p>
           <h2 className="mt-2 text-2xl font-extrabold">تسجيل الدخول</h2>
           <p className="mt-2 text-sm leading-6 text-slate-400">أدخل بريدك وكلمة المرور للوصول إلى المساحة المصرح بها.</p>
-          {awaitingSignInConfirmation ? (
-            <div role="status" aria-live="polite" className="mt-5 rounded-xl border border-sky-500/25 bg-sky-500/5 p-3 text-sm leading-6 text-sky-900">
-              <p className="font-bold text-sky-800">تم قبول بيانات الدخول؛ جارٍ تثبيت الجلسة والتحقق من الحساب…</p>
-              <p className="mt-1 text-xs text-sky-800">لن ننتقل إلى مساحة العمل حتى تنتهي تهيئة المصادقة. إذا تعذر إكمالها فستظهر رسالة قابلة للاسترداد بدل حلقة توجيه.</p>
-            </div>
-          ) : null}
           {hasSupabaseSession && !isAuthenticated ? (
             <div role="status" aria-live="polite" className="mt-5 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-sm leading-6 text-amber-900">
               <p className="font-bold text-amber-800">
@@ -202,7 +186,7 @@ export default function LoginPage() {
             <div className="space-y-2"><Label htmlFor="email" className="text-[#263546]">البريد الإلكتروني</Label><div className="relative"><Mail className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="email" type="email" autoComplete="email" dir="ltr" value={email} onChange={(event) => setEmail(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="you@example.com" /></div></div>
             <div className="space-y-2"><Label htmlFor="password" className="text-[#263546]">كلمة المرور</Label><div className="relative"><KeyRound className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="password" type="password" autoComplete="current-password" dir="ltr" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="••••••••" /></div></div>
             {error && <p role="alert" className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-700">{error}</p>}
-            <Button disabled={pending || awaitingSignInConfirmation} type="submit" className="h-11 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ المتابعة…</> : "تسجيل الدخول"}</Button>
+            <Button disabled={pending} type="submit" className="h-11 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ المتابعة…</> : "تسجيل الدخول"}</Button>
           </form>
         </section>
       </div>

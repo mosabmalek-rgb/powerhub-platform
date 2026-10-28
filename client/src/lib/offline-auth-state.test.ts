@@ -202,6 +202,8 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).not.toContain("supabase.auth.refreshSession(session");
     expect(source).toContain("getSupabaseAccessToken(): Promise<string | null>");
     expect(source).toContain("createSupabaseAccessTokenResolver<Session>");
+    expect(source).toContain("export function acceptSupabaseSignInSession(session: Session): void");
+    expect(source).toContain('subscriber("SIGNED_IN", session)');
     expect(resolver).toContain("SUPABASE_ACCESS_TOKEN_RESOLUTION_TIMEOUT_MS = 7_500");
     expect(resolver).toContain("SUPABASE_SESSION_REFRESH_TIMEOUT_MS = 6_000");
     expect(resolver).toContain("if (refreshRetryAfter > now())");
@@ -217,6 +219,10 @@ describe("Supabase browser refresh wiring", () => {
     expect(main).toContain("false: httpBatchLink({");
     expect(main).toContain("headers: resolvePowerHubTRPCHeaders");
     expect(main).toContain("fetch: powerHubTRPCFetch");
+    const login = readFileSync(new URL("../pages/LoginPage.tsx", import.meta.url), "utf8");
+    expect(login).toContain("acceptSupabaseSignInSession(data.session)");
+    expect(login).not.toContain("awaitingSignInConfirmation");
+    expect(login).not.toContain("تهيئة جلسة PowerHub لم تكتمل");
     const packageJson = readFileSync(new URL("../../../package.json", import.meta.url), "utf8");
     const lockfile = readFileSync(new URL("../../../pnpm-lock.yaml", import.meta.url), "utf8");
     expect(packageJson).toContain('"@supabase/supabase-js": "^2.117.2"');

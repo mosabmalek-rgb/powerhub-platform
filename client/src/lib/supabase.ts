@@ -73,6 +73,28 @@ export function subscribeSupabaseAuthState(subscriber: AuthSubscriber) {
   return () => authSubscribers.delete(subscriber);
 }
 
+/**
+ * Adopt the authoritative session returned by signInWithPassword immediately.
+ * The SDK event remains enabled; this synchronous handoff prevents tRPC headers
+ * and AuthProvider from racing browser storage/event propagation after sign-in.
+ */
+export function acceptSupabaseSignInSession(session: Session): void {
+  ensureAuthSubscription();
+  if (!session?.user?.id || !isSupabaseSessionUsable(session)) {
+    throw new Error("Supabase returned no usable session after sign-in.");
+  }
+
+  authStateRevision += 1;
+  currentSession = session;
+  sessionInitialized = true;
+  sessionReadRetryAfter = 0;
+  lastSessionReadError = null;
+
+  // Route gates and AuthProvider share the same transition. Protected content
+  // still requires the online auth.me validation performed by RouteAccessGate.
+  for (const subscriber of authSubscribers) subscriber("SIGNED_IN", session);
+}
+
 /** Clear the bounded session-read cooldown for an explicit user-initiated retry. */
 export function resetSupabaseSessionReadBackoff(): void {
   sessionReadRetryAfter = 0;

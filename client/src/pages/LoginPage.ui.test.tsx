@@ -12,12 +12,15 @@ const state = vi.hoisted(() => ({
   signUp: vi.fn(),
   getValidOfflineAuthLease: vi.fn(),
   getOfflineAuthUser: vi.fn(),
+  acceptSupabaseSignInSession: vi.fn(),
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: state.useAuth }));
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
+  acceptSupabaseSignInSession: state.acceptSupabaseSignInSession,
+  resetSupabaseSessionReadBackoff: vi.fn(),
 }));
 vi.mock("@/lib/offline-connectivity", () => ({
   probePowerHubConnectivity: state.probePowerHubConnectivity,
@@ -40,20 +43,34 @@ afterEach(() => {
   state.signUp.mockReset();
   state.getValidOfflineAuthLease.mockReset();
   state.getOfflineAuthUser.mockReset();
+  state.acceptSupabaseSignInSession.mockReset();
   vi.stubGlobal("navigator", { ...navigator, onLine: true });
 });
 
 describe("LoginPage", () => {
-  it("signs in with email and password through Supabase", async () => {
-    state.signInWithPassword.mockResolvedValue({
-      data: { session: { access_token: "fresh-access-token", expires_at: Math.floor(Date.now() / 1000) + 3600 } },
-      error: null,
-    });
+  it("adopts the successful Supabase session and enters the guarded workspace without waiting for auth.me", async () => {
+    const session = {
+      access_token: "fresh-access-token",
+      refresh_token: "fresh-refresh-token",
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      user: { id: "user-1", email: "admin@powerhub.test" },
+    };
+    state.signInWithPassword.mockResolvedValue({ data: { session }, error: null });
+    // Provider state is deliberately still pending: the route gate, not the login
+    // form timer, owns server-side auth.me validation and protected-content access.
+    state.useAuth.mockReturnValue({ isAuthenticated: false, loading: true, hasSession: false });
+
     render(<LoginPage />);
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "admin@powerhub.test" } });
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "SecurePass123" } });
     fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
+    await waitFor(() => {
+      expect(state.acceptSupabaseSignInSession).toHaveBeenCalledWith(session);
+      expect(state.setLocation).toHaveBeenCalledWith("/workspace");
+    });
+    expect(screen.queryByText(/تهيئة جلسة PowerHub لم تكتمل/)).not.toBeInTheDocument();
   });
 
   it("leaves the login page while a restored session awaits profile validation", async () => {

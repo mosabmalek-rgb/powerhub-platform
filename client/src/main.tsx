@@ -93,12 +93,33 @@ async function resolvePowerHubTRPCHeaders() {
     throw error;
   }
   let token: string | null;
+  const tokenResolutionStartedAt = performance.now();
   try {
     token = await getSupabaseAccessToken();
   } catch (cause) {
+    const diagnostics = getSupabaseSessionDiagnostics();
+    const safeDiagnostics = {
+      sessionInitialized: diagnostics.sessionInitialized,
+      hasCurrentSession: diagnostics.hasCurrentSession,
+      hasAccessToken: diagnostics.hasAccessToken,
+      tokenExpirySource: diagnostics.tokenExpirySource,
+      tokenUsable: diagnostics.tokenUsable,
+      readInFlight: diagnostics.readInFlight,
+      readBackoffActive: diagnostics.readBackoffActive,
+      lastReadErrorName: diagnostics.lastReadErrorName,
+      refreshInFlight: diagnostics.refreshInFlight,
+      tokenResolution: diagnostics.tokenResolution,
+      authStateRevision: diagnostics.authStateRevision,
+    };
+    console.warn("[PowerHub client auth bootstrap failure]", {
+      stage: "access-token-resolution",
+      elapsedMs: Math.round(performance.now() - tokenResolutionStartedAt),
+      errorName: cause instanceof Error ? cause.name : "UnknownError",
+      ...safeDiagnostics,
+    });
     const error = new Error("PowerHub could not finish Supabase access-token resolution.");
     error.name = cause instanceof Error ? cause.name : "PowerHubSessionTokenUnavailableError";
-    Object.assign(error, { cause, tokenResolution: getSupabaseSessionDiagnostics() });
+    Object.assign(error, { cause, tokenResolution: safeDiagnostics });
     throw error;
   }
   if (!token) {
@@ -129,8 +150,31 @@ async function resolvePowerHubTRPCHeaders() {
   };
 }
 
-function powerHubTRPCFetch(input: RequestInfo | URL, init?: RequestInit) {
-  return globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+async function powerHubTRPCFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const isAuthMe = requestUrl.includes("/api/trpc/auth.me");
+  const startedAt = performance.now();
+  try {
+    const response = await globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    if (isAuthMe && (!response.ok || elapsedMs >= 1_000)) {
+      console.warn("[PowerHub auth.me transport]", {
+        stage: "http-response",
+        status: response.status,
+        elapsedMs,
+      });
+    }
+    return response;
+  } catch (cause) {
+    if (isAuthMe) {
+      console.warn("[PowerHub auth.me transport]", {
+        stage: "network-failure",
+        elapsedMs: Math.round(performance.now() - startedAt),
+        errorName: cause instanceof Error ? cause.name : "UnknownError",
+      });
+    }
+    throw cause;
+  }
 }
 
 const trpcClient = trpc.createClient({
