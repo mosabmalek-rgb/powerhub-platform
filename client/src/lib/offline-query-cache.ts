@@ -1,6 +1,6 @@
 import type { Query, QueryClient } from "@tanstack/react-query";
 import superjson from "superjson";
-import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey } from "./offline-query-policy";
+import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey } from "./offline-query-policy";
 export { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey } from "./offline-query-policy";
 
 const DATABASE_NAME = "powerhub-offline-cache";
@@ -9,6 +9,7 @@ const QUERY_STORE = "queries";
 const AUTH_STORE = "auth-users";
 export const OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER = 200;
 export const OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
+export const OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 let successfulWritesSincePrune = 0;
 let pruneInFlight: Promise<void> | null = null;
 
@@ -217,6 +218,21 @@ export async function hydrateOfflineQueryCache(
 
 export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unknown): unknown {
   const first = queryKey[0];
+  if (isOfflineDashboardSnapshotQueryKey(queryKey) && data && typeof data === "object" && !Array.isArray(data)) {
+    const segments = Array.isArray(first)
+      ? first.filter((part): part is string => typeof part === "string")
+      : typeof first === "string" ? first.split(".") : [];
+    const snapshot = data as Record<string, unknown>;
+    // Dashboard cache is a compact presentation snapshot, not an offline copy
+    // of private debtor/invoice detail. Those rows are fetched live when online.
+    if (segments[2] === "financialOverview") {
+      return { ...snapshot, topDebtors: [], outstandingInvoices: [] };
+    }
+    if (segments[2] === "periodMetrics") {
+      return { ...snapshot, outstandingInvoices: [] };
+    }
+    return data;
+  }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
   if (segments[0] !== "powerhub" || segments[1] !== "payments" || segments[2] !== "page" ||
@@ -275,7 +291,7 @@ async function persistOfflineQueryWithPolicy(
     updatedAt: query.state.dataUpdatedAt || now,
     // Operational snapshots are retained across days; freshness is handled by sync cursors,
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
-    expiresAt: null,
+    expiresAt: isOfflineDashboardSnapshotQueryKey(query.queryKey) ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
   };
 
   try {
