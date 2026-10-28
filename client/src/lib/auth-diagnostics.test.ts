@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { describeAuthFailure } from "./auth-diagnostics";
 
 describe("safe authentication diagnostics", () => {
+  it("explains clock skew as a recoverable device-time issue without implying logout", () => {
+    const wrapped = { name: "TRPCClientError", message: "Request failed", cause: Object.assign(new Error("private clock detail"), { name: "PowerHubDeviceClockSkewError" }) };
+    const hint = describeAuthFailure(wrapped);
+    expect(hint).toContain("ساعة جهازك");
+    expect(hint).toContain("لم تُمسح");
+    expect(hint).not.toContain("private clock detail");
+  });
+
   it("identifies unavailable access tokens before API requests without leaking raw errors", () => {
     const error = Object.assign(new Error("private token detail must not be exposed"), {
       name: "PowerHubSessionTokenUnavailableError",
