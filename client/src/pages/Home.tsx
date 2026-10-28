@@ -26,7 +26,7 @@ import {
   CircleDollarSign, Clock3, FilePlus2, FileText, MessageSquareText, ReceiptText,
   UsersRound, WalletCards, Zap,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import MarketingLandingPage from "./MarketingLandingPage";
 
@@ -145,6 +145,16 @@ export function WorkspaceHome() {
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
   const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword), staleTime: 30_000 });
+  const dashboardRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope },
+    {
+      enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword),
+      staleTime: 0,
+      refetchInterval: 30_000,
+      refetchOnReconnect: true,
+      refetchOnWindowFocus: true,
+    },
+  );
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 });
   const periodMetricsQuery = trpc.powerhub.dashboard.periodMetrics.useQuery({
     siteId: siteId ?? 0,
@@ -183,10 +193,10 @@ export function WorkspaceHome() {
   };
   const metricNumber = (value: unknown, fractionDigits = 0) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
-    : !canViewFinancialOverview || financialOverviewQuery.isError ? "—" : number(value, fractionDigits);
+    : !canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : number(value, fractionDigits);
   const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
-    : !canViewFinancialOverview || financialOverviewQuery.isError ? "—" : ratio(value);
+    : !canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
   const periodMetricsMatch = Boolean(
     periodMetricsQuery.data &&
     periodMetricsQuery.data.range.startDate === dashboardPeriod.startDate &&
@@ -194,10 +204,10 @@ export function WorkspaceHome() {
     periodMetricsQuery.data.scope === selectedScope
   );
   const periodMetricsLoading = dashboardPeriod.isLoading || !dashboardPeriod.isReady || periodMetricsQuery.isLoading || !periodMetricsMatch;
-  const periodMetricNumber = (value: unknown, fractionDigits = 2) => dashboardPeriod.isError || periodMetricsQuery.isError
+  const periodMetricNumber = (value: unknown, fractionDigits = 2) => dashboardPeriod.isError || (periodMetricsQuery.isError && !periodMetricsQuery.data)
     ? "—"
     : periodMetricsLoading ? "…" : number(value, fractionDigits);
-  const periodMetricRatio = (value: unknown) => dashboardPeriod.isError || periodMetricsQuery.isError
+  const periodMetricRatio = (value: unknown) => dashboardPeriod.isError || (periodMetricsQuery.isError && !periodMetricsQuery.data)
     ? "—"
     : periodMetricsLoading ? "…" : ratio(value);
   const openPeriodArrears = () => {
@@ -215,6 +225,33 @@ export function WorkspaceHome() {
   };
   const activeSubscribers = overview?.branchSummaries.reduce((sum: number, branch: { activeSubscribers: number }) => sum + branch.activeSubscribers, 0) ?? 0;
   const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
+  const lastDashboardRevision = useRef<{ key: string; revision: string } | null>(null);
+
+  useEffect(() => {
+    const revision = dashboardRevisionQuery.data?.revision;
+    if (!siteId || typeof revision !== "string") return;
+    const key = `${user?.id ?? "unknown"}:${siteId}:${selectedScope}`;
+    const previous = lastDashboardRevision.current;
+    lastDashboardRevision.current = { key, revision };
+    // Changing branch/scope already changes the aggregate query keys; only
+    // trigger a refresh when the same scoped server fingerprint advances.
+    if (!previous || previous.key !== key || previous.revision === revision) return;
+    void Promise.all([
+      summaryQuery.refetch(),
+      allBranchesSummaryQuery.refetch(),
+      ...(canViewFinancialOverview ? [financialOverviewQuery.refetch(), periodMetricsQuery.refetch()] : []),
+    ]);
+  }, [
+    dashboardRevisionQuery.data?.revision,
+    siteId,
+    selectedScope,
+    user?.id,
+    canViewFinancialOverview,
+    summaryQuery.refetch,
+    allBranchesSummaryQuery.refetch,
+    financialOverviewQuery.refetch,
+    periodMetricsQuery.refetch,
+  ]);
 
   useEffect(() => {
     // A failed profile check is recoverable, not proof that the user signed out.
@@ -256,6 +293,7 @@ export function WorkspaceHome() {
 
 
     {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p><ul className="mt-2 space-y-1 text-xs leading-5 text-amber-100/90">{dashboardDataFailures.map((failure) => <li key={failure}>{failure}</li>)}</ul></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
+    {dashboardRevisionQuery.isError && (summaryQuery.data || allBranchesSummaryQuery.data || financialOverviewQuery.data || periodMetricsQuery.data) ? <Card role="status" className="border-amber-300/25 bg-amber-300/[.045] shadow-panel"><CardContent className="p-4 text-sm leading-6 text-amber-100">تعذر التحقق من حداثة لقطة لوحة التحكم. نعرض آخر مؤشرات محفوظة لهذا المستخدم والفرع، ولا نعتبرها بيانات مؤكدة حديثة حتى ينجح الاتصال بالخادم.</CardContent></Card> : null}
 
     <DashboardKpiPeriodFilter
       value={dashboardPeriod.preset}
@@ -281,7 +319,7 @@ export function WorkspaceHome() {
 
     <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
 
-    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={financialOverviewQuery.isError} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError} loading={financialOverviewQuery.isLoading || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading : summaryQuery.isLoading)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
+    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={financialOverviewQuery.isError && !financialOverviewQuery.data} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data : summaryQuery.isError && !summaryQuery.data} loading={(financialOverviewQuery.isLoading && !financialOverviewQuery.data) || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading && !allBranchesSummaryQuery.data : summaryQuery.isLoading && !summaryQuery.data)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {failedQuotaLabels.length > 0 ? <QuotaLoadErrorCard labels={failedQuotaLabels} onRetry={retryFailedQuotaQueries} /> : null}
     {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} packages={smsCreditPackagesQuery.data ?? []} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} onRetryPackageRequest={() => smsPackageRequestQuery.refetch()} onRequestPackage={(packageId, note) => requestSmsPackage.mutate({ siteId: siteId!, packageId, note })} onOpen={() => setLocation("/notifications")} /> : null}
