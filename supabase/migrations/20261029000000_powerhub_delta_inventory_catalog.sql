@@ -65,7 +65,7 @@ begin
   from public.inventory_items i where i.tenant_id=p_tenant_id and i.is_active=true;
  when 'inventory_item_units' then
   select coalesce(jsonb_agg(public.powerhub_delta_sync_project_inventory_catalog_row('inventory_item_units',to_jsonb(u)) order by u.item_id,lower(u.unit_label),u.id),'[]'::jsonb) into v_rows
-  from public.inventory_item_units u where u.tenant_id=p_tenant_id;
+  from public.inventory_item_units u where u.tenant_id=p_tenant_id and u.is_active=true;
  when 'suppliers' then
   select coalesce(jsonb_agg(public.powerhub_delta_sync_project_inventory_catalog_row('suppliers',to_jsonb(s)) order by lower(s.name),s.id),'[]'::jsonb) into v_rows
   from public.suppliers s where s.tenant_id=p_tenant_id and s.is_active=true;
@@ -123,12 +123,12 @@ begin
  if TG_OP='UPDATE' and v_old is not distinct from v_new then return NEW; end if;
  if v_old is not null then
   v_old_tenant:=nullif(v_old->>'tenant_id','')::bigint;
-  v_old_visible:=v_entity='inventory_item_units' or coalesce((v_old->>'is_active')::boolean,false);
+  v_old_visible:=coalesce((v_old->>'is_active')::boolean,false);
   if v_entity='inventory_warehouses' then v_old_site:=nullif(v_old->>'site_id','')::bigint; end if;
  end if;
  if v_new is not null then
   v_new_tenant:=nullif(v_new->>'tenant_id','')::bigint;
-  v_new_visible:=v_entity='inventory_item_units' or coalesce((v_new->>'is_active')::boolean,false);
+  v_new_visible:=coalesce((v_new->>'is_active')::boolean,false);
   if v_entity='inventory_warehouses' then v_new_site:=nullif(v_new->>'site_id','')::bigint; end if;
  end if;
  v_shared:=v_entity<>'inventory_warehouses';
