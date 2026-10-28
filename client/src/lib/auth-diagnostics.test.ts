@@ -108,9 +108,34 @@ describe("safe authentication diagnostics", () => {
     expect(describeAuthFailure(error)).toContain("معرّف الجهاز");
   });
 
+  it("distinguishes device-lock denial from ordinary account authorization denial", () => {
+    const deviceLock = {
+      message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى.",
+      data: { code: "FORBIDDEN" },
+    };
+    const ordinaryPermission = {
+      message: "You do not have permission to perform this action.",
+      data: { code: "FORBIDDEN" },
+    };
+    const deviceHint = describeAuthFailure(deviceLock);
+    expect(deviceHint).toContain("مقيد بجهاز آخر");
+    expect(deviceHint).toContain("لن نمسح الكاش");
+    expect(describeAuthFailure(ordinaryPermission)).toContain("صلاحية الحساب أو العملية");
+    expect(describeAuthFailure(ordinaryPermission)).not.toContain("مقيد بجهاز آخر");
+  });
+
+  it("explains an invalid device identity without leaking the raw server message", () => {
+    const hint = describeAuthFailure({
+      message: "تعذر التحقق من جهاز الدخول.",
+      data: { code: "FORBIDDEN" },
+    });
+    expect(hint).toContain("هوية جهاز الدخول");
+    expect(hint).not.toContain("تعذر التحقق من جهاز الدخول.");
+  });
+
   it("distinguishes authorization rejection from a server-side failure", () => {
     expect(describeAuthFailure({ data: { code: "UNAUTHORIZED" } })).toContain("لم يُقبل");
-    expect(describeAuthFailure({ data: { code: "FORBIDDEN" } })).toContain("جهاز الدخول");
+    expect(describeAuthFailure({ data: { code: "FORBIDDEN" } })).toContain("صلاحية الحساب أو العملية");
     expect(describeAuthFailure({ data: { code: "INTERNAL_SERVER_ERROR" } })).toContain("ملف المستخدم");
   });
 });

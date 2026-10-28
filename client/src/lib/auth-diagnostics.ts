@@ -75,11 +75,23 @@ export function describeAuthFailure(error: unknown): string {
     return "المرحلة: تعذر إنشاء معرّف الجهاز أو التحقق من صيغته؛ لم يُرسل طلب API المحمي.";
   }
 
+  // A device-lock denial is a specific, actionable server decision. Do not
+  // infer it from FORBIDDEN alone: that code also covers ordinary RBAC denial.
+  const serverMessage = findAuthError(error)?.message;
+  if (typeof serverMessage === "string" &&
+      /هذا الحساب مستخدم حاليًا على جهاز آخر|يجب استخدام جهاز PowerHub المسجل لهذا الحساب/.test(serverMessage)) {
+    return "المرحلة: الحساب مقيد بجهاز آخر حاليًا. إذا كنت تستخدم الجهاز نفسه، أعد المحاولة بعد استقرار الاتصال؛ وإذا أردت الانتقال إلى جهاز جديد، سجّل الخروج صراحةً من الجهاز السابق أولًا. لن نمسح الكاش أو العمليات المحلية المعلقة تلقائيًا.";
+  }
+  if (typeof serverMessage === "string" &&
+      /تعذر التحقق من جهاز الدخول|تعذر تثبيت جهاز الدخول|تعذر التحقق من جلسة الجهاز/.test(serverMessage)) {
+    return "المرحلة: تعذر التحقق من هوية جهاز الدخول. لم نعتبر ذلك تسجيل خروج ولم نمسح بيانات العمل؛ أعد المحاولة، وإذا استمر الرفض فافحص إعدادات الجهاز والخادم.";
+  }
+
   switch (errorCode(error)) {
     case "UNAUTHORIZED":
       return "المرحلة: وصل الطلب إلى الخادم، لكن الجلسة أو رمز الدخول لم يُقبل.";
     case "FORBIDDEN":
-      return "المرحلة: رفض الخادم التحقق من جهاز الدخول أو صلاحية الحساب.";
+      return "المرحلة: رفض الخادم صلاحية الحساب أو العملية المطلوبة. هذا ليس دليلًا وحده على وجود قفل جهاز؛ راجع الدور/الفرع أو اطلب من المسؤول التحقق من الصلاحية.";
     case "INTERNAL_SERVER_ERROR":
       return "المرحلة: وصل الطلب إلى الخادم، لكن تعذر التحقق من الجلسة أو ملف المستخدم أو خدمة البيانات.";
     default:
