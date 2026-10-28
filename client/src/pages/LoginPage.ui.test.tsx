@@ -143,7 +143,7 @@ describe("LoginPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحين.");
   });
 
-  it("keeps the explicit login route open instead of restoring a cached offline workspace", async () => {
+  it("keeps the explicit login route open instead of restoring a cached offline workspace", () => {
     vi.stubGlobal("navigator", { ...navigator, onLine: true });
     // Update window.location itself; stubbing globalThis.location does not
     // change window.location in jsdom, while the component reads window.location.
@@ -158,9 +158,10 @@ describe("LoginPage", () => {
 
     render(<LoginPage />);
 
-    await waitFor(() => expect(state.probePowerHubConnectivity).toHaveBeenCalled());
+    expect(state.probePowerHubConnectivity).not.toHaveBeenCalled();
     expect(state.setLocation).not.toHaveBeenCalledWith("/workspace");
     expect(state.getValidOfflineAuthLease).not.toHaveBeenCalled();
+    expect(state.getOfflineAuthUser).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "تسجيل الدخول" })).toBeInTheDocument();
   });
 
