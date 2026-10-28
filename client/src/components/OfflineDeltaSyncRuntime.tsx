@@ -209,7 +209,22 @@ async function patchQueryCaches(
     const rows = getQueryRows(query);
     if (!rows) continue;
     if (queryEntity === entityType) {
-      if (entityType === "invoices") {
+      if (entityType === "inventory_item_units") {
+        const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
+        const visibleIds = new Set(rows.filter((row: AnyRow) =>
+          Number(row.itemId ?? row.item_id) === itemId
+        ).map((row: AnyRow) => String(row.id)));
+        const scopedPage = {
+          ...page,
+          changes: page.changes.filter((change) => {
+            if (change.operation === "upsert") {
+              return Number(change.row_data?.itemId ?? change.row_data?.item_id) === itemId;
+            }
+            return visibleIds.has(change.entity_id);
+          }),
+        };
+        queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
+      } else if (entityType === "invoices") {
         if (!invoiceRowsAfterPage) continue;
         queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
           invoiceRowsAfterPage, getOfflineQueryInput(query.queryKey), query.state.data, scope,
