@@ -150,6 +150,22 @@ describe("refresh-aware async access-token resolution", () => {
     await expect(h.getAccessToken()).resolves.toBe("refreshed-in-another-tab");
   });
 
+  it("clears refresh backoff after an explicit retry without changing the stored session", async () => {
+    const nearExpiry = session("near-expiry-token", 1_059);
+    const fresh = session("fresh-after-retry-token", 4_600);
+    const h = harness(nearExpiry);
+    h.resolveLatestSession.mockRejectedValueOnce(new TypeError("temporary network failure"));
+
+    await expect(h.getAccessToken()).resolves.toBe("near-expiry-token");
+    expect(h.getAccessToken.getDiagnostics().refreshBackoffActive).toBe(true);
+
+    h.getAccessToken.resetBackoff();
+    expect(h.getAccessToken.getDiagnostics().refreshBackoffActive).toBe(false);
+    h.resolveLatestSession.mockResolvedValueOnce(fresh);
+    await expect(h.getAccessToken()).resolves.toBe("fresh-after-retry-token");
+    expect(h.getCurrent()).toEqual(fresh);
+  });
+
   it("returns null promptly when the SDK definitively confirms no session exists", async () => {
     const h = harness(null);
 
