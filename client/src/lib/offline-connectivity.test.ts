@@ -69,12 +69,21 @@ describe("PowerHub device clock observation", () => {
       expect(getPowerHubClockDiagnostics().skewDetected).toBe(true);
 
       resetPowerHubClockObservation();
-      expect(getPowerHubClockDiagnostics()).toMatchObject({ sampleAvailable: false, localMinusServerMs: null, skewDetected: false });
+      expect(getPowerHubClockDiagnostics()).toMatchObject({
+        sampleAvailable: false,
+        localMinusServerMs: null,
+        skewDetected: false,
+        clockCheckPending: true,
+      });
+
+      // A failed probe or a response without Date must not release the guard.
+      await probePowerHubConnectivity(vi.fn(async () => new Response("ok", { status: 200 })), true);
+      expect(getPowerHubClockDiagnostics().clockCheckPending).toBe(true);
 
       spy.mockReturnValue(Date.parse("2026-10-28T18:00:00.000Z"));
       await probePowerHubConnectivity(vi.fn(async () =>
         new Response("ok", { status: 200, headers: { date: "Wed, 28 Oct 2026 18:00:00 GMT" } })), true);
-      expect(getPowerHubClockDiagnostics()).toMatchObject({ sampleAvailable: true, skewDetected: false });
+      expect(getPowerHubClockDiagnostics()).toMatchObject({ sampleAvailable: true, skewDetected: false, clockCheckPending: false });
     } finally {
       spy.mockRestore();
       resetPowerHubClockObservation();
