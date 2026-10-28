@@ -4,11 +4,12 @@ import {
   isDeltaSyncBackedQueryKey,
   isOfflineQueryRecordUsable,
   offlineQueryCacheKey,
+  OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS,
   persistOfflineQuery,
   persistOfflineQueryForDeltaSync,
   sanitizeOfflineQueryData,
 } from "./offline-query-cache";
-import { getOfflineQueryDeltaEntity, getOfflineQueryStaleTime } from "./offline-query-policy";
+import { getOfflineQueryDeltaEntity, getOfflineQueryStaleTime, isOfflineDashboardSnapshotQueryKey } from "./offline-query-policy";
 
 describe("offline query cache policy", () => {
   it("caches tenant-scoped operational PowerHub queries", () => {
@@ -19,9 +20,33 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.tariffs.list", { input: { siteId: 7 }, type: "query" }])).toBe(true);
   });
 
-  it("does not cache financial, dashboard, admin, audit, or auth queries", () => {
+  it("persists only safe dashboard aggregate snapshots and never treats them as Delta-backed lists", () => {
+    const summary = ["powerhub", "dashboard", "summary", { siteId: 7 }];
+    const financial = ["powerhub.dashboard.financialOverview", {
+      input: { siteId: 7, scope: "branch", includeDetails: false }, type: "query",
+    }];
+    const period = ["powerhub.dashboard.periodMetrics", {
+      input: { siteId: 7, scope: "branch", startDate: "2026-10-01", endDate: "2026-10-29", includeDetails: false }, type: "query",
+    }];
+    const revision = ["powerhub.dashboard.deltaRevision", { input: { siteId: 7, scope: "branch" }, type: "query" }];
+
+    for (const key of [summary, financial, period]) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isOfflineDashboardSnapshotQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    }
+    expect(isOfflineCacheableQueryKey(revision)).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.dashboard.financialOverview", {
+      input: { siteId: 7, scope: "branch", includeDetails: true }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.dashboard.periodMetrics", {
+      input: { siteId: 7, scope: "branch", startDate: "2026-10-29", endDate: "2026-10-01", includeDetails: false }, type: "query",
+    }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "payments", "list", { siteId: 7 }])).toBe(false);
-    expect(isOfflineCacheableQueryKey(["powerhub", "dashboard", "summary", { siteId: 7 }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "admin", "tenants"])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["auth", "me"])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
+    expect(OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS).toBe(24 * 60 * 60 * 1000);
     expect(isOfflineCacheableQueryKey(["powerhub", "admin", "tenants"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["auth", "me"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "audit", "list", { siteId: 7 }])).toBe(false);
@@ -212,6 +237,27 @@ describe("offline cache privacy sanitization", () => {
       "receipt_image_url", "receipt_image_key", "receipt_image_hash",
     ]) expect(safe.items[0].payment).not.toHaveProperty(key);
     expect(safe.items[0].subscriber.fullName).toBe("Subscriber");
+  });
+
+  it("removes debtor and invoice detail from dashboard snapshots before local persistence", () => {
+    const financialKey = ["powerhub.dashboard.financialOverview", {
+      input: { siteId: 7, scope: "branch", includeDetails: false }, type: "query",
+    }];
+    const financial = {
+      month: { collected: 12 },
+      topDebtors: [{ subscriber: "Private name", outstanding: 99 }],
+      outstandingInvoices: [{ invoiceId: 4, subscriber: "Private name" }],
+    };
+    expect(sanitizeOfflineQueryData(financialKey, financial)).toEqual({
+      month: { collected: 12 }, topDebtors: [], outstandingInvoices: [],
+    });
+
+    const periodKey = ["powerhub.dashboard.periodMetrics", {
+      input: { siteId: 7, scope: "branch", startDate: "2026-10-01", endDate: "2026-10-29", includeDetails: false }, type: "query",
+    }];
+    expect(sanitizeOfflineQueryData(periodKey, {
+      summary: { collected: 12 }, outstandingInvoices: [{ subscriber: "Private name" }],
+    })).toEqual({ summary: { collected: 12 }, outstandingInvoices: [] });
   });
 
   it("does not alter unrelated query payloads", () => {
