@@ -109,6 +109,7 @@ export function OfflineDeviceBootstrapRuntime() {
   const auth = useAuth();
   const client = useQueryClient();
   const utils = trpc.useUtils();
+  const reserveOfflineNumberRange = trpc.powerhub.offlineNumbering.reserve.useMutation();
   const inFlight = useRef(false);
   const rerun = useRef(false);
   const timer = useRef<number | undefined>(undefined);
@@ -178,7 +179,7 @@ export function OfflineDeviceBootstrapRuntime() {
                 userId: scopeNow.userId, tenantId: scopeNow.tenantId, siteId: scopeNow.siteId, deviceId: scopeNow.deviceId,
               }, range.numberKind, range.partitionKey),
             reserveNumberRange: async (scopeNow: DeviceBootstrapScope, range: DeviceBootstrapNumberRange, requestId: string) => {
-              const grant = await utils.powerhub.offlineNumbering.reserve.mutate({
+              const grant = await reserveOfflineNumberRange.mutateAsync({
                 siteId: scopeNow.siteId, requestId, numberKind: range.numberKind,
                 partitionKey: range.partitionKey, count: BOOTSTRAP_RANGE_COUNT,
               });
@@ -237,7 +238,7 @@ export function OfflineDeviceBootstrapRuntime() {
       window.removeEventListener("powerhub:branch-changed", onBranchChanged);
     };
   }, [auth.isOnlineAuthenticated, auth.isLoggingOut, auth.powerHubReachable, auth.user?.id,
-      auth.user?.role, auth.user?.mustChangePassword, client, utils]);
+      auth.user?.role, auth.user?.mustChangePassword, client, utils, reserveOfflineNumberRange.mutateAsync]);
 
   return null;
 }
