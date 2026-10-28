@@ -69,25 +69,41 @@ describe("browser network status", () => {
 
 
 describe("PowerHub stable reachability state", () => {
-  it("does not classify one failed probe cycle as offline", () => {
-    expect(nextPowerHubReachabilityState(null, 0, false)).toEqual({
+  it("does not classify cold-start failures as offline before enough cycles and sustained failure", () => {
+    expect(nextPowerHubReachabilityState(null, 0, false, 0)).toEqual({
       reachable: null,
       consecutiveFailures: 1,
     });
-    expect(nextPowerHubReachabilityState(true, 0, false)).toEqual({
+    expect(nextPowerHubReachabilityState(null, 1, false, 12_000)).toEqual({
+      reachable: null,
+      consecutiveFailures: 2,
+    });
+    expect(nextPowerHubReachabilityState(null, 2, false, 7_999)).toEqual({
+      reachable: null,
+      consecutiveFailures: 3,
+    });
+    expect(nextPowerHubReachabilityState(null, 2, false, 8_000)).toEqual({
+      reachable: false,
+      consecutiveFailures: 3,
+    });
+    expect(nextPowerHubReachabilityState(true, 0, false, 0)).toEqual({
       reachable: true,
       consecutiveFailures: 1,
     });
   });
 
-  it("declares the origin unavailable only after repeated failed probe cycles", () => {
-    expect(nextPowerHubReachabilityState(null, 1, false)).toEqual({
+  it("requires a sustained failure window after PowerHub was previously reachable", () => {
+    expect(nextPowerHubReachabilityState(true, 1, false, 7_999)).toEqual({
+      reachable: true,
+      consecutiveFailures: 2,
+    });
+    expect(nextPowerHubReachabilityState(true, 1, false, 8_000)).toEqual({
       reachable: false,
       consecutiveFailures: 2,
     });
-    expect(nextPowerHubReachabilityState(true, 1, false)).toEqual({
-      reachable: false,
-      consecutiveFailures: 2,
+    expect(nextPowerHubReachabilityState(false, 3, true, 0)).toEqual({
+      reachable: true,
+      consecutiveFailures: 0,
     });
   });
 

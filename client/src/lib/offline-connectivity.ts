@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 
-export const POWERHUB_CONNECTIVITY_PROBE_TIMEOUT_MS = 3_500;
+export const POWERHUB_CONNECTIVITY_PROBE_TIMEOUT_MS = 5_000;
 export const POWERHUB_CONNECTIVITY_RECHECK_INTERVAL_MS = 15_000;
 const UNKNOWN_REACHABILITY_RETRY_DELAY_MS = 1_500;
 const FAILED_PROBE_CYCLES_TO_DECLARE_OFFLINE = 2;
+const INITIAL_FAILED_PROBE_CYCLES_TO_DECLARE_OFFLINE = 3;
+const MIN_FAILED_PROBE_DURATION_MS = 8_000;
 const HEALTH_PATH = "/api/health";
 const PROBE_ATTEMPTS = 2;
 type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -11,17 +13,23 @@ type HealthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Res
 let sharedProbe: Promise<boolean> | null = null;
 let lastVerifiedPowerHubReachability: boolean | null = null;
 let consecutiveFailedProbeCycles = 0;
+let firstFailedProbeAtMs: number | null = null;
 
 /** Require repeated failed health-check cycles before declaring the origin unavailable. */
 export function nextPowerHubReachabilityState(
   current: boolean | null,
   consecutiveFailures: number,
   probeReachable: boolean,
+  failedDurationMs = 0,
 ): { reachable: boolean | null; consecutiveFailures: number } {
   if (probeReachable) return { reachable: true, consecutiveFailures: 0 };
   const nextFailures = consecutiveFailures + 1;
+  const requiredFailures = current === null
+    ? INITIAL_FAILED_PROBE_CYCLES_TO_DECLARE_OFFLINE
+    : FAILED_PROBE_CYCLES_TO_DECLARE_OFFLINE;
+  const failureWindowElapsed = failedDurationMs >= MIN_FAILED_PROBE_DURATION_MS;
   return {
-    reachable: nextFailures >= FAILED_PROBE_CYCLES_TO_DECLARE_OFFLINE ? false : current,
+    reachable: nextFailures >= requiredFailures && failureWindowElapsed ? false : current,
     consecutiveFailures: nextFailures,
   };
 }
@@ -73,11 +81,20 @@ export function probePowerHubConnectivity(
   // fetch is the real signal of whether the app can reach its server.
   if (fetcher === globalThis.fetch) {
     if (sharedProbe) return sharedProbe;
+    const probeStartedAt = Date.now();
     sharedProbe = runHealthProbe(fetcher, timeoutMs).then((reachable) => {
+      const completedAt = Date.now();
+      if (reachable) {
+        firstFailedProbeAtMs = null;
+      } else if (firstFailedProbeAtMs === null) {
+        firstFailedProbeAtMs = probeStartedAt;
+      }
+      const failedDurationMs = firstFailedProbeAtMs === null ? 0 : completedAt - firstFailedProbeAtMs;
       const next = nextPowerHubReachabilityState(
         lastVerifiedPowerHubReachability,
         consecutiveFailedProbeCycles,
         reachable,
+        failedDurationMs,
       );
       lastVerifiedPowerHubReachability = next.reachable;
       consecutiveFailedProbeCycles = next.consecutiveFailures;
