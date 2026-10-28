@@ -2,6 +2,8 @@ import { createClient, type AuthChangeEvent, type Session } from "@supabase/supa
 import { createSupabaseAccessTokenResolver } from "@/lib/supabase-token-resolution";
 import {
   isSupabaseSessionUsable,
+  getSupabaseSessionExpirySeconds,
+  shouldRefreshSupabaseSession,
   isNonAuthoritativeInitialNullSessionEvent,
   selectAuthSnapshot,
   SUPABASE_BROWSER_AUTH_OPTIONS,

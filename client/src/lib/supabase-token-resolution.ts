@@ -183,7 +183,7 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
     return null;
   };
 
-  return () => {
+  const resolve = (): Promise<string | null> => {
     if (tokenResolutionInFlight) return tokenResolutionInFlight;
     const pending = readAccessToken().finally(() => {
       if (tokenResolutionInFlight === pending) tokenResolutionInFlight = null;
@@ -191,4 +191,11 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
     tokenResolutionInFlight = pending;
     return pending;
   };
+  return Object.assign(resolve, {
+    getDiagnostics: () => ({
+      resolutionInFlight: tokenResolutionInFlight !== null,
+      refreshBackoffActive: refreshRetryAfter > now(),
+      lastRefreshErrorName: lastRefreshError?.name ?? null,
+    }),
+  });
 }
