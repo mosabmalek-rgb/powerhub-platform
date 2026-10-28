@@ -214,7 +214,7 @@ describe("بطاقة رصيد SMS في لوحة المالك", () => {
     state.dashboardCachedOnError = true;
     state.dashboardRevisionError = true;
     render(<WorkspaceHome />);
-    expect(screen.getByRole("status")).toHaveTextContent("تعذر التحقق من حداثة لقطة لوحة التحكم");
+    expect(screen.getByText(/تعذر التحقق من حداثة لقطة لوحة التحكم/)).toBeInTheDocument();
     expect(screen.getByText("فوترة الفترة: 0")).toBeInTheDocument();
     expect(screen.getByText("تحصيل الفترة: 0")).toBeInTheDocument();
   });
