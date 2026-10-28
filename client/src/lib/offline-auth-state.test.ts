@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isSupabaseSessionUsable,
+  getSupabaseSessionExpirySeconds,
   isNonAuthoritativeInitialNullSessionEvent,
   isSessionReadBackoffActive,
   SUPABASE_SESSION_READ_ERROR_BACKOFF_MS,
@@ -166,9 +167,12 @@ describe("Supabase browser session refresh policy", () => {
     expect(isSupabaseSessionUsable(null, 1_000)).toBe(false);
   });
 
-  it("uses the JWT exp claim when Supabase omits optional expires_at", () => {
+  it("uses one expiry source for explicit expires_at and JWT exp fallback", () => {
     const payload = btoa(JSON.stringify({ exp: 1_001 }));
     const session = { access_token: `header.${payload}.signature` };
+    expect(getSupabaseSessionExpirySeconds({ access_token: "token", expires_at: 2_000 })).toBe(2_000);
+    expect(getSupabaseSessionExpirySeconds(session)).toBe(1_001);
+    expect(getSupabaseSessionExpirySeconds({ access_token: "opaque-token" })).toBeNull();
     expect(isSupabaseSessionUsable(session, 1_000)).toBe(true);
     expect(isSupabaseSessionUsable(session, 1_001)).toBe(false);
     expect(isSupabaseSessionUsable({ access_token: "opaque-token" }, 1_000)).toBe(false);

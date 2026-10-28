@@ -117,6 +117,16 @@ function getJwtExpirationSeconds(accessToken: string): number | null {
  * present; otherwise read the JWT exp claim so a valid persisted session is not
  * misclassified as a missing token. This never replaces server-side validation.
  */
+export function getSupabaseSessionExpirySeconds(
+  session: { access_token?: unknown; expires_at?: number } | null | undefined,
+): number | null {
+  if (!session) return null;
+  const explicitExpiry = session.expires_at;
+  if (typeof explicitExpiry === "number" && Number.isFinite(explicitExpiry)) return explicitExpiry;
+  if (typeof session.access_token !== "string" || session.access_token.trim().length === 0) return null;
+  return getJwtExpirationSeconds(session.access_token);
+}
+
 export function isSupabaseSessionUsable(
   session: { access_token?: unknown; expires_at?: number } | null | undefined,
   nowSeconds = Math.floor(Date.now() / 1000),
@@ -126,12 +136,7 @@ export function isSupabaseSessionUsable(
     typeof session.access_token !== "string" ||
     session.access_token.trim().length === 0
   ) return false;
-
-  const explicitExpiry = session.expires_at;
-  const expiresAt = typeof explicitExpiry === "number" && Number.isFinite(explicitExpiry)
-    ? explicitExpiry
-    : getJwtExpirationSeconds(session.access_token);
-
+  const expiresAt = getSupabaseSessionExpirySeconds(session);
   return typeof expiresAt === "number" && expiresAt > nowSeconds;
 }
 
