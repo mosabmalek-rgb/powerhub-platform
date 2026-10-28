@@ -41,6 +41,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [awaitingSignInConfirmation, setAwaitingSignInConfirmation] = useState(false);
 
   useEffect(() => {
     // A Supabase snapshot proves only that local session state exists. Do not
