@@ -121,10 +121,20 @@ export function getSupabaseSessionExpirySeconds(
   session: { access_token?: unknown; expires_at?: number } | null | undefined,
 ): number | null {
   if (!session) return null;
+
+  // The token's own exp is the validity boundary for the bearer credential.
+  // expires_at is SDK metadata and can lag a rotated token's payload during
+  // cross-tab refresh races. Prefer JWT exp when the SDK token is a readable
+  // JWT; fall back to expires_at only when the token has no readable exp.
+  if (typeof session.access_token === "string" && session.access_token.trim().length > 0) {
+    const tokenExpiry = getJwtExpirationSeconds(session.access_token);
+    if (tokenExpiry !== null) return tokenExpiry;
+  }
+
   const explicitExpiry = session.expires_at;
-  if (typeof explicitExpiry === "number" && Number.isFinite(explicitExpiry)) return explicitExpiry;
-  if (typeof session.access_token !== "string" || session.access_token.trim().length === 0) return null;
-  return getJwtExpirationSeconds(session.access_token);
+  return typeof explicitExpiry === "number" && Number.isFinite(explicitExpiry)
+    ? explicitExpiry
+    : null;
 }
 
 export function isSupabaseSessionUsable(

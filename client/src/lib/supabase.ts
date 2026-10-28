@@ -80,8 +80,16 @@ export function subscribeSupabaseAuthState(subscriber: AuthSubscriber) {
  */
 export function acceptSupabaseSignInSession(session: Session): void {
   ensureAuthSubscription();
-  if (!session?.user?.id || !isSupabaseSessionUsable(session)) {
-    throw new Error("Supabase returned no usable session after sign-in.");
+  // Adoption and authorization are separate decisions. A successful SDK
+  // response with an identity and a token must enter shared state even if the
+  // local expiry hint is stale/near expiry; the token resolver independently
+  // refuses expired tokens and lets Supabase's SDK restore/refresh the session.
+  if (
+    !session?.user?.id ||
+    typeof session.access_token !== "string" ||
+    session.access_token.trim().length === 0
+  ) {
+    throw new Error("Supabase returned no session identity or access token after sign-in.");
   }
 
   authStateRevision += 1;

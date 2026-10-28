@@ -63,6 +63,36 @@ describe("successful sign-in session bootstrap", () => {
     expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
+  it("adopts a token-bearing sign-in response even when its local expiry hint requires SDK recovery", async () => {
+    const auth = await import("./supabase");
+    const expiredSession = {
+      ...makeSession(),
+      expires_at: Math.floor(Date.now() / 1000) - 30,
+    };
+    const events: Array<{ event: string; session: unknown }> = [];
+    auth.subscribeSupabaseAuthState((event, value) => events.push({ event, session: value }));
+
+    expect(() => auth.acceptSupabaseSignInSession(expiredSession as never)).not.toThrow();
+    expect(events).toEqual([{ event: "SIGNED_IN", session: expiredSession }]);
+    expect(auth.getSupabaseSessionDiagnostics()).toMatchObject({
+      sessionInitialized: true,
+      hasCurrentSession: true,
+      hasAccessToken: true,
+      tokenUsable: false,
+    });
+    // Session adoption is not token authorization: the access-token resolver
+    // still refuses to return an expired or otherwise unusable bearer token.
+    await expect(auth.getSupabaseAccessToken()).rejects.toMatchObject({
+      name: expect.stringMatching(/^PowerHubSession/),
+    });
+  });
+
+  it("still rejects a sign-in response missing identity or access token", async () => {
+    const auth = await import("./supabase");
+    expect(() => auth.acceptSupabaseSignInSession({ ...makeSession(), access_token: "" } as never))
+      .toThrow("Supabase returned no session identity or access token after sign-in.");
+  });
+
   it("does not let an older in-flight null session read overwrite the accepted sign-in", async () => {
     let finishRead!: (value: { data: { session: null }; error: null }) => void;
     mocks.getSession.mockImplementationOnce(() => new Promise((resolve) => {

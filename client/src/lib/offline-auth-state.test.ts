@@ -167,15 +167,17 @@ describe("Supabase browser session refresh policy", () => {
     expect(isSupabaseSessionUsable(null, 1_000)).toBe(false);
   });
 
-  it("uses one expiry source for explicit expires_at and JWT exp fallback", () => {
+  it("uses JWT exp as the bearer-token expiry and falls back to expires_at for opaque tokens", () => {
     const payload = btoa(JSON.stringify({ exp: 1_001 }));
-    const session = { access_token: `header.${payload}.signature` };
-    expect(getSupabaseSessionExpirySeconds({ access_token: "token", expires_at: 2_000 })).toBe(2_000);
+    const token = `header.${payload}.signature`;
+    const session = { access_token: token };
+    expect(getSupabaseSessionExpirySeconds({ access_token: token, expires_at: 2_000 })).toBe(1_001);
     expect(getSupabaseSessionExpirySeconds(session)).toBe(1_001);
+    expect(getSupabaseSessionExpirySeconds({ access_token: "opaque-token", expires_at: 2_000 })).toBe(2_000);
     expect(getSupabaseSessionExpirySeconds({ access_token: "opaque-token" })).toBeNull();
-    expect(isSupabaseSessionUsable(session, 1_000)).toBe(true);
-    expect(isSupabaseSessionUsable(session, 1_001)).toBe(false);
-    expect(isSupabaseSessionUsable({ access_token: "opaque-token" }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: token, expires_at: 999 }, 1_000)).toBe(true);
+    expect(isSupabaseSessionUsable({ access_token: token, expires_at: 2_000 }, 1_001)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "opaque-token", expires_at: 2_000 }, 1_000)).toBe(true);
   });
 });
 
