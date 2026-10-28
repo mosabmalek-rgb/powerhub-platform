@@ -42,9 +42,9 @@ vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 
 afterEach(() => {
   cleanup();
-  // Restore per-test globals (especially location) before configuring the
-  // common navigator stub, so forceLogin query state cannot leak to later tests.
+  // Restore globals and the jsdom URL before configuring shared test state.
   vi.unstubAllGlobals();
+  window.history.replaceState({}, "", "/login");
   state.setLocation.mockReset();
   state.useAuth.mockReset();
   state.useAuth.mockReturnValue({ isAuthenticated: false, loading: false, hasSession: false });
@@ -145,7 +145,9 @@ describe("LoginPage", () => {
 
   it("keeps the explicit login route open instead of restoring a cached offline workspace", async () => {
     vi.stubGlobal("navigator", { ...navigator, onLine: true });
-    vi.stubGlobal("location", new URL("https://powerhub.test/login?forceLogin=1"));
+    // Update window.location itself; stubbing globalThis.location does not
+    // change window.location in jsdom, while the component reads window.location.
+    window.history.replaceState({}, "", "/login?forceLogin=1");
     state.probePowerHubConnectivity.mockResolvedValue(false);
     state.getValidOfflineAuthLease.mockResolvedValue({
       userId: "cached-user",
