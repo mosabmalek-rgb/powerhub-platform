@@ -181,27 +181,26 @@ describe("Supabase browser session refresh policy", () => {
 
 
 describe("Supabase browser refresh wiring", () => {
-  it("uses the supported automatic refresh lifecycle in the actual browser client", () => {
+  it("uses an awaited, single-flight refresh-aware token resolver in the actual browser client", () => {
     const source = readFileSync(new URL("./supabase.ts", import.meta.url), "utf8");
+    const resolver = readFileSync(new URL("./supabase-token-resolution.ts", import.meta.url), "utf8");
+    const main = readFileSync(new URL("../main.tsx", import.meta.url), "utf8");
     expect(source).toContain("auth: { ...SUPABASE_BROWSER_AUTH_OPTIONS }");
     expect(source).not.toContain("autoRefreshToken: false");
-    expect(source).not.toContain("scheduleSessionRefresh");
-    expect(source).not.toContain("shouldRefreshSupabaseSession");
-    expect(source).not.toContain("supabase.auth.refreshSession()");
-    expect(source).not.toContain("refreshExpiredSupabaseSession");
-    expect(source).toContain("if (sessionInitialized && isSupabaseSessionUsable(currentSession, nowSeconds))");
-    expect(source).toContain("const sdkRead = supabase.auth.getSession();");
-    expect(source).toContain("Promise.race([sdkRead, timeout])");
-    expect(source).toContain("SUPABASE_SESSION_READ_TIMEOUT_MS");
+    expect(source).toContain("shouldRefreshSupabaseSession(getSupabaseSessionExpirySeconds(session))");
+    expect(source).toContain("supabase.auth.refreshSession(session)");
+    expect(source).toContain("accessTokenRefreshInFlight");
+    expect(source).toContain("selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision)");
     expect(source).toContain("sessionReadInFlight = null;");
-    expect(source).toContain("The SDK's getSession() owns refresh-token rotation");
-    expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) {");
-    expect(source).toContain("PowerHubSessionReadTimeoutError");
-    expect(source).toContain("TOKEN_AUTH_EVENT_WAIT_MS = 1_200");
-    expect(source).toContain("waitForAuthStateChange");
-    expect(source).toContain("accessTokenReadInFlight");
-    expect(source).toContain("function readSupabaseAccessToken()");
-    expect(source).not.toContain("supabase.auth.refreshSession()");
+    expect(source).toContain("getSupabaseAccessToken(): Promise<string | null>");
+    expect(source).toContain("createSupabaseAccessTokenResolver<Session>");
+    expect(resolver).toContain("SUPABASE_ACCESS_TOKEN_RESOLUTION_TIMEOUT_MS = 7_500");
+    expect(resolver).toContain("SUPABASE_SESSION_REFRESH_TIMEOUT_MS = 6_000");
+    expect(resolver).toContain("if (refreshRetryAfter > now())");
+    expect(resolver).toContain("if (stillValid) return stillValid");
+    expect(resolver).toContain("PowerHubSessionRefreshTimeoutError");
+    expect(main).toContain("await getSupabaseAccessToken()");
+    expect(main.indexOf("deviceId = await getPowerHubDeviceId()")).toBeLessThan(main.indexOf("await getSupabaseAccessToken()"));
     const packageJson = readFileSync(new URL("../../../package.json", import.meta.url), "utf8");
     const lockfile = readFileSync(new URL("../../../pnpm-lock.yaml", import.meta.url), "utf8");
     expect(packageJson).toContain('"@supabase/supabase-js": "^2.117.2"');
@@ -210,8 +209,6 @@ describe("Supabase browser refresh wiring", () => {
     expect(lockfile).not.toContain("'@supabase/auth-js@2.112.3':");
   });
 });
-
-
 
 
 describe("online auth validation readiness", () => {

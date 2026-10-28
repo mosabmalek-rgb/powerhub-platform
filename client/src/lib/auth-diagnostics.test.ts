@@ -51,6 +51,21 @@ describe("safe authentication diagnostics", () => {
     expect(hint).not.toContain("storage lock details");
   });
 
+  it("distinguishes refresh timeout and failure without exposing token data", () => {
+    const timedOut = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("private refresh token data"), { name: "PowerHubSessionRefreshTimeoutError" }),
+    };
+    const failed = {
+      name: "TRPCClientError",
+      cause: Object.assign(new Error("private refresh token data"), { name: "PowerHubSessionRefreshFailedError" }),
+    };
+    expect(describeAuthFailure(timedOut)).toContain("انتظر المتصفح تجديد جلسة Supabase");
+    expect(describeAuthFailure(failed)).toContain("فشل تجديد جلسة Supabase");
+    expect(describeAuthFailure(timedOut)).not.toContain("private refresh token data");
+    expect(describeAuthFailure(failed)).not.toContain("private refresh token data");
+  });
+
   it("distinguishes a stalled auth profile check from a session read failure", () => {
     expect(describeAuthFailure({ name: "PowerHubAuthProfileCheckTimeoutError" })).toContain("طلب auth.me");
     expect(describeAuthFailure({ name: "PowerHubSessionRecoveryTimeoutError" })).toContain("لم تصل جلسة صالحة بعد محاولة استعادة Supabase");

@@ -91,10 +91,32 @@ const trpcClient = trpc.createClient({
           error.name = "PowerHubConnectivityUnresolvedError";
           throw error;
         }
-        const token = await getSupabaseAccessToken();
+        // Resolve device identity first and access token last to minimize the
+        // interval in which a near-expiry token could age before dispatch.
+        let deviceId: string;
+        try {
+          deviceId = await getPowerHubDeviceId();
+        } catch {
+          const error = new Error("PowerHub could not resolve the current device identity.");
+          error.name = "PowerHubDeviceIdentityUnavailableError";
+          throw error;
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
+          const error = new Error("PowerHub produced an invalid device identity.");
+          error.name = "PowerHubDeviceIdentityUnavailableError";
+          throw error;
+        }
+
+        let token: string | null;
+        try {
+          token = await getSupabaseAccessToken();
+        } catch (cause) {
+          const error = new Error("PowerHub could not finish Supabase access-token resolution.");
+          error.name = cause instanceof Error ? cause.name : "PowerHubSessionTokenUnavailableError";
+          Object.assign(error, { cause, tokenResolution: getSupabaseSessionDiagnostics() });
+          throw error;
+        }
         if (!token) {
-          // Log only token-free state so persistent browser failures can be
-          // diagnosed without exposing access/refresh tokens or user data.
           const diagnostics = getSupabaseSessionDiagnostics();
           const error = new Error("PowerHub could not obtain a usable Supabase access token.");
           error.name = "PowerHubSessionTokenUnavailableError";
@@ -113,23 +135,10 @@ const trpcClient = trpc.createClient({
             readInFlight: diagnostics.readInFlight,
             readBackoffActive: diagnostics.readBackoffActive,
             lastReadErrorName: diagnostics.lastReadErrorName,
-            lastReadErrorMessage: diagnostics.lastReadErrorMessage,
+            refreshInFlight: diagnostics.refreshInFlight,
+            tokenResolution: diagnostics.tokenResolution,
             authStateRevision: diagnostics.authStateRevision,
           });
-          throw error;
-        }
-
-        let deviceId: string;
-        try {
-          deviceId = await getPowerHubDeviceId();
-        } catch {
-          const error = new Error("PowerHub could not resolve the current device identity.");
-          error.name = "PowerHubDeviceIdentityUnavailableError";
-          throw error;
-        }
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
-          const error = new Error("PowerHub produced an invalid device identity.");
-          error.name = "PowerHubDeviceIdentityUnavailableError";
           throw error;
         }
 

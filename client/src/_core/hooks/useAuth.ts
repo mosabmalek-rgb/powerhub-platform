@@ -19,7 +19,10 @@ const OFFLINE_AUTH_BOOTSTRAP_TIMEOUT_MS = 1_500;
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 5_000;
 // A protected session check must not trap the app in an endless loading/redirect
 // loop if the network request or browser auth lock never settles.
-const AUTH_PROFILE_CHECK_TIMEOUT_MS = 10_000;
+// Bounded stages: 7.5s token resolution + 3.5s getUser + 3.5s profile sync
+// + 2s device claim, plus a small transport/scheduling margin.
+const AUTH_PROFILE_CHECK_TIMEOUT_MS = 18_000;
+const SESSION_RECOVERY_TIMEOUT_MS = 8_000;
 const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر التحقق من جلسة الدخول في الوقت المحدد. أعد المحاولة لاستعادة البيانات.",
 ), { name: "PowerHubAuthProfileCheckTimeoutError" });
@@ -88,8 +91,16 @@ function useAuthController() {
     retry: (failureCount, error) => {
       const code = (error as { data?: { code?: string } } | null)?.data?.code;
       if (code === "FORBIDDEN") return false;
-      // Device-claim deadlines cancel the upstream request where supported.
-      // Permit one bounded retry, then settle into the recoverable-auth UI.
+      let cause: unknown = error;
+      const seen = new Set<unknown>();
+      for (let depth = 0; depth < 5 && cause && typeof cause === "object" && !seen.has(cause); depth += 1) {
+        seen.add(cause);
+        const name = (cause as { name?: unknown }).name;
+        if (name === "PowerHubSessionRefreshFailedError" || name === "PowerHubSessionRefreshTimeoutError") {
+          return failureCount < 1;
+        }
+        cause = (cause as { cause?: unknown }).cause;
+      }
       if (code === "GATEWAY_TIMEOUT") return failureCount < 1;
       return failureCount < 2;
     },
@@ -127,7 +138,7 @@ function useAuthController() {
       setCachedUser(null);
       setOfflineLeaseUserId(null);
       setSessionReady(true);
-    }, AUTH_PROFILE_CHECK_TIMEOUT_MS);
+    }, SESSION_RECOVERY_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [sessionRecoveryPending, authValidationAttempt]);
 

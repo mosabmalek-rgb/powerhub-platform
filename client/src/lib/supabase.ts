@@ -1,4 +1,5 @@
 import { createClient, type AuthChangeEvent, type Session } from "@supabase/supabase-js";
+import { createSupabaseAccessTokenResolver } from "@/lib/supabase-token-resolution";
 import {
   isSupabaseSessionUsable,
   isNonAuthoritativeInitialNullSessionEvent,
@@ -107,6 +108,8 @@ export function getSupabaseSessionDiagnostics() {
     readBackoffActive: isSessionReadBackoffActive(sessionReadRetryAfter),
     lastReadErrorName: lastSessionReadError?.name ?? null,
     lastReadErrorMessage: lastSessionReadError?.message ?? null,
+    refreshInFlight: accessTokenRefreshInFlight !== null,
+    tokenResolution: resolveSupabaseAccessToken.getDiagnostics(),
     authStateRevision,
   };
 }
@@ -195,83 +198,83 @@ export async function getSupabaseSession(): Promise<Session | null> {
   return sessionReadInFlight;
 }
 
-const TOKEN_AUTH_EVENT_WAIT_MS = 1_200;
-let accessTokenReadInFlight: Promise<string | null> | null = null;
+let accessTokenRefreshInFlight: Promise<Session | null> | null = null;
 
 /**
- * A tRPC batch can start in the same turn as Supabase finishes restoring or
- * rotating a session. Give the SDK's authoritative auth event one short,
- * bounded opportunity to publish that session before declaring no token.
- * This is not an offline lease and never sends an anonymous protected request.
+ * Keep refresh calls outside onAuthStateChange. Supabase Auth coordinates this
+ * operation with its own auto-refresh lifecycle and cross-tab storage lock.
+ * Revision protection prevents a late result from resurrecting a signed-out or
+ * different user's session.
  */
-function waitForAuthStateChange(timeoutMs = TOKEN_AUTH_EVENT_WAIT_MS): Promise<void> {
+function refreshSupabaseSessionForAccessToken(session: Session, timeoutMs: number): Promise<Session | null> {
+  if (accessTokenRefreshInFlight) return accessTokenRefreshInFlight;
+  const requestRevision = authStateRevision;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(Object.assign(new Error("Supabase session refresh did not settle before the bounded deadline."), {
+        name: "PowerHubSessionRefreshTimeoutError",
+      }));
+    }, timeoutMs);
+  });
+  const sdkRefresh = supabase.auth.refreshSession(session).then(({ data, error }) => {
+    if (error) throw error;
+    currentSession = selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision);
+    sessionInitialized = true;
+    if (isSupabaseSessionUsable(currentSession)) {
+      sessionReadRetryAfter = 0;
+      lastSessionReadError = null;
+    }
+    return currentSession;
+  });
+  const boundedRefresh = Promise.race([sdkRefresh, timeout]);
+  let pending!: Promise<Session | null>;
+  pending = boundedRefresh
+    .catch((error: unknown) => {
+      lastSessionReadError = error instanceof Error ? error : new Error("Supabase session refresh failed.");
+      throw error;
+    })
+    .finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (accessTokenRefreshInFlight === pending) accessTokenRefreshInFlight = null;
+    });
+  accessTokenRefreshInFlight = pending;
+  return pending;
+}
+
+function waitForAuthStateChange(timeoutMs: number): Promise<boolean> {
   ensureAuthSubscription();
   return new Promise((resolve) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = () => {
+    const finish = (changed: boolean) => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
       authSubscribers.delete(subscriber);
-      resolve();
+      resolve(changed);
     };
     const subscriber: AuthSubscriber = (event, session) => {
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" ||
           event === "USER_UPDATED" || event === "SIGNED_OUT" ||
-          isSupabaseSessionUsable(session)) finish();
+          isSupabaseSessionUsable(session)) finish(true);
     };
     authSubscribers.add(subscriber);
-    timer = setTimeout(finish, timeoutMs);
-    // Close the race where a usable event landed immediately before subscription.
-    if (isSupabaseSessionUsable(currentSession)) finish();
+    timer = setTimeout(() => finish(false), timeoutMs);
+    if (isSupabaseSessionUsable(currentSession)) finish(true);
   });
 }
 
-async function readSupabaseAccessToken(): Promise<string | null> {
-  let session = await getSupabaseSession();
-  if (!session || !isSupabaseSessionUsable(session)) {
-    // A single bounded reconciliation handles startup/sign-in/token-refresh
-    // ordering without a refreshSession storm across concurrent tRPC requests.
-    await waitForAuthStateChange();
-    session = await getSupabaseSession();
-  }
+const resolveSupabaseAccessToken = createSupabaseAccessTokenResolver<Session>({
+  getCurrentSession: () => currentSession,
+  getSupabaseSession,
+  refreshSession: refreshSupabaseSessionForAccessToken,
+  waitForAuthStateChange,
+  isUsable: (session) => isSupabaseSessionUsable(session),
+  shouldRefresh: (session) => shouldRefreshSupabaseSession(getSupabaseSessionExpirySeconds(session)),
+  getLastSessionReadError: () => lastSessionReadError,
+});
 
-  if (!session || !isSupabaseSessionUsable(session)) {
-    const cause = lastSessionReadError as (Error & { code?: unknown; status?: unknown; statusCode?: unknown }) | null;
-    if (cause && (cause.status === 429 || cause.statusCode === 429 || cause.code === "over_request_rate_limit")) {
-      throw Object.assign(new Error("Supabase rate-limited the session refresh request."), {
-        name: "PowerHubSupabaseRateLimitError",
-        cause,
-      });
-    }
-    if (cause?.name === "PowerHubSessionReadTimeoutError") {
-      throw Object.assign(new Error("Supabase session restoration timed out before a usable access token was available."), {
-        name: "PowerHubSessionReadTimeoutError",
-        cause,
-      });
-    }
-    if (cause) {
-      throw Object.assign(new Error("Supabase could not read or restore a session before a usable access token was available."), {
-        name: "PowerHubSessionReadFailedError",
-        cause,
-      });
-    }
-    return null;
-  }
-  return typeof session.access_token === "string" && session.access_token.trim().length > 0
-    ? session.access_token
-    : null;
-}
-
-/**
- * All simultaneous API batches share one bounded token acquisition/recovery
- * attempt. Do not trigger refreshSession here; Supabase owns token rotation.
- */
 export function getSupabaseAccessToken(): Promise<string | null> {
-  if (accessTokenReadInFlight) return accessTokenReadInFlight;
-  accessTokenReadInFlight = readSupabaseAccessToken().finally(() => {
-    accessTokenReadInFlight = null;
-  });
-  return accessTokenReadInFlight;
+  return resolveSupabaseAccessToken();
 }
