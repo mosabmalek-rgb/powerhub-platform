@@ -519,8 +519,12 @@ describe("shared AuthProvider", () => {
     const missingTokenError = Object.assign(new Error("missing token"), {
       name: "PowerHubSessionTokenUnavailableError",
     });
+    const clockSkewError = Object.assign(new Error("device clock differs from server"), {
+      name: "PowerHubDeviceClockSkewError",
+    });
     expect(retryPolicy?.(0, expiredTokenError)).toBe(false);
     expect(retryPolicy?.(0, missingTokenError)).toBe(false);
+    expect(retryPolicy?.(0, clockSkewError)).toBe(false);
     expect(retryPolicy?.(0, new Error("Failed to fetch"))).toBe(true);
     expect(retryPolicy?.(0, { data: { code: "FORBIDDEN" } })).toBe(false);
     expect(refetchIntervalPolicy?.({ state: { status: "error", error: expiredTokenError } })).toBe(false);
