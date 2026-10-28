@@ -23,6 +23,22 @@ const SESSION_BOOTSTRAP_TIMEOUT_MS = 5_000;
 // + 2s device claim, plus a small transport/scheduling margin.
 const AUTH_PROFILE_CHECK_TIMEOUT_MS = 18_000;
 const SESSION_RECOVERY_TIMEOUT_MS = 8_000;
+
+// These failures happen before a protected HTTP request can be authenticated.
+// Replaying auth.me cannot repair an expired/unresolvable token or invalid
+// device identity; it repeats the same bounded bootstrap path and delays the
+// recovery UI. Explicit retry and reconnect events remain available.
+const NON_RETRYABLE_AUTH_BOOTSTRAP_ERROR_NAMES = new Set([
+  "PowerHubSessionRefreshFailedError",
+  "PowerHubSessionRefreshTimeoutError",
+  "PowerHubSessionReadFailedError",
+  "PowerHubSessionReadTimeoutError",
+  "PowerHubSupabaseRateLimitError",
+  "PowerHubSessionIdentityChangedError",
+  "PowerHubSessionTokenUnavailableError",
+  "PowerHubDeviceIdentityUnavailableError",
+  "PowerHubConnectivityUnresolvedError",
+]);
 const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر التحقق من جلسة الدخول في الوقت المحدد. أعد المحاولة لاستعادة البيانات.",
 ), { name: "PowerHubAuthProfileCheckTimeoutError" });
@@ -96,8 +112,8 @@ function useAuthController() {
       for (let depth = 0; depth < 5 && cause && typeof cause === "object" && !seen.has(cause); depth += 1) {
         seen.add(cause);
         const name = (cause as { name?: unknown }).name;
-        if (name === "PowerHubSessionRefreshFailedError" || name === "PowerHubSessionRefreshTimeoutError") {
-          return failureCount < 1;
+        if (typeof name === "string" && NON_RETRYABLE_AUTH_BOOTSTRAP_ERROR_NAMES.has(name)) {
+          return false;
         }
         cause = (cause as { cause?: unknown }).cause;
       }
