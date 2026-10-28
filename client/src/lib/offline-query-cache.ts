@@ -1,6 +1,6 @@
 import type { Query, QueryClient } from "@tanstack/react-query";
 import superjson from "superjson";
-import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey } from "./offline-query-policy";
+import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey } from "./offline-query-policy";
 export { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey } from "./offline-query-policy";
 
 const DATABASE_NAME = "powerhub-offline-cache";
@@ -291,7 +291,7 @@ async function persistOfflineQueryWithPolicy(
     updatedAt: query.state.dataUpdatedAt || now,
     // Operational snapshots are retained across days; freshness is handled by sync cursors,
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
-    expiresAt: isOfflineDashboardSnapshotQueryKey(query.queryKey) ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
+    expiresAt: (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey)) ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
   };
 
   try {
