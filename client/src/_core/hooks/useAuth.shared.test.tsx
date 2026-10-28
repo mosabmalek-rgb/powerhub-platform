@@ -29,6 +29,16 @@ vi.mock("@/lib/offline-connectivity", () => ({
   usePowerHubConnectivity: () => ({ isOnline: mocks.powerHubReachable, isChecking: mocks.powerHubConnectivityChecking }),
   resetPowerHubClockObservation: vi.fn(),
   probePowerHubConnectivity: vi.fn(async () => true),
+  // Explicit auth retry requires a fresh, successful server-clock sample before
+  // resetting session-read backoff or attempting session recovery.
+  verifyPowerHubClockForRetry: vi.fn(async () => ({
+    reachable: true,
+    sampleAvailable: true,
+    localMinusServerMs: 0,
+    skewDetected: false,
+    clockCheckPending: false,
+    thresholdMs: 300_000,
+  })),
 }));
 
 vi.mock("@/lib/trpc", () => ({
