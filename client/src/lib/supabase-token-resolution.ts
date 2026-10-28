@@ -8,7 +8,7 @@ export type SupabaseTokenSession = {
 export type SupabaseTokenResolutionDependencies<TSession extends SupabaseTokenSession> = {
   getCurrentSession: () => TSession | null;
   getSupabaseSession: () => Promise<TSession | null>;
-  refreshSession: (session: TSession | null, timeoutMs: number) => Promise<TSession | null>;
+  resolveLatestSession: (timeoutMs: number) => Promise<TSession | null>;
   waitForAuthStateChange: (timeoutMs: number) => Promise<boolean>;
   isUsable: (session: TSession | null) => boolean;
   shouldRefresh: (session: TSession) => boolean;
@@ -160,18 +160,22 @@ export function createSupabaseAccessTokenResolver<TSession extends SupabaseToken
       }
 
       try {
-        const refreshed = await dependencies.refreshSession(
-          session,
+        const resolvedSession = await dependencies.resolveLatestSession(
           Math.min(SUPABASE_SESSION_REFRESH_TIMEOUT_MS, remaining),
         );
-        const resolved = refreshed ?? currentSessionForExpectedUser();
+        const resolved = resolvedSession ?? currentSessionForExpectedUser();
         const refreshedToken = usableToken(resolved);
         if (refreshedToken) {
-          refreshRetryAfter = 0;
+          // getSession() may return the still-valid stored winner while the
+          // SDK's auto-refresh cycle is settling. Don't query storage for every
+          // tRPC batch during that short window.
+          refreshRetryAfter = resolved && dependencies.shouldRefresh(resolved)
+            ? now() + TRANSIENT_REFRESH_RETRY_BACKOFF_MS
+            : 0;
           lastRefreshError = null;
           return refreshedToken;
         }
-        refreshError = new Error("Supabase refresh completed without returning a usable session.");
+        refreshError = new Error("Supabase session lookup completed without a usable session.");
       } catch (error) {
         refreshError = asError(error);
       }

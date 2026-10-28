@@ -188,7 +188,11 @@ describe("Supabase browser refresh wiring", () => {
     expect(source).toContain("auth: { ...SUPABASE_BROWSER_AUTH_OPTIONS }");
     expect(source).not.toContain("autoRefreshToken: false");
     expect(source).toContain("shouldRefreshSupabaseSession(getSupabaseSessionExpirySeconds(session))");
-    expect(source).toContain("supabase.auth.refreshSession(session)");
+    expect(source).toContain("supabase.auth.getSession()");
+    expect(source).not.toContain("supabase.auth.refreshSession(session)");
+    expect(source).toContain("resolveLatestSupabaseSessionForAccessToken");
+    expect(source).toContain("accessTokenRefreshInFlight");
+    expect(source).toContain("previousSession");
     expect(source).toContain("accessTokenRefreshInFlight");
     expect(source).toContain("selectAuthSnapshot(data.session ?? null, currentSession, requestRevision, authStateRevision)");
     expect(source).toContain("sessionReadInFlight = null;");
