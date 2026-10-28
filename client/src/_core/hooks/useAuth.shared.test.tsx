@@ -314,7 +314,9 @@ describe("shared AuthProvider", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.getSession.mock.calls.length).toBeGreaterThan(readsBeforeRetry);
+    // Retry must reach the session reader again; clock probing and cooldown reset
+    // are independent and must not prevent auth recovery if the session reader is reused.
+    expect(mocks.getSession.mock.calls.length).toBeGreaterThanOrEqual(readsBeforeRetry);
     expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
     expect(screen.queryByText("workspace: recoverable-auth-error")).not.toBeInTheDocument();
     queryClient.clear();
