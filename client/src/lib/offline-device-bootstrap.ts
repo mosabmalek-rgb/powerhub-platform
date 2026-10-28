@@ -129,9 +129,7 @@ async function withFallbackLock<T>(key: string, work: () => Promise<T>): Promise
   }
 }
 async function withDeviceBootstrapLock<T>(key: string, work: () => Promise<T>): Promise<T> {
-  const locks = typeof navigator !== "undefined"
-    ? (navigator as Navigator & { locks?: { request: <R>(name: string, options: { mode: "exclusive" }, callback: () => Promise<R>) => Promise<R> }).locks
-    : undefined;
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
   return locks?.request ? locks.request(`powerhub:device-bootstrap:${key}`, { mode: "exclusive" }, work) : withFallbackLock(key, work);
 }
 const indexedDbCheckpointStore: DeviceBootstrapCheckpointStore = {
