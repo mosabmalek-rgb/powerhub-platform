@@ -290,7 +290,7 @@ async function patchQueryCaches(
         queryClient.setQueryData(query.queryKey, entityType === "inventory_purchase_receipt_headers"
           ? sortPurchaseReceiptRows(nextRows, limit)
           : sortSupplierReturnRows(nextRows, limit));
-      } else if (entityType === "fuel_readings" || entityType === "maintenance_preventive_plans") {
+      } else if (entityType === "fuel_readings" || entityType === "maintenance_preventive_plans" || entityType === "fuel_events" || entityType === "maintenance_work_orders" || entityType.startsWith("maintenance_work_order_parts:")) {
         const generatorId = Number(getOfflineQueryInput(query.queryKey).generatorId);
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
         const normalizedPage = {
@@ -301,25 +301,51 @@ async function patchQueryCaches(
           }),
         };
         const filtered = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        const queryInput = getOfflineQueryInput(query.queryKey);
+        const generatorId = Number(queryInput.generatorId);
+        const workOrderId = Number(queryInput.workOrderId);
         const nextRows = filtered
-          .filter((row) => !Number.isSafeInteger(generatorId) || generatorId < 1 ||
+          .filter((row) => (entityType !== "fuel_readings" && entityType !== "maintenance_preventive_plans") ||
+            !Number.isSafeInteger(generatorId) || generatorId < 1 ||
             Number(row.generator_id ?? row.generatorId) === generatorId)
+          .filter((row) => !entityType.startsWith("maintenance_work_order_parts:") ||
+            Number(row.work_order_id ?? row.workOrderId) === workOrderId)
           .sort((a, b) => {
-            if (entityType === "fuel_readings") {
-              const left = Date.parse(String(a.recorded_at ?? ""));
-              const right = Date.parse(String(b.recorded_at ?? ""));
+            if (entityType === "fuel_readings" || entityType === "fuel_events") {
+              const field = entityType === "fuel_readings" ? "recorded_at" : "occurred_at";
+              const left = Date.parse(String(a[field] ?? ""));
+              const right = Date.parse(String(b[field] ?? ""));
+              const idField = entityType === "fuel_readings" ? "reading_id" : "event_id";
               return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
-                Number(b.reading_id ?? b.id) - Number(a.reading_id ?? a.id);
+                Number(b[idField] ?? b.id) - Number(a[idField] ?? a.id);
+            }
+            if (entityType === "maintenance_work_orders") {
+              const left = Date.parse(String(a.reported_at ?? ""));
+              const right = Date.parse(String(b.reported_at ?? ""));
+              return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                Number(b.work_order_id ?? b.id) - Number(a.work_order_id ?? a.id);
+            }
+            if (entityType.startsWith("maintenance_work_order_parts:")) {
+              const left = Date.parse(String(a.issued_at ?? ""));
+              const right = Date.parse(String(b.issued_at ?? ""));
+              return (Number.isFinite(left) ? left : 0) - (Number.isFinite(right) ? right : 0) ||
+                Number(a.part_id ?? a.id) - Number(b.part_id ?? b.id);
             }
             const priority = (row: AnyRow) => row.alert_type === "overdue" ? 0 : row.alert_type === "due_soon" ? 1 : 2;
             return priority(a) - priority(b) ||
               String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
               Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
           });
-        const requestedLimit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+        const requestedLimit = Number(queryInput.limit ?? 100);
         const limit = entityType === "fuel_readings"
           ? Math.min(MAX_LOCAL_FUEL_READING_QUERY_ROWS, Math.max(1, requestedLimit))
-          : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
+          : entityType === "fuel_events"
+            ? 100
+            : entityType === "maintenance_work_orders"
+              ? 200
+              : entityType.startsWith("maintenance_work_order_parts:")
+                ? nextRows.length
+                : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
         queryClient.setQueryData(query.queryKey, nextRows.slice(0, limit));
       } else if (entityType === "inventory_purchase_headers") {
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_purchase_headers", row));
@@ -495,27 +521,52 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
             queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
-          } else if (candidate.entityType === "fuel_readings" || candidate.entityType === "maintenance_preventive_plans") {
-            const generatorId = Number(getOfflineQueryInput(query.queryKey).generatorId);
+          } else if (candidate.entityType === "fuel_readings" || candidate.entityType === "maintenance_preventive_plans" || candidate.entityType === "fuel_events" || candidate.entityType === "maintenance_work_orders" || candidate.entityType.startsWith("maintenance_work_order_parts:")) {
+            const queryInput = getOfflineQueryInput(query.queryKey);
+            const generatorId = Number(queryInput.generatorId);
+            const workOrderId = Number(queryInput.workOrderId);
             const filtered = (queryRows as AnyRow[])
-              .filter((row) => !Number.isSafeInteger(generatorId) || generatorId < 1 ||
+              .filter((row) => (candidate.entityType !== "fuel_readings" && candidate.entityType !== "maintenance_preventive_plans") ||
+                !Number.isSafeInteger(generatorId) || generatorId < 1 ||
                 Number(row.generator_id ?? row.generatorId) === generatorId)
+              .filter((row) => !candidate.entityType.startsWith("maintenance_work_order_parts:") ||
+                Number(row.work_order_id ?? row.workOrderId) === workOrderId)
               .sort((a, b) => {
-                if (candidate.entityType === "fuel_readings") {
-                  const left = Date.parse(String(a.recorded_at ?? ""));
-                  const right = Date.parse(String(b.recorded_at ?? ""));
+                if (candidate.entityType === "fuel_readings" || candidate.entityType === "fuel_events") {
+                  const field = candidate.entityType === "fuel_readings" ? "recorded_at" : "occurred_at";
+                  const left = Date.parse(String(a[field] ?? ""));
+                  const right = Date.parse(String(b[field] ?? ""));
+                  const idField = candidate.entityType === "fuel_readings" ? "reading_id" : "event_id";
                   return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
-                    Number(b.reading_id ?? b.id) - Number(a.reading_id ?? a.id);
+                    Number(b[idField] ?? b.id) - Number(a[idField] ?? a.id);
+                }
+                if (candidate.entityType === "maintenance_work_orders") {
+                  const left = Date.parse(String(a.reported_at ?? ""));
+                  const right = Date.parse(String(b.reported_at ?? ""));
+                  return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                    Number(b.work_order_id ?? b.id) - Number(a.work_order_id ?? a.id);
+                }
+                if (candidate.entityType.startsWith("maintenance_work_order_parts:")) {
+                  const left = Date.parse(String(a.issued_at ?? ""));
+                  const right = Date.parse(String(b.issued_at ?? ""));
+                  return (Number.isFinite(left) ? left : 0) - (Number.isFinite(right) ? right : 0) ||
+                    Number(a.part_id ?? a.id) - Number(b.part_id ?? b.id);
                 }
                 const priority = (row: AnyRow) => row.alert_type === "overdue" ? 0 : row.alert_type === "due_soon" ? 1 : 2;
                 return priority(a) - priority(b) ||
                   String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
                   Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
               });
-            const requestedLimit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            const requestedLimit = Number(queryInput.limit ?? 100);
             const limit = candidate.entityType === "fuel_readings"
               ? Math.min(MAX_LOCAL_FUEL_READING_QUERY_ROWS, Math.max(1, requestedLimit))
-              : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
+              : candidate.entityType === "fuel_events"
+                ? 100
+                : candidate.entityType === "maintenance_work_orders"
+                  ? 200
+                  : candidate.entityType.startsWith("maintenance_work_order_parts:")
+                    ? filtered.length
+                    : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
             queryClient.setQueryData(query.queryKey, filtered.slice(0, limit));
           } else if (candidate.entityType === "inventory_purchase_receipt_headers" || candidate.entityType === "inventory_supplier_return_headers") {
             const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
