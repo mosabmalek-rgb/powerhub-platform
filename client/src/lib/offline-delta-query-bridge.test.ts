@@ -548,3 +548,42 @@ describe("fuel event and maintenance work-order Delta projection", () => {
     expect(applyDeltaPageToList(entity, [], partPage, partScope)).toMatchObject([{ id: 30, work_order_id: 20 }]);
   });
 });
+
+
+describe("HR Delta minimized projections", () => {
+  it("keeps employee optimistic versions while removing personal and wage fields", () => {
+    const employee = normalizeDeltaEntityRow("hr_employee_directory", {
+      id: 42, tenant_id: 2, site_id: null, full_name: "موظف", job_title: "worker",
+      employment_status: "active", contract_type: "monthly", created_at: "2026-10-01T00:00:00Z",
+      version_no: 9, identity_no: "PRIVATE-ID", phone: "PRIVATE-PHONE", base_wage: "9999",
+      notes: "PRIVATE-NOTE", linked_user_id: 55,
+    });
+    expect(employee).toMatchObject({
+      id: 42, tenantId: 2, siteId: null, fullName: "موظف", versionNo: 9,
+    });
+    for (const field of ["identityNo", "identity_no", "phone", "baseWage", "base_wage", "notes", "linkedUserId", "linked_user_id"]) {
+      expect(employee).not.toHaveProperty(field);
+    }
+  });
+
+  it("keeps attendance versions and bounded employee fields but never notes or audit identities", () => {
+    const attendance = normalizeDeltaEntityRow("hr_attendance", {
+      id: 81, tenant_id: 2, site_id: 10,
+      attendance: {
+        id: 81, tenant_id: 2, employee_id: 42, site_id: 10, work_date: "2026-10-28",
+        regular_hours: "8", overtime_hours: "1", absent_days: "0",
+        notes: "PRIVATE-ATTENDANCE-NOTE", created_by_user_id: 77, version_no: 6,
+        created_at: "2026-10-28T00:00:00Z", updated_at: "2026-10-28T12:00:00Z",
+      },
+      employee: {
+        id: 42, tenant_id: 2, site_id: null, full_name: "موظف", job_title: "worker", employment_status: "active",
+        identity_no: "PRIVATE-ID", phone: "PRIVATE-PHONE", base_wage: "9999", notes: "PRIVATE-NOTE",
+      },
+    }) as Record<string, any>;
+    expect(attendance.attendance).toMatchObject({ id: 81, employeeId: 42, versionNo: 6, notes: null, createdByUserId: null });
+    expect(attendance.employee).toMatchObject({ id: 42, fullName: "موظف", siteId: null });
+    for (const field of ["identityNo", "identity_no", "phone", "baseWage", "base_wage", "notes"]) {
+      expect(attendance.employee).not.toHaveProperty(field);
+    }
+  });
+});
