@@ -12,6 +12,7 @@ const purchaseHeaderMigration = readFileSync(resolve(process.cwd(), "supabase/mi
 const receiptReturnMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029120000_powerhub_delta_receipt_return_headers.sql"), "utf8");
 const operationalMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql"), "utf8");
 const fuelMaintenanceMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql"), "utf8");
+const hrDeltaMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029150000_powerhub_hr_delta_sync.sql"), "utf8");
 const hrOfflineMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029160000_powerhub_hr_offline_operation_idempotency.sql"), "utf8");
 const maintenanceGuardSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.ts"), "utf8");
 const inventoryRouter = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
@@ -86,6 +87,17 @@ describe("PowerHub delta sync contract", () => {
 
 
 describe("HR offline operation replay contract", () => {
+  it("projects real server versions before HR snapshots or Delta changes can enter IndexedDB", () => {
+    expect(hrDeltaMigration).toContain("add column if not exists hr_sync_version bigint not null default 1");
+    expect(hrDeltaMigration).toContain("'version_no',e.hr_sync_version");
+    expect(hrDeltaMigration).toContain("'version_no',a.hr_sync_version");
+    const employeeProjectorStart = hrDeltaMigration.indexOf("create or replace function public.powerhub_project_hr_employee_delta_row");
+    const attendanceProjectorStart = hrDeltaMigration.indexOf("create or replace function public.powerhub_project_hr_attendance_delta_row");
+    expect(hrDeltaMigration.indexOf("add column if not exists hr_sync_version bigint not null default 1")).toBeLessThan(employeeProjectorStart);
+    expect(employeeProjectorStart).toBeGreaterThanOrEqual(0);
+    expect(attendanceProjectorStart).toBeGreaterThan(employeeProjectorStart);
+  });
+
   it("uses transaction-bound idempotency, optimistic versions and service-role-only execution", () => {
     expect(hrOfflineMigration).toContain("powerhub_hr_replay_offline_operation");
     expect(hrOfflineMigration).toContain("powerhub_hr_offline_operation_results");

@@ -122,3 +122,11 @@ This update supersedes the earlier “not wired end-to-end” status above for t
 - Verify the complete flow in a staging browser: go offline after loading the directory, account options and attendance; create/update employees; create attendance; queue payroll draft and advance/repayment; reload; reconnect; verify dependencies, idempotent retry, rejected/conflicting operations, refreshed Delta rows and account balances.
 - Confirm the UI does not present local pending requests as approved or financially posted. Validate account/site permissions with accounts linked to another branch and with inactive/missing accounts.
 - No staging or production migration was applied and no Preview was deployed during this update. Do not merge or claim production readiness until the same-SHA gates and browser acceptance pass.
+
+
+## إصلاح نسخة Delta الخادمية للموارد البشرية — 2026-10-29
+
+- اكتُشف في التدقيق أن مطبّع العميل يحتفظ بـ `versionNo` لكنه يستخدم 1 افتراضيًا عند غياب `version_no`. كان إسقاط دليل الموظفين والحضور في migration `20261029150000_powerhub_hr_delta_sync.sql` لا يرسل رقم النسخة، رغم أن replay يتطلب مقارنة تفاؤلية بالنسخة الحالية.
+- أضيف `hr_sync_version` إلى جدولي الموظفين والحضور قبل تعريف إسقاطات Delta، وأصبح كل إسقاط يعيد `version_no` الحقيقي. بقيت حقول الهوية والهاتف والأجر والملاحظات وهوية المنفذ مستبعدة.
+- أضيفت assertions لاختبار PostgreSQL وcontract test لترتيب التهيئة ووجود النسخة في إسقاط الموظف والحضور.
+- **الحالة:** معالجة الكود والاختبارات أُضيفت إلى PR #359؛ يلزم انتظار CI جديد على SHA النهائي بعد هذا الإصلاح. لا يُعتمد نجاح الرأس السابق كدليل على هذا التعديل، ولا نشر أو تطبيق migration قبل اكتمال القبول.

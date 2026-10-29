@@ -1042,3 +1042,9 @@ Safety invariants:
 - A stale account option is only a UI hint. The server must recheck current site linkage, account status, permission, financial-period rules and remaining balance when replaying any financial operation.
 - The remaining acceptance gate is explicit: all CI/security/PostgreSQL gates must pass on the same final SHA, then staging-browser tests must verify reload/offline/reconnect, duplicate retry, branch isolation, reset-required, conflict display and financial balance reconciliation. A successful unit/SQL gate alone is not production acceptance.
 - No migrations were applied to staging or production and no Preview was deployed as part of this implementation update.
+
+
+### HR version contract — 2026-10-29
+
+- The minimized employee-directory and attendance Delta projectors now carry the real `hr_sync_version` as `version_no`. The columns are created before the HR Delta projectors so the first snapshot can expose a valid version, not a client fallback of `1`.
+- PostgreSQL and contract assertions verify the field is present in snapshots and upserts while sensitive fields remain redacted. A previous CI-green SHA predates this fix; final same-SHA CI and staging-browser acceptance remain required.
