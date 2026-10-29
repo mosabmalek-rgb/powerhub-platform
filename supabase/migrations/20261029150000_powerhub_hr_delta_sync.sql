@@ -142,7 +142,7 @@ grant execute on function public.powerhub_emit_hr_delta_sync_change(bigint,bigin
 create or replace function public.powerhub_refresh_hr_employee_directory_delta_scope(p_tenant_id bigint,p_site_id bigint)
 returns void language plpgsql security definer set search_path=pg_catalog,public,pg_temp
 as $$
-declare v_employee record; v_old record; v_lock_key bigint;
+declare v_employee record; v_old jsonb; v_lock_key bigint;
 begin
   if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then return; end if;
   v_lock_key:=hashtextextended(p_tenant_id::text||':'||p_site_id::text||':hr_employee_directory',0);
@@ -186,7 +186,7 @@ grant execute on function public.powerhub_refresh_hr_employee_directory_delta_sc
 create or replace function public.powerhub_refresh_hr_attendance_delta_scope(p_tenant_id bigint,p_site_id bigint)
 returns void language plpgsql security definer set search_path=pg_catalog,public,pg_temp
 as $$
-declare v_attendance record; v_old record; v_lock_key bigint;
+declare v_attendance record; v_old jsonb; v_lock_key bigint;
 begin
   if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then return; end if;
   v_lock_key:=hashtextextended(p_tenant_id::text||':'||p_site_id::text||':hr_attendance',0);
