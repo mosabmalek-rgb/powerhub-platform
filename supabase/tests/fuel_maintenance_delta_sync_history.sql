@@ -305,6 +305,8 @@ $bounded_work_order_membership$;
 do $bounded_fuel_event_membership$
 declare
   v_i integer;
+  v_tank_id bigint;
+  v_fuel_item_id bigint;
   v_inserted_id bigint;
   v_moved_id bigint;
   v_replacement_id bigint;
@@ -314,15 +316,25 @@ declare
   v_change_set jsonb;
   v_count integer;
 begin
+  select w.id into v_tank_id
+  from public.inventory_warehouses w
+  where w.tenant_id=10 and w.site_id=100 and w.code='DELTA-TANK';
+  select i.id into v_fuel_item_id
+  from public.inventory_items i
+  where i.tenant_id=10 and i.sku='DELTA-FUEL-ITEM';
+  if v_tank_id is null or v_fuel_item_id is null then
+    raise exception 'DELTA_BOUNDED_FUEL_EVENT_FIXTURE_DEPENDENCIES_MISSING';
+  end if;
+
   for v_i in 1..501 loop
-    select fill.fuel_event_id into v_inserted_id
+    select fill_row.fuel_event_id into v_inserted_id
     from public.powerhub_inventory_record_fuel_fill(
       10,100,1,10000,v_fuel_item_id,1,v_tank_id,0.001,
       now() - ((501-v_i)::text || ' seconds')::interval,
       null,null,null,
       'DELTA-BOUND-FE-'||lpad(v_i::text,3,'0'),null,
       'delta-bounded-fuel-event-'||lpad(v_i::text,3,'0')
-    ) fill;
+    ) as fill_row;
     if v_inserted_id is null then
       raise exception 'DELTA_BOUNDED_FUEL_EVENT_FIXTURE_CREATE_FAILED index=%',v_i;
     end if;
