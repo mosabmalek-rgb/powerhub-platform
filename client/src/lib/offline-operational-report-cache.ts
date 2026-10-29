@@ -154,3 +154,17 @@ export async function loadOperationalReportSnapshot(
   }
   return usable;
 }
+
+export async function clearOperationalReportSnapshotsForUser(userId: string) {
+  if (!userId) return;
+  try {
+    const snapshots = await transact<OperationalReportSnapshot[]>("readonly", (store) => store.getAll());
+    const remove = snapshots.filter((snapshot) => String(snapshot.userId) === userId).map((snapshot) => snapshot.key);
+    if (remove.length) await transact("readwrite", (store) => {
+      for (const key of remove) store.delete(key);
+      return store.getAllKeys();
+    });
+  } catch {
+    // Privacy cleanup is best-effort and must not block sign-out.
+  }
+}
