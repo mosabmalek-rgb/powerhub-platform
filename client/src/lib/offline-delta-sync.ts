@@ -47,6 +47,8 @@ const MAX_LOCAL_STOCK_MOVEMENT_ROWS = 500;
 const MAX_LOCAL_INVENTORY_STOCKTAKE_ROWS = 200;
 const MAX_LOCAL_PURCHASE_HEADER_ROWS = 200;
 const MAX_LOCAL_PURCHASE_CHILD_HISTORY_ROWS = 200;
+const MAX_LOCAL_FUEL_READING_ROWS = 500;
+const MAX_LOCAL_MAINTENANCE_PLAN_ROWS = 500;
 
 function movementProjection(value: Record<string, unknown>): Record<string, unknown> {
   const nested = value.rowData;
@@ -66,8 +68,8 @@ function compareStockMovementNewestFirst(
 ): number {
   const left = movementProjection(leftValue);
   const right = movementProjection(rightValue);
-  const leftParsed = Date.parse(String(left.occurred_at ?? left.occurredAt ?? left.invoice_date ?? left.invoiceDate ?? left.received_at ?? left.receivedAt ?? left.receipt_date ?? left.receiptDate ?? left.return_date ?? left.returnDate ?? left.created_at ?? left.createdAt ?? ""));
-  const rightParsed = Date.parse(String(right.occurred_at ?? right.occurredAt ?? right.invoice_date ?? right.invoiceDate ?? right.received_at ?? right.receivedAt ?? right.receipt_date ?? right.receiptDate ?? right.return_date ?? right.returnDate ?? right.created_at ?? right.createdAt ?? ""));
+  const leftParsed = Date.parse(String(left.occurred_at ?? left.occurredAt ?? left.invoice_date ?? left.invoiceDate ?? left.received_at ?? left.receivedAt ?? left.receipt_date ?? left.receiptDate ?? left.return_date ?? left.returnDate ?? left.next_due_at ?? left.nextDueAt ?? left.created_at ?? left.createdAt ?? ""));
+  const rightParsed = Date.parse(String(right.occurred_at ?? right.occurredAt ?? right.invoice_date ?? right.invoiceDate ?? right.received_at ?? right.receivedAt ?? right.receipt_date ?? right.receiptDate ?? right.return_date ?? right.returnDate ?? right.next_due_at ?? right.nextDueAt ?? right.created_at ?? right.createdAt ?? ""));
   const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
   const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
   if (leftTime !== rightTime) return rightTime - leftTime;
@@ -100,7 +102,11 @@ export function limitDeltaEntityRows<T extends Record<string, unknown>>(
         ? MAX_LOCAL_PURCHASE_HEADER_ROWS
         : entityType === "inventory_purchase_receipt_headers" || entityType === "inventory_supplier_return_headers"
           ? MAX_LOCAL_PURCHASE_CHILD_HISTORY_ROWS
-          : null;
+          : entityType === "fuel_readings"
+            ? MAX_LOCAL_FUEL_READING_ROWS
+            : entityType === "maintenance_preventive_plans"
+              ? MAX_LOCAL_MAINTENANCE_PLAN_ROWS
+              : null;
   if (limit === null || rows.length <= limit) return [...rows];
   return [...rows].sort(compareStockMovementNewestFirst).slice(0, limit);
 }
