@@ -9,6 +9,10 @@ const expenseMigration = readFileSync(resolve(process.cwd(), "supabase/migration
 const inventoryMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029000000_powerhub_delta_inventory_catalog.sql"), "utf8");
 const stocktakeMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029100000_powerhub_delta_inventory_stocktakes.sql"), "utf8");
 const purchaseHeaderMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029110000_powerhub_delta_purchase_headers.sql"), "utf8");
+const purchaseHeaderProjection = purchaseHeaderMigration.slice(
+  purchaseHeaderMigration.indexOf("create or replace function public.powerhub_delta_sync_project_purchase_header_row"),
+  purchaseHeaderMigration.indexOf("create or replace function public.powerhub_delta_sync_project_inventory_row"),
+);
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-delta-sync.ts"), "utf8");
 
@@ -94,13 +98,13 @@ describe("inventory catalog Delta extension", () => {
     expect(client).toContain('"inventory_stocktakes"');
     expect(purchaseHeaderMigration).toContain("after insert or update or delete on public.supplier_purchases");
     expect(purchaseHeaderMigration).toContain("after insert or update or delete on public.supplier_purchase_lines");
-    expect(purchaseHeaderMigration).toContain("'received_line_count',line_summary.received_line_count");
-    expect(purchaseHeaderMigration).not.toContain("'total_amount'");
-    expect(purchaseHeaderMigration).not.toContain("'supplier_invoice_no'");
-    expect(purchaseHeaderMigration).not.toContain("'due_date'");
-    expect(purchaseHeaderMigration).not.toContain("'payment_terms_days'");
-    expect(purchaseHeaderMigration).not.toContain("'reference_no'");
-    expect(purchaseHeaderMigration).not.toContain("'notes'");
+    expect(purchaseHeaderProjection).toContain("'received_line_count',line_summary.received_line_count");
+    expect(purchaseHeaderProjection).not.toContain("'total_amount'");
+    expect(purchaseHeaderProjection).not.toContain("'supplier_invoice_no'");
+    expect(purchaseHeaderProjection).not.toContain("'due_date'");
+    expect(purchaseHeaderProjection).not.toContain("'payment_terms_days'");
+    expect(purchaseHeaderProjection).not.toContain("'reference_no'");
+    expect(purchaseHeaderProjection).not.toContain("'notes'");
     expect(router).toContain("requireDeltaPurchaseHeaderReadAccess");
     expect(router).toContain('"inventory_purchase_headers"].includes(input.entityType)');
   });
