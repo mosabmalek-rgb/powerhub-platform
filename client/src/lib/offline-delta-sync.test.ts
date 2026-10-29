@@ -3,6 +3,7 @@ import {
   applyDeltaChanges,
   assertDeltaRowWithinScope,
   compareDeltaCursors,
+  limitDeltaEntityRows,
   pullDeltaPages,
   withDeltaSyncLock,
   type DeltaPage,
@@ -75,21 +76,29 @@ const deltaCacheQuery = {
 function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>[] = []): DeltaSyncStorage {
   let cursor = initialCursor;
   let rows = new Map<string, Record<string, unknown>>(initialRows.map(row => [String(row.id), row]));
+  const retainBoundedRows = (entityType: DeltaCursorScope["entityType"]) => {
+    const bounded = limitDeltaEntityRows(entityType, [...rows].map(([entityId, rowData]) => ({
+      ...rowData,
+      id: rowData.id ?? entityId,
+    })));
+    rows = new Map(bounded.map(row => [String(row.id), row]));
+  };
   return {
     getCursor: async () => cursor,
-    listEntities: async () => [...rows].map(([entityId, rowData]) => ({ ...scope, entityId, rowData, updatedAt: 1 })),
-    commitPage: async (_scope, p, next) => {
+    listEntities: async (requestedScope) => [...rows].map(([entityId, rowData]) => ({ ...requestedScope, entityId, rowData, updatedAt: 1 })),
+    commitPage: async (targetScope, p, next) => {
       if (BigInt(next) < BigInt(cursor)) throw new Error("stale cursor");
       if (BigInt(next) === BigInt(cursor)) return;
       for (const c of p.changes) {
         if (c.operation === "delete") rows.delete(c.entity_id);
         else if (c.row_data) rows.set(c.entity_id, c.row_data);
       }
+      retainBoundedRows(targetScope.entityType);
       cursor = next;
     },
-    replaceSnapshot: async (_scope, snapshot, next) => {
+    replaceSnapshot: async (targetScope, snapshot, next) => {
       if (BigInt(next) < BigInt(cursor)) throw new Error("stale snapshot");
-      rows = new Map(snapshot.map(row => [String(row.id), row]));
+      rows = new Map(limitDeltaEntityRows(targetScope.entityType, snapshot).map(row => [String(row.id), row]));
       cursor = next;
     },
     clearUser: async () => { cursor = "0"; rows.clear(); },
@@ -336,6 +345,58 @@ describe("offline delta sync", () => {
       scope, storage: memoryStorage(), afterCursor: null,
       pull: async () => page({ entity_type: "generators" }), rebuildSnapshot: async cursor => ({ cursor, rows: [] }),
     })).rejects.toThrow(/لا تطابق نوع البيانات/);
+  });
+
+  it("keeps the local stock-movement snapshot and incremental sidecar bounded to the newest 500 rows", async () => {
+    const movementScope: DeltaCursorScope = {
+      ...scope,
+      entityType: "inventory_stock_movements",
+    };
+    const storage = memoryStorage();
+    const movementRows = Array.from({ length: 501 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id,
+        tenantId: movementScope.tenantId,
+        siteId: movementScope.siteId,
+        occurred_at: new Date(Date.UTC(2026, 0, 1, 0, 0, id)).toISOString(),
+      };
+    });
+
+    await storage.replaceSnapshot(movementScope, movementRows, "10");
+    const afterSnapshot = await storage.listEntities(movementScope);
+    expect(afterSnapshot).toHaveLength(500);
+    expect(afterSnapshot.some((record) => record.entityId === "1")).toBe(false);
+    expect(afterSnapshot.some((record) => record.entityId === "2")).toBe(true);
+    expect(afterSnapshot.some((record) => record.entityId === "501")).toBe(true);
+
+    const newest = {
+      id: 502,
+      tenantId: movementScope.tenantId,
+      siteId: movementScope.siteId,
+      occurred_at: new Date(Date.UTC(2026, 0, 1, 0, 0, 502)).toISOString(),
+    };
+    const movementPage = page({
+      entity_type: "inventory_stock_movements",
+      current_cursor: "11",
+      through_cursor: "11",
+      next_cursor: "11",
+      changes: [{
+        cursor: "11",
+        entity_type: "inventory_stock_movements",
+        entity_id: "502",
+        operation: "upsert",
+        row_data: newest,
+        changed_at: newest.occurred_at,
+      }],
+    });
+    await storage.commitPage(movementScope, movementPage, "11");
+    const afterDelta = await storage.listEntities(movementScope);
+    expect(afterDelta).toHaveLength(500);
+    expect(afterDelta.some((record) => record.entityId === "2")).toBe(false);
+    expect(afterDelta.some((record) => record.entityId === "3")).toBe(true);
+    expect(afterDelta.some((record) => record.entityId === "502")).toBe(true);
+    expect(await storage.getCursor(movementScope)).toBe("11");
   });
 
   it("does not let an older snapshot replace a newer local cursor", async () => {

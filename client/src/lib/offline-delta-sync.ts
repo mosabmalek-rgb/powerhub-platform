@@ -43,6 +43,60 @@ export interface DeltaSyncStorage<Row extends Record<string, unknown> = Record<s
 const CURSOR_STORE = "cursors";
 const ENTITY_STORE = "entities";
 
+const MAX_LOCAL_STOCK_MOVEMENT_ROWS = 500;
+
+function movementProjection(value: Record<string, unknown>): Record<string, unknown> {
+  const nested = value.rowData;
+  return nested !== null && typeof nested === "object" && !Array.isArray(nested)
+    ? nested as Record<string, unknown>
+    : value;
+}
+
+function movementIdentity(value: Record<string, unknown>, row: Record<string, unknown>): string {
+  const id = row.id ?? row.movement_id ?? value.entityId;
+  return id === null || id === undefined ? "" : String(id);
+}
+
+function compareStockMovementNewestFirst(
+  leftValue: Record<string, unknown>,
+  rightValue: Record<string, unknown>,
+): number {
+  const left = movementProjection(leftValue);
+  const right = movementProjection(rightValue);
+  const leftParsed = Date.parse(String(left.occurred_at ?? left.occurredAt ?? ""));
+  const rightParsed = Date.parse(String(right.occurred_at ?? right.occurredAt ?? ""));
+  const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
+  const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+
+  const leftId = movementIdentity(leftValue, left);
+  const rightId = movementIdentity(rightValue, right);
+  try {
+    const leftBigInt = BigInt(leftId);
+    const rightBigInt = BigInt(rightId);
+    if (leftBigInt === rightBigInt) return 0;
+    return leftBigInt > rightBigInt ? -1 : 1;
+  } catch {
+    return rightId.localeCompare(leftId, undefined, { numeric: true });
+  }
+}
+
+/**
+ * Keep the bounded stock-movement feed bounded in IndexedDB as well as in the UI.
+ * Accepts either projected rows or stored entity records that wrap rowData.
+ */
+export function limitDeltaEntityRows<T extends Record<string, unknown>>(
+  entityType: DeltaEntityType,
+  rows: readonly T[],
+): T[] {
+  if (entityType !== "inventory_stock_movements" || rows.length <= MAX_LOCAL_STOCK_MOVEMENT_ROWS) {
+    return [...rows];
+  }
+  return [...rows]
+    .sort(compareStockMovementNewestFirst)
+    .slice(0, MAX_LOCAL_STOCK_MOVEMENT_ROWS);
+}
+
 function assertCursor(cursor: string) {
   if (!/^(0|[1-9][0-9]*)$/.test(cursor)) throw new Error("مؤشر المزامنة غير صالح.");
   return cursor;
@@ -421,7 +475,25 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
           });
         }
       }
-      cursors.put({ ...scope, cursor: nextCursor, updatedAt: now } satisfies DeltaCursorRecord);
+      if (scope.entityType === "inventory_stock_movements") {
+        // Keep the 500-row sidecar bound in the same transaction as mutations and cursor.
+        const retainedRequest = entities.index("byScope").getAll(IDBKeyRange.only(key));
+        retainedRequest.onerror = () => failTransaction("تعذر تقليص سجل حركات المخزون المحلي.");
+        retainedRequest.onsuccess = () => {
+          if (rejected) return;
+          const stored = retainedRequest.result as Array<Record<string, unknown>>;
+          const retainedIds = new Set(
+            limitDeltaEntityRows(scope.entityType, stored).map((record) => String(record.entityId)),
+          );
+          for (const record of stored) {
+            const entityId = String(record.entityId);
+            if (!retainedIds.has(entityId)) entities.delete([key, entityId]);
+          }
+          cursors.put({ ...scope, cursor: nextCursor, updatedAt: now } satisfies DeltaCursorRecord);
+        };
+      } else {
+        cursors.put({ ...scope, cursor: nextCursor, updatedAt: now } satisfies DeltaCursorRecord);
+      }
     };
     tx.oncomplete = () => { db.close(); if (!rejected) resolve(); };
     tx.onerror = () => { db.close(); if (!rejected) reject(tx.error ?? new Error("تعذر تثبيت صفحة المزامنة.")); };
@@ -445,6 +517,10 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
     assertDeltaRowWithinScope(scope.entityType, row, scope);
     normalized.set(String(id), row);
   }
+  const boundedRows = limitDeltaEntityRows(scope.entityType, [...normalized.values()]);
+  const boundedNormalized = new Map<string, Row>(
+    boundedRows.map((row) => [String(row.id), row]),
+  );
   const db = await openDatabase();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction([CURSOR_STORE, ENTITY_STORE], "readwrite");
@@ -472,7 +548,7 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
       keysRequest.onsuccess = () => {
         if (rejected) return;
         for (const entityKey of keysRequest.result) entities.delete(entityKey);
-        for (const [entityId, rowData] of normalized) {
+        for (const [entityId, rowData] of boundedNormalized) {
           entities.put({ scopeKey: key, ...scope, entityId, rowData, updatedAt: now });
         }
         cursors.put({ ...scope, cursor, updatedAt: now } satisfies DeltaCursorRecord);
