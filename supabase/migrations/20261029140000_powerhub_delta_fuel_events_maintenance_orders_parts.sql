@@ -197,6 +197,42 @@ alter function public.powerhub_emit_fuel_maintenance_delta_sync_change(bigint,bi
 revoke all on function public.powerhub_emit_fuel_maintenance_delta_sync_change(bigint,bigint,text,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_emit_fuel_maintenance_delta_sync_change(bigint,bigint,text,bigint) to service_role;
 
+-- Re-emit the current top-200 work orders when a row leaves or changes position
+-- in this bounded feed. A tombstone/upsert alone cannot reveal row #201.
+create or replace function public.powerhub_refresh_maintenance_work_order_delta_scope(
+  p_tenant_id bigint,p_site_id bigint
+)
+returns void
+language plpgsql security definer
+set search_path=pg_catalog,public,pg_temp
+as $
+declare v_order record;
+begin
+  if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1 then
+    raise exception 'POWERHUB_SYNC_SCOPE_REQUIRED' using errcode='P0001';
+  end if;
+  if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then
+    raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001';
+  end if;
+  for v_order in
+    select visible.id from (
+      select w.id
+      from public.generator_maintenance_work_orders w
+      where w.tenant_id=p_tenant_id and w.site_id=p_site_id
+      order by coalesce(w.reported_at,w.created_at) desc,w.id desc
+      limit 200
+    ) visible
+    order by visible.id
+  loop
+    perform public.powerhub_emit_fuel_maintenance_delta_sync_change(
+      p_tenant_id,p_site_id,'maintenance_work_orders',v_order.id
+    );
+  end loop;
+end $;
+alter function public.powerhub_refresh_maintenance_work_order_delta_scope(bigint,bigint) owner to postgres;
+revoke all on function public.powerhub_refresh_maintenance_work_order_delta_scope(bigint,bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_refresh_maintenance_work_order_delta_scope(bigint,bigint) to service_role;
+
 create or replace function public.powerhub_capture_fuel_maintenance_delta_sync_change()
 returns trigger
 language plpgsql security definer
@@ -222,6 +258,10 @@ begin
     perform public.powerhub_append_fuel_maintenance_delta_sync_change(
       OLD.tenant_id,OLD.site_id,v_entity_type,OLD.id::text,'delete',null
     );
+    if TG_TABLE_NAME='generator_maintenance_work_orders' then
+      -- Fill the slot vacated in the bounded top-200 after deleting a visible row.
+      perform public.powerhub_refresh_maintenance_work_order_delta_scope(OLD.tenant_id,OLD.site_id);
+    end if;
     return OLD;
   end if;
 
@@ -246,11 +286,20 @@ begin
     perform public.powerhub_append_fuel_maintenance_delta_sync_change(
       OLD.tenant_id,OLD.site_id,v_old_entity_type,OLD.id::text,'delete',null
     );
+    if TG_TABLE_NAME='generator_maintenance_work_orders' then
+      -- A move to another tenant/site must also refill the old scope's bounded list.
+      perform public.powerhub_refresh_maintenance_work_order_delta_scope(OLD.tenant_id,OLD.site_id);
+    end if;
   end if;
 
   perform public.powerhub_emit_fuel_maintenance_delta_sync_change(
     NEW.tenant_id,NEW.site_id,v_entity_type,NEW.id
   );
+  if TG_OP='UPDATE' and TG_TABLE_NAME='generator_maintenance_work_orders'
+    and OLD.reported_at is distinct from NEW.reported_at then
+    -- The changed order may have crossed the top-200 boundary; emit its replacement set.
+    perform public.powerhub_refresh_maintenance_work_order_delta_scope(NEW.tenant_id,NEW.site_id);
+  end if;
   return NEW;
 end $$;
 alter function public.powerhub_capture_fuel_maintenance_delta_sync_change() owner to postgres;
