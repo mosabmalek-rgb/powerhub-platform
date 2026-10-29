@@ -168,6 +168,33 @@ create table public.supplier_purchase_lines (
   notes text, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 \ir ../migrations/20261029110000_powerhub_delta_purchase_headers.sql
+create table public.supplier_purchase_receipts (
+  id bigint primary key, tenant_id bigint not null, site_id bigint not null, purchase_id bigint not null,
+  receipt_number text not null, receipt_date date not null default current_date,
+  operation_key text not null, payload_hash text not null, notes text,
+  received_at timestamptz not null default now(), received_by_user_id bigint, created_at timestamptz not null default now()
+);
+create table public.supplier_purchase_receipt_lines (
+  id bigint primary key, tenant_id bigint not null, receipt_id bigint not null, purchase_id bigint not null,
+  purchase_line_id bigint not null, stock_movement_id bigint not null, quantity numeric(14,3) not null,
+  base_quantity numeric(14,3) not null, unit_cost numeric(14,4) not null, created_at timestamptz not null default now()
+);
+create table public.supplier_purchase_returns (
+  id bigint primary key, tenant_id bigint not null, site_id bigint not null, purchase_id bigint not null,
+  supplier_id bigint not null, warehouse_id bigint not null, return_number text not null,
+  return_date date not null default current_date, status text not null default 'posted',
+  operation_key text not null, payload_hash text not null, reason text not null, notes text,
+  total_credit_amount numeric(14,2) not null default 0, stock_cost_amount numeric(14,2) not null default 0,
+  refund_amount numeric(14,2) not null default 0, refund_company_account_id bigint,
+  returned_at timestamptz not null default now(), returned_by_user_id bigint, created_at timestamptz not null default now()
+);
+create table public.supplier_purchase_return_lines (
+  id bigint primary key, tenant_id bigint not null, return_id bigint not null, purchase_id bigint not null,
+  purchase_line_id bigint not null, stock_movement_id bigint not null, quantity numeric(14,3) not null,
+  base_quantity numeric(14,3) not null, supplier_credit_amount numeric(14,2) not null default 0,
+  inventory_unit_cost numeric(14,4) not null, stock_cost_amount numeric(14,2) not null, created_at timestamptz not null default now()
+);
+\ir ../migrations/20261029120000_powerhub_delta_receipt_return_headers.sql
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
 begin
@@ -815,3 +842,152 @@ begin
   end if;
 end;
 $inventory_purchase_header_delta_test$;
+
+
+-- Receipt/return feeds expose operational IDs, dates, labels, counts, and quantities only.
+do $inventory_receipt_return_delta_test$
+declare v_snapshot jsonb; v_delta jsonb; v_receipt_cursor bigint:=0; v_return_cursor bigint:=0;
+begin
+  insert into public.suppliers(id,tenant_id,supplier_code,name,is_active)
+  values (7710,1,'SUP-7710','Receipt Return Supplier',true);
+  insert into public.inventory_warehouses(id,tenant_id,site_id,code,name,is_active,location_type)
+  values (7710,1,10,'WH-7710','Receipt Return Warehouse',true,'branch_warehouse'),
+         (7711,1,20,'WH-7711','Other Site Warehouse',true,'branch_warehouse');
+  insert into public.supplier_purchases(
+    id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,invoice_date,status,
+    operation_key,subtotal_amount,discount_amount,tax_amount,other_charges_amount
+  ) values
+    (8810,1,10,7710,7710,'PUR-RC-8810',date '2026-10-28','confirmed','purchase-rc-8810',100,0,0,0),
+    (8820,1,10,7710,7710,'PUR-RT-8820',date '2026-10-28','confirmed','purchase-rt-8820',200,0,0,0);
+  insert into public.supplier_purchase_lines(id,tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,received_quantity)
+  values (8910,1,8810,2101,5,'piece',1,3),(8920,1,8820,2102,4,'piece',1,4);
+
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_purchase_receipt_headers');
+  if jsonb_array_length(v_snapshot->'rows')<>0 or v_snapshot #>> '{snapshot_cursor}' is distinct from '0' then
+    raise exception 'Initial receipt header snapshot failed: %',v_snapshot;
+  end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_supplier_return_headers');
+  if jsonb_array_length(v_snapshot->'rows')<>0 or v_snapshot #>> '{snapshot_cursor}' is distinct from '0' then
+    raise exception 'Initial return header snapshot failed: %',v_snapshot;
+  end if;
+
+  insert into public.supplier_purchase_receipts(id,tenant_id,site_id,purchase_id,receipt_number,receipt_date,operation_key,payload_hash,notes)
+  values (9101,1,10,8810,'REC-9101',date '2026-10-29','secret-receipt-key','0123456789abcdef0123456789abcdef','sensitive receipt note');
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_receipt_headers',0,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '9101'
+     or v_delta #>> '{changes,0,row_data,receipt_number}' is distinct from 'REC-9101'
+     or v_delta #>> '{changes,0,row_data,purchase_number}' is distinct from 'PUR-RC-8810'
+     or v_delta #>> '{changes,0,row_data,supplier_name}' is distinct from 'Receipt Return Supplier'
+     or (v_delta #> '{changes,0,row_data}') ? 'notes'
+     or (v_delta #> '{changes,0,row_data}') ? 'operation_key'
+     or (v_delta #> '{changes,0,row_data}') ? 'payload_hash'
+     or (v_delta #> '{changes,0,row_data}') ? 'unit_cost' then
+    raise exception 'Receipt header projection leaked sensitive fields or omitted safe labels: %',v_delta;
+  end if;
+  v_receipt_cursor:=1;
+
+  insert into public.supplier_purchase_receipt_lines(id,tenant_id,receipt_id,purchase_id,purchase_line_id,stock_movement_id,quantity,base_quantity,unit_cost)
+  values (9111,1,9101,8810,8910,9911,3,3,10);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_receipt_headers',v_receipt_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,row_data,line_count}' is distinct from '1'
+     or v_delta #>> '{changes,0,row_data,received_quantity}' is distinct from '3.000' then
+    raise exception 'Receipt line did not refresh safe counters: %',v_delta;
+  end if;
+  v_receipt_cursor:=2;
+
+  update public.suppliers set name='Renamed Receipt Supplier',supplier_code='SUP-7710A'
+  where tenant_id=1 and id=7710;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_receipt_headers',v_receipt_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,row_data,supplier_name}' is distinct from 'Renamed Receipt Supplier'
+     or v_delta #>> '{changes,0,row_data,supplier_code}' is distinct from 'SUP-7710A' then
+    raise exception 'Supplier rename failed to refresh receipt header: %',v_delta;
+  end if;
+  v_receipt_cursor:=3;
+
+  update public.inventory_warehouses set name='Renamed Receipt Warehouse'
+  where tenant_id=1 and site_id=10 and id=7710;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_receipt_headers',v_receipt_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,row_data,warehouse_name}' is distinct from 'Renamed Receipt Warehouse' then
+    raise exception 'Warehouse rename failed to refresh receipt header: %',v_delta;
+  end if;
+  v_receipt_cursor:=4;
+
+  update public.supplier_purchases set site_id=20,warehouse_id=7711,updated_at=now()
+  where tenant_id=1 and site_id=10 and id=8810;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_receipt_headers',v_receipt_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '9101' then
+    raise exception 'Purchase move did not tombstone receipt from old branch: %',v_delta;
+  end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_purchase_receipt_headers');
+  if jsonb_array_length(v_snapshot->'rows')<>0 then raise exception 'Moved receipt leaked into old branch: %',v_snapshot; end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,20,'inventory_purchase_receipt_headers');
+  if jsonb_array_length(v_snapshot->'rows')<>0 then raise exception 'Historical receipt moved to different branch: %',v_snapshot; end if;
+
+  insert into public.supplier_purchase_returns(
+    id,tenant_id,site_id,purchase_id,supplier_id,warehouse_id,return_number,return_date,status,
+    operation_key,payload_hash,reason,notes,total_credit_amount,stock_cost_amount,refund_amount
+  ) values (
+    9201,1,10,8820,7710,7710,'RET-9201',date '2026-10-29','posted',
+    'secret-return-key','0123456789abcdef0123456789abcdef','private return reason','sensitive return note',50,40,10
+  );
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_supplier_return_headers',0,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '9201'
+     or v_delta #>> '{changes,0,row_data,return_number}' is distinct from 'RET-9201'
+     or v_delta #>> '{changes,0,row_data,purchase_number}' is distinct from 'PUR-RT-8820'
+     or v_delta #>> '{changes,0,row_data,supplier_name}' is distinct from 'Renamed Receipt Supplier'
+     or (v_delta #> '{changes,0,row_data}') ? 'reason'
+     or (v_delta #> '{changes,0,row_data}') ? 'notes'
+     or (v_delta #> '{changes,0,row_data}') ? 'total_credit_amount'
+     or (v_delta #> '{changes,0,row_data}') ? 'stock_cost_amount'
+     or (v_delta #> '{changes,0,row_data}') ? 'refund_amount'
+     or (v_delta #> '{changes,0,row_data}') ? 'operation_key'
+     or (v_delta #> '{changes,0,row_data}') ? 'payload_hash' then
+    raise exception 'Supplier return projection leaked financial/sensitive fields: %',v_delta;
+  end if;
+  v_return_cursor:=1;
+
+  insert into public.supplier_purchase_return_lines(id,tenant_id,return_id,purchase_id,purchase_line_id,stock_movement_id,quantity,base_quantity,supplier_credit_amount,inventory_unit_cost,stock_cost_amount)
+  values (9211,1,9201,8820,8920,9921,2,2,50,20,40);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_supplier_return_headers',v_return_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,row_data,line_count}' is distinct from '1'
+     or v_delta #>> '{changes,0,row_data,returned_quantity}' is distinct from '2.000' then
+    raise exception 'Return line did not refresh safe counters: %',v_delta;
+  end if;
+  v_return_cursor:=2;
+
+  update public.supplier_purchases set status='cancelled',cancelled_at=now(),updated_at=now()
+  where tenant_id=1 and site_id=10 and id=8820;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_supplier_return_headers',v_return_cursor,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '9201' then
+    raise exception 'Cancelled purchase did not tombstone supplier return header: %',v_delta;
+  end if;
+
+  begin
+    perform public.powerhub_get_inventory_sync_snapshot(2,10,'inventory_supplier_return_headers');
+    raise exception 'Expected cross-tenant return snapshot denial';
+  exception when others then if sqlerrm<>'SITE_OUT_OF_SCOPE' then raise; end if; end;
+
+  if has_function_privilege('anon','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
+     or has_table_privilege('anon','public.supplier_purchase_receipts','SELECT')
+     or has_table_privilege('authenticated','public.supplier_purchase_receipt_lines','SELECT')
+     or has_table_privilege('anon','public.supplier_purchase_returns','SELECT')
+     or has_table_privilege('authenticated','public.supplier_purchase_return_lines','SELECT') then
+    raise exception 'Receipt/return Delta server-only ACL boundary weakened';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'service_role cannot execute receipt/return Delta functions';
+  end if;
+end;
+$inventory_receipt_return_delta_test$;
