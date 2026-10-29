@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -138,11 +139,13 @@ export default function InventoryFuelConsumptionPanel({
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 20_000 },
   );
-  const generators = (options.data?.generators ?? []) as FuelGenerator[];
+  const optionsAuthorizationDenied = isExplicitAuthorizationDenial(options.error);
+  const workspaceOptions = optionsAuthorizationDenied ? undefined : options.data;
+  const generators = (workspaceOptions?.generators ?? []) as FuelGenerator[];
   const activeGeneratorId = generatorId || String(generators[0]?.id ?? "");
   const activeReadingGeneratorId = readingGeneratorId || String(generators[0]?.id ?? "");
   const activeReportGeneratorId = reportGeneratorId || "";
-  const tanks = options.data?.generatorTanks ?? [];
+  const tanks = workspaceOptions?.generatorTanks ?? [];
   const generatorTanks = tanks.filter((tank) => tank.generatorId === Number(activeGeneratorId));
   const readingTanks = tanks.filter((tank) => tank.generatorId === Number(activeReadingGeneratorId));
   const activeAlertGeneratorId = alertGeneratorId || String(generators[0]?.id ?? "");
@@ -169,6 +172,10 @@ export default function InventoryFuelConsumptionPanel({
     { siteId, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)) },
   );
+  const eventsAuthorizationDenied = isExplicitAuthorizationDenial(events.error);
+  const recentEventsAuthorizationDenied = isExplicitAuthorizationDenial(recentEvents.error);
+  const readingsAuthorizationDenied = isExplicitAuthorizationDenial(readings.error);
+  const recentReadingsAuthorizationDenied = isExplicitAuthorizationDenial(recentReadings.error);
   const report = trpc.powerhub.inventory.fuelConsumptionReportPeriod.useQuery(
     {
       siteId,
@@ -182,6 +189,7 @@ export default function InventoryFuelConsumptionPanel({
     { enabled: Boolean(siteId && isAuthenticated && canViewInventoryReports &&
       (reportPeriodType === "custom" ? reportFromDate && reportToDate && reportFromDate <= reportToDate : reportAnchorDate)), staleTime: 15_000 },
   );
+  const reportAuthorizationDenied = isExplicitAuthorizationDenial(report.error);
   const fuelReportCacheInput = auth.user?.id ? {
     userId: auth.user.id,
     siteId,
@@ -197,7 +205,7 @@ export default function InventoryFuelConsumptionPanel({
   } : null;
   const fuelReportCacheKey = fuelReportCacheInput ? JSON.stringify([fuelReportCacheInput.userId, fuelReportCacheInput.siteId, fuelReportCacheInput.reportType, fuelReportCacheInput.filters]) : null;
   const [cachedFuelReport, setCachedFuelReport] = useState<{ key: string; rows: FuelReportRow[]; savedAt: number } | null>(null);
-  const cachedFuelReportForCurrentScope = cachedFuelReport && cachedFuelReport.key === fuelReportCacheKey ? cachedFuelReport : null;
+  const cachedFuelReportForCurrentScope = !reportAuthorizationDenied && cachedFuelReport && cachedFuelReport.key === fuelReportCacheKey ? cachedFuelReport : null;
   useEffect(() => {
     let current = true;
     setCachedFuelReport(null);
@@ -226,7 +234,9 @@ export default function InventoryFuelConsumptionPanel({
     },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
   );
-  const selectedAlertSetting = ((alertSettings.data ?? []) as FuelAlertSetting[]).find((row) =>
+  const alertSettingsAuthorizationDenied = isExplicitAuthorizationDenial(alertSettings.error);
+  const alertDispatchesAuthorizationDenied = isExplicitAuthorizationDenial(alertDispatches.error);
+  const selectedAlertSetting = ((alertSettingsAuthorizationDenied ? [] : alertSettings.data ?? []) as FuelAlertSetting[]).find((row) =>
     Number(row.generator_id) === Number(activeAlertGeneratorId) &&
     Number(row.tank_warehouse_id) === Number(alertTankId),
   );
@@ -248,13 +258,13 @@ export default function InventoryFuelConsumptionPanel({
     }
   }, [readingTanks, readingTankId]);
   useEffect(() => {
-    const sources = options.data?.sourceLocations ?? [];
+    const sources = workspaceOptions?.sourceLocations ?? [];
     if (!sources.some((row) => String(row.id) === sourceWarehouseId)) setSourceWarehouseId(String(sources[0]?.id ?? ""));
-  }, [options.data?.sourceLocations, sourceWarehouseId]);
+  }, [workspaceOptions?.sourceLocations, sourceWarehouseId]);
   useEffect(() => {
-    const items = options.data?.fuelItems ?? [];
+    const items = workspaceOptions?.fuelItems ?? [];
     if (!items.some((row) => String(row.id) === fuelItemId)) setFuelItemId(String(items[0]?.id ?? ""));
-  }, [options.data?.fuelItems, fuelItemId]);
+  }, [workspaceOptions?.fuelItems, fuelItemId]);
 
   useEffect(() => {
     if (!generators.some((row) => String(row.id) === alertGeneratorId) && generators[0]) {
@@ -370,15 +380,19 @@ export default function InventoryFuelConsumptionPanel({
     });
   };
 
-  const eventRows = (events.data ?? recentEvents.data ?? []) as FuelEvent[];
-  const usingRecentOfflineEvents = events.data === undefined && recentEvents.data !== undefined;
-  const readingRows = (readings.data ?? recentReadings.data ?? []) as FuelReading[];
-  const usingRecentOfflineReadings = readings.data === undefined && recentReadings.data !== undefined;
-  const reportRows = (report.data ?? cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];
-  const usingCachedFuelReport = report.data === undefined && cachedFuelReportForCurrentScope !== null;
-  const hasAvailableFuelReport = report.data !== undefined || cachedFuelReportForCurrentScope !== null;
-  const alertSettingRows = (alertSettings.data ?? []) as FuelAlertSetting[];
-  const alertDispatchRows = (alertDispatches.data ?? []) as FuelAlertDispatch[];
+  const eventRows = (eventsAuthorizationDenied ? [] : events.data !== undefined ? events.data :
+    recentEventsAuthorizationDenied ? [] : recentEvents.data ?? []) as FuelEvent[];
+  const usingRecentOfflineEvents = !eventsAuthorizationDenied && !recentEventsAuthorizationDenied &&
+    events.data === undefined && recentEvents.data !== undefined;
+  const readingRows = (readingsAuthorizationDenied ? [] : readings.data !== undefined ? readings.data :
+    recentReadingsAuthorizationDenied ? [] : recentReadings.data ?? []) as FuelReading[];
+  const usingRecentOfflineReadings = !readingsAuthorizationDenied && !recentReadingsAuthorizationDenied &&
+    readings.data === undefined && recentReadings.data !== undefined;
+  const reportRows = (reportAuthorizationDenied ? [] : report.data ?? cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];
+  const usingCachedFuelReport = !reportAuthorizationDenied && report.data === undefined && cachedFuelReportForCurrentScope !== null;
+  const hasAvailableFuelReport = !reportAuthorizationDenied && (report.data !== undefined || cachedFuelReportForCurrentScope !== null);
+  const alertSettingRows = (alertSettingsAuthorizationDenied ? [] : alertSettings.data ?? []) as FuelAlertSetting[];
+  const alertDispatchRows = (alertDispatchesAuthorizationDenied ? [] : alertDispatches.data ?? []) as FuelAlertDispatch[];
   const selectedGenerator = generators.find((row) => row.id === Number(activeGeneratorId));
   const reportTanks = reportGeneratorId
     ? tanks.filter((tank) => tank.generatorId === Number(reportGeneratorId))
@@ -408,13 +422,13 @@ export default function InventoryFuelConsumptionPanel({
             <label className="grid gap-1.5 text-sm">صنف الوقود *
               <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={fuelItemId} onChange={(e) => setFuelItemId(e.target.value)}>
                 <option value="">اختر صنفًا بوحدته الأساسية اللتر</option>
-                {(options.data?.fuelItems ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}{item.sku ? ` (${item.sku})` : ""}</option>)}
+                {(workspaceOptions?.fuelItems ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}{item.sku ? ` (${item.sku})` : ""}</option>)}
               </select>
             </label>
             <label className="grid gap-1.5 text-sm">موقع المصدر *
               <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={sourceWarehouseId} onChange={(e) => setSourceWarehouseId(e.target.value)}>
                 <option value="">اختر مصدر الوقود</option>
-                {(options.data?.sourceLocations ?? []).map((w) => <option key={w.id} value={w.id}>{w.name} · {w.code}</option>)}
+                {(workspaceOptions?.sourceLocations ?? []).map((w) => <option key={w.id} value={w.id}>{w.name} · {w.code}</option>)}
               </select>
             </label>
             <label className="grid gap-1.5 text-sm">خزان المولد *
@@ -664,7 +678,7 @@ export default function InventoryFuelConsumptionPanel({
 
         <div>
           <h3 className="mb-2 font-medium">آخر التعبئات</h3>
-          {events.error && events.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل التعبئات؛ تُعرض آخر نتيجة ناجحة تطابق الفلاتر الحالية.</p> : usingRecentOfflineEvents ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل السجل المفلتر؛ يعرض هذا الجدول آخر 100 تعبئة محفوظة محليًا، ولا تُطبّق عليها فلاتر التاريخ أو المولد حتى استعادة الاتصال.</p> : events.error && !recentEvents.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل التعبئات ولا توجد نسخة محلية متاحة.</p> : null}
+          {eventsAuthorizationDenied ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل التعبئات؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : recentEventsAuthorizationDenied && events.data === undefined ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل التعبئات؛ لا يمكن استخدام النسخة المحلية الاحتياطية.</p> : events.error && events.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل التعبئات؛ تُعرض آخر نتيجة ناجحة تطابق الفلاتر الحالية.</p> : usingRecentOfflineEvents ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل السجل المفلتر؛ يعرض هذا الجدول آخر 100 تعبئة محفوظة محليًا، ولا تُطبّق عليها فلاتر التاريخ أو المولد حتى استعادة الاتصال.</p> : events.error && !recentEvents.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل التعبئات ولا توجد نسخة محلية متاحة.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">من المصدر إلى الخزان</th><th className="p-2">اللترات</th><th className="p-2">المستوى قبل ← بعد</th><th className="p-2">ساعات العداد</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{eventRows.map((row) => <tr key={row.event_id} className="border-t">
@@ -679,7 +693,7 @@ export default function InventoryFuelConsumptionPanel({
 
         <div>
           <h3 className="mb-2 font-medium">آخر القراءات</h3>
-          {usingRecentOfflineReadings ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل القراءات المفلترة؛ يعرض هذا الجدول آخر 100 قراءة محفوظة للفرع دون تطبيق فلتر المولد حتى استعادة الاتصال.</p> : readings.error && readings.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ تُعرض آخر نتيجة ناجحة لهذا الاستعلام.</p> : readings.error && !recentReadings.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل القراءات ولا توجد نسخة محلية متاحة لهذا النطاق.</p> : null}
+          {readingsAuthorizationDenied ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل القراءات؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : recentReadingsAuthorizationDenied && readings.data === undefined ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل القراءات؛ لا يمكن استخدام النسخة المحلية الاحتياطية.</p> : usingRecentOfflineReadings ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل القراءات المفلترة؛ يعرض هذا الجدول آخر 100 قراءة محفوظة للفرع دون تطبيق فلتر المولد حتى استعادة الاتصال.</p> : readings.error && readings.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ تُعرض آخر نتيجة ناجحة لهذا الاستعلام.</p> : readings.error && !recentReadings.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل القراءات ولا توجد نسخة محلية متاحة لهذا النطاق.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">النوع</th><th className="p-2">الخزان</th><th className="p-2">القراءة</th><th className="p-2">تصحيح القراءة</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{readingRows.map((row) => <tr key={row.reading_id} className="border-t">
