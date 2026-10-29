@@ -52,7 +52,7 @@ const MAX_LOCAL_MAINTENANCE_PLAN_ROWS = 500;
 const MAX_LOCAL_FUEL_EVENT_ROWS = 500;
 const MAX_LOCAL_MAINTENANCE_WORK_ORDER_ROWS = 200;
 const MAX_LOCAL_HR_EMPLOYEE_DIRECTORY_ROWS = 500;
-const MAX_LOCAL_HR_ATTENDANCE_ROWS = 500;
+const MAX_LOCAL_HR_ATTENDANCE_ROWS = 1000;
 
 function movementProjection(value: Record<string, unknown>): Record<string, unknown> {
   const nested = value.rowData;
@@ -134,9 +134,10 @@ function compareMaintenancePlanPriority(
 }
 
 function compareHrEmployeeDirectoryNewestFirst(leftValue: Record<string, unknown>, rightValue: Record<string, unknown>): number {
+  // Match hr.listEmployees and its SQL snapshot: created_at DESC, id DESC.
   const left = movementProjection(leftValue), right = movementProjection(rightValue);
-  const leftDate = Date.parse(String(left.updated_at ?? left.updatedAt ?? left.created_at ?? left.createdAt ?? ""));
-  const rightDate = Date.parse(String(right.updated_at ?? right.updatedAt ?? right.created_at ?? right.createdAt ?? ""));
+  const leftDate = Date.parse(String(left.created_at ?? left.createdAt ?? ""));
+  const rightDate = Date.parse(String(right.created_at ?? right.createdAt ?? ""));
   const leftTime = Number.isFinite(leftDate) ? leftDate : 0, rightTime = Number.isFinite(rightDate) ? rightDate : 0;
   if (leftTime !== rightTime) return rightTime - leftTime;
   const leftId = movementIdentity(leftValue, left), rightId = movementIdentity(rightValue, right);
