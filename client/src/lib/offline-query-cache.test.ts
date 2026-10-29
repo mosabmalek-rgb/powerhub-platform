@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  clearOfflineHrProjectionCacheForSite,
+  isOfflineHrProjectionQueryKeyForSite,
   isOfflineCacheableQueryKey,
   isDeltaSyncBackedQueryKey,
   isOfflineQueryRecordUsable,
@@ -640,6 +642,17 @@ describe("offline query cache persistence failure policy", () => {
 describe("HR local-first cache boundaries", () => {
   const key = (procedure: string, input: Record<string, unknown> = { siteId: 7 }) =>
     ["powerhub.hr." + procedure, { input, type: "query" }] as const;
+
+  it("purges only minimized HR projections for the exact denied site", () => {
+    for (const procedure of ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"]) {
+      expect(isOfflineHrProjectionQueryKeyForSite(key(procedure), 7)).toBe(true);
+    }
+    expect(isOfflineHrProjectionQueryKeyForSite(key("offlineDirectory", { siteId: 8 }), 7)).toBe(false);
+    expect(isOfflineHrProjectionQueryKeyForSite(key("offlineDirectory", { siteId: 7, search: "person" }), 7)).toBe(false);
+    expect(isOfflineHrProjectionQueryKeyForSite(key("listEmployees"), 7)).toBe(false);
+    expect(isOfflineHrProjectionQueryKeyForSite(key("offlineDirectory"), 0)).toBe(false);
+    expect(clearOfflineHrProjectionCacheForSite).toBeTypeOf("function");
+  });
 
   it("allows only exact minimized HR read projections, and gives Delta only to directory and attendance", () => {
     const directory = key("offlineDirectory");
