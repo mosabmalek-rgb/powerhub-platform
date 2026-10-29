@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { enqueueOfflineWork, listOfflineWork, type PaymentDocumentationApprovalDraft } from "@/lib/offline-work-queue";
-import { listPaymentDocumentationApprovalSnapshots, savePaymentDocumentationApprovalSnapshots, type OfflinePaymentDocumentationApprovalSnapshot } from "@/lib/offline-payment-documentation-approvals";
+import { listPaymentDocumentationApprovalSnapshots, paymentDocumentationApprovalSnapshotScope, savePaymentDocumentationApprovalSnapshots, type OfflinePaymentDocumentationApprovalSnapshot } from "@/lib/offline-payment-documentation-approvals";
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { can } from "@shared/powerhub-rbac";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -62,22 +62,28 @@ export default function PaymentDocumentationReviewPage() {
   const access=trpc.powerhub.staff.myAccess.useQuery({siteId:siteId??0},{enabled:Boolean(siteId),staleTime:0,refetchOnMount:"always"});
   const canApprove=can(access.data?.role,"approvePaymentDocumentation",access.data?.permissions);
   const dateFiltersReady = period === "specific_day" ? Boolean(specificDate) : period === "date_range" ? Boolean(fromDate && toDate && fromDate <= toDate) : true;
+  const snapshotScope = paymentDocumentationApprovalSnapshotScope({
+    status, period,
+    specificDate: period === "specific_day" ? specificDate : undefined,
+    fromDate: period === "date_range" ? fromDate : undefined,
+    toDate: period === "date_range" ? toDate : undefined,
+  });
   // Pending documentation is operationally time-sensitive. Poll only while this page is
   // mounted and connected; hidden/background tabs do not keep issuing requests.
   const shouldPollRequests = isOnline && (status === "pending" || status === "all");
   const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && isOnline && dateFiltersReady),retry:false,staleTime:15_000,refetchOnMount:"always",refetchInterval:shouldPollRequests?15_000:false,refetchIntervalInBackground:false});
   const loadOfflineRows=useCallback(async()=>{
-    // Clear any prior identity/branch before starting an async IndexedDB read.
+    // Clear any prior identity, branch, or filter scope before the async IndexedDB read.
     setOfflineRows([]);
     setSelectedIds([]);
-    if(!user?.id||!siteId)return;
+    if(!user?.id||!siteId||status!=="pending"||period==="current_cycle")return;
     try{
-      const rows=await listPaymentDocumentationApprovalSnapshots(Number(user.id),siteId);
+      const rows=await listPaymentDocumentationApprovalSnapshots(Number(user.id),siteId,snapshotScope);
       setOfflineRows(rows);
     }catch{
       toast.error("تعذر قراءة قائمة الاعتمادات المحلية.");
     }
-  },[siteId,user?.id]);
+  },[period,siteId,snapshotScope,status,user?.id]);
   useEffect(()=>{const on=()=>setIsOnline(true),off=()=>setIsOnline(false);window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};},[]);
   useEffect(()=>{
     if(isOnline){
@@ -88,24 +94,18 @@ export default function PaymentDocumentationReviewPage() {
     void loadOfflineRows();
   },[isOnline,loadOfflineRows]);
   useEffect(()=>{
-    if(!isOnline||!user?.id||!siteId||status!=="pending"||!requests.isSuccess||!Array.isArray(requests.data))return;
-    void savePaymentDocumentationApprovalSnapshots(Number(user.id),siteId,requests.data.map((r:any)=>({
+    // The current cycle is resolved dynamically by the server. Never persist a
+    // cycle snapshot that cannot be revalidated after a cycle boundary offline.
+    if(!isOnline||!user?.id||!siteId||status!=="pending"||period==="current_cycle"||
+       !requests.isSuccess||!Array.isArray(requests.data))return;
+    void savePaymentDocumentationApprovalSnapshots(Number(user.id),siteId,snapshotScope,requests.data.map((r:any)=>({
       id:Number(r.id),invoiceNo:String(r.invoice_no_snapshot),subscriberName:String(r.subscriber_name_snapshot),
       subscriberNo:String(r.subscriber_no_snapshot),paymentAmount:Number(r.payment_amount),
       invoiceBalance:Number(r.invoice_balance_snapshot),paymentMethod:String(r.payment_method),
       destinationAccountId:Number(r.destination_account_id),submittedAt:String(r.submitted_at),status:"pending",
     }))).catch(()=>toast.error("تعذر حفظ لقطة اعتماد الدفع المحلية."));
-  },[isOnline,requests.data,requests.isSuccess,siteId,status,user?.id]);
+  },[isOnline,period,requests.data,requests.isSuccess,siteId,snapshotScope,status,user?.id]);
   const visibleRequests:any[] = isOnline ? (dateFiltersReady ? (requests.data ?? []) : []) : offlineRows
-    .filter((row) => status === "all" || row.status === status)
-    .filter((row) => {
-      const submittedDate = dateKeyInGaza(row.submittedAt);
-      if (period === "all_time") return true;
-      if (period === "current_cycle") return false;
-      if (period === "today") return submittedDate === dateKeyInGaza();
-      if (period === "specific_day") return submittedDate === specificDate;
-      return submittedDate >= fromDate && submittedDate <= toDate;
-    })
     .map(row => ({ id: row.id, invoice_no_snapshot: row.invoiceNo, subscriber_name_snapshot: row.subscriberName, subscriber_no_snapshot: row.subscriberNo, payment_amount: row.paymentAmount, invoice_balance_snapshot: row.invoiceBalance, payment_method: row.paymentMethod, destination_account_id: row.destinationAccountId, submitted_at: row.submittedAt, status: row.status, consumption_kwh_snapshot: null, price_per_kwh_snapshot: null, invoice_total_snapshot: null, sender_phone: null, reference_no: null, reviewed_at: null, rejection_reason: null, receipt_image_key: null, destination_account_name: null, destination_account_type: null, destination_account_phone_number: null }));
   const [receiptUrls,setReceiptUrls]=useState<Record<number,string>>({});
   const [receiptLoadingId,setReceiptLoadingId]=useState<number|null>(null);
