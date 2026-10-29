@@ -641,19 +641,20 @@ describe("HR local-first cache boundaries", () => {
   const key = (procedure: string, input: Record<string, unknown> = { siteId: 7 }) =>
     ["powerhub.hr." + procedure, { input, type: "query" }] as const;
 
-  it("allows only the four exact minimized HR read projections, and gives Delta only to directory and attendance", () => {
+  it("allows only exact minimized HR read projections, and gives Delta only to directory and attendance", () => {
     const directory = key("offlineDirectory");
     const attendance = key("offlineAttendance");
     const advances = key("offlineEmployeeAdvances");
     const payroll = key("offlinePayrollRuns");
-    for (const queryKey of [directory, attendance, advances, payroll]) {
+    const accountOptions = key("offlineCompanyAccountOptions");
+    for (const queryKey of [directory, attendance, advances, payroll, accountOptions]) {
       expect(isOfflineCacheableQueryKey(queryKey)).toBe(true);
     }
     expect(isDeltaSyncBackedQueryKey(directory)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(attendance)).toBe(true);
     expect(getOfflineQueryDeltaEntity(directory)).toBe("hr_employee_directory");
     expect(getOfflineQueryDeltaEntity(attendance)).toBe("hr_attendance");
-    for (const queryKey of [advances, payroll]) {
+    for (const queryKey of [advances, payroll, accountOptions]) {
       expect(isDeltaSyncBackedQueryKey(queryKey)).toBe(false);
       expect(getOfflineQueryDeltaEntity(queryKey)).toBeNull();
       expect(getOfflineQueryStaleTime(queryKey)).toBe(30_000);
@@ -712,6 +713,12 @@ describe("HR local-first cache boundaries", () => {
     expect(advances[0].employee).not.toHaveProperty("phone");
     expect(advances[0].employee).not.toHaveProperty("baseWage");
     expect(advances[0].repayments[0]).toMatchObject({ notes: null, referenceNo: null, createdByUserId: null, accountTransactionId: null });
+
+    const options = sanitizeOfflineQueryData(key("offlineCompanyAccountOptions"), [{
+      id: 71, name: "Cash", accountType: "cash", isActive: true, phoneNumber: "PRIVATE-PHONE",
+      balance: "9999", transactions: [{ id: 8, description: "PRIVATE-MOVEMENT" }],
+    }]) as Array<Record<string, unknown>>;
+    expect(options).toEqual([{ id: 71, name: "Cash", accountType: "cash", isActive: true }]);
 
     const payroll = sanitizeOfflineQueryData(key("offlinePayrollRuns"), [{
       id: 40, tenantId: 2, siteId: 7, period: "2026-10", status: "draft",

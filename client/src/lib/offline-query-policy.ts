@@ -270,7 +270,7 @@ function isSafeStableOfflineList(queryKey: readonly unknown[], segments: string[
 
 function isSafeHrOfflineProjection(queryKey: readonly unknown[], segments = getPowerHubQuerySegments(queryKey)) {
   if (segments.length !== 3 || segments[1] !== "hr" ||
-      !["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns"].includes(segments[2] ?? "")) return false;
+      !["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(segments[2] ?? "")) return false;
   const input = getOfflineQueryInput(queryKey);
   return Boolean(input && Object.keys(input).length === 1 &&
     Object.prototype.hasOwnProperty.call(input, "siteId") &&

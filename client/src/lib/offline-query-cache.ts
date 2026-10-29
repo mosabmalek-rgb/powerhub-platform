@@ -393,6 +393,10 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
         repayments,
       };
     });
+    if (segments[2] === "offlineCompanyAccountOptions") return data.filter(isRow).map((row) => ({
+      id: row.id, name: String(row.name ?? ""), accountType: String(row.accountType ?? row.account_type ?? "other"),
+      isActive: Boolean(row.isActive ?? row.is_active),
+    }));
     if (segments[2] === "offlinePayrollRuns") return data.filter(isRow).map((row) => ({
       id: row.id, tenantId: row.tenantId ?? row.tenant_id, siteId: row.siteId ?? row.site_id ?? null,
       period: row.period, status: row.status, totalGross: row.totalGross ?? row.total_gross ?? "0",
@@ -470,8 +474,8 @@ async function persistOfflineQueryWithPolicy(
     ? cacheKeyParts.filter((part): part is string => typeof part === "string")
     : typeof cacheKeyParts === "string" ? cacheKeyParts.split(".") : [];
   const isHrProjection = cacheKeySegments[0] === "powerhub" && cacheKeySegments[1] === "hr" &&
-    ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns"].includes(cacheKeySegments[2] ?? "");
-  const hrCacheTtl = cacheKeySegments[2] === "offlineEmployeeAdvances" || cacheKeySegments[2] === "offlinePayrollRuns"
+    ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "");
+  const hrCacheTtl = ["offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "")
     ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
   const record: OfflineQueryRecord = {
     key: userId + ":" + serializedQueryKey,
