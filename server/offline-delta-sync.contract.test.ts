@@ -51,8 +51,13 @@ describe("PowerHub delta sync contract", () => {
     expect(router).toContain("deltaSync: router({");
     expect(router).toContain("entityType: deltaEntityTypeSchema");
     expect(router).toContain("requireSupabaseSiteRole(");
-    expect(router).toContain('operationalDeltaEntity ? "powerhub_pull_operational_sync_delta" : inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta"');
-    expect(router).toContain('operationalDeltaEntity ? "powerhub_get_operational_sync_snapshot" : inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot"');
+    // Assert routing choices independently of source-line wrapping.
+    expect(router).toContain('operationalDeltaEntity ? "powerhub_pull_operational_sync_delta"');
+    expect(router).toContain('inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta"');
+    expect(router).toContain('"powerhub_pull_sync_delta"');
+    expect(router).toContain('operationalDeltaEntity ? "powerhub_get_operational_sync_snapshot"');
+    expect(router).toContain('inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot"');
+    expect(router).toContain('"powerhub_get_sync_snapshot"');
     expect(router).toContain('inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"]');
     expect(router).toContain('"inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined');
     expect(inventoryMigration).toContain("create trigger powerhub_delta_sync_inventory_stock_movements after insert on public.inventory_stock_movements");
