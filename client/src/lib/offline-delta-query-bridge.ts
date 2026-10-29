@@ -25,6 +25,42 @@ function isRow(value: unknown): value is Row {
 }
 
 export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw: Row): Row {
+  if (entityType === "hr_employee_directory") {
+    return {
+      id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+      siteId: optionalNumber(raw.site_id ?? raw.siteId), fullName: String(raw.full_name ?? raw.fullName ?? ""),
+      jobTitle: String(raw.job_title ?? raw.jobTitle ?? "other"),
+      employmentStatus: String(raw.employment_status ?? raw.employmentStatus ?? "active"),
+      contractType: String(raw.contract_type ?? raw.contractType ?? "monthly"),
+      createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
+    };
+  }
+  if (entityType === "hr_attendance") {
+    const attendance = isRow(raw.attendance) ? raw.attendance : raw;
+    const employee = isRow(raw.employee) ? raw.employee : {};
+    return {
+      id: toNumber(raw.id ?? attendance.id),
+      tenantId: toNumber(raw.tenant_id ?? raw.tenantId ?? attendance.tenant_id ?? attendance.tenantId),
+      siteId: toNumber(raw.site_id ?? raw.siteId ?? attendance.site_id ?? attendance.siteId),
+      attendance: {
+        id: toNumber(attendance.id), tenantId: toNumber(attendance.tenant_id ?? attendance.tenantId),
+        employeeId: toNumber(attendance.employee_id ?? attendance.employeeId), siteId: toNumber(attendance.site_id ?? attendance.siteId),
+        workDate: dateOrNow(attendance.work_date ?? attendance.workDate),
+        regularHours: String(attendance.regular_hours ?? attendance.regularHours ?? 0),
+        overtimeHours: String(attendance.overtime_hours ?? attendance.overtimeHours ?? 0),
+        absentDays: String(attendance.absent_days ?? attendance.absentDays ?? 0),
+        notes: null, createdByUserId: null,
+        createdAt: dateOrNow(attendance.created_at ?? attendance.createdAt),
+        updatedAt: dateOrNow(attendance.updated_at ?? attendance.updatedAt),
+      },
+      employee: {
+        id: toNumber(employee.id), tenantId: toNumber(employee.tenant_id ?? employee.tenantId),
+        siteId: optionalNumber(employee.site_id ?? employee.siteId), fullName: String(employee.full_name ?? employee.fullName ?? ""),
+        jobTitle: String(employee.job_title ?? employee.jobTitle ?? "other"),
+        employmentStatus: String(employee.employment_status ?? employee.employmentStatus ?? "active"),
+      },
+    };
+  }
   if (entityType === "fuel_events") {
     const id = toNumber(raw.event_id ?? raw.id);
     return {
@@ -542,8 +578,9 @@ function idOf(row: unknown): string | null {
   if (id === null || id === undefined) return null;
   return String(id);
 }
-function scopedTo(row: Row, scope: DeltaCursorScope) {
+function scopedTo(row: Row, scope: DeltaCursorScope, allowSharedCompanyEmployee = false) {
   if (row.tenantId !== undefined && toNumber(row.tenantId) !== scope.tenantId) return false;
+  if (row.siteId === null && allowSharedCompanyEmployee) return true;
   if (row.siteId !== undefined && toNumber(row.siteId) !== scope.siteId) return false;
   return true;
 }
@@ -568,7 +605,7 @@ export function applyDeltaPageToList(
       byId.delete(change.entity_id);
       continue;
     }
-    if (!isRow(change.row_data) || idOf(change.row_data) !== change.entity_id || !scopedTo(change.row_data, scope)) continue;
+    if (!isRow(change.row_data) || idOf(change.row_data) !== change.entity_id || !scopedTo(change.row_data, scope, entityType === "hr_employee_directory")) continue;
     if (entityType === "sites" && change.entity_id !== String(scope.siteId)) continue;
     if (entityType !== "readings") {
       byId.set(change.entity_id, change.row_data);
