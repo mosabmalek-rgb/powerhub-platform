@@ -193,6 +193,19 @@ describe("fuel and preventive maintenance Delta extension", () => {
     expect(operationalMigration).toContain("powerhub_project_maintenance_plan_delta_row");
     expect(operationalMigration).toContain("powerhub_get_operational_sync_snapshot");
     expect(operationalMigration).toContain("powerhub_pull_operational_sync_delta");
+    const generatorRefresh = operationalMigration.slice(
+      operationalMigration.indexOf("create or replace function public.powerhub_refresh_operational_delta_after_generator_update"),
+      operationalMigration.indexOf("alter function public.powerhub_refresh_operational_delta_after_generator_update"),
+    );
+    const warehouseRefresh = operationalMigration.slice(
+      operationalMigration.indexOf("create or replace function public.powerhub_refresh_fuel_reading_delta_after_warehouse_update"),
+      operationalMigration.indexOf("alter function public.powerhub_refresh_fuel_reading_delta_after_warehouse_update"),
+    );
+    expect(generatorRefresh).toContain("limit 500");
+    expect(generatorRefresh).toContain("order by r.recorded_at desc,r.id desc");
+    expect(generatorRefresh).toContain("order by case when plan_row.alert_type='overdue' then 0");
+    expect(warehouseRefresh).toContain("limit 500");
+    expect(warehouseRefresh).toContain("order by r.recorded_at desc,r.id desc");
     expect(operationalMigration).toContain("after insert or update or delete on public.generator_fuel_readings");
     expect(operationalMigration).toContain("after insert or update or delete on public.generator_maintenance_preventive_plans");
     expect(operationalMigration).toContain("after insert or update or delete on public.generator_maintenance_alert_events");
