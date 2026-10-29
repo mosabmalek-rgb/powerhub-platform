@@ -34,14 +34,14 @@ describe("Platform-admin authorization boundary", () => {
 
 describe("Inventory catalog Delta authorization boundary", () => {
   it("routes catalog snapshots through the dedicated server-only RPCs", () => {
-    expect(powerhubRouterSource).toContain('"powerhub_pull_inventory_catalog_sync_delta"');
-    expect(powerhubRouterSource).toContain('"powerhub_get_inventory_catalog_sync_snapshot"');
-    expect(powerhubRouterSource).toContain('"inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"');
+    expect(powerhubRouterSource).toContain('"powerhub_pull_inventory_sync_delta"');
+    expect(powerhubRouterSource).toContain('"powerhub_get_inventory_sync_snapshot"');
+    expect(powerhubRouterSource).toContain('"inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements"');
   });
 
   it("checks the directory-specific view capability before pulling or rebuilding a snapshot", () => {
     expect(powerhubRouterSource).toContain('input.entityType === "suppliers" ? "viewSuppliers"');
     expect(powerhubRouterSource).toContain('? "viewInventory" : undefined');
-    expect(powerhubRouterSource).toContain('["inventory_items", "inventory_item_units", "inventory_warehouses"]');
+    expect(powerhubRouterSource).toContain('["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"]');
   });
 });
