@@ -134,6 +134,13 @@ begin
     end if;
     v_entity_id:=(p_payload->>'employeeId')::bigint;
     v_expected_version:=nullif(p_payload->>'expectedVersion','')::bigint;
+    -- Serialize the optimistic version check with the same employee/date advisory lock
+    -- used by powerhub_upsert_employee_attendance; otherwise a first insert could race
+    -- between "no row found" and the RPC and overwrite another device's attendance.
+    perform pg_advisory_xact_lock(
+      p_tenant_id,
+      hashtext('attendance:' || v_entity_id::text || ':' || (p_payload->>'workDate')::date::text)
+    );
     select a.id,a.hr_sync_version into v_existing_attendance_id,v_current_version
       from public.employee_attendance a
       where a.tenant_id=p_tenant_id and a.site_id=p_site_id and a.employee_id=v_entity_id
