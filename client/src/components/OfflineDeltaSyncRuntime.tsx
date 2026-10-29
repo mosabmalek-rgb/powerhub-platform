@@ -248,9 +248,15 @@ async function patchQueryCaches(
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_purchase_headers", row));
         const normalizedPage = {
           ...page,
-          changes: page.changes.map(change => change.operation === "upsert" && isRow(change.row_data)
-            ? { ...change, row_data: normalizeDeltaEntityRow("inventory_purchase_headers", change.row_data) }
-            : change),
+          changes: page.changes.map(change => {
+            const rowData = change.row_data;
+            if (change.operation !== "upsert" || rowData === null ||
+                typeof rowData !== "object" || Array.isArray(rowData)) return change;
+            return {
+              ...change,
+              row_data: normalizeDeltaEntityRow("inventory_purchase_headers", rowData as AnyRow),
+            };
+          }),
         };
         const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
         queryClient.setQueryData(query.queryKey, sortPurchaseHeaderRows(nextRows, Number(getOfflineQueryInput(query.queryKey).limit ?? 100)));
