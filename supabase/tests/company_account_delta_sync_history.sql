@@ -116,6 +116,21 @@ create table public.inventory_stock_movements (
  occurred_at timestamptz not null default now(), created_by_user_id bigint, created_at timestamptz not null default now(),
  reversal_of_movement_id bigint, corrects_movement_id bigint, correction_reason text, corrected_by_movement_id bigint
 );
+-- The production correction migration installs this guard. Recreate the same trigger
+-- in this isolated fixture because the test defines inventory_stock_movements locally.
+create or replace function public.powerhub_inventory_reject_stock_movement_mutation()
+returns trigger language plpgsql security invoker set search_path=public,pg_temp
+as $
+begin
+  raise exception 'INVENTORY_STOCK_MOVEMENT_IMMUTABLE'
+    using errcode='P0001',detail=format('operation=%s movement_id=%s',tg_op,old.id);
+end;
+$;
+revoke all on function public.powerhub_inventory_reject_stock_movement_mutation() from public,anon,authenticated;
+grant execute on function public.powerhub_inventory_reject_stock_movement_mutation() to service_role;
+create trigger inventory_stock_movement_append_only before update or delete on public.inventory_stock_movements
+for each row execute function public.powerhub_inventory_reject_stock_movement_mutation();
+
 \ir ../migrations/20261029000000_powerhub_delta_inventory_catalog.sql
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
@@ -489,6 +504,33 @@ begin
      or (v_delta #> '{changes,0,row_data}') ? 'total_cost_amount' then
     raise exception 'Stock movement Delta projection failed or exposed financial values: %',v_delta;
   end if;
+  -- Direct mutation/deletion must be blocked before it can bypass the append-only ledger.
+  begin
+    update public.inventory_stock_movements set quantity=99 where id=2301;
+    raise exception 'Expected direct stock movement update to be blocked' using errcode='P9999';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'INVENTORY_STOCK_MOVEMENT_IMMUTABLE' then raise; end if;
+  end;
+  begin
+    delete from public.inventory_stock_movements where id=2301;
+    raise exception 'Expected direct stock movement delete to be blocked' using errcode='P9999';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'INVENTORY_STOCK_MOVEMENT_IMMUTABLE' then raise; end if;
+  end;
+  if not exists(select 1 from public.inventory_stock_movements
+    where id=2301 and quantity=2.500 and corrected_by_movement_id is null) then
+    raise exception 'Append-only guard did not preserve the original movement';
+  end if;
+  select last_cursor into v_cursor from public.powerhub_sync_scope_state
+    where tenant_id=1 and site_id=10 and entity_type='inventory_stock_movements';
+  if v_cursor is distinct from 1 then
+    raise exception 'Rejected update/delete changed the Delta cursor: %',v_cursor;
+  end if;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stock_movements',1,null,200);
+  if jsonb_array_length(v_delta->'changes')<>0 then
+    raise exception 'Rejected update/delete unexpectedly produced Delta changes: %',v_delta;
+  end if;
+
   -- Mimic the immutable correction workflow: insert a reversal, then ensure the original
   -- projection is emitted again with its derived corrected_by_movement_id.
   insert into public.inventory_stock_movements(
