@@ -220,17 +220,41 @@ begin
   if OLD.name is not distinct from NEW.name and OLD.operating_hours is not distinct from NEW.operating_hours then
     return NEW;
   end if;
+  -- Only rows that can appear in the bounded site snapshot need a refreshed projection.
+  -- This prevents renaming a generator from emitting an unbounded history-sized journal burst.
   for v_row in
-    select r.id from public.generator_fuel_readings r
-    where r.tenant_id=NEW.tenant_id and r.site_id=NEW.site_id and r.generator_id=NEW.id
-    order by r.id
+    select visible.id
+    from (
+      select r.id,r.generator_id
+      from public.generator_fuel_readings r
+      where r.tenant_id=NEW.tenant_id and r.site_id=NEW.site_id
+      order by r.recorded_at desc,r.id desc
+      limit 500
+    ) visible
+    where visible.generator_id=NEW.id
+    order by visible.id
   loop
     perform public.powerhub_emit_operational_delta_sync_change(NEW.tenant_id,NEW.site_id,'fuel_readings',v_row.id);
   end loop;
+  -- The same bound and due-priority as powerhub_get_operational_sync_snapshot.
   for v_row in
-    select p.id from public.generator_maintenance_preventive_plans p
-    where p.tenant_id=NEW.tenant_id and p.site_id=NEW.site_id and p.generator_id=NEW.id
-    order by p.id
+    select visible.id
+    from (
+      select plan.id,plan.generator_id
+      from public.generator_maintenance_preventive_plans plan
+      left join lateral (
+        select e.alert_type from public.generator_maintenance_alert_events e
+        where e.tenant_id=plan.tenant_id and e.site_id=plan.site_id and e.plan_id=plan.id
+          and e.alert_type in ('due_soon','overdue')
+        order by e.updated_at desc,e.id desc limit 1
+      ) plan_row on true
+      where plan.tenant_id=NEW.tenant_id and plan.site_id=NEW.site_id
+      order by case when plan_row.alert_type='overdue' then 0 when plan_row.alert_type='due_soon' then 1 else 2 end,
+        coalesce(plan.next_due_at,'infinity'::timestamptz),plan.id
+      limit 500
+    ) visible
+    where visible.generator_id=NEW.id
+    order by visible.id
   loop
     perform public.powerhub_emit_operational_delta_sync_change(NEW.tenant_id,NEW.site_id,'maintenance_preventive_plans',v_row.id);
   end loop;
@@ -249,10 +273,18 @@ as $$
 declare v_row record;
 begin
   if OLD.name is not distinct from NEW.name then return NEW; end if;
+  -- Re-project only readings retained in the site-wide snapshot, not every historical reading for the warehouse.
   for v_row in
-    select r.id from public.generator_fuel_readings r
-    where r.tenant_id=NEW.tenant_id and r.site_id=NEW.site_id and r.tank_warehouse_id=NEW.id
-    order by r.id
+    select visible.id
+    from (
+      select r.id,r.tank_warehouse_id
+      from public.generator_fuel_readings r
+      where r.tenant_id=NEW.tenant_id and r.site_id=NEW.site_id
+      order by r.recorded_at desc,r.id desc
+      limit 500
+    ) visible
+    where visible.tank_warehouse_id=NEW.id
+    order by visible.id
   loop
     perform public.powerhub_emit_operational_delta_sync_change(NEW.tenant_id,NEW.site_id,'fuel_readings',v_row.id);
   end loop;
