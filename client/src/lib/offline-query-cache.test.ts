@@ -328,6 +328,12 @@ describe("Delta-backed local snapshots", () => {
     expect(getOfflineQueryDeltaEntity(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12 }, type: "query" }])).toBe("inventory_item_units");
     expect(getOfflineQueryDeltaEntity(["powerhub.inventory.listSuppliers", { input: { siteId: 7 }, type: "query" }])).toBe("suppliers");
     expect(getOfflineQueryDeltaEntity(["powerhub.inventory.listWarehouses", { input: { siteId: 7 }, type: "query" }])).toBe("inventory_warehouses");
+    const movementKey = ["powerhub.inventory.listStockMovements", { input: { siteId: 7, limit: 100 }, type: "query" }] as const;
+    expect(isOfflineCacheableQueryKey(movementKey)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(movementKey)).toBe(true);
+    expect(getOfflineQueryDeltaEntity(movementKey)).toBe("inventory_stock_movements");
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listStockMovements", { input: { siteId: 7, limit: 500 }, type: "query" }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listStockMovements", { input: { siteId: 7, limit: 100, includeCosts: true }, type: "query" }])).toBe(false);
     expect(getOfflineQueryDeltaEntity(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(null);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7, fromDate: "2026-10-01" }])).toBe(false);
