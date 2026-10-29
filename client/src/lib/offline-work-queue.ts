@@ -11,7 +11,13 @@ export type OfflineWorkKind =
   | "payment_create"
   | "payment_documentation_submit"
   | "payment_documentation_approve"
-  | "reading_create";
+  | "reading_create"
+  | "employee_create"
+  | "employee_update"
+  | "attendance_upsert"
+  | "payroll_draft"
+  | "employee_advance_issue"
+  | "employee_advance_repayment";
 
 export type OfflineWorkStatus = "pending" | "conflict" | "failed" | "applied";
 
@@ -145,6 +151,58 @@ export type PaymentDocumentationApprovalDraft = {
   };
 };
 
+export type HrEmployeeCreateDraft = {
+  localEmployeeId: number;
+  fullName: string;
+  identityNo?: string | null;
+  phone?: string | null;
+  jobTitle: "accountant" | "collector" | "technician" | "worker" | "supervisor" | "other";
+  employmentStatus: "active" | "suspended" | "ended";
+  contractType: "daily" | "monthly" | "collection_percentage";
+  baseWage: number;
+  hireDate?: string | null;
+  notes?: string | null;
+  linkedUserId?: number | null;
+};
+export type HrEmployeeUpdateDraft = {
+  employeeId: number;
+  expectedVersion: number | null;
+  patch: Partial<Pick<HrEmployeeCreateDraft, "fullName" | "identityNo" | "phone" | "jobTitle" | "employmentStatus" | "contractType" | "baseWage" | "hireDate" | "notes">>;
+};
+export type HrAttendanceUpsertDraft = {
+  employeeId: number;
+  workDate: string;
+  expectedVersion: number | null;
+  regularHours: number;
+  overtimeHours: number;
+  absentDays: number;
+  notes?: string | null;
+  localAttendanceId?: number;
+};
+export type HrPayrollDraftPayload = {
+  period: string;
+  items: Array<{ employeeId: number; extraAmount: number; advanceDeduction: number; otherDeduction: number; notes?: string }>;
+};
+export type HrEmployeeAdvanceIssueDraft = {
+  employeeId: number;
+  advanceKind: "salary_advance" | "employee_loan";
+  amount: number;
+  monthlyDeduction?: number;
+  accountId: number;
+  paymentDate: string;
+  reason: string;
+  localAdjustmentId?: number;
+};
+export type HrEmployeeAdvanceRepaymentDraft = {
+  adjustmentId: number;
+  accountId: number;
+  amount: number;
+  paymentDate: string;
+  referenceNo?: string;
+  notes?: string;
+  localRepaymentId?: number;
+};
+
 export type OfflineWorkPayload =
   | SubscriberCreateDraft
   | SubscriberUpdateDraft
@@ -154,7 +212,13 @@ export type OfflineWorkPayload =
   | PaymentDraft
   | PaymentDocumentationDraft
   | PaymentDocumentationApprovalDraft
-  | ReadingCreateDraft;
+  | ReadingCreateDraft
+  | HrEmployeeCreateDraft
+  | HrEmployeeUpdateDraft
+  | HrAttendanceUpsertDraft
+  | HrPayrollDraftPayload
+  | HrEmployeeAdvanceIssueDraft
+  | HrEmployeeAdvanceRepaymentDraft;
 
 export type QueuedOfflineWork = {
   id: string;
@@ -170,6 +234,7 @@ export type QueuedOfflineWork = {
   error?: string;
   appliedEntityId?: number;
   appliedLabel?: string;
+  appliedVersionNo?: number;
 };
 /**
  * Validate that persisted synchronization state belongs to this exact Outbox
@@ -244,11 +309,11 @@ export function createOfflineWork(
 }
 
 /** Initial sync state must be committed with its matching Outbox operation. */
-export function createInitialSyncMetadataRecord(item: QueuedOfflineWork): SyncMetadataRecord {
+export function createInitialSyncMetadataRecord(item: QueuedOfflineWork, dependsOn: readonly string[] = []): SyncMetadataRecord {
   return {
     operationId: item.clientOperationId, userId: item.userId,
     ...(item.tenantId !== undefined ? { tenantId: item.tenantId } : {}),
-    siteId: item.siteId, kind: item.kind, dependsOn: [], attempts: 0,
+    siteId: item.siteId, kind: item.kind, dependsOn: [...new Set(dependsOn)].filter((id) => id !== item.clientOperationId), attempts: 0,
     nextAttemptAt: item.createdAt, outcome: "pending", updatedAt: item.createdAt,
   };
 }
@@ -296,20 +361,157 @@ export async function listOfflineWork(options: { userId: number; siteId?: number
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export async function enqueueOfflineWork(
-  input: Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status"> & { clientOperationId?: string },
-) {
-  const record = createOfflineWork(input);
+type OfflineWorkEnqueueInput =
+  Omit<QueuedOfflineWork, "id" | "clientOperationId" | "createdAt" | "updatedAt" | "status"> &
+  { clientOperationId?: string; dependsOn?: readonly string[] };
+
+export async function enqueueOfflineWork(input: OfflineWorkEnqueueInput) {
+  const { dependsOn = [], ...workInput } = input;
+  const record = createOfflineWork(workInput);
   const database = await openDatabase();
   return new Promise<QueuedOfflineWork>((resolve, reject) => {
     const transaction = database.transaction([storeName, syncMetadataStoreName], "readwrite");
-    // A repeated operation ID must fail the whole transaction, never overwrite
-    // a prior draft or its terminal result with a new pending state.
     transaction.objectStore(storeName).add(record);
-    transaction.objectStore(syncMetadataStoreName).add(createInitialSyncMetadataRecord(record));
+    transaction.objectStore(syncMetadataStoreName).add(createInitialSyncMetadataRecord(record, dependsOn));
     transaction.oncomplete = () => { database.close(); resolve(record); };
     transaction.onerror = () => { const error = transaction.error; database.close(); reject(error ?? new OfflineWorkQueueError("تعذر حفظ المسودة وحالة مزامنتها معًا.")); };
     transaction.onabort = () => { const error = transaction.error; database.close(); reject(error ?? new OfflineWorkQueueError("أُلغيت معاملة حفظ المسودة وحالة مزامنتها.")); };
+  });
+}
+
+/** HR queue writes use the same operation store and dependency metadata as every other outbox item. */
+export async function enqueueOfflineHrWork(input: OfflineWorkEnqueueInput) {
+  const { dependsOn = [], ...workInput } = input;
+  if (!["employee_create","employee_update","attendance_upsert","payroll_draft","employee_advance_issue","employee_advance_repayment"].includes(workInput.kind)) {
+    throw new OfflineWorkQueueError("نوع العملية ليس عملية موارد بشرية قابلة للإضافة إلى الطابور.");
+  }
+  const record = createOfflineWork(workInput);
+  const db = await openDatabase();
+  return new Promise<QueuedOfflineWork>((resolve, reject) => {
+    const tx = db.transaction([storeName, syncMetadataStoreName], "readwrite");
+    const operationsStore = tx.objectStore(storeName);
+    const metadataStore = tx.objectStore(syncMetadataStoreName);
+    const operationsRequest = operationsStore.getAll();
+    const metadataRequest = metadataStore.getAll();
+    let operationRows: QueuedOfflineWork[] | undefined;
+    let metadataRows: SyncMetadataRecord[] | undefined;
+    let output: QueuedOfflineWork | undefined;
+    let failure: unknown;
+    let evaluated = false;
+    const evaluate = () => {
+      if (evaluated || !operationRows || !metadataRows) return;
+      evaluated = true;
+      try {
+        const eligibleToCoalesce = (item: QueuedOfflineWork) => {
+          const metadata = metadataRows!.find((entry) => entry.operationId === item.clientOperationId);
+          return item.userId === record.userId && item.siteId === record.siteId &&
+            item.status === "pending" && metadata?.outcome === "pending" && metadata.attempts === 0;
+        };
+        const incoming = record.payload as Record<string, any>;
+        if (record.kind === "employee_update") {
+          const localCreate = operationRows.find((item) => item.kind === "employee_create" &&
+            item.userId === record.userId && item.siteId === record.siteId &&
+            (item.payload as HrEmployeeCreateDraft).localEmployeeId === incoming.employeeId && eligibleToCoalesce(item));
+          if (localCreate) {
+            const createPayload = localCreate.payload as HrEmployeeCreateDraft;
+            const patch = incoming.patch as HrEmployeeUpdateDraft["patch"];
+            const fieldMap: Record<string, keyof HrEmployeeCreateDraft> = {
+              fullName: "fullName", identityNo: "identityNo", phone: "phone", jobTitle: "jobTitle",
+              employmentStatus: "employmentStatus", contractType: "contractType", baseWage: "baseWage",
+              hireDate: "hireDate", notes: "notes",
+            };
+            for (const [field, value] of Object.entries(patch)) {
+              const target = fieldMap[field];
+              if (target) (createPayload as any)[target] = value;
+            }
+            localCreate.payload = createPayload;
+            localCreate.updatedAt = Date.now();
+            operationsStore.put(localCreate);
+            output = localCreate;
+            return;
+          }
+        }
+        const sameKey = (item: QueuedOfflineWork) => {
+          if (!eligibleToCoalesce(item) || item.kind !== record.kind) return false;
+          const prior = item.payload as Record<string, any>;
+          if (record.kind === "employee_update") return prior.employeeId === incoming.employeeId;
+          if (record.kind === "attendance_upsert") return prior.employeeId === incoming.employeeId && prior.workDate === incoming.workDate;
+          return false;
+        };
+        const existing = operationRows.find(sameKey);
+        if (existing) {
+          if (record.kind === "employee_update") {
+            const prior = existing.payload as HrEmployeeUpdateDraft;
+            const next = record.payload as HrEmployeeUpdateDraft;
+            existing.payload = { ...prior, patch: { ...prior.patch, ...next.patch } };
+          } else if (record.kind === "attendance_upsert") {
+            const prior = existing.payload as HrAttendanceUpsertDraft;
+            const next = record.payload as HrAttendanceUpsertDraft;
+            existing.payload = { ...prior, regularHours: next.regularHours, overtimeHours: next.overtimeHours, absentDays: next.absentDays, notes: next.notes };
+          }
+          existing.updatedAt = Date.now();
+          operationsStore.put(existing);
+          output = existing;
+          return;
+        }
+        if (record.kind === "payroll_draft") {
+          const duplicate = operationRows.find((item) => item.userId === record.userId && item.siteId === record.siteId &&
+            item.kind === "payroll_draft" && item.status !== "applied" && item.status !== "failed" &&
+            (item.payload as HrPayrollDraftPayload).period === (record.payload as HrPayrollDraftPayload).period);
+          if (duplicate) throw new OfflineWorkQueueError("توجد مسودة رواتب محلية لهذه الفترة؛ راجعها أو أعد محاولتها قبل إنشاء مسودة مكررة.");
+        }
+        operationsStore.add(record);
+        metadataStore.add(createInitialSyncMetadataRecord(record, dependsOn));
+        output = record;
+      } catch (error) {
+        failure = error;
+        try { tx.abort(); } catch {}
+      }
+    };
+    operationsRequest.onsuccess = () => { operationRows = operationsRequest.result as QueuedOfflineWork[]; evaluate(); };
+    metadataRequest.onsuccess = () => { metadataRows = metadataRequest.result as SyncMetadataRecord[]; evaluate(); };
+    operationsRequest.onerror = () => { failure = operationsRequest.error; try { tx.abort(); } catch {} };
+    metadataRequest.onerror = () => { failure = metadataRequest.error; try { tx.abort(); } catch {} };
+    tx.oncomplete = () => { db.close(); output ? resolve(output) : reject(new OfflineWorkQueueError("لم تنتج إضافة عملية الموارد البشرية نتيجة محفوظة.")); };
+    tx.onerror = () => { const error = tx.error; db.close(); reject(failure ?? error ?? new OfflineWorkQueueError("تعذر حفظ عملية الموارد البشرية."));
+    };
+    tx.onabort = () => { const error = tx.error; db.close(); reject(failure ?? error ?? new OfflineWorkQueueError("أُلغيت إضافة عملية الموارد البشرية.")); };
+  });
+}
+
+/** Resolve negative local employee IDs after their create command is acknowledged. */
+export async function resolveOfflineEmployeeReferences(input: {
+  userId: number; siteId: number; localEmployeeId: number; serverEmployeeId: number; serverVersion: number;
+}) {
+  const db = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const request = store.getAll();
+    request.onsuccess = () => {
+      for (const item of request.result as QueuedOfflineWork[]) {
+        if (item.userId !== input.userId || item.siteId !== input.siteId || item.status === "applied") continue;
+        const payload = item.payload as any;
+        let changed = false;
+        if ((item.kind === "employee_update" || item.kind === "attendance_upsert" || item.kind === "employee_advance_issue") &&
+            payload.employeeId === input.localEmployeeId) {
+          payload.employeeId = input.serverEmployeeId;
+          if (item.kind === "employee_update") payload.expectedVersion = input.serverVersion;
+          changed = true;
+        } else if (item.kind === "payroll_draft" && Array.isArray(payload.items)) {
+          payload.items = payload.items.map((entry: any) => {
+            if (entry.employeeId !== input.localEmployeeId) return entry;
+            changed = true;
+            return { ...entry, employeeId: input.serverEmployeeId };
+          });
+        }
+        if (changed) store.put({ ...item, payload, updatedAt: Date.now() });
+      }
+    };
+    request.onerror = () => { try { tx.abort(); } catch {} };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { const error = tx.error; db.close(); reject(error ?? new OfflineWorkQueueError("تعذر ربط عمليات الموظف بمعرف الخادم.")); };
+    tx.onabort = () => { const error = tx.error; db.close(); reject(error ?? new OfflineWorkQueueError("أُلغيت عملية ربط معرف الموظف.")); };
   });
 }
 
