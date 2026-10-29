@@ -270,7 +270,7 @@ function isSafeStableOfflineList(queryKey: readonly unknown[], segments: string[
 
 function isSafeHrOfflineProjection(queryKey: readonly unknown[], segments = getPowerHubQuerySegments(queryKey)) {
   if (segments.length !== 3 || segments[1] !== "hr" ||
-      !["offlineDirectory", "offlineAttendance"].includes(segments[2] ?? "")) return false;
+      !["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns"].includes(segments[2] ?? "")) return false;
   const input = getOfflineQueryInput(queryKey);
   return Boolean(input && Object.keys(input).length === 1 &&
     Object.prototype.hasOwnProperty.call(input, "siteId") &&
@@ -331,7 +331,8 @@ export function isOfflineDashboardSnapshotQueryKey(queryKey: readonly unknown[])
 export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (!isOfflineCacheableQueryKey(queryKey) || segments.length < 3 || segments[0] !== "powerhub") return false;
-  if (isSafeHrOfflineProjection(queryKey, segments)) return true;
+  if (isSafeHrOfflineProjection(queryKey, segments) &&
+      ["offlineDirectory", "offlineAttendance"].includes(segments[2] ?? "")) return true;
 
   // Reading and invoice history are materialized from their full scoped Delta
   // snapshots into the exact keyset page shape expected by the UI.
@@ -396,7 +397,8 @@ export type OfflineQueryDeltaEntity =
 export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): OfflineQueryDeltaEntity | null {
   if (!isDeltaSyncBackedQueryKey(queryKey)) return null;
   const segments = getPowerHubQuerySegments(queryKey);
-  if (isSafeHrOfflineProjection(queryKey, segments)) {
+  if (isSafeHrOfflineProjection(queryKey, segments) &&
+      ["offlineDirectory", "offlineAttendance"].includes(segments[2] ?? "")) {
     return segments[2] === "offlineDirectory" ? "hr_employee_directory" : "hr_attendance";
   }
   if (segments[2] === "page") {

@@ -365,6 +365,42 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
         },
       };
     });
+    if (segments[2] === "offlineEmployeeAdvances") return data.filter(isRow).map((row) => {
+      const adjustment = isRow(row.adjustment) ? row.adjustment : {};
+      const employee = isRow(row.employee) ? row.employee : {};
+      const repayments = Array.isArray(row.repayments) ? row.repayments.filter(isRow).map((payment) => ({
+        id: payment.id, amount: payment.amount, repaymentMethod: payment.repaymentMethod,
+        companyAccountId: payment.companyAccountId ?? null, accountTransactionId: null,
+        payrollRunId: payment.payrollRunId ?? null, paymentDate: payment.paymentDate,
+        referenceNo: null, notes: null, createdByUserId: null, createdAt: payment.createdAt,
+      })) : [];
+      return {
+        adjustment: {
+          id: adjustment.id, tenantId: adjustment.tenantId ?? adjustment.tenant_id,
+          employeeId: adjustment.employeeId ?? adjustment.employee_id, siteId: adjustment.siteId ?? adjustment.site_id,
+          adjustmentType: "advance", advanceKind: adjustment.advanceKind ?? adjustment.advance_kind,
+          monthlyDeduction: adjustment.monthlyDeduction ?? adjustment.monthly_deduction ?? null,
+          amount: adjustment.amount, remainingAmount: adjustment.remainingAmount ?? adjustment.remaining_amount,
+          reason: null, status: adjustment.status, createdByUserId: null,
+          createdAt: adjustment.createdAt ?? adjustment.created_at, updatedAt: adjustment.updatedAt ?? adjustment.updated_at,
+          pendingOffline: Boolean(adjustment.pendingOffline),
+        },
+        employee: {
+          id: employee.id, tenantId: employee.tenantId ?? employee.tenant_id, siteId: employee.siteId ?? employee.site_id ?? null,
+          fullName: employee.fullName ?? employee.full_name ?? "", jobTitle: employee.jobTitle ?? employee.job_title ?? "other",
+          employmentStatus: employee.employmentStatus ?? employee.employment_status ?? "active",
+        },
+        repayments,
+      };
+    });
+    if (segments[2] === "offlinePayrollRuns") return data.filter(isRow).map((row) => ({
+      id: row.id, tenantId: row.tenantId ?? row.tenant_id, siteId: row.siteId ?? row.site_id ?? null,
+      period: row.period, status: row.status, totalGross: row.totalGross ?? row.total_gross ?? "0",
+      totalDeductions: row.totalDeductions ?? row.total_deductions ?? "0",
+      totalNet: row.totalNet ?? row.total_net ?? "0", paidAt: row.paidAt ?? row.paid_at ?? null,
+      createdAt: row.createdAt ?? row.created_at, updatedAt: row.updatedAt ?? row.updated_at,
+      pendingOffline: Boolean(row.pendingOffline),
+    }));
   }
   if (segments[0] === "powerhub" && data && Array.isArray(data)) {
     const options = queryKey[1];
