@@ -635,3 +635,91 @@ describe("offline query cache persistence failure policy", () => {
   });
 
 });
+
+
+describe("HR local-first cache boundaries", () => {
+  const key = (procedure: string, input: Record<string, unknown> = { siteId: 7 }) =>
+    ["powerhub.hr." + procedure, { input, type: "query" }] as const;
+
+  it("allows only the four exact minimized HR read projections, and gives Delta only to directory and attendance", () => {
+    const directory = key("offlineDirectory");
+    const attendance = key("offlineAttendance");
+    const advances = key("offlineEmployeeAdvances");
+    const payroll = key("offlinePayrollRuns");
+    for (const queryKey of [directory, attendance, advances, payroll]) {
+      expect(isOfflineCacheableQueryKey(queryKey)).toBe(true);
+    }
+    expect(isDeltaSyncBackedQueryKey(directory)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(attendance)).toBe(true);
+    expect(getOfflineQueryDeltaEntity(directory)).toBe("hr_employee_directory");
+    expect(getOfflineQueryDeltaEntity(attendance)).toBe("hr_attendance");
+    for (const queryKey of [advances, payroll]) {
+      expect(isDeltaSyncBackedQueryKey(queryKey)).toBe(false);
+      expect(getOfflineQueryDeltaEntity(queryKey)).toBeNull();
+      expect(getOfflineQueryStaleTime(queryKey)).toBe(30_000);
+    }
+    for (const queryKey of [
+      key("listEmployees"),
+      key("listAttendance"),
+      key("overview"),
+      key("listPayrollRuns"),
+      key("getPayrollDetails", { siteId: 7, payrollRunId: 3 }),
+      key("offlineDirectory", { siteId: 7, search: "name" }),
+      key("offlineAttendance", { siteId: 7, fromDate: "2026-10-01" }),
+    ]) {
+      expect(isOfflineCacheableQueryKey(queryKey)).toBe(false);
+      expect(isDeltaSyncBackedQueryKey(queryKey)).toBe(false);
+    }
+  });
+
+  it("strips private employee, repayment and payroll details before they reach IndexedDB", () => {
+    const directory = sanitizeOfflineQueryData(key("offlineDirectory"), [{
+      id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker",
+      employmentStatus: "active", contractType: "monthly", versionNo: 4,
+      identityNo: "PRIVATE-ID", phone: "PRIVATE-PHONE", baseWage: "9999",
+      notes: "PRIVATE-NOTE", linkedUserId: 88, linked_user_id: 88,
+    }]) as Array<Record<string, unknown>>;
+    expect(directory[0]).toMatchObject({ id: 10, fullName: "Employee", siteId: null, versionNo: 4 });
+    for (const field of ["identityNo", "identity_no", "phone", "baseWage", "base_wage", "notes", "linkedUserId", "linked_user_id"]) {
+      expect(directory[0]).not.toHaveProperty(field);
+    }
+
+    const attendance = sanitizeOfflineQueryData(key("offlineAttendance"), [{
+      id: 20, tenantId: 2, siteId: 7,
+      attendance: {
+        id: 20, tenantId: 2, employeeId: 10, siteId: 7, workDate: "2026-10-29",
+        regularHours: "8", overtimeHours: "1", absentDays: "0", notes: "PRIVATE-ATTENDANCE-NOTE",
+        createdByUserId: 33, versionNo: 7,
+      },
+      employee: { id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker",
+        employmentStatus: "active", identityNo: "PRIVATE-ID", phone: "PRIVATE-PHONE", baseWage: "9999" },
+    }]) as Array<Record<string, any>>;
+    expect(attendance[0].attendance).toMatchObject({ notes: null, createdByUserId: null, versionNo: 7 });
+    for (const field of ["identityNo", "identity_no", "phone", "baseWage", "base_wage"]) {
+      expect(attendance[0].employee).not.toHaveProperty(field);
+    }
+
+    const advances = sanitizeOfflineQueryData(key("offlineEmployeeAdvances"), [{
+      adjustment: { id: 30, tenantId: 2, siteId: 7, employeeId: 10, amount: "100", remainingAmount: "40",
+        reason: "PRIVATE-REASON", createdByUserId: 33 },
+      employee: { id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker",
+        employmentStatus: "active", phone: "PRIVATE-PHONE", baseWage: "9999" },
+      repayments: [{ id: 31, amount: "60", notes: "PRIVATE-REPAYMENT-NOTE",
+        referenceNo: "PRIVATE-REFERENCE", createdByUserId: 33, accountTransactionId: 44 }],
+    }]) as Array<Record<string, any>>;
+    expect(advances[0].adjustment.reason).toBeNull();
+    expect(advances[0].adjustment.createdByUserId).toBeNull();
+    expect(advances[0].employee).not.toHaveProperty("phone");
+    expect(advances[0].employee).not.toHaveProperty("baseWage");
+    expect(advances[0].repayments[0]).toMatchObject({ notes: null, referenceNo: null, createdByUserId: null, accountTransactionId: null });
+
+    const payroll = sanitizeOfflineQueryData(key("offlinePayrollRuns"), [{
+      id: 40, tenantId: 2, siteId: 7, period: "2026-10", status: "draft",
+      totalGross: "100", totalDeductions: "20", totalNet: "80",
+      payrollItems: [{ employeeId: 10, baseAmount: "100", notes: "PRIVATE" }],
+      approvalToken: "PRIVATE", createdByUserId: 33,
+    }]) as Array<Record<string, unknown>>;
+    expect(payroll[0]).toMatchObject({ id: 40, period: "2026-10", totalNet: "80" });
+    for (const field of ["payrollItems", "approvalToken", "createdByUserId"]) expect(payroll[0]).not.toHaveProperty(field);
+  });
+});
