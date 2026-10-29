@@ -3,6 +3,7 @@ import {
   applyDeltaChanges,
   assertDeltaRowWithinScope,
   compareDeltaCursors,
+  compareMaintenanceWorkOrderNewestFirst,
   limitDeltaEntityRows,
   isBoundedDeltaEntityType,
   pullDeltaPages,
@@ -170,6 +171,17 @@ describe("Delta row scope validation", () => {
       id: 13, tenantId: 1, siteId: 7,
       subscriber: { id: 11, tenantId: 1, siteId: 8 },
     }, scoped)).toThrow(/العلاقة subscriber/);
+  });
+});
+
+describe("maintenance work-order Delta ordering", () => {
+  it("matches server ordering with reported_at fallback to created_at and stable descending IDs", () => {
+    const olderCreated = { id: 21, created_at: "2026-10-27T10:00:00Z" };
+    const newerReported = { id: 20, reported_at: "2026-10-28T10:00:00Z", created_at: "2026-10-20T10:00:00Z" };
+    const sameTimeHigherId = { id: 22, reported_at: "2026-10-28T10:00:00Z" };
+    expect(compareMaintenanceWorkOrderNewestFirst(newerReported, olderCreated)).toBeLessThan(0);
+    expect(compareMaintenanceWorkOrderNewestFirst(sameTimeHigherId, newerReported)).toBeLessThan(0);
+    expect(compareMaintenanceWorkOrderNewestFirst(olderCreated, newerReported)).toBeGreaterThan(0);
   });
 });
 
