@@ -66,10 +66,36 @@ export default function PaymentDocumentationReviewPage() {
   // mounted and connected; hidden/background tabs do not keep issuing requests.
   const shouldPollRequests = isOnline && (status === "pending" || status === "all");
   const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && isOnline && dateFiltersReady),retry:false,staleTime:15_000,refetchOnMount:"always",refetchInterval:shouldPollRequests?15_000:false,refetchIntervalInBackground:false});
-  const loadOfflineRows=useCallback(async()=>{if(!siteId)return;try{setOfflineRows(await listPaymentDocumentationApprovalSnapshots(siteId));}catch{toast.error("تعذر قراءة قائمة الاعتمادات المحلية.");}},[siteId]);
+  const loadOfflineRows=useCallback(async()=>{
+    // Clear any prior identity/branch before starting an async IndexedDB read.
+    setOfflineRows([]);
+    setSelectedIds([]);
+    if(!user?.id||!siteId)return;
+    try{
+      const rows=await listPaymentDocumentationApprovalSnapshots(Number(user.id),siteId);
+      setOfflineRows(rows);
+    }catch{
+      toast.error("تعذر قراءة قائمة الاعتمادات المحلية.");
+    }
+  },[siteId,user?.id]);
   useEffect(()=>{const on=()=>setIsOnline(true),off=()=>setIsOnline(false);window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};},[]);
-  useEffect(()=>{if(!isOnline)void loadOfflineRows();},[isOnline,loadOfflineRows]);
-  useEffect(()=>{if(isOnline&&status==="pending"&&requests.data?.length)void savePaymentDocumentationApprovalSnapshots(siteId??0,requests.data.map((r:any)=>({id:Number(r.id),siteId:siteId??0,savedAt:Date.now(),invoiceNo:String(r.invoice_no_snapshot),subscriberName:String(r.subscriber_name_snapshot),subscriberNo:String(r.subscriber_no_snapshot),paymentAmount:Number(r.payment_amount),invoiceBalance:Number(r.invoice_balance_snapshot),paymentMethod:String(r.payment_method),destinationAccountId:Number(r.destination_account_id),submittedAt:String(r.submitted_at),status:"pending"})));},[isOnline,requests.data,siteId,status]);
+  useEffect(()=>{
+    if(isOnline){
+      setOfflineRows([]);
+      setSelectedIds([]);
+      return;
+    }
+    void loadOfflineRows();
+  },[isOnline,loadOfflineRows]);
+  useEffect(()=>{
+    if(!isOnline||!user?.id||!siteId||status!=="pending"||!requests.isSuccess||!Array.isArray(requests.data))return;
+    void savePaymentDocumentationApprovalSnapshots(Number(user.id),siteId,requests.data.map((r:any)=>({
+      id:Number(r.id),invoiceNo:String(r.invoice_no_snapshot),subscriberName:String(r.subscriber_name_snapshot),
+      subscriberNo:String(r.subscriber_no_snapshot),paymentAmount:Number(r.payment_amount),
+      invoiceBalance:Number(r.invoice_balance_snapshot),paymentMethod:String(r.payment_method),
+      destinationAccountId:Number(r.destination_account_id),submittedAt:String(r.submitted_at),status:"pending",
+    }))).catch(()=>toast.error("تعذر حفظ لقطة اعتماد الدفع المحلية."));
+  },[isOnline,requests.data,requests.isSuccess,siteId,status,user?.id]);
   const visibleRequests:any[] = isOnline ? (dateFiltersReady ? (requests.data ?? []) : []) : offlineRows
     .filter((row) => status === "all" || row.status === status)
     .filter((row) => {
