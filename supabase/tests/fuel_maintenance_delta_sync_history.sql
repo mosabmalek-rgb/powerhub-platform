@@ -248,7 +248,7 @@ begin
   ) into v_delta;
   if not exists(
     select 1 from jsonb_array_elements(v_delta->'changes') c
-    where c->>'entity_id'=v_deleted_id::text and c->>'operation'='delete'
+    where c->>'entity_id'=v_deleted_id::text and c->>'operation'='upsert'
   ) or not exists(
     select 1 from jsonb_array_elements(v_delta->'changes') c
     where c->>'entity_id'=v_replacement_id::text and c->>'operation'='upsert'
