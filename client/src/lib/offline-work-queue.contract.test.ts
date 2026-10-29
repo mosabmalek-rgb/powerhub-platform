@@ -70,7 +70,8 @@ describe("offline fuel fill intent contract", () => {
     expect(submit).not.toContain("stockOverview.setData");
     expect(submit).not.toContain("listStockMovements.setData");
 
-    const replayStart = syncPanel.indexOf('if (item.kind === "fuel_fill")');
+    const transportStart = syncPanel.indexOf("const transport =");
+    const replayStart = syncPanel.indexOf('if (item.kind === "fuel_fill")', transportStart);
     const replayEnd = syncPanel.indexOf('const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;', replayStart);
     expect(replayStart).toBeGreaterThanOrEqual(0);
     expect(replayEnd).toBeGreaterThan(replayStart);
