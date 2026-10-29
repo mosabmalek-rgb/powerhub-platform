@@ -62,6 +62,50 @@ function movementIdentity(value: Record<string, unknown>, row: Record<string, un
   return id === null || id === undefined ? "" : String(id);
 }
 
+function compareFuelReadingNewestFirst(
+  leftValue: Record<string, unknown>,
+  rightValue: Record<string, unknown>,
+): number {
+  const left = movementProjection(leftValue);
+  const right = movementProjection(rightValue);
+  const leftParsed = Date.parse(String(left.recorded_at ?? left.recordedAt ?? ""));
+  const rightParsed = Date.parse(String(right.recorded_at ?? right.recordedAt ?? ""));
+  const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
+  const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  return movementIdentity(rightValue, right).localeCompare(movementIdentity(leftValue, left), undefined, { numeric: true });
+}
+
+function compareMaintenancePlanPriority(
+  leftValue: Record<string, unknown>,
+  rightValue: Record<string, unknown>,
+): number {
+  const left = movementProjection(leftValue);
+  const right = movementProjection(rightValue);
+  const priority = (row: Record<string, unknown>) =>
+    row.alert_type === "overdue" || row.alertType === "overdue" ? 0
+      : row.alert_type === "due_soon" || row.alertType === "due_soon" ? 1 : 2;
+  const priorityDiff = priority(left) - priority(right);
+  if (priorityDiff !== 0) return priorityDiff;
+  const dueAt = (row: Record<string, unknown>) => {
+    const raw = row.next_due_at ?? row.nextDueAt;
+    if (raw === null || raw === undefined || raw === "") return Number.POSITIVE_INFINITY;
+    const value = Date.parse(String(raw));
+    return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+  };
+  const dateDiff = dueAt(left) - dueAt(right);
+  if (dateDiff !== 0) return dateDiff;
+  const leftId = movementIdentity(leftValue, left);
+  const rightId = movementIdentity(rightValue, right);
+  try {
+    const leftBigInt = BigInt(leftId);
+    const rightBigInt = BigInt(rightId);
+    return leftBigInt === rightBigInt ? 0 : leftBigInt < rightBigInt ? -1 : 1;
+  } catch {
+    return leftId.localeCompare(rightId, undefined, { numeric: true });
+  }
+}
+
 function compareStockMovementNewestFirst(
   leftValue: Record<string, unknown>,
   rightValue: Record<string, unknown>,
@@ -108,6 +152,12 @@ export function limitDeltaEntityRows<T extends Record<string, unknown>>(
               ? MAX_LOCAL_MAINTENANCE_PLAN_ROWS
               : null;
   if (limit === null || rows.length <= limit) return [...rows];
+  if (entityType === "fuel_readings") {
+    return [...rows].sort(compareFuelReadingNewestFirst).slice(0, limit);
+  }
+  if (entityType === "maintenance_preventive_plans") {
+    return [...rows].sort(compareMaintenancePlanPriority).slice(0, limit);
+  }
   return [...rows].sort(compareStockMovementNewestFirst).slice(0, limit);
 }
 
