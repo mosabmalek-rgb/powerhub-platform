@@ -36,14 +36,25 @@ export default function PayrollPage({ embedded = false }: { embedded?: boolean }
   useEffect(() => {
     if (!Number.isSafeInteger(userId) || userId < 1 || !siteId) { setPendingDrafts([]); return; }
     let active = true;
-    void listOfflineWork({ userId, siteId }).then((items) => {
-      if (!active) return;
-      setPendingDrafts(items.filter((item) => item.kind === "payroll_draft" && item.status !== "applied")
-        .map((item) => ({ id: -Math.max(1, item.createdAt), period: (item.payload as HrPayrollDraftPayload).period,
-          status: "draft", totalGross: null, totalDeductions: null, totalNet: null, pendingOffline: true,
-          queueStatus: item.status, createdAt: new Date(item.createdAt) })));
-    }).catch(() => { if (active) setPendingDrafts([]); });
-    return () => { active = false; };
+    const loadPendingDrafts = () => {
+      void listOfflineWork({ userId, siteId }).then((items) => {
+        if (!active) return;
+        setPendingDrafts(items.filter((item) => item.kind === "payroll_draft" && item.status !== "applied")
+          .map((item) => ({ id: -Math.max(1, item.createdAt), period: (item.payload as HrPayrollDraftPayload).period,
+            status: "draft", totalGross: null, totalDeductions: null, totalNet: null, pendingOffline: true,
+            queueStatus: item.status, createdAt: new Date(item.createdAt) })));
+      }).catch(() => { if (active) setPendingDrafts([]); });
+    };
+    const reloadQueue = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: number; siteId?: number }>).detail;
+      if (detail?.userId === userId && detail?.siteId === siteId) loadPendingDrafts();
+    };
+    window.addEventListener("powerhub:offline-work-queue-changed", reloadQueue);
+    loadPendingDrafts();
+    return () => {
+      active = false;
+      window.removeEventListener("powerhub:offline-work-queue-changed", reloadQueue);
+    };
   }, [userId, siteId, runs.dataUpdatedAt]);
   const serverRuns: any[] = isHrOnline && runs.data ? runs.data : offlineRuns.data ?? [];
   const displayRuns: any[] = [
