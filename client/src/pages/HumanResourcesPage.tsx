@@ -71,7 +71,7 @@ export default function HumanResourcesPage({ embedded = false }: { embedded?: bo
       const row = {
         id: payload.localEmployeeId, tenantId, siteId, fullName: payload.fullName,
         jobTitle: payload.jobTitle, employmentStatus: payload.employmentStatus,
-        contractType: payload.contractType, createdAt: new Date(item.createdAt), versionNo: 1,
+        contractType: payload.contractType, createdAt: new Date(item.createdAt), versionNo: 0,
         pendingOffline: true, pendingQueueStatus: item.status,
       };
       return [row, ...rows.filter((employee) => Number(employee.id) !== payload.localEmployeeId)];

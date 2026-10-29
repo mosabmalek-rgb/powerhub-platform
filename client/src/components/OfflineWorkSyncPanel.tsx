@@ -102,7 +102,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         if (item.kind !== "employee_create" || item.status !== "applied" || !item.appliedEntityId) continue;
         const payload = item.payload as HrEmployeeCreateDraft;
         if (payload.localEmployeeId < 0) resolvedLocalEmployees.current.set(payload.localEmployeeId, {
-          id: item.appliedEntityId, versionNo: item.appliedVersionNo ?? 1,
+          id: item.appliedEntityId, versionNo: item.appliedVersionNo ?? 0,
         });
       }
     } catch { toast.error("تعذر قراءة مسودات العمل المحلي على هذا الجهاز."); }
@@ -333,9 +333,10 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "employee_update",
           payload: { ...payload, employeeId, expectedVersion },
         });
+        if (!result.versionNo || result.versionNo < 1) throw new Error("لم يُرجع الخادم إصدارًا موثوقًا للموظف؛ بقيت العملية محفوظة للمراجعة.");
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: employeeId,
-          appliedVersionNo: result.versionNo ?? expectedVersion + 1, appliedLabel: "تعديل بيانات موظف",
+          appliedVersionNo: result.versionNo, appliedLabel: "تعديل بيانات موظف",
           payload: sanitizeCompletedPayload(item),
         });
         return { outcome: result.replayed ? "already_applied" : "applied" };
@@ -351,9 +352,10 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           payload: { ...serverPayload, employeeId },
         });
         if (!result.entityId) throw new Error("لم يُرجع الخادم معرف الحضور بعد المزامنة.");
+        if (!result.versionNo || result.versionNo < 1) throw new Error("لم يُرجع الخادم إصدارًا موثوقًا لسجل الحضور؛ بقيت العملية محفوظة للمراجعة.");
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.entityId,
-          appliedVersionNo: result.versionNo ?? 1, appliedLabel: "تسجيل حضور " + employeeId + " — " + payload.workDate,
+          appliedVersionNo: result.versionNo, appliedLabel: "تسجيل حضور " + employeeId + " — " + payload.workDate,
           payload: sanitizeCompletedPayload(item),
         });
         return { outcome: result.replayed ? "already_applied" : "applied" };

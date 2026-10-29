@@ -84,3 +84,21 @@ describe("HR offline outbox contract", () => {
     expect(source).toContain("new BroadcastChannel(OFFLINE_WORK_QUEUE_CHANGED_CHANNEL)");
   });
 });
+ 
+describe("HR optimistic version integrity", () => {
+  it("never synthesizes a server version during outbox recovery or confirmed writes", () => {
+    const syncPanel = readFileSync(resolve(process.cwd(), "client/src/components/OfflineWorkSyncPanel.tsx"), "utf8");
+    const employeePage = readFileSync(resolve(process.cwd(), "client/src/pages/HumanResourcesPage.tsx"), "utf8");
+    const attendancePage = readFileSync(resolve(process.cwd(), "client/src/pages/AttendancePage.tsx"), "utf8");
+
+    expect(syncPanel).toContain("versionNo: item.appliedVersionNo ?? 0");
+    expect(syncPanel).toContain("if (!result.versionNo || result.versionNo < 1)");
+    expect(syncPanel).not.toContain("versionNo: item.appliedVersionNo ?? 1");
+    expect(syncPanel).not.toContain("appliedVersionNo: result.versionNo ?? expectedVersion + 1");
+    expect(syncPanel).not.toContain("appliedVersionNo: result.versionNo ?? 1");
+    expect(employeePage).toContain("createdAt: new Date(item.createdAt), versionNo: 0");
+    expect(attendancePage).toContain("contractType: payload.contractType, versionNo: 0");
+    expect(attendancePage).toContain("versionNo: payload.expectedVersion ?? previous?.attendance.versionNo ?? 0");
+  });
+});
+

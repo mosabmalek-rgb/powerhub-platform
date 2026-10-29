@@ -71,7 +71,7 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
     .map((item) => {
       const payload = item.payload as HrEmployeeCreateDraft;
       return { id: payload.localEmployeeId, tenantId, siteId, fullName: payload.fullName, jobTitle: payload.jobTitle,
-        employmentStatus: payload.employmentStatus, contractType: payload.contractType, versionNo: 1,
+        employmentStatus: payload.employmentStatus, contractType: payload.contractType, versionNo: 0,
         createdAt: new Date(item.createdAt), pendingOffline: true, pendingQueueStatus: item.status };
     });
   const displayEmployees: any[] = [...pendingEmployeeRows,
@@ -94,7 +94,7 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
           regularHours: String(payload.regularHours), overtimeHours: String(payload.overtimeHours),
           absentDays: String(payload.absentDays), notes: null, createdByUserId: null,
           createdAt: previous?.attendance.createdAt ?? new Date(item.createdAt), updatedAt: new Date(item.updatedAt),
-          versionNo: payload.expectedVersion ?? previous?.attendance.versionNo ?? 1,
+          versionNo: payload.expectedVersion ?? previous?.attendance.versionNo ?? 0,
           pendingOffline: true, pendingQueueStatus: item.status,
         },
         employee: {
