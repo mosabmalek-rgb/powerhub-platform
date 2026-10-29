@@ -1,4 +1,5 @@
 import { listOfflineConflicts, removeOfflineConflict, upsertOfflineConflict, type OfflineConflictRecord } from "@/lib/offline-workspace-db";
+import { removePaymentDocumentationApprovalSnapshot } from "@/lib/offline-payment-documentation-approvals";
 import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline-delta-sync";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,10 @@ function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["p
   if (item.kind === "payment_documentation_submit") {
     const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
     return { ...payload, receiptImageData: undefined, receiptImageMime: undefined };
+  }
+  if (item.kind === "payment_documentation_approve") {
+    const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationApprovalDraft;
+    return { requestId: payload.requestId, capturedAt: payload.capturedAt };
   }
   if (item.kind === "employee_create") {
     const payload = item.payload as HrEmployeeCreateDraft;
@@ -170,8 +175,14 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         utils.powerhub.invoices.page.invalidate({ siteId, limit: 200 }),
       );
     }
+    if (targets.has("payment-documentation")) {
+      refreshes.push(utils.powerhub.paymentDocumentation.list.invalidate());
+    }
     if (targets.has("payments")) {
-      refreshes.push(utils.powerhub.payments.list.invalidate({ siteId }));
+      refreshes.push(
+        utils.powerhub.payments.list.invalidate({ siteId }),
+        utils.powerhub.payments.page.invalidate({ siteId, limit: 100 }),
+      );
     }
     if (targets.has("dashboard-summary")) {
       refreshes.push(utils.powerhub.dashboard.summary.invalidate({ siteId }));
@@ -299,7 +310,14 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       if (item.kind === "payment_documentation_approve") {
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationApprovalDraft;
         const result = await approvePaymentDocumentation.mutateAsync({ siteId: item.siteId, requestId: payload.requestId });
-        await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: Number(result.paymentId), appliedLabel: `طلب #${payload.requestId} — حركة #${result.paymentId}` });
+        // Server-confirmed approval is authoritative. Best-effort local cleanup must not
+        // downgrade a committed financial approval to a failed client-side operation.
+        await removePaymentDocumentationApprovalSnapshot(item.userId, item.siteId, payload.requestId).catch(() => undefined);
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: Number(result.paymentId),
+          appliedLabel: `طلب #${payload.requestId} — حركة #${result.paymentId}`,
+          payload: sanitizeCompletedPayload(item),
+        });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "employee_create") {

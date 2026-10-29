@@ -70,3 +70,15 @@ describe("offline sync Query invalidation plan", () => {
     ]);
   });
 });
+
+describe("payment documentation Outbox invalidation", () => {
+  it("refreshes the review queue after submission without treating it as a financial movement", () => {
+    expect(getOfflineSyncRefreshTargets([result("payment_documentation_submit", "applied")]))
+      .toEqual(["payment-documentation", "audit"]);
+  });
+
+  it("refreshes review, payment, invoice, and finance views only after server-confirmed approval", () => {
+    expect(getOfflineSyncRefreshTargets([result("payment_documentation_approve", "already_applied")]))
+      .toEqual(["payment-documentation", "payments", "invoices", "invoice-pages", "dashboard-summary", "financial-dashboard", "audit"]);
+  });
+});

@@ -8,9 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
-import { enqueueOfflineWork, listOfflineWork, type PaymentDocumentationApprovalDraft } from "@/lib/offline-work-queue";
+import { enqueueOfflineWork, listOfflineWork, notifyOfflineWorkQueueChanged, type PaymentDocumentationApprovalDraft } from "@/lib/offline-work-queue";
 import { clearPaymentDocumentationApprovalSnapshots, listPaymentDocumentationApprovalSnapshots, paymentDocumentationApprovalSnapshotScope, removePaymentDocumentationApprovalSnapshot, savePaymentDocumentationApprovalSnapshots, type OfflinePaymentDocumentationApprovalSnapshot } from "@/lib/offline-payment-documentation-approvals";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { can } from "@shared/powerhub-rbac";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -60,7 +61,8 @@ export default function PaymentDocumentationReviewPage() {
   const [selectedIds,setSelectedIds]=useState<number[]>([]);
   const [offlineRows,setOfflineRows]=useState<OfflinePaymentDocumentationApprovalSnapshot[]>([]);
   const [forcedAccessDenial,setForcedAccessDenial]=useState(false);
-  const [isOnline,setIsOnline]=useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const { isOnline, isChecking: checkingOriginReachability } = usePowerHubConnectivity();
+  const canReachServer = isOnline && !checkingOriginReachability;
   const access=trpc.powerhub.staff.myAccess.useQuery({siteId:siteId??0},{enabled:Boolean(siteId),staleTime:0,refetchOnMount:"always"});
   const accessDenied = forcedAccessDenial || (access.isError && isExplicitAuthorizationDenial(access.error));
   const canApprove = !accessDenied && can(access.data?.role,"approvePaymentDocumentation",access.data?.permissions);
@@ -73,8 +75,8 @@ export default function PaymentDocumentationReviewPage() {
   });
   // Pending documentation is operationally time-sensitive. Poll only while this page is
   // mounted and connected; hidden/background tabs do not keep issuing requests.
-  const shouldPollRequests = isOnline && (status === "pending" || status === "all");
-  const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && isOnline && dateFiltersReady),retry:false,staleTime:15_000,refetchOnMount:"always",refetchInterval:shouldPollRequests?15_000:false,refetchIntervalInBackground:false});
+  const shouldPollRequests = canReachServer && (status === "pending" || status === "all");
+  const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && canReachServer && dateFiltersReady),retry:false,staleTime:15_000,refetchOnMount:"always",refetchInterval:shouldPollRequests?15_000:false,refetchIntervalInBackground:false});
   const requestsDenied = requests.isError && isExplicitAuthorizationDenial(requests.error);
   const authorizationDenied = accessDenied || requestsDenied;
   const loadOfflineRows=useCallback(async()=>{
@@ -89,7 +91,6 @@ export default function PaymentDocumentationReviewPage() {
       toast.error("تعذر قراءة قائمة الاعتمادات المحلية.");
     }
   },[authorizationDenied,period,siteId,snapshotScope,status,user?.id]);
-  useEffect(()=>{const on=()=>setIsOnline(true),off=()=>setIsOnline(false);window.addEventListener("online",on);window.addEventListener("offline",off);return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off);};},[]);
   useEffect(()=>{
     if(isOnline){
       setOfflineRows([]);
@@ -101,7 +102,7 @@ export default function PaymentDocumentationReviewPage() {
   useEffect(()=>{
     // The current cycle is resolved dynamically by the server. Never persist a
     // cycle snapshot that cannot be revalidated after a cycle boundary offline.
-    if(authorizationDenied||!isOnline||!user?.id||!siteId||status!=="pending"||period==="current_cycle"||
+    if(authorizationDenied||!canReachServer||!user?.id||!siteId||status!=="pending"||period==="current_cycle"||
        !requests.isSuccess||!Array.isArray(requests.data))return;
     void savePaymentDocumentationApprovalSnapshots(Number(user.id),siteId,snapshotScope,requests.data.map((r:any)=>({
       id:Number(r.id),invoiceNo:String(r.invoice_no_snapshot),subscriberName:String(r.subscriber_name_snapshot),
@@ -109,8 +110,8 @@ export default function PaymentDocumentationReviewPage() {
       invoiceBalance:Number(r.invoice_balance_snapshot),paymentMethod:String(r.payment_method),
       destinationAccountId:Number(r.destination_account_id),submittedAt:String(r.submitted_at),status:"pending",
     }))).catch(()=>toast.error("تعذر حفظ لقطة اعتماد الدفع المحلية."));
-  },[authorizationDenied,isOnline,period,requests.data,requests.isSuccess,siteId,snapshotScope,status,user?.id]);
-  const visibleRequests:any[] = authorizationDenied ? [] : isOnline ? (dateFiltersReady ? (requests.data ?? []) : []) : offlineRows
+  },[authorizationDenied,canReachServer,period,requests.data,requests.isSuccess,siteId,snapshotScope,status,user?.id]);
+  const visibleRequests:any[] = authorizationDenied ? [] : canReachServer ? (dateFiltersReady ? (requests.data ?? []) : []) : isOnline ? [] : offlineRows
     .map(row => ({ id: row.id, invoice_no_snapshot: row.invoiceNo, subscriber_name_snapshot: row.subscriberName, subscriber_no_snapshot: row.subscriberNo, payment_amount: row.paymentAmount, invoice_balance_snapshot: row.invoiceBalance, payment_method: row.paymentMethod, destination_account_id: row.destinationAccountId, submitted_at: row.submittedAt, status: row.status, consumption_kwh_snapshot: null, price_per_kwh_snapshot: null, invoice_total_snapshot: null, sender_phone: null, reference_no: null, reviewed_at: null, rejection_reason: null, receipt_image_key: null, destination_account_name: null, destination_account_type: null, destination_account_phone_number: null }));
   const [receiptUrls,setReceiptUrls]=useState<Record<number,string>>({});
   const [receiptLoadingId,setReceiptLoadingId]=useState<number|null>(null);
@@ -194,17 +195,65 @@ export default function PaymentDocumentationReviewPage() {
   });
   const queueOfflineApprovals = async () => {
     if (authorizationDenied || isOnline || !siteId || !user?.id || !selectedIds.length) return;
-    const existing = await listOfflineWork({ userId: Number(user?.id ?? 0), siteId });
-    const existingRequestIds = new Set(existing.filter(item => item.kind === "payment_documentation_approve").map(item => (item.payload as PaymentDocumentationApprovalDraft).requestId));
     const rows = offlineRows.filter(row => selectedIds.includes(row.id));
+    const handledRequestIds: number[] = [];
     let queued = 0;
-    for (const row of rows) {
-      if (existingRequestIds.has(row.id)) continue;
-      await enqueueOfflineWork({ userId: Number(user.id), siteId, kind: "payment_documentation_approve", payload: { requestId: row.id, capturedAt: new Date().toISOString(), requestSnapshot: { invoiceNo: row.invoiceNo, subscriberName: row.subscriberName, subscriberNo: row.subscriberNo, paymentAmount: row.paymentAmount, invoiceBalance: row.invoiceBalance, paymentMethod: row.paymentMethod, destinationAccountId: row.destinationAccountId, submittedAt: row.submittedAt, status: "pending" } } });
-      queued++;
+    try {
+      const existing = await listOfflineWork({ userId: Number(user.id), siteId });
+      const existingRequestIds = new Set(existing
+        .filter(item => item.kind === "payment_documentation_approve")
+        .map(item => (item.payload as PaymentDocumentationApprovalDraft).requestId));
+      for (const row of rows) {
+        // Existing intents belong in the durable Outbox, not in a stale selectable snapshot.
+        if (existingRequestIds.has(row.id)) {
+          handledRequestIds.push(row.id);
+          continue;
+        }
+        await enqueueOfflineWork({
+          userId: Number(user.id), siteId, kind: "payment_documentation_approve",
+          payload: {
+            requestId: row.id, capturedAt: new Date().toISOString(),
+            requestSnapshot: {
+              invoiceNo: row.invoiceNo, subscriberName: row.subscriberName,
+              subscriberNo: row.subscriberNo, paymentAmount: row.paymentAmount,
+              invoiceBalance: row.invoiceBalance, paymentMethod: row.paymentMethod,
+              destinationAccountId: row.destinationAccountId, submittedAt: row.submittedAt,
+              status: "pending",
+            },
+          },
+        });
+        handledRequestIds.push(row.id);
+        existingRequestIds.add(row.id);
+        queued++;
+      }
+    } catch (error) {
+      setSelectedIds([]);
+      if (handledRequestIds.length) {
+        setOfflineRows(current => current.filter(row => !handledRequestIds.includes(row.id)));
+        await Promise.all(handledRequestIds.map(requestId =>
+          removePaymentDocumentationApprovalSnapshot(Number(user.id), siteId, requestId).catch(() => undefined)));
+      }
+      if (queued > 0) {
+        notifyOfflineWorkQueueChanged({ userId: Number(user.id), siteId });
+        toast.warning(`حُفظ ${queued} طلب اعتماد، لكن تعذر تسجيل بقية المحددات. راجع مركز المزامنة.`);
+      } else {
+        toast.error(error instanceof Error ? error.message : "تعذر حفظ طلبات الاعتماد المحلية.");
+      }
+      return;
     }
     setSelectedIds([]);
-    toast.success(`تم تسجيل اعتماد ${queued} طلباً محلياً. لن تُنشأ الحركات المالية حتى تعود الشبكة وتنجح المزامنة والتحقق من الخادم.`);
+    if (handledRequestIds.length) {
+      setOfflineRows(current => current.filter(row => !handledRequestIds.includes(row.id)));
+      // This clears only the stale selectable snapshot; the server has not approved the request yet.
+      await Promise.all(handledRequestIds.map(requestId =>
+        removePaymentDocumentationApprovalSnapshot(Number(user.id), siteId, requestId).catch(() => undefined)));
+    }
+    if (queued > 0) {
+      notifyOfflineWorkQueueChanged({ userId: Number(user.id), siteId });
+      toast.success(`تم تسجيل اعتماد ${queued} طلباً محلياً. لن تُنشأ الحركات المالية حتى تعود الشبكة وتنجح المزامنة والتحقق من الخادم.`);
+    } else if (handledRequestIds.length) {
+      toast.info("الطلبات المحددة موجودة بالفعل في مركز المزامنة؛ لم يُنشأ تكرار.");
+    }
   };
   const reject=trpc.powerhub.paymentDocumentation.reject.useMutation({
     onSuccess:(_data,variables)=>{clearConfirmedOfflineRequest(Number(variables.requestId));toast.success("تم رفض طلب توثيق الدفع.");setRejectId(null);setReason("");refreshAfterRejection();},
@@ -220,6 +269,7 @@ export default function PaymentDocumentationReviewPage() {
       {period==="date_range"&&<><div><Label className="text-slate-300">من تاريخ</Label><input aria-label="من تاريخ" type="date" value={fromDate} max={toDate||undefined} onChange={e=>setFromDate(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"/></div><div><Label className="text-slate-300">إلى تاريخ</Label><input aria-label="إلى تاريخ" type="date" value={toDate} min={fromDate||undefined} onChange={e=>setToDate(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"/></div></>}
     </CardContent></Card>
     {!dateFiltersReady&&<p className="text-sm text-amber-300">أدخل تاريخاً صحيحاً أو اضبط فترة البداية والنهاية قبل عرض الطلبات.</p>}
+    {checkingOriginReachability&&<p role="status" className="text-xs text-slate-400">جارٍ التحقق من الوصول إلى خادم PowerHub؛ لن تُتاح إجراءات الاعتماد حتى تنتهي عملية التحقق.</p>}
     {requests.isFetching && requests.data ? <p role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> جارٍ تحديث الطلبات في الخلفية؛ تبقى النتائج الحالية ظاهرة.</p> : null}
     {!isOnline&&period==="current_cycle"&&<p role="status" className="text-xs text-amber-200">أنت دون اتصال. لا نعرض لقطة «هذه الدورة» لأنها تعتمد على حدود دورة القراءة الحالية من الخادم، ولا يمكن التحقق منها محلياً.</p>}
     {!isOnline&&period!=="current_cycle"&&status!=="pending"&&<p role="status" className="text-xs text-amber-200">النسخ المحلية متاحة لطلبات «قيد التحقق» فقط، وبنفس فلاتر آخر استعلام ناجح؛ اتصل بالإنترنت لعرض الحالات الأخرى.</p>}
@@ -248,9 +298,9 @@ export default function PaymentDocumentationReviewPage() {
           <p className="mt-1 text-white font-semibold">{r.reviewed_at ? formatArabicDateTime(r.reviewed_at) : "لم تتم المراجعة بعد"}</p>
         </div>
       </div>
-      {r.receipt_image_key&&isOnline&&<div><Button variant="outline" disabled={receiptLoadingId===Number(r.id)} onClick={()=>void openReceiptPreview(Number(r.id))}>{receiptLoadingId===Number(r.id)?<Loader2 className="ml-2 h-4 w-4 animate-spin"/>:<ExternalLink className="ml-2 h-4 w-4"/>}عرض صورة التحويل</Button></div>}
-      {r.status==="pending"&&canApprove&&!authorizationDenied&&<div className="flex flex-wrap gap-2 pt-2"><Button disabled={approve.isPending} onClick={()=>approve.mutate({siteId:siteId??0,requestId:Number(r.id)})}>{approve.isPending&&Number(approve.variables?.requestId)===Number(r.id)?<Loader2 className="ml-2 h-4 w-4 animate-spin"/>:<CheckCircle2 className="ml-2 h-4 w-4"/>}{approve.isPending&&Number(approve.variables?.requestId)===Number(r.id)?"جارٍ اعتماد الدفع…":"اعتماد الدفع"}</Button><Button variant="destructive" disabled={reject.isPending||(approve.isPending&&Number(approve.variables?.requestId)===Number(r.id))} onClick={()=>setRejectId(Number(r.id))}><XCircle className="ml-2 h-4 w-4"/>رفض</Button></div>}
-      {rejectId===Number(r.id)&&<div className="rounded-xl border border-red-500/20 p-4"><Textarea value={reason} onChange={e=>setReason(e.target.value)} placeholder="سبب الرفض" className="bg-white/[.03] text-white"/><div className="mt-3 flex gap-2"><Button variant="destructive" disabled={reject.isPending||reason.trim().length<2} onClick={()=>reject.mutate({siteId:siteId??0,requestId:Number(r.id),rejectionReason:reason.trim()})}>تأكيد الرفض</Button><Button variant="outline" onClick={()=>{setRejectId(null);setReason("");}}>إلغاء</Button></div></div>}
+      {r.receipt_image_key&&canReachServer&&<div><Button variant="outline" disabled={receiptLoadingId===Number(r.id)} onClick={()=>void openReceiptPreview(Number(r.id))}>{receiptLoadingId===Number(r.id)?<Loader2 className="ml-2 h-4 w-4 animate-spin"/>:<ExternalLink className="ml-2 h-4 w-4"/>}عرض صورة التحويل</Button></div>}
+      {r.status==="pending"&&canApprove&&!authorizationDenied&&canReachServer&&<div className="flex flex-wrap gap-2 pt-2"><Button disabled={approve.isPending} onClick={()=>approve.mutate({siteId:siteId??0,requestId:Number(r.id)})}>{approve.isPending&&Number(approve.variables?.requestId)===Number(r.id)?<Loader2 className="ml-2 h-4 w-4 animate-spin"/>:<CheckCircle2 className="ml-2 h-4 w-4"/>}{approve.isPending&&Number(approve.variables?.requestId)===Number(r.id)?"جارٍ اعتماد الدفع…":"اعتماد الدفع"}</Button><Button variant="destructive" disabled={reject.isPending||(approve.isPending&&Number(approve.variables?.requestId)===Number(r.id))} onClick={()=>setRejectId(Number(r.id))}><XCircle className="ml-2 h-4 w-4"/>رفض</Button></div>}
+      {canReachServer&&rejectId===Number(r.id)&&<div className="rounded-xl border border-red-500/20 p-4"><Textarea value={reason} onChange={e=>setReason(e.target.value)} placeholder="سبب الرفض" className="bg-white/[.03] text-white"/><div className="mt-3 flex gap-2"><Button variant="destructive" disabled={reject.isPending||reason.trim().length<2} onClick={()=>reject.mutate({siteId:siteId??0,requestId:Number(r.id),rejectionReason:reason.trim()})}>تأكيد الرفض</Button><Button variant="outline" onClick={()=>{setRejectId(null);setReason("");}}>إلغاء</Button></div></div>}
       {r.status==="rejected"&&r.rejection_reason&&<p className="rounded-xl bg-red-500/5 p-3 text-sm text-red-300">سبب الرفض: {r.rejection_reason}</p>}
     </CardContent></Card>)}
     </>}

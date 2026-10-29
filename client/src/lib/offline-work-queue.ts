@@ -196,7 +196,7 @@ export type PaymentDocumentationDraft = {
 export type PaymentDocumentationApprovalDraft = {
   requestId: number;
   capturedAt: string;
-  requestSnapshot: {
+  requestSnapshot?: {
     invoiceNo: string;
     subscriberName: string;
     subscriberNo: string;

@@ -7,6 +7,10 @@ const approvalCache = read("client/src/lib/offline-payment-documentation-approva
 const approvalPage = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
 const queryPolicy = read("client/src/lib/offline-query-policy.ts");
 const hrScope = read("docs/hr-scope.md");
+const syncPanel = read("client/src/components/OfflineWorkSyncPanel.tsx");
+const connectivity = read("client/src/lib/offline-connectivity.ts");
+const refreshMap = read("client/src/lib/offline-sync-refresh.ts");
+const offlineQueue = read("client/src/lib/offline-work-queue.ts");
 
 describe("payment-documentation offline cache and HR privacy contracts", () => {
   it("isolates approval snapshots by user, branch, exact filters, and freshness", () => {
@@ -52,5 +56,34 @@ describe("payment-documentation offline cache and HR privacy contracts", () => {
     expect(hrScope).toContain("لا تُخزّن استجابات الموارد البشرية الخام");
     expect(hrScope).toContain("hr_sync_version");
     expect(hrScope).toContain("ليست Delta-backed");
+  });
+});
+
+describe("payment-documentation offline interaction and synchronization contracts", () => {
+  it("uses verified PowerHub origin reachability instead of navigator.onLine", () => {
+    expect(approvalPage).toContain("usePowerHubConnectivity()");
+    expect(approvalPage).toContain("isOnline, isChecking: checkingOriginReachability");
+    expect(approvalPage).not.toContain("navigator.onLine");
+    expect(approvalPage).not.toContain('window.addEventListener("online",on)');
+    expect(connectivity).toContain("probePowerHubConnectivity");
+    expect(approvalPage).toContain('r.status==="pending"&&canApprove&&!authorizationDenied&&canReachServer&&<div');
+    expect(approvalPage).toContain("canReachServer&&rejectId===Number(r.id)&&<div");
+  });
+
+  it("moves offline approval intent into the durable Outbox and removes stale selectable snapshots", () => {
+    expect(approvalPage).toContain("notifyOfflineWorkQueueChanged({ userId: Number(user.id), siteId })");
+    expect(approvalPage).toContain("existingRequestIds.add(row.id)");
+    expect(approvalPage).toContain("removePaymentDocumentationApprovalSnapshot(Number(user.id), siteId, requestId)");
+    expect(offlineQueue).toContain("requestSnapshot?: {");
+  });
+
+  it("cleans approval snapshots after a confirmed replay and minimizes completed Outbox history", () => {
+    expect(syncPanel).toContain("removePaymentDocumentationApprovalSnapshot(item.userId, item.siteId, payload.requestId)");
+    expect(syncPanel).toContain('if (item.kind === "payment_documentation_approve")');
+    expect(syncPanel).toContain("return { requestId: payload.requestId, capturedAt: payload.capturedAt }");
+    expect(refreshMap).toContain('payment_documentation_submit: ["payment-documentation"]');
+    expect(refreshMap).toContain('payment_documentation_approve: ["payment-documentation", "payments", "invoices", "invoice-pages"');
+    expect(syncPanel).toContain('if (targets.has("payment-documentation"))');
+    expect(syncPanel).toContain("utils.powerhub.paymentDocumentation.list.invalidate()");
   });
 });

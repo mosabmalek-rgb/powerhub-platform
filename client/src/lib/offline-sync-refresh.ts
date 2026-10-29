@@ -8,6 +8,7 @@ export type OfflineSyncRefreshTarget =
   | "invoices"
   | "invoice-pages"
   | "payments"
+  | "payment-documentation"
   | "dashboard-summary"
   | "financial-dashboard"
   | "audit"
@@ -33,8 +34,8 @@ const TARGETS_BY_KIND: Partial<Record<QueuedOfflineWork["kind"], readonly Offlin
   reading_create: ["readings", "invoices", "invoice-pages", "dashboard-summary", "financial-dashboard"],
   invoice_issue: ["invoices", "invoice-pages", "dashboard-summary", "financial-dashboard"],
   payment_create: ["payments", "invoices", "dashboard-summary", "financial-dashboard"],
-  payment_documentation_submit: ["payments", "invoices", "dashboard-summary", "financial-dashboard"],
-  payment_documentation_approve: ["payments", "invoices", "dashboard-summary", "financial-dashboard"],
+  payment_documentation_submit: ["payment-documentation"],
+  payment_documentation_approve: ["payment-documentation", "payments", "invoices", "invoice-pages", "dashboard-summary", "financial-dashboard"],
   employee_create: ["hr-directory", "payroll", "employee-advances"],
   employee_update: ["hr-directory", "payroll"],
   attendance_upsert: ["hr-attendance"],
