@@ -21,6 +21,7 @@ declare
   v_first_reading_id bigint;
   v_replacement_reading_id bigint;
   v_visible_count integer;
+  v_operating_hours numeric;
 begin
   insert into public.inventory_warehouses(
     tenant_id,site_id,code,name,location_type,generator_id,created_by_user_id
@@ -30,6 +31,8 @@ begin
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
   values (10,'DELTA-FUEL-ITEM','Delta fuel item','fuel','liter',0,1)
   returning id into v_fuel_item_id;
+  select coalesce(g.operating_hours,0) into v_operating_hours
+  from public.generators g where g.tenant_id=10 and g.site_id=100 and g.id=10000;
   perform * from public.powerhub_inventory_record_stock_movement(
     10,100,1,1,v_fuel_item_id,'adjustment_in',5,8.00,null,
     'DELTA-FUEL-STOCK','Delta fuel fixture','delta-fuel-stock-001'
@@ -37,7 +40,7 @@ begin
 
   select fuel_event_id into v_fuel_event_id
   from public.powerhub_inventory_record_fuel_fill(
-    10,100,1,10000,v_fuel_item_id,1,v_tank_id,1.000,now(),0,1,10,
+    10,100,1,10000,v_fuel_item_id,1,v_tank_id,1.000,now(),0,1,greatest(v_operating_hours,10),
     'DELTA-FUEL-REF','Do not persist this note','delta-fuel-event-001'
   );
   if v_fuel_event_id is null then raise exception 'DELTA_FUEL_EVENT_NOT_CREATED'; end if;
