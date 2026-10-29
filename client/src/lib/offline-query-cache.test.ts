@@ -144,6 +144,10 @@ describe("offline query cache policy", () => {
     const safeEvents = sanitizeOfflineQueryData(eventsKey, events) as Array<{ id: number }>;
     expect(safeEvents).toHaveLength(100);
     expect(safeEvents[0]?.id).toBe(501);
+    expect(safeEvents[0]).not.toHaveProperty("unit_cost");
+    expect(safeEvents[0]).not.toHaveProperty("total_cost_amount");
+    expect(safeEvents[0]).toHaveProperty("notes", null);
+    expect(safeEvents[0]).toHaveProperty("created_by_user_id", null);
 
     const ordersKey = ["powerhub.maintenance.listWorkOrders", { input: { siteId: 7, limit: 200 }, type: "query" }];
     const orders = Array.from({ length: 201 }, (_, index) => ({
@@ -156,7 +160,9 @@ describe("offline query cache policy", () => {
 
     const partsKey = ["powerhub.maintenance.listParts", { input: { siteId: 7, workOrderId: 9001 }, type: "query" }];
     const parts = Array.from({ length: 501 }, (_, index) => ({ id: index + 1, part_id: index + 1, work_order_id: 9001 }));
-    expect(sanitizeOfflineQueryData(partsKey, parts)).toHaveLength(501);
+    const safeParts = sanitizeOfflineQueryData(partsKey, parts) as Array<Record<string, unknown>>;
+    expect(safeParts).toHaveLength(501);
+    expect(safeParts[0]).toHaveProperty("notes", null);
   });
 
   it("persists only safe dashboard aggregate snapshots and never treats them as Delta-backed lists", () => {
