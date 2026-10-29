@@ -274,3 +274,72 @@ end $$;
 alter function public.powerhub_capture_hr_employee_delta_sync_change() owner to postgres;
 revoke all on function public.powerhub_capture_hr_employee_delta_sync_change() from public,anon,authenticated;
 grant execute on function public.powerhub_capture_hr_employee_delta_sync_change() to service_role;
+
+
+-- Freeze one complete HR snapshot against the matching Delta cursor.
+-- The scope-state row exists even for an empty feed; locking it before reading rows
+-- blocks concurrent mutation triggers from advancing the cursor until the snapshot
+-- transaction commits. A later mutation is then guaranteed to appear in the next pull.
+create or replace function public.powerhub_get_hr_sync_snapshot(
+  p_tenant_id bigint,p_site_id bigint,p_entity_type text
+)
+returns jsonb language plpgsql security definer set search_path=pg_catalog,public,pg_temp
+as $$
+declare v_cursor bigint:=0; v_retained bigint:=0; v_rows jsonb:='[]'::jsonb;
+begin
+  if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1 then
+    raise exception 'POWERHUB_SYNC_SCOPE_REQUIRED' using errcode='P0001';
+  end if;
+  if p_entity_type not in ('hr_employee_directory','hr_attendance') then
+    raise exception 'POWERHUB_SYNC_ENTITY_UNSUPPORTED' using errcode='P0001';
+  end if;
+  if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then
+    raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001';
+  end if;
+
+  if p_entity_type='hr_employee_directory' then
+    perform public.powerhub_refresh_hr_employee_directory_delta_scope(p_tenant_id,p_site_id);
+  else
+    perform public.powerhub_refresh_hr_attendance_delta_scope(p_tenant_id,p_site_id);
+  end if;
+
+  insert into public.powerhub_sync_scope_state(
+    tenant_id,site_id,entity_type,last_cursor,retained_from_cursor,updated_at
+  ) values(p_tenant_id,p_site_id,p_entity_type,0,0,clock_timestamp())
+  on conflict(tenant_id,site_id,entity_type) do nothing;
+
+  select s.last_cursor,s.retained_from_cursor into v_cursor,v_retained
+    from public.powerhub_sync_scope_state s
+    where s.tenant_id=p_tenant_id and s.site_id=p_site_id and s.entity_type=p_entity_type
+    for update;
+  if not found then raise exception 'POWERHUB_HR_SNAPSHOT_SCOPE_LOCK_FAILED' using errcode='P0001'; end if;
+
+  -- Do not move this lock below the following row reads: the cursor and rows must
+  -- describe the same committed state while the trigger writers are serialized.
+  if p_entity_type='hr_employee_directory' then
+    select coalesce(jsonb_agg(public.powerhub_project_hr_employee_delta_row(p_tenant_id,p_site_id,r.id)
+      order by r.created_at desc,r.id desc),'[]'::jsonb) into v_rows
+    from (
+      select e.id,e.created_at from public.employees e
+      where e.tenant_id=p_tenant_id and (e.site_id=p_site_id or e.site_id is null)
+      order by e.created_at desc,e.id desc limit 500
+    ) r;
+  else
+    select coalesce(jsonb_agg(public.powerhub_project_hr_attendance_delta_row(p_tenant_id,p_site_id,r.id)
+      order by r.work_date desc,r.id desc),'[]'::jsonb) into v_rows
+    from (
+      select a.id,a.work_date
+      from public.employee_attendance a
+      join public.employees e on e.tenant_id=a.tenant_id and e.id=a.employee_id
+        and (e.site_id=a.site_id or e.site_id is null)
+      where a.tenant_id=p_tenant_id and a.site_id=p_site_id
+      order by a.work_date desc,a.id desc limit 1000
+    ) r;
+  end if;
+
+  return jsonb_build_object('status','ok','entity_type',p_entity_type,
+    'snapshot_cursor',v_cursor::text,'retained_from_cursor',v_retained::text,'rows',v_rows);
+end $$;
+alter function public.powerhub_get_hr_sync_snapshot(bigint,bigint,text) owner to postgres;
+revoke all on function public.powerhub_get_hr_sync_snapshot(bigint,bigint,text) from public,anon,authenticated;
+grant execute on function public.powerhub_get_hr_sync_snapshot(bigint,bigint,text) to service_role;
