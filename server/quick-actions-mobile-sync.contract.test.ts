@@ -10,6 +10,7 @@ describe("Quick Actions and field-sync offline contract", () => {
     const page = read("client/src/pages/QuickActionsPage.tsx");
     expect(page).toContain("isExplicitAuthorizationDenial");
     expect(page).toContain("const showOfflineRecovery = !isOnline && !isChecking && !authorizationDenied && !hasUsableSnapshot");
+    expect(page).toContain("نتحقق من اتصال خادم PowerHub");
     expect(page).toContain('setLocation("/offline-sync")');
     expect(page).toContain('setLocation("/workspace")');
     expect(page).toContain("authorizationDenied ?");
