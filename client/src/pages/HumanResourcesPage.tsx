@@ -31,9 +31,15 @@ export default function HumanResourcesPage({ embedded = false }: { embedded?: bo
   useEffect(() => {
     if (!Number.isSafeInteger(userId) || userId < 1 || !siteId) { setPendingHrWork([]); return; }
     let active = true;
+    const reloadQueue = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: number; siteId?: number }>).detail;
+      if (detail?.userId !== userId || detail?.siteId !== siteId) return;
+      void listOfflineWork({ userId, siteId }).then((items) => { if (active) setPendingHrWork(items); }).catch(() => undefined);
+    };
+    window.addEventListener("powerhub:offline-work-queue-changed", reloadQueue);
     void listOfflineWork({ userId, siteId }).then((items) => { if (active) setPendingHrWork(items); })
       .catch(() => { if (active) setPendingHrWork([]); });
-    return () => { active = false; };
+    return () => { active = false; window.removeEventListener("powerhub:offline-work-queue-changed", reloadQueue); };
   }, [userId, siteId]);
   const refreshPendingHrWork = async () => {
     const items = await listOfflineWork({ userId, siteId: siteId! });
