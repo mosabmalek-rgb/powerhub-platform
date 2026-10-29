@@ -14,7 +14,7 @@ const CACHEABLE_PROCEDURES = new Set([
 
 // Only these list procedures currently have a corresponding Delta reconciliation
 // path. Other cached lists retain their original age and must refetch normally.
-const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs", "companyAccounts"]);
+const DELTA_SYNC_PROCEDURES = new Set(["sites", "subscribers", "generators", "readings", "tariffs", "companyAccounts", "inventory"]);
 
 const BLOCKED_PROCEDURES = new Set([
   "admin",
@@ -291,7 +291,8 @@ export type OfflineQueryDeltaEntity =
   | "inventory_items"
   | "inventory_item_units"
   | "suppliers"
-  | "inventory_warehouses";
+  | "inventory_warehouses"
+  | "inventory_stock_movements";
 
 /**
  * Returns the server change-feed entity only when this exact query key is
@@ -310,6 +311,11 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
     return null;
   }
   if (segments[1] === "inventory") {
+    if (segments[2] === "listStockMovements") {
+      const input = getOfflineQueryInput(queryKey);
+      return Number(input.siteId) > 0 && input.limit === 100 && Object.keys(input).every((key) => key === "siteId" || key === "limit")
+        ? "inventory_stock_movements" : null;
+    }
     if (segments[2] === "listItems") return "inventory_items";
     if (segments[2] === "listItemUnits") return "inventory_item_units";
     if (segments[2] === "listSuppliers") return "suppliers";
