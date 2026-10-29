@@ -26,6 +26,8 @@ describe("payment-documentation offline cache and HR privacy contracts", () => {
     expect(approvalPage).toContain("if(!isOnline||!user?.id||!siteId||status!==\"pending\"||period===\"current_cycle\"");
     expect(approvalCache).toContain("for (const row of existing)");
     expect(approvalCache).toContain("store.delete(row.key)");
+    expect(approvalCache).toContain("export async function removePaymentDocumentationApprovalSnapshot(");
+    expect(approvalCache).toContain("row.userId === userId && row.siteId === siteId && row.id === requestId");
   });
 
   it("does not treat cached review rows as current-cycle truth or as a local financial approval", () => {
@@ -33,6 +35,8 @@ describe("payment-documentation offline cache and HR privacy contracts", () => {
     expect(approvalPage).toContain("قد تكون قديمة");
     expect(approvalPage).toContain("لا تُنشأ حركة مالية محلياً");
     expect(approvalPage).toContain("لن تُنشأ الحركات المالية حتى تعود الشبكة وتنجح المزامنة والتحقق من الخادم");
+    expect(approvalPage).toContain("removePaymentDocumentationApprovalSnapshot(Number(user.id), siteId, requestId)");
+    expect(approvalPage).toContain("clearConfirmedOfflineRequest(Number(variables.requestId))");
   });
 
   it("explicitly keeps every HR query server-only until an approved minimized projection exists", () => {
