@@ -44,7 +44,7 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12, includeInactive: true }, type: "query" }])).toBe(false);
   });
 
-  it("enables only scoped fuel-reading and preventive-plan lists backed by explicit Delta feeds", () => {
+  it("enables only complete site-wide fuel-reading and preventive-plan lists backed by explicit Delta feeds", () => {
     const fuelReadings = ["powerhub.inventory.listFuelReadings", {
       input: { siteId: 7, generatorId: undefined, limit: 100 }, type: "query",
     }];
@@ -54,7 +54,7 @@ describe("offline query cache policy", () => {
     const plans = ["powerhub.maintenance.listPreventivePlans", {
       input: { siteId: 7 }, type: "query",
     }];
-    for (const key of [fuelReadings, filteredFuelReadings, plans]) {
+    for (const key of [fuelReadings, plans]) {
       expect(isOfflineCacheableQueryKey(key)).toBe(true);
       expect(isDeltaSyncBackedQueryKey(key)).toBe(true);
       expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
@@ -65,6 +65,10 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listFuelReadings", {
       input: { siteId: 7, limit: 99 }, type: "query",
     }])).toBe(false);
+    // The server retains only the latest 500 readings per site, not per generator.
+    // Filtered generator histories are therefore not complete enough for offline persistence.
+    expect(isOfflineCacheableQueryKey(filteredFuelReadings)).toBe(false);
+    expect(isDeltaSyncBackedQueryKey(filteredFuelReadings)).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.maintenance.listPreventivePlans", {
       input: { siteId: 7, generatorId: 21 }, type: "query",
     }])).toBe(false);
