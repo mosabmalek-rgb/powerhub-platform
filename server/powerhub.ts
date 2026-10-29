@@ -4498,7 +4498,7 @@ export const powerhubRouter = router({
         replayed: Boolean(result.replayed),
       };
 
-      const errorText = \`\${error?.code ?? ""} \${error?.message ?? ""}\`;
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
       if (errorText.includes("EMPLOYEE_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيّرت بيانات الموظف على الخادم؛ أعد تحميل النسخة الحالية وراجع التعديل قبل الإرسال." });
       if (errorText.includes("ATTENDANCE_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيّر سجل الحضور على الخادم؛ يلزم مراجعته قبل إعادة الإرسال." });
