@@ -376,21 +376,38 @@ describe("Delta-backed local snapshots", () => {
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "getById", { siteId: 7, id: 1 }])).toBe(false);
   });
 
-  it("keeps fuel, maintenance reports, HR, and generic reports out of persistent cache until matching Delta feeds exist", () => {
+  it("keeps actual fuel, maintenance, HR and financial report procedures out of generic persistent cache", () => {
     const unsupportedKeys = [
       ["powerhub.inventory.fuelConsumptionReportPeriod", {
         input: { siteId: 7, periodType: "month", anchorDate: "2026-10-01" }, type: "query",
       }],
-      ["powerhub.inventory.fuelConsumptionReport", {
-        input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29" }, type: "query",
+      ["powerhub.inventory.listFuelEvents", {
+        input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29", limit: 100 }, type: "query",
+      }],
+      ["powerhub.inventory.listFuelReadings", {
+        input: { siteId: 7, limit: 100 }, type: "query",
       }],
       ["powerhub.maintenance.reportByGenerator", {
         input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29" }, type: "query",
       }],
-      ["powerhub.payroll.list", { input: { siteId: 7 }, type: "query" }],
-      ["powerhub.attendance.list", { input: { siteId: 7 }, type: "query" }],
-      ["powerhub.reports.monthlySummary", {
+      ["powerhub.maintenance.listWorkOrders", {
+        input: { siteId: 7, limit: 100 }, type: "query",
+      }],
+      ["powerhub.hr.listEmployees", {
+        input: { siteId: 7, employmentStatus: "active" }, type: "query",
+      }],
+      ["powerhub.hr.listAttendance", {
         input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29" }, type: "query",
+      }],
+      ["powerhub.hr.listPayrollRuns", { input: { siteId: 7 }, type: "query" }],
+      ["powerhub.hr.getPayrollDetails", {
+        input: { siteId: 7, payrollRunId: 3 }, type: "query",
+      }],
+      ["powerhub.reports.range", {
+        input: { siteId: 7, startDate: "2026-10-01", endDate: "2026-10-29" }, type: "query",
+      }],
+      ["powerhub.reports.allBranchesRange", {
+        input: { siteId: 7, startDate: "2026-10-01", endDate: "2026-10-29" }, type: "query",
       }],
     ] as const;
 
@@ -401,14 +418,13 @@ describe("Delta-backed local snapshots", () => {
       expect(getOfflineQueryStaleTime(key)).toBe(30_000);
     }
 
-    // Generator snapshots do have a defined Delta contract, but are not a
-    // substitute for fuel-consumption or maintenance-history report feeds.
+    // Generator snapshots have a defined Delta contract, but they do not
+    // replace fuel-event, consumption-report, or maintenance-history feeds.
     const generators = ["powerhub.generators.list", { input: { siteId: 7 }, type: "query" }] as const;
     expect(isOfflineCacheableQueryKey(generators)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(generators)).toBe(true);
     expect(getOfflineQueryDeltaEntity(generators)).toBe("generators");
   });
-
 });
 
 
