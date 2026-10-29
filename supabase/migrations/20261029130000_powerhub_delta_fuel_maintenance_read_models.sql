@@ -179,7 +179,7 @@ returns void
 language plpgsql
 security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 declare v_reading record;
 begin
   if p_tenant_id is null or p_site_id is null then return; end if;
@@ -196,7 +196,7 @@ begin
       p_tenant_id,p_site_id,'fuel_readings',v_reading.id
     );
   end loop;
-end $;
+end $$;
 alter function public.powerhub_refresh_fuel_reading_delta_scope(bigint,bigint) owner to postgres;
 revoke all on function public.powerhub_refresh_fuel_reading_delta_scope(bigint,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_fuel_reading_delta_scope(bigint,bigint) to service_role;
@@ -206,7 +206,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 declare v_entity_type text; v_scope_changed boolean:=false;
 begin
   v_entity_type:=case TG_TABLE_NAME
