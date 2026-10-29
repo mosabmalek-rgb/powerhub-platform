@@ -4412,6 +4412,110 @@ export const powerhubRouter = router({
     }),
   }),
   hr: router({
+    replayOfflineOperation: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      operationKey: z.string().uuid(),
+      operationType: z.enum(["employee_create", "employee_update", "attendance_upsert", "payroll_draft"]),
+      payload: z.record(z.unknown()),
+    })).mutation(async ({ ctx, input }) => {
+      let access: Awaited<ReturnType<typeof requireSupabaseSiteRole>>;
+      let payload: Record<string, unknown>;
+      try {
+        if (input.operationType === "employee_create") {
+          access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+          payload = z.object({
+            fullName: z.string().trim().min(2).max(180),
+            identityNo: z.string().max(80).nullable().optional(),
+            phone: z.string().max(40).nullable().optional(),
+            jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]),
+            employmentStatus: z.enum(["active", "suspended", "ended"]).default("active"),
+            contractType: z.enum(["daily", "monthly", "collection_percentage"]),
+            baseWage: z.number().min(0).max(100000000),
+            hireDate: z.string().nullable().optional(),
+            notes: z.string().max(2000).nullable().optional(),
+            linkedUserId: z.number().int().positive().nullable().optional(),
+          }).strict().parse(input.payload);
+        } else if (input.operationType === "employee_update") {
+          access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+          payload = z.object({
+            employeeId: z.number().int().positive(),
+            expectedVersion: z.number().int().positive(),
+            patch: z.object({
+              fullName: z.string().trim().min(2).max(180).optional(),
+              identityNo: z.string().max(80).nullable().optional(),
+              phone: z.string().max(40).nullable().optional(),
+              jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]).optional(),
+              employmentStatus: z.enum(["active", "suspended", "ended"]).optional(),
+              contractType: z.enum(["daily", "monthly", "collection_percentage"]).optional(),
+              baseWage: z.number().min(0).max(100000000).optional(),
+              hireDate: z.string().nullable().optional(),
+              notes: z.string().max(2000).nullable().optional(),
+            }).strict().refine((patch) => Object.keys(patch).length > 0, "لا توجد حقول لتعديلها."),
+          }).strict().parse(input.payload);
+        } else if (input.operationType === "attendance_upsert") {
+          access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+          payload = z.object({
+            employeeId: z.number().int().positive(),
+            workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+            expectedVersion: z.number().int().positive().nullable(),
+            regularHours: z.number().min(0).max(24),
+            overtimeHours: z.number().min(0).max(24),
+            absentDays: z.number().min(0).max(1),
+            notes: z.string().max(500).nullable().optional(),
+          }).strict().parse(input.payload);
+        } else {
+          access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+          payload = z.object({
+            period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+            items: z.array(z.object({
+              employeeId: z.number().int().positive(),
+              extraAmount: z.number().min(0).max(100000000),
+              advanceDeduction: z.number().min(0).max(100000000),
+              otherDeduction: z.number().min(0).max(100000000),
+              notes: z.string().max(500).optional(),
+            }).strict()).min(1).max(500),
+          }).strict().parse(input.payload);
+        }
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        if (error instanceof z.ZodError) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات عملية الموارد البشرية دون اتصال غير صالحة." });
+        throw error;
+      }
+
+      const { data, error } = await supabaseAdmin().rpc("powerhub_hr_replay_offline_operation", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_operation_key: input.operationKey, p_operation_type: input.operationType, p_payload: payload,
+      });
+      const result = (data as Array<{
+        entity_id: number | string | null; total_net: number | string | null;
+        entity_updated_at: string | null; entity_version: number | string | null; replayed: boolean;
+      }> | null)?.[0];
+      if (!error && result) return {
+        entityId: result.entity_id === null ? null : Number(result.entity_id),
+        totalNet: result.total_net === null ? null : Number(result.total_net),
+        updatedAt: result.entity_updated_at ? new Date(result.entity_updated_at) : null,
+        versionNo: result.entity_version === null ? null : Number(result.entity_version),
+        replayed: Boolean(result.replayed),
+      };
+
+      const errorText = \`\${error?.code ?? ""} \${error?.message ?? ""}\`;
+      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
+      if (errorText.includes("EMPLOYEE_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيّرت بيانات الموظف على الخادم؛ أعد تحميل النسخة الحالية وراجع التعديل قبل الإرسال." });
+      if (errorText.includes("ATTENDANCE_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيّر سجل الحضور على الخادم؛ يلزم مراجعته قبل إعادة الإرسال." });
+      if (errorText.includes("IDEMPOTENCY_KEY_REUSED")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مستخدم لبيانات مختلفة؛ أُوقفت إعادة الإرسال لحماية السجل." });
+      if (errorText.includes("EMPLOYEE_OUT_OF_SCOPE") || errorText.includes("EMPLOYEE_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود أو غير نشط ضمن الفرع." });
+      if (errorText.includes("LINKED_USER_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "حساب الدخول المحدد ليس ضمن مساحة الشركة." });
+      if (errorText.includes("INVALID_EMPLOYEE_INPUT") || errorText.includes("INVALID_EMPLOYEE_PATCH") ||
+          errorText.includes("INVALID_ATTENDANCE_INPUT") || errorText.includes("INVALID_HR_OFFLINE_OPERATION") ||
+          errorText.includes("INVALID_HR_OFFLINE_ATTENDANCE") || errorText.includes("INVALID_HR_OFFLINE_EMPLOYEE_UPDATE") ||
+          errorText.includes("INVALID_PAYROLL_DRAFT_INPUT") || errorText.includes("DUPLICATE_PAYROLL_EMPLOYEE") ||
+          errorText.includes("NEGATIVE_PAYROLL_NET")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات العملية غير مقبولة من الخادم؛ راجع القيم قبل إعادة المحاولة." });
+      }
+      if (errorText.includes("PAYROLL_PERIOD_ALREADY_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "يوجد كشف رواتب لهذه الفترة بالفعل؛ راجعه قبل إنشاء كشف آخر." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تثبيت مسودة الرواتب." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر مزامنة عملية الموارد البشرية. بقيت المسودة المحلية محفوظة للمراجعة." });
+    }),
     offlineDirectory: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
       const { data, error } = await supabaseAdmin().from("employees")
