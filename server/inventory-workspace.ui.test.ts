@@ -658,6 +658,9 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("alertSettingsAuthorizationDenied ? <p role=\"alert\"");
     expect(panel).toContain("alertDispatchesAuthorizationDenied ? <p role=\"alert\"");
     expect(panel).toContain("reportAuthorizationDenied ? <p role=\"alert\"");
+    expect(panel).toContain("if (optionsAuthorizationDenied) { toast.error(\"رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل عملية التعبئة.\"); return; }");
+    expect(panel).toContain("if (optionsAuthorizationDenied || alertSettingsAuthorizationDenied)");
+    expect(panel).toContain("optionsAuthorizationDenied || alertSettingsAuthorizationDenied || !activeAlertGeneratorId");
     expect(panel).toContain("report.error && !hasAvailableFuelReport");
     expect(panel).toContain("reportRows.map((row)");
     expect(panel).toContain("events.error && events.data !== undefined");
