@@ -300,4 +300,135 @@ begin
 end;
 $bounded_work_order_membership$;
 
-select 'Fuel-event and maintenance work-order/parts Delta snapshot, update, redaction and scope assertions passed' as result;
+-- Regression: the bounded top-500 fuel-event feed must refill after an event
+-- is moved out of range or deleted; tombstones alone do not reveal row #501.
+do $bounded_fuel_event_membership$
+declare
+  v_i integer;
+  v_inserted_id bigint;
+  v_moved_id bigint;
+  v_replacement_id bigint;
+  v_snapshot jsonb;
+  v_delta jsonb;
+  v_cursor bigint;
+  v_change_set jsonb;
+  v_count integer;
+begin
+  for v_i in 1..501 loop
+    select fill.fuel_event_id into v_inserted_id
+    from public.powerhub_inventory_record_fuel_fill(
+      10,100,1,10000,v_fuel_item_id,1,v_tank_id,0.001,
+      now() - ((501-v_i)::text || ' seconds')::interval,
+      null,null,null,
+      'DELTA-BOUND-FE-'||lpad(v_i::text,3,'0'),null,
+      'delta-bounded-fuel-event-'||lpad(v_i::text,3,'0')
+    ) fill;
+    if v_inserted_id is null then
+      raise exception 'DELTA_BOUNDED_FUEL_EVENT_FIXTURE_CREATE_FAILED index=%',v_i;
+    end if;
+  end loop;
+
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'fuel_events')
+    into v_snapshot;
+  v_count:=jsonb_array_length(v_snapshot->'rows');
+  select (r->>'id')::bigint into v_moved_id
+  from jsonb_array_elements(v_snapshot->'rows') r
+  order by (r->>'occurred_at')::timestamptz desc,(r->>'id')::bigint desc
+  limit 1;
+  with ranked as (
+    select e.id,row_number() over(order by e.occurred_at desc,e.id desc) as position
+    from public.generator_fuel_events e
+    where e.tenant_id=10 and e.site_id=100
+  )
+  select id into v_replacement_id from ranked where position=501;
+  v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
+  if v_count<>500 or v_moved_id is null or v_replacement_id is null or
+     not exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_moved_id::text) or
+     exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text) then
+    raise exception 'DELTA_FUEL_EVENT_TOP_500_FIXTURE_INVALID count=% moved_id=% replacement_id=%',
+      v_count,v_moved_id,v_replacement_id;
+  end if;
+
+  -- Reordering a visible event below the bound must reveal the previous #501.
+  update public.generator_fuel_events
+    set occurred_at=timestamptz '2000-01-01 00:00:00+00'
+    where tenant_id=10 and site_id=100 and id=v_moved_id;
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'fuel_events')
+    into v_snapshot;
+  if jsonb_array_length(v_snapshot->'rows')<>500 or
+     exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_moved_id::text) or
+     not exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text) then
+    raise exception 'DELTA_FUEL_EVENT_REORDER_DID_NOT_REFILL_TOP_500';
+  end if;
+  select public.powerhub_pull_fuel_maintenance_sync_delta(
+    10,100,'fuel_events',v_cursor,null,500
+  ) into v_delta;
+  v_change_set:=coalesce(v_delta->'changes','[]'::jsonb);
+  while coalesce((v_delta->>'has_more')::boolean,false) loop
+    select public.powerhub_pull_fuel_maintenance_sync_delta(
+      10,100,'fuel_events',(v_delta->>'next_cursor')::bigint,
+      (v_delta->>'through_cursor')::bigint,500
+    ) into v_delta;
+    v_change_set:=v_change_set||coalesce(v_delta->'changes','[]'::jsonb);
+  end loop;
+  if not exists(
+    select 1 from jsonb_array_elements(v_change_set) c
+    where c->>'entity_id'=v_moved_id::text and c->>'operation'='upsert'
+  ) or not exists(
+    select 1 from jsonb_array_elements(v_change_set) c
+    where c->>'entity_id'=v_replacement_id::text and c->>'operation'='upsert'
+  ) then raise exception 'DELTA_FUEL_EVENT_REORDER_JOURNAL_DID_NOT_REFILL_TOP_500'; end if;
+
+  -- Restore the event as newest, derive the then-current #501, and test hard deletion independently.
+  update public.generator_fuel_events
+    set occurred_at=timestamptz '2090-01-01 00:00:00+00'
+    where tenant_id=10 and site_id=100 and id=v_moved_id;
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'fuel_events')
+    into v_snapshot;
+  with ranked as (
+    select e.id,row_number() over(order by e.occurred_at desc,e.id desc) as position
+    from public.generator_fuel_events e
+    where e.tenant_id=10 and e.site_id=100
+  )
+  select id into v_replacement_id from ranked where position=501;
+  if not exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_moved_id::text) or
+     v_replacement_id is null or
+     exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text) then
+    raise exception 'DELTA_FUEL_EVENT_REORDER_RESTORE_FAILED';
+  end if;
+  v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
+
+  delete from public.generator_fuel_events
+    where tenant_id=10 and site_id=100 and id=v_moved_id;
+  if exists(select 1 from public.generator_fuel_events where id=v_moved_id) then
+    raise exception 'DELTA_FUEL_EVENT_FIXTURE_DELETE_DID_NOT_REMOVE_ROW';
+  end if;
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'fuel_events')
+    into v_snapshot;
+  if jsonb_array_length(v_snapshot->'rows')<>500 or
+     exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_moved_id::text) or
+     not exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text) then
+    raise exception 'DELTA_FUEL_EVENT_DELETE_DID_NOT_REFILL_TOP_500';
+  end if;
+  select public.powerhub_pull_fuel_maintenance_sync_delta(
+    10,100,'fuel_events',v_cursor,null,500
+  ) into v_delta;
+  v_change_set:=coalesce(v_delta->'changes','[]'::jsonb);
+  while coalesce((v_delta->>'has_more')::boolean,false) loop
+    select public.powerhub_pull_fuel_maintenance_sync_delta(
+      10,100,'fuel_events',(v_delta->>'next_cursor')::bigint,
+      (v_delta->>'through_cursor')::bigint,500
+    ) into v_delta;
+    v_change_set:=v_change_set||coalesce(v_delta->'changes','[]'::jsonb);
+  end loop;
+  if not exists(
+    select 1 from jsonb_array_elements(v_change_set) c
+    where c->>'entity_id'=v_moved_id::text and c->>'operation'='delete'
+  ) or not exists(
+    select 1 from jsonb_array_elements(v_change_set) c
+    where c->>'entity_id'=v_replacement_id::text and c->>'operation'='upsert'
+  ) then raise exception 'DELTA_FUEL_EVENT_DELETE_JOURNAL_DID_NOT_REFILL_TOP_500'; end if;
+end;
+$bounded_fuel_event_membership$;
+
+select 'Bounded fuel-event and maintenance Delta snapshot, membership, update, redaction and scope assertions passed' as result;
