@@ -25,6 +25,87 @@ function isRow(value: unknown): value is Row {
 }
 
 export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw: Row): Row {
+  if (entityType === "fuel_events") {
+    const id = toNumber(raw.event_id ?? raw.id);
+    return {
+      ...raw, id, event_id: id,
+      tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+      siteId: toNumber(raw.site_id ?? raw.siteId),
+      generator_id: toNumber(raw.generator_id ?? raw.generatorId),
+      generator_name: String(raw.generator_name ?? raw.generatorName ?? ""),
+      fuel_item_id: toNumber(raw.fuel_item_id ?? raw.fuelItemId),
+      fuel_item_name: String(raw.fuel_item_name ?? raw.fuelItemName ?? ""),
+      source_warehouse_id: toNumber(raw.source_warehouse_id ?? raw.sourceWarehouseId),
+      source_warehouse_name: String(raw.source_warehouse_name ?? raw.sourceWarehouseName ?? ""),
+      destination_warehouse_id: toNumber(raw.destination_warehouse_id ?? raw.destinationWarehouseId),
+      destination_warehouse_name: String(raw.destination_warehouse_name ?? raw.destinationWarehouseName ?? ""),
+      litres: String(raw.litres ?? 0),
+      occurred_at: dateOrNow(raw.occurred_at ?? raw.occurredAt).toISOString(),
+      level_before_liters: optionalNumber(raw.level_before_liters ?? raw.levelBeforeLiters),
+      level_after_liters: optionalNumber(raw.level_after_liters ?? raw.levelAfterLiters),
+      operating_hours: optionalNumber(raw.operating_hours ?? raw.operatingHours),
+      reference_no: (raw.reference_no ?? raw.referenceNo ?? null) as string | null,
+      notes: null,
+      stock_transfer_id: toNumber(raw.stock_transfer_id ?? raw.stockTransferId),
+      created_by_user_id: null,
+      created_at: dateOrNow(raw.created_at ?? raw.createdAt).toISOString(),
+    };
+  }
+  if (entityType === "maintenance_work_orders") {
+    const id = toNumber(raw.work_order_id ?? raw.id);
+    return {
+      ...raw, id, work_order_id: id,
+      tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+      siteId: toNumber(raw.site_id ?? raw.siteId),
+      work_order_number: String(raw.work_order_number ?? raw.workOrderNumber ?? ""),
+      generator_id: toNumber(raw.generator_id ?? raw.generatorId),
+      generator_name: String(raw.generator_name ?? raw.generatorName ?? ""),
+      preventive_plan_id: optionalNumber(raw.preventive_plan_id ?? raw.preventivePlanId),
+      order_type: String(raw.order_type ?? raw.orderType ?? "other"),
+      priority: String(raw.priority ?? "normal"),
+      status: String(raw.status ?? "new"),
+      title: String(raw.title ?? ""),
+      description: (raw.description ?? null) as string | null,
+      work_summary: (raw.work_summary ?? raw.workSummary ?? null) as string | null,
+      reported_at: dateOrNow(raw.reported_at ?? raw.reportedAt).toISOString(),
+      scheduled_for: (raw.scheduled_for ?? raw.scheduledFor ?? null) as string | null,
+      started_at: (raw.started_at ?? raw.startedAt ?? null) as string | null,
+      completed_at: (raw.completed_at ?? raw.completedAt ?? null) as string | null,
+      assigned_to_user_id: optionalNumber(raw.assigned_to_user_id ?? raw.assignedToUserId),
+      assigned_supplier_id: optionalNumber(raw.assigned_supplier_id ?? raw.assignedSupplierId),
+      assigned_supplier_name: (raw.assigned_supplier_name ?? raw.assignedSupplierName ?? null) as string | null,
+      assigned_supplier_code: (raw.assigned_supplier_code ?? raw.assignedSupplierCode ?? null) as string | null,
+      operating_hours_at_open: optionalNumber(raw.operating_hours_at_open ?? raw.operatingHoursAtOpen),
+      operating_hours_at_close: optionalNumber(raw.operating_hours_at_close ?? raw.operatingHoursAtClose),
+      downtime_minutes: toNumber(raw.downtime_minutes ?? raw.downtimeMinutes),
+      labor_cost: String(raw.labor_cost ?? raw.laborCost ?? 0),
+      external_service_cost: String(raw.external_service_cost ?? raw.externalServiceCost ?? 0),
+      parts_cost: String(raw.parts_cost ?? raw.partsCost ?? 0),
+      total_cost_amount: String(raw.total_cost_amount ?? raw.totalCostAmount ?? 0),
+      created_by_user_id: null,
+    };
+  }
+  if (entityType.startsWith("maintenance_work_order_parts:")) {
+    const id = toNumber(raw.part_id ?? raw.id);
+    return {
+      ...raw, id, part_id: id,
+      tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+      siteId: toNumber(raw.site_id ?? raw.siteId),
+      work_order_id: toNumber(raw.work_order_id ?? raw.workOrderId),
+      generator_id: toNumber(raw.generator_id ?? raw.generatorId),
+      item_id: toNumber(raw.item_id ?? raw.itemId),
+      item_name: String(raw.item_name ?? raw.itemName ?? ""),
+      category: String(raw.category ?? "other"),
+      warehouse_id: toNumber(raw.warehouse_id ?? raw.warehouseId),
+      warehouse_name: String(raw.warehouse_name ?? raw.warehouseName ?? ""),
+      quantity: String(raw.quantity ?? 0),
+      unit_cost: String(raw.unit_cost ?? raw.unitCost ?? 0),
+      total_cost_amount: String(raw.total_cost_amount ?? raw.totalCostAmount ?? 0),
+      stock_movement_id: toNumber(raw.stock_movement_id ?? raw.stockMovementId),
+      issued_at: dateOrNow(raw.issued_at ?? raw.issuedAt).toISOString(),
+      notes: null,
+    };
+  }
   switch (entityType) {
     case "sites": {
       const invoiceDueDays = optionalNumber(raw.invoice_due_days ?? raw.invoiceDueDays) ?? 14;
