@@ -151,6 +151,39 @@ export async function savePaymentDocumentationApprovalSnapshots(
   });
 }
 
+/**
+ * Remove a server-confirmed request from every filter snapshot belonging to
+ * this user and branch. A request may exist in multiple date-range snapshots;
+ * leaving any copy behind would make it look pending again while offline.
+ */
+export async function removePaymentDocumentationApprovalSnapshot(
+  userId: number,
+  siteId: number,
+  requestId: number,
+) {
+  if (![userId, siteId, requestId].every(isPositiveSafeId)) {
+    throw new Error("نطاق لقطة اعتماد توثيق الدفع غير صالح.");
+  }
+  const db = await open();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const rows = request.result as Array<OfflinePaymentDocumentationApprovalSnapshot & { key: string }>;
+      for (const row of rows) {
+        if (row.userId === userId && row.siteId === siteId && row.id === requestId) {
+          store.delete(row.key);
+        }
+      }
+    };
+    request.onerror = () => { try { tx.abort(); } catch { /* transaction may already be inactive */ } };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("تعذر تسوية لقطة اعتماد توثيق الدفع.")); };
+  });
+}
+
 export async function listPaymentDocumentationApprovalSnapshots(
   userId: number, siteId: number, snapshotScope: string,
 ) {
