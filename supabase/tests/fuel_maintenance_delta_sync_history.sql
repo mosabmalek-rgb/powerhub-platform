@@ -174,13 +174,16 @@ begin
     select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_plan_id::text
   ) then raise exception 'DELTA_MAINTENANCE_PLAN_DELETE_DID_NOT_REFILL_TOP_500'; end if;
 
-  -- Updating a plan's due date can push it beyond the bounded membership set.
-  -- The trigger must re-emit the new top 500 so the previous 501st row is restored.
+  -- Move a plan to a distant due date and resolve its overdue alert. Together
+  -- these changes move it outside the current priority window and must restore #501.
   select id into v_updated_plan_id from public.generator_maintenance_preventive_plans
     where plan_code='DELTA-BOUND-PLAN-002';
   update public.generator_maintenance_preventive_plans
     set next_due_at=timestamptz '2099-01-01 00:00:00+00',updated_at=clock_timestamp()
     where id=v_updated_plan_id;
+  update public.generator_maintenance_alert_events
+    set alert_type='resolved',resolved_at=clock_timestamp(),updated_at=clock_timestamp()
+    where plan_id=v_updated_plan_id and alert_type='overdue';
   select public.powerhub_get_operational_sync_snapshot(10,100,'maintenance_preventive_plans') into v_snapshot;
   v_visible_count:=jsonb_array_length(v_snapshot->'rows');
   if v_visible_count<>500 or exists (
