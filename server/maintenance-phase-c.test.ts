@@ -133,6 +133,9 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(panel).toContain("const hasAvailableMaintenanceReport = maintenanceReport.data !== undefined || cachedMaintenanceReportForCurrentScope !== null;");
     expect(panel).toContain("maintenanceReport.error && !hasAvailableMaintenanceReport");
     expect(panel).toContain("reportRows.map((r)");
+    expect(panel).toContain("orders.error && orders.data");
+    expect(panel).toContain("parts.error && parts.data");
+    expect(panel).toContain("plans.error && plans.data");
     expect(panel).toContain("هذه لقطة تجميعية وليست إعادة احتساب حيّة");
     expect(panel).toContain("!hasAvailableMaintenanceReport || reportExporting");
     expect(cache).toContain("snapshot.key !== makeKey(input)");
