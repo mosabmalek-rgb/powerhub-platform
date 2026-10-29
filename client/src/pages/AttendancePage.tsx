@@ -10,6 +10,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
+import { getSupabaseSession } from "@/lib/supabase";
 import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrAttendanceUpsertDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { ClipboardCheck, ChevronDown } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
@@ -57,8 +58,13 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
   const hrAccessDenied = employeeDirectoryDenied || attendanceAccessDenied;
   useEffect(() => {
     if (!siteId || !Number.isSafeInteger(userId) || userId < 1) return;
-    if (employeeDirectoryDenied) void clearOfflineHrProjectionCacheForSite(String(userId), siteId, ["offlineDirectory"]);
-    if (attendanceAccessDenied) void clearOfflineHrProjectionCacheForSite(String(userId), siteId, ["offlineAttendance"]);
+    let active = true;
+    void getSupabaseSession().then((session) => {
+      if (!active || !session?.user.id) return;
+      if (employeeDirectoryDenied) void clearOfflineHrProjectionCacheForSite(session.user.id, siteId, ["offlineDirectory"]);
+      if (attendanceAccessDenied) void clearOfflineHrProjectionCacheForSite(session.user.id, siteId, ["offlineAttendance"]);
+    }).catch(() => undefined);
+    return () => { active = false; };
   }, [employeeDirectoryDenied, attendanceAccessDenied, siteId, userId]);
   const baseEmployees: any[] = employeeDirectoryDenied ? [] : (isHrOnline && employees.data ? employees.data : (offlineDirectory.data ?? []));
   const pendingEmployeeRows = (employeeDirectoryDenied ? [] : pendingHrWork.filter((item) => item.kind === "employee_create" && item.status !== "applied"))

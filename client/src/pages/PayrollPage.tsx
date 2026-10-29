@@ -13,6 +13,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
+import { getSupabaseSession } from "@/lib/supabase";
 import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeCreateDraft, type HrPayrollDraftPayload } from "@/lib/offline-work-queue";
 
 const statusLabels: Record<string, string> = { draft: "مسودة", approved: "معتمد", paid: "مصروف", cancelled: "ملغى" };
@@ -38,7 +39,11 @@ export default function PayrollPage({ embedded = false }: { embedded?: boolean }
     query.isError && isExplicitAuthorizationDenial(query.error));
   useEffect(() => {
     if (!payrollDataDenied || !siteId || !Number.isSafeInteger(userId) || userId < 1) return;
-    void clearOfflineHrProjectionCacheForSite(String(userId), siteId, ["offlineDirectory", "offlinePayrollRuns"]);
+    let active = true;
+    void getSupabaseSession().then((session) => {
+      if (active && session?.user.id) void clearOfflineHrProjectionCacheForSite(session.user.id, siteId, ["offlineDirectory", "offlinePayrollRuns"]);
+    }).catch(() => undefined);
+    return () => { active = false; };
   }, [payrollDataDenied, siteId, userId]);
   const [pendingDrafts, setPendingDrafts] = useState<any[]>([]);
   useEffect(() => {

@@ -7,6 +7,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
+import { getSupabaseSession } from "@/lib/supabase";
 import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
 import { HandCoins, Plus, RotateCcw } from "lucide-react";
@@ -54,8 +55,13 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
   const hrAccessDenied=employeeDirectoryDenied||advancesAccessDenied;
   useEffect(()=>{
     if(!siteId||!Number.isSafeInteger(userId)||userId<1)return;
-    if(employeeDirectoryDenied)void clearOfflineHrProjectionCacheForSite(String(userId),siteId,["offlineDirectory"]);
-    if(advancesAccessDenied)void clearOfflineHrProjectionCacheForSite(String(userId),siteId,["offlineEmployeeAdvances","offlineCompanyAccountOptions"]);
+    let active=true;
+    void getSupabaseSession().then((session)=>{
+      if(!active||!session?.user.id)return;
+      if(employeeDirectoryDenied)void clearOfflineHrProjectionCacheForSite(session.user.id,siteId,["offlineDirectory"]);
+      if(advancesAccessDenied)void clearOfflineHrProjectionCacheForSite(session.user.id,siteId,["offlineEmployeeAdvances","offlineCompanyAccountOptions"]);
+    }).catch(()=>undefined);
+    return()=>{active=false;};
   },[employeeDirectoryDenied,advancesAccessDenied,siteId,userId]);
   const baseEmployees:any[]=employeeDirectoryDenied?[]:(isHrOnline&&employees.data?employees.data:(offlineDirectory.data??[]));
   const displayEmployees:any[]=employeeDirectoryDenied?[]:[
