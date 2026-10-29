@@ -14,6 +14,31 @@ const storeName = "snapshots";
 export const OFFLINE_REPORT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_REPORT_SNAPSHOTS = 50;
 
+
+export type ReportSnapshotScope = Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">;
+
+/**
+ * Returns a persisted report only for the exact active identity and filter scope.
+ * Financial report snapshots must not bleed between users, branches, periods or
+ * report scopes when filters change before IndexedDB finishes loading.
+ */
+export function getUsableReportSnapshot(
+  snapshot: CachedReportSnapshot | null | undefined,
+  input: ReportSnapshotScope,
+  options: { authorizationDenied?: boolean; accessAllowed?: boolean; now?: number } = {},
+): CachedReportSnapshot | undefined {
+  const now = options.now ?? Date.now();
+  if (options.authorizationDenied || options.accessAllowed === false || !snapshot) return undefined;
+  if (snapshot.userId !== input.userId ||
+      snapshot.siteId !== input.siteId ||
+      snapshot.scope !== input.scope ||
+      snapshot.startDate !== input.startDate ||
+      snapshot.endDate !== input.endDate) return undefined;
+  if (!Number.isFinite(snapshot.savedAt) || snapshot.savedAt > now ||
+      now - snapshot.savedAt >= OFFLINE_REPORT_CACHE_TTL_MS) return undefined;
+  return snapshot;
+}
+
 function cacheKey(input: Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">) {
   return [input.userId, input.siteId, input.scope, input.startDate, input.endDate].join(":");
 }
