@@ -265,7 +265,16 @@ async function patchQueryCaches(
         };
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
       } else if (entityType === "inventory_purchase_receipt_headers" || entityType === "inventory_supplier_return_headers") {
-        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedRows = rows.map(row => {
+          const normalized = normalizeDeltaEntityRow(entityType, row);
+          // These two authorized RPC list projections omit tenant/site columns;
+          // scope comes from the already-authorized query key, not user input.
+          return {
+            ...normalized,
+            tenantId: Number(normalized.tenantId) > 0 ? normalized.tenantId : scope.tenantId,
+            siteId: Number(normalized.siteId) > 0 ? normalized.siteId : scope.siteId,
+          };
+        });
         const normalizedPage = {
           ...page,
           changes: page.changes.map(change => {
