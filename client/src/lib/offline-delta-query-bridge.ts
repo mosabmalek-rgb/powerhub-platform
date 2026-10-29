@@ -368,6 +368,51 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         warehouse_id: toNumber(raw.warehouse_id ?? raw.warehouseId),
       };
     }
+    case "fuel_readings": {
+      const id = toNumber(raw.reading_id ?? raw.id);
+      return {
+        id, reading_id: id,
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId),
+        generator_id: toNumber(raw.generator_id ?? raw.generatorId),
+        generator_name: String(raw.generator_name ?? raw.generatorName ?? ""),
+        reading_type: String(raw.reading_type ?? raw.readingType ?? ""),
+        tank_warehouse_id: optionalNumber(raw.tank_warehouse_id ?? raw.tankWarehouseId),
+        tank_name: (raw.tank_name ?? raw.tankName ?? null) as string | null,
+        reading_value: String(raw.reading_value ?? raw.readingValue ?? 0),
+        recorded_at: dateOrNow(raw.recorded_at ?? raw.recordedAt).toISOString(),
+        reference_no: (raw.reference_no ?? raw.referenceNo ?? null) as string | null,
+        notes: (raw.notes ?? null) as string | null,
+        corrects_reading_id: optionalNumber(raw.corrects_reading_id ?? raw.correctsReadingId),
+        correction_reason: (raw.correction_reason ?? raw.correctionReason ?? null) as string | null,
+        created_by_user_id: optionalNumber(raw.created_by_user_id ?? raw.createdByUserId),
+        created_at: dateOrNow(raw.created_at ?? raw.createdAt).toISOString(),
+      };
+    }
+    case "maintenance_preventive_plans": {
+      const id = toNumber(raw.plan_id ?? raw.id);
+      return {
+        ...raw, id, plan_id: id,
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId),
+        plan_code: String(raw.plan_code ?? raw.planCode ?? ""),
+        generator_id: toNumber(raw.generator_id ?? raw.generatorId),
+        generator_name: String(raw.generator_name ?? raw.generatorName ?? ""),
+        title: String(raw.title ?? ""),
+        description: (raw.description ?? null) as string | null,
+        interval_days: optionalNumber(raw.interval_days ?? raw.intervalDays),
+        interval_operating_hours: optionalNumber(raw.interval_operating_hours ?? raw.intervalOperatingHours),
+        next_due_at: (raw.next_due_at ?? raw.nextDueAt ?? null) as string | null,
+        next_due_operating_hours: optionalNumber(raw.next_due_operating_hours ?? raw.nextDueOperatingHours),
+        due_soon_days: toNumber(raw.due_soon_days ?? raw.dueSoonDays),
+        due_soon_hours: toNumber(raw.due_soon_hours ?? raw.dueSoonHours),
+        is_active: Boolean(raw.is_active ?? raw.isActive),
+        last_completed_at: (raw.last_completed_at ?? raw.lastCompletedAt ?? null) as string | null,
+        last_completed_operating_hours: optionalNumber(raw.last_completed_operating_hours ?? raw.lastCompletedOperatingHours),
+        alert_type: (raw.alert_type ?? raw.alertType ?? null) as string | null,
+        observed_operating_hours: optionalNumber(raw.observed_operating_hours ?? raw.observedOperatingHours),
+      };
+    }
     case "inventory_warehouses":
       return {
         id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
