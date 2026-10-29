@@ -3506,7 +3506,7 @@ export const powerhubRouter = router({
         return {
           id: Number((data[0] as { expense_id: number | string }).expense_id),
           transactionId: Number((data[0] as { transaction_id: number | string }).transaction_id),
-          replayed: Boolean((data[0] as { replayed?: boolean }).replayed),
+          ...(input.clientOperationId ? { replayed: Boolean((data[0] as { replayed?: boolean }).replayed) } : {}),
         };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;

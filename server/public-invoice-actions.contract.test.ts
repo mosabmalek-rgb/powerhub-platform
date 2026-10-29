@@ -183,7 +183,8 @@ describe("public invoice and inquiry actions", () => {
     const operations = read("client/src/pages/OperationsPage.tsx");
     expect(operations).toContain('name="method" value={selectedCompanyAccount?.accountType ?? ""}');
     expect(operations).not.toContain('name="method" value={collectionMethod}');
-    expect(operations).toContain("onSubmit={addExpense.mutateAsync}");
+    expect(operations).toContain("onSubmit={submitExpense}");
+    expect(operations).toContain("return await addExpense.mutateAsync(completePayload)");
     expect(operations).toContain("await onSubmit({ siteId, generatorId:");
     expect(operations).toContain("form.reset();");
     expect(operations).toContain("جارٍ حفظ المصروف...");

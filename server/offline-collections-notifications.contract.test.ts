@@ -76,7 +76,8 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
   it("renders offline draft sync and collection sessions after the collection module", () => {
     const renderStart = operationsPage.indexOf('{section === "collections" && <><CollectionsModule');
     expect(renderStart).toBeGreaterThan(-1);
-    const collectionsRender = operationsPage.slice(renderStart);
+    const expenseRenderStart = operationsPage.indexOf('{section === "expenses" &&', renderStart);
+    const collectionsRender = operationsPage.slice(renderStart, expenseRenderStart > renderStart ? expenseRenderStart : undefined);
     const collectionIndex = collectionsRender.indexOf("<CollectionsModule");
     const syncIndex = collectionsRender.indexOf("<OfflineWorkSyncPanel");
     const sessionsIndex = collectionsRender.indexOf("<CollectorSessionsPanel");

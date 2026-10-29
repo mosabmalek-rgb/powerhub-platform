@@ -11,7 +11,6 @@ import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
-import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { cn } from "@/lib/utils";
@@ -332,7 +331,7 @@ export default function OperationsPage({ section }: { section: Section }) {
       return queued;
     }
   };
-  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /><CollectorSessionsPanel siteId={siteId!} /></>}{section === "expenses" && (canManageExpenses ? <><ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={submitExpense} isOnline={isOnline} userId={Number(user?.id ?? 0)} />{user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={Number(user.id)} /> : null}</> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
+  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /><CollectorSessionsPanel siteId={siteId!} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={submitExpense} isOnline={isOnline} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
 
 function SubscribersOverview({ data, canManage }: { data: any[]; canManage: boolean }) {
@@ -797,7 +796,7 @@ function ExpenseHistoryPanel({ history, canCorrect = true }: { history: ReturnTy
   </SectionCard>;
 }
 
-function ExpensesModule({ siteId, generators, summary, pending, onSubmit, isOnline, userId }: any) {
+function ExpensesModule({ siteId, generators, summary, pending, onSubmit, isOnline }: any) {
   // Keep only the minimized account selector projection in local storage. Cached balances
   // are deliberately not shown or treated as spend authority.
   const accountsQuery = trpc.powerhub.expenses.filterAccounts.useQuery({ siteId });
@@ -845,7 +844,7 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit, isOnli
           <Field label="الوصف"><input required name="description" className={inputClass} placeholder="مثال: تعبئة ديزل" /></Field>
           <Field label="المبلغ"><input required name="amount" type="number" min="0.01" step="0.01" className={inputClass} dir="ltr" /></Field>
           <Field label="مرجع"><input name="reference" className={inputClass} placeholder="اختياري" /></Field>
-          <Button type="submit" disabled={pending || !accounts.length || !userId} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError && !accounts.length ? "لا توجد خيارات حساب محفوظة" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : isOnline ? "حفظ المصروف" : "حفظ مسودة المصروف دون اتصال"}</Button>
+          <Button type="submit" disabled={pending || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError && !accounts.length ? "لا توجد خيارات حساب محفوظة" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : isOnline ? "حفظ المصروف" : "حفظ مسودة المصروف دون اتصال"}</Button>
           {!isOnline ? <p className="text-xs leading-5 text-amber-200">ستُحفظ نية المصروف محليًا فقط. لا يتغير رصيد الحساب ولا يُنشأ قيد نهائي حتى يقبل الخادم العملية.</p> : null}
         </form>
       </SectionCard>
