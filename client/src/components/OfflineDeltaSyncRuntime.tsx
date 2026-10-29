@@ -37,6 +37,8 @@ type AnyRow = Record<string, unknown>;
 type Candidate = { entityType: DeltaOperationalEntity; siteId: number; tenantId: number };
 const SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const SYNC_DEBOUNCE_MS = 350;
+const MAX_LOCAL_FUEL_READING_QUERY_ROWS = 100;
+const MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS = 500;
 
 function getSegments(queryKey: readonly unknown[]): string[] {
   const first = queryKey[0];
@@ -314,7 +316,10 @@ async function patchQueryCaches(
               String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
               Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
           });
-        const limit = entityType === "fuel_readings" ? Number(getOfflineQueryInput(query.queryKey).limit ?? 100) : nextRows.length;
+        const requestedLimit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+        const limit = entityType === "fuel_readings"
+          ? Math.min(MAX_LOCAL_FUEL_READING_QUERY_ROWS, Math.max(1, requestedLimit))
+          : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
         queryClient.setQueryData(query.queryKey, nextRows.slice(0, limit));
       } else if (entityType === "inventory_purchase_headers") {
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_purchase_headers", row));
@@ -507,7 +512,10 @@ export function OfflineDeltaSyncRuntime() {
                   String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
                   Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
               });
-            const limit = candidate.entityType === "fuel_readings" ? Number(getOfflineQueryInput(query.queryKey).limit ?? 100) : filtered.length;
+            const requestedLimit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            const limit = candidate.entityType === "fuel_readings"
+              ? Math.min(MAX_LOCAL_FUEL_READING_QUERY_ROWS, Math.max(1, requestedLimit))
+              : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
             queryClient.setQueryData(query.queryKey, filtered.slice(0, limit));
           } else if (candidate.entityType === "inventory_purchase_receipt_headers" || candidate.entityType === "inventory_supplier_return_headers") {
             const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
