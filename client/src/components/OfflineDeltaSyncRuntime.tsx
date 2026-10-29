@@ -224,6 +224,24 @@ async function patchQueryCaches(
           }),
         };
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
+      } else if (entityType === "inventory_stock_movements") {
+        const scopedPage = {
+          ...page,
+          changes: page.changes.filter((change) => {
+            if (change.operation === "upsert") {
+              return Number(change.row_data?.siteId ?? change.row_data?.site_id) === scope.siteId &&
+                Number(change.row_data?.tenantId ?? change.row_data?.tenant_id) === scope.tenantId;
+            }
+            return rows.some((row: AnyRow) => String(row.id ?? row.movement_id) === change.entity_id);
+          }),
+        };
+        const nextRows = applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers)
+          .sort((a, b) => {
+            const dateDiff = new Date(String(b.occurred_at ?? "")).getTime() - new Date(String(a.occurred_at ?? "")).getTime();
+            return dateDiff || Number(b.id ?? b.movement_id) - Number(a.id ?? a.movement_id);
+          })
+          .slice(0, Number(getOfflineQueryInput(query.queryKey).limit ?? 100));
+        queryClient.setQueryData(query.queryKey, nextRows);
       } else if (entityType === "invoices") {
         if (!invoiceRowsAfterPage) continue;
         queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
@@ -360,6 +378,13 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
             queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "inventory_stock_movements") {
+            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            const movements = (queryRows as AnyRow[]).slice().sort((a, b) => {
+              const dateDiff = new Date(String(b.occurred_at ?? "")).getTime() - new Date(String(a.occurred_at ?? "")).getTime();
+              return dateDiff || Number(b.id ?? b.movement_id) - Number(a.id ?? a.movement_id);
+            }).slice(0, limit);
+            queryClient.setQueryData(query.queryKey, movements);
           } else if (candidate.entityType === "inventory_item_units") {
             const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
             queryClient.setQueryData(query.queryKey, queryRows.filter((row: AnyRow) => Number(row.itemId ?? row.item_id) === itemId));
