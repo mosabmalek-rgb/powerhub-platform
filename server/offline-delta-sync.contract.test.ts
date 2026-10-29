@@ -44,7 +44,7 @@ describe("PowerHub delta sync contract", () => {
     expect(router).toContain('inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot"');
     expect(router).toContain('inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"]');
     expect(router).toContain('"inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined');
-    expect(inventoryMigration).toContain("create trigger powerhub_delta_sync_inventory_stock_movements after insert on public.inventory_stock_movements");
+    expect(inventoryMigration).toContain("create trigger powerhub_delta_sync_inventory_stock_movements after insert or update on public.inventory_stock_movements");
     expect(inventoryMigration).toContain("'movement_id',p_row->'id'");
     expect(inventoryMigration).not.toContain("'unit_cost',p_row->'unit_cost'");
 
