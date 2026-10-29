@@ -245,6 +245,7 @@ export default function InventoryMaintenancePanel({
   const openOrders = (orders.data ?? []).filter((order) => openStatuses.includes(order.status));
   const reportRows = maintenanceReport.data ?? cachedMaintenanceReportForCurrentScope?.rows ?? [];
   const usingCachedMaintenanceReport = maintenanceReport.data === undefined && cachedMaintenanceReportForCurrentScope !== null;
+  const hasAvailableMaintenanceReport = maintenanceReport.data !== undefined || cachedMaintenanceReportForCurrentScope !== null;
   const reportTotals = reportRows.reduce((sum, row) => ({
     workOrders: sum.workOrders + Number(row.work_order_count ?? 0),
     breakdowns: sum.breakdowns + Number(row.breakdown_count ?? 0),
@@ -252,7 +253,7 @@ export default function InventoryMaintenancePanel({
     cost: sum.cost + Number(row.total_cost_amount ?? 0),
   }), { workOrders: 0, breakdowns: 0, downtime: 0, cost: 0 });
   const exportMaintenanceReport = () => {
-    if (maintenanceReport.isLoading || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport)) { toast.error("حمّل تقرير الصيانة بنجاح قبل التصدير."); return; }
+    if (((maintenanceReport.isLoading || maintenanceReport.isFetching) && !usingCachedMaintenanceReport) || !hasAvailableMaintenanceReport) { toast.error("حمّل تقرير الصيانة بنجاح أو انتظر توفر النسخة المحلية المطابقة قبل التصدير."); return; }
     const rows = [["المولد","العطل / العمل","عدد الأوامر","الأعطال","الصيانة الوقائية","المكتملة","المفتوحة","التوقف بالدقائق","تكلفة القطع","تكلفة العمل","الخدمات الخارجية","إجمالي التكلفة","أول بلاغ","آخر بلاغ"], ...reportRows.map((r) => [r.generator_name,r.fault_title,r.work_order_count,r.breakdown_count,r.preventive_count,r.completed_count,r.open_count,r.downtime_minutes,r.parts_cost,r.labor_cost,r.external_service_cost,r.total_cost_amount,r.first_reported_at,r.last_reported_at])];
     const blob = new Blob([String.fromCharCode(0xfeff) + rows.map((row) => row.map(csvCell).join(",")).join(String.fromCharCode(13, 10))], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href=url; anchor.download=`powerhub-maintenance-report-${siteId}-${reportFromDate}-${reportToDate}.csv`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -261,10 +262,8 @@ export default function InventoryMaintenancePanel({
 
   const ensureReportReady = () => {
     if (!canViewMaintenanceReport) { toast.error("ليست لديك صلاحية عرض أو تصدير تقرير الصيانة."); return false; }
-    if (maintenanceReport.isLoading || maintenanceReport.isFetching ||
-        (maintenanceReport.isError && !usingCachedMaintenanceReport) ||
-        (!maintenanceReport.data && !usingCachedMaintenanceReport)) {
-      toast.error("انتظر نجاح تحميل تقرير الصيانة أو توفر نسخة محلية صالحة قبل التصدير."); return false;
+    if (((maintenanceReport.isLoading || maintenanceReport.isFetching) && !usingCachedMaintenanceReport) || !hasAvailableMaintenanceReport) {
+      toast.error("انتظر نجاح تحميل تقرير الصيانة أو توفر نسخة محلية مطابقة قبل التصدير."); return false;
     }
     return true;
   };
@@ -433,9 +432,9 @@ export default function InventoryMaintenancePanel({
           <div><CardTitle>تقرير الصيانة والأعطال حسب المولد</CardTitle><p className="mt-1 text-sm text-muted-foreground">الأعطال المتكررة وأوامر الصيانة ومدة التوقف وتكاليف القطع والعمل والخدمات للفترة المختارة.</p></div>
           {usingCachedMaintenanceReport ? <p role="status" className="mt-1 text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {new Date(cachedMaintenanceReportForCurrentScope!.savedAt).toLocaleString("ar-PS")}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><Download className="ml-2 h-4 w-4" /> CSV</Button>
-            <Button type="button" variant="outline" onClick={() => void exportMaintenanceExcel()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><FileSpreadsheet className="ml-2 h-4 w-4" /> Excel</Button>
-            <Button type="button" variant="outline" onClick={() => void exportMaintenancePdf()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><FileText className="ml-2 h-4 w-4" /> PDF</Button>
+            <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={((maintenanceReport.isLoading || maintenanceReport.isFetching) && !usingCachedMaintenanceReport) || !hasAvailableMaintenanceReport || reportExporting}><Download className="ml-2 h-4 w-4" /> CSV</Button>
+            <Button type="button" variant="outline" onClick={() => void exportMaintenanceExcel()} disabled={((maintenanceReport.isLoading || maintenanceReport.isFetching) && !usingCachedMaintenanceReport) || !hasAvailableMaintenanceReport || reportExporting}><FileSpreadsheet className="ml-2 h-4 w-4" /> Excel</Button>
+            <Button type="button" variant="outline" onClick={() => void exportMaintenancePdf()} disabled={((maintenanceReport.isLoading || maintenanceReport.isFetching) && !usingCachedMaintenanceReport) || !hasAvailableMaintenanceReport || reportExporting}><FileText className="ml-2 h-4 w-4" /> PDF</Button>
           </div>
         </div>
       </CardHeader>
@@ -447,13 +446,13 @@ export default function InventoryMaintenancePanel({
           <div className="flex items-end"><Button type="button" variant="outline" onClick={() => void maintenanceReport.refetch()} disabled={maintenanceReport.isFetching || !reportFromDate || !reportToDate || reportFromDate > reportToDate}><RefreshCw className="ml-2 h-4 w-4" /> تحديث التقرير</Button></div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">أوامر الصيانة</p><p className="text-2xl font-semibold">{maintenanceReport.isLoading || maintenanceReport.isError ? "—" : reportTotals.workOrders.toLocaleString("ar-PS")}</p></div>
-          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">بلاغات الأعطال</p><p className="text-2xl font-semibold">{maintenanceReport.isLoading || maintenanceReport.isError ? "—" : reportTotals.breakdowns.toLocaleString("ar-PS")}</p></div>
-          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">التوقف المسجل</p><p className="text-2xl font-semibold">{maintenanceReport.isLoading || maintenanceReport.isError ? "—" : reportTotals.downtime.toLocaleString("ar-PS") + " دقيقة"}</p></div>
-          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">إجمالي التكلفة</p><p className="text-2xl font-semibold">{maintenanceReport.isLoading || maintenanceReport.isError ? "—" : money(reportTotals.cost)}</p></div>
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">أوامر الصيانة</p><p className="text-2xl font-semibold">{(maintenanceReport.isLoading || maintenanceReport.isError) && !hasAvailableMaintenanceReport ? "—" : reportTotals.workOrders.toLocaleString("ar-PS")}</p></div>
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">بلاغات الأعطال</p><p className="text-2xl font-semibold">{(maintenanceReport.isLoading || maintenanceReport.isError) && !hasAvailableMaintenanceReport ? "—" : reportTotals.breakdowns.toLocaleString("ar-PS")}</p></div>
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">التوقف المسجل</p><p className="text-2xl font-semibold">{(maintenanceReport.isLoading || maintenanceReport.isError) && !hasAvailableMaintenanceReport ? "—" : reportTotals.downtime.toLocaleString("ar-PS") + " دقيقة"}</p></div>
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">إجمالي التكلفة</p><p className="text-2xl font-semibold">{(maintenanceReport.isLoading || maintenanceReport.isError) && !hasAvailableMaintenanceReport ? "—" : money(reportTotals.cost)}</p></div>
         </div>
-        {maintenanceReport.isLoading ? <p className="py-6 text-center text-muted-foreground">جارٍ تجميع تقرير الصيانة…</p>
-          : maintenanceReport.error ? <p role="alert" className="py-6 text-center text-destructive">تعذر تحميل التقرير. اختر نطاقًا لا يتجاوز 366 يومًا ثم أعد المحاولة.</p>
+        {maintenanceReport.isLoading && !hasAvailableMaintenanceReport ? <p className="py-6 text-center text-muted-foreground">جارٍ تجميع تقرير الصيانة…</p>
+          : maintenanceReport.error && !hasAvailableMaintenanceReport ? <p role="alert" className="py-6 text-center text-destructive">تعذر تحميل التقرير. اختر نطاقًا لا يتجاوز 366 يومًا ثم أعد المحاولة.</p>
           : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[1120px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","العطل / العمل المتكرر","الأوامر","الأعطال","الوقائية","المكتملة","المفتوحة","التوقف (دقيقة)","القطع","العمل","الخدمات","الإجمالي"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{reportRows.map((r) => <tr key={r.generator_id + ":" + r.fault_title} className="border-t"><td className="p-3">{r.generator_name} <span className="text-xs text-muted-foreground">#{r.generator_id}</span></td><td className="p-3">{r.fault_title}</td><td className="p-3">{r.work_order_count}</td><td className="p-3">{r.breakdown_count}</td><td className="p-3">{r.preventive_count}</td><td className="p-3">{r.completed_count}</td><td className="p-3">{r.open_count}</td><td className="p-3">{r.downtime_minutes}</td><td className="p-3 whitespace-nowrap">{money(r.parts_cost)}</td><td className="p-3 whitespace-nowrap">{money(r.labor_cost)}</td><td className="p-3 whitespace-nowrap">{money(r.external_service_cost)}</td><td className="p-3 whitespace-nowrap font-semibold">{money(r.total_cost_amount)}</td></tr>)}{!reportRows.length ? <tr><td colSpan={12} className="p-5 text-center text-muted-foreground">لا توجد أوامر صيانة في الفترة المحددة.</td></tr> : null}</tbody></table></div>}
       </CardContent>
     </Card>
