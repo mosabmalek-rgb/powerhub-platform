@@ -85,6 +85,20 @@ create table public.payroll_items(
   net_amount numeric(12,2) not null, notes text, unique(payroll_run_id,employee_id)
 );
 
+create table public.powerhub_sync_scope_state(
+  tenant_id bigint not null, site_id bigint not null, entity_type text not null,
+  last_cursor bigint not null default 0, retained_from_cursor bigint not null default 0,
+  updated_at timestamptz not null default now(), primary key(tenant_id,site_id,entity_type),
+  constraint powerhub_sync_scope_state_entity_type_check check(entity_type in ('sites'))
+);
+create table public.powerhub_sync_changes(
+  tenant_id bigint not null, site_id bigint not null, entity_type text not null, cursor bigint not null,
+  entity_id text not null, change_type text not null, row_data jsonb, changed_at timestamptz not null default now(),
+  primary key(tenant_id,site_id,entity_type,cursor),
+  constraint powerhub_sync_changes_entity_type_check check(entity_type in ('sites')),
+  constraint powerhub_sync_changes_op_check check(change_type in ('upsert','delete'))
+);
+
 insert into public.tenants values (1),(2);
 insert into public.users values (10,'tenant_owner'),(20,'tenant_owner');
 insert into public.sites(id,tenant_id,status) values (100,1,'active'),(200,2,'active');
@@ -124,7 +138,11 @@ grant select on public.payroll_adjustment_allocations to anon, authenticated;
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
-
+\ir ../migrations/20261029150000_powerhub_hr_delta_sync.sql
+\ir ../migrations/20261029160000_powerhub_hr_offline_operation_idempotency.sql
+-- Re-run both migrations to verify DDL and trigger idempotency.
+\ir ../migrations/20261029150000_powerhub_hr_delta_sync.sql
+\ir ../migrations/20261029160000_powerhub_hr_offline_operation_idempotency.sql
 
 do $employee_advance_fk_index_assertions$
 declare
@@ -415,5 +433,89 @@ begin
   if has_function_privilege('authenticated','public.powerhub_pay_payroll(bigint,bigint,bigint,bigint,bigint)','EXECUTE') then raise exception 'AUTHENTICATED_CAN_EXECUTE_PAYROLL_RPC'; end if;
 end
 $test$;
+
+
+
+do $hr_offline_idempotency$
+declare
+  v_operation uuid := '550e8400-e29b-41d4-a716-446655440100';
+  v_employee_id bigint; v_version bigint; v_count integer;
+  v_result record; v_replayed record; v_stale_operation uuid := '550e8400-e29b-41d4-a716-446655440101';
+  v_attendance_key uuid := '550e8400-e29b-41d4-a716-446655440102';
+  v_attendance_result record; v_attendance_replay record;
+  v_payroll_key uuid := '550e8400-e29b-41d4-a716-446655440103';
+  v_payroll_result record; v_payroll_replay record; v_payload jsonb;
+begin
+  select entity_id,entity_version,replayed into v_result
+    from public.powerhub_hr_replay_offline_operation(
+      1,100,10,v_operation,'employee_create',
+      jsonb_build_object('fullName','موظف إنشاء دون اتصال','identityNo','LOCAL-SENSITIVE-ID','phone','LOCAL-SENSITIVE-PHONE',
+        'jobTitle','worker','employmentStatus','active','contractType','monthly','baseWage',1250,
+        'hireDate','2026-10-01','notes','LOCAL-SENSITIVE-NOTE')
+    );
+  v_employee_id:=v_result.entity_id;
+  v_version:=v_result.entity_version;
+  if v_employee_id is null or v_version<>1 or v_result.replayed then raise exception 'HR_OFFLINE_EMPLOYEE_CREATE_FAILED'; end if;
+  select entity_id,entity_version,replayed into v_replayed
+    from public.powerhub_hr_replay_offline_operation(
+      1,100,10,v_operation,'employee_create',
+      jsonb_build_object('fullName','موظف إنشاء دون اتصال','identityNo','LOCAL-SENSITIVE-ID','phone','LOCAL-SENSITIVE-PHONE',
+        'jobTitle','worker','employmentStatus','active','contractType','monthly','baseWage',1250,
+        'hireDate','2026-10-01','notes','LOCAL-SENSITIVE-NOTE')
+    );
+  if v_replayed.entity_id<>v_employee_id or not v_replayed.replayed then raise exception 'HR_OFFLINE_EMPLOYEE_CREATE_REPLAY_DUPLICATED'; end if;
+  select count(*) into v_count from public.employees where tenant_id=1 and id=v_employee_id;
+  if v_count<>1 then raise exception 'HR_OFFLINE_EMPLOYEE_CREATE_DUPLICATE_ROW'; end if;
+
+  v_payload:=jsonb_build_object('employeeId',v_employee_id,'expectedVersion',v_version,
+    'patch',jsonb_build_object('fullName','موظف بعد مزامنة التعديل'));
+  select entity_id,entity_version,replayed into v_result
+    from public.powerhub_hr_replay_offline_operation(1,100,10,'550e8400-e29b-41d4-a716-446655440104','employee_update',v_payload);
+  if v_result.entity_id<>v_employee_id or v_result.entity_version<>2 or v_result.replayed then raise exception 'HR_OFFLINE_EMPLOYEE_UPDATE_FAILED'; end if;
+  select entity_id,entity_version,replayed into v_replayed
+    from public.powerhub_hr_replay_offline_operation(1,100,10,'550e8400-e29b-41d4-a716-446655440104','employee_update',v_payload);
+  if not v_replayed.replayed or v_replayed.entity_version<>2 then raise exception 'HR_OFFLINE_EMPLOYEE_UPDATE_REPLAY_FAILED'; end if;
+  begin
+    perform public.powerhub_hr_replay_offline_operation(1,100,10,v_stale_operation,'employee_update',
+      jsonb_build_object('employeeId',v_employee_id,'expectedVersion',v_version,'patch',jsonb_build_object('fullName','تعديل متعارض')));
+    raise exception 'EXPECTED_EMPLOYEE_VERSION_CONFLICT';
+  exception when sqlstate 'P0001' then
+    if sqlerrm not in ('EMPLOYEE_VERSION_CONFLICT','EXPECTED_EMPLOYEE_VERSION_CONFLICT') then raise; end if;
+    if sqlerrm='EXPECTED_EMPLOYEE_VERSION_CONFLICT' then raise; end if;
+  end;
+
+  select entity_id,entity_version,replayed into v_attendance_result
+    from public.powerhub_hr_replay_offline_operation(1,100,10,v_attendance_key,'attendance_upsert',
+      jsonb_build_object('employeeId',v_employee_id,'workDate','2026-10-08','expectedVersion',null,
+        'regularHours',8,'overtimeHours',1,'absentDays',0,'notes','LOCAL-ATTENDANCE-PRIVATE-NOTE'));
+  if v_attendance_result.entity_id is null or v_attendance_result.entity_version<>1 or v_attendance_result.replayed then raise exception 'HR_OFFLINE_ATTENDANCE_CREATE_FAILED'; end if;
+  select entity_id,entity_version,replayed into v_attendance_replay
+    from public.powerhub_hr_replay_offline_operation(1,100,10,v_attendance_key,'attendance_upsert',
+      jsonb_build_object('employeeId',v_employee_id,'workDate','2026-10-08','expectedVersion',null,
+        'regularHours',8,'overtimeHours',1,'absentDays',0,'notes','LOCAL-ATTENDANCE-PRIVATE-NOTE'));
+  if v_attendance_replay.entity_id<>v_attendance_result.entity_id or not v_attendance_replay.replayed then raise exception 'HR_OFFLINE_ATTENDANCE_REPLAY_FAILED'; end if;
+  select count(*) into v_count from public.employee_attendance where tenant_id=1 and employee_id=v_employee_id and work_date='2026-10-08';
+  if v_count<>1 then raise exception 'HR_OFFLINE_ATTENDANCE_DUPLICATE'; end if;
+
+  v_payload:=jsonb_build_object('period','2098-01','items',jsonb_build_array(
+    jsonb_build_object('employeeId',v_employee_id,'extraAmount',100,'advanceDeduction',0,'otherDeduction',0)
+  ));
+  select entity_id,total_net,replayed into v_payroll_result
+    from public.powerhub_hr_replay_offline_operation(1,100,10,v_payroll_key,'payroll_draft',v_payload);
+  if v_payroll_result.entity_id is null or v_payroll_result.total_net<>1350 or v_payroll_result.replayed then raise exception 'HR_OFFLINE_PAYROLL_DRAFT_FAILED'; end if;
+  select entity_id,total_net,replayed into v_payroll_replay
+    from public.powerhub_hr_replay_offline_operation(1,100,10,v_payroll_key,'payroll_draft',v_payload);
+  if v_payroll_replay.entity_id<>v_payroll_result.entity_id or not v_payroll_replay.replayed then raise exception 'HR_OFFLINE_PAYROLL_DRAFT_REPLAY_FAILED'; end if;
+  select count(*) into v_count from public.payroll_runs where tenant_id=1 and site_id=100 and period='2098-01';
+  if v_count<>1 then raise exception 'HR_OFFLINE_PAYROLL_DUPLICATE'; end if;
+
+  if has_function_privilege('anon','public.powerhub_hr_replay_offline_operation(bigint,bigint,bigint,uuid,text,jsonb)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_hr_replay_offline_operation(bigint,bigint,bigint,uuid,text,jsonb)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_hr_replay_offline_operation(bigint,bigint,bigint,uuid,text,jsonb)','EXECUTE')
+  then raise exception 'HR_OFFLINE_REPLAY_RPC_ACL_FAILED'; end if;
+  if has_table_privilege('anon','public.powerhub_hr_offline_operation_results','SELECT')
+    or has_table_privilege('authenticated','public.powerhub_hr_offline_operation_results','SELECT')
+  then raise exception 'HR_OFFLINE_RESULT_TABLE_BROWSER_ACCESSIBLE'; end if;
+end $hr_offline_idempotency$;
 
 select 'EMPLOYEE_ADVANCES_LOANS_INTEGRATION_OK' as result;
