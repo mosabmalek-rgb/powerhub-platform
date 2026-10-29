@@ -77,6 +77,36 @@ describe("offline query cache policy", () => {
     }])).toBe(false);
   });
 
+  it("caps fuel and maintenance query data during cache save and hydration", async () => {
+    const { sanitizeOfflineQueryData } = await import("./offline-query-cache");
+    const fuelKey = ["powerhub.inventory.listFuelReadings", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }];
+    const fuelRows = Array.from({ length: 501 }, (_, index) => ({
+      id: index + 1,
+      reading_id: index + 1,
+      recorded_at: new Date(Date.UTC(2026, 0, 1, 0, 0, index + 1)).toISOString(),
+    }));
+    const safeFuel = sanitizeOfflineQueryData(fuelKey, fuelRows) as Array<{ id: number }>;
+    expect(safeFuel).toHaveLength(100);
+    expect(safeFuel[0]?.id).toBe(501);
+    expect(safeFuel.at(-1)?.id).toBe(402);
+
+    const plansKey = ["powerhub.maintenance.listPreventivePlans", {
+      input: { siteId: 7 }, type: "query",
+    }];
+    const plans = Array.from({ length: 501 }, (_, index) => ({
+      id: index + 1,
+      plan_id: index + 1,
+      alert_type: index === 0 ? "overdue" : "normal",
+      next_due_at: new Date(Date.UTC(2027, 0, 1 + index)).toISOString(),
+    }));
+    const safePlans = sanitizeOfflineQueryData(plansKey, plans) as Array<{ id: number }>;
+    expect(safePlans).toHaveLength(500);
+    expect(safePlans[0]?.id).toBe(1);
+    expect(safePlans.some(row => row.id === 501)).toBe(false);
+  });
+
   it("persists only safe dashboard aggregate snapshots and never treats them as Delta-backed lists", () => {
     const summary = ["powerhub", "dashboard", "summary", { siteId: 7 }];
     const financial = ["powerhub.dashboard.financialOverview", {
