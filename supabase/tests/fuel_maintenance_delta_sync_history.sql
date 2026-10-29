@@ -242,7 +242,13 @@ begin
     select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_deleted_id::text
   ) or not exists(
     select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text
-  ) then raise exception 'DELTA_WORK_ORDER_DELETE_DID_NOT_REFILL_TOP_200'; end if;
+  ) then
+    raise exception 'DELTA_WORK_ORDER_DELETE_DID_NOT_REFILL_TOP_200 count=% deleted_present=% replacement_present=% deleted_id=% replacement_id=%',
+      v_count,
+      exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_deleted_id::text),
+      exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text),
+      v_deleted_id,v_replacement_id;
+  end if;
 
   select public.powerhub_pull_fuel_maintenance_sync_delta(
     10,100,'maintenance_work_orders',v_cursor,null,500
