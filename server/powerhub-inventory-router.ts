@@ -990,6 +990,64 @@ export const powerhubInventoryRouter = router({
       }));
     }),
 
+  listPurchaseHeaders: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      limit: z.number().int().min(1).max(200).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requirePurchaseReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().from("supplier_purchases")
+        .select("id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,invoice_date,status,created_at,updated_at,confirmed_at,received_at,cancelled_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .in("status", ["confirmed", "partially_received", "received"])
+        .order("invoice_date", { ascending: false }).order("id", { ascending: false }).limit(input.limit);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل عناوين المشتريات التشغيلية." });
+      const purchases = (data ?? []) as Array<Record<string, unknown>>;
+      if (!purchases.length) return [];
+      const supplierIds = [...new Set(purchases.map((row) => Number(row.supplier_id)))];
+      const warehouseIds = [...new Set(purchases.map((row) => Number(row.warehouse_id)))];
+      const [suppliersResult, warehousesResult] = await Promise.all([
+        supabaseAdmin().from("suppliers").select("id,name,supplier_code")
+          .eq("tenant_id", access.tenantId).in("id", supplierIds),
+        supabaseAdmin().from("inventory_warehouses").select("id,name")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("id", warehouseIds),
+      ]);
+      if (suppliersResult.error || warehousesResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء الموردين والمخازن." });
+      }
+      const supplierById = new Map((suppliersResult.data ?? []).map((row) => [Number(row.id), row]));
+      const warehouseById = new Map((warehousesResult.data ?? []).map((row) => [Number(row.id), row]));
+      return purchases.map((row) => {
+        const id = Number(row.id);
+        const supplierId = Number(row.supplier_id);
+        const warehouseId = Number(row.warehouse_id);
+        const supplier = supplierById.get(supplierId);
+        const warehouse = warehouseById.get(warehouseId);
+        return {
+          id, purchase_id: id,
+          tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId,
+          supplier_id: supplierId, supplierId,
+          supplier_name: supplier?.name ?? "مورد غير متاح",
+          supplierName: supplier?.name ?? "مورد غير متاح",
+          supplier_code: supplier?.supplier_code ?? null,
+          supplierCode: supplier?.supplier_code ?? null,
+          warehouse_id: warehouseId, warehouseId,
+          warehouse_name: warehouse?.name ?? "مخزن غير متاح",
+          warehouseName: warehouse?.name ?? "مخزن غير متاح",
+          purchase_number: String(row.purchase_number ?? ""),
+          invoice_date: String(row.invoice_date ?? ""),
+          status: String(row.status ?? ""),
+          created_at: String(row.created_at ?? ""),
+          updated_at: String(row.updated_at ?? ""),
+          confirmed_at: typeof row.confirmed_at === "string" ? row.confirmed_at : null,
+          received_at: typeof row.received_at === "string" ? row.received_at : null,
+          cancelled_at: typeof row.cancelled_at === "string" ? row.cancelled_at : null,
+        };
+      });
+    }),
+
   getPurchase: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), purchaseId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {

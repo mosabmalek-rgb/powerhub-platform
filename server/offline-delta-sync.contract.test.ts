@@ -8,6 +8,7 @@ const paymentMigration = readFileSync(resolve(process.cwd(), "supabase/migration
 const expenseMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261027140000_powerhub_delta_expense_history.sql"), "utf8");
 const inventoryMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029000000_powerhub_delta_inventory_catalog.sql"), "utf8");
 const stocktakeMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029100000_powerhub_delta_inventory_stocktakes.sql"), "utf8");
+const purchaseHeaderMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029110000_powerhub_delta_purchase_headers.sql"), "utf8");
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const client = readFileSync(resolve(process.cwd(), "client/src/lib/offline-delta-sync.ts"), "utf8");
 
@@ -39,7 +40,7 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers"])');
     expect(router).toContain("requireSupabaseSiteRole(");
     expect(router).toContain('inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta"');
     expect(router).toContain('inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot"');
@@ -91,6 +92,17 @@ describe("inventory catalog Delta extension", () => {
     expect(stocktakeMigration).not.toContain("'system_unit_cost'");
     expect(router).toContain('inventory_stocktakes: ["owner", "manager", "accountant", "collector", "technician", "viewer"]');
     expect(client).toContain('"inventory_stocktakes"');
+    expect(purchaseHeaderMigration).toContain("after insert or update or delete on public.supplier_purchases");
+    expect(purchaseHeaderMigration).toContain("after insert or update or delete on public.supplier_purchase_lines");
+    expect(purchaseHeaderMigration).toContain("'received_line_count',counts.received_line_count");
+    expect(purchaseHeaderMigration).not.toContain("'total_amount'");
+    expect(purchaseHeaderMigration).not.toContain("'supplier_invoice_no'");
+    expect(purchaseHeaderMigration).not.toContain("'due_date'");
+    expect(purchaseHeaderMigration).not.toContain("'payment_terms_days'");
+    expect(purchaseHeaderMigration).not.toContain("'reference_no'");
+    expect(purchaseHeaderMigration).not.toContain("'notes'");
+    expect(router).toContain("requireDeltaPurchaseHeaderReadAccess");
+    expect(router).toContain('"inventory_purchase_headers"].includes(input.entityType)');
   });
 });
 
