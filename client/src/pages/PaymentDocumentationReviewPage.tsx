@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { enqueueOfflineWork, listOfflineWork, type PaymentDocumentationApprovalDraft } from "@/lib/offline-work-queue";
-import { listPaymentDocumentationApprovalSnapshots, paymentDocumentationApprovalSnapshotScope, savePaymentDocumentationApprovalSnapshots, type OfflinePaymentDocumentationApprovalSnapshot } from "@/lib/offline-payment-documentation-approvals";
+import { listPaymentDocumentationApprovalSnapshots, paymentDocumentationApprovalSnapshotScope, removePaymentDocumentationApprovalSnapshot, savePaymentDocumentationApprovalSnapshots, type OfflinePaymentDocumentationApprovalSnapshot } from "@/lib/offline-payment-documentation-approvals";
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { can } from "@shared/powerhub-rbac";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -150,7 +150,18 @@ export default function PaymentDocumentationReviewPage() {
     }
     if (url) setPreviewReceipt({ requestId, url });
   };
-  const approve=trpc.powerhub.paymentDocumentation.approve.useMutation({onSuccess:()=>{toast.success("تم اعتماد الدفع وربطه بالحركة المالية.");refreshAfterApproval();},onError:e=>toast.error(e.message)});
+  const clearConfirmedOfflineRequest = (requestId: number) => {
+    setOfflineRows((current) => current.filter((row) => row.id !== requestId));
+    setSelectedIds((current) => current.filter((id) => id !== requestId));
+    if (user?.id && siteId) {
+      void removePaymentDocumentationApprovalSnapshot(Number(user.id), siteId, requestId)
+        .catch(() => toast.warning("تمت معالجة الطلب على الخادم، لكن تعذر تنظيف جميع نسخه المحلية؛ ستنتهي صلاحية اللقطة خلال 24 ساعة."));
+    }
+  };
+  const approve=trpc.powerhub.paymentDocumentation.approve.useMutation({
+    onSuccess:(_data,variables)=>{clearConfirmedOfflineRequest(Number(variables.requestId));toast.success("تم اعتماد الدفع وربطه بالحركة المالية.");refreshAfterApproval();},
+    onError:e=>toast.error(e.message)
+  });
   const queueOfflineApprovals = async () => {
     if (isOnline || !siteId || !user?.id || !selectedIds.length) return;
     const existing = await listOfflineWork({ userId: Number(user?.id ?? 0), siteId });
@@ -165,7 +176,10 @@ export default function PaymentDocumentationReviewPage() {
     setSelectedIds([]);
     toast.success(`تم تسجيل اعتماد ${queued} طلباً محلياً. لن تُنشأ الحركات المالية حتى تعود الشبكة وتنجح المزامنة والتحقق من الخادم.`);
   };
-  const reject=trpc.powerhub.paymentDocumentation.reject.useMutation({onSuccess:()=>{toast.success("تم رفض طلب توثيق الدفع.");setRejectId(null);setReason("");refreshAfterRejection();},onError:e=>toast.error(e.message)});
+  const reject=trpc.powerhub.paymentDocumentation.reject.useMutation({
+    onSuccess:(_data,variables)=>{clearConfirmedOfflineRequest(Number(variables.requestId));toast.success("تم رفض طلب توثيق الدفع.");setRejectId(null);setReason("");refreshAfterRejection();},
+    onError:e=>toast.error(e.message)
+  });
   return <DashboardLayout><div className="space-y-6 p-6" dir="rtl">
     <div><h1 className="text-2xl font-black text-white">مراجعة توثيق الدفع</h1><p className="mt-1 text-sm text-slate-400">اعتماد طلب الدفع هنا هو النقطة الوحيدة التي تنشئ الحركة المالية الفعلية.</p></div>{user?.id&&siteId&&canApprove?<OfflineWorkSyncPanel siteId={siteId} userId={Number(user.id)} compact />:null}
     {!access.isLoading && !canApprove ? <Card className="border-rose-400/20 bg-rose-400/[.04]"><CardContent className="p-8 text-center"><p className="font-bold text-white">لا تملك صلاحية اعتماد توثيق الدفع الإلكتروني.</p><p className="mt-2 text-sm text-slate-400">يمكن لمالك المولد منحك الصلاحية من إعدادات الحسابات الفرعية.</p></CardContent></Card> : <>
