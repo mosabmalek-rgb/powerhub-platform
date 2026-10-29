@@ -9,7 +9,7 @@ import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { listOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS, formatReportDate, formatReportPeriod } from "@/lib/report-design-system";
-import { loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
+import { getUsableReportSnapshot, loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
@@ -81,8 +81,13 @@ export default function ReportsPage() {
   const allReportQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "all" && canUseAllBranches });
   const activeQuery = scope === "all" ? allReportQuery : branchReportQuery;
   const liveReport = activeQuery.data as FinancialReport | undefined;
-  const report = liveReport ?? cachedSnapshot?.report as FinancialReport | undefined;
-  const usingCachedReport = !liveReport && Boolean(cachedSnapshot);
+  const snapshotScope = user?.id && branchId ? { userId: user.id, siteId: branchId, scope, startDate, endDate } as const : null;
+  const cachedSnapshotForCurrentScope = snapshotScope ? getUsableReportSnapshot(cachedSnapshot, snapshotScope, {
+    authorizationDenied: activeQuery.error?.data?.code === "FORBIDDEN" || activeQuery.error?.data?.code === "UNAUTHORIZED",
+    accessAllowed: scope !== "all" || canUseAllBranches,
+  }) : undefined;
+  const report = liveReport ?? cachedSnapshotForCurrentScope?.report as FinancialReport | undefined;
+  const usingCachedReport = !liveReport && Boolean(cachedSnapshotForCurrentScope);
   const scopeName = scope === "all" ? `جميع الأفرع (${report?.scope?.branchCount ?? sitesQuery.data?.length ?? 0})` : sitesQuery.data?.find((site) => site.id === branchId)?.name ?? "الفرع المحدد";
   const alternateBranchId = comparisonSiteId ?? (sitesQuery.data ?? []).find((site) => site.id !== branchId)?.id ?? null;
   const comparisonPeriodEnabled = baseEnabled && comparisonMode === "period" && comparisonStartDate <= comparisonEndDate;
