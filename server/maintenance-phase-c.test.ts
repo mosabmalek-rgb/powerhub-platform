@@ -125,4 +125,18 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(integration).toContain("MAINTENANCE_OVERDUE_ALERT_MISSING");
     expect(integration).toContain("MAINTENANCE_RPC_ACL_FAILED");
   });
+
+  it("keeps a matching maintenance aggregate snapshot visible after a live report failure", () => {
+    const panel = read("client/src/components/InventoryMaintenancePanel.tsx");
+    const cache = read("client/src/lib/offline-operational-report-cache.ts");
+    expect(panel).toContain("loadOperationalReportSnapshot(maintenanceReportCacheInput");
+    expect(panel).toContain("const hasAvailableMaintenanceReport = maintenanceReport.data !== undefined || cachedMaintenanceReportForCurrentScope !== null;");
+    expect(panel).toContain("maintenanceReport.error && !hasAvailableMaintenanceReport");
+    expect(panel).toContain("reportRows.map((r)");
+    expect(panel).toContain("هذه لقطة تجميعية وليست إعادة احتساب حيّة");
+    expect(panel).toContain("!hasAvailableMaintenanceReport || reportExporting");
+    expect(cache).toContain("snapshot.key !== makeKey(input)");
+    expect(cache).toContain("now - snapshot.savedAt >= OFFLINE_OPERATIONAL_REPORT_TTL_MS");
+    expect(cache).toContain("options.accessAllowed === false");
+  });
 });
