@@ -53,6 +53,45 @@ describe("offline fuel fill intent contract", () => {
     expect(item.siteId).toBe(3);
     expect(item.payload).toEqual(payload);
   });
+}
+  it("queues only a local intent and marks it applied only after the protected replay returns", () => {
+    const fuelPanel = readFileSync(resolve(process.cwd(), "client/src/components/InventoryFuelConsumptionPanel.tsx"), "utf8");
+    const syncPanel = readFileSync(resolve(process.cwd(), "client/src/components/OfflineWorkSyncPanel.tsx"), "utf8");
+    const router = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
+
+    const submitStart = fuelPanel.indexOf("const submitFill =");
+    const submitEnd = fuelPanel.indexOf("const submitReading =", submitStart);
+    expect(submitStart).toBeGreaterThanOrEqual(0);
+    expect(submitEnd).toBeGreaterThan(submitStart);
+    const submit = fuelPanel.slice(submitStart, submitEnd);
+    expect(submit).toContain("if (reachability === false)");
+    expect(submit).toContain('kind: "fuel_fill", clientOperationId: fillKey, payload');
+    expect(submit).toContain('fillMutation.mutate({ siteId, ...payload, operationKey: fillKey })');
+    expect(submit).not.toContain("updateOfflineWork(");
+    expect(submit).not.toContain("stockOverview.setData");
+    expect(submit).not.toContain("listStockMovements.setData");
+
+    const replayStart = syncPanel.indexOf('if (item.kind === "fuel_fill")');
+    const replayEnd = syncPanel.indexOf('const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;', replayStart);
+    expect(replayStart).toBeGreaterThanOrEqual(0);
+    expect(replayEnd).toBeGreaterThan(replayStart);
+    const replay = syncPanel.slice(replayStart, replayEnd);
+    const requestIndex = replay.indexOf("await recordFuelFill.mutateAsync");
+    const appliedIndex = replay.indexOf('status: "applied"');
+    expect(requestIndex).toBeGreaterThanOrEqual(0);
+    expect(appliedIndex).toBeGreaterThan(requestIndex);
+    expect(replay).toContain("operationKey: item.clientOperationId");
+    expect(replay).toContain("result.replayed ? \"already_applied\" : \"applied\"");
+
+    const serverStart = router.indexOf("recordFuelFill: protectedProcedure");
+    const serverEnd = router.indexOf("recordFuelReading: protectedProcedure", serverStart);
+    expect(serverStart).toBeGreaterThanOrEqual(0);
+    expect(serverEnd).toBeGreaterThan(serverStart);
+    const serverProcedure = router.slice(serverStart, serverEnd);
+    expect(serverProcedure).toContain('"manageFuelAndConsumption"');
+    expect(serverProcedure).toContain('"powerhub_inventory_record_fuel_fill"');
+    expect(serverProcedure).toContain("p_operation_key: input.operationKey");
+  });
 });
 
 describe("offline outbox update atomicity contract", () => {
