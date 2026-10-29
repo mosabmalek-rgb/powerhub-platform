@@ -468,8 +468,33 @@ $maintenance_phase_c$;
 
 select 'Phase C maintenance work orders, stock issue idempotency, costing, preventive alerts, audit and ACL checks passed' as result;
 
--- Extend the same disposable fixture with the Delta journal and verify new fuel/maintenance feeds.
-\ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
+-- This fixture tests only the operational feeds, so provide the shared journal tables
+-- without installing the core Delta migration's unrelated subscribers/sites triggers.
+create table if not exists public.powerhub_sync_scope_state (
+  tenant_id bigint not null,
+  site_id bigint not null,
+  entity_type text not null,
+  last_cursor bigint not null default 0 check (last_cursor >= 0),
+  retained_from_cursor bigint not null default 0 check (retained_from_cursor >= 0),
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,site_id,entity_type),
+  check (retained_from_cursor <= last_cursor)
+);
+create table if not exists public.powerhub_sync_changes (
+  tenant_id bigint not null,
+  site_id bigint not null,
+  entity_type text not null,
+  cursor bigint not null check (cursor > 0),
+  entity_id text not null check (length(entity_id) between 1 and 100),
+  change_type text not null check (change_type in ('upsert','delete')),
+  row_data jsonb,
+  changed_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,site_id,entity_type,cursor),
+  check ((change_type='upsert' and row_data is not null) or (change_type='delete' and row_data is null))
+);
+create index if not exists powerhub_sync_changes_entity_idx
+  on public.powerhub_sync_changes(tenant_id,site_id,entity_type,entity_id,cursor desc);
+
 \ir ../migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql
 \ir ../migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql
 \ir fuel_maintenance_delta_sync_history.sql
