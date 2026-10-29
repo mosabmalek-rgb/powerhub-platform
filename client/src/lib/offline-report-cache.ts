@@ -71,11 +71,34 @@ async function request<T>(mode: IDBTransactionMode, callback: (store: IDBObjectS
   const database = await openDatabase();
   return new Promise<T>((resolve, reject) => {
     const transaction = database.transaction(storeName, mode);
-    const operation = callback(transaction.objectStore(storeName));
-    operation.onsuccess = () => resolve(operation.result);
-    operation.onerror = () => reject(operation.error ?? new Error("تعذر تحديث لقطة التقرير المحلية."));
-    transaction.oncomplete = () => database.close();
-    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error("تعذر حفظ لقطة التقرير المحلية.")); };
+    let result!: T;
+    let settled = false;
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      database.close();
+      reject(error);
+    };
+    let operation: IDBRequest<T>;
+    try {
+      operation = callback(transaction.objectStore(storeName));
+    } catch (error) {
+      try { transaction.abort(); } catch { /* the transaction may already be inactive */ }
+      fail(error instanceof Error ? error : new Error("تعذر تحديث لقطة التقرير المحلية."));
+      return;
+    }
+    operation.onsuccess = () => { result = operation.result; };
+    operation.onerror = () => {
+      fail(operation.error ?? new Error("تعذر تحديث لقطة التقرير المحلية."));
+    };
+    transaction.oncomplete = () => {
+      if (settled) return;
+      settled = true;
+      database.close();
+      resolve(result);
+    };
+    transaction.onerror = () => fail(transaction.error ?? new Error("تعذر حفظ لقطة التقرير المحلية."));
+    transaction.onabort = () => fail(transaction.error ?? new Error("تم إلغاء معاملة لقطة التقرير المحلية."));
   });
 }
 
