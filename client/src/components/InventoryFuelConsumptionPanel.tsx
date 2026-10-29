@@ -336,6 +336,7 @@ export default function InventoryFuelConsumptionPanel({
 
   const submitFill = (event: FormEvent) => {
     event.preventDefault();
+    if (optionsAuthorizationDenied) { toast.error("رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل عملية التعبئة."); return; }
     const quantity = Number(litres);
     const before = levelBefore.trim() ? Number(levelBefore) : null;
     const after = levelAfter.trim() ? Number(levelAfter) : null;
@@ -363,6 +364,7 @@ export default function InventoryFuelConsumptionPanel({
 
   const submitReading = (event: FormEvent) => {
     event.preventDefault();
+    if (optionsAuthorizationDenied) { toast.error("رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل القراءة."); return; }
     const parsedValue = Number(readingValue);
     if (!activeReadingGeneratorId || !Number.isFinite(parsedValue) || parsedValue < 0 ||
         Math.abs(parsedValue * 1000 - Math.round(parsedValue * 1000)) > 1e-7) {
@@ -463,7 +465,7 @@ export default function InventoryFuelConsumptionPanel({
               مفتاح العملية ثابت أثناء المحاولة لمنع التكرار. لا تُحتسب الكمية المعبأة تلقائيًا على أنها استهلاك فعلي؛ يتطلب الاستهلاك المقاس قراءات مستوى صالحة.
               {selectedGenerator ? <span className="block mt-1">آخر قيمة محفوظة للمولد: مستوى {qty(selectedGenerator.fuelLevelLiters)} لتر، وساعات تشغيل {qty(selectedGenerator.operatingHours)}.</span> : null}
             </div>
-            <div><Button type="submit" disabled={fillMutation.isPending || options.isLoading || !fuelItemId || !sourceWarehouseId || !destinationWarehouseId}>
+            <div><Button type="submit" disabled={fillMutation.isPending || options.isLoading || optionsAuthorizationDenied || !fuelItemId || !sourceWarehouseId || !destinationWarehouseId}>
               {fillMutation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} تسجيل التعبئة
             </Button></div>
           </form>
@@ -515,7 +517,7 @@ export default function InventoryFuelConsumptionPanel({
             <label className="grid gap-1.5 text-sm md:col-span-2">ملاحظات
               <Input maxLength={2000} value={readingNotes} onChange={(e) => setReadingNotes(e.target.value)} />
             </label>
-            <div><Button type="submit" disabled={readingMutation.isPending || options.isLoading}>
+            <div><Button type="submit" disabled={readingMutation.isPending || options.isLoading || optionsAuthorizationDenied}>
               {readingMutation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} حفظ القراءة
             </Button></div>
           </form>
@@ -532,6 +534,7 @@ export default function InventoryFuelConsumptionPanel({
         {alertSettingsAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية الوصول إلى إعدادات تنبيهات الوقود؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : alertSettings.error && alertSettings.data !== undefined ? <p role="status" className="text-xs text-amber-700">تعذر تحديث إعدادات التنبيهات؛ تُعرض آخر نسخة ناجحة لهذه الجلسة.</p> : alertSettings.error ? <p role="alert" className="text-sm text-destructive">تعذر تحميل إعدادات التنبيهات ولا توجد نسخة متاحة.</p> : null}
         <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={(event) => {
           event.preventDefault();
+          if (optionsAuthorizationDenied || alertSettingsAuthorizationDenied) { toast.error("رفض الخادم صلاحية الوصول إلى خيارات الوقود أو إعدادات التنبيه؛ لم يُرسل التغيير."); return; }
           const low = alertLowThreshold.trim() ? Number(alertLowThreshold) : null;
           const rate = alertRateThreshold.trim() ? Number(alertRateThreshold) : null;
           const hours = Number(alertMinimumHours);
@@ -578,7 +581,7 @@ export default function InventoryFuelConsumptionPanel({
             تفعيل تنبيهات هذا المولد والخزان
           </label>
           <div className="md:col-span-2 xl:col-span-3 flex flex-wrap items-center gap-2">
-            <Button type="submit" disabled={alertSettingsMutation.isPending || options.isLoading || !activeAlertGeneratorId || !alertTankId}>
+            <Button type="submit" disabled={alertSettingsMutation.isPending || options.isLoading || optionsAuthorizationDenied || alertSettingsAuthorizationDenied || !activeAlertGeneratorId || !alertTankId}>
               {alertSettingsMutation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />}
               حفظ إعدادات التنبيه
             </Button>
