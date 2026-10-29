@@ -3,8 +3,8 @@ import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, requeueOfflineWorkForManualRetry, removeOfflineWork, updateOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
-import { listSyncMetadata, upsertSyncMetadata, type SyncMetadataRecord } from "@/lib/offline-sync-metadata";
+import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft } from "@/lib/offline-work-queue";
+import { getSyncMetadata, listSyncMetadata, upsertSyncMetadata, type SyncMetadataRecord } from "@/lib/offline-sync-metadata";
 import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
 import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
@@ -17,7 +17,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { toast } from "sonner";
 
-const labelByKind = { subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد", generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع", reading_create: "قراءة ميدانية معلقة" } as const;
+const labelByKind = {
+  subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد",
+  generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق",
+  payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع",
+  reading_create: "قراءة ميدانية معلقة", employee_create: "إضافة موظف (معلّق)", employee_update: "تعديل موظف (معلّق)",
+  attendance_upsert: "تسجيل حضور (معلّق)", payroll_draft: "مسودة رواتب (معلّقة)",
+  employee_advance_issue: "طلب صرف سلفة (معلّق)", employee_advance_repayment: "طلب سداد سلفة (معلّق)",
+} as const;
 
 function getErrorCode(error: unknown) { return (error as { data?: { code?: string } } | null)?.data?.code; }
 function getErrorMessage(error: unknown) { return error instanceof Error ? error.message : "تعذر مزامنة العملية."; }
@@ -40,6 +47,31 @@ function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["p
     const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
     return { ...payload, receiptImageData: undefined, receiptImageMime: undefined };
   }
+  if (item.kind === "employee_create") {
+    const payload = item.payload as HrEmployeeCreateDraft;
+    return { ...payload, identityNo: undefined, phone: undefined, baseWage: 0, hireDate: undefined, notes: undefined, linkedUserId: undefined };
+  }
+  if (item.kind === "employee_update") {
+    const payload = item.payload as HrEmployeeUpdateDraft;
+    const patch = { ...payload.patch, identityNo: undefined, phone: undefined, baseWage: undefined, hireDate: undefined, notes: undefined };
+    return { ...payload, patch };
+  }
+  if (item.kind === "attendance_upsert") {
+    const payload = item.payload as HrAttendanceUpsertDraft;
+    return { ...payload, notes: undefined };
+  }
+  if (item.kind === "payroll_draft") {
+    const payload = item.payload as HrPayrollDraftPayload;
+    return { period: payload.period, items: [] };
+  }
+  if (item.kind === "employee_advance_issue") {
+    const payload = item.payload as HrEmployeeAdvanceIssueDraft;
+    return { ...payload, reason: "تمت المزامنة", amount: 0, monthlyDeduction: undefined };
+  }
+  if (item.kind === "employee_advance_repayment") {
+    const payload = item.payload as HrEmployeeAdvanceRepaymentDraft;
+    return { ...payload, amount: 0, referenceNo: undefined, notes: undefined };
+  }
   return item.payload;
 }
 
@@ -50,11 +82,22 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const [deltaStatuses, setDeltaStatuses] = useState<DeltaSyncStatusRecord[]>([]);
   const [conflictRecords, setConflictRecords] = useState<OfflineConflictRecord[]>([]);
   const { isOnline, reconnectGeneration } = usePowerHubConnectivity();
+  const resolvedLocalEmployees = useRef(new Map<number, { id: number; versionNo: number }>());
   const [syncing, setSyncing] = useState(false);
   const lastAutoSyncGeneration = useRef(0);
   const load = useCallback(async () => {
-    try { setItems(await listOfflineWork({ userId, siteId })); }
-    catch { toast.error("تعذر قراءة مسودات العمل المحلي على هذا الجهاز."); }
+    try {
+      const loadedItems = await listOfflineWork({ userId, siteId });
+      setItems(loadedItems);
+      resolvedLocalEmployees.current.clear();
+      for (const item of loadedItems) {
+        if (item.kind !== "employee_create" || item.status !== "applied" || !item.appliedEntityId) continue;
+        const payload = item.payload as HrEmployeeCreateDraft;
+        if (payload.localEmployeeId < 0) resolvedLocalEmployees.current.set(payload.localEmployeeId, {
+          id: item.appliedEntityId, versionNo: item.appliedVersionNo ?? 1,
+        });
+      }
+    } catch { toast.error("تعذر قراءة مسودات العمل المحلي على هذا الجهاز."); }
     try { setSyncMetadataRecords(await listSyncMetadata({ userId, siteId })); }
     catch { setSyncMetadataRecords([]); }
     try { setDeltaStatuses(await listDeltaSyncStatuses({ userId, siteId })); }
@@ -83,6 +126,9 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const submitPaymentDocumentation = trpc.powerhub.paymentDocumentation.submit.useMutation();
   const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
   const createReading = trpc.powerhub.readings.create.useMutation();
+  const replayHrOffline = trpc.powerhub.hr.replayOfflineOperation.useMutation();
+  const issueEmployeeAdvance = trpc.powerhub.hr.issueEmployeeAdvance.useMutation();
+  const repayEmployeeAdvance = trpc.powerhub.hr.repayEmployeeAdvance.useMutation();
 
   const refresh = async (results: readonly { item: QueuedOfflineWork; outcome: string }[]) => {
     const targets = new Set(getOfflineSyncRefreshTargets(results));
@@ -124,6 +170,33 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         utils.powerhub.dashboard.periodMetrics.invalidate({ siteId, scope: "branch" }),
       );
     }
+    if (targets.has("hr-directory")) {
+      refreshes.push(
+        utils.powerhub.hr.offlineDirectory.invalidate({ siteId }),
+        utils.powerhub.hr.listEmployees.invalidate({ siteId }),
+        utils.powerhub.hr.overview.invalidate({ siteId }),
+      );
+    }
+    if (targets.has("hr-attendance")) {
+      refreshes.push(
+        utils.powerhub.hr.offlineAttendance.invalidate({ siteId }),
+        utils.powerhub.hr.listAttendance.invalidate({ siteId }),
+      );
+    }
+    if (targets.has("payroll")) {
+      refreshes.push(
+        utils.powerhub.hr.listPayrollRuns.invalidate({ siteId }),
+        utils.powerhub.hr.getPayrollDetails.invalidate({ siteId }),
+        utils.powerhub.hr.overview.invalidate({ siteId }),
+      );
+    }
+    if (targets.has("employee-advances")) {
+      refreshes.push(
+        utils.powerhub.hr.offlineEmployeeAdvances.invalidate({ siteId }),
+        utils.powerhub.hr.listEmployeeAdvances.invalidate({ siteId }),
+        utils.powerhub.companyAccounts.list.invalidate({ siteId }),
+      );
+    }
     if (targets.has("audit")) {
       refreshes.push(utils.powerhub.audit.list.invalidate({ siteId }));
     }
@@ -152,8 +225,12 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     return metadataByOperationId;
   };
 
-  const transport = async (item: QueuedOfflineWork): Promise<SyncTransportResult> => {
+  const transport = async (item: QueuedOfflineWork, _metadata: SyncMetadata): Promise<SyncTransportResult> => {
     try {
+      const storedMetadata = await getSyncMetadata(item.clientOperationId, { userId: item.userId, siteId: item.siteId });
+      if (storedMetadata && isSyncMetadataCompatibleWithWorkItem(item, storedMetadata)) {
+        await upsertSyncMetadata({ ...storedMetadata, outcome: "syncing", updatedAt: Date.now() });
+      }
       if (item.kind === "subscriber_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft;
         const result = await createSubscriber.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
@@ -211,6 +288,111 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationApprovalDraft;
         const result = await approvePaymentDocumentation.mutateAsync({ siteId: item.siteId, requestId: payload.requestId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: Number(result.paymentId), appliedLabel: `طلب #${payload.requestId} — حركة #${result.paymentId}` });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+      if (item.kind === "employee_create") {
+        const payload = item.payload as HrEmployeeCreateDraft;
+        const { localEmployeeId, ...serverPayload } = payload;
+        const result = await replayHrOffline.mutateAsync({
+          siteId: item.siteId, operationKey: item.clientOperationId, operationType: "employee_create", payload: serverPayload,
+        });
+        if (!result.entityId || !result.versionNo) throw new Error("لم يُرجع الخادم معرف الموظف وإصدار النسخة بعد المزامنة.");
+        if (localEmployeeId < 0) {
+          resolvedLocalEmployees.current.set(localEmployeeId, { id: result.entityId, versionNo: result.versionNo });
+          await resolveOfflineEmployeeReferences({
+            userId: item.userId, siteId: item.siteId, localEmployeeId,
+            serverEmployeeId: result.entityId, serverVersion: result.versionNo,
+          });
+        }
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: result.entityId, appliedVersionNo: result.versionNo,
+          appliedLabel: payload.fullName, payload: sanitizeCompletedPayload(item),
+        });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+      if (item.kind === "employee_update") {
+        const payload = item.payload as HrEmployeeUpdateDraft;
+        const resolved = payload.employeeId < 0 ? resolvedLocalEmployees.current.get(payload.employeeId) : undefined;
+        const employeeId = resolved?.id ?? payload.employeeId;
+        if (employeeId < 1) throw new Error("تعذر ربط تعديل الموظف بمعرف الخادم؛ ستبقى العملية معلقة حتى اكتمال إضافة الموظف.");
+        const expectedVersion = resolved?.versionNo ?? payload.expectedVersion;
+        if (!expectedVersion || expectedVersion < 1) throw new Error("نسخة الموظف غير معروفة؛ يلزم استعادة اللقطة قبل إرسال التعديل.");
+        const result = await replayHrOffline.mutateAsync({
+          siteId: item.siteId, operationKey: item.clientOperationId, operationType: "employee_update",
+          payload: { ...payload, employeeId, expectedVersion },
+        });
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: employeeId,
+          appliedVersionNo: result.versionNo ?? expectedVersion + 1, appliedLabel: "تعديل بيانات موظف",
+          payload: sanitizeCompletedPayload(item),
+        });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+      if (item.kind === "attendance_upsert") {
+        const payload = item.payload as HrAttendanceUpsertDraft;
+        const resolved = payload.employeeId < 0 ? resolvedLocalEmployees.current.get(payload.employeeId) : undefined;
+        const employeeId = resolved?.id ?? payload.employeeId;
+        if (employeeId < 1) throw new Error("تعذر ربط الحضور بمعرف الموظف الخادمي؛ ستبقى العملية معلقة.");
+        const { localAttendanceId: _localAttendanceId, ...serverPayload } = payload;
+        const result = await replayHrOffline.mutateAsync({
+          siteId: item.siteId, operationKey: item.clientOperationId, operationType: "attendance_upsert",
+          payload: { ...serverPayload, employeeId },
+        });
+        if (!result.entityId) throw new Error("لم يُرجع الخادم معرف الحضور بعد المزامنة.");
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: result.entityId,
+          appliedVersionNo: result.versionNo ?? 1, appliedLabel: "تسجيل حضور " + employeeId + " — " + payload.workDate,
+          payload: sanitizeCompletedPayload(item),
+        });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+      if (item.kind === "payroll_draft") {
+        const payload = item.payload as HrPayrollDraftPayload;
+        const items = payload.items.map((entry) => {
+          const resolved = entry.employeeId < 0 ? resolvedLocalEmployees.current.get(entry.employeeId) : undefined;
+          const employeeId = resolved?.id ?? entry.employeeId;
+          if (employeeId < 1) throw new Error("توجد موظفة أو موظف في المسودة لم تكتمل إضافته بعد؛ ستنتظر المسودة مزامنته.");
+          return { ...entry, employeeId };
+        });
+        const result = await replayHrOffline.mutateAsync({
+          siteId: item.siteId, operationKey: item.clientOperationId, operationType: "payroll_draft",
+          payload: { period: payload.period, items },
+        });
+        if (!result.entityId) throw new Error("لم يُرجع الخادم معرف مسودة الرواتب.");
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: result.entityId,
+          appliedLabel: "كشف " + payload.period + " — إجمالي خادمي " + (result.totalNet ?? "بانتظار العرض"),
+          payload: sanitizeCompletedPayload(item),
+        });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+      if (item.kind === "employee_advance_issue") {
+        const payload = item.payload as HrEmployeeAdvanceIssueDraft;
+        const resolved = payload.employeeId < 0 ? resolvedLocalEmployees.current.get(payload.employeeId) : undefined;
+        const employeeId = resolved?.id ?? payload.employeeId;
+        if (employeeId < 1) throw new Error("طلب السلفة مرتبط بموظف لم تكتمل إضافته؛ ستبقى العملية معلقة.");
+        const { localAdjustmentId: _localAdjustmentId, ...serverPayload } = payload;
+        const result = await issueEmployeeAdvance.mutateAsync({
+          siteId: item.siteId, ...serverPayload, employeeId, operationKey: item.clientOperationId,
+        });
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: result.id,
+          appliedLabel: "سلفة #" + result.id + " — تم التحقق من الصرف خادميًا",
+          payload: sanitizeCompletedPayload(item),
+        });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+      if (item.kind === "employee_advance_repayment") {
+        const payload = item.payload as HrEmployeeAdvanceRepaymentDraft;
+        const { localRepaymentId: _localRepaymentId, ...serverPayload } = payload;
+        const result = await repayEmployeeAdvance.mutateAsync({
+          siteId: item.siteId, ...serverPayload, operationKey: item.clientOperationId,
+        });
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: result.id,
+          appliedLabel: "سداد #" + result.id + " — الرصيد المتبقي " + result.remainingAmount,
+          payload: sanitizeCompletedPayload(item),
+        });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
