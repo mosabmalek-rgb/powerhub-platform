@@ -74,7 +74,7 @@ describe("payment-documentation offline approval snapshot scope", () => {
       snapshot({ id: 14, snapshotScope: baseScope + " " }),
       snapshot({ id: 15, savedAt: 10_000 - PAYMENT_DOCUMENTATION_APPROVAL_SNAPSHOT_TTL_MS - 1 }),
       snapshot({ id: 16, savedAt: 10_001 }),
-      snapshot({ id: 17, status: "approved" as "pending" }),
+      snapshot({ id: 17, status: "approved" } as unknown as OfflinePaymentDocumentationApprovalSnapshot),
       snapshot({ id: 0 }),
     ];
     const result = filterPaymentDocumentationApprovalSnapshots(rows, {
