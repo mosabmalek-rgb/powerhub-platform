@@ -415,8 +415,8 @@ export default function InventoryMaintenancePanel({
           {usingCachedMaintenanceReport ? <p role="status" className="mt-1 text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {new Date(cachedMaintenanceReport.savedAt).toLocaleString("ar-PS")}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><Download className="ml-2 h-4 w-4" /> CSV</Button>
-            <Button type="button" variant="outline" onClick={() => void exportMaintenanceExcel()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError || reportExporting}><FileSpreadsheet className="ml-2 h-4 w-4" /> Excel</Button>
-            <Button type="button" variant="outline" onClick={() => void exportMaintenancePdf()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError || reportExporting}><FileText className="ml-2 h-4 w-4" /> PDF</Button>
+            <Button type="button" variant="outline" onClick={() => void exportMaintenanceExcel()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><FileSpreadsheet className="ml-2 h-4 w-4" /> Excel</Button>
+            <Button type="button" variant="outline" onClick={() => void exportMaintenancePdf()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><FileText className="ml-2 h-4 w-4" /> PDF</Button>
           </div>
         </div>
       </CardHeader>
