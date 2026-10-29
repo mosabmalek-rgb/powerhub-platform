@@ -272,6 +272,35 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         is_active: Boolean(raw.is_active ?? raw.isActive), isActive: Boolean(raw.is_active ?? raw.isActive),
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt), updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
       };
+    case "inventory_stock_movements": {
+      const id = toNumber(raw.id ?? raw.movement_id);
+      return {
+        id, movement_id: id,
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId),
+        warehouse_id: toNumber(raw.warehouse_id ?? raw.warehouseId),
+        warehouse_code: String(raw.warehouse_code ?? raw.warehouseCode ?? ""),
+        warehouse_name: String(raw.warehouse_name ?? raw.warehouseName ?? ""),
+        item_id: toNumber(raw.item_id ?? raw.itemId),
+        sku: (raw.sku ?? null) as string | null,
+        item_name: String(raw.item_name ?? raw.itemName ?? ""),
+        category: String(raw.category ?? "other"),
+        base_unit: String(raw.base_unit ?? raw.baseUnit ?? ""),
+        generator_id: optionalNumber(raw.generator_id ?? raw.generatorId),
+        movement_type: String(raw.movement_type ?? raw.movementType ?? ""),
+        quantity: String(raw.quantity ?? 0),
+        reference_no: (raw.reference_no ?? raw.referenceNo ?? null) as string | null,
+        notes: (raw.notes ?? null) as string | null,
+        operation_key: String(raw.operation_key ?? raw.operationKey ?? ""),
+        occurred_at: String(raw.occurred_at ?? raw.occurredAt ?? ""),
+        created_by_user_id: optionalNumber(raw.created_by_user_id ?? raw.createdByUserId),
+        created_at: String(raw.created_at ?? raw.createdAt ?? ""),
+        reversal_of_movement_id: optionalNumber(raw.reversal_of_movement_id ?? raw.reversalOfMovementId),
+        corrects_movement_id: optionalNumber(raw.corrects_movement_id ?? raw.correctsMovementId),
+        correction_reason: (raw.correction_reason ?? raw.correctionReason ?? null) as string | null,
+        corrected_by_movement_id: optionalNumber(raw.corrected_by_movement_id ?? raw.correctedByMovementId),
+      };
+    }
     case "inventory_warehouses":
       return {
         id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
