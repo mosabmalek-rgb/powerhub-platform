@@ -202,7 +202,7 @@ returns trigger
 language plpgsql security definer
 set search_path=pg_catalog,public,pg_temp
 as $$
-declare v_entity_type text; v_old_entity_type text; v_old_id bigint;
+declare v_entity_type text; v_old_entity_type text; v_old_id bigint; v_scope_changed boolean:=false;
 begin
   if TG_TABLE_NAME='generator_fuel_events' then
     v_entity_type:='fuel_events';
@@ -227,10 +227,17 @@ begin
 
   if TG_OP='UPDATE' and to_jsonb(OLD) is not distinct from to_jsonb(NEW) then return NEW; end if;
 
-  if TG_OP='UPDATE' and (
-    OLD.tenant_id is distinct from NEW.tenant_id or OLD.site_id is distinct from NEW.site_id
-    or (TG_TABLE_NAME='generator_maintenance_work_order_parts' and OLD.work_order_id is distinct from NEW.work_order_id)
-  ) then
+  if TG_OP='UPDATE' then
+    if OLD.tenant_id is distinct from NEW.tenant_id or OLD.site_id is distinct from NEW.site_id then
+      v_scope_changed:=true;
+    elsif TG_TABLE_NAME='generator_maintenance_work_order_parts' then
+      -- Keep record-field access inside the matching table branch: OLD on a fuel
+      -- event or work order does not have a work_order_id field.
+      v_scope_changed:=OLD.work_order_id is distinct from NEW.work_order_id;
+    end if;
+  end if;
+
+  if v_scope_changed then
     if TG_TABLE_NAME='generator_maintenance_work_order_parts' then
       v_old_entity_type:='maintenance_work_order_parts:'||OLD.work_order_id::text;
     else
