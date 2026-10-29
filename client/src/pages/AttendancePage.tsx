@@ -8,9 +8,9 @@ import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
-import { enqueueOfflineHrWork, listOfflineWork, type HrEmployeeCreateDraft } from "@/lib/offline-work-queue";
+import { enqueueOfflineHrWork, listOfflineWork, type HrAttendanceUpsertDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { ClipboardCheck, ChevronDown } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Download } from "lucide-react";
 
@@ -20,7 +20,6 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
   const { branchId: siteId } = useBranchFilter(sites.data);
   const auth = useAuth();
   const { isOnline } = usePowerHubConnectivity();
-  const utils = trpc.useUtils();
   const userId = Number(auth.user?.id);
   const tenantId = Number((sites.data as any[] | undefined)?.find((site) => site.id === siteId)?.tenantId);
   const isHrOnline = isOnline && auth.isOnlineAuthenticated && auth.powerHubReachable;
@@ -28,12 +27,70 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [pendingHrWork, setPendingHrWork] = useState<QueuedOfflineWork[]>([]);
+  useEffect(() => {
+    if (!Number.isSafeInteger(userId) || userId < 1 || !siteId) { setPendingHrWork([]); return; }
+    let active = true;
+    void listOfflineWork({ userId, siteId }).then((items) => { if (active) setPendingHrWork(items); })
+      .catch(() => { if (active) setPendingHrWork([]); });
+    return () => { active = false; };
+  }, [userId, siteId]);
+  const refreshPendingHrWork = async () => {
+    const items = await listOfflineWork({ userId, siteId: siteId! });
+    setPendingHrWork(items);
+    return items;
+  };
   const employees = trpc.powerhub.hr.listEmployees.useQuery({ siteId: siteId ?? 0, employmentStatus: "active" }, { enabled: Boolean(siteId) && isHrOnline });
   const offlineDirectory = trpc.powerhub.hr.offlineDirectory.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId) });
   const rows = trpc.powerhub.hr.listAttendance.useQuery({ siteId: siteId ?? 0, fromDate: fromDate || undefined, toDate: toDate || undefined, employeeId: employeeId ? Number(employeeId) : undefined }, { enabled: Boolean(siteId) && isHrOnline });
   const offlineRows = trpc.powerhub.hr.offlineAttendance.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId) });
-  const displayEmployees: any[] = isHrOnline && employees.data ? employees.data : (offlineDirectory.data ?? []).filter((employee) => employee.employmentStatus === "active");
-  const localAttendance = (offlineRows.data ?? []).filter((row: any) => {
+  const baseEmployees: any[] = isHrOnline && employees.data ? employees.data : (offlineDirectory.data ?? []);
+  const pendingEmployeeRows = pendingHrWork.filter((item) => item.kind === "employee_create" && item.status !== "applied")
+    .map((item) => {
+      const payload = item.payload as HrEmployeeCreateDraft;
+      return { id: payload.localEmployeeId, tenantId, siteId, fullName: payload.fullName, jobTitle: payload.jobTitle,
+        employmentStatus: payload.employmentStatus, contractType: payload.contractType, versionNo: 1,
+        createdAt: new Date(item.createdAt), pendingOffline: true, pendingQueueStatus: item.status };
+    });
+  const displayEmployees: any[] = [...pendingEmployeeRows,
+    ...baseEmployees.filter((employee) => !pendingEmployeeRows.some((pending) => Number(pending.id) === Number(employee.id)))]
+    .filter((employee) => employee.employmentStatus === "active");
+  const baseAttendanceRows: any[] = (offlineRows.data ?? []).filter((row: any) => !row.attendance.pendingOffline);
+  const pendingAttendanceRows = pendingHrWork.filter((item) => item.kind === "attendance_upsert" && item.status !== "applied")
+    .map((item) => {
+      const payload = item.payload as HrAttendanceUpsertDraft;
+      const employee = displayEmployees.find((person) => Number(person.id) === payload.employeeId);
+      const previous = baseAttendanceRows.find((row) =>
+        Number(row.attendance.employeeId) === payload.employeeId &&
+        String(row.attendance.workDate instanceof Date ? row.attendance.workDate.toISOString().slice(0, 10) : row.attendance.workDate).slice(0, 10) === payload.workDate);
+      const localId = Number(payload.localAttendanceId ?? (previous?.attendance.id ?? -Math.max(1, item.createdAt)));
+      return {
+        id: localId, tenantId, siteId,
+        attendance: {
+          id: localId, tenantId, employeeId: payload.employeeId, siteId,
+          workDate: new Date(payload.workDate + "T00:00:00.000Z"),
+          regularHours: String(payload.regularHours), overtimeHours: String(payload.overtimeHours),
+          absentDays: String(payload.absentDays), notes: null, createdByUserId: null,
+          createdAt: previous?.attendance.createdAt ?? new Date(item.createdAt), updatedAt: new Date(item.updatedAt),
+          versionNo: payload.expectedVersion ?? previous?.attendance.versionNo ?? 1,
+          pendingOffline: true, pendingQueueStatus: item.status,
+        },
+        employee: {
+          id: payload.employeeId, tenantId, siteId: employee?.siteId ?? siteId,
+          fullName: employee?.fullName ?? previous?.employee?.fullName ?? ("موظف #" + payload.employeeId),
+          jobTitle: employee?.jobTitle ?? previous?.employee?.jobTitle ?? "other",
+          employmentStatus: employee?.employmentStatus ?? previous?.employee?.employmentStatus ?? "active",
+        },
+      };
+    });
+  const combinedAttendanceRows: any[] = [
+    ...baseAttendanceRows.filter((row) => !pendingAttendanceRows.some((pending) =>
+      Number(pending.attendance.employeeId) === Number(row.attendance.employeeId) &&
+      String(pending.attendance.workDate instanceof Date ? pending.attendance.workDate.toISOString().slice(0, 10) : pending.attendance.workDate).slice(0, 10) ===
+        String(row.attendance.workDate instanceof Date ? row.attendance.workDate.toISOString().slice(0, 10) : row.attendance.workDate).slice(0, 10))),
+    ...pendingAttendanceRows,
+  ];
+  const localAttendance = combinedAttendanceRows.filter((row: any) => {
     const raw = row.attendance.workDate;
     const date = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw ?? "").slice(0, 10);
     return (!fromDate || date >= fromDate) && (!toDate || date <= toDate) &&
@@ -94,29 +151,8 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
           localAttendanceId,
         },
       });
-      const employee = displayEmployees.find((row) => Number(row.id) === selectedEmployeeId) ?? (existing?.employee ?? {});
-      const optimisticRow = {
-        id: localAttendanceId, tenantId, siteId,
-        attendance: {
-          id: localAttendanceId, tenantId, employeeId: selectedEmployeeId, siteId,
-          workDate: new Date(workDate + "T00:00:00.000Z"), regularHours: String(regularHours),
-          overtimeHours: String(overtimeHours), absentDays: String(absentDays), notes: null, createdByUserId: null,
-          createdAt: existing?.attendance.createdAt ?? new Date(), updatedAt: new Date(),
-          versionNo: existing?.attendance.versionNo ?? 1, pendingOffline: true,
-        },
-        employee: {
-          id: selectedEmployeeId, tenantId, siteId: employee.siteId ?? siteId,
-          fullName: employee.fullName ?? "موظف محلي", jobTitle: employee.jobTitle ?? "other",
-          employmentStatus: employee.employmentStatus ?? "active",
-        },
-      };
-      utils.powerhub.hr.offlineAttendance.setData({ siteId }, (current: any) => {
-        const next = [...(current ?? []).filter((row: any) =>
-          !(Number(row.attendance.employeeId) === selectedEmployeeId &&
-            String(row.attendance.workDate instanceof Date ? row.attendance.workDate.toISOString().slice(0, 10) : row.attendance.workDate).slice(0, 10) === workDate)
-        ), optimisticRow];
-        return next.sort((a, b) => new Date(b.attendance.workDate).getTime() - new Date(a.attendance.workDate).getTime()).slice(0, 1000);
-      });
+
+      await refreshPendingHrWork();
       setShowAttendanceForm(false);
       toast.success("حُفظ سجل الحضور محليًا بانتظار المزامنة. لم يُعتمد على الخادم بعد.");
       void work;
@@ -124,6 +160,6 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
       toast.error(error instanceof Error ? error.message : "تعذر حفظ سجل الحضور محليًا.");
     }
   };
-  const content = <div dir="rtl" className="space-y-6"><header className="rounded-2xl border border-white/8 bg-[#111823] p-5"><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ClipboardCheck className="h-4 w-4" />الحضور والانصراف</div><h1 className="mt-2 text-2xl font-extrabold text-white">سجل الدوام اليدوي</h1><p className="mt-1 text-sm text-slate-400">يسجل المحاسب الساعات الاعتيادية والإضافية وأيام الغياب بالفرع المحدد، وتستخدم البيانات عند تطوير احتساب الرواتب.</p></header>{!isHrOnline ? <p role="status" className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm leading-6 text-amber-100">وضع عدم الاتصال: تُحفظ سجلات الدوام كمسودات محلية، وتُزال الملاحظات ومعرّفات المنفذين من النسخة المخزنة. سيُراجع الخادم النسخة والتعارضات قبل تثبيت السجل.</p> : null}<div className="space-y-4"><Card className="border-white/8 bg-[#111823]"><CardContent className="p-0"><button type="button" aria-expanded={showAttendanceForm} onClick={() => setShowAttendanceForm((open) => !open)} className="flex w-full items-center justify-between gap-3 p-4 text-right"><span className="font-bold text-white">إضافة أو تحديث يوم</span><span className="flex items-center gap-2 text-xs text-slate-400">{showAttendanceForm ? "إخفاء النموذج" : "إظهار النموذج"}<ChevronDown className={`h-4 w-4 transition-transform ${showAttendanceForm ? "rotate-180" : ""}`} /></span></button>{showAttendanceForm ? <form onSubmit={submit} className="grid grid-cols-1 gap-3 border-t border-white/8 p-4 sm:grid-cols-2 lg:grid-cols-3"><div><label htmlFor="attendance-employee" className="mb-1.5 block text-sm font-bold text-slate-200">الموظف</label><select id="attendance-employee" required name="employeeId" value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} className="h-10 w-full rounded-md border border-white/10 bg-[#0D1117] px-3 text-sm text-white"><option value="">اختر الموظف</option>{displayEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}</select><p className="mt-1.5 text-xs leading-5 text-slate-400">اختر الموظف الذي تريد تسجيل دوامه في الفرع المحدد. اختيار الموظف نفسه مع تاريخ مسجل يحدّث سجل ذلك اليوم.</p></div><div><label htmlFor="attendance-work-date" className="mb-1.5 block text-sm font-bold text-slate-200">تاريخ الدوام</label><Input id="attendance-work-date" required name="workDate" type="date" className="border-white/10 bg-[#0D1117] text-white" /><p className="mt-1.5 text-xs leading-5 text-slate-400">اليوم الذي يخصه السجل، وليس تاريخ إدخال البيانات. إذا وُجد سجل للموظف في هذا التاريخ فسيُحدّث بدل إنشاء سجل يومي مكرر.</p></div><div><label htmlFor="attendance-regular-hours" className="mb-1.5 block text-sm font-bold text-slate-200">الساعات الاعتيادية</label><Input id="attendance-regular-hours" name="regularHours" type="number" min="0" max="24" step="0.25" defaultValue="8" placeholder="الساعات الاعتيادية" className="border-white/10 bg-[#0D1117] text-white" dir="ltr" /><p className="mt-1.5 text-xs leading-5 text-slate-400">عدد ساعات العمل العادية في هذا اليوم. القيمة الافتراضية 8 ساعات، ويمكن إدخال ربع ساعة مثل 7.5 أو 7.75. أدخل 0 إذا لم يعمل ساعات اعتيادية.</p></div><div><label htmlFor="attendance-overtime-hours" className="mb-1.5 block text-sm font-bold text-slate-200">الساعات الإضافية</label><Input id="attendance-overtime-hours" name="overtimeHours" type="number" min="0" max="24" step="0.25" defaultValue="0" placeholder="ساعات إضافية" className="border-white/10 bg-[#0D1117] text-white" dir="ltr" /><p className="mt-1.5 text-xs leading-5 text-slate-400">ساعات العمل التي تتجاوز الدوام الاعتيادي وتُسجّل منفصلة. القيمة الافتراضية 0، والحد الأعلى 24 ساعة لليوم.</p></div><div><label htmlFor="attendance-absent-days" className="mb-1.5 block text-sm font-bold text-slate-200">أيام الغياب</label><Input id="attendance-absent-days" name="absentDays" type="number" min="0" max="1" step="0.5" defaultValue="0" placeholder="أيام الغياب" className="border-white/10 bg-[#0D1117] text-white" dir="ltr" /><p className="mt-1.5 text-xs leading-5 text-slate-400">جزء اليوم الذي تغيّب فيه الموظف: 0 لا غياب، 0.5 نصف يوم، 1 يوم كامل. لا تتجاوز القيمة يومًا واحدًا في سجل اليوم.</p></div><div><label htmlFor="attendance-notes" className="mb-1.5 block text-sm font-bold text-slate-200">ملاحظات (اختياري)</label><Input id="attendance-notes" name="notes" placeholder="مثال: إجازة معتمدة أو تكليف إضافي" className="border-white/10 bg-[#0D1117] text-white" /><p className="mt-1.5 text-xs leading-5 text-slate-400">اكتب توضيحًا مختصرًا عند الحاجة، مثل سبب الغياب أو التكليف الإضافي. اتركه فارغًا إن لم توجد ملاحظات.</p></div><Button disabled={save.isPending || !siteId} className="w-full bg-[#F5B800] font-bold text-[#0D1117] sm:col-span-2 lg:col-span-3">{save.isPending ? "جارٍ الحفظ…" : "حفظ سجل الدوام"}</Button></form> : null}</CardContent></Card><Card className="border-white/8 bg-[#111823]"><CardContent className="p-0"><div className="flex flex-wrap gap-3 border-b border-white/8 p-5"><p className="w-full text-xs leading-5 text-slate-400">فلاتر التقرير: حدّد تاريخ البداية والنهاية لتقييد السجلات، ويمكن اختيار موظف بعينه أو «كل الموظفين». تُستخدم النتائج الظاهرة للتصدير إلى Excel أو PDF.</p><Button variant="outline" onClick={exportExcel} disabled={!rows.data?.length} className="border-white/10 text-white"><Download className="ml-2 h-4 w-4" />Excel</Button><Button variant="outline" onClick={exportPdf} disabled={!rows.data?.length} className="border-white/10 text-white"><Download className="ml-2 h-4 w-4" />PDF</Button><Input value={fromDate} onChange={(event) => setFromDate(event.target.value)} type="date" aria-label="من تاريخ" className="w-auto border-white/10 bg-[#0D1117] text-white" /><Input value={toDate} onChange={(event) => setToDate(event.target.value)} type="date" aria-label="إلى تاريخ" className="w-auto border-white/10 bg-[#0D1117] text-white" /><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} aria-label="تصفية الموظف" className="h-10 rounded-md border border-white/10 bg-[#0D1117] px-3 text-sm text-white"><option value="">كل الموظفين</option>{employees.data?.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}</select></div><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="px-5 py-3">الموظف</th><th className="px-4 py-3">التاريخ</th><th className="px-4 py-3">اعتيادي</th><th className="px-4 py-3">إضافي</th><th className="px-4 py-3">غياب</th></tr></thead><tbody>{displayRows.map((row) => <tr key={row.attendance.id} className="border-t border-white/8"><td className="px-5 py-4 font-bold text-white">{row.employee.fullName}{row.attendance.pendingOffline ? <span className="mt-1 block text-xs font-normal text-amber-200">محلي — بانتظار المزامنة</span> : null}</td><td className="px-4 py-4 text-slate-300">{moneyDate(row.attendance.workDate)}</td><td className="px-4 py-4 text-slate-300">{row.attendance.regularHours} س</td><td className="px-4 py-4 text-[#F5B800]">{row.attendance.overtimeHours} س</td><td className="px-4 py-4 text-rose-300">{row.attendance.absentDays} يوم</td></tr>)}</tbody></table>{!rows.isLoading && !displayRows.length ? <div className="p-10 text-center text-sm text-slate-500">لا توجد سجلات حضور للموظف أو الفترة أو الفرع المحدد.</div> : null}</div></CardContent></Card></div></div>;
+  const content = <div dir="rtl" className="space-y-6"><header className="rounded-2xl border border-white/8 bg-[#111823] p-5"><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ClipboardCheck className="h-4 w-4" />الحضور والانصراف</div><h1 className="mt-2 text-2xl font-extrabold text-white">سجل الدوام اليدوي</h1><p className="mt-1 text-sm text-slate-400">يسجل المحاسب الساعات الاعتيادية والإضافية وأيام الغياب بالفرع المحدد، وتستخدم البيانات عند تطوير احتساب الرواتب.</p></header>{!isHrOnline ? <p role="status" className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm leading-6 text-amber-100">وضع عدم الاتصال: تُحفظ سجلات الدوام كمسودات محلية، وتُزال الملاحظات ومعرّفات المنفذين من النسخة المخزنة. سيُراجع الخادم النسخة والتعارضات قبل تثبيت السجل.</p> : null}<div className="space-y-4"><Card className="border-white/8 bg-[#111823]"><CardContent className="p-0"><button type="button" aria-expanded={showAttendanceForm} onClick={() => setShowAttendanceForm((open) => !open)} className="flex w-full items-center justify-between gap-3 p-4 text-right"><span className="font-bold text-white">إضافة أو تحديث يوم</span><span className="flex items-center gap-2 text-xs text-slate-400">{showAttendanceForm ? "إخفاء النموذج" : "إظهار النموذج"}<ChevronDown className={`h-4 w-4 transition-transform ${showAttendanceForm ? "rotate-180" : ""}`} /></span></button>{showAttendanceForm ? <form onSubmit={submit} className="grid grid-cols-1 gap-3 border-t border-white/8 p-4 sm:grid-cols-2 lg:grid-cols-3"><div><label htmlFor="attendance-employee" className="mb-1.5 block text-sm font-bold text-slate-200">الموظف</label><select id="attendance-employee" required name="employeeId" value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} className="h-10 w-full rounded-md border border-white/10 bg-[#0D1117] px-3 text-sm text-white"><option value="">اختر الموظف</option>{displayEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}</select><p className="mt-1.5 text-xs leading-5 text-slate-400">اختر الموظف الذي تريد تسجيل دوامه في الفرع المحدد. اختيار الموظف نفسه مع تاريخ مسجل يحدّث سجل ذلك اليوم.</p></div><div><label htmlFor="attendance-work-date" className="mb-1.5 block text-sm font-bold text-slate-200">تاريخ الدوام</label><Input id="attendance-work-date" required name="workDate" type="date" className="border-white/10 bg-[#0D1117] text-white" /><p className="mt-1.5 text-xs leading-5 text-slate-400">اليوم الذي يخصه السجل، وليس تاريخ إدخال البيانات. إذا وُجد سجل للموظف في هذا التاريخ فسيُحدّث بدل إنشاء سجل يومي مكرر.</p></div><div><label htmlFor="attendance-regular-hours" className="mb-1.5 block text-sm font-bold text-slate-200">الساعات الاعتيادية</label><Input id="attendance-regular-hours" name="regularHours" type="number" min="0" max="24" step="0.25" defaultValue="8" placeholder="الساعات الاعتيادية" className="border-white/10 bg-[#0D1117] text-white" dir="ltr" /><p className="mt-1.5 text-xs leading-5 text-slate-400">عدد ساعات العمل العادية في هذا اليوم. القيمة الافتراضية 8 ساعات، ويمكن إدخال ربع ساعة مثل 7.5 أو 7.75. أدخل 0 إذا لم يعمل ساعات اعتيادية.</p></div><div><label htmlFor="attendance-overtime-hours" className="mb-1.5 block text-sm font-bold text-slate-200">الساعات الإضافية</label><Input id="attendance-overtime-hours" name="overtimeHours" type="number" min="0" max="24" step="0.25" defaultValue="0" placeholder="ساعات إضافية" className="border-white/10 bg-[#0D1117] text-white" dir="ltr" /><p className="mt-1.5 text-xs leading-5 text-slate-400">ساعات العمل التي تتجاوز الدوام الاعتيادي وتُسجّل منفصلة. القيمة الافتراضية 0، والحد الأعلى 24 ساعة لليوم.</p></div><div><label htmlFor="attendance-absent-days" className="mb-1.5 block text-sm font-bold text-slate-200">أيام الغياب</label><Input id="attendance-absent-days" name="absentDays" type="number" min="0" max="1" step="0.5" defaultValue="0" placeholder="أيام الغياب" className="border-white/10 bg-[#0D1117] text-white" dir="ltr" /><p className="mt-1.5 text-xs leading-5 text-slate-400">جزء اليوم الذي تغيّب فيه الموظف: 0 لا غياب، 0.5 نصف يوم، 1 يوم كامل. لا تتجاوز القيمة يومًا واحدًا في سجل اليوم.</p></div><div><label htmlFor="attendance-notes" className="mb-1.5 block text-sm font-bold text-slate-200">ملاحظات (اختياري)</label><Input id="attendance-notes" name="notes" placeholder="مثال: إجازة معتمدة أو تكليف إضافي" className="border-white/10 bg-[#0D1117] text-white" /><p className="mt-1.5 text-xs leading-5 text-slate-400">اكتب توضيحًا مختصرًا عند الحاجة، مثل سبب الغياب أو التكليف الإضافي. اتركه فارغًا إن لم توجد ملاحظات.</p></div><Button disabled={save.isPending || !siteId} className="w-full bg-[#F5B800] font-bold text-[#0D1117] sm:col-span-2 lg:col-span-3">{save.isPending ? "جارٍ الحفظ…" : "حفظ سجل الدوام"}</Button></form> : null}</CardContent></Card><Card className="border-white/8 bg-[#111823]"><CardContent className="p-0"><div className="flex flex-wrap gap-3 border-b border-white/8 p-5"><p className="w-full text-xs leading-5 text-slate-400">فلاتر التقرير: حدّد تاريخ البداية والنهاية لتقييد السجلات، ويمكن اختيار موظف بعينه أو «كل الموظفين». تُستخدم النتائج الظاهرة للتصدير إلى Excel أو PDF.</p><Button variant="outline" onClick={exportExcel} disabled={!rows.data?.length} className="border-white/10 text-white"><Download className="ml-2 h-4 w-4" />Excel</Button><Button variant="outline" onClick={exportPdf} disabled={!rows.data?.length} className="border-white/10 text-white"><Download className="ml-2 h-4 w-4" />PDF</Button><Input value={fromDate} onChange={(event) => setFromDate(event.target.value)} type="date" aria-label="من تاريخ" className="w-auto border-white/10 bg-[#0D1117] text-white" /><Input value={toDate} onChange={(event) => setToDate(event.target.value)} type="date" aria-label="إلى تاريخ" className="w-auto border-white/10 bg-[#0D1117] text-white" /><select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} aria-label="تصفية الموظف" className="h-10 rounded-md border border-white/10 bg-[#0D1117] px-3 text-sm text-white"><option value="">كل الموظفين</option>{employees.data?.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}</select></div><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="px-5 py-3">الموظف</th><th className="px-4 py-3">التاريخ</th><th className="px-4 py-3">اعتيادي</th><th className="px-4 py-3">إضافي</th><th className="px-4 py-3">غياب</th></tr></thead><tbody>{displayRows.map((row) => <tr key={row.attendance.id} className="border-t border-white/8"><td className="px-5 py-4 font-bold text-white">{row.employee.fullName}{row.attendance.pendingOffline ? <span className="mt-1 block text-xs font-normal text-amber-200">{row.attendance.pendingQueueStatus === "failed" ? "تعذرت/رُفضت — راجع مركز المزامنة" : "محلي — بانتظار المزامنة"}</span> : null}</td><td className="px-4 py-4 text-slate-300">{moneyDate(row.attendance.workDate)}</td><td className="px-4 py-4 text-slate-300">{row.attendance.regularHours} س</td><td className="px-4 py-4 text-[#F5B800]">{row.attendance.overtimeHours} س</td><td className="px-4 py-4 text-rose-300">{row.attendance.absentDays} يوم</td></tr>)}</tbody></table>{!rows.isLoading && !displayRows.length ? <div className="p-10 text-center text-sm text-slate-500">لا توجد سجلات حضور للموظف أو الفترة أو الفرع المحدد.</div> : null}</div></CardContent></Card></div></div>;
   return embedded ? content : <DashboardLayout>{content}</DashboardLayout>;
 }
