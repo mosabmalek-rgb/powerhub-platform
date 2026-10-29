@@ -254,7 +254,7 @@ begin
     perform public.powerhub_refresh_maintenance_plan_delta_scope(NEW.tenant_id,NEW.site_id);
   end if;
   return NEW;
-end $;
+end $$;
 alter function public.powerhub_capture_operational_delta_sync_change() owner to postgres;
 revoke all on function public.powerhub_capture_operational_delta_sync_change() from public,anon,authenticated;
 grant execute on function public.powerhub_capture_operational_delta_sync_change() to service_role;
