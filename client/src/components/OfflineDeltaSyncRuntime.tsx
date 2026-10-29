@@ -265,6 +265,26 @@ async function patchQueryCaches(
         };
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
       } else if (entityType === "inventory_purchase_receipt_headers" || entityType === "inventory_supplier_return_headers") {
+      } else if (entityType === "fuel_readings" || entityType === "maintenance_preventive_plans") {
+        const generatorId = Number(getOfflineQueryInput(query.queryKey).generatorId);
+        const filtered = applyDeltaPageToList(entityType, rows, page, scope, subscribers) as AnyRow[];
+        const nextRows = filtered
+          .filter((row) => !Number.isSafeInteger(generatorId) || generatorId < 1 ||
+            Number(row.generator_id ?? row.generatorId) === generatorId)
+          .sort((a, b) => {
+            if (entityType === "fuel_readings") {
+              const left = Date.parse(String(a.recorded_at ?? ""));
+              const right = Date.parse(String(b.recorded_at ?? ""));
+              return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                Number(b.reading_id ?? b.id) - Number(a.reading_id ?? a.id);
+            }
+            const priority = (row: AnyRow) => row.alert_type === "overdue" ? 0 : row.alert_type === "due_soon" ? 1 : 2;
+            return priority(a) - priority(b) ||
+              String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
+              Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
+          });
+        const limit = entityType === "fuel_readings" ? Number(getOfflineQueryInput(query.queryKey).limit ?? 100) : nextRows.length;
+        queryClient.setQueryData(query.queryKey, nextRows.slice(0, limit));
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
         const normalizedPage = {
           ...page,
@@ -453,7 +473,26 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
             queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
-          } else if (candidate.entityType === "inventory_purchase_receipt_headers" || candidate.entityType === "inventory_supplier_return_headers") {
+          } else if (candidate.entityType === "fuel_readings" || candidate.entityType === "maintenance_preventive_plans") {
+            const generatorId = Number(getOfflineQueryInput(query.queryKey).generatorId);
+            const filtered = (queryRows as AnyRow[])
+              .filter((row) => !Number.isSafeInteger(generatorId) || generatorId < 1 ||
+                Number(row.generator_id ?? row.generatorId) === generatorId)
+              .sort((a, b) => {
+                if (candidate.entityType === "fuel_readings") {
+                  const left = Date.parse(String(a.recorded_at ?? ""));
+                  const right = Date.parse(String(b.recorded_at ?? ""));
+                  return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                    Number(b.reading_id ?? b.id) - Number(a.reading_id ?? a.id);
+                }
+                const priority = (row: AnyRow) => row.alert_type === "overdue" ? 0 : row.alert_type === "due_soon" ? 1 : 2;
+                return priority(a) - priority(b) ||
+                  String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
+                  Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
+              });
+            const limit = candidate.entityType === "fuel_readings" ? Number(getOfflineQueryInput(query.queryKey).limit ?? 100) : filtered.length;
+            queryClient.setQueryData(query.queryKey, filtered.slice(0, limit));
+
             const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
             queryClient.setQueryData(query.queryKey, candidate.entityType === "inventory_purchase_receipt_headers"
               ? sortPurchaseReceiptRows(queryRows as AnyRow[], limit)
