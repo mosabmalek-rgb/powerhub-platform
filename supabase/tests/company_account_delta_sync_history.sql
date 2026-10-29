@@ -147,6 +147,27 @@ create table public.inventory_stocktake_lines (
   variance_quantity numeric(14,3), count_notes text, updated_at timestamptz not null default now()
 );
 \ir ../migrations/20261029100000_powerhub_delta_inventory_stocktakes.sql
+create table public.supplier_purchases (
+  id bigint primary key, tenant_id bigint not null, site_id bigint not null, supplier_id bigint not null,
+  warehouse_id bigint not null, purchase_number text not null, supplier_invoice_no text, invoice_date date not null,
+  due_date date, status text not null, subtotal_amount numeric(14,2) not null default 0,
+  discount_amount numeric(14,2) not null default 0, tax_amount numeric(14,2) not null default 0,
+  other_charges_amount numeric(14,2) not null default 0,
+  total_amount numeric(14,2) generated always as (subtotal_amount-discount_amount+tax_amount+other_charges_amount) stored,
+  payment_terms_days integer not null default 0, reference_no text, notes text, operation_key text not null,
+  received_at timestamptz, received_by_user_id bigint, confirmed_at timestamptz, confirmed_by_user_id bigint,
+  cancelled_at timestamptz, cancelled_by_user_id bigint, created_by_user_id bigint,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table public.supplier_purchase_lines (
+  id bigint primary key, tenant_id bigint not null, purchase_id bigint not null, item_id bigint not null,
+  quantity numeric(14,3) not null, unit text not null, units_to_base_factor numeric(14,6) not null default 1,
+  unit_price numeric(14,4) not null default 0, discount_amount numeric(14,2) not null default 0,
+  tax_amount numeric(14,2) not null default 0, line_subtotal numeric(14,2) not null default 0,
+  line_total numeric(14,2) not null default 0, received_quantity numeric(14,3) not null default 0,
+  notes text, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+\ir ../migrations/20261029110000_powerhub_delta_purchase_headers.sql
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
 begin
@@ -675,3 +696,122 @@ begin
   end if;
 end;
 $inventory_stocktake_delta_test$;
+
+
+-- Operational purchase-header Delta excludes all financial and payment-sensitive fields.
+do $inventory_purchase_header_delta_test$
+declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
+begin
+  insert into public.suppliers(id,tenant_id,supplier_code,name,is_active)
+  values (7701,1,'SUP-7701','Supplier Header Test',true);
+  insert into public.inventory_warehouses(id,tenant_id,site_id,code,name,is_active,location_type)
+  values (7701,1,10,'WH-7701','Purchase Header Warehouse',true,'branch_warehouse'),
+         (7702,1,20,'WH-7702','Second Branch Warehouse',true,'branch_warehouse');
+
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_purchase_headers');
+  if jsonb_array_length(v_snapshot->'rows')<>0 or v_snapshot #>> '{snapshot_cursor}' is distinct from '0' then
+    raise exception 'Initial purchase-header snapshot failed: %',v_snapshot;
+  end if;
+
+  insert into public.supplier_purchases(id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,supplier_invoice_no,invoice_date,due_date,status,subtotal_amount,discount_amount,tax_amount,other_charges_amount,payment_terms_days,reference_no,notes,operation_key)
+  values (8801,1,10,7701,7701,'PUR-8801','SUP-SECRET-INV',date '2026-10-29',date '2026-11-30','draft',1000,10,0,0,30,'FIN-REF-8801','private financial notes','purchase-header-test-8801');
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_purchase_headers');
+  if jsonb_array_length(v_snapshot->'rows')<>0 or (v_snapshot->>'snapshot_cursor') is distinct from '0' then
+    raise exception 'Draft purchase must not enter operational header feed: %',v_snapshot;
+  end if;
+
+  update public.supplier_purchases set status='confirmed',confirmed_at=now(),confirmed_by_user_id=7,updated_at=now()
+   where tenant_id=1 and site_id=10 and id=8801;
+  select last_cursor into v_cursor from public.powerhub_sync_scope_state where tenant_id=1 and site_id=10 and entity_type='inventory_purchase_headers';
+  if v_cursor is distinct from 1 then raise exception 'Confirmed purchase cursor mismatch: %',v_cursor; end if;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_headers',0,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '8801'
+     or v_delta #>> '{changes,0,row_data,purchase_number}' is distinct from 'PUR-8801'
+     or v_delta #>> '{changes,0,row_data,supplier_name}' is distinct from 'Supplier Header Test'
+     or (v_delta #> '{changes,0,row_data}') ? 'total_amount'
+     or (v_delta #> '{changes,0,row_data}') ? 'subtotal_amount'
+     or (v_delta #> '{changes,0,row_data}') ? 'supplier_invoice_no'
+     or (v_delta #> '{changes,0,row_data}') ? 'due_date'
+     or (v_delta #> '{changes,0,row_data}') ? 'payment_terms_days'
+     or (v_delta #> '{changes,0,row_data}') ? 'reference_no'
+     or (v_delta #> '{changes,0,row_data}') ? 'notes' then
+    raise exception 'Purchase header Delta exposed sensitive fields or omitted safe fields: %',v_delta;
+  end if;
+
+  insert into public.supplier_purchase_lines(id,tenant_id,purchase_id,item_id,quantity,unit,units_to_base_factor,received_quantity)
+  values (8901,1,8801,2101,5,'piece',1,0);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_headers',1,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,row_data,item_count}' is distinct from '1'
+     or v_delta #>> '{changes,0,row_data,received_line_count}' is distinct from '0' then
+    raise exception 'Purchase line insert did not refresh safe counters: %',v_delta;
+  end if;
+
+  update public.supplier_purchase_lines set received_quantity=2,updated_at=now()
+   where tenant_id=1 and purchase_id=8801 and id=8901;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_headers',2,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,row_data,received_line_count}' is distinct from '1' then
+    raise exception 'Receipt quantity update did not refresh purchase header: %',v_delta;
+  end if;
+
+  update public.suppliers set name='Renamed Header Supplier',supplier_code='SUP-7701A' where tenant_id=1 and id=7701;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_headers',3,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,row_data,supplier_name}' is distinct from 'Renamed Header Supplier'
+     or v_delta #>> '{changes,0,row_data,supplier_code}' is distinct from 'SUP-7701A' then
+    raise exception 'Supplier update failed to refresh purchase header projection: %',v_delta;
+  end if;
+
+  update public.inventory_warehouses set name='Renamed Purchase Warehouse' where tenant_id=1 and site_id=10 and id=7701;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_headers',4,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,row_data,warehouse_name}' is distinct from 'Renamed Purchase Warehouse' then
+    raise exception 'Warehouse rename failed to refresh purchase header projection: %',v_delta;
+  end if;
+
+  update public.supplier_purchases set site_id=20,warehouse_id=7702,updated_at=now() where tenant_id=1 and site_id=10 and id=8801;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_purchase_headers',5,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '8801' then
+    raise exception 'Purchase branch move did not tombstone old branch: %',v_delta;
+  end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_purchase_headers');
+  if jsonb_array_length(v_snapshot->'rows')<>0 then raise exception 'Moved purchase leaked into old branch: %',v_snapshot; end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,20,'inventory_purchase_headers');
+  if jsonb_array_length(v_snapshot->'rows')<>1
+     or v_snapshot #>> '{rows,0,purchase_number}' is distinct from 'PUR-8801'
+     or v_snapshot #>> '{rows,0,warehouse_name}' is distinct from 'Second Branch Warehouse' then
+    raise exception 'Moved purchase missing from new branch snapshot: %',v_snapshot;
+  end if;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,20,'inventory_purchase_headers',0,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
+     or v_delta #>> '{changes,0,row_data,site_id}' is distinct from '20' then
+    raise exception 'Purchase move did not create the new branch upsert: %',v_delta;
+  end if;
+
+  update public.supplier_purchases set status='cancelled',cancelled_at=now(),cancelled_by_user_id=7,updated_at=now()
+   where tenant_id=1 and site_id=20 and id=8801;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,20,'inventory_purchase_headers',1,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '8801' then
+    raise exception 'Cancelled purchase did not create a tombstone: %',v_delta;
+  end if;
+
+  begin
+    perform public.powerhub_get_inventory_sync_snapshot(2,10,'inventory_purchase_headers');
+    raise exception 'Expected cross-tenant purchase header snapshot denial';
+  exception when others then if sqlerrm<>'SITE_OUT_OF_SCOPE' then raise; end if; end;
+
+  if has_function_privilege('anon','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
+     or has_table_privilege('anon','public.supplier_purchases','SELECT')
+     or has_table_privilege('authenticated','public.supplier_purchase_lines','SELECT') then
+    raise exception 'Purchase-header Delta server-only ACL boundary was weakened';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'service_role cannot execute purchase-header Delta functions';
+  end if;
+end;
+$inventory_purchase_header_delta_test$;
