@@ -1029,3 +1029,16 @@
 - **الواجهة والصلاحيات:** تُحفظ لقطات التقارير التجميعية بنطاق المستخدم/الفرع/الفلاتر وTTL محدد، وتظل بيانات الاستعلام الناجحة ظاهرة عند خطأ نقل عابر مع تحذير. أما رد `UNAUTHORIZED/FORBIDDEN` أو HTTP `401/403` فيحجب بيانات الاستعلام المحلية وبدائله الأوسع؛ ويمنع تنفيذ عمليات تعتمد على خيارات قديمة أو خطة صيانة لم يمكن التحقق منها.
 - **لا تعميم زائد:** القائمة المفلترة التي لا يطابقها feed لا تُعامل تلقائيًا كـ Delta-backed. بديل آخر 100 قراءة/تعبئة يوضّح صراحةً أن فلاتر المولد/الفترة غير مطبقة. تقارير الوقود والصيانة تبقى لقطات مجمعة وليست إعادة احتساب محلية.
 - **قبول المتصفح:** يبقى اختبار إعادة التحميل وإعادة فتح المتصفح، وبدء التشغيل دون اتصال ثم استعادة Delta، والتحقق من تعدد الألسنة ضمن بوابة قبول منفصلة عن CI الآلي. لم يُنشر Preview ولم تُطبّق migrations على الإنتاج أو staging ضمن هذه الجولة.
+
+
+## HR offline operations — implementation in progress (2026-10-29)
+
+The HR implementation branch now wires narrow employee-directory and attendance Delta projections into the shared runtime and adds shared-Outbox replay for employee create/update, attendance, payroll-draft requests, advance disbursement requests and repayments. It also adds a minimized branch account-options query so the offline form can retain account IDs/names/types without caching the full balance/transaction response.
+
+Safety invariants:
+- Local writes are pending requests, never proof of server-side success. Payroll calculation/approval/cancellation/pay-out and advance/repayment posting are not authorized locally.
+- Stable operation keys, transaction-bound server idempotency, parent dependencies, employee/advance local-ID resolution and expected-version conflict checks are required for replay.
+- HR employee and attendance projections omit identity/contact/wage/notes/creator details; advances, payroll summaries and account options have separate minimization and retention policies.
+- A stale account option is only a UI hint. The server must recheck current site linkage, account status, permission, financial-period rules and remaining balance when replaying any financial operation.
+- The remaining acceptance gate is explicit: all CI/security/PostgreSQL gates must pass on the same final SHA, then staging-browser tests must verify reload/offline/reconnect, duplicate retry, branch isolation, reset-required, conflict display and financial balance reconciliation. A successful unit/SQL gate alone is not production acceptance.
+- No migrations were applied to staging or production and no Preview was deployed as part of this implementation update.
