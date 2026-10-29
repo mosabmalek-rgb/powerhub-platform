@@ -133,6 +133,22 @@ function compareStockMovementNewestFirst(
 }
 
 /**
+ * Entity feeds whose local Delta sidecar must be pruned atomically with each cursor.
+ * Work-order parts are intentionally unbounded within their own work-order partition.
+ */
+export function isBoundedDeltaEntityType(entityType: DeltaEntityType): boolean {
+  return entityType === "inventory_stock_movements" ||
+    entityType === "inventory_stocktakes" ||
+    entityType === "inventory_purchase_headers" ||
+    entityType === "inventory_purchase_receipt_headers" ||
+    entityType === "inventory_supplier_return_headers" ||
+    entityType === "fuel_readings" ||
+    entityType === "maintenance_preventive_plans" ||
+    entityType === "fuel_events" ||
+    entityType === "maintenance_work_orders";
+}
+
+/**
  * Keep the bounded stock-movement feed bounded in IndexedDB as well as in the UI.
  * Accepts either projected rows or stored entity records that wrap rowData.
  */
@@ -554,17 +570,7 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
           });
         }
       }
-      if (
-        scope.entityType === "inventory_stock_movements" ||
-        scope.entityType === "inventory_stocktakes" ||
-        scope.entityType === "inventory_purchase_headers" ||
-        scope.entityType === "inventory_purchase_receipt_headers" ||
-        scope.entityType === "inventory_supplier_return_headers" ||
-        scope.entityType === "fuel_readings" ||
-        scope.entityType === "maintenance_preventive_plans" ||
-        scope.entityType === "fuel_events" ||
-        scope.entityType === "maintenance_work_orders"
-      ) {
+      if (isBoundedDeltaEntityType(scope.entityType)) {
         // Keep every bounded entity sidecar in the same transaction as mutations and cursor.
         const retainedRequest = entities.index("byScope").getAll(IDBKeyRange.only(key));
         retainedRequest.onerror = () => failTransaction("تعذر تقليص سجل المزامنة المحلي.");
