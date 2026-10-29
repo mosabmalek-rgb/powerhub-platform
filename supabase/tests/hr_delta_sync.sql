@@ -56,10 +56,10 @@ begin
  update public.employees set full_name='Shared employee renamed',base_wage=10001,identity_no='NEW-SECRET' where id=v_shared;
  select public.powerhub_pull_hr_sync_delta(10,100,'hr_employee_directory',v_cursor,null,200) into v_delta;
  if not exists(select 1 from jsonb_array_elements(v_delta->'changes') c where c->>'entity_id'=v_shared::text and c->>'operation'='upsert'
-   and c->'row_data'->>'full_name'='Shared employee renamed' and not (c->'row_data' ? 'identity_no') and not (c->'row_data' ? 'base_wage'))
+   and c->'row_data'->>'full_name'='Shared employee renamed' and (c->'row_data'->>'version_no')::bigint=1 and not (c->'row_data' ? 'identity_no') and not (c->'row_data' ? 'base_wage'))
  then raise exception 'HR_DIRECTORY_UPDATE_OR_REDACTION_FAILED'; end if;
  select public.powerhub_get_hr_sync_snapshot(10,200,'hr_employee_directory') into v_snapshot;
- if not exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_shared::text) then raise exception 'HR_SHARED_EMPLOYEE_MISSING_ON_SECOND_SITE'; end if;
+ if not exists(select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_shared::text and r->>'version_no'='1') then raise exception 'HR_SHARED_EMPLOYEE_VERSION_OR_SCOPE_FAILED'; end if;
  select public.powerhub_get_hr_sync_snapshot(20,300,'hr_employee_directory') into v_snapshot;
  if jsonb_array_length(v_snapshot->'rows')<>1 or v_snapshot->'rows'->0->>'full_name'<>'Other tenant employee' then raise exception 'HR_TENANT_ISOLATION_FAILED'; end if;
  begin
@@ -77,13 +77,14 @@ begin
  values(10,v_employee,100,current_date,8,1,0,'SECRET-ATTENDANCE-NOTE',88) returning id into v_attendance;
  select public.powerhub_get_hr_sync_snapshot(10,100,'hr_attendance') into v_snapshot;
  if jsonb_array_length(v_snapshot->'rows')<>1 then raise exception 'HR_ATTENDANCE_SNAPSHOT_ROW_COUNT'; end if;
+ if v_snapshot->'rows'->0->'attendance'->>'version_no'<>'1' then raise exception 'HR_ATTENDANCE_VERSION_MISSING'; end if;
  if v_snapshot->'rows'->0->'attendance'->'notes'<>'null'::jsonb then raise exception 'HR_ATTENDANCE_NOTE_LEAK'; end if;
  if (v_snapshot->'rows'->0->'employee' ? 'identity_no') or (v_snapshot->'rows'->0->'employee' ? 'base_wage') or (v_snapshot->'rows'->0->'employee' ? 'phone') then raise exception 'HR_ATTENDANCE_EMPLOYEE_SENSITIVE_LEAK'; end if;
  v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
  update public.employee_attendance set regular_hours=7.5,notes='OTHER PRIVATE NOTE' where id=v_attendance;
  select public.powerhub_pull_hr_sync_delta(10,100,'hr_attendance',v_cursor,null,200) into v_delta;
  if not exists(select 1 from jsonb_array_elements(v_delta->'changes') c where c->>'entity_id'=v_attendance::text and c->>'operation'='upsert'
-   and c->'row_data'->'attendance'->>'regular_hours'='7.5' and c->'row_data'->'attendance'->'notes'='null'::jsonb)
+   and c->'row_data'->'attendance'->>'regular_hours'='7.5' and c->'row_data'->'attendance'->>'version_no'='1' and c->'row_data'->'attendance'->'notes'='null'::jsonb)
  then raise exception 'HR_ATTENDANCE_UPDATE_OR_REDACTION_FAILED'; end if;
 end $attendance$;
 
