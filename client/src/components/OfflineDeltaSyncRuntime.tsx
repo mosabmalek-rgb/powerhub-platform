@@ -7,6 +7,7 @@ import { persistOfflineQueryForDeltaSync } from "@/lib/offline-query-cache";
 import {
   clearDeltaSyncDataForUser,
   applyDeltaChanges,
+  compareMaintenanceWorkOrderNewestFirst,
   listDeltaEntities,
   getDeltaCursor,
   getDeltaSyncStatus,
@@ -319,12 +320,7 @@ async function patchQueryCaches(
                 Number(b[idField] ?? b.id) - Number(a[idField] ?? a.id);
             }
             if (entityType === "maintenance_work_orders") {
-              // Keep the client projection identical to the server's top-200
-              // membership order: reported_at falls back to created_at.
-              const left = Date.parse(String(a.reported_at ?? a.created_at ?? ""));
-              const right = Date.parse(String(b.reported_at ?? b.created_at ?? ""));
-              return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
-                Number(b.work_order_id ?? b.id) - Number(a.work_order_id ?? a.id);
+              return compareMaintenanceWorkOrderNewestFirst(a, b);
             }
             if (entityType.startsWith("maintenance_work_order_parts:")) {
               const left = Date.parse(String(a.issued_at ?? ""));
