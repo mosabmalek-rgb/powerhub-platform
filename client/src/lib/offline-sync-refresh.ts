@@ -15,7 +15,8 @@ export type OfflineSyncRefreshTarget =
   | "hr-directory"
   | "hr-attendance"
   | "payroll"
-  | "employee-advances";
+  | "employee-advances"
+  | "fuel";
 
 export type OfflineSyncRefreshCandidate = {
   item: Pick<QueuedOfflineWork, "kind" | "payload">;
@@ -29,6 +30,8 @@ const TARGETS_BY_KIND: Partial<Record<QueuedOfflineWork["kind"], readonly Offlin
   subscriber_update: ["subscribers", "subscriber-quota", "dashboard-summary"],
   generator_create: ["generators"],
   generator_update: ["generators"],
+  // Offline fuel fill is an intent; its server RPC owns all ledger changes.
+  fuel_fill: ["fuel", "generators"],
   // The server creates and approves the reading and issues its invoice in one RPC.
   // Refresh the related invoice and financial summaries only after that RPC confirms success.
   reading_create: ["readings", "invoices", "invoice-pages", "dashboard-summary", "financial-dashboard"],

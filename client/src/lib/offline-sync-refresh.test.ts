@@ -71,6 +71,19 @@ describe("offline sync Query invalidation plan", () => {
   });
 });
 
+describe("offline fuel-fill Outbox invalidation", () => {
+  it("does not invalidate inventory projections before the server confirms replay", () => {
+    expect(getOfflineSyncRefreshTargets([result("fuel_fill", "retryable")])).toEqual([]);
+    expect(getOfflineSyncRefreshTargets([result("fuel_fill", "conflict")])).toEqual([]);
+    expect(getOfflineSyncRefreshTargets([result("fuel_fill", "pending")])).toEqual([]);
+  });
+
+  it("refreshes fuel and generator projections after server-confirmed idempotent replay", () => {
+    expect(getOfflineSyncRefreshTargets([result("fuel_fill", "already_applied")]))
+      .toEqual(["fuel", "generators", "audit"]);
+  });
+});
+
 describe("payment documentation Outbox invalidation", () => {
   it("refreshes the review queue after submission without treating it as a financial movement", () => {
     expect(getOfflineSyncRefreshTargets([result("payment_documentation_submit", "applied")]))
