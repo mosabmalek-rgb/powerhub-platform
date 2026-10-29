@@ -654,6 +654,9 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("reportRows.map((row)");
     expect(panel).toContain("events.error && events.data !== undefined");
     expect(panel).toContain("readings.error && readings.data !== undefined");
+    expect(panel).toContain("const recentReadings = trpc.powerhub.inventory.listFuelReadings.useQuery(");
+    expect(panel).toContain("const usingRecentOfflineReadings = readings.data === undefined && recentReadings.data !== undefined;");
+    expect(panel).toContain("دون تطبيق فلتر المولد حتى استعادة الاتصال");
     expect(panel).toContain("هذه لقطة تجميعية وليست إعادة احتساب حيّة");
     expect(cache).toContain("snapshot.key !== makeKey(input)");
     expect(cache).toContain("now - snapshot.savedAt >= OFFLINE_OPERATIONAL_REPORT_TTL_MS");
