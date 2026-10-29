@@ -73,7 +73,7 @@ describe("inventory catalog Delta extension", () => {
     expect(inventoryMigration).toContain("'inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements'");
     expect(inventoryMigration).toContain("powerhub_get_inventory_sync_snapshot");
     expect(inventoryMigration).toContain("powerhub_pull_inventory_sync_delta");
-    expect(inventoryMigration).toContain("after insert on public.inventory_stock_movements");
+    expect(inventoryMigration).toContain("after insert or update on public.inventory_stock_movements");
     expect(inventoryMigration).not.toContain("'total_cost_amount',p_row->'total_cost_amount'");
     expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_items");
     expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_item_units");
