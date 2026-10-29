@@ -518,7 +518,7 @@ export const powerhubRouter = router({
   deltaSync: router({
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements"]),
       afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
       throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
       pageSize: z.number().int().min(1).max(500).default(200),
@@ -540,17 +540,18 @@ export const powerhubRouter = router({
         inventory_item_units: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         suppliers: ["owner", "manager", "accountant", "collector", "viewer"],
         inventory_warehouses: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
       } as const;
       const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
-        : ["inventory_items", "inventory_item_units", "inventory_warehouses"].includes(input.entityType) ? "viewInventory" : undefined;
+        : ["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined;
       const access = input.entityType === "company_accounts_all"
         ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
         : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]], inventoryCapability);
       const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
       const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
-      const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"].includes(input.entityType);
+      const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType);
       const { data, error } = await supabaseAdmin().rpc(
-        inventoryCatalogEntity ? "powerhub_pull_inventory_catalog_sync_delta" : "powerhub_pull_sync_delta",
+        inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta",
         { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
           p_after_cursor: afterCursor, p_through_cursor: throughCursor, p_page_size: input.pageSize },
       );
@@ -580,7 +581,7 @@ export const powerhubRouter = router({
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements"]),
     })).query(async ({ ctx, input }) => {
       const readRolesByEntity = {
         sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
@@ -597,15 +598,16 @@ export const powerhubRouter = router({
         inventory_item_units: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         suppliers: ["owner", "manager", "accountant", "collector", "viewer"],
         inventory_warehouses: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
       } as const;
       const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
-        : ["inventory_items", "inventory_item_units", "inventory_warehouses"].includes(input.entityType) ? "viewInventory" : undefined;
+        : ["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined;
       const access = input.entityType === "company_accounts_all"
         ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
         : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]], inventoryCapability);
-      const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"].includes(input.entityType);
+      const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType);
       const { data, error } = await supabaseAdmin().rpc(
-        inventoryCatalogEntity ? "powerhub_get_inventory_catalog_sync_snapshot" : "powerhub_get_sync_snapshot",
+        inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot",
         { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType },
       );
       if (error) {
