@@ -231,6 +231,9 @@ begin
   ) then raise exception 'DELTA_WORK_ORDER_TOP_200_FIXTURE_INVALID'; end if;
 
   delete from public.generator_maintenance_work_orders where id=v_deleted_id;
+  if exists(select 1 from public.generator_maintenance_work_orders where id=v_deleted_id) then
+    raise exception 'DELTA_WORK_ORDER_FIXTURE_DELETE_DID_NOT_REMOVE_ROW';
+  end if;
 
   select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_work_orders')
     into v_snapshot;
