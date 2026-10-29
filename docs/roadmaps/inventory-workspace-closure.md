@@ -218,3 +218,11 @@ Status: implementation merged in PR #320 and included in Phase D reporting in PR
 5. Verify role policy and capability configuration UI exposes `manageMaintenance` consistently to owners/managers/technicians.
 6. Keep the deployed migration list and actual schema under review; production data must remain read-only for testing.
 7. Browser E2E was explicitly waived by the user on 2026-10-23. It was not run; do not report it as passed merely because component-contract tests pass.
+
+
+### منع الترحيل النهائي دون اتصال موثوق — 2026-10-29
+
+- تشترط شاشات حركات المخزون وتصحيحها وإرجاع الصرف والجرد وحفظ العد وإرساله واعتماده، وكذلك إنشاء/اعتماد/استلام المشتريات ومرتجعات المورد ودفعاته والعكس، نجاح فحص اتصال PowerHub المشترك قبل الإرسال. يفشل الحارس المغلق عند حالة الاتصال غير المحسومة، ويعيد فحص لقطة الاتصال داخل معالج الإجراء لحماية سباق تبدّل الاتصال.
+- تظل اللقطات والقوائم المحلية للعرض فقط. لا تُضاف حركات المخزون النهائية أو اعتماد/استلام المشتريات أو مرتجعات المورد أو دفعاته إلى Outbox. لا يثبت الزر ولا الكاش النجاح؛ فقط الإجراء الخادمي المحمي ونتيجة RPC الذرية يستطيعان ترحيل الرصيد.
+- أضيفت اختبارات عقد تربط كل شاشة بمصدر الاتصال المشترك وحارس الإرسال وتمنع إضافة إجراءات الترحيل النهائية كأنواع Outbox. وتظل اختبارات المتصفح الفعلية مطلوبة منفصلة عن اختبارات المصدر/CI.
+- **حالة القبول:** لم يُنشر Preview لأن المعاينة ما زالت مؤجلة بتوجيه المستخدم؛ لذلك لا نزعم نجاح قبول المتصفح. لم تتغير قاعدة البيانات، ولم تُطبق أي migrations على الإنتاج أو Staging ضمن هذه الدفعة.
