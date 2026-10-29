@@ -194,4 +194,64 @@ begin
 end;
 $fuel_maintenance_delta$;
 
+-- Regression: deleting the newest row in the bounded top-200 work-order feed
+-- must emit the newly visible #201 row, not leave the offline list one row short.
+do $bounded_work_order_membership$
+declare
+  v_deleted_id bigint;
+  v_replacement_id bigint;
+  v_snapshot jsonb;
+  v_delta jsonb;
+  v_cursor bigint;
+  v_count integer;
+begin
+  insert into public.generator_maintenance_work_orders(
+    tenant_id,site_id,generator_id,work_order_number,order_type,priority,status,title,
+    reported_at,operation_key,operation_payload_hash,created_by_user_id
+  )
+  select 10,100,10000,'DELTA-BOUND-WO-'||lpad(g::text,3,'0'),
+    'breakdown','normal','new','Bounded work order '||g,
+    timestamptz '2090-01-01 00:00:00+00'+g*interval '1 day',
+    'delta-bounded-work-order-'||g,'delta-bounded-work-order-payload-'||g,1
+  from generate_series(1,201) g;
+
+  select id into v_deleted_id from public.generator_maintenance_work_orders
+    where tenant_id=10 and site_id=100 and operation_key='delta-bounded-work-order-201';
+  select id into v_replacement_id from public.generator_maintenance_work_orders
+    where tenant_id=10 and site_id=100 and operation_key='delta-bounded-work-order-001';
+
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_work_orders')
+    into v_snapshot;
+  v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
+  v_count:=jsonb_array_length(v_snapshot->'rows');
+  if v_count<>200 or not exists(
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_deleted_id::text
+  ) or exists(
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text
+  ) then raise exception 'DELTA_WORK_ORDER_TOP_200_FIXTURE_INVALID'; end if;
+
+  delete from public.generator_maintenance_work_orders where id=v_deleted_id;
+
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_work_orders')
+    into v_snapshot;
+  v_count:=jsonb_array_length(v_snapshot->'rows');
+  if v_count<>200 or exists(
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_deleted_id::text
+  ) or not exists(
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text
+  ) then raise exception 'DELTA_WORK_ORDER_DELETE_DID_NOT_REFILL_TOP_200'; end if;
+
+  select public.powerhub_pull_fuel_maintenance_sync_delta(
+    10,100,'maintenance_work_orders',v_cursor,null,500
+  ) into v_delta;
+  if not exists(
+    select 1 from jsonb_array_elements(v_delta->'changes') c
+    where c->>'entity_id'=v_deleted_id::text and c->>'operation'='delete'
+  ) or not exists(
+    select 1 from jsonb_array_elements(v_delta->'changes') c
+    where c->>'entity_id'=v_replacement_id::text and c->>'operation'='upsert'
+  ) then raise exception 'DELTA_WORK_ORDER_DELETE_JOURNAL_DID_NOT_REFILL_TOP_200'; end if;
+end;
+$bounded_work_order_membership$;
+
 select 'Fuel-event and maintenance work-order/parts Delta snapshot, update, redaction and scope assertions passed' as result;
