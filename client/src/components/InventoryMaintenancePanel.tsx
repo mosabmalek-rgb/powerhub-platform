@@ -183,11 +183,12 @@ export default function InventoryMaintenancePanel({
     onError: (error) => toast.error(error.message || "تعذر صرف الصنف؛ تحقق من الرصيد والمخزن والصلاحيات."),
   });
   useEffect(() => {
-    if (!selectedPartsOrderId && orders.data?.length) {
-      const next = orders.data.find((order) => openStatuses.includes(order.status));
+    if (ordersAuthorizationDenied) return;
+    if (!selectedPartsOrderId && safeOrders.length) {
+      const next = safeOrders.find((order) => openStatuses.includes(order.status));
       if (next) setSelectedPartsOrderId(String(next.work_order_id));
     }
-  }, [orders.data, selectedPartsOrderId]);
+  }, [ordersAuthorizationDenied, safeOrders, selectedPartsOrderId]);
 
   const submit = () => {
     const generator = Number(generatorId);
@@ -217,7 +218,7 @@ export default function InventoryMaintenancePanel({
     if (action === "complete") {
       const summary = window.prompt("اكتب ملخص الأعمال المنفذة (مطلوب):")?.trim();
       if (!summary) { toast.error("يلزم ملخص الإغلاق."); return; }
-      const plan = plans.data?.find((candidate) => candidate.plan_id === order.preventive_plan_id);
+      const plan = plansAuthorizationDenied ? undefined : safePlans.find((candidate) => candidate.plan_id === order.preventive_plan_id);
       const needsHours = Number(plan?.interval_operating_hours ?? 0) > 0;
       const hours = needsHours ? window.prompt("أدخل ساعات التشغيل عند الإغلاق (مطلوب لهذه الخطة):")?.trim() : window.prompt("ساعات التشغيل عند الإغلاق (اختياري):")?.trim();
       if (needsHours && !hours) { toast.error("تتطلب الخطة قراءة ساعات التشغيل عند الإغلاق."); return; }
