@@ -265,6 +265,20 @@ async function patchQueryCaches(
         };
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
       } else if (entityType === "inventory_purchase_receipt_headers" || entityType === "inventory_supplier_return_headers") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            const rowData = change.row_data;
+            if (change.operation !== "upsert" || rowData === null || typeof rowData !== "object" || Array.isArray(rowData)) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, rowData as AnyRow) };
+          }),
+        };
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+        queryClient.setQueryData(query.queryKey, entityType === "inventory_purchase_receipt_headers"
+          ? sortPurchaseReceiptRows(nextRows, limit)
+          : sortSupplierReturnRows(nextRows, limit));
       } else if (entityType === "fuel_readings" || entityType === "maintenance_preventive_plans") {
         const generatorId = Number(getOfflineQueryInput(query.queryKey).generatorId);
         const filtered = applyDeltaPageToList(entityType, rows, page, scope, subscribers) as AnyRow[];
@@ -285,20 +299,6 @@ async function patchQueryCaches(
           });
         const limit = entityType === "fuel_readings" ? Number(getOfflineQueryInput(query.queryKey).limit ?? 100) : nextRows.length;
         queryClient.setQueryData(query.queryKey, nextRows.slice(0, limit));
-        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
-        const normalizedPage = {
-          ...page,
-          changes: page.changes.map(change => {
-            const rowData = change.row_data;
-            if (change.operation !== "upsert" || rowData === null || typeof rowData !== "object" || Array.isArray(rowData)) return change;
-            return { ...change, row_data: normalizeDeltaEntityRow(entityType, rowData as AnyRow) };
-          }),
-        };
-        const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
-        const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
-        queryClient.setQueryData(query.queryKey, entityType === "inventory_purchase_receipt_headers"
-          ? sortPurchaseReceiptRows(nextRows, limit)
-          : sortSupplierReturnRows(nextRows, limit));
       } else if (entityType === "inventory_purchase_headers") {
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_purchase_headers", row));
         const normalizedPage = {
