@@ -22,6 +22,28 @@ type InventoryStockOverviewRow = {
   below_reorder_point: boolean;
 };
 
+type InventoryStocktakeRow = {
+  stocktake_id: number;
+  stocktake_number: string;
+  warehouse_id: number;
+  warehouse_name: string;
+  location_type: string;
+  status: string;
+  reason: string;
+  notes: string | null;
+  snapshot_at: string;
+  created_at: string;
+  created_by_user_id: number | null;
+  submitted_at: string | null;
+  submitted_by_user_id: number | null;
+  posted_at: string | null;
+  posted_by_user_id: number | null;
+  item_count: number;
+  counted_count: number;
+  variance_count: number;
+  variance_quantity: number | string;
+};
+
 type InventoryStockMovementRow = {
   movement_id: number;
   warehouse_id: number;
@@ -1232,7 +1254,8 @@ export const powerhubInventoryRouter = router({
         p_warehouse_id: input.warehouseId ?? null, p_limit: input.limit,
       });
       if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل سجل جلسات الجرد.");
-      return (data ?? []).map((row) => ({
+      const stocktakes = (data ?? []) as InventoryStocktakeRow[];
+      return stocktakes.map((row) => ({
         ...row,
         id: Number(row.stocktake_id),
         tenantId: access.tenantId,
