@@ -27,6 +27,9 @@ const BLOCKED_PROCEDURES = new Set([
   "financialDashboard",
   "financialSettlements",
   "expenses",
+  // HR queries include identity/contact details, wages, attendance, advances and payroll.
+  // They remain server-only until an explicitly minimized, permission-scoped projection exists.
+  "hr",
   "payroll",
   "attendance",
 ]);
