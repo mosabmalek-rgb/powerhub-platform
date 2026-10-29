@@ -4412,6 +4412,57 @@ export const powerhubRouter = router({
     }),
   }),
   hr: router({
+    offlineDirectory: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+      const { data, error } = await supabaseAdmin().from("employees")
+        .select("id, tenant_id, site_id, full_name, job_title, employment_status, contract_type, created_at")
+        .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`)
+        .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(500);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دليل الموظفين الآمن." });
+      return (data ?? []).map((employee) => ({
+        id: Number(employee.id), tenantId: Number(employee.tenant_id),
+        siteId: employee.site_id === null ? null : Number(employee.site_id),
+        fullName: employee.full_name, jobTitle: employee.job_title,
+        employmentStatus: employee.employment_status, contractType: employee.contract_type,
+        createdAt: new Date(employee.created_at),
+      }));
+    }),
+    offlineAttendance: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "managePayroll");
+      const { data, error } = await supabaseAdmin().from("employee_attendance")
+        .select("id, tenant_id, employee_id, site_id, work_date, regular_hours, overtime_hours, absent_days, created_at, updated_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .order("work_date", { ascending: false }).order("id", { ascending: false }).limit(1000);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الحضور الآمن." });
+      const employeeIds = Array.from(new Set((data ?? []).map((row) => Number(row.employee_id))));
+      const { data: people, error: peopleError } = employeeIds.length
+        ? await supabaseAdmin().from("employees").select("id, tenant_id, site_id, full_name, job_title, employment_status")
+            .eq("tenant_id", access.tenantId).in("id", employeeIds).or(`site_id.eq.${input.siteId},site_id.is.null`)
+        : { data: [], error: null };
+      if (peopleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء موظفي سجل الحضور." });
+      const peopleById = new Map((people ?? []).map((employee) => [Number(employee.id), employee]));
+      return (data ?? []).flatMap((attendance) => {
+        const employee = peopleById.get(Number(attendance.employee_id));
+        if (!employee) return [];
+        return [{
+          id: Number(attendance.id), tenantId: Number(attendance.tenant_id), siteId: Number(attendance.site_id),
+          attendance: {
+            id: Number(attendance.id), tenantId: Number(attendance.tenant_id),
+            employeeId: Number(attendance.employee_id), siteId: Number(attendance.site_id),
+            workDate: new Date(`${attendance.work_date}T00:00:00.000Z`),
+            regularHours: String(attendance.regular_hours), overtimeHours: String(attendance.overtime_hours),
+            absentDays: String(attendance.absent_days), notes: null, createdByUserId: null,
+            createdAt: new Date(attendance.created_at), updatedAt: new Date(attendance.updated_at),
+          },
+          employee: {
+            id: Number(employee.id), tenantId: Number(employee.tenant_id),
+            siteId: employee.site_id === null ? null : Number(employee.site_id),
+            fullName: employee.full_name, jobTitle: employee.job_title,
+            employmentStatus: employee.employment_status,
+          },
+        }];
+      });
+    }),
     listAttendance: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), fromDate: z.string().optional(), toDate: z.string().optional(), employeeId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "managePayroll");
       let query = supabaseAdmin().from("employee_attendance").select("id, tenant_id, employee_id, site_id, work_date, regular_hours, overtime_hours, absent_days, notes, created_by_user_id, created_at, updated_at").eq("tenant_id", access.tenantId).eq("site_id", input.siteId);
