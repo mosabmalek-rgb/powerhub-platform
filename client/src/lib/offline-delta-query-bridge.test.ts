@@ -447,3 +447,50 @@ describe("reading Delta site scope projection", () => {
       .toMatchObject({ id:700, tenantId:1, siteId:10, subscriberId:101 });
   });
 });
+
+
+describe("fuel and preventive maintenance Delta projections", () => {
+  it("normalizes fuel readings without losing the existing UI field names", () => {
+    const row = normalizeDeltaEntityRow("fuel_readings", {
+      id: 701, tenant_id: 2, site_id: 10, generator_id: 44, generator_name: "مولد A",
+      reading_type: "tank_level", tank_warehouse_id: 18, tank_name: "خزان A",
+      reading_value: "125.500", recorded_at: "2026-10-29T10:00:00Z",
+      corrects_reading_id: null, reference_no: null, notes: null, created_at: "2026-10-29T10:00:00Z",
+    });
+    expect(row).toMatchObject({
+      id: 701, reading_id: 701, tenantId: 2, siteId: 10, generator_id: 44,
+      generator_name: "مولد A", reading_type: "tank_level", tank_warehouse_id: 18,
+      tank_name: "خزان A", reading_value: "125.500", corrects_reading_id: null,
+    });
+    expect(row.recorded_at).toBe("2026-10-29T10:00:00.000Z");
+  });
+
+  it("normalizes preventive plans and applies only same-tenant, same-branch changes", () => {
+    const plan = normalizeDeltaEntityRow("maintenance_preventive_plans", {
+      id: 801, tenant_id: 2, site_id: 10, generator_id: 44, generator_name: "مولد A",
+      plan_code: "PM-801", title: "فحص دوري", interval_days: 30, interval_operating_hours: null,
+      next_due_at: "2026-11-01T00:00:00Z", next_due_operating_hours: null,
+      due_soon_days: 7, due_soon_hours: 10, is_active: true, alert_type: "due_soon",
+      observed_operating_hours: "450.00",
+    });
+    expect(plan).toMatchObject({
+      id: 801, plan_id: 801, tenantId: 2, siteId: 10, generator_id: 44,
+      plan_code: "PM-801", title: "فحص دوري", interval_days: 30, is_active: true, alert_type: "due_soon",
+    });
+    const planScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "maintenance_preventive_plans" };
+    const current = [plan];
+    const update = basePage([
+      { cursor: "5", entity_type: "maintenance_preventive_plans", entity_id: "801", operation: "upsert",
+        row_data: { ...plan, title: "فحص محدث" }, changed_at: "2026-10-29T10:00:00Z" },
+      { cursor: "6", entity_type: "maintenance_preventive_plans", entity_id: "802", operation: "upsert",
+        row_data: { ...plan, id: 802, plan_id: 802, tenantId: 999, title: "خطة مستأجر آخر" }, changed_at: "2026-10-29T10:00:01Z" },
+    ], "maintenance_preventive_plans");
+    expect(applyDeltaPageToList("maintenance_preventive_plans", current, update, planScope))
+      .toMatchObject([{ id: 801, title: "فحص محدث" }]);
+    const deletion = basePage([
+      { cursor: "7", entity_type: "maintenance_preventive_plans", entity_id: "801", operation: "delete",
+        row_data: null, changed_at: "2026-10-29T10:00:02Z" },
+    ], "maintenance_preventive_plans");
+    expect(applyDeltaPageToList("maintenance_preventive_plans", current, deletion, planScope)).toEqual([]);
+  });
+});
