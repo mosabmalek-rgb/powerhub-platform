@@ -12,6 +12,7 @@ import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
 import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeCreateDraft, type HrPayrollDraftPayload } from "@/lib/offline-work-queue";
 
 const statusLabels: Record<string, string> = { draft: "مسودة", approved: "معتمد", paid: "مصروف", cancelled: "ملغى" };
@@ -35,6 +36,10 @@ export default function PayrollPage({ embedded = false }: { embedded?: boolean }
   const offlineRuns = trpc.powerhub.hr.offlinePayrollRuns.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId) });
   const payrollDataDenied = [access, employees, offlineDirectory, runs, offlineRuns].some((query) =>
     query.isError && isExplicitAuthorizationDenial(query.error));
+  useEffect(() => {
+    if (!payrollDataDenied || !siteId || !Number.isSafeInteger(userId) || userId < 1) return;
+    void clearOfflineHrProjectionCacheForSite(String(userId), siteId);
+  }, [payrollDataDenied, siteId, userId]);
   const [pendingDrafts, setPendingDrafts] = useState<any[]>([]);
   useEffect(() => {
     if (payrollDataDenied || !Number.isSafeInteger(userId) || userId < 1 || !siteId) { setPendingDrafts([]); return; }

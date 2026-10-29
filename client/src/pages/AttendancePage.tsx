@@ -9,6 +9,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
 import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrAttendanceUpsertDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { ClipboardCheck, ChevronDown } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
@@ -51,6 +52,10 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
   const offlineRows = trpc.powerhub.hr.offlineAttendance.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId) });
   const hrAccessDenied = [employees, offlineDirectory, rows, offlineRows].some((query) =>
     query.isError && isExplicitAuthorizationDenial(query.error));
+  useEffect(() => {
+    if (!hrAccessDenied || !siteId || !Number.isSafeInteger(userId) || userId < 1) return;
+    void clearOfflineHrProjectionCacheForSite(String(userId), siteId);
+  }, [hrAccessDenied, siteId, userId]);
   const baseEmployees: any[] = hrAccessDenied ? [] : (isHrOnline && employees.data ? employees.data : (offlineDirectory.data ?? []));
   const pendingEmployeeRows = (hrAccessDenied ? [] : pendingHrWork.filter((item) => item.kind === "employee_create" && item.status !== "applied"))
     .map((item) => {

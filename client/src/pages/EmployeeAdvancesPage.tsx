@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
 import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
 import { HandCoins, Plus, RotateCcw } from "lucide-react";
@@ -49,6 +50,10 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
   const advances=trpc.powerhub.hr.listEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)&&isHrOnline});
   const offlineAdvances=trpc.powerhub.hr.offlineEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
   const hrAccessDenied=[access,employees,offlineDirectory,accounts,advances,offlineAdvances].some((query)=>query.isError&&isExplicitAuthorizationDenial(query.error));
+  useEffect(()=>{
+    if(!hrAccessDenied||!siteId||!Number.isSafeInteger(userId)||userId<1)return;
+    void clearOfflineHrProjectionCacheForSite(String(userId),siteId);
+  },[hrAccessDenied,siteId,userId]);
   const baseEmployees:any[]=hrAccessDenied?[]:(isHrOnline&&employees.data?employees.data:(offlineDirectory.data??[]));
   const displayEmployees:any[]=hrAccessDenied?[]:[
     ...pendingHrWork.filter((item)=>item.kind==="employee_create"&&item.status!=="applied").map((item)=>{
