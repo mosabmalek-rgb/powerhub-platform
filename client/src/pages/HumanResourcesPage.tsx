@@ -55,7 +55,7 @@ export default function HumanResourcesPage({ embedded = false }: { embedded?: bo
     query.isError && isExplicitAuthorizationDenial(query.error));
   useEffect(() => {
     if (!hrAccessDenied || !siteId || !Number.isSafeInteger(userId) || userId < 1) return;
-    void clearOfflineHrProjectionCacheForSite(String(userId), siteId);
+    void clearOfflineHrProjectionCacheForSite(String(userId), siteId, ["offlineDirectory"]);
   }, [hrAccessDenied, siteId, userId]);
   const baseEmployees: any[] = hrAccessDenied ? [] : (isHrOnline && employees.data ? employees.data : (offlineDirectory.data ?? []));
   const employeesWithPendingWork = hrAccessDenied ? [] : pendingHrWork.filter((item) => item.status !== "applied" &&

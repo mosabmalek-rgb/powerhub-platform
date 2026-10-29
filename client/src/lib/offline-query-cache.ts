@@ -536,15 +536,21 @@ export async function persistOfflineQueryForDeltaSync(query: Query, userId: stri
  * This deliberately leaves Outbox operations intact for review/reconciliation.
  */
 /** Exact allowlist used to purge only the caller's persisted HR projections for one site. */
-export function isOfflineHrProjectionQueryKeyForSite(queryKey: readonly unknown[], siteId: number): boolean {
+export function isOfflineHrProjectionQueryKeyForSite(
+  queryKey: readonly unknown[],
+  siteId: number,
+  procedures: readonly string[] = ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"],
+): boolean {
   if (!Number.isSafeInteger(siteId) || siteId < 1) return false;
   const first = queryKey[0];
   const segments = Array.isArray(first)
     ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
+  const procedure = segments[2] ?? "";
   if (segments[0] !== "powerhub" || segments[1] !== "hr" ||
       !["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances",
-        "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(segments[2] ?? "")) return false;
+        "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(procedure) ||
+      !procedures.includes(procedure)) return false;
   const wrapper = queryKey[1];
   if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
   const recordOptions = wrapper as Record<string, unknown>;
@@ -561,15 +567,19 @@ export function isOfflineHrProjectionQueryKeyForSite(queryKey: readonly unknown[
  * explicitly denies access. A later reload must not rehydrate a revoked snapshot.
  * This deliberately leaves Outbox operations intact for review/reconciliation.
  */
-export async function clearOfflineHrProjectionCacheForSite(userId: string, siteId: number) {
-  if (!userId || !Number.isSafeInteger(siteId) || siteId < 1) return;
+export async function clearOfflineHrProjectionCacheForSite(
+  userId: string,
+  siteId: number,
+  procedures: readonly string[] = ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"],
+) {
+  if (!userId || !Number.isSafeInteger(siteId) || siteId < 1 || procedures.length === 0) return;
   try {
     const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
     const keys = records.filter((record) => {
       if (record.userId !== userId) return false;
       try {
         return isOfflineHrProjectionQueryKeyForSite(
-          superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId,
+          superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId, procedures,
         );
       } catch {
         return false;

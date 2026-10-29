@@ -38,7 +38,7 @@ export default function PayrollPage({ embedded = false }: { embedded?: boolean }
     query.isError && isExplicitAuthorizationDenial(query.error));
   useEffect(() => {
     if (!payrollDataDenied || !siteId || !Number.isSafeInteger(userId) || userId < 1) return;
-    void clearOfflineHrProjectionCacheForSite(String(userId), siteId);
+    void clearOfflineHrProjectionCacheForSite(String(userId), siteId, ["offlineDirectory", "offlinePayrollRuns"]);
   }, [payrollDataDenied, siteId, userId]);
   const [pendingDrafts, setPendingDrafts] = useState<any[]>([]);
   useEffect(() => {

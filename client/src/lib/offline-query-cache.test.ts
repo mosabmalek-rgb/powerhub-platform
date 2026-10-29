@@ -651,6 +651,8 @@ describe("HR local-first cache boundaries", () => {
     expect(isOfflineHrProjectionQueryKeyForSite(key("offlineDirectory", { siteId: 7, search: "person" }), 7)).toBe(false);
     expect(isOfflineHrProjectionQueryKeyForSite(key("listEmployees"), 7)).toBe(false);
     expect(isOfflineHrProjectionQueryKeyForSite(key("offlineDirectory"), 0)).toBe(false);
+    expect(isOfflineHrProjectionQueryKeyForSite(key("offlineAttendance"), 7, ["offlineDirectory"])).toBe(false);
+    expect(isOfflineHrProjectionQueryKeyForSite(key("offlineDirectory"), 7, ["offlineDirectory"])).toBe(true);
     expect(clearOfflineHrProjectionCacheForSite).toBeTypeOf("function");
   });
 

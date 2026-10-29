@@ -49,13 +49,16 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
   const accounts=trpc.powerhub.hr.offlineCompanyAccountOptions.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
   const advances=trpc.powerhub.hr.listEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)&&isHrOnline});
   const offlineAdvances=trpc.powerhub.hr.offlineEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
-  const hrAccessDenied=[access,employees,offlineDirectory,accounts,advances,offlineAdvances].some((query)=>query.isError&&isExplicitAuthorizationDenial(query.error));
+  const employeeDirectoryDenied=[employees,offlineDirectory].some((query)=>query.isError&&isExplicitAuthorizationDenial(query.error));
+  const advancesAccessDenied=[access,accounts,advances,offlineAdvances].some((query)=>query.isError&&isExplicitAuthorizationDenial(query.error));
+  const hrAccessDenied=employeeDirectoryDenied||advancesAccessDenied;
   useEffect(()=>{
-    if(!hrAccessDenied||!siteId||!Number.isSafeInteger(userId)||userId<1)return;
-    void clearOfflineHrProjectionCacheForSite(String(userId),siteId);
-  },[hrAccessDenied,siteId,userId]);
-  const baseEmployees:any[]=hrAccessDenied?[]:(isHrOnline&&employees.data?employees.data:(offlineDirectory.data??[]));
-  const displayEmployees:any[]=hrAccessDenied?[]:[
+    if(!siteId||!Number.isSafeInteger(userId)||userId<1)return;
+    if(employeeDirectoryDenied)void clearOfflineHrProjectionCacheForSite(String(userId),siteId,["offlineDirectory"]);
+    if(advancesAccessDenied)void clearOfflineHrProjectionCacheForSite(String(userId),siteId,["offlineEmployeeAdvances","offlineCompanyAccountOptions"]);
+  },[employeeDirectoryDenied,advancesAccessDenied,siteId,userId]);
+  const baseEmployees:any[]=employeeDirectoryDenied?[]:(isHrOnline&&employees.data?employees.data:(offlineDirectory.data??[]));
+  const displayEmployees:any[]=employeeDirectoryDenied?[]:[
     ...pendingHrWork.filter((item)=>item.kind==="employee_create"&&item.status!=="applied").map((item)=>{
       const payload=item.payload as HrEmployeeCreateDraft;
       return {id:payload.localEmployeeId,tenantId,siteId,fullName:payload.fullName,jobTitle:payload.jobTitle,
@@ -66,7 +69,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
       Number((item.payload as HrEmployeeCreateDraft).localEmployeeId)===Number(employee.id))),
   ].filter((employee)=>employee.employmentStatus==="active");
   const allowed=isHrOnline?serverAllowed&&!hrAccessDenied:Boolean(siteId&&Number.isSafeInteger(userId)&&userId>0);
-  const baseAdvances:any[]=(hrAccessDenied?[]:(isHrOnline&&advances.data?advances.data:offlineAdvances.data??[]))
+  const baseAdvances:any[]=(advancesAccessDenied?[]:(isHrOnline&&advances.data?advances.data:offlineAdvances.data??[]))
     .filter((row:any)=>Number(row.adjustment?.id)>0)
     .map((row:any)=>{
       const pendingPayments=(row.repayments??[]).filter((payment:any)=>payment.pendingOffline);
@@ -74,7 +77,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
       return {...row,adjustment:{...row.adjustment,remainingAmount:String(originalRemaining),pendingOffline:false},
         repayments:(row.repayments??[]).filter((payment:any)=>!payment.pendingOffline)};
     });
-  const pendingIssueRows=(hrAccessDenied?[]:pendingHrWork.filter((item)=>item.kind==="employee_advance_issue"&&item.status!=="applied")).map((item)=>{
+  const pendingIssueRows=(advancesAccessDenied?[]:pendingHrWork.filter((item)=>item.kind==="employee_advance_issue"&&item.status!=="applied")).map((item)=>{
     const payload=item.payload as HrEmployeeAdvanceIssueDraft;
     const employee=displayEmployees.find((person)=>Number(person.id)===payload.employeeId);
     const localId=Number(payload.localAdjustmentId??(-Math.max(1,item.createdAt)));
@@ -85,7 +88,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
       employee:{id:payload.employeeId,tenantId,siteId:employee?.siteId??siteId,fullName:employee?.fullName??("موظف #"+payload.employeeId),
         jobTitle:employee?.jobTitle??"other",employmentStatus:employee?.employmentStatus??"active"},repayments:[]};
   });
-  const pendingRepaymentItems=hrAccessDenied?[]:pendingHrWork.filter((item)=>item.kind==="employee_advance_repayment"&&item.status!=="applied");
+  const pendingRepaymentItems=advancesAccessDenied?[]:pendingHrWork.filter((item)=>item.kind==="employee_advance_repayment"&&item.status!=="applied");
   const projectedAdvances:any[]=[...baseAdvances,...pendingIssueRows].map((row:any)=>{
     const localPayments=pendingRepaymentItems.filter((item)=>Number((item.payload as HrEmployeeAdvanceRepaymentDraft).adjustmentId)===Number(row.adjustment.id));
     if(!localPayments.length)return row;
@@ -189,7 +192,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
   };
   const content=<div dir="rtl" className="space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#111823] p-5"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><HandCoins className="h-4 w-4"/>السلف والديون</div><h1 className="mt-2 text-2xl font-extrabold text-white">سجل سلف الموظفين وديونهم</h1><p className="mt-1 text-sm text-slate-400">كل صرف مرتبط بحساب الشركة، مع سداد جزئي ورصيد متبقٍ وسجل تدقيقي.</p></div>{allowed?<Button onClick={()=>setShowIssue(v=>!v)} className="bg-[#F5B800] font-bold text-[#0D1117]"><Plus className="ml-2 h-4 w-4"/>تسجيل سلفة أو دين</Button>:null}</header>
-    {hrAccessDenied?<p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-sm leading-6 text-rose-100">رفض الخادم صلاحية الوصول إلى السلف أو الحسابات المرتبطة؛ أُخفيت اللقطات المحلية والبدائل، وبقيت الطلبات المعلّقة في مركز المزامنة للمراجعة.</p>:null}
+    {advancesAccessDenied?<p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-sm leading-6 text-rose-100">رفض الخادم صلاحية الوصول إلى السلف أو الحسابات المرتبطة؛ أُخفيت لقطاتها المحلية، وبقيت الطلبات المعلقة في مركز المزامنة للمراجعة.</p>:employeeDirectoryDenied?<p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-sm leading-6 text-rose-100">رفض الخادم الوصول إلى دليل الموظفين؛ تبقى السجلات المصرح بها ظاهرة، لكن أوقفنا إنشاء طلبات جديدة إلى حين التحقق من الموظف.</p>:null}
     {showIssue&&allowed?<Card className="border-white/10 bg-[#111823]"><CardContent className="p-4"><form className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" onSubmit={submitIssue}>
       <label className="text-sm text-slate-300">الموظف<select required value={employeeId} onChange={e=>setEmployeeId(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-white/10 bg-[#0D1117] px-3 text-white"><option value="">اختر الموظف</option>{displayEmployees.map((p)=><option key={p.id} value={p.id}>{p.fullName}{p.id<0?" — لم تُزامن بعد":""}</option>)}</select></label>
       <label className="text-sm text-slate-300">النوع<select value={kind} onChange={e=>setKind(e.target.value as typeof kind)} className="mt-1 h-10 w-full rounded-md border border-white/10 bg-[#0D1117] px-3 text-white"><option value="salary_advance">سلفة من الراتب</option><option value="employee_loan">دين / قرض على الموظف</option></select></label>
