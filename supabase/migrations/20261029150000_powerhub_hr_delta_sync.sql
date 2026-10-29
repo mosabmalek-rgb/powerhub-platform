@@ -142,7 +142,7 @@ grant execute on function public.powerhub_emit_hr_delta_sync_change(bigint,bigin
 create or replace function public.powerhub_refresh_hr_employee_directory_delta_scope(p_tenant_id bigint,p_site_id bigint)
 returns void language plpgsql security definer set search_path=pg_catalog,public,pg_temp
 as $$
-declare v_employee record; v_old jsonb; v_lock_key bigint;
+declare v_employee record; v_old record; v_previous jsonb; v_lock_key bigint;
 begin
   if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then return; end if;
   v_lock_key:=hashtextextended(p_tenant_id::text||':'||p_site_id::text||':hr_employee_directory',0);
@@ -166,13 +166,13 @@ begin
     from public.employees e where e.tenant_id=p_tenant_id and (e.site_id=p_site_id or e.site_id is null)
     order by e.created_at desc,e.id desc limit 500
   loop
-    select m.row_data into v_old from public.powerhub_hr_delta_scope_membership m
+    select m.row_data into v_previous from public.powerhub_hr_delta_scope_membership m
       where m.tenant_id=p_tenant_id and m.site_id=p_site_id and m.entity_type='hr_employee_directory' and m.entity_id=v_employee.id::text;
     if not found then
       perform public.powerhub_emit_hr_delta_sync_change(p_tenant_id,p_site_id,'hr_employee_directory',v_employee.id,v_employee.projected);
       insert into public.powerhub_hr_delta_scope_membership(tenant_id,site_id,entity_type,entity_id,row_data)
       values(p_tenant_id,p_site_id,'hr_employee_directory',v_employee.id::text,v_employee.projected);
-    elsif v_old is distinct from v_employee.projected then
+    elsif v_previous is distinct from v_employee.projected then
       perform public.powerhub_emit_hr_delta_sync_change(p_tenant_id,p_site_id,'hr_employee_directory',v_employee.id,v_employee.projected);
       update public.powerhub_hr_delta_scope_membership m set row_data=v_employee.projected,updated_at=clock_timestamp()
       where m.tenant_id=p_tenant_id and m.site_id=p_site_id and m.entity_type='hr_employee_directory' and m.entity_id=v_employee.id::text;
@@ -186,7 +186,7 @@ grant execute on function public.powerhub_refresh_hr_employee_directory_delta_sc
 create or replace function public.powerhub_refresh_hr_attendance_delta_scope(p_tenant_id bigint,p_site_id bigint)
 returns void language plpgsql security definer set search_path=pg_catalog,public,pg_temp
 as $$
-declare v_attendance record; v_old jsonb; v_lock_key bigint;
+declare v_attendance record; v_old record; v_previous jsonb; v_lock_key bigint;
 begin
   if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then return; end if;
   v_lock_key:=hashtextextended(p_tenant_id::text||':'||p_site_id::text||':hr_attendance',0);
@@ -214,13 +214,13 @@ begin
     where a.tenant_id=p_tenant_id and a.site_id=p_site_id
     order by a.work_date desc,a.id desc limit 1000
   loop
-    select m.row_data into v_old from public.powerhub_hr_delta_scope_membership m
+    select m.row_data into v_previous from public.powerhub_hr_delta_scope_membership m
       where m.tenant_id=p_tenant_id and m.site_id=p_site_id and m.entity_type='hr_attendance' and m.entity_id=v_attendance.id::text;
     if not found then
       perform public.powerhub_emit_hr_delta_sync_change(p_tenant_id,p_site_id,'hr_attendance',v_attendance.id,v_attendance.projected);
       insert into public.powerhub_hr_delta_scope_membership(tenant_id,site_id,entity_type,entity_id,row_data)
       values(p_tenant_id,p_site_id,'hr_attendance',v_attendance.id::text,v_attendance.projected);
-    elsif v_old is distinct from v_attendance.projected then
+    elsif v_previous is distinct from v_attendance.projected then
       perform public.powerhub_emit_hr_delta_sync_change(p_tenant_id,p_site_id,'hr_attendance',v_attendance.id,v_attendance.projected);
       update public.powerhub_hr_delta_scope_membership m set row_data=v_attendance.projected,updated_at=clock_timestamp()
       where m.tenant_id=p_tenant_id and m.site_id=p_site_id and m.entity_type='hr_attendance' and m.entity_id=v_attendance.id::text;
