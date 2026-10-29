@@ -4691,6 +4691,60 @@ export const powerhubRouter = router({
       if (errorText.includes("INVALID_EMPLOYEE_ADJUSTMENT_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات السلفة أو الخصم غير صحيحة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ السلفة أو الخصم في Supabase." });
     }),
+    offlineEmployeeAdvances: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      const { data, error } = await supabaseAdmin().from("employee_adjustments")
+        .select("id,tenant_id,employee_id,site_id,adjustment_type,advance_kind,monthly_deduction,amount,remaining_amount,status,created_at,updated_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("adjustment_type", "advance")
+        .order("created_at", { ascending: false }).limit(500);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص السلف الآمن." });
+      const employeeIds = Array.from(new Set((data ?? []).map((row) => Number(row.employee_id))));
+      const adjustmentIds = Array.from(new Set((data ?? []).map((row) => Number(row.id))));
+      const [peopleResult, repaymentResult] = await Promise.all([
+        employeeIds.length ? supabaseAdmin().from("employees")
+          .select("id,tenant_id,site_id,full_name,job_title,employment_status")
+          .eq("tenant_id", access.tenantId).in("id", employeeIds)
+          .or(`site_id.eq.${input.siteId},site_id.is.null`) : Promise.resolve({ data: [], error: null }),
+        adjustmentIds.length ? supabaseAdmin().from("employee_adjustment_repayments")
+          .select("id,tenant_id,adjustment_id,repayment_method,amount,company_account_id,payroll_run_id,payment_date,reference_no,created_at")
+          .eq("tenant_id", access.tenantId).in("adjustment_id", adjustmentIds)
+          .order("payment_date", { ascending: false }).limit(2000) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (peopleResult.error || repaymentResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص السلف أو السداد." });
+      const people = new Map((peopleResult.data ?? []).map((row) => [Number(row.id), row]));
+      const repayments = new Map<number, Array<Record<string, unknown>>>();
+      for (const payment of repaymentResult.data ?? []) {
+        const key = Number(payment.adjustment_id);
+        const rows = repayments.get(key) ?? [];
+        rows.push({
+          id: Number(payment.id), amount: String(payment.amount), repaymentMethod: payment.repayment_method,
+          companyAccountId: payment.company_account_id === null ? null : Number(payment.company_account_id),
+          accountTransactionId: null, payrollRunId: payment.payroll_run_id === null ? null : Number(payment.payroll_run_id),
+          paymentDate: payment.payment_date, referenceNo: null, notes: null, createdByUserId: null,
+          createdAt: new Date(payment.created_at),
+        });
+        repayments.set(key, rows);
+      }
+      return (data ?? []).flatMap((row) => {
+        const person = people.get(Number(row.employee_id));
+        if (!person) return [];
+        return [{
+          adjustment: {
+            id: Number(row.id), tenantId: Number(row.tenant_id), employeeId: Number(row.employee_id),
+            siteId: Number(row.site_id), adjustmentType: "advance", advanceKind: row.advance_kind,
+            monthlyDeduction: row.monthly_deduction === null ? null : String(row.monthly_deduction),
+            amount: String(row.amount), remainingAmount: String(row.remaining_amount), reason: null,
+            status: row.status, createdByUserId: null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+          },
+          employee: {
+            id: Number(person.id), tenantId: Number(person.tenant_id),
+            siteId: person.site_id === null ? null : Number(person.site_id), fullName: person.full_name,
+            jobTitle: person.job_title, employmentStatus: person.employment_status,
+          },
+          repayments: repayments.get(Number(row.id)) ?? [],
+        }];
+      });
+    }),
     listEmployeeAdvances: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       status: z.enum(["open", "settled", "cancelled"]).optional(),
@@ -4830,6 +4884,20 @@ export const powerhubRouter = router({
         const employee = peopleById.get(Number(item.employee_id));
         return employee ? [{ item: { id: Number(item.id), payrollRunId: Number(item.payroll_run_id), employeeId: Number(item.employee_id), baseAmount: String(item.base_amount), extraAmount: String(item.extra_amount), advanceDeduction: String(item.advance_deduction), otherDeduction: String(item.other_deduction), netAmount: String(item.net_amount), notes: item.notes }, employee: { id: Number(employee.id), fullName: employee.full_name, jobTitle: employee.job_title } }] : [];
       }).sort((left, right) => left.employee.fullName.localeCompare(right.employee.fullName, "ar"));
+    }),
+    offlinePayrollRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+      const { data, error } = await supabaseAdmin().from("payroll_runs")
+        .select("id,tenant_id,site_id,period,status,total_gross,total_deductions,total_net,paid_at,created_at,updated_at")
+        .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`)
+        .order("period", { ascending: false }).limit(120);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص كشوف الرواتب الآمن." });
+      return (data ?? []).map((row) => ({
+        id: Number(row.id), tenantId: Number(row.tenant_id), siteId: row.site_id === null ? null : Number(row.site_id),
+        period: row.period, status: row.status, totalGross: String(row.total_gross),
+        totalDeductions: String(row.total_deductions), totalNet: String(row.total_net),
+        paidAt: row.paid_at ? new Date(row.paid_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+      }));
     }),
     listPayrollRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
