@@ -38,6 +38,36 @@ describe("company account Delta projection", () => {
   });
 });
 
+describe("operational receipt and return Delta projections", () => {
+  it("normalizes receipt history without private fields", () => {
+    const row = normalizeDeltaEntityRow("inventory_purchase_receipt_headers", {
+      id: 91, receipt_id: 91, tenant_id: 2, site_id: 10, purchase_id: 81,
+      purchase_number: "PUR-81", receipt_number: "REC-91", receipt_date: "2026-10-29",
+      supplier_id: 7, supplier_name: "Supplier A", warehouse_id: 20, warehouse_name: "Main",
+      line_count: 2, received_quantity: "5.000",
+    });
+    expect(row).toMatchObject({ id: 91, receipt_id: 91, purchaseId: 81, supplierName: "Supplier A",
+      warehouseName: "Main", receipt_number: "REC-91", line_count: 2, received_quantity: "5.000" });
+    expect(row).not.toHaveProperty("notes");
+    expect(row).not.toHaveProperty("operation_key");
+    expect(row).not.toHaveProperty("unit_cost");
+  });
+
+  it("normalizes supplier return history without settlement fields", () => {
+    const row = normalizeDeltaEntityRow("inventory_supplier_return_headers", {
+      id: 92, return_id: 92, tenant_id: 2, site_id: 10, purchase_id: 82,
+      purchase_number: "PUR-82", return_number: "RET-92", return_date: "2026-10-29",
+      status: "posted", supplier_id: 7, supplier_name: "Supplier A",
+      warehouse_id: 20, warehouse_name: "Main", line_count: 1, returned_quantity: "2.000",
+    });
+    expect(row).toMatchObject({ id: 92, return_id: 92, purchaseId: 82, supplierName: "Supplier A",
+      warehouseName: "Main", return_number: "RET-92", line_count: 1, returned_quantity: "2.000" });
+    expect(row).not.toHaveProperty("reason");
+    expect(row).not.toHaveProperty("refund_amount");
+    expect(row).not.toHaveProperty("stock_cost_amount");
+  });
+});
+
 describe("operational purchase header Delta projection", () => {
   it("normalizes safe labels and IDs without financial fields", () => {
     const row = normalizeDeltaEntityRow("inventory_purchase_headers", {

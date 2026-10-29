@@ -338,6 +338,16 @@ describe("Delta-backed local snapshots", () => {
     expect(isOfflineCacheableQueryKey(purchaseHeadersKey)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(purchaseHeadersKey)).toBe(true);
     expect(getOfflineQueryDeltaEntity(purchaseHeadersKey)).toBe("inventory_purchase_headers");
+    const receiptHeadersKey = ["powerhub.inventory.listPurchaseReceiptHeaders", { input: { siteId: 7, limit: 100 }, type: "query" }] as const;
+    const supplierReturnHeadersKey = ["powerhub.inventory.listSupplierReturnHeaders", { input: { siteId: 7, limit: 100 }, type: "query" }] as const;
+    expect(isOfflineCacheableQueryKey(receiptHeadersKey)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(receiptHeadersKey)).toBe(true);
+    expect(getOfflineQueryDeltaEntity(receiptHeadersKey)).toBe("inventory_purchase_receipt_headers");
+    expect(isOfflineCacheableQueryKey(supplierReturnHeadersKey)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(supplierReturnHeadersKey)).toBe(true);
+    expect(getOfflineQueryDeltaEntity(supplierReturnHeadersKey)).toBe("inventory_supplier_return_headers");
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listPurchaseReceiptHeaders", { input: { siteId: 7, limit: 200 }, type: "query" }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listSupplierReturnHeaders", { input: { siteId: 7, limit: 100, search: "secret" }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listPurchaseHeaders", { input: { siteId: 7, limit: 200 }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listPurchaseHeaders", { input: { siteId: 7, limit: 100, search: "wire" }, type: "query" }])).toBe(false);
     const movementKey = ["powerhub.inventory.listStockMovements", { input: { siteId: 7, limit: 100 }, type: "query" }] as const;

@@ -152,6 +152,14 @@ export default function InventoryPurchasesPanel({
     { enabled: Boolean(siteId && isAuthenticated && canViewPurchases), staleTime: Number.POSITIVE_INFINITY },
   );
   const usingOfflineHeaders = !purchases.data && purchaseHeaders.data !== undefined;
+  const receiptHeaders = trpc.powerhub.inventory.listPurchaseReceiptHeaders.useQuery(
+    { siteId, limit: 100 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewPurchases), staleTime: Number.POSITIVE_INFINITY },
+  );
+  const supplierReturnHeaders = trpc.powerhub.inventory.listSupplierReturnHeaders.useQuery(
+    { siteId, limit: 100 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewPurchases), staleTime: Number.POSITIVE_INFINITY },
+  );
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const offlinePurchaseRows = (purchaseHeaders.data ?? [])
     .filter((row) => !normalizedSearch || [row.purchase_number, row.supplierName, row.warehouseName]
@@ -163,6 +171,9 @@ export default function InventoryPurchasesPanel({
       other_charges_amount: null, payment_terms_days: null, reference_no: null, notes: null,
       canViewFinancials: false,
     }));
+  const selectedOfflinePurchase = offlinePurchaseRows.find((row) => Number(row.id) === Number(selectedPurchaseId));
+  const selectedOfflineReceipts = (receiptHeaders.data ?? []).filter((row) => Number(row.purchase_id ?? row.purchaseId) === Number(selectedPurchaseId));
+  const selectedOfflineReturns = (supplierReturnHeaders.data ?? []).filter((row) => Number(row.purchase_id ?? row.purchaseId) === Number(selectedPurchaseId));
   const visiblePurchases = purchases.data ?? offlinePurchaseRows;
   const showFinancialColumns = canViewFinancials && !usingOfflineHeaders;
   const options = trpc.powerhub.inventory.listPurchaseOptions.useQuery(
@@ -233,6 +244,8 @@ export default function InventoryPurchasesPanel({
     await Promise.all([
       utils.powerhub.inventory.listPurchases.invalidate(),
       utils.powerhub.inventory.listPurchaseHeaders.invalidate(),
+      utils.powerhub.inventory.listPurchaseReceiptHeaders.invalidate(),
+      utils.powerhub.inventory.listSupplierReturnHeaders.invalidate(),
       utils.powerhub.inventory.getPurchase.invalidate(purchaseId ? { siteId, purchaseId } : undefined),
     ]);
   };
@@ -701,9 +714,9 @@ export default function InventoryPurchasesPanel({
                       <td className="p-3">{purchase.warehouseName}</td>
                       <td className="p-3 whitespace-nowrap">{purchase.invoice_date}</td>
                       {showFinancialColumns ? <><td className="p-3 whitespace-nowrap">{purchase.due_date || "—"}</td><td className="p-3">{statusLabels[purchase.status] ?? purchase.status}</td><td className="p-3 whitespace-nowrap font-semibold">{formatAmount(purchase.total_amount)}</td></> : <td className="p-3">{statusLabels[purchase.status] ?? purchase.status}</td>}
-                      <td className="p-3">{usingOfflineHeaders
-                        ? <Button type="button" variant="outline" size="sm" disabled><Eye className="ml-1 h-4 w-4" /> يتطلب اتصالًا</Button>
-                        : <Button type="button" variant="outline" size="sm" onClick={() => setSelectedPurchaseId(Number(purchase.id))}><Eye className="ml-1 h-4 w-4" /> فتح</Button>}</td>
+                      <td className="p-3"><Button type="button" variant="outline" size="sm" onClick={() => setSelectedPurchaseId(Number(purchase.id))}>
+                        <Eye className="ml-1 h-4 w-4" /> {usingOfflineHeaders ? "السجل المحفوظ" : "فتح"}
+                      </Button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -713,6 +726,32 @@ export default function InventoryPurchasesPanel({
         </CardContent>
       </Card>
 
+      {selectedPurchaseId && usingOfflineHeaders && selectedOfflinePurchase ? (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>السجل التشغيلي المحفوظ — {selectedOfflinePurchase.purchase_number}</CardTitle>
+              <p className="text-sm text-muted-foreground">{selectedOfflinePurchase.supplierName} · {selectedOfflinePurchase.warehouseName} · {statusLabels[selectedOfflinePurchase.status] ?? selectedOfflinePurchase.status}</p>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={() => setSelectedPurchaseId(null)}>إغلاق</Button>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">هذه نسخة تشغيلية محفوظة فقط؛ لا تتضمن مبالغ أو تكاليف أو ملاحظات، ولا تتيح تنفيذ الاستلام أو المرتجعات أو التسوية دون اتصال.</p>
+            <section className="space-y-2">
+              <h3 className="font-semibold">سجل الاستلام</h3>
+              {selectedOfflineReceipts.length ? <div className="rounded-md border"><table className="w-full text-right text-sm"><thead className="bg-muted/60"><tr><th className="p-2">رقم الاستلام</th><th className="p-2">التاريخ</th><th className="p-2">عدد البنود</th><th className="p-2">الكمية</th></tr></thead><tbody>
+                {selectedOfflineReceipts.map((row) => <tr key={String(row.receipt_id ?? row.id)} className="border-t"><td className="p-2">{row.receipt_number}</td><td className="p-2">{row.receipt_date}</td><td className="p-2">{row.line_count}</td><td className="p-2">{row.received_quantity}</td></tr>)}
+              </tbody></table></div> : <p className="text-sm text-muted-foreground">لا توجد عمليات استلام محفوظة محليًا لهذا المستند.</p>}
+            </section>
+            <section className="space-y-2">
+              <h3 className="font-semibold">مرتجعات المورد</h3>
+              {selectedOfflineReturns.length ? <div className="rounded-md border"><table className="w-full text-right text-sm"><thead className="bg-muted/60"><tr><th className="p-2">رقم المرتجع</th><th className="p-2">التاريخ</th><th className="p-2">عدد البنود</th><th className="p-2">الكمية</th></tr></thead><tbody>
+                {selectedOfflineReturns.map((row) => <tr key={String(row.return_id ?? row.id)} className="border-t"><td className="p-2">{row.return_number}</td><td className="p-2">{row.return_date}</td><td className="p-2">{row.line_count}</td><td className="p-2">{row.returned_quantity}</td></tr>)}
+              </tbody></table></div> : <p className="text-sm text-muted-foreground">لا توجد مرتجعات مورد محفوظة محليًا لهذا المستند.</p>}
+            </section>
+          </CardContent>
+        </Card>
+      ) : null}
       {selectedPurchaseId && !usingOfflineHeaders ? (
         <Card>
           <CardHeader>

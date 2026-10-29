@@ -472,6 +472,47 @@ describe("offline delta sync", () => {
     expect(await storage.getCursor(purchaseScope)).toBe("21");
   });
 
+  it.each(["inventory_purchase_receipt_headers", "inventory_supplier_return_headers"] as const)(
+    "bounds %s local history at 200 rows across snapshots and Delta pages",
+    async (entityType) => {
+      const historyScope: DeltaCursorScope = { ...scope, entityType };
+      const storage = memoryStorage();
+      const snapshot = Array.from({ length: 201 }, (_, index) => {
+        const id = index + 1;
+        const day = new Date(Date.UTC(2026, 0, 1 + index)).toISOString().slice(0, 10);
+        return {
+          id, tenantId: historyScope.tenantId, siteId: historyScope.siteId,
+          receipt_id: entityType === "inventory_purchase_receipt_headers" ? id : undefined,
+          return_id: entityType === "inventory_supplier_return_headers" ? id : undefined,
+          receipt_date: entityType === "inventory_purchase_receipt_headers" ? day : undefined,
+          return_date: entityType === "inventory_supplier_return_headers" ? day : undefined,
+        };
+      });
+      await storage.replaceSnapshot(historyScope, snapshot, "40");
+      const initial = await storage.listEntities(historyScope);
+      expect(initial).toHaveLength(200);
+      expect(initial.some(row => row.entityId === "1")).toBe(false);
+      expect(initial.some(row => row.entityId === "201")).toBe(true);
+      const nextPage: DeltaPage<Record<string, unknown>> = page({
+        entity_type: entityType, current_cursor: "41", through_cursor: "41", next_cursor: "41",
+        changes: [{
+          cursor: "41", entity_type: entityType, entity_id: "202", operation: "upsert",
+          row_data: { id: 202, tenantId: historyScope.tenantId, siteId: historyScope.siteId,
+            receipt_id: entityType === "inventory_purchase_receipt_headers" ? 202 : undefined,
+            return_id: entityType === "inventory_supplier_return_headers" ? 202 : undefined,
+            receipt_date: entityType === "inventory_purchase_receipt_headers" ? "2027-01-01" : undefined,
+            return_date: entityType === "inventory_supplier_return_headers" ? "2027-01-01" : undefined },
+          changed_at: "2027-01-01T00:00:00Z",
+        }],
+      });
+      await storage.commitPage(historyScope, nextPage, "41");
+      const afterDelta = await storage.listEntities(historyScope);
+      expect(afterDelta).toHaveLength(200);
+      expect(afterDelta.some(row => row.entityId === "202")).toBe(true);
+      expect(await storage.getCursor(historyScope)).toBe("41");
+    },
+  );
+
   it("does not let an older snapshot replace a newer local cursor", async () => {
     const storage = memoryStorage();
     await storage.replaceSnapshot(scope, [{ id: 1, name: "new" }], "10");
