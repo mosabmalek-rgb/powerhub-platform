@@ -30,7 +30,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
   const employees=trpc.powerhub.hr.listEmployees.useQuery({siteId:siteId??0,employmentStatus:"active"},{enabled:Boolean(siteId)&&isHrOnline});
   const offlineDirectory=trpc.powerhub.hr.offlineDirectory.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
   const displayEmployees:any[]=isHrOnline&&employees.data?employees.data:(offlineDirectory.data??[]).filter((employee)=>employee.employmentStatus==="active");
-  const accounts=trpc.powerhub.companyAccounts.list.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
+  const accounts=trpc.powerhub.companyAccounts.list.useQuery({siteId:siteId??0,branchId:siteId??undefined},{enabled:Boolean(siteId)});
   const advances=trpc.powerhub.hr.listEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)&&isHrOnline});
   const offlineAdvances=trpc.powerhub.hr.offlineEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
   const displayAdvances:any[]=isHrOnline&&advances.data?advances.data:offlineAdvances.data??[];
