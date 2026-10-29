@@ -492,7 +492,7 @@ export function OfflineDeltaSyncRuntime() {
               });
             const limit = candidate.entityType === "fuel_readings" ? Number(getOfflineQueryInput(query.queryKey).limit ?? 100) : filtered.length;
             queryClient.setQueryData(query.queryKey, filtered.slice(0, limit));
-
+          } else if (candidate.entityType === "inventory_purchase_receipt_headers" || candidate.entityType === "inventory_supplier_return_headers") {
             const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
             queryClient.setQueryData(query.queryKey, candidate.entityType === "inventory_purchase_receipt_headers"
               ? sortPurchaseReceiptRows(queryRows as AnyRow[], limit)
