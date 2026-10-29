@@ -10,7 +10,11 @@ export type OfflineSyncRefreshTarget =
   | "payments"
   | "dashboard-summary"
   | "financial-dashboard"
-  | "audit";
+  | "audit"
+  | "hr-directory"
+  | "hr-attendance"
+  | "payroll"
+  | "employee-advances";
 
 export type OfflineSyncRefreshCandidate = {
   item: Pick<QueuedOfflineWork, "kind" | "payload">;
@@ -31,6 +35,12 @@ const TARGETS_BY_KIND: Partial<Record<QueuedOfflineWork["kind"], readonly Offlin
   payment_create: ["payments", "invoices", "dashboard-summary", "financial-dashboard"],
   payment_documentation_submit: ["payments", "invoices", "dashboard-summary", "financial-dashboard"],
   payment_documentation_approve: ["payments", "invoices", "dashboard-summary", "financial-dashboard"],
+  employee_create: ["hr-directory", "payroll", "employee-advances"],
+  employee_update: ["hr-directory", "payroll"],
+  attendance_upsert: ["hr-attendance"],
+  payroll_draft: ["payroll"],
+  employee_advance_issue: ["employee-advances", "payroll", "financial-dashboard", "dashboard-summary"],
+  employee_advance_repayment: ["employee-advances", "payroll", "financial-dashboard", "dashboard-summary"],
 };
 
 /**
