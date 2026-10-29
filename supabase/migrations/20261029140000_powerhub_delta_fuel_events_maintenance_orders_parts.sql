@@ -205,7 +205,7 @@ create or replace function public.powerhub_refresh_maintenance_work_order_delta_
 returns void
 language plpgsql security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 declare v_order record;
 begin
   if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1 then
