@@ -346,6 +346,26 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
+  if (segments[0] === "powerhub" && segments[1] === "inventory" && segments[2] === "fuelWorkspaceOptions" &&
+      data && typeof data === "object" && !Array.isArray(data)) {
+    const options = data as Record<string, unknown>;
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    const projectRows = (value: unknown, keys: readonly string[]) => Array.isArray(value)
+      ? value.filter(isRow).map((row) => {
+          const projected: Record<string, unknown> = {};
+          for (const key of keys) if (Object.prototype.hasOwnProperty.call(row, key)) projected[key] = row[key];
+          return projected;
+        })
+      : [];
+    // Fuel selectors are a minimized snapshot only, never stock/cost/permission authority.
+    return {
+      generators: projectRows(options.generators, ["id", "code", "name", "fuelType", "fuelLevelLiters", "operatingHours", "status"]),
+      generatorTanks: projectRows(options.generatorTanks, ["id", "code", "name", "generatorId"]),
+      fuelItems: projectRows(options.fuelItems, ["id", "sku", "name", "baseUnit"]),
+      sourceLocations: projectRows(options.sourceLocations, ["id", "code", "name", "locationType"]),
+    };
+  }
   if (segments[0] === "powerhub" && segments[1] === "hr" && Array.isArray(data)) {
     const isRow = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
     if (segments[2] === "offlineDirectory") return data.filter(isRow).map((row) => ({

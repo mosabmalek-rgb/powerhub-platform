@@ -46,6 +46,28 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12, includeInactive: true }, type: "query" }])).toBe(false);
   });
 
+  it("caches minimized fuel workspace dropdowns without treating them as a Delta feed", () => {
+    const key = ["powerhub.inventory.fuelWorkspaceOptions", { input: { siteId: 7 }, type: "query" }];
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    const safe = sanitizeOfflineQueryData(key, {
+      generators: [{ id: 4, code: "G-1", name: "مولد", fuelType: "diesel", fuelLevelLiters: 15, operatingHours: 30, status: "active", unit_cost: 77 }],
+      generatorTanks: [{ id: 8, code: "T-1", name: "خزان", generatorId: 4, quantity_on_hand: 999 }],
+      fuelItems: [{ id: 9, sku: "DIESEL", name: "ديزل", baseUnit: "liter", avg_cost: 42 }],
+      sourceLocations: [{ id: 10, code: "WH-1", name: "مستودع", locationType: "central_warehouse", stock_balance: 1000 }],
+      canManageFuel: true, canViewFuelReports: true,
+    }) as Record<string, Array<Record<string, unknown>>>;
+    expect(safe.generators[0]).toMatchObject({ id: 4, name: "مولد", fuelLevelLiters: 15 });
+    expect(safe.generators[0]).not.toHaveProperty("unit_cost");
+    expect(safe.generatorTanks[0]).not.toHaveProperty("quantity_on_hand");
+    expect(safe.fuelItems[0]).not.toHaveProperty("avg_cost");
+    expect(safe.sourceLocations[0]).not.toHaveProperty("stock_balance");
+    expect(safe).not.toHaveProperty("canManageFuel");
+    expect(safe).not.toHaveProperty("canViewFuelReports");
+  });
+
   it("enables only complete site-wide fuel-reading and preventive-plan lists backed by explicit Delta feeds", () => {
     const fuelReadings = ["powerhub.inventory.listFuelReadings", {
       input: { siteId: 7, generatorId: undefined, limit: 100 }, type: "query",

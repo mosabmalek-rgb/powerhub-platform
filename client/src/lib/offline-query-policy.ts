@@ -145,6 +145,7 @@ function isSafeOperationalOfflineList(queryKey: readonly unknown[], segments: st
 }
 
 const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
+  "inventory.fuelWorkspaceOptions": new Set(["siteId"]),
   "inventory.listItems": new Set(["siteId", "search", "includeInactive"]),
   "inventory.listSuppliers": new Set(["siteId", "search", "includeInactive"]),
   "inventory.listWarehouses": new Set(["siteId", "includeInactive"]),
