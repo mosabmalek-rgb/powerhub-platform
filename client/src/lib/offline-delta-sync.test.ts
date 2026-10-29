@@ -399,6 +399,29 @@ describe("offline delta sync", () => {
     expect(await storage.getCursor(movementScope)).toBe("11");
   });
 
+  it("bounds fuel-fill events and work orders while preserving complete per-order parts", () => {
+    const fuelEvents = Array.from({ length: 501 }, (_, index) => {
+      const id = index + 1;
+      return { id, event_id: id, occurred_at: new Date(Date.UTC(2026, 0, 1, 0, 0, id)).toISOString() };
+    });
+    const boundedEvents = limitDeltaEntityRows("fuel_events", fuelEvents);
+    expect(boundedEvents).toHaveLength(500);
+    expect(boundedEvents[0]?.id).toBe(501);
+    expect(boundedEvents.some(row => row.id === 1)).toBe(false);
+
+    const orders = Array.from({ length: 201 }, (_, index) => {
+      const id = index + 1;
+      return { id, work_order_id: id, reported_at: new Date(Date.UTC(2026, 0, 1, 0, 0, id)).toISOString() };
+    });
+    const boundedOrders = limitDeltaEntityRows("maintenance_work_orders", orders);
+    expect(boundedOrders).toHaveLength(200);
+    expect(boundedOrders[0]?.id).toBe(201);
+    expect(boundedOrders.some(row => row.id === 1)).toBe(false);
+
+    const parts = Array.from({ length: 501 }, (_, index) => ({ id: index + 1, work_order_id: 77 }));
+    expect(limitDeltaEntityRows("maintenance_work_order_parts:77", parts)).toHaveLength(501);
+  });
+
   it("keeps the newest 500 fuel readings when pruning the local Delta snapshot", async () => {
     const fuelScope: DeltaCursorScope = { ...scope, entityType: "fuel_readings" };
     const storage = memoryStorage();
