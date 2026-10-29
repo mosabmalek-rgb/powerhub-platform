@@ -97,6 +97,13 @@ describe("HR offline operation replay contract", () => {
     expect(hrOfflineMigration).toContain("to service_role");
     expect(hrOfflineMigration).toContain("'version_no',e.hr_sync_version");
     expect(hrOfflineMigration).toContain("'version_no',a.hr_sync_version");
+    const snapshotStart = hrOfflineMigration.indexOf("create or replace function public.powerhub_get_hr_sync_snapshot");
+    const snapshotEnd = hrOfflineMigration.indexOf("alter function public.powerhub_get_hr_sync_snapshot", snapshotStart);
+    const snapshot = hrOfflineMigration.slice(snapshotStart, snapshotEnd);
+    expect(snapshot).toContain("insert into public.powerhub_sync_scope_state");
+    expect(snapshot).toContain("for update");
+    expect(snapshot.indexOf("for update")).toBeLessThan(snapshot.indexOf("from public.employees"));
+    expect(snapshot.indexOf("for update")).toBeLessThan(snapshot.indexOf("from public.employee_attendance"));
     expect(router).toContain("replayOfflineOperation: protectedProcedure");
     expect(router).toContain("powerhub_hr_replay_offline_operation");
   });
