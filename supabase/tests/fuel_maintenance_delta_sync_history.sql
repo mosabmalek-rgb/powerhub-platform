@@ -212,7 +212,7 @@ begin
   select 10,100,10000,'DELTA-BOUND-WO-'||lpad(g::text,3,'0'),
     'breakdown','normal','new','Bounded work order '||g,
     timestamptz '2090-01-01 00:00:00+00'+g*interval '1 day',
-    'delta-bounded-work-order-'||g,'delta-bounded-work-order-payload-'||g,1
+    'delta-bounded-work-order-'||lpad(g::text,3,'0'),'delta-bounded-work-order-payload-'||g,1
   from generate_series(1,201) g;
 
   select id into v_deleted_id from public.generator_maintenance_work_orders
