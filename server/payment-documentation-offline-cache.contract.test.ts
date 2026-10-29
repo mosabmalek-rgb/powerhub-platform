@@ -23,7 +23,7 @@ describe("payment-documentation offline cache and HR privacy contracts", () => {
     expect(approvalPage).toContain("listPaymentDocumentationApprovalSnapshots(Number(user.id),siteId,snapshotScope)");
     expect(approvalPage).toContain("savePaymentDocumentationApprovalSnapshots(Number(user.id),siteId,snapshotScope,");
     expect(approvalPage).toContain('status!=="pending"||period==="current_cycle"');
-    expect(approvalPage).toContain("if(!isOnline||!user?.id||!siteId||status!==\"pending\"||period===\"current_cycle\"");
+    expect(approvalPage).toContain("if(authorizationDenied||!user?.id||!siteId||status!==\"pending\"||period===\"current_cycle\"");
     expect(approvalCache).toContain("for (const row of existing)");
     expect(approvalCache).toContain("store.delete(row.key)");
     expect(approvalCache).toContain("export async function removePaymentDocumentationApprovalSnapshot(");
@@ -45,9 +45,12 @@ describe("payment-documentation offline cache and HR privacy contracts", () => {
     expect(approvalPage).toContain("clearConfirmedOfflineRequest(Number(variables.requestId))");
   });
 
-  it("explicitly keeps every HR query server-only until an approved minimized projection exists", () => {
+  it("keeps raw HR queries uncached while allowing only minimized site-scoped projections", () => {
     expect(queryPolicy).toContain('  "hr",');
-    expect(hrScope).toContain("لا يتم تضمين بيانات الموظفين والرواتب والحضور والسلف في الكاش المحلي المستمر");
-    expect(hrScope).toContain("لا تُفتح هذه البيانات للكاش إلا بعد اعتماد إسقاط محدود");
+    expect(queryPolicy).toContain("function isSafeHrOfflineProjection");
+    expect(queryPolicy).toContain('"offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"');
+    expect(hrScope).toContain("لا تُخزّن استجابات الموارد البشرية الخام");
+    expect(hrScope).toContain("hr_sync_version");
+    expect(hrScope).toContain("ليست Delta-backed");
   });
 });
