@@ -470,6 +470,71 @@ describe("offline delta sync", () => {
     expect(await storage.getCursor(maintenanceScope)).toBe("10");
   });
 
+  it("prunes plans that leave the top 500 and retains the replacement emitted by membership refresh", async () => {
+    const maintenanceScope: DeltaCursorScope = { ...scope, entityType: "maintenance_preventive_plans" };
+    const snapshot = Array.from({ length: 500 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id, plan_id: id, tenantId: maintenanceScope.tenantId, siteId: maintenanceScope.siteId,
+        alert_type: id === 1 ? "overdue" : "normal",
+        next_due_at: new Date(Date.UTC(2027, 0, 1 + index)).toISOString(),
+      };
+    });
+    const storage = memoryStorage("10", snapshot);
+    const movedOut = {
+      id: 1, plan_id: 1, tenantId: maintenanceScope.tenantId, siteId: maintenanceScope.siteId,
+      alert_type: "normal",
+      next_due_at: "2035-01-01T00:00:00.000Z",
+    };
+    const replacement = {
+      id: 501, plan_id: 501, tenantId: maintenanceScope.tenantId, siteId: maintenanceScope.siteId,
+      alert_type: "normal",
+      next_due_at: "2028-05-16T00:00:00.000Z",
+    };
+    await storage.commitPage(maintenanceScope, page({
+      entity_type: "maintenance_preventive_plans",
+      current_cursor: "12", through_cursor: "12", next_cursor: "12",
+      changes: [
+        { cursor: "11", entity_type: "maintenance_preventive_plans", entity_id: "1", operation: "upsert", row_data: movedOut, changed_at: "2026-10-29T12:00:00Z" },
+        { cursor: "12", entity_type: "maintenance_preventive_plans", entity_id: "501", operation: "upsert", row_data: replacement, changed_at: "2026-10-29T12:00:01Z" },
+      ],
+    }), "12");
+    const localRows = await storage.listEntities(maintenanceScope);
+    expect(localRows).toHaveLength(500);
+    expect(localRows.some(row => row.entityId === "1")).toBe(false);
+    expect(localRows.some(row => row.entityId === "501")).toBe(true);
+    expect(await storage.getCursor(maintenanceScope)).toBe("12");
+  });
+
+  it("refills the bounded fuel-reading set after a deletion tombstone", async () => {
+    const fuelScope: DeltaCursorScope = { ...scope, entityType: "fuel_readings" };
+    const snapshot = Array.from({ length: 500 }, (_, index) => {
+      const id = index + 2;
+      return {
+        id, reading_id: id, tenantId: fuelScope.tenantId, siteId: fuelScope.siteId,
+        recorded_at: new Date(Date.UTC(2026, 0, 1, 0, 0, id)).toISOString(),
+      };
+    });
+    const storage = memoryStorage("20", snapshot);
+    const replacement = {
+      id: 1, reading_id: 1, tenantId: fuelScope.tenantId, siteId: fuelScope.siteId,
+      recorded_at: "2026-01-01T00:01:00.000Z",
+    };
+    await storage.commitPage(fuelScope, page({
+      entity_type: "fuel_readings",
+      current_cursor: "22", through_cursor: "22", next_cursor: "22",
+      changes: [
+        { cursor: "21", entity_type: "fuel_readings", entity_id: "2", operation: "delete", row_data: null, changed_at: "2026-10-29T12:00:00Z" },
+        { cursor: "22", entity_type: "fuel_readings", entity_id: "1", operation: "upsert", row_data: replacement, changed_at: "2026-10-29T12:00:01Z" },
+      ],
+    }), "22");
+    const localRows = await storage.listEntities(fuelScope);
+    expect(localRows).toHaveLength(500);
+    expect(localRows.some(row => row.entityId === "2")).toBe(false);
+    expect(localRows.some(row => row.entityId === "1")).toBe(true);
+    expect(await storage.getCursor(fuelScope)).toBe("22");
+  });
+
   it("caps stocktake sidecar retention at the newest 200 rows on snapshots and incremental updates", async () => {
     const stocktakeScope: DeltaCursorScope = { ...scope, entityType: "inventory_stocktakes" };
     const storage = memoryStorage();
