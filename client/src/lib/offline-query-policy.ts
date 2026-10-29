@@ -121,7 +121,10 @@ function isSafeOperationalOfflineList(queryKey: readonly unknown[], segments: st
   if (input.generatorId !== undefined &&
       (!Number.isSafeInteger(input.generatorId) || Number(input.generatorId) < 1)) return false;
   if (procedure === "inventory.listFuelReadings") {
-    return input.limit === 100;
+    // The current feed is capped at 500 rows per site, not per generator.
+    // A generator-filtered query could omit older rows, so don't persist it
+    // until the server provides a generator-scoped snapshot/cursor.
+    return input.limit === 100 && input.generatorId === undefined;
   }
   return input.generatorId === undefined;
 }
