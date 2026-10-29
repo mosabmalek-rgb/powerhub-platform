@@ -1,4 +1,11 @@
 -- Private minimized HR Delta feeds. Raw identity/contact/wage/notes/payroll data is never projected.
+-- Version columns must exist before the first snapshot is projected, not only before
+-- offline replay is enabled by the following migration.
+alter table public.employees
+  add column if not exists hr_sync_version bigint not null default 1;
+alter table public.employee_attendance
+  add column if not exists hr_sync_version bigint not null default 1;
+
 alter table public.powerhub_sync_scope_state drop constraint if exists powerhub_sync_scope_state_entity_type_check;
 alter table public.powerhub_sync_scope_state add constraint powerhub_sync_scope_state_entity_type_check
   check (entity_type in (
@@ -43,7 +50,7 @@ as $$
     'id',e.id,'tenant_id',e.tenant_id,'site_id',e.site_id,
     'full_name',e.full_name,'job_title',e.job_title,
     'employment_status',e.employment_status,'contract_type',e.contract_type,
-    'created_at',e.created_at
+    'created_at',e.created_at,'version_no',e.hr_sync_version
   )
   from public.employees e
   where e.tenant_id=p_tenant_id and e.id=p_employee_id
@@ -64,7 +71,7 @@ as $$
       'id',a.id,'tenant_id',a.tenant_id,'employee_id',a.employee_id,'site_id',a.site_id,
       'work_date',a.work_date,'regular_hours',a.regular_hours,'overtime_hours',a.overtime_hours,
       'absent_days',a.absent_days,'notes',null,'created_by_user_id',null,
-      'created_at',a.created_at,'updated_at',a.updated_at
+      'created_at',a.created_at,'updated_at',a.updated_at,'version_no',a.hr_sync_version
     ),
     'employee',jsonb_build_object(
       'id',e.id,'tenant_id',e.tenant_id,'site_id',e.site_id,
