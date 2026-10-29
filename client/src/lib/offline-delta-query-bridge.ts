@@ -20,6 +20,13 @@ function optionalNumber(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
+
+// Zero is an invalid sentinel, not a server version. Never invent version 1 for
+// a legacy/malformed projection: offline writes must fail closed without a token.
+function readTrustedVersionNo(value: unknown): number {
+  const version = toNumber(value);
+  return Number.isSafeInteger(version) && version > 0 ? version : 0;
+}
 function isRow(value: unknown): value is Row {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -33,7 +40,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
       employmentStatus: String(raw.employment_status ?? raw.employmentStatus ?? "active"),
       contractType: String(raw.contract_type ?? raw.contractType ?? "monthly"),
       createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
-      versionNo: toNumber(raw.version_no ?? raw.versionNo ?? 1),
+      versionNo: readTrustedVersionNo(raw.version_no ?? raw.versionNo),
     };
   }
   if (entityType === "hr_attendance") {
@@ -53,7 +60,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         notes: null, createdByUserId: null,
         createdAt: dateOrNow(attendance.created_at ?? attendance.createdAt),
         updatedAt: dateOrNow(attendance.updated_at ?? attendance.updatedAt),
-        versionNo: toNumber(attendance.version_no ?? attendance.versionNo ?? 1),
+        versionNo: readTrustedVersionNo(attendance.version_no ?? attendance.versionNo),
       },
       employee: {
         id: toNumber(employee.id), tenantId: toNumber(employee.tenant_id ?? employee.tenantId),

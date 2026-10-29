@@ -406,6 +406,26 @@ describe("offline cache privacy sanitization", () => {
     })).toEqual({ summary: { collected: 12 }, outstandingInvoices: [] });
   });
 
+  it("does not invent HR optimistic-lock versions for legacy snapshots", () => {
+    const employeeKey = ["powerhub.hr.offlineDirectory", {
+      input: { siteId: 7 }, type: "query",
+    }];
+    const employeeRows = sanitizeOfflineQueryData(employeeKey, [{
+      id: 42, tenantId: 1, siteId: 7, fullName: "موظف",
+    }]) as Array<Record<string, unknown>>;
+    expect(employeeRows[0].versionNo).toBe(0);
+
+    const attendanceKey = ["powerhub.hr.offlineAttendance", {
+      input: { siteId: 7 }, type: "query",
+    }];
+    const attendanceRows = sanitizeOfflineQueryData(attendanceKey, [{
+      id: 81, tenantId: 1, siteId: 7,
+      attendance: { id: 81, tenantId: 1, employeeId: 42, siteId: 7, workDate: "2026-10-28" },
+      employee: { id: 42, tenantId: 1, siteId: 7, fullName: "موظف" },
+    }]) as Array<Record<string, any>>;
+    expect(attendanceRows[0].attendance.versionNo).toBe(0);
+  });
+
   it("does not alter unrelated query payloads", () => {
     const data = { items: [{ receipt_image_url: "preserve-other-domain" }] };
     expect(sanitizeOfflineQueryData(["powerhub.subscribers.list", { siteId: 7 }], data)).toEqual(data);

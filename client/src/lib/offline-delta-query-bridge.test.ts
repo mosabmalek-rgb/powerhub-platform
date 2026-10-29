@@ -566,6 +566,20 @@ describe("HR Delta minimized projections", () => {
     }
   });
 
+  it("does not synthesize a server version when an HR Delta row omits it", () => {
+    const employee = normalizeDeltaEntityRow("hr_employee_directory", {
+      id: 43, tenant_id: 2, site_id: 10, full_name: "موظف", job_title: "worker",
+    }) as Record<string, any>;
+    expect(employee.versionNo).toBe(0);
+
+    const attendance = normalizeDeltaEntityRow("hr_attendance", {
+      id: 82, tenant_id: 2, site_id: 10,
+      attendance: { id: 82, tenant_id: 2, employee_id: 43, site_id: 10, work_date: "2026-10-28" },
+      employee: { id: 43, tenant_id: 2, site_id: 10, full_name: "موظف" },
+    }) as Record<string, any>;
+    expect(attendance.attendance.versionNo).toBe(0);
+  });
+
   it("keeps attendance versions and bounded employee fields but never notes or audit identities", () => {
     const attendance = normalizeDeltaEntityRow("hr_attendance", {
       id: 81, tenant_id: 2, site_id: 10,

@@ -316,6 +316,17 @@ function capOperationalListRows(
   return data;
 }
 
+// Old/malformed local projections must not acquire a fabricated optimistic-lock
+// token. Zero marks the version as unavailable and is rejected for offline writes.
+function safeHrVersionNo(...values: unknown[]): number {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const version = typeof value === "number" ? value : Number(value);
+    if (Number.isSafeInteger(version) && version > 0) return version;
+  }
+  return 0;
+}
+
 export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unknown): unknown {
   const first = queryKey[0];
   if (isOfflineDashboardSnapshotQueryKey(queryKey) && data && typeof data === "object" && !Array.isArray(data)) {
@@ -342,7 +353,7 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
       fullName: row.fullName ?? row.full_name ?? "", jobTitle: row.jobTitle ?? row.job_title ?? "other",
       employmentStatus: row.employmentStatus ?? row.employment_status ?? "active",
       contractType: row.contractType ?? row.contract_type ?? "monthly", createdAt: row.createdAt ?? row.created_at,
-      versionNo: row.versionNo ?? row.version_no ?? 1,
+      versionNo: safeHrVersionNo(row.versionNo, row.version_no),
       pendingOffline: Boolean(row.pendingOffline),
     }));
     if (segments[2] === "offlineAttendance") return data.filter(isRow).map((row) => {
@@ -357,7 +368,7 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
           workDate: attendance.workDate ?? attendance.work_date, regularHours: attendance.regularHours ?? attendance.regular_hours ?? 0,
           overtimeHours: attendance.overtimeHours ?? attendance.overtime_hours ?? 0, absentDays: attendance.absentDays ?? attendance.absent_days ?? 0,
           notes: null, createdByUserId: null, createdAt: attendance.createdAt ?? attendance.created_at, updatedAt: attendance.updatedAt ?? attendance.updated_at,
-            versionNo: attendance.versionNo ?? attendance.version_no ?? 1,
+            versionNo: safeHrVersionNo(attendance.versionNo, attendance.version_no),
           pendingOffline: Boolean(attendance.pendingOffline),
         },
         employee: {
