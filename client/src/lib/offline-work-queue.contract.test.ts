@@ -52,3 +52,31 @@ describe("offline outbox update atomicity contract", () => {
     expect(implementation).not.toContain('transact<QueuedOfflineWork | undefined>("readonly"');
   });
 });
+
+
+describe("HR offline outbox contract", () => {
+  it("uses the shared durable operation store and persists dependency metadata in the same transaction", () => {
+    const source = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
+    expect(source).toContain('"employee_create"');
+    expect(source).toContain('"employee_update"');
+    expect(source).toContain('"attendance_upsert"');
+    expect(source).toContain('"payroll_draft"');
+    expect(source).toContain('"employee_advance_issue"');
+    expect(source).toContain('"employee_advance_repayment"');
+    expect(source).toContain('export async function enqueueOfflineHrWork(input: OfflineWorkEnqueueInput)');
+    expect(source).toContain('db.transaction([storeName, syncMetadataStoreName], "readwrite")');
+    expect(source).toContain("metadataStore.add(createInitialSyncMetadataRecord(record, dependsOn))");
+    expect(source).toContain("operationsStore.add(record)");
+    expect(source).toContain('metadata?.outcome === "pending" && metadata.attempts === 0');
+  });
+
+  it("coalesces only unattempted employee and attendance edits and refuses duplicate local payroll periods", () => {
+    const source = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
+    expect(source).toContain('if (record.kind === "employee_update")');
+    expect(source).toContain('if (record.kind === "attendance_upsert")');
+    expect(source).toContain('item.kind === "payroll_draft" && item.status !== "applied" && item.status !== "failed"');
+    expect(source).toContain("payload.expectedVersion = input.serverVersion");
+    expect(source).toContain("export async function resolveOfflineEmployeeReferences");
+    expect(source).toContain("export async function resolveOfflineAdjustmentReferences");
+  });
+});
