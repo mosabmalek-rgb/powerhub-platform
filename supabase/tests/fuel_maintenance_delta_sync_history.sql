@@ -17,6 +17,7 @@ declare
   v_snapshot_cursor bigint;
   v_first_plan_id bigint;
   v_replacement_plan_id bigint;
+  v_updated_plan_id bigint;
   v_first_reading_id bigint;
   v_replacement_reading_id bigint;
   v_visible_count integer;
@@ -157,6 +158,21 @@ begin
   ) or not exists (
     select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_plan_id::text
   ) then raise exception 'DELTA_MAINTENANCE_PLAN_DELETE_DID_NOT_REFILL_TOP_500'; end if;
+
+  -- Updating a plan's due date can push it beyond the bounded membership set.
+  -- The trigger must re-emit the new top 500 so the previous 501st row is restored.
+  select id into v_updated_plan_id from public.generator_maintenance_preventive_plans
+    where plan_code='DELTA-BOUND-PLAN-002';
+  update public.generator_maintenance_preventive_plans
+    set next_due_at=timestamptz '2099-01-01 00:00:00+00',updated_at=clock_timestamp()
+    where id=v_updated_plan_id;
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_preventive_plans') into v_snapshot;
+  v_visible_count:=jsonb_array_length(v_snapshot->'rows');
+  if v_visible_count<>500 or exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_updated_plan_id::text
+  ) or not exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_plan_id::text
+  ) then raise exception 'DELTA_MAINTENANCE_PLAN_UPDATE_LEFT_STALE_TOP_500_MEMBERSHIP'; end if;
 end;
 $fuel_maintenance_delta$;
 
