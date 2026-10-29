@@ -15,6 +15,11 @@ declare
   v_delta jsonb;
   v_parts_entity text;
   v_snapshot_cursor bigint;
+  v_first_plan_id bigint;
+  v_replacement_plan_id bigint;
+  v_first_reading_id bigint;
+  v_replacement_reading_id bigint;
+  v_visible_count integer;
 begin
   insert into public.inventory_warehouses(
     tenant_id,site_id,code,name,location_type,generator_id,created_by_user_id
@@ -101,6 +106,57 @@ begin
   exception when sqlstate 'P0001' then
     if sqlerrm<>'POWERHUB_SYNC_WORK_ORDER_OUT_OF_SCOPE' then raise; end if;
   end;
+
+  -- Seed more than the top-500 boundary without producing one journal refresh per fixture row.
+  alter table public.generator_fuel_readings disable trigger powerhub_delta_operational_readings;
+  insert into public.generator_fuel_readings(
+    tenant_id,site_id,generator_id,reading_type,tank_warehouse_id,reading_value,recorded_at,
+    reference_no,notes,corrects_reading_id,correction_reason,operation_key,operation_payload_hash,created_by_user_id
+  )
+  select 10,100,10000,'operating_hours',null,g::numeric,
+    timestamptz '2090-01-01 00:00:00+00' + (g-1)*interval '1 day',
+    null,null,null,null,'delta-bounded-reading-'||lpad(g::text,3,'0'),
+    'delta-bounded-reading-payload-'||g,1
+  from generate_series(1,501) g;
+  alter table public.generator_fuel_readings enable trigger powerhub_delta_operational_readings;
+  perform public.powerhub_refresh_fuel_reading_delta_scope(10,100);
+  select id into v_first_reading_id from public.generator_fuel_readings
+    where operation_key='delta-bounded-reading-501';
+  select id into v_replacement_reading_id from public.generator_fuel_readings
+    where operation_key='delta-bounded-reading-001';
+  delete from public.generator_fuel_readings where id=v_first_reading_id;
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'fuel_readings') into v_snapshot;
+  v_visible_count:=jsonb_array_length(v_snapshot->'rows');
+  if v_visible_count<>500 or exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_first_reading_id::text
+  ) or not exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_reading_id::text
+  ) then raise exception 'DELTA_FUEL_READING_DELETE_DID_NOT_REFILL_TOP_500'; end if;
+
+  alter table public.generator_maintenance_preventive_plans disable trigger powerhub_delta_operational_maintenance_plans;
+  insert into public.generator_maintenance_preventive_plans(
+    tenant_id,site_id,generator_id,plan_code,title,interval_days,next_due_at,
+    operation_key,operation_payload_hash,created_by_user_id
+  )
+  select 10,100,10000,'DELTA-BOUND-PLAN-'||lpad(g::text,3,'0'),
+    'Bounded maintenance plan '||g,30,
+    timestamptz '2000-01-01 00:00:00+00' + (g-1)*interval '1 day',
+    'delta-bounded-plan-'||g,'delta-bounded-plan-payload-'||g,1
+  from generate_series(1,501) g;
+  alter table public.generator_maintenance_preventive_plans enable trigger powerhub_delta_operational_maintenance_plans;
+  perform public.powerhub_refresh_maintenance_plan_delta_scope(10,100);
+  select id into v_first_plan_id from public.generator_maintenance_preventive_plans
+    where plan_code='DELTA-BOUND-PLAN-001';
+  select id into v_replacement_plan_id from public.generator_maintenance_preventive_plans
+    where plan_code='DELTA-BOUND-PLAN-501';
+  delete from public.generator_maintenance_preventive_plans where id=v_first_plan_id;
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_preventive_plans') into v_snapshot;
+  v_visible_count:=jsonb_array_length(v_snapshot->'rows');
+  if v_visible_count<>500 or exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_first_plan_id::text
+  ) or not exists (
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_plan_id::text
+  ) then raise exception 'DELTA_MAINTENANCE_PLAN_DELETE_DID_NOT_REFILL_TOP_500'; end if;
 end;
 $fuel_maintenance_delta$;
 
