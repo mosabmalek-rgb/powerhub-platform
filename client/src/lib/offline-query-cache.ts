@@ -1,6 +1,7 @@
 import type { Query, QueryClient } from "@tanstack/react-query";
 import superjson from "superjson";
 import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey } from "./offline-query-policy";
+import { clearOperationalReportSnapshotsForUser } from "./offline-operational-report-cache";
 export { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey } from "./offline-query-policy";
 
 const DATABASE_NAME = "powerhub-offline-cache";
@@ -453,6 +454,7 @@ export async function clearOfflineQueryCacheForUser(userId: string) {
   } catch {
     // Best-effort privacy cleanup must not break the sign-out flow.
   }
+  await clearOperationalReportSnapshotsForUser(userId);
 }
 
 export async function persistOfflineAuthUser(userId: string, user: unknown) {
