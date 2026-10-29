@@ -330,8 +330,10 @@ describe("public invoice and inquiry actions", () => {
     expect(server).toContain('supabaseAdmin().rpc("powerhub_cycle_for_reading"');
     expect(server).toContain("paymentDocumentationGazaDateBoundary");
     expect(server).toContain('if (input.status !== "all") query = query.eq("status", input.status)');
-    expect(review).toContain('if (period === "current_cycle") return false');
-    expect(review).toContain("لا يمكن التحقق من مطابقة لقطة الطلبات لدورة القراءة الحالية دون اتصال");
+    // Dynamic current-cycle boundaries are server-owned; offline snapshots are not displayed for that scope.
+    expect(review).toContain('period==="current_cycle")return;');
+    expect(review).toContain("لا نعرض لقطة «هذه الدورة»");
+    expect(review).toContain("تعتمد على حدود دورة القراءة الحالية من الخادم");
   });
 
   it("filters collections by canonical cycle, receiver account type/account, and exports readable destination columns", () => {
