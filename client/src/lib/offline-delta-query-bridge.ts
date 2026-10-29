@@ -33,6 +33,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
       employmentStatus: String(raw.employment_status ?? raw.employmentStatus ?? "active"),
       contractType: String(raw.contract_type ?? raw.contractType ?? "monthly"),
       createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
+      versionNo: toNumber(raw.version_no ?? raw.versionNo ?? 1),
     };
   }
   if (entityType === "hr_attendance") {
@@ -52,6 +53,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         notes: null, createdByUserId: null,
         createdAt: dateOrNow(attendance.created_at ?? attendance.createdAt),
         updatedAt: dateOrNow(attendance.updated_at ?? attendance.updatedAt),
+        versionNo: toNumber(attendance.version_no ?? attendance.versionNo ?? 1),
       },
       employee: {
         id: toNumber(employee.id), tenantId: toNumber(employee.tenant_id ?? employee.tenantId),

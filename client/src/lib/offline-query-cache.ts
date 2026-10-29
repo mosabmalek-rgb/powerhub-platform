@@ -342,6 +342,7 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
       fullName: row.fullName ?? row.full_name ?? "", jobTitle: row.jobTitle ?? row.job_title ?? "other",
       employmentStatus: row.employmentStatus ?? row.employment_status ?? "active",
       contractType: row.contractType ?? row.contract_type ?? "monthly", createdAt: row.createdAt ?? row.created_at,
+      versionNo: row.versionNo ?? row.version_no ?? 1,
     }));
     if (segments[2] === "offlineAttendance") return data.filter(isRow).map((row) => {
       const attendance = isRow(row.attendance) ? row.attendance : row;
@@ -355,6 +356,7 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
           workDate: attendance.workDate ?? attendance.work_date, regularHours: attendance.regularHours ?? attendance.regular_hours ?? 0,
           overtimeHours: attendance.overtimeHours ?? attendance.overtime_hours ?? 0, absentDays: attendance.absentDays ?? attendance.absent_days ?? 0,
           notes: null, createdByUserId: null, createdAt: attendance.createdAt ?? attendance.created_at, updatedAt: attendance.updatedAt ?? attendance.updated_at,
+            versionNo: attendance.versionNo ?? attendance.version_no ?? 1,
         },
         employee: {
           id: employee.id, tenantId: employee.tenantId ?? employee.tenant_id, siteId: employee.siteId ?? employee.site_id ?? null,
@@ -427,6 +429,12 @@ async function persistOfflineQueryWithPolicy(
     await deleteQueryCacheKeys([userId + ":" + serializedQueryKey]).catch(() => undefined);
     return;
   }
+  const cacheKeyParts = query.queryKey[0];
+  const cacheKeySegments = Array.isArray(cacheKeyParts)
+    ? cacheKeyParts.filter((part): part is string => typeof part === "string")
+    : typeof cacheKeyParts === "string" ? cacheKeyParts.split(".") : [];
+  const isHrProjection = cacheKeySegments[0] === "powerhub" && cacheKeySegments[1] === "hr" &&
+    (cacheKeySegments[2] === "offlineDirectory" || cacheKeySegments[2] === "offlineAttendance");
   const record: OfflineQueryRecord = {
     key: userId + ":" + serializedQueryKey,
     userId,
@@ -435,7 +443,9 @@ async function persistOfflineQueryWithPolicy(
     updatedAt: query.state.dataUpdatedAt || now,
     // Operational snapshots are retained across days; freshness is handled by sync cursors,
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
-    expiresAt: (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey)) ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
+    expiresAt: isHrProjection ? now + 7 * 24 * 60 * 60 * 1000
+      : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
+        ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
   };
 
   try {

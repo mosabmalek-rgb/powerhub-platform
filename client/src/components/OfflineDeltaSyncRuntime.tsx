@@ -40,6 +40,8 @@ const SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const SYNC_DEBOUNCE_MS = 350;
 const MAX_LOCAL_FUEL_READING_QUERY_ROWS = 100;
 const MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS = 500;
+const MAX_LOCAL_HR_EMPLOYEE_ROWS = 500;
+const MAX_LOCAL_HR_ATTENDANCE_ROWS = 1000;
 
 function getSegments(queryKey: readonly unknown[]): string[] {
   const first = queryKey[0];
@@ -252,7 +254,32 @@ async function patchQueryCaches(
     const rows = getQueryRows(query);
     if (!rows) continue;
     if (queryEntity === entityType) {
-      if (entityType === "inventory_item_units") {
+      if (entityType === "hr_employee_directory" || entityType === "hr_attendance") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            if (change.operation !== "upsert" || !change.row_data) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, change.row_data as AnyRow) };
+          }),
+        };
+        const nextRows = (applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[])
+          .sort((a, b) => {
+            if (entityType === "hr_attendance") {
+              const left = (a.attendance ?? a) as AnyRow;
+              const right = (b.attendance ?? b) as AnyRow;
+              const leftDate = left.workDate instanceof Date ? left.workDate.getTime() : Date.parse(String(left.workDate ?? left.work_date ?? ""));
+              const rightDate = right.workDate instanceof Date ? right.workDate.getTime() : Date.parse(String(right.workDate ?? right.work_date ?? ""));
+              return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) ||
+                Number(right.id ?? 0) - Number(left.id ?? 0);
+            }
+            const leftDate = a.createdAt instanceof Date ? a.createdAt.getTime() : Date.parse(String(a.createdAt ?? a.created_at ?? ""));
+            const rightDate = b.createdAt instanceof Date ? b.createdAt.getTime() : Date.parse(String(b.createdAt ?? b.created_at ?? ""));
+            return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) ||
+              Number(b.id) - Number(a.id);
+          }).slice(0, entityType === "hr_employee_directory" ? MAX_LOCAL_HR_EMPLOYEE_ROWS : MAX_LOCAL_HR_ATTENDANCE_ROWS);
+        queryClient.setQueryData(query.queryKey, nextRows);
+      } else if (entityType === "inventory_item_units") {
         const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
         const visibleIds = new Set(rows.filter((row: AnyRow) =>
           Number(row.itemId ?? row.item_id) === itemId
@@ -476,10 +503,11 @@ export function OfflineDeltaSyncRuntime() {
         for (const row of queryRows) {
           const scoped = (candidate.entityType === "readings" ? row.subscriber : row) as Record<string, unknown> | undefined;
           const sharedInventoryEntity = candidate.entityType === "inventory_items" || candidate.entityType === "inventory_item_units" || candidate.entityType === "suppliers";
+          const sharedEmployee = candidate.entityType === "hr_employee_directory" && scoped?.siteId === null;
           const matchesScope = candidate.entityType === "sites"
             ? Number(scoped?.id) === candidate.siteId && Number(scoped?.tenantId) === candidate.tenantId
             : Number(scoped?.tenantId) === candidate.tenantId &&
-              (sharedInventoryEntity || Number(scoped?.siteId) === candidate.siteId);
+              (sharedInventoryEntity || sharedEmployee || Number(scoped?.siteId) === candidate.siteId);
           if (!matchesScope) {
             throw new Error("لقطة المزامنة تحتوي بيانات خارج نطاق الفرع.");
           }
@@ -508,6 +536,21 @@ export function OfflineDeltaSyncRuntime() {
               return bDate - aDate;
             });
             queryClient.setQueryData(query.queryKey, merged);
+          } else if (candidate.entityType === "hr_employee_directory" || candidate.entityType === "hr_attendance") {
+            const ordered = (queryRows as AnyRow[]).slice().sort((a, b) => {
+              if (candidate.entityType === "hr_attendance") {
+                const left = (a.attendance ?? a) as AnyRow;
+                const right = (b.attendance ?? b) as AnyRow;
+                const leftDate = left.workDate instanceof Date ? left.workDate.getTime() : Date.parse(String(left.workDate ?? left.work_date ?? ""));
+                const rightDate = right.workDate instanceof Date ? right.workDate.getTime() : Date.parse(String(right.workDate ?? right.work_date ?? ""));
+                return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) ||
+                  Number(right.id ?? 0) - Number(left.id ?? 0);
+              }
+              const leftDate = a.createdAt instanceof Date ? a.createdAt.getTime() : Date.parse(String(a.createdAt ?? a.created_at ?? ""));
+              const rightDate = b.createdAt instanceof Date ? b.createdAt.getTime() : Date.parse(String(b.createdAt ?? b.created_at ?? ""));
+              return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) || Number(b.id) - Number(a.id);
+            });
+            queryClient.setQueryData(query.queryKey, ordered.slice(0, candidate.entityType === "hr_employee_directory" ? MAX_LOCAL_HR_EMPLOYEE_ROWS : MAX_LOCAL_HR_ATTENDANCE_ROWS));
           } else if (candidate.entityType === "invoices") {
             queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
               queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), query.state.data, scope,
