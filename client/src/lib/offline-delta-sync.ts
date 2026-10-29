@@ -554,10 +554,20 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
           });
         }
       }
-      if (scope.entityType === "inventory_stock_movements" || scope.entityType === "inventory_stocktakes" || scope.entityType === "inventory_purchase_headers" || scope.entityType === "inventory_purchase_receipt_headers" || scope.entityType === "inventory_supplier_return_headers") {
-        // Keep the 500-row sidecar bound in the same transaction as mutations and cursor.
+      if (
+        scope.entityType === "inventory_stock_movements" ||
+        scope.entityType === "inventory_stocktakes" ||
+        scope.entityType === "inventory_purchase_headers" ||
+        scope.entityType === "inventory_purchase_receipt_headers" ||
+        scope.entityType === "inventory_supplier_return_headers" ||
+        scope.entityType === "fuel_readings" ||
+        scope.entityType === "maintenance_preventive_plans" ||
+        scope.entityType === "fuel_events" ||
+        scope.entityType === "maintenance_work_orders"
+      ) {
+        // Keep every bounded entity sidecar in the same transaction as mutations and cursor.
         const retainedRequest = entities.index("byScope").getAll(IDBKeyRange.only(key));
-        retainedRequest.onerror = () => failTransaction("تعذر تقليص سجل حركات المخزون المحلي.");
+        retainedRequest.onerror = () => failTransaction("تعذر تقليص سجل المزامنة المحلي.");
         retainedRequest.onsuccess = () => {
           if (rejected) return;
           const stored = retainedRequest.result as Array<Record<string, unknown>>;
