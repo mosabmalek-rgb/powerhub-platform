@@ -515,6 +515,31 @@ export async function resolveOfflineEmployeeReferences(input: {
   });
 }
 
+/** Resolve a locally recorded advance after server confirmation, without replaying a repayment twice. */
+export async function resolveOfflineAdjustmentReferences(input: {
+  userId: number; siteId: number; localAdjustmentId: number; serverAdjustmentId: number;
+}) {
+  const db = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const request = store.getAll();
+    request.onsuccess = () => {
+      for (const item of request.result as QueuedOfflineWork[]) {
+        if (item.userId !== input.userId || item.siteId !== input.siteId ||
+            item.status === "applied" || item.kind !== "employee_advance_repayment") continue;
+        const payload = item.payload as HrEmployeeAdvanceRepaymentDraft;
+        if (payload.adjustmentId !== input.localAdjustmentId) continue;
+        store.put({ ...item, payload: { ...payload, adjustmentId: input.serverAdjustmentId }, updatedAt: Date.now() });
+      }
+    };
+    request.onerror = () => { try { tx.abort(); } catch {} };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { const error = tx.error; db.close(); reject(error ?? new OfflineWorkQueueError("تعذر ربط السداد بمعرف السلفة الخادمي.")); };
+    tx.onabort = () => { const error = tx.error; db.close(); reject(error ?? new OfflineWorkQueueError("أُلغيت عملية ربط معرف السلفة.")); };
+  });
+}
+
 export async function enqueueOfflineSubscriberCreateWithNumber(input: {
   scope: OfflineNumberScope;
   payload: Omit<SubscriberCreateDraft, "offlineNumberClaim">;
