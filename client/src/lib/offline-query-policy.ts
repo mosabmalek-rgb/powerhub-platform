@@ -130,6 +130,15 @@ function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: stri
   return Object.keys(input).every((key) => ["siteId", "includeInactive", "search"].includes(key));
 }
 
+function isSafeInventoryMovementList(queryKey: readonly unknown[], segments = getPowerHubQuerySegments(queryKey)) {
+  if (segments.length !== 3 || segments[1] !== "inventory" || segments[2] !== "listStockMovements") return false;
+  const input = getOfflineQueryInput(queryKey);
+  return Boolean(input && Object.keys(input).length === 2 &&
+    Object.keys(input).every((key) => key === "siteId" || key === "limit") &&
+    Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0 &&
+    input.limit === 100);
+}
+
 function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
   const input = getOfflineQueryInput(queryKey);
   if (!input || Object.keys(input).some((key) => !["siteId", "branchId"].includes(key))) return false;
@@ -220,6 +229,7 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // Inventory catalog lists are persisted only in their default active,
   // unfiltered form and use the matching tenant/site-scoped Delta catalog feed.
   if (isSafeInventoryOfflineList(queryKey, segments)) return true;
+  if (isSafeInventoryMovementList(queryKey, segments)) return true;
   if (isSafeDashboardRevision(queryKey, segments)) return true;
   if (isSafeDashboardSnapshot(queryKey, segments)) return true;
 
@@ -263,7 +273,7 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") return true;
 
   if (segments[1] === "inventory") {
-    return ["listItems", "listItemUnits", "listSuppliers", "listWarehouses"].includes(segments[2] ?? "");
+    return ["listItems", "listItemUnits", "listSuppliers", "listWarehouses"].includes(segments[2] ?? "") || isSafeInventoryMovementList(queryKey, segments);
   }
   return segments[2] === "list" && DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
 }
@@ -311,11 +321,7 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
     return null;
   }
   if (segments[1] === "inventory") {
-    if (segments[2] === "listStockMovements") {
-      const input = getOfflineQueryInput(queryKey);
-      return Number(input.siteId) > 0 && input.limit === 100 && Object.keys(input).every((key) => key === "siteId" || key === "limit")
-        ? "inventory_stock_movements" : null;
-    }
+    if (segments[2] === "listStockMovements") return isSafeInventoryMovementList(queryKey, segments) ? "inventory_stock_movements" : null;
     if (segments[2] === "listItems") return "inventory_items";
     if (segments[2] === "listItemUnits") return "inventory_item_units";
     if (segments[2] === "listSuppliers") return "suppliers";
