@@ -281,7 +281,15 @@ async function patchQueryCaches(
           : sortSupplierReturnRows(nextRows, limit));
       } else if (entityType === "fuel_readings" || entityType === "maintenance_preventive_plans") {
         const generatorId = Number(getOfflineQueryInput(query.queryKey).generatorId);
-        const filtered = applyDeltaPageToList(entityType, rows, page, scope, subscribers) as AnyRow[];
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            if (change.operation !== "upsert" || !change.row_data) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, change.row_data as AnyRow) };
+          }),
+        };
+        const filtered = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
         const nextRows = filtered
           .filter((row) => !Number.isSafeInteger(generatorId) || generatorId < 1 ||
             Number(row.generator_id ?? row.generatorId) === generatorId)
