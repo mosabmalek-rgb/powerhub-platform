@@ -294,27 +294,87 @@ alter function public.powerhub_refresh_fuel_reading_delta_after_warehouse_update
 revoke all on function public.powerhub_refresh_fuel_reading_delta_after_warehouse_update() from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_fuel_reading_delta_after_warehouse_update() to service_role;
 
+create or replace function public.powerhub_refresh_maintenance_plan_delta_scope(
+  p_tenant_id bigint,p_site_id bigint
+)
+returns void
+language plpgsql
+security definer
+set search_path=pg_catalog,public,pg_temp
+as $
+declare v_plan record;
+begin
+  if p_tenant_id is null or p_site_id is null then return; end if;
+  -- Refresh the entire bounded projection after alert-priority shifts. If one
+  -- plan falls out of the top 500, sending the current top 500 lets the client
+  -- prune it and retain the replacement instead of keeping stale membership.
+  for v_plan in
+    select ranked.id
+    from (
+      select p.id,
+        case when latest.alert_type='overdue' then 0
+             when latest.alert_type='due_soon' then 1 else 2 end as priority,
+        coalesce(p.next_due_at,'infinity'::timestamptz) as due_at
+      from public.generator_maintenance_preventive_plans p
+      left join lateral (
+        select e.alert_type
+        from public.generator_maintenance_alert_events e
+        where e.tenant_id=p.tenant_id and e.site_id=p.site_id and e.plan_id=p.id
+          and e.alert_type in ('due_soon','overdue')
+        order by e.updated_at desc,e.id desc
+        limit 1
+      ) latest on true
+      where p.tenant_id=p_tenant_id and p.site_id=p_site_id
+      order by priority,due_at,p.id
+      limit 500
+    ) ranked
+    order by ranked.priority,ranked.due_at,ranked.id
+  loop
+    perform public.powerhub_emit_operational_delta_sync_change(
+      p_tenant_id,p_site_id,'maintenance_preventive_plans',v_plan.id
+    );
+  end loop;
+end $;
+alter function public.powerhub_refresh_maintenance_plan_delta_scope(bigint,bigint) owner to postgres;
+revoke all on function public.powerhub_refresh_maintenance_plan_delta_scope(bigint,bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_refresh_maintenance_plan_delta_scope(bigint,bigint) to service_role;
+
 create or replace function public.powerhub_refresh_maintenance_plan_delta_after_alert_change()
 returns trigger
 language plpgsql
 security definer
 set search_path=pg_catalog,public,pg_temp
-as $$
+as $
 begin
   if TG_OP='DELETE' then
-    perform public.powerhub_emit_operational_delta_sync_change(OLD.tenant_id,OLD.site_id,'maintenance_preventive_plans',OLD.plan_id);
+    -- Emit the changed row first (or a tombstone if its plan was deleted),
+    -- then refresh the current top-500 projection to fill any freed slot.
+    perform public.powerhub_emit_operational_delta_sync_change(
+      OLD.tenant_id,OLD.site_id,'maintenance_preventive_plans',OLD.plan_id
+    );
+    perform public.powerhub_refresh_maintenance_plan_delta_scope(OLD.tenant_id,OLD.site_id);
     return OLD;
   end if;
+
   if TG_OP='UPDATE' and (
       OLD.tenant_id is distinct from NEW.tenant_id
       or OLD.site_id is distinct from NEW.site_id
       or OLD.plan_id is distinct from NEW.plan_id
   ) then
-    perform public.powerhub_emit_operational_delta_sync_change(OLD.tenant_id,OLD.site_id,'maintenance_preventive_plans',OLD.plan_id);
+    perform public.powerhub_emit_operational_delta_sync_change(
+      OLD.tenant_id,OLD.site_id,'maintenance_preventive_plans',OLD.plan_id
+    );
+    perform public.powerhub_refresh_maintenance_plan_delta_scope(OLD.tenant_id,OLD.site_id);
   end if;
-  perform public.powerhub_emit_operational_delta_sync_change(NEW.tenant_id,NEW.site_id,'maintenance_preventive_plans',NEW.plan_id);
+
+  -- Include a changed plan even if it falls outside the current top 500 so
+  -- its new projection replaces any previously cached high-priority version.
+  perform public.powerhub_emit_operational_delta_sync_change(
+    NEW.tenant_id,NEW.site_id,'maintenance_preventive_plans',NEW.plan_id
+  );
+  perform public.powerhub_refresh_maintenance_plan_delta_scope(NEW.tenant_id,NEW.site_id);
   return NEW;
-end $$;
+end $;
 alter function public.powerhub_refresh_maintenance_plan_delta_after_alert_change() owner to postgres;
 revoke all on function public.powerhub_refresh_maintenance_plan_delta_after_alert_change() from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_maintenance_plan_delta_after_alert_change() to service_role;
