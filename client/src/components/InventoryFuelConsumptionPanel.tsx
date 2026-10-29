@@ -657,7 +657,7 @@ export default function InventoryFuelConsumptionPanel({
 
         <div>
           <h3 className="mb-2 font-medium">آخر التعبئات</h3>
-          {usingRecentOfflineEvents ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل السجل المفلتر؛ يعرض هذا الجدول آخر 100 تعبئة محفوظة محليًا، ولا تُطبّق عليها فلاتر التاريخ أو المولد حتى استعادة الاتصال.</p> : null}
+          {events.error && events.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل التعبئات؛ تُعرض آخر نتيجة ناجحة تطابق الفلاتر الحالية.</p> : usingRecentOfflineEvents ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل السجل المفلتر؛ يعرض هذا الجدول آخر 100 تعبئة محفوظة محليًا، ولا تُطبّق عليها فلاتر التاريخ أو المولد حتى استعادة الاتصال.</p> : events.error && !recentEvents.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل التعبئات ولا توجد نسخة محلية متاحة.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">من المصدر إلى الخزان</th><th className="p-2">اللترات</th><th className="p-2">المستوى قبل ← بعد</th><th className="p-2">ساعات العداد</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{eventRows.map((row) => <tr key={row.event_id} className="border-t">
@@ -666,12 +666,13 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.litres)}</td><td className="p-2">{qty(row.level_before_liters)} ← {qty(row.level_after_liters)}</td>
               <td className="p-2">{qty(row.operating_hours)}</td><td className="p-2">{row.reference_no || "—"}</td>
             </tr>)}
-            {eventRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">لا توجد تعبئات في الفترة المحددة.</td></tr> : null}</tbody>
+            {eventRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{events.error && !recentEvents.data ? "تعذر تحميل سجل التعبئات ولا توجد نسخة متاحة." : "لا توجد تعبئات في الفترة المحددة."}</td></tr> : null}</tbody>
           </table></div>
         </div>
 
         <div>
           <h3 className="mb-2 font-medium">آخر القراءات</h3>
+          {readings.error && readings.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ تُعرض آخر نتيجة ناجحة لهذا الاستعلام.</p> : readings.error && !readings.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل القراءات ولا توجد نسخة متاحة لهذا النطاق.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">النوع</th><th className="p-2">الخزان</th><th className="p-2">القراءة</th><th className="p-2">تصحيح القراءة</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{readingRows.map((row) => <tr key={row.reading_id} className="border-t">
@@ -680,7 +681,7 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.reading_value)}</td>
               <td className="p-2">{row.corrects_reading_id ? `تصحيح #${row.corrects_reading_id}: ${row.correction_reason || ""}` : "—"}</td><td className="p-2">{row.reference_no || "—"}</td>
             </tr>)}
-            {readingRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">لا توجد قراءات مسجلة.</td></tr> : null}</tbody>
+            {readingRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{readings.error ? "تعذر تحميل القراءات ولا توجد نسخة متاحة." : "لا توجد قراءات مسجلة."}</td></tr> : null}</tbody>
           </table></div>
         </div>
       </CardContent>
