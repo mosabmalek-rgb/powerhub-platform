@@ -722,7 +722,7 @@ export const powerhubRouter = router({
         : input.entityType === "company_accounts_all"
           ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
           : input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans"
-            ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType)
+            ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType as "fuel_readings" | "maintenance_preventive_plans")
             : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
               ? await requireDeltaPurchaseChildHistoryReadAccess(ctx.user.id, input.siteId, input.entityType)
               : input.entityType === "inventory_purchase_headers"
