@@ -97,6 +97,15 @@ describe("HR offline operation replay contract", () => {
     expect(hrOfflineMigration).toContain("to service_role");
     expect(hrOfflineMigration).toContain("'version_no',e.hr_sync_version");
     expect(hrOfflineMigration).toContain("'version_no',a.hr_sync_version");
+    const replayStart = hrOfflineMigration.indexOf("create or replace function public.powerhub_hr_replay_offline_operation");
+    const replayEnd = hrOfflineMigration.indexOf("alter function public.powerhub_hr_replay_offline_operation", replayStart);
+    const replay = hrOfflineMigration.slice(replayStart, replayEnd);
+    const attendanceStart = replay.indexOf("elsif p_operation_type='attendance_upsert' then");
+    const attendanceEnd = replay.indexOf("elsif p_operation_type='payroll_draft' then", attendanceStart);
+    const attendanceBranch = replay.slice(attendanceStart, attendanceEnd);
+    expect(attendanceBranch).toContain("hashtext('attendance:' || v_entity_id::text || ':' || (p_payload->>'workDate')::date::text)");
+    expect(attendanceBranch.indexOf("perform pg_advisory_xact_lock")).toBeGreaterThanOrEqual(0);
+    expect(attendanceBranch.indexOf("perform pg_advisory_xact_lock")).toBeLessThan(attendanceBranch.indexOf("select a.id,a.hr_sync_version"));
     const snapshotStart = hrOfflineMigration.indexOf("create or replace function public.powerhub_get_hr_sync_snapshot");
     const snapshotEnd = hrOfflineMigration.indexOf("alter function public.powerhub_get_hr_sync_snapshot", snapshotStart);
     const snapshot = hrOfflineMigration.slice(snapshotStart, snapshotEnd);
