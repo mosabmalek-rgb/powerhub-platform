@@ -4,6 +4,7 @@ import {
   assertDeltaRowWithinScope,
   compareDeltaCursors,
   limitDeltaEntityRows,
+  isBoundedDeltaEntityType,
   pullDeltaPages,
   withDeltaSyncLock,
   type DeltaPage,
@@ -169,6 +170,18 @@ describe("Delta row scope validation", () => {
       id: 13, tenantId: 1, siteId: 7,
       subscriber: { id: 11, tenantId: 1, siteId: 8 },
     }, scoped)).toThrow(/العلاقة subscriber/);
+  });
+});
+
+describe("bounded Delta sidecar retention policy", () => {
+  it("prunes bounded fuel and maintenance entities but never truncates a per-order parts partition", () => {
+    for (const entityType of [
+      "fuel_readings", "maintenance_preventive_plans", "fuel_events", "maintenance_work_orders",
+    ] as const) {
+      expect(isBoundedDeltaEntityType(entityType), entityType).toBe(true);
+    }
+    expect(isBoundedDeltaEntityType("maintenance_work_order_parts:77")).toBe(false);
+    expect(isBoundedDeltaEntityType("subscribers")).toBe(false);
   });
 });
 
