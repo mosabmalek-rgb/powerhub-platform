@@ -72,8 +72,35 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.maintenance.listPreventivePlans", {
       input: { siteId: 7, generatorId: 21 }, type: "query",
     }])).toBe(false);
-    expect(isOfflineCacheableQueryKey(["powerhub.maintenance.listWorkOrders", {
+    const fuelEvents = ["powerhub.inventory.listFuelEvents", {
+      input: { siteId: 7, limit: 100 }, type: "query",
+    }];
+    const filteredFuelEvents = ["powerhub.inventory.listFuelEvents", {
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29", limit: 100 }, type: "query",
+    }];
+    const workOrders = ["powerhub.maintenance.listWorkOrders", {
       input: { siteId: 7, limit: 200 }, type: "query",
+    }];
+    const filteredWorkOrders = ["powerhub.maintenance.listWorkOrders", {
+      input: { siteId: 7, status: "in_progress", limit: 200 }, type: "query",
+    }];
+    const parts = ["powerhub.maintenance.listParts", {
+      input: { siteId: 7, workOrderId: 9001 }, type: "query",
+    }];
+    for (const [key, entity] of [
+      [fuelEvents, "fuel_events"],
+      [workOrders, "maintenance_work_orders"],
+      [parts, "maintenance_work_order_parts:9001"],
+    ] as const) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(true);
+      expect(getOfflineQueryDeltaEntity(key)).toBe(entity);
+      expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
+    }
+    expect(isOfflineCacheableQueryKey(filteredFuelEvents)).toBe(false);
+    expect(isOfflineCacheableQueryKey(filteredWorkOrders)).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.maintenance.listParts", {
+      input: { siteId: 7, workOrderId: 0 }, type: "query",
     }])).toBe(false);
   });
 
@@ -105,6 +132,31 @@ describe("offline query cache policy", () => {
     expect(safePlans).toHaveLength(500);
     expect(safePlans[0]?.id).toBe(1);
     expect(safePlans.some(row => row.id === 501)).toBe(false);
+  });
+
+  it("caps recent fuel-event and work-order cache snapshots without truncating a per-order parts list", async () => {
+    const { sanitizeOfflineQueryData } = await import("./offline-query-cache");
+    const eventsKey = ["powerhub.inventory.listFuelEvents", { input: { siteId: 7, limit: 100 }, type: "query" }];
+    const events = Array.from({ length: 501 }, (_, index) => ({
+      id: index + 1, event_id: index + 1,
+      occurred_at: new Date(Date.UTC(2026, 0, 1, 0, 0, index + 1)).toISOString(),
+    }));
+    const safeEvents = sanitizeOfflineQueryData(eventsKey, events) as Array<{ id: number }>;
+    expect(safeEvents).toHaveLength(100);
+    expect(safeEvents[0]?.id).toBe(501);
+
+    const ordersKey = ["powerhub.maintenance.listWorkOrders", { input: { siteId: 7, limit: 200 }, type: "query" }];
+    const orders = Array.from({ length: 201 }, (_, index) => ({
+      id: index + 1, work_order_id: index + 1,
+      reported_at: new Date(Date.UTC(2026, 0, 1, 0, 0, index + 1)).toISOString(),
+    }));
+    const safeOrders = sanitizeOfflineQueryData(ordersKey, orders) as Array<{ id: number }>;
+    expect(safeOrders).toHaveLength(200);
+    expect(safeOrders[0]?.id).toBe(201);
+
+    const partsKey = ["powerhub.maintenance.listParts", { input: { siteId: 7, workOrderId: 9001 }, type: "query" }];
+    const parts = Array.from({ length: 501 }, (_, index) => ({ id: index + 1, part_id: index + 1, work_order_id: 9001 }));
+    expect(sanitizeOfflineQueryData(partsKey, parts)).toHaveLength(501);
   });
 
   it("persists only safe dashboard aggregate snapshots and never treats them as Delta-backed lists", () => {
