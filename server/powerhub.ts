@@ -633,7 +633,7 @@ export const powerhubRouter = router({
         maintenance_preventive_plans: ["owner", "manager", "accountant", "technician", "viewer"],
       } as const;
       const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
-        : ["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined;
+        : new Set(["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"]).has(input.entityType) ? "viewInventory" : undefined;
       const isFuelMaintenanceEntity = input.entityType === "fuel_events" ||
         input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
       const access = isFuelMaintenanceEntity
@@ -641,7 +641,7 @@ export const powerhubRouter = router({
         : input.entityType === "company_accounts_all"
           ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
           : input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans"
-            ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType)
+            ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType as "fuel_readings" | "maintenance_preventive_plans")
             : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
               ? await requireDeltaPurchaseChildHistoryReadAccess(ctx.user.id, input.siteId, input.entityType)
               : input.entityType === "inventory_purchase_headers"
