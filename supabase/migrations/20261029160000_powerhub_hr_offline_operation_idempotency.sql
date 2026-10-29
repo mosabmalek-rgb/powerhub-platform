@@ -138,8 +138,8 @@ begin
     -- used by powerhub_upsert_employee_attendance; otherwise a first insert could race
     -- between "no row found" and the RPC and overwrite another device's attendance.
     perform pg_advisory_xact_lock(
-      p_tenant_id,
-      hashtext('attendance:' || v_entity_id::text || ':' || (p_payload->>'workDate')::date::text)
+      hashtext('attendance:' || p_tenant_id::text || ':' || v_entity_id::text || ':' ||
+        (p_payload->>'workDate')::date::text)::bigint
     );
     select a.id,a.hr_sync_version into v_existing_attendance_id,v_current_version
       from public.employee_attendance a

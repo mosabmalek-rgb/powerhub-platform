@@ -103,7 +103,8 @@ describe("HR offline operation replay contract", () => {
     const attendanceStart = replay.indexOf("elsif p_operation_type='attendance_upsert' then");
     const attendanceEnd = replay.indexOf("elsif p_operation_type='payroll_draft' then", attendanceStart);
     const attendanceBranch = replay.slice(attendanceStart, attendanceEnd);
-    expect(attendanceBranch).toContain("hashtext('attendance:' || v_entity_id::text || ':' || (p_payload->>'workDate')::date::text)");
+    expect(attendanceBranch).toContain("hashtext('attendance:' || p_tenant_id::text || ':' || v_entity_id::text || ':' ||");
+    expect(attendanceBranch).toContain("(p_payload->>'workDate')::date::text)::bigint");
     expect(attendanceBranch.indexOf("perform pg_advisory_xact_lock")).toBeGreaterThanOrEqual(0);
     expect(attendanceBranch.indexOf("perform pg_advisory_xact_lock")).toBeLessThan(attendanceBranch.indexOf("select a.id,a.hr_sync_version"));
     const snapshotStart = hrOfflineMigration.indexOf("create or replace function public.powerhub_get_hr_sync_snapshot");
