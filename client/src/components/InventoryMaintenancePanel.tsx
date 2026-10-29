@@ -123,9 +123,9 @@ export default function InventoryMaintenancePanel({
   const reportBranding = trpc.powerhub.reportBranding.get.useQuery(
     { siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport), staleTime: 60_000 },
   );
-  // Load the Delta-backed site-wide feed so closeout can resolve the preventive
-  // plan linked to any visible work order, independent of the plan-creation filter.
-  const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
+  // This generator-filtered query stays server-authoritative when narrowed; closeout
+  // fails closed if its referenced plan is not in the currently loaded plan scope.
+  const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery({ siteId, generatorId: planGeneratorId ? Number(planGeneratorId) : undefined }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
   const plansAuthorizationDenied = isExplicitAuthorizationDenial(plans.error);
   const safePlans = plansAuthorizationDenied ? [] : (plans.data ?? []);
 
@@ -441,7 +441,7 @@ export default function InventoryMaintenancePanel({
       </div>
       ) : null}
       {plansAuthorizationDenied ? <p role="alert" className="text-xs text-destructive">رفض الخادم صلاحية الوصول إلى الخطط الوقائية؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : plans.error && plans.data && !plansAuthorizationDenied ? <p role="status" className="text-xs text-amber-700">تعذر تحديث الخطط الوقائية؛ تُعرض آخر نسخة تم تحميلها.</p> : plans.error ? <p role="alert" className="text-xs text-destructive">تعذر تحميل الخطط الوقائية ولا توجد نسخة متاحة في هذه الجلسة.</p> : null}
-      <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","الخطة","الفترة","تاريخ الاستحقاق","ساعات التشغيل","الحالة"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{safePlans.filter((p) => !planGeneratorId || Number(p.generator_id) === Number(planGeneratorId)).map((p) => <tr key={p.plan_id} className="border-t"><td className="p-3">{p.generator_name}</td><td className="p-3">{p.title}<div className="text-xs text-muted-foreground">{p.plan_code}</div></td><td className="p-3">{[p.interval_days ? String(p.interval_days) + " يوم" : null, p.interval_operating_hours ? String(p.interval_operating_hours) + " ساعة تشغيل" : null].filter(Boolean).join(" / ") || "—"}</td><td className="p-3">{p.next_due_at ? new Date(p.next_due_at).toLocaleDateString("ar-PS") : "—"}</td><td className="p-3">{p.next_due_operating_hours ?? "—"}</td><td className="p-3">{p.alert_type ? <span className={p.alert_type === "overdue" ? "text-destructive font-medium" : "text-amber-700"}>{alertLabels[p.alert_type] ?? p.alert_type}</span> : "ضمن الموعد"}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","الخطة","الفترة","تاريخ الاستحقاق","ساعات التشغيل","الحالة"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{safePlans.map((p) => <tr key={p.plan_id} className="border-t"><td className="p-3">{p.generator_name}</td><td className="p-3">{p.title}<div className="text-xs text-muted-foreground">{p.plan_code}</div></td><td className="p-3">{[p.interval_days ? String(p.interval_days) + " يوم" : null, p.interval_operating_hours ? String(p.interval_operating_hours) + " ساعة تشغيل" : null].filter(Boolean).join(" / ") || "—"}</td><td className="p-3">{p.next_due_at ? new Date(p.next_due_at).toLocaleDateString("ar-PS") : "—"}</td><td className="p-3">{p.next_due_operating_hours ?? "—"}</td><td className="p-3">{p.alert_type ? <span className={p.alert_type === "overdue" ? "text-destructive font-medium" : "text-amber-700"}>{alertLabels[p.alert_type] ?? p.alert_type}</span> : "ضمن الموعد"}</td></tr>)}</tbody></table></div>
       </CardContent>
     </Card>
 
