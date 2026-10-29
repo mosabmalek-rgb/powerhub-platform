@@ -94,7 +94,7 @@ describe("inventory catalog Delta extension", () => {
     expect(client).toContain('"inventory_stocktakes"');
     expect(purchaseHeaderMigration).toContain("after insert or update or delete on public.supplier_purchases");
     expect(purchaseHeaderMigration).toContain("after insert or update or delete on public.supplier_purchase_lines");
-    expect(purchaseHeaderMigration).toContain("'received_line_count',counts.received_line_count");
+    expect(purchaseHeaderMigration).toContain("'received_line_count',line_summary.received_line_count");
     expect(purchaseHeaderMigration).not.toContain("'total_amount'");
     expect(purchaseHeaderMigration).not.toContain("'supplier_invoice_no'");
     expect(purchaseHeaderMigration).not.toContain("'due_date'");
