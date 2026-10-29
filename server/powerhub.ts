@@ -4416,7 +4416,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(),
       operationKey: z.string().uuid(),
       operationType: z.enum(["employee_create", "employee_update", "attendance_upsert", "payroll_draft"]),
-      payload: z.record(z.unknown()),
+      payload: z.record(z.string(), z.unknown()),
     })).mutation(async ({ ctx, input }) => {
       let access: Awaited<ReturnType<typeof requireSupabaseSiteRole>>;
       let payload: Record<string, unknown>;
