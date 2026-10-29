@@ -399,6 +399,25 @@ describe("offline delta sync", () => {
     expect(await storage.getCursor(movementScope)).toBe("11");
   });
 
+  it("keeps the newest 500 fuel readings when pruning the local Delta snapshot", async () => {
+    const fuelScope: DeltaCursorScope = { ...scope, entityType: "fuel_readings" };
+    const storage = memoryStorage();
+    const snapshot = Array.from({ length: 501 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id, reading_id: id, tenantId: fuelScope.tenantId, siteId: fuelScope.siteId,
+        recorded_at: new Date(Date.UTC(2026, 0, 1, 0, 0, id)).toISOString(),
+      };
+    });
+    await storage.replaceSnapshot(fuelScope, snapshot, "10");
+    const localRows = await storage.listEntities(fuelScope);
+    expect(localRows).toHaveLength(500);
+    expect(localRows.some(row => row.entityId === "1")).toBe(false);
+    expect(localRows.some(row => row.entityId === "2")).toBe(true);
+    expect(localRows.some(row => row.entityId === "501")).toBe(true);
+    expect(await storage.getCursor(fuelScope)).toBe("10");
+  });
+
   it("caps maintenance-plan Delta retention at 500 rows and prioritizes overdue plans", async () => {
     const maintenanceScope: DeltaCursorScope = { ...scope, entityType: "maintenance_preventive_plans" };
     const storage = memoryStorage();
