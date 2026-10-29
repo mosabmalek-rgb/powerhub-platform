@@ -217,7 +217,12 @@ export default function OperationsPage({ section }: { section: Section }) {
       ],
       [() => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 })],
     );
-  }, onError: (e) => toast.error(e.message) });
+  }, onError: (e) => {
+    const message = e instanceof Error ? e.message : String(e ?? "");
+    const networkFailure = e instanceof TypeError ||
+      /failed to fetch|networkerror|network request failed|load failed|fetch failed|connection (?:lost|reset|refused)|timeout/i.test(message);
+    if (!networkFailure) toast.error(message || "تعذر تسجيل المصروف.");
+  } });
 
   const siteOptions = sitesQuery.data ?? [];
   const activeSite = useMemo(() => siteOptions.find((site) => site.id === siteId), [siteId, siteOptions]);
@@ -828,8 +833,9 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit, isOnli
             await onSubmit({ siteId, generatorId: f.get("generator") ? Number(f.get("generator")) : undefined, companyAccountId: selectedAccountId, category: String(f.get("category")), description, amount, referenceNo: String(f.get("reference") || "").trim() || undefined });
             form.reset();
             setAccountId("");
-          } catch {
-            // Keep the form intact after a server error so the user can retry.
+          } catch (error) {
+            // Keep the form intact; also surface failures from saving the local Outbox itself.
+            toast.error(error instanceof Error ? error.message : "تعذر حفظ المصروف أو مسودته.");
           }
         }}>
           <Field label="حساب الصرف من حسابات الشركة">
