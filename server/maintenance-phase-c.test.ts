@@ -144,6 +144,10 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(panel).toContain("suppliersAuthorizationDenied ? <p role=\"alert\"");
     expect(panel).toContain("itemsAuthorizationDenied ? <p role=\"alert\"");
     expect(panel).toContain("warehousesAuthorizationDenied ? <p role=\"alert\"");
+    expect(panel).toContain("generatorsAuthorizationDenied || !safeGenerators.some((row) => row.id === generator)");
+    expect(panel).toContain("itemsAuthorizationDenied || warehousesAuthorizationDenied || !safeItems.some((row) => row.id === item)");
+    expect(panel).toContain("if (order.preventive_plan_id && !plan)");
+    expect(panel).toContain("suppliersAuthorizationDenied || assignSupplier.isPending");
     expect(panel).toContain("maintenanceReport.error && !hasAvailableMaintenanceReport");
     expect(panel).toContain("reportRows.map((r)");
     expect(panel).toContain("orders.error && orders.data");
