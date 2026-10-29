@@ -494,3 +494,57 @@ describe("fuel and preventive maintenance Delta projections", () => {
     expect(applyDeltaPageToList("maintenance_preventive_plans", current, deletion, planScope)).toEqual([]);
   });
 });
+
+
+describe("fuel event and maintenance work-order Delta projection", () => {
+  it("normalizes scoped fuel fills, work orders and per-order parts while excluding nonessential notes", () => {
+    const event = normalizeDeltaEntityRow("fuel_events", {
+      id: 10, event_id: 10, tenant_id: 2, site_id: 10, generator_id: 44,
+      generator_name: "G-44", fuel_item_id: 3, fuel_item_name: "Diesel",
+      source_warehouse_id: 5, source_warehouse_name: "Store",
+      destination_warehouse_id: 6, destination_warehouse_name: "Tank",
+      litres: "40.000", occurred_at: "2026-10-29T08:00:00Z",
+      notes: "should not persist", unit_cost: "8.0000", total_cost_amount: "320.00",
+    });
+    expect(event).toMatchObject({ id: 10, tenantId: 2, siteId: 10, litres: "40.000", notes: null });
+    expect(event).not.toHaveProperty("unit_cost");
+    expect(event).not.toHaveProperty("total_cost_amount");
+
+    const order = normalizeDeltaEntityRow("maintenance_work_orders", {
+      id: 20, work_order_id: 20, tenant_id: 2, site_id: 10, generator_id: 44,
+      work_order_number: "MW-20", status: "in_progress", reported_at: "2026-10-29T07:00:00Z",
+      title: "Repair", labor_cost: "25.00", description: "Description",
+    });
+    expect(order).toMatchObject({ id: 20, tenantId: 2, siteId: 10, work_order_number: "MW-20" });
+
+    const entity = "maintenance_work_order_parts:20" as const;
+    const part = normalizeDeltaEntityRow(entity, {
+      id: 30, part_id: 30, tenant_id: 2, site_id: 10, work_order_id: 20, generator_id: 44,
+      item_id: 7, item_name: "Filter", warehouse_id: 6, warehouse_name: "Store",
+      quantity: "2.000", unit_cost: "4.0000", total_cost_amount: "8.00",
+      stock_movement_id: 90, issued_at: "2026-10-29T09:00:00Z", notes: "private note",
+    });
+    expect(part).toMatchObject({ id: 30, tenantId: 2, siteId: 10, work_order_id: 20, notes: null });
+
+    const eventScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "fuel_events" };
+    const eventPage = basePage([{
+      cursor: "1", entity_type: "fuel_events", entity_id: "10", operation: "upsert",
+      row_data: event, changed_at: "2026-10-29T08:00:00Z",
+    }], "fuel_events");
+    expect(applyDeltaPageToList("fuel_events", [], eventPage, eventScope)).toMatchObject([{ id: 10 }]);
+
+    const orderScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "maintenance_work_orders" };
+    const orderPage = basePage([{
+      cursor: "1", entity_type: "maintenance_work_orders", entity_id: "20", operation: "upsert",
+      row_data: order, changed_at: "2026-10-29T07:00:00Z",
+    }], "maintenance_work_orders");
+    expect(applyDeltaPageToList("maintenance_work_orders", [], orderPage, orderScope)).toMatchObject([{ id: 20 }]);
+
+    const partScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: entity };
+    const partPage = basePage([{
+      cursor: "1", entity_type: entity, entity_id: "30", operation: "upsert",
+      row_data: part, changed_at: "2026-10-29T09:00:00Z",
+    }], entity);
+    expect(applyDeltaPageToList(entity, [], partPage, partScope)).toMatchObject([{ id: 30, work_order_id: 20 }]);
+  });
+});
