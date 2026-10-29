@@ -135,6 +135,7 @@ begin
   ) then raise exception 'DELTA_FUEL_READING_DELETE_DID_NOT_REFILL_TOP_500'; end if;
 
   alter table public.generator_maintenance_preventive_plans disable trigger powerhub_delta_operational_maintenance_plans;
+  alter table public.generator_maintenance_alert_events disable trigger powerhub_delta_operational_maintenance_plans_after_alert_change;
   insert into public.generator_maintenance_preventive_plans(
     tenant_id,site_id,generator_id,plan_code,title,interval_days,next_due_at,
     operation_key,operation_payload_hash,created_by_user_id
@@ -144,12 +145,23 @@ begin
     timestamptz '2000-01-01 00:00:00+00' + (g-1)*interval '1 day',
     'delta-bounded-plan-'||g,'delta-bounded-plan-payload-'||g,1
   from generate_series(1,501) g;
+  insert into public.generator_maintenance_alert_events(
+    tenant_id,site_id,generator_id,plan_id,alert_type,alert_key,due_at
+  )
+  select p.tenant_id,p.site_id,p.generator_id,p.id,'overdue',
+    'delta-bounded-alert-'||p.plan_code,p.next_due_at
+  from public.generator_maintenance_preventive_plans p
+  where p.tenant_id=10 and p.site_id=100 and p.plan_code like 'DELTA-BOUND-PLAN-%';
+  alter table public.generator_maintenance_alert_events enable trigger powerhub_delta_operational_maintenance_plans_after_alert_change;
   alter table public.generator_maintenance_preventive_plans enable trigger powerhub_delta_operational_maintenance_plans;
   perform public.powerhub_refresh_maintenance_plan_delta_scope(10,100);
   select id into v_first_plan_id from public.generator_maintenance_preventive_plans
     where plan_code='DELTA-BOUND-PLAN-001';
   select id into v_replacement_plan_id from public.generator_maintenance_preventive_plans
     where plan_code='DELTA-BOUND-PLAN-501';
+  alter table public.generator_maintenance_alert_events disable trigger powerhub_delta_operational_maintenance_plans_after_alert_change;
+  delete from public.generator_maintenance_alert_events where plan_id=v_first_plan_id;
+  alter table public.generator_maintenance_alert_events enable trigger powerhub_delta_operational_maintenance_plans_after_alert_change;
   delete from public.generator_maintenance_preventive_plans where id=v_first_plan_id;
   select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_preventive_plans') into v_snapshot;
   v_visible_count:=jsonb_array_length(v_snapshot->'rows');
