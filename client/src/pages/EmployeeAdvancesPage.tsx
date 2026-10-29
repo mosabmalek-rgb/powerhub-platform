@@ -47,7 +47,11 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
   // Offline queueing is an untrusted draft: the server rechecks the user's exact role, account status and balances before it can mutate anything.
   const employees=trpc.powerhub.hr.listEmployees.useQuery({siteId:siteId??0,employmentStatus:"active"},{enabled:Boolean(siteId)&&isHrOnline});
   const offlineDirectory=trpc.powerhub.hr.offlineDirectory.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
-  const baseEmployees:any[]=isHrOnline&&employees.data?employees.data:(offlineDirectory.data??[]);
+  const accounts=trpc.powerhub.hr.offlineCompanyAccountOptions.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
+  const advances=trpc.powerhub.hr.listEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)&&isHrOnline});
+  const offlineAdvances=trpc.powerhub.hr.offlineEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
+  const hrAccessDenied=[access,employees,offlineDirectory,accounts,advances,offlineAdvances].some((query)=>query.isError&&isExplicitAuthorizationDenial(query.error));
+  const baseEmployees:any[]=hrAccessDenied?[]:(isHrOnline&&employees.data?employees.data:(offlineDirectory.data??[]));
   const displayEmployees:any[]=hrAccessDenied?[]:[
     ...pendingHrWork.filter((item)=>item.kind==="employee_create"&&item.status!=="applied").map((item)=>{
       const payload=item.payload as HrEmployeeCreateDraft;
@@ -58,10 +62,6 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
     ...baseEmployees.filter((employee)=>!pendingHrWork.some((item)=>item.kind==="employee_create"&&item.status!=="applied"&&
       Number((item.payload as HrEmployeeCreateDraft).localEmployeeId)===Number(employee.id))),
   ].filter((employee)=>employee.employmentStatus==="active");
-  const accounts=trpc.powerhub.hr.offlineCompanyAccountOptions.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
-  const advances=trpc.powerhub.hr.listEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)&&isHrOnline});
-  const offlineAdvances=trpc.powerhub.hr.offlineEmployeeAdvances.useQuery({siteId:siteId??0},{enabled:Boolean(siteId)});
-  const hrAccessDenied=[access,employees,offlineDirectory,accounts,advances,offlineAdvances].some((query)=>query.isError&&isExplicitAuthorizationDenial(query.error));
   const allowed=isHrOnline?serverAllowed&&!hrAccessDenied:Boolean(siteId&&Number.isSafeInteger(userId)&&userId>0);
   const baseAdvances:any[]=(hrAccessDenied?[]:(isHrOnline&&advances.data?advances.data:offlineAdvances.data??[]))
     .filter((row:any)=>Number(row.adjustment?.id)>0)
