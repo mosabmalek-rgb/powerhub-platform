@@ -88,7 +88,8 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
         dependsOn: pendingCreate ? [pendingCreate.clientOperationId] : [],
         payload: {
           employeeId: selectedEmployeeId, workDate,
-          expectedVersion: existing && Number(existing.attendance.versionNo) > 0 ? Number(existing.attendance.versionNo) : null,
+          expectedVersion: existing && !existing.attendance.pendingOffline && Number(existing.attendance.id) > 0 &&
+            Number(existing.attendance.versionNo) > 0 ? Number(existing.attendance.versionNo) : null,
           regularHours, overtimeHours, absentDays, notes,
           localAttendanceId,
         },
