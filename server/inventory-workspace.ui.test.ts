@@ -652,6 +652,8 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("const hasAvailableFuelReport = report.data !== undefined || cachedFuelReportForCurrentScope !== null;");
     expect(panel).toContain("report.error && !hasAvailableFuelReport");
     expect(panel).toContain("reportRows.map((row)");
+    expect(panel).toContain("events.error && events.data !== undefined");
+    expect(panel).toContain("readings.error && readings.data !== undefined");
     expect(panel).toContain("هذه لقطة تجميعية وليست إعادة احتساب حيّة");
     expect(cache).toContain("snapshot.key !== makeKey(input)");
     expect(cache).toContain("now - snapshot.savedAt >= OFFLINE_OPERATIONAL_REPORT_TTL_MS");
