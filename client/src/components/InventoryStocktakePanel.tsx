@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { ClipboardCheck, Loader2, PackageCheck, Plus, RefreshCw, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -101,6 +102,15 @@ export default function InventoryStocktakePanel({
   canApproveStocktakes,
 }: Props) {
   const utils = trpc.useUtils();
+  const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
+  const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
+  const ensureServerWriteAllowed = () => {
+    if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
+      toast.error("يلزم اتصال موثوق بخادم PowerHub لتنفيذ هذه العملية؛ لم تُرحّل أي حركة.");
+      return false;
+    }
+    return true;
+  };
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [filterWarehouseId, setFilterWarehouseId] = useState("");
   const [createWarehouseId, setCreateWarehouseId] = useState("");
@@ -243,6 +253,7 @@ export default function InventoryStocktakePanel({
 
   const onCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!createWarehouseId) { toast.error("اختر موقع التخزين الذي ستجري جرده."); return; }
     if (reason.trim().length < 3) { toast.error("أدخل سببًا واضحًا لبدء الجرد."); return; }
     createStocktake.mutate({
@@ -255,6 +266,7 @@ export default function InventoryStocktakePanel({
   };
 
   const saveLine = (line: (typeof lines)[number]) => {
+    if (!ensureServerWriteAllowed()) return;
     if (!selectedStocktakeId) return;
     const key = `${selectedStocktakeId}:${line.item_id}`;
     const rawQuantity = (countValues[key] ?? "").trim();
@@ -286,6 +298,7 @@ export default function InventoryStocktakePanel({
   };
 
   const requestCancel = () => {
+    if (!ensureServerWriteAllowed()) return;
     if (!selectedStocktakeId) return;
     const cancelReason = window.prompt("أدخل سبب إلغاء جلسة الجرد (مطلوب):")?.trim();
     if (!cancelReason || cancelReason.length < 3) {
@@ -301,6 +314,7 @@ export default function InventoryStocktakePanel({
 
   return (
     <div dir="rtl" className="space-y-4">
+      {serverWriteBlocked ? <p role="status" className="rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">الجرد المحلي للقراءة فقط حتى يعود اتصال موثوق بالخادم؛ حفظ العد أو إرساله أو ترحيله لا يتم دون الخادم.</p> : null}
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -330,7 +344,7 @@ export default function InventoryStocktakePanel({
             <label className="grid gap-1.5 text-sm">ملاحظات
               <Input maxLength={2000} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات إدارية" />
             </label>
-            <div className="flex items-end"><Button type="submit" className="w-full" disabled={createStocktake.isPending || !createWarehouseId || reason.trim().length < 3}>
+            <div className="flex items-end"><Button type="submit" className="w-full" disabled={serverWriteBlocked || createStocktake.isPending || !createWarehouseId || reason.trim().length < 3}>
               {createStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="ml-2 h-4 w-4" />} فتح الجلسة وتصوير الأرصدة
             </Button></div>
           </form>
@@ -381,16 +395,17 @@ export default function InventoryStocktakePanel({
           <div className="flex flex-wrap gap-2">
             <Badge className={statusTone[selectedStocktake.status] ?? "bg-white/5 text-slate-400"}>{statusLabels[selectedStocktake.status] ?? selectedStocktake.status}</Badge>
             {selectedStocktake.status === "counting" && canManageStocktakes ? <Button type="button" variant="outline" onClick={() => {
+              if (!ensureServerWriteAllowed()) return;
               if (!selectedStocktakeId) return;
               if (!selectedLinesComplete) { toast.error("احفظ عدّ كل الأصناف قبل إرسال الجرد."); return; }
               submitStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId });
-            }} disabled={submitStocktake.isPending || !selectedLinesComplete || countedCount !== itemCount}>
+            }} disabled={serverWriteBlocked || submitStocktake.isPending || !selectedLinesComplete || countedCount !== itemCount}>
               {submitStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Send className="ml-2 h-4 w-4" />} إرسال للاعتماد
             </Button> : null}
-            {selectedStocktake.status === "submitted" && canApproveStocktakes ? <Button type="button" onClick={() => selectedStocktakeId && postStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId })} disabled={postStocktake.isPending}>
+            {selectedStocktake.status === "submitted" && canApproveStocktakes ? <Button type="button" onClick={() => { if (ensureServerWriteAllowed() && selectedStocktakeId) postStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId }); }} disabled={serverWriteBlocked || postStocktake.isPending}>
               {postStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <PackageCheck className="ml-2 h-4 w-4" />} اعتماد وترحيل
             </Button> : null}
-            {(selectedStocktake.status === "counting" || selectedStocktake.status === "submitted") && canManageStocktakes ? <Button type="button" variant="outline" onClick={requestCancel} disabled={cancelStocktake.isPending}>
+            {(selectedStocktake.status === "counting" || selectedStocktake.status === "submitted") && canManageStocktakes ? <Button type="button" variant="outline" onClick={requestCancel} disabled={serverWriteBlocked || cancelStocktake.isPending}>
               {cancelStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <XCircle className="ml-2 h-4 w-4" />} إلغاء الجلسة
             </Button> : null}
           </div>
@@ -418,7 +433,7 @@ export default function InventoryStocktakePanel({
                     <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.0001" className="min-w-[120px]" value={countCosts[key] ?? (line.counted_unit_cost == null ? "" : String(line.counted_unit_cost))} onChange={(event) => setCountCosts((current) => ({ ...current, [key]: event.target.value }))} aria-label={`تكلفة كمية الزيادة: ${line.item_name}`} placeholder={Number(line.system_quantity) > 0 ? "تلقائي من المتوسط" : "مطلوب للزيادة"} /></td>
                     <td className={`p-3 whitespace-nowrap font-semibold tabular-nums ${variance == null ? "text-muted-foreground" : variance === 0 ? "text-emerald-600" : variance < 0 ? "text-destructive" : "text-amber-600"}`}>{variance == null ? "—" : `${variance > 0 ? "+" : ""}${qty(variance)}`}</td>
                     <td className="p-3"><Input disabled={!canEditLine} maxLength={500} className="min-w-[170px]" value={countNotes[key] ?? line.count_notes ?? ""} onChange={(event) => setCountNotes((current) => ({ ...current, [key]: event.target.value }))} placeholder="ملاحظة مختصرة" /></td>
-                    <td className="p-3">{canEditLine ? <Button type="button" size="sm" variant="outline" disabled={recordCount.isPending || !countText.trim()} onClick={() => saveLine(line)}>{recordCount.isPending && recordCount.variables?.itemId === Number(line.item_id) ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} حفظ العد</Button> : <span className="text-xs text-muted-foreground">{line.counted_at ? `حُفظ ${new Date(line.counted_at).toLocaleDateString("ar-PS")}` : "—"}</span>}</td>
+                    <td className="p-3">{canEditLine ? <Button type="button" size="sm" variant="outline" disabled={serverWriteBlocked || recordCount.isPending || !countText.trim()} onClick={() => saveLine(line)}>{recordCount.isPending && recordCount.variables?.itemId === Number(line.item_id) ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} حفظ العد</Button> : <span className="text-xs text-muted-foreground">{line.counted_at ? `حُفظ ${new Date(line.counted_at).toLocaleDateString("ar-PS")}` : "—"}</span>}</td>
                   </tr>;
                 })}</tbody>
               </table>

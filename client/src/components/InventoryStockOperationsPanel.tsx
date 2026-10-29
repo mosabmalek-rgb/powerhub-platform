@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { toast } from "sonner";
 import { Boxes, ClipboardList, Loader2, Pencil, RefreshCw, Save, TrendingDown, X } from "lucide-react";
 
@@ -118,6 +119,15 @@ export default function InventoryStockOperationsPanel({
   canViewInventoryReports,
 }: Props) {
   const utils = trpc.useUtils();
+  const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
+  const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
+  const ensureServerWriteAllowed = () => {
+    if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
+      toast.error("يلزم اتصال موثوق بخادم PowerHub لتنفيذ هذه العملية؛ لم تُرحّل أي حركة.");
+      return false;
+    }
+    return true;
+  };
   const storageKey = "powerhub:inventory:" + siteId + ":stock-movement";
   const allowedTypes = useMemo<MovementType[]>(() => [
     ...(canIssueInventory ? ["issue" as const] : []),
@@ -246,6 +256,7 @@ export default function InventoryStockOperationsPanel({
 
   const submitReturnFromIssue = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!returningMovement || !returnOperationKey) return;
     const quantity = Number(returnQuantity);
     const returnable = Number(returningMovement.returnable_quantity ?? 0);
@@ -286,6 +297,7 @@ export default function InventoryStockOperationsPanel({
 
   const submitMovementCorrection = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!editingMovement || !editOperationKey) return;
     const amount = Number(editQuantity);
     const cost = editUnitCost.trim() ? Number(editUnitCost) : undefined;
@@ -308,6 +320,7 @@ export default function InventoryStockOperationsPanel({
 
   const submitMovement = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     const amount = Number(quantity);
     const cost = unitCost.trim() ? Number(unitCost) : undefined;
     if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 1000 - Math.round(amount * 1000)) > 1e-7) {
@@ -343,6 +356,7 @@ export default function InventoryStockOperationsPanel({
 
   return (
     <div className="space-y-4">
+      {serverWriteBlocked ? <p role="status" className="rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">يُسمح باستعراض اللقطات المحلية، لكن حركات الصرف والتسوية والتصحيح والإرجاع تتطلب اتصالًا موثوقًا بالخادم.</p> : null}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
           <div>
@@ -431,7 +445,7 @@ export default function InventoryStockOperationsPanel({
               <Input maxLength={2000} value={notes} onChange={(event) => setNotes(event.target.value)} required={["opening_balance", "adjustment_in", "adjustment_out"].includes(movementType)} placeholder={movementType === "fuel_consumption" ? "مثال: تعبئة مولد الفرع" : movementType === "issue" ? "سبب الصرف أو أمر العمل" : "سبب الجرد والتسوية"} />
             </label>
             <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">{movementDescriptions[movementType]}</div>
-            <div><Button type="submit" disabled={recordMovement.isPending || warehouses.isLoading || items.isLoading || !warehouseId || !itemId}>
+            <div><Button type="submit" disabled={serverWriteBlocked || recordMovement.isPending || warehouses.isLoading || items.isLoading || !warehouseId || !itemId}>
               {recordMovement.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} تسجيل الحركة
             </Button></div>
           </form>
@@ -478,7 +492,7 @@ export default function InventoryStockOperationsPanel({
             <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
               لا يمكن تعديل حركة سبقها صرف أو حركة أحدث للصنف نفسه، أو حركة مرتبطة بفاتورة مشتريات أو مرتجع مورد أو فترة مالية مقفلة.
             </div>
-            <div><Button type="submit" disabled={correctMovement.isPending || !editOperationKey}>
+            <div><Button type="submit" disabled={serverWriteBlocked || correctMovement.isPending || !editOperationKey}>
               {correctMovement.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} حفظ التصحيح
             </Button></div>
           </form>
@@ -510,7 +524,7 @@ export default function InventoryStockOperationsPanel({
             <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
               تُحسب تكلفة المرتجع من تكلفة الصرف الأصلي وتُوزّع فروق التقريب تراكميًا. لا يمكن تجاوز الكمية المصروفة أو إرجاع الكمية نفسها مرتين.
             </div>
-            <div><Button type="submit" disabled={returnFromIssue.isPending || !returnOperationKey}>
+            <div><Button type="submit" disabled={serverWriteBlocked || returnFromIssue.isPending || !returnOperationKey}>
               {returnFromIssue.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} تأكيد الإرجاع
             </Button></div>
           </form>
