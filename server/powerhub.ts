@@ -549,7 +549,14 @@ async function requireDeltaOperationalReadAccess(
     }
     return access;
   }
-  return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician", "accountant", "viewer"], "viewInventory");
+  try {
+    return await requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician", "accountant", "viewer"], "viewInventory");
+  } catch (error) {
+    // Match maintenance.listPreventivePlans: some custom permission sets grant
+    // manageMaintenance without the general inventory-view capability.
+    if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician"], "manageMaintenance");
+  }
 }
 
 async function requireDeltaPurchaseChildHistoryReadAccess(
