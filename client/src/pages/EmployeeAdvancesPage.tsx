@@ -79,7 +79,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
     const localPayments=pendingRepaymentItems.filter((item)=>Number((item.payload as HrEmployeeAdvanceRepaymentDraft).adjustmentId)===Number(row.adjustment.id));
     if(!localPayments.length)return row;
     return {...row,adjustment:{...row.adjustment,
-      remainingAmount:String(Math.max(0,Number(row.adjustment.remainingAmount)-localPayments.reduce((sum,item)=>sum+Number((item.payload as HrEmployeeAdvanceRepaymentDraft).amount),0)),
+      remainingAmount:String(Math.max(0,Number(row.adjustment.remainingAmount)-localPayments.reduce((sum,item)=>sum+Number((item.payload as HrEmployeeAdvanceRepaymentDraft).amount),0))),
       pendingOffline:true,pendingQueueStatus:localPayments.some((item)=>item.status==="failed")?"failed":row.adjustment.pendingQueueStatus},
       repayments:[...(row.repayments??[]),...localPayments.map((item)=>{const payload=item.payload as HrEmployeeAdvanceRepaymentDraft;return {
         id:payload.localRepaymentId??(-Math.max(1,item.createdAt)),amount:String(payload.amount),repaymentMethod:"pending_offline",
