@@ -216,6 +216,45 @@ export async function hydrateOfflineQueryCache(
   return hydrated;
 }
 
+function capOperationalListRows(
+  procedure: string,
+  input: Record<string, unknown> | null,
+  data: unknown,
+): unknown {
+  if (!Array.isArray(data)) return data;
+  if (procedure === "inventory.listFuelReadings") {
+    const requested = Number(input?.limit ?? 100);
+    const limit = Math.min(100, Math.max(1, Number.isSafeInteger(requested) ? requested : 100));
+    return [...data].sort((left, right) => {
+      const a = left && typeof left === "object" ? left as Record<string, unknown> : {};
+      const b = right && typeof right === "object" ? right as Record<string, unknown> : {};
+      const aTime = Date.parse(String(a.recorded_at ?? a.recordedAt ?? ""));
+      const bTime = Date.parse(String(b.recorded_at ?? b.recordedAt ?? ""));
+      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0) ||
+        Number(b.reading_id ?? b.id ?? 0) - Number(a.reading_id ?? a.id ?? 0);
+    }).slice(0, limit);
+  }
+  if (procedure === "maintenance.listPreventivePlans") {
+    return [...data].sort((left, right) => {
+      const a = left && typeof left === "object" ? left as Record<string, unknown> : {};
+      const b = right && typeof right === "object" ? right as Record<string, unknown> : {};
+      const priority = (row: Record<string, unknown>) =>
+        row.alert_type === "overdue" || row.alertType === "overdue" ? 0
+          : row.alert_type === "due_soon" || row.alertType === "due_soon" ? 1 : 2;
+      const priorityDiff = priority(a) - priority(b);
+      if (priorityDiff) return priorityDiff;
+      const dueAt = (row: Record<string, unknown>) => {
+        const value = Date.parse(String(row.next_due_at ?? row.nextDueAt ?? ""));
+        return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+      };
+      const dateDiff = dueAt(a) - dueAt(b);
+      if (dateDiff) return dateDiff;
+      return Number(a.plan_id ?? a.id ?? 0) - Number(b.plan_id ?? b.id ?? 0);
+    }).slice(0, 500);
+  }
+  return data;
+}
+
 export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unknown): unknown {
   const first = queryKey[0];
   if (isOfflineDashboardSnapshotQueryKey(queryKey) && data && typeof data === "object" && !Array.isArray(data)) {
@@ -235,6 +274,12 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
+  if (segments[0] === "powerhub" && data && Array.isArray(data)) {
+    const input = getOfflineQueryInput(queryKey);
+    const procedure = `${segments[1]}.${segments[2]}`;
+    const bounded = capOperationalListRows(procedure, input, data);
+    if (bounded !== data) return bounded;
+  }
   if (segments[0] !== "powerhub" || segments[1] !== "payments" || segments[2] !== "page" ||
       !data || typeof data !== "object" || Array.isArray(data)) return data;
   const page = data as Record<string, unknown>;
