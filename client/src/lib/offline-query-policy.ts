@@ -111,6 +111,7 @@ const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "inventory.listWarehouses": new Set(["siteId", "includeInactive"]),
   "inventory.listItemUnits": new Set(["siteId", "itemId", "includeInactive"]),
   "inventory.listStocktakes": new Set(["siteId", "warehouseId", "limit"]),
+  "inventory.listPurchaseHeaders": new Set(["siteId", "limit"]),
 };
 
 function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: string[]) {
@@ -129,6 +130,10 @@ function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: stri
   if (procedure === "inventory.listStocktakes") {
     return input.limit === 100 && input.warehouseId === undefined &&
       Object.keys(input).every((key) => ["siteId", "warehouseId", "limit"].includes(key));
+  }
+  if (procedure === "inventory.listPurchaseHeaders") {
+    return input.limit === 100 &&
+      Object.keys(input).every((key) => ["siteId", "limit"].includes(key));
   }
   if ((procedure === "inventory.listItems" || procedure === "inventory.listSuppliers") &&
       input.search !== undefined) return false;
@@ -280,6 +285,7 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   if (segments[1] === "inventory") {
     return ["listItems", "listItemUnits", "listSuppliers", "listWarehouses"].includes(segments[2] ?? "") ||
       (segments[2] === "listStocktakes" && isSafeInventoryOfflineList(queryKey, segments)) ||
+      (segments[2] === "listPurchaseHeaders" && isSafeInventoryOfflineList(queryKey, segments)) ||
       isSafeInventoryMovementList(queryKey, segments);
   }
   return segments[2] === "list" && DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
@@ -310,7 +316,8 @@ export type OfflineQueryDeltaEntity =
   | "suppliers"
   | "inventory_warehouses"
   | "inventory_stock_movements"
-  | "inventory_stocktakes";
+  | "inventory_stocktakes"
+  | "inventory_purchase_headers";
 
 /**
  * Returns the server change-feed entity only when this exact query key is
@@ -331,6 +338,7 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
   if (segments[1] === "inventory") {
     if (segments[2] === "listStockMovements") return isSafeInventoryMovementList(queryKey, segments) ? "inventory_stock_movements" : null;
     if (segments[2] === "listStocktakes") return isSafeInventoryOfflineList(queryKey, segments) ? "inventory_stocktakes" : null;
+    if (segments[2] === "listPurchaseHeaders") return isSafeInventoryOfflineList(queryKey, segments) ? "inventory_purchase_headers" : null;
     if (segments[2] === "listItems") return "inventory_items";
     if (segments[2] === "listItemUnits") return "inventory_item_units";
     if (segments[2] === "listSuppliers") return "suppliers";

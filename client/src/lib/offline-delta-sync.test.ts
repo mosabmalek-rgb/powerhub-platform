@@ -435,6 +435,43 @@ describe("offline delta sync", () => {
     expect(await storage.getCursor(stocktakeScope)).toBe("11");
   });
 
+  it("caps local purchase-header Delta retention at the newest 200 headers by invoice date", async () => {
+    const purchaseScope: DeltaCursorScope = { ...scope, entityType: "inventory_purchase_headers" };
+    const storage = memoryStorage();
+    const snapshot = Array.from({ length: 201 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id, purchase_id: id, tenantId: purchaseScope.tenantId, siteId: purchaseScope.siteId,
+        invoice_date: new Date(Date.UTC(2026, 0, 1 + index)).toISOString().slice(0, 10),
+        status: "confirmed",
+      };
+    });
+    await storage.replaceSnapshot(purchaseScope, snapshot, "20");
+    const initial = await storage.listEntities(purchaseScope);
+    expect(initial).toHaveLength(200);
+    expect(initial.some(row => row.entityId === "1")).toBe(false);
+    expect(initial.some(row => row.entityId === "2")).toBe(true);
+    expect(initial.some(row => row.entityId === "201")).toBe(true);
+    const newest = {
+      id: 202, purchase_id: 202, tenantId: purchaseScope.tenantId, siteId: purchaseScope.siteId,
+      invoice_date: "2027-01-01", status: "received",
+    };
+    const deltaPage: DeltaPage<Record<string, unknown>> = page({
+      entity_type: "inventory_purchase_headers", current_cursor: "21", through_cursor: "21", next_cursor: "21",
+      changes: [{
+        cursor: "21", entity_type: "inventory_purchase_headers", entity_id: "202",
+        operation: "upsert", row_data: newest, changed_at: "2027-01-01T00:00:00Z",
+      }],
+    });
+    await storage.commitPage(purchaseScope, deltaPage, "21");
+    const afterDelta = await storage.listEntities(purchaseScope);
+    expect(afterDelta).toHaveLength(200);
+    expect(afterDelta.some(row => row.entityId === "2")).toBe(false);
+    expect(afterDelta.some(row => row.entityId === "3")).toBe(true);
+    expect(afterDelta.some(row => row.entityId === "202")).toBe(true);
+    expect(await storage.getCursor(purchaseScope)).toBe("21");
+  });
+
   it("does not let an older snapshot replace a newer local cursor", async () => {
     const storage = memoryStorage();
     await storage.replaceSnapshot(scope, [{ id: 1, name: "new" }], "10");

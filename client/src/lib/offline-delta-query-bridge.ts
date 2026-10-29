@@ -301,6 +301,24 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         corrected_by_movement_id: optionalNumber(raw.corrected_by_movement_id ?? raw.correctedByMovementId),
       };
     }
+    case "inventory_purchase_headers": {
+      const id = toNumber(raw.purchase_id ?? raw.id);
+      const tenantId = toNumber(raw.tenant_id ?? raw.tenantId);
+      const siteId = toNumber(raw.site_id ?? raw.siteId);
+      const supplierId = toNumber(raw.supplier_id ?? raw.supplierId);
+      const warehouseId = toNumber(raw.warehouse_id ?? raw.warehouseId);
+      return {
+        ...raw, id, purchase_id: id, tenantId, siteId,
+        supplier_id: supplierId, supplierId,
+        supplierName: String(raw.supplier_name ?? raw.supplierName ?? ""),
+        supplierCode: (raw.supplier_code ?? raw.supplierCode ?? null) as string | null,
+        warehouse_id: warehouseId, warehouseId,
+        warehouseName: String(raw.warehouse_name ?? raw.warehouseName ?? ""),
+        purchase_number: String(raw.purchase_number ?? ""),
+        invoice_date: String(raw.invoice_date ?? ""),
+        status: String(raw.status ?? ""),
+      };
+    }
     case "inventory_stocktakes": {
       const id = toNumber(raw.stocktake_id ?? raw.id);
       return {

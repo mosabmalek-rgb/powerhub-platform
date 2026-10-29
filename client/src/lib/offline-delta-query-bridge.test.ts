@@ -38,6 +38,41 @@ describe("company account Delta projection", () => {
   });
 });
 
+describe("operational purchase header Delta projection", () => {
+  it("normalizes safe labels and IDs without financial fields", () => {
+    const row = normalizeDeltaEntityRow("inventory_purchase_headers", {
+      id: 81, purchase_id: 81, tenant_id: 2, site_id: 10,
+      supplier_id: 7, supplier_name: "Supplier A", supplier_code: "SUP-A",
+      warehouse_id: 20, warehouse_name: "Main", purchase_number: "PUR-81",
+      invoice_date: "2026-10-29", status: "partially_received", item_count: 3, received_line_count: 1,
+    });
+    expect(row).toMatchObject({
+      id: 81, purchase_id: 81, tenantId: 2, siteId: 10, supplierId: 7,
+      supplierName: "Supplier A", supplierCode: "SUP-A", warehouseId: 20,
+      warehouseName: "Main", purchase_number: "PUR-81", status: "partially_received",
+    });
+    expect(row).not.toHaveProperty("total_amount");
+    expect(row).not.toHaveProperty("supplier_invoice_no");
+    expect(row).not.toHaveProperty("due_date");
+    expect(row).not.toHaveProperty("notes");
+  });
+
+  it("reconciles purchase header upserts by ID", () => {
+    const purchaseScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "inventory_purchase_headers" };
+    const original = { id: 81, purchase_number: "PUR-81", tenantId: 2, siteId: 10, status: "confirmed" };
+    const normalized = normalizeDeltaEntityRow("inventory_purchase_headers", {
+      id: 81, purchase_id: 81, tenant_id: 2, site_id: 10, purchase_number: "PUR-81",
+      status: "received", supplier_name: "Supplier A", warehouse_name: "Main",
+    });
+    const update = basePage([{
+      cursor: "5", entity_type: "inventory_purchase_headers", entity_id: "81", operation: "upsert",
+      row_data: normalized, changed_at: "2026-10-29T10:00:00Z",
+    }], "inventory_purchase_headers");
+    expect(applyDeltaPageToList("inventory_purchase_headers", [original], update, purchaseScope))
+      .toEqual([expect.objectContaining({ id: 81, status: "received", supplierName: "Supplier A" })]);
+  });
+});
+
 describe("inventory stocktake Delta projection", () => {
   it("preserves safe headers and aggregate counters without adding financial line values", () => {
     const row = normalizeDeltaEntityRow("inventory_stocktakes", {

@@ -147,6 +147,24 @@ export default function InventoryPurchasesPanel({
     { siteId, search: search.trim() || undefined },
     { enabled: Boolean(siteId && isAuthenticated && canViewPurchases), staleTime: 15_000 },
   );
+  const purchaseHeaders = trpc.powerhub.inventory.listPurchaseHeaders.useQuery(
+    { siteId, limit: 100 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewPurchases), staleTime: Number.POSITIVE_INFINITY },
+  );
+  const usingOfflineHeaders = !purchases.data && purchaseHeaders.data !== undefined;
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const offlinePurchaseRows = (purchaseHeaders.data ?? [])
+    .filter((row) => !normalizedSearch || [row.purchase_number, row.supplierName, row.warehouseName]
+      .some((value) => String(value ?? "").toLocaleLowerCase().includes(normalizedSearch)))
+    .map((row) => ({
+      ...row,
+      supplier_invoice_no: null, due_date: null, total_amount: null,
+      subtotal_amount: null, discount_amount: null, tax_amount: null,
+      other_charges_amount: null, payment_terms_days: null, reference_no: null, notes: null,
+      canViewFinancials: false,
+    }));
+  const visiblePurchases = purchases.data ?? offlinePurchaseRows;
+  const showFinancialColumns = canViewFinancials && !usingOfflineHeaders;
   const options = trpc.powerhub.inventory.listPurchaseOptions.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && canCreatePurchases), staleTime: 30_000 },
@@ -157,7 +175,7 @@ export default function InventoryPurchasesPanel({
   );
   const details = trpc.powerhub.inventory.getPurchase.useQuery(
     { siteId, purchaseId: selectedPurchaseId ?? 0 },
-    { enabled: Boolean(siteId && isAuthenticated && canViewPurchases && selectedPurchaseId), staleTime: 10_000 },
+    { enabled: Boolean(siteId && isAuthenticated && canViewPurchases && selectedPurchaseId && !usingOfflineHeaders), staleTime: 10_000 },
   );
 
   useEffect(() => {
@@ -214,6 +232,7 @@ export default function InventoryPurchasesPanel({
   const refreshPurchaseData = async (purchaseId?: number) => {
     await Promise.all([
       utils.powerhub.inventory.listPurchases.invalidate(),
+      utils.powerhub.inventory.listPurchaseHeaders.invalidate(),
       utils.powerhub.inventory.getPurchase.invalidate(purchaseId ? { siteId, purchaseId } : undefined),
     ]);
   };
@@ -659,28 +678,32 @@ export default function InventoryPurchasesPanel({
             </form>
           ) : null}
 
-          {purchases.isLoading ? <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /><span className="mr-2 text-sm text-muted-foreground">جارٍ تحميل المشتريات…</span></div> : null}
-          {purchases.error ? <p className="py-6 text-center text-sm text-destructive">تعذر تحميل المشتريات: {purchases.error.message}</p> : null}
-          {!purchases.isLoading && !purchases.error && !purchases.data?.length ? (
+          {usingOfflineHeaders ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">عرض محفوظ لعناوين المشتريات التشغيلية فقط. المبالغ ورقم فاتورة المورد والاستحقاقات وتفاصيل البنود والاستلام والدفعات تتطلب اتصالًا بالخادم. البحث المحلي يشمل رقم المستند والمورد والمخزن فقط.</p> : null}
+          {usingOfflineHeaders && !offlinePurchaseRows.length ? <p className="py-4 text-center text-sm text-muted-foreground">لا توجد عناوين مشتريات محفوظة محليًا تطابق البحث.</p> : null}
+          {purchases.isLoading && !usingOfflineHeaders ? <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /><span className="mr-2 text-sm text-muted-foreground">جارٍ تحميل المشتريات…</span></div> : null}
+          {purchases.error && !usingOfflineHeaders ? <p className="py-6 text-center text-sm text-destructive">تعذر تحميل المشتريات: {purchases.error.message}</p> : null}
+          {!purchases.isLoading && !purchases.error && !visiblePurchases.length && !usingOfflineHeaders ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
               <ClipboardList className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
               <p className="font-semibold">لا توجد فواتير مشتريات مطابقة</p>
               <p className="mt-1 text-sm text-muted-foreground">إنشاء المسودة لا يغيّر المخزون؛ الكميات تدخل عند تأكيد الاستلام.</p>
             </div>
           ) : null}
-          {purchases.data?.length ? (
+          {visiblePurchases.length ? (
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[850px] text-right text-sm">
-                <thead className="bg-muted/60"><tr>{(canViewFinancials ? ["رقم الفاتورة","المورد","المخزن","التاريخ","الاستحقاق","الحالة","الإجمالي","التفاصيل"] : ["رقم الفاتورة","المورد","المخزن","التاريخ","الحالة","التفاصيل"]).map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
+                <thead className="bg-muted/60"><tr>{(showFinancialColumns ? ["رقم الفاتورة","المورد","المخزن","التاريخ","الاستحقاق","الحالة","الإجمالي","التفاصيل"] : ["رقم الفاتورة","المورد","المخزن","التاريخ","الحالة","التفاصيل"]).map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
                 <tbody>
-                  {purchases.data.map((purchase) => (
+                  {visiblePurchases.map((purchase) => (
                     <tr key={purchase.id} className={"border-t " + (selectedPurchaseId === Number(purchase.id) ? "bg-muted/40" : "")}>
-                      <td className="p-3 font-medium">{purchase.purchase_number}{canViewFinancials ? <div className="text-xs text-muted-foreground">{purchase.supplier_invoice_no || "—"}</div> : null}</td>
+                      <td className="p-3 font-medium">{purchase.purchase_number}{showFinancialColumns ? <div className="text-xs text-muted-foreground">{purchase.supplier_invoice_no || "—"}</div> : null}</td>
                       <td className="p-3">{purchase.supplierName}</td>
                       <td className="p-3">{purchase.warehouseName}</td>
                       <td className="p-3 whitespace-nowrap">{purchase.invoice_date}</td>
-                      {canViewFinancials ? <><td className="p-3 whitespace-nowrap">{purchase.due_date || "—"}</td><td className="p-3">{statusLabels[purchase.status] ?? purchase.status}</td><td className="p-3 whitespace-nowrap font-semibold">{formatAmount(purchase.total_amount)}</td></> : <td className="p-3">{statusLabels[purchase.status] ?? purchase.status}</td>}
-                      <td className="p-3"><Button type="button" variant="outline" size="sm" onClick={() => setSelectedPurchaseId(Number(purchase.id))}><Eye className="ml-1 h-4 w-4" /> فتح</Button></td>
+                      {showFinancialColumns ? <><td className="p-3 whitespace-nowrap">{purchase.due_date || "—"}</td><td className="p-3">{statusLabels[purchase.status] ?? purchase.status}</td><td className="p-3 whitespace-nowrap font-semibold">{formatAmount(purchase.total_amount)}</td></> : <td className="p-3">{statusLabels[purchase.status] ?? purchase.status}</td>}
+                      <td className="p-3">{usingOfflineHeaders
+                        ? <Button type="button" variant="outline" size="sm" disabled><Eye className="ml-1 h-4 w-4" /> يتطلب اتصالًا</Button>
+                        : <Button type="button" variant="outline" size="sm" onClick={() => setSelectedPurchaseId(Number(purchase.id))}><Eye className="ml-1 h-4 w-4" /> فتح</Button>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -690,7 +713,7 @@ export default function InventoryPurchasesPanel({
         </CardContent>
       </Card>
 
-      {selectedPurchaseId ? (
+      {selectedPurchaseId && !usingOfflineHeaders ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex flex-wrap items-center justify-between gap-2">

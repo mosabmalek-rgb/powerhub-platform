@@ -109,6 +109,16 @@ function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
   return getOfflineQueryDeltaEntity(query.queryKey);
 }
 
+function sortPurchaseHeaderRows(rows: AnyRow[], limit: number): AnyRow[] {
+  return [...rows].sort((a, b) => {
+    const left = Date.parse(String(a.invoice_date ?? a.invoiceDate ?? ""));
+    const right = Date.parse(String(b.invoice_date ?? b.invoiceDate ?? ""));
+    const leftTime = Number.isFinite(left) ? left : 0;
+    const rightTime = Number.isFinite(right) ? right : 0;
+    return rightTime - leftTime || Number(b.purchase_id ?? b.id) - Number(a.purchase_id ?? a.id);
+  }).slice(0, limit);
+}
+
 function sortStocktakeRows(rows: AnyRow[], limit: number): AnyRow[] {
   return [...rows].sort((a, b) => {
     const left = Date.parse(String(a.created_at ?? a.createdAt ?? ""));
@@ -234,6 +244,16 @@ async function patchQueryCaches(
           }),
         };
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
+      } else if (entityType === "inventory_purchase_headers") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_purchase_headers", row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => change.operation === "upsert" && isRow(change.row_data)
+            ? { ...change, row_data: normalizeDeltaEntityRow("inventory_purchase_headers", change.row_data) }
+            : change),
+        };
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        queryClient.setQueryData(query.queryKey, sortPurchaseHeaderRows(nextRows, Number(getOfflineQueryInput(query.queryKey).limit ?? 100)));
       } else if (entityType === "inventory_stocktakes") {
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_stocktakes", row));
         const nextRows = applyDeltaPageToList(entityType, normalizedRows, page, scope, subscribers) as AnyRow[];
@@ -392,6 +412,9 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
             queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "inventory_purchase_headers") {
+            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            queryClient.setQueryData(query.queryKey, sortPurchaseHeaderRows(queryRows as AnyRow[], limit));
           } else if (candidate.entityType === "inventory_stocktakes") {
             const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
             queryClient.setQueryData(query.queryKey, sortStocktakeRows(queryRows as AnyRow[], limit));
