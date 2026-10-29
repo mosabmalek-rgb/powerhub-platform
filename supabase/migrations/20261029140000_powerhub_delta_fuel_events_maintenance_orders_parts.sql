@@ -228,7 +228,7 @@ begin
       p_tenant_id,p_site_id,'maintenance_work_orders',v_order.id
     );
   end loop;
-end $;
+end $$;
 alter function public.powerhub_refresh_maintenance_work_order_delta_scope(bigint,bigint) owner to postgres;
 revoke all on function public.powerhub_refresh_maintenance_work_order_delta_scope(bigint,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_maintenance_work_order_delta_scope(bigint,bigint) to service_role;
