@@ -697,7 +697,7 @@ describe("inventory workspace UI contract", () => {
     expect(supplierPayments).toContain("if (!ensureServerWriteAllowed()) return;");
     // Local snapshots are display-only; terminal stock/financial posting has no Outbox kind.
     const queue = read("client/src/lib/offline-work-queue.ts");
-    for (const finalAction of ["recordStockMovement", "postStocktake", "confirmPurchase", "receivePurchase", "returnToSupplier", "recordSupplierPayment"]) {
+    for (const finalAction of ["recordStockMovement", "transferStock", "postStocktake", "confirmPurchase", "receivePurchase", "returnToSupplier", "recordSupplierPayment"]) {
       expect(queue).not.toContain(String.fromCharCode(34) + finalAction + String.fromCharCode(34));
     }
   });
