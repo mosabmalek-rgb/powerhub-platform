@@ -163,6 +163,12 @@ export default function InventoryFuelConsumptionPanel({
     { siteId, generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 10_000 },
   );
+  // Only the unfiltered site-wide latest-100 reading list is Delta-backed.
+  // It provides an honest offline fallback when the selected-generator query is unavailable.
+  const recentReadings = trpc.powerhub.inventory.listFuelReadings.useQuery(
+    { siteId, limit: 100 },
+    { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)) },
+  );
   const report = trpc.powerhub.inventory.fuelConsumptionReportPeriod.useQuery(
     {
       siteId,
@@ -366,7 +372,8 @@ export default function InventoryFuelConsumptionPanel({
 
   const eventRows = (events.data ?? recentEvents.data ?? []) as FuelEvent[];
   const usingRecentOfflineEvents = events.data === undefined && recentEvents.data !== undefined;
-  const readingRows = (readings.data ?? []) as FuelReading[];
+  const readingRows = (readings.data ?? recentReadings.data ?? []) as FuelReading[];
+  const usingRecentOfflineReadings = readings.data === undefined && recentReadings.data !== undefined;
   const reportRows = (report.data ?? cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];
   const usingCachedFuelReport = report.data === undefined && cachedFuelReportForCurrentScope !== null;
   const hasAvailableFuelReport = report.data !== undefined || cachedFuelReportForCurrentScope !== null;
@@ -672,7 +679,7 @@ export default function InventoryFuelConsumptionPanel({
 
         <div>
           <h3 className="mb-2 font-medium">آخر القراءات</h3>
-          {readings.error && readings.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ تُعرض آخر نتيجة ناجحة لهذا الاستعلام.</p> : readings.error && !readings.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل القراءات ولا توجد نسخة متاحة لهذا النطاق.</p> : null}
+          {usingRecentOfflineReadings ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل القراءات المفلترة؛ يعرض هذا الجدول آخر 100 قراءة محفوظة للفرع دون تطبيق فلتر المولد حتى استعادة الاتصال.</p> : readings.error && readings.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ تُعرض آخر نتيجة ناجحة لهذا الاستعلام.</p> : readings.error && !recentReadings.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل القراءات ولا توجد نسخة محلية متاحة لهذا النطاق.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">النوع</th><th className="p-2">الخزان</th><th className="p-2">القراءة</th><th className="p-2">تصحيح القراءة</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{readingRows.map((row) => <tr key={row.reading_id} className="border-t">
@@ -681,7 +688,7 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.reading_value)}</td>
               <td className="p-2">{row.corrects_reading_id ? `تصحيح #${row.corrects_reading_id}: ${row.correction_reason || ""}` : "—"}</td><td className="p-2">{row.reference_no || "—"}</td>
             </tr>)}
-            {readingRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{readings.error ? "تعذر تحميل القراءات ولا توجد نسخة متاحة." : "لا توجد قراءات مسجلة."}</td></tr> : null}</tbody>
+            {readingRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{readings.error && !recentReadings.data ? "تعذر تحميل القراءات ولا توجد نسخة متاحة." : "لا توجد قراءات مسجلة."}</td></tr> : null}</tbody>
           </table></div>
         </div>
       </CardContent>
