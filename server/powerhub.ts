@@ -537,6 +537,21 @@ async function requireDeltaPurchaseHeaderReadAccess(userId: number, siteId: numb
   return access;
 }
 
+async function requireDeltaOperationalReadAccess(
+  userId: number, siteId: number,
+  entityType: "fuel_readings" | "maintenance_preventive_plans",
+) {
+  if (entityType === "fuel_readings") {
+    const access = await resolveSupabaseSiteAccess(userId, siteId);
+    if (!access.permissions.includes("manageFuelAndConsumption") &&
+        !access.permissions.includes("viewInventoryReports")) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجلات الوقود." });
+    }
+    return access;
+  }
+  return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician", "accountant", "viewer"], "viewInventory");
+}
+
 async function requireDeltaPurchaseChildHistoryReadAccess(
   userId: number, siteId: number,
   entityType: "inventory_purchase_receipt_headers" | "inventory_supplier_return_headers",
@@ -556,7 +571,7 @@ export const powerhubRouter = router({
   deltaSync: router({
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers", "fuel_readings", "maintenance_preventive_plans"]),
       afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
       throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
       pageSize: z.number().int().min(1).max(500).default(200),
@@ -583,12 +598,16 @@ export const powerhubRouter = router({
         inventory_purchase_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         inventory_purchase_receipt_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         inventory_supplier_return_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        fuel_readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        maintenance_preventive_plans: ["owner", "manager", "accountant", "technician", "viewer"],
       } as const;
       const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
         : ["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined;
       const access = input.entityType === "company_accounts_all"
         ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
-        : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
+        : input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans"
+          ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType)
+          : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
           ? await requireDeltaPurchaseChildHistoryReadAccess(ctx.user.id, input.siteId, input.entityType)
           : input.entityType === "inventory_purchase_headers"
             ? await requireDeltaPurchaseHeaderReadAccess(ctx.user.id, input.siteId)
@@ -598,8 +617,9 @@ export const powerhubRouter = router({
       const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
       const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
       const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"].includes(input.entityType);
+      const operationalDeltaEntity = input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans";
       const { data, error } = await supabaseAdmin().rpc(
-        inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta",
+        operationalDeltaEntity ? "powerhub_pull_operational_sync_delta" : inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta",
         { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
           p_after_cursor: afterCursor, p_through_cursor: throughCursor, p_page_size: input.pageSize },
       );
@@ -629,7 +649,7 @@ export const powerhubRouter = router({
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"]),
+      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers", "fuel_readings", "maintenance_preventive_plans"]),
     })).query(async ({ ctx, input }) => {
       const readRolesByEntity = {
         sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
@@ -651,12 +671,16 @@ export const powerhubRouter = router({
         inventory_purchase_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         inventory_purchase_receipt_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         inventory_supplier_return_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        fuel_readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        maintenance_preventive_plans: ["owner", "manager", "accountant", "technician", "viewer"],
       } as const;
       const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
         : ["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined;
       const access = input.entityType === "company_accounts_all"
         ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
-        : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
+        : input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans"
+          ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType)
+          : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
           ? await requireDeltaPurchaseChildHistoryReadAccess(ctx.user.id, input.siteId, input.entityType)
           : input.entityType === "inventory_purchase_headers"
             ? await requireDeltaPurchaseHeaderReadAccess(ctx.user.id, input.siteId)
@@ -664,8 +688,9 @@ export const powerhubRouter = router({
               ? await requireDeltaStocktakeReadAccess(ctx.user.id, input.siteId)
               : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]], inventoryCapability);
       const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"].includes(input.entityType);
+      const operationalDeltaEntity = input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans";
       const { data, error } = await supabaseAdmin().rpc(
-        inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot",
+        operationalDeltaEntity ? "powerhub_get_operational_sync_snapshot" : inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot",
         { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType },
       );
       if (error) {
