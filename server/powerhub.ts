@@ -4519,7 +4519,7 @@ export const powerhubRouter = router({
     offlineDirectory: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
       const { data, error } = await supabaseAdmin().from("employees")
-        .select("id, tenant_id, site_id, full_name, job_title, employment_status, contract_type, created_at")
+        .select("id, tenant_id, site_id, full_name, job_title, employment_status, contract_type, created_at, hr_sync_version")
         .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`)
         .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(500);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دليل الموظفين الآمن." });
@@ -4528,13 +4528,13 @@ export const powerhubRouter = router({
         siteId: employee.site_id === null ? null : Number(employee.site_id),
         fullName: employee.full_name, jobTitle: employee.job_title,
         employmentStatus: employee.employment_status, contractType: employee.contract_type,
-        createdAt: new Date(employee.created_at),
+        createdAt: new Date(employee.created_at), versionNo: Number(employee.hr_sync_version),
       }));
     }),
     offlineAttendance: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "managePayroll");
       const { data, error } = await supabaseAdmin().from("employee_attendance")
-        .select("id, tenant_id, employee_id, site_id, work_date, regular_hours, overtime_hours, absent_days, created_at, updated_at")
+        .select("id, tenant_id, employee_id, site_id, work_date, regular_hours, overtime_hours, absent_days, created_at, updated_at, hr_sync_version")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
         .order("work_date", { ascending: false }).order("id", { ascending: false }).limit(1000);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الحضور الآمن." });
@@ -4556,7 +4556,7 @@ export const powerhubRouter = router({
             workDate: new Date(`${attendance.work_date}T00:00:00.000Z`),
             regularHours: String(attendance.regular_hours), overtimeHours: String(attendance.overtime_hours),
             absentDays: String(attendance.absent_days), notes: null, createdByUserId: null,
-            createdAt: new Date(attendance.created_at), updatedAt: new Date(attendance.updated_at),
+            createdAt: new Date(attendance.created_at), updatedAt: new Date(attendance.updated_at), versionNo: Number(attendance.hr_sync_version),
           },
           employee: {
             id: Number(employee.id), tenantId: Number(employee.tenant_id),
