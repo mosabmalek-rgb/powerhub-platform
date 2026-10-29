@@ -11,6 +11,7 @@ const stocktakeMigration = readFileSync(resolve(process.cwd(), "supabase/migrati
 const purchaseHeaderMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029110000_powerhub_delta_purchase_headers.sql"), "utf8");
 const receiptReturnMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029120000_powerhub_delta_receipt_return_headers.sql"), "utf8");
 const operationalMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql"), "utf8");
+const maintenanceGuardSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.ts"), "utf8");
 const inventoryRouter = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
 const purchaseHeaderProjection = purchaseHeaderMigration.slice(
   purchaseHeaderMigration.indexOf("create or replace function public.powerhub_delta_sync_project_purchase_header_row"),
@@ -76,6 +77,28 @@ describe("PowerHub delta sync contract", () => {
   });
 });
 
+
+describe("fuel and maintenance Delta boundaries", () => {
+  it("caps maintenance snapshots at 500 rows on the database side and preserves due-plan priority", () => {
+    const snapshot = operationalMigration.slice(
+      operationalMigration.indexOf("create or replace function public.powerhub_get_operational_sync_snapshot"),
+      operationalMigration.indexOf("alter function public.powerhub_get_operational_sync_snapshot"),
+    );
+    expect(snapshot).toContain("limit 500");
+    expect(snapshot).toContain("when plan_row.alert_type='overdue' then 0");
+    expect(snapshot).toContain("when plan_row.alert_type='due_soon' then 1");
+    expect(snapshot).toContain("coalesce(plan.next_due_at,'infinity'::timestamptz)");
+  });
+
+  it("uses the same maintenance-specific read capability as the maintenance list endpoint", () => {
+    const maintenanceReadGuard = router.slice(
+      router.indexOf("async function requireDeltaOperationalReadAccess"),
+      router.indexOf("async function requireDeltaPurchaseChildHistoryReadAccess"),
+    );
+    expect(maintenanceReadGuard).toContain('requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician"], "manageMaintenance")');
+    expect(maintenanceGuardSource).toContain('requireSupabaseSiteRole(userId, siteId, [...maintenanceRoles], "manageMaintenance")');
+  });
+});
 
 describe("inventory catalog Delta extension", () => {
   it("keeps tenant-wide catalogs and branch warehouses on explicit private feeds", () => {
