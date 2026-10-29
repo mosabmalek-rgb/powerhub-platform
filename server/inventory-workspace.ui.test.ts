@@ -685,7 +685,6 @@ describe("inventory workspace UI contract", () => {
     }
     const stock = read(files[0]);
     const stocktake = read(files[1]);
-    const purchases = read(files[2]);
     const transfer = read(files[2]);
     const purchases = read(files[3]);
     const supplierPayments = read(files[4]);

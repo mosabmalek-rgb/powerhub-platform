@@ -243,15 +243,18 @@ export function WorkspaceHome() {
     if (changed.size === 0) return;
 
     // Each KPI has a specific revision dependency set; values remain server aggregates.
-    if (changed.has("generatorStatus") || changed.has("operationalStatus")) {
+    if (["generatorStatus", "operationalStatus", "operatingProfit"].some((metric) => changed.has(metric))) {
       void (selectedScope === "all" ? allBranchesSummaryQuery.refetch() : summaryQuery.refetch());
     }
     if (canViewFinancialOverview &&
         ["activeSubscribers", "financialOverview", "expenses", "operatingProfit"].some((metric) => changed.has(metric))) {
       void financialOverviewQuery.refetch();
     }
+    if (canViewFinancialOverview && changed.has("financialOverview")) {
+      void companyAccountsQuery.refetch();
+    }
     if (canViewFinancialOverview && dashboardPeriod.isReady &&
-        ["periodInvoiced", "periodCollected", "collectionRate", "overdue", "expenses", "operatingProfit"].some((metric) => changed.has(metric))) {
+        ["periodInvoiced", "periodCollected", "collectionRate", "overdue"].some((metric) => changed.has(metric))) {
       void periodMetricsQuery.refetch();
     }
   }, [
@@ -264,6 +267,7 @@ export function WorkspaceHome() {
     summaryQuery.refetch,
     allBranchesSummaryQuery.refetch,
     financialOverviewQuery.refetch,
+    companyAccountsQuery.refetch,
     periodMetricsQuery.refetch,
   ]);
 

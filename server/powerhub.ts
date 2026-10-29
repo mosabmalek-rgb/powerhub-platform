@@ -3629,7 +3629,7 @@ export const powerhubRouter = router({
       const revisions = {
         activeSubscribers: revisionFor("activeSubscribers", ["sites", "subscribers"]),
         generatorStatus: revisionFor("generatorStatus", ["generators"]),
-        periodInvoiced: revisionFor("periodInvoiced", ["readings", "tariffs", "invoices", "subscribers"]),
+        periodInvoiced: revisionFor("periodInvoiced", ["invoices"]),
         periodCollected: revisionFor("periodCollected", ["payments"]),
         collectionRate: revisionFor("collectionRate", ["invoices", "payments"]),
         overdue: revisionFor("overdue", ["invoices", "payments"]),
