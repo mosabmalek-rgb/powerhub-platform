@@ -45,9 +45,14 @@ describe("inventory stock movement Delta projection", () => {
       warehouse_code: "WH-20", warehouse_name: "Main", item_id: 1101, item_name: "Diesel",
       category: "fuel", base_unit: "liter", movement_type: "issue", quantity: "2.500",
       reference_no: "ISS-901", operation_key: "stock:901", occurred_at: "2026-10-29T10:00:00Z",
+      corrected_by_movement_id: 902, reversal_of_movement_id: null, corrects_movement_id: null,
+      correction_reason: null,
       unit_cost: "3.5000", total_cost_amount: "8.75",
     });
-    expect(row).toMatchObject({ id: 901, movement_id: 901, tenantId: 2, siteId: 10, quantity: "2.500", movement_type: "issue" });
+    expect(row).toMatchObject({
+      id: 901, movement_id: 901, tenantId: 2, siteId: 10, quantity: "2.500",
+      movement_type: "issue", corrected_by_movement_id: 902,
+    });
     expect(row).not.toHaveProperty("unit_cost");
     expect(row).not.toHaveProperty("total_cost_amount");
   });
