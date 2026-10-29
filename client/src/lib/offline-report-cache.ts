@@ -80,7 +80,7 @@ async function request<T>(mode: IDBTransactionMode, callback: (store: IDBObjectS
 }
 
 export async function saveReportSnapshot(input: Omit<CachedReportSnapshot, "key" | "savedAt">) {
-  const snapshot: CachedReportSnapshot = { ...input, key: cacheKey(input), savedAt: Date.now() };
+  const snapshot: CachedReportSnapshot = { ...input, report: createOfflineReportSnapshotPayload(input.report), key: cacheKey(input), savedAt: Date.now() };
   await request("readwrite", (store) => store.put(snapshot));
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
@@ -105,9 +105,18 @@ export async function saveReportSnapshot(input: Omit<CachedReportSnapshot, "key"
 export async function loadReportSnapshot(input: Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">) {
   const snapshot = await request<CachedReportSnapshot | undefined>("readonly", (store) => store.get(cacheKey(input)));
   if (!snapshot) return undefined;
-  if (!Number.isFinite(snapshot.savedAt) || Date.now() - snapshot.savedAt >= OFFLINE_REPORT_CACHE_TTL_MS) {
+  if (!Number.isFinite(snapshot.savedAt) || snapshot.savedAt > Date.now() ||
+      Date.now() - snapshot.savedAt >= OFFLINE_REPORT_CACHE_TTL_MS) {
     await request("readwrite", (store) => store.delete(snapshot.key));
     return undefined;
   }
-  return snapshot;
+  // Sanitize legacy snapshots written before aggregate-only persistence was enforced.
+  const safeSnapshot: CachedReportSnapshot = {
+    ...snapshot,
+    report: createOfflineReportSnapshotPayload(snapshot.report),
+  };
+  if (JSON.stringify(safeSnapshot.report) !== JSON.stringify(snapshot.report)) {
+    await request("readwrite", (store) => store.put(safeSnapshot));
+  }
+  return safeSnapshot;
 }
