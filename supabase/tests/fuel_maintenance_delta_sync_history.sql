@@ -230,6 +230,43 @@ begin
     select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text
   ) then raise exception 'DELTA_WORK_ORDER_TOP_200_FIXTURE_INVALID'; end if;
 
+  -- Moving the newest row outside the top-200 by correcting reported_at
+  -- must remove it and emit the row that crosses from position 201 to 200.
+  update public.generator_maintenance_work_orders
+    set reported_at=timestamptz '2000-01-01 00:00:00+00'
+    where id=v_deleted_id;
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_work_orders')
+    into v_snapshot;
+  if jsonb_array_length(v_snapshot->'rows')<>200 or exists(
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_deleted_id::text
+  ) or not exists(
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text
+  ) then raise exception 'DELTA_WORK_ORDER_REORDER_DID_NOT_REFILL_TOP_200'; end if;
+
+  select public.powerhub_pull_fuel_maintenance_sync_delta(
+    10,100,'maintenance_work_orders',v_cursor,null,500
+  ) into v_delta;
+  if not exists(
+    select 1 from jsonb_array_elements(v_delta->'changes') c
+    where c->>'entity_id'=v_deleted_id::text and c->>'operation'='delete'
+  ) or not exists(
+    select 1 from jsonb_array_elements(v_delta->'changes') c
+    where c->>'entity_id'=v_replacement_id::text and c->>'operation'='upsert'
+  ) then raise exception 'DELTA_WORK_ORDER_REORDER_JOURNAL_DID_NOT_REFILL_TOP_200'; end if;
+
+  -- Restore the newest position, checkpoint it, then exercise the delete case separately.
+  update public.generator_maintenance_work_orders
+    set reported_at=timestamptz '2090-01-01 00:00:00+00'+201*interval '1 day'
+    where id=v_deleted_id;
+  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_work_orders')
+    into v_snapshot;
+  if not exists(
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_deleted_id::text
+  ) or exists(
+    select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_replacement_id::text
+  ) then raise exception 'DELTA_WORK_ORDER_REORDER_RESTORE_FAILED'; end if;
+  v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
+
   delete from public.generator_maintenance_work_orders where id=v_deleted_id;
   if exists(select 1 from public.generator_maintenance_work_orders where id=v_deleted_id) then
     raise exception 'DELTA_WORK_ORDER_FIXTURE_DELETE_DID_NOT_REMOVE_ROW';
