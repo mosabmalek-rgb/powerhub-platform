@@ -9,7 +9,7 @@ import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { listOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS, formatReportDate, formatReportPeriod } from "@/lib/report-design-system";
-import { getUsableReportSnapshot, loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
+import { createOfflineReportSnapshotPayload, getUsableReportSnapshot, loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
@@ -115,7 +115,7 @@ export default function ReportsPage() {
   useEffect(() => {
     if (!user?.id || !branchId) return;
     const input = { userId: user.id, siteId: branchId, scope, startDate, endDate } as const;
-    if (liveReport) { void saveReportSnapshot({ ...input, report: liveReport }).then(setCachedSnapshot).catch(() => undefined); }
+    if (liveReport) { void saveReportSnapshot({ ...input, report: createOfflineReportSnapshotPayload(liveReport) }).then(setCachedSnapshot).catch(() => undefined); }
     else { void loadReportSnapshot(input).then((snapshot) => setCachedSnapshot(snapshot ?? null)).catch(() => setCachedSnapshot(null)); }
     void listOfflineWork({ userId: user.id, siteId: branchId }).then((items) => setPendingPaymentDrafts(items.filter((item) => item.kind === "payment_create" && item.status !== "applied"))).catch(() => setPendingPaymentDrafts([]));
   }, [branchId, endDate, liveReport, scope, startDate, user?.id]);
