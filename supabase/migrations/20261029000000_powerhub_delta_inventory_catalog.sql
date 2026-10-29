@@ -6,7 +6,7 @@ alter table public.powerhub_sync_scope_state add constraint powerhub_sync_scope_
   check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices','payments','expenses','company_accounts','company_accounts_all','inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements'));
 alter table public.powerhub_sync_changes drop constraint if exists powerhub_sync_changes_entity_type_check;
 alter table public.powerhub_sync_changes add constraint powerhub_sync_changes_entity_type_check
-  check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices','payments','expenses','company_accounts','company_accounts_all','inventory_items','inventory_item_units','suppliers','inventory_warehouses'));
+  check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices','payments','expenses','company_accounts','company_accounts_all','inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements'));
 
 create or replace function public.powerhub_delta_sync_project_inventory_row(p_entity_type text,p_row jsonb)
 returns jsonb language sql stable set search_path=pg_catalog,public,pg_temp as $
@@ -79,7 +79,7 @@ returns jsonb language plpgsql stable security definer set search_path=pg_catalo
 declare v_cursor bigint:=0; v_retained bigint:=0; v_rows jsonb:='[]'::jsonb;
 begin
  if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1 then raise exception 'POWERHUB_SYNC_SCOPE_REQUIRED' using errcode='P0001'; end if;
- if p_entity_type not in ('inventory_items','inventory_item_units','suppliers','inventory_warehouses') then raise exception 'POWERHUB_SYNC_ENTITY_UNSUPPORTED' using errcode='P0001'; end if;
+ if p_entity_type not in ('inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements') then raise exception 'POWERHUB_SYNC_ENTITY_UNSUPPORTED' using errcode='P0001'; end if;
  if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001'; end if;
  select s.last_cursor,s.retained_from_cursor into v_cursor,v_retained from public.powerhub_sync_scope_state s where s.tenant_id=p_tenant_id and s.site_id=p_site_id and s.entity_type=p_entity_type;
  if not found then v_cursor:=0; v_retained:=0; end if;
@@ -116,7 +116,7 @@ returns jsonb language plpgsql security definer set search_path=pg_catalog,publi
 declare v_current bigint:=0; v_retained bigint:=0; v_target bigint:=0; v_next bigint:=0; v_last bigint; v_more boolean:=false; v_changes jsonb:='[]'::jsonb;
 begin
  if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1 then raise exception 'POWERHUB_SYNC_SCOPE_REQUIRED' using errcode='P0001'; end if;
- if p_entity_type not in ('inventory_items','inventory_item_units','suppliers','inventory_warehouses') then raise exception 'POWERHUB_SYNC_ENTITY_UNSUPPORTED' using errcode='P0001'; end if;
+ if p_entity_type not in ('inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements') then raise exception 'POWERHUB_SYNC_ENTITY_UNSUPPORTED' using errcode='P0001'; end if;
  if p_page_size is null or p_page_size<1 or p_page_size>500 then raise exception 'POWERHUB_SYNC_PAGE_SIZE_INVALID' using errcode='P0001'; end if;
  if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001'; end if;
  select s.last_cursor,s.retained_from_cursor into v_current,v_retained from public.powerhub_sync_scope_state s where s.tenant_id=p_tenant_id and s.site_id=p_site_id and s.entity_type=p_entity_type;
