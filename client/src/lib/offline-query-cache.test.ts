@@ -280,7 +280,7 @@ describe("offline query cache policy", () => {
     }])).toBe(false);
   });
 
-  it("persists only bounded, unfiltered subscriber directory pages for a valid site", () => {
+  it("persists bounded subscriber directory pages with search and type filters for a valid site", () => {
     const pageOne = ["powerhub.subscribers.directoryPage", {
       input: { siteId: 7, page: 1, pageSize: 20, search: "" },
       type: "query",
@@ -297,10 +297,10 @@ describe("offline query cache policy", () => {
     }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
       input: { siteId: 7, page: 1, pageSize: 20, search: "أحمد" }, type: "query",
-    }])).toBe(false);
+    }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
       input: { siteId: 7, page: 1, pageSize: 20, search: "", subscriptionType: "commercial" }, type: "query",
-    }])).toBe(false);
+    }])).toBe(true);
     expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
       input: { siteId: 7, page: 1, pageSize: 200, search: "" }, type: "query",
     }])).toBe(false);
