@@ -535,6 +535,32 @@ export async function persistOfflineQueryForDeltaSync(query: Query, userId: stri
  * explicitly denies access. A later reload must not rehydrate a revoked snapshot.
  * This deliberately leaves Outbox operations intact for review/reconciliation.
  */
+/** Exact allowlist used to purge only the caller's persisted HR projections for one site. */
+export function isOfflineHrProjectionQueryKeyForSite(queryKey: readonly unknown[], siteId: number): boolean {
+  if (!Number.isSafeInteger(siteId) || siteId < 1) return false;
+  const first = queryKey[0];
+  const segments = Array.isArray(first)
+    ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string" ? first.split(".") : [];
+  if (segments[0] !== "powerhub" || segments[1] !== "hr" ||
+      !["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances",
+        "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(segments[2] ?? "")) return false;
+  const wrapper = queryKey[1];
+  if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
+  const recordOptions = wrapper as Record<string, unknown>;
+  const input = Object.prototype.hasOwnProperty.call(recordOptions, "input") ? recordOptions.input : recordOptions;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  const scopedInput = input as Record<string, unknown>;
+  return Object.keys(scopedInput).length === 1 &&
+    Object.prototype.hasOwnProperty.call(scopedInput, "siteId") &&
+    Number(scopedInput.siteId) === siteId;
+}
+
+/**
+ * Purge persisted minimized HR projections for one user/site after the server
+ * explicitly denies access. A later reload must not rehydrate a revoked snapshot.
+ * This deliberately leaves Outbox operations intact for review/reconciliation.
+ */
 export async function clearOfflineHrProjectionCacheForSite(userId: string, siteId: number) {
   if (!userId || !Number.isSafeInteger(siteId) || siteId < 1) return;
   try {
@@ -542,21 +568,9 @@ export async function clearOfflineHrProjectionCacheForSite(userId: string, siteI
     const keys = records.filter((record) => {
       if (record.userId !== userId) return false;
       try {
-        const queryKey = superjson.parse<readonly unknown[]>(record.serializedQueryKey);
-        const first = queryKey[0];
-        const segments = Array.isArray(first)
-          ? first.filter((part): part is string => typeof part === "string")
-          : typeof first === "string" ? first.split(".") : [];
-        if (segments[0] !== "powerhub" || segments[1] !== "hr" ||
-            !["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances",
-              "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(segments[2] ?? "")) return false;
-        const wrapper = queryKey[1];
-        if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
-        const recordOptions = wrapper as Record<string, unknown>;
-        const input = Object.prototype.hasOwnProperty.call(recordOptions, "input") ? recordOptions.input : recordOptions;
-        if (!input || typeof input !== "object" || Array.isArray(input)) return false;
-        const scopedInput = input as Record<string, unknown>;
-        return Object.keys(scopedInput).length === 1 && Number(scopedInput.siteId) === siteId;
+        return isOfflineHrProjectionQueryKeyForSite(
+          superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId,
+        );
       } catch {
         return false;
       }
