@@ -489,6 +489,14 @@ begin
      or (v_delta #> '{changes,0,row_data}') ? 'total_cost_amount' then
     raise exception 'Stock movement Delta projection failed or exposed financial values: %',v_delta;
   end if;
+  update public.inventory_stock_movements set corrected_by_movement_id=2302 where id=2301;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stock_movements',1,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '2301'
+     or v_delta #>> '{changes,0,row_data,corrected_by_movement_id}' is distinct from '2302'
+     or (v_delta #> '{changes,0,row_data}') ? 'unit_cost' then
+    raise exception 'Stock movement correction metadata did not reach Delta safely: %',v_delta;
+  end if;
   v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_stock_movements');
   if jsonb_array_length(v_snapshot->'rows')<>1
      or (v_snapshot #> '{rows,0}') ? 'unit_cost'
