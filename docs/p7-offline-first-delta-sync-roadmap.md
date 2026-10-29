@@ -1048,3 +1048,12 @@ Safety invariants:
 
 - The minimized employee-directory and attendance Delta projectors now carry the real `hr_sync_version` as `version_no`. The columns are created before the HR Delta projectors so the first snapshot can expose a valid version, not a client fallback of `1`.
 - PostgreSQL and contract assertions verify the field is present in snapshots and upserts while sensitive fields remain redacted. A previous CI-green SHA predates this fix; final same-SHA CI and staging-browser acceptance remain required.
+
+
+## بوابة قبول مُتحققة — HR Delta ورفض صلاحيات الكاش — 2026-10-29
+
+- على الرأس `1ca4c8191d4a0b2f999c08a4ad9d90ceba9d2b3a` نجحت PowerHub CI (TypeScript/tests/production build)، وReading Cycle PostgreSQL Integration، وPowerHub Security، وPowerHub Supabase Admin Guard جميعها.
+- أضيفت نسخة الخادم الفعلية إلى إسقاطات الموظفين والحضور، واختبارات SQL تؤكد وجودها في snapshot/upsert مع استمرار تنقية الحقول الشخصية.
+- أصبح مسح HR IndexedDB يستخدم UUID جلسة Supabase بوصفه مالك سجل الكاش، وليس المعرّف الرقمي الداخلي للتطبيق؛ ويظل المسح مقصورًا على الموقع والإسقاط الذي رُفضت صلاحيته، دون حذف Outbox.
+- الاختبارات التي كانت تعتمد على صياغة قديمة للكاش/رفض الوصول حُدثت لتعكس السماح بالإسقاطات المصغرة فقط ومعالجة الرفض الصريح.
+- **ملاحظة مهمة:** نتائج الرأس المذكور تسبق هذا التحديث التوثيقي؛ يجب إعادة تشغيل البوابات على الرأس الجديد قبل اعتماد الأخضر النهائي. اختبار المتصفح في staging ما زال شرطًا منفصلًا، ولم يُنشر Preview أو تُطبق migrations على staging أو الإنتاج.
