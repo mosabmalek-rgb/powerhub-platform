@@ -291,7 +291,6 @@ async function patchQueryCaches(
           ? sortPurchaseReceiptRows(nextRows, limit)
           : sortSupplierReturnRows(nextRows, limit));
       } else if (entityType === "fuel_readings" || entityType === "maintenance_preventive_plans" || entityType === "fuel_events" || entityType === "maintenance_work_orders" || entityType.startsWith("maintenance_work_order_parts:")) {
-        const generatorId = Number(getOfflineQueryInput(query.queryKey).generatorId);
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
         const normalizedPage = {
           ...page,
