@@ -109,6 +109,26 @@ function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
   return getOfflineQueryDeltaEntity(query.queryKey);
 }
 
+function sortPurchaseReceiptRows(rows: AnyRow[], limit: number): AnyRow[] {
+  return [...rows].sort((a, b) => {
+    const left = Date.parse(String(a.received_at ?? a.receipt_date ?? ""));
+    const right = Date.parse(String(b.received_at ?? b.receipt_date ?? ""));
+    const leftTime = Number.isFinite(left) ? left : 0;
+    const rightTime = Number.isFinite(right) ? right : 0;
+    return rightTime - leftTime || Number(b.receipt_id ?? b.id) - Number(a.receipt_id ?? a.id);
+  }).slice(0, limit);
+}
+
+function sortSupplierReturnRows(rows: AnyRow[], limit: number): AnyRow[] {
+  return [...rows].sort((a, b) => {
+    const left = Date.parse(String(a.return_date ?? ""));
+    const right = Date.parse(String(b.return_date ?? ""));
+    const leftTime = Number.isFinite(left) ? left : 0;
+    const rightTime = Number.isFinite(right) ? right : 0;
+    return rightTime - leftTime || Number(b.return_id ?? b.id) - Number(a.return_id ?? a.id);
+  }).slice(0, limit);
+}
+
 function sortPurchaseHeaderRows(rows: AnyRow[], limit: number): AnyRow[] {
   return [...rows].sort((a, b) => {
     const left = Date.parse(String(a.invoice_date ?? a.invoiceDate ?? ""));
@@ -244,6 +264,21 @@ async function patchQueryCaches(
           }),
         };
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
+      } else if (entityType === "inventory_purchase_receipt_headers" || entityType === "inventory_supplier_return_headers") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            const rowData = change.row_data;
+            if (change.operation !== "upsert" || rowData === null || typeof rowData !== "object" || Array.isArray(rowData)) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, rowData as AnyRow) };
+          }),
+        };
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+        queryClient.setQueryData(query.queryKey, entityType === "inventory_purchase_receipt_headers"
+          ? sortPurchaseReceiptRows(nextRows, limit)
+          : sortSupplierReturnRows(nextRows, limit));
       } else if (entityType === "inventory_purchase_headers") {
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_purchase_headers", row));
         const normalizedPage = {
@@ -418,6 +453,11 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
             queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "inventory_purchase_receipt_headers" || candidate.entityType === "inventory_supplier_return_headers") {
+            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            queryClient.setQueryData(query.queryKey, candidate.entityType === "inventory_purchase_receipt_headers"
+              ? sortPurchaseReceiptRows(queryRows as AnyRow[], limit)
+              : sortSupplierReturnRows(queryRows as AnyRow[], limit));
           } else if (candidate.entityType === "inventory_purchase_headers") {
             const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
             queryClient.setQueryData(query.queryKey, sortPurchaseHeaderRows(queryRows as AnyRow[], limit));

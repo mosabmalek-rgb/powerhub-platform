@@ -301,6 +301,46 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         corrected_by_movement_id: optionalNumber(raw.corrected_by_movement_id ?? raw.correctedByMovementId),
       };
     }
+    case "inventory_purchase_receipt_headers": {
+      const id = toNumber(raw.receipt_id ?? raw.id);
+      return {
+        ...raw, id, receipt_id: id,
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId),
+        purchaseId: toNumber(raw.purchase_id ?? raw.purchaseId),
+        supplierId: toNumber(raw.supplier_id ?? raw.supplierId),
+        supplierName: String(raw.supplier_name ?? raw.supplierName ?? ""),
+        supplierCode: (raw.supplier_code ?? raw.supplierCode ?? null) as string | null,
+        warehouseId: toNumber(raw.warehouse_id ?? raw.warehouseId),
+        warehouseName: String(raw.warehouse_name ?? raw.warehouseName ?? ""),
+        receipt_number: String(raw.receipt_number ?? ""),
+        receipt_date: String(raw.receipt_date ?? ""),
+        purchase_number: String(raw.purchase_number ?? ""),
+        status: String(raw.status ?? ""),
+        line_count: toNumber(raw.line_count ?? 0),
+        received_quantity: String(raw.received_quantity ?? "0.000"),
+      };
+    }
+    case "inventory_supplier_return_headers": {
+      const id = toNumber(raw.return_id ?? raw.id);
+      return {
+        ...raw, id, return_id: id,
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId),
+        purchaseId: toNumber(raw.purchase_id ?? raw.purchaseId),
+        supplierId: toNumber(raw.supplier_id ?? raw.supplierId),
+        supplierName: String(raw.supplier_name ?? raw.supplierName ?? ""),
+        supplierCode: (raw.supplier_code ?? raw.supplierCode ?? null) as string | null,
+        warehouseId: toNumber(raw.warehouse_id ?? raw.warehouseId),
+        warehouseName: String(raw.warehouse_name ?? raw.warehouseName ?? ""),
+        return_number: String(raw.return_number ?? ""),
+        return_date: String(raw.return_date ?? ""),
+        purchase_number: String(raw.purchase_number ?? ""),
+        status: String(raw.status ?? ""),
+        line_count: toNumber(raw.line_count ?? 0),
+        returned_quantity: String(raw.returned_quantity ?? "0.000"),
+      };
+    }
     case "inventory_purchase_headers": {
       const id = toNumber(raw.purchase_id ?? raw.id);
       const tenantId = toNumber(raw.tenant_id ?? raw.tenantId);
