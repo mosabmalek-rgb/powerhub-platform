@@ -9,7 +9,7 @@ alter table public.powerhub_sync_changes add constraint powerhub_sync_changes_en
   check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices','payments','expenses','company_accounts','company_accounts_all','inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements'));
 
 create or replace function public.powerhub_delta_sync_project_inventory_row(p_entity_type text,p_row jsonb)
-returns jsonb language sql stable set search_path=pg_catalog,public,pg_temp as $
+returns jsonb language sql stable set search_path=pg_catalog,public,pg_temp as $$
  select case p_entity_type
  when 'inventory_items' then jsonb_build_object('id',p_row->'id','tenant_id',p_row->'tenant_id','sku',p_row->'sku','name',p_row->'name','category',p_row->'category','base_unit',p_row->'base_unit','reorder_point',p_row->'reorder_point','specification',p_row->'specification','notes',p_row->'notes','is_active',p_row->'is_active','created_at',p_row->'created_at','updated_at',p_row->'updated_at')
  when 'inventory_item_units' then jsonb_build_object('id',p_row->'id','tenant_id',p_row->'tenant_id','item_id',p_row->'item_id','unit_label',p_row->'unit_label','factor_to_base',p_row->'factor_to_base','is_active',p_row->'is_active','created_at',p_row->'created_at','updated_at',p_row->'updated_at')
