@@ -14,6 +14,7 @@ export const OFFLINE_OPERATIONAL_REPORT_TTL_MS = 24 * 60 * 60 * 1000;
 const DATABASE_NAME = "powerhub-offline-operational-report-cache";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "snapshots";
+const MAX_OPERATIONAL_REPORT_SNAPSHOTS = 50;
 const FUEL_FIELDS = [
   "generator_id", "generator_name", "tank_warehouse_id", "tank_name",
   "fuel_filled_liters", "fuel_filled_cost", "recorded_consumption_liters",
@@ -124,6 +125,17 @@ export async function saveOperationalReportSnapshot(
     savedAt: Date.now(),
   };
   await transact("readwrite", (store) => store.put(snapshot));
+  const existing = await transact<OperationalReportSnapshot[]>("readonly", (store) => store.getAll());
+  const eligible = existing
+    .filter((row) => Number.isFinite(row.savedAt) && row.savedAt <= Date.now() &&
+      Date.now() - row.savedAt < OFFLINE_OPERATIONAL_REPORT_TTL_MS)
+    .sort((left, right) => right.savedAt - left.savedAt);
+  const keep = new Set(eligible.slice(0, MAX_OPERATIONAL_REPORT_SNAPSHOTS).map((row) => row.key));
+  const remove = existing.filter((row) => !keep.has(row.key)).map((row) => row.key);
+  if (remove.length) await transact("readwrite", (store) => {
+    for (const key of remove) store.delete(key);
+    return store.getAllKeys();
+  });
   return snapshot;
 }
 
