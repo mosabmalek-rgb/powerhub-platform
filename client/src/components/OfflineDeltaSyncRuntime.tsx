@@ -109,6 +109,16 @@ function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
   return getOfflineQueryDeltaEntity(query.queryKey);
 }
 
+function sortStocktakeRows(rows: AnyRow[], limit: number): AnyRow[] {
+  return [...rows].sort((a, b) => {
+    const left = Date.parse(String(a.created_at ?? a.createdAt ?? ""));
+    const right = Date.parse(String(b.created_at ?? b.createdAt ?? ""));
+    const leftTime = Number.isFinite(left) ? left : 0;
+    const rightTime = Number.isFinite(right) ? right : 0;
+    return rightTime - leftTime || Number(b.stocktake_id ?? b.id) - Number(a.stocktake_id ?? a.id);
+  }).slice(0, limit);
+}
+
 function getLoadedSiteTenants(queries: Query[]) {
   const result = new Map<number, number>();
   for (const query of queries) {
@@ -224,6 +234,10 @@ async function patchQueryCaches(
           }),
         };
         queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
+      } else if (entityType === "inventory_stocktakes") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_stocktakes", row));
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, page, scope, subscribers) as AnyRow[];
+        queryClient.setQueryData(query.queryKey, sortStocktakeRows(nextRows, Number(getOfflineQueryInput(query.queryKey).limit ?? 100)));
       } else if (entityType === "inventory_stock_movements") {
         const scopedPage = {
           ...page,
@@ -378,6 +392,9 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
           } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
             queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "inventory_stocktakes") {
+            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            queryClient.setQueryData(query.queryKey, sortStocktakeRows(queryRows as AnyRow[], limit));
           } else if (candidate.entityType === "inventory_stock_movements") {
             const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
             const movements = (queryRows as AnyRow[]).slice().sort((a, b) => {

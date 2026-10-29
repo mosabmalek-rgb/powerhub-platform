@@ -301,6 +301,15 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         corrected_by_movement_id: optionalNumber(raw.corrected_by_movement_id ?? raw.correctedByMovementId),
       };
     }
+    case "inventory_stocktakes": {
+      const id = toNumber(raw.stocktake_id ?? raw.id);
+      return {
+        ...raw, id, stocktake_id: id,
+        tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+        siteId: toNumber(raw.site_id ?? raw.siteId),
+        warehouse_id: toNumber(raw.warehouse_id ?? raw.warehouseId),
+      };
+    }
     case "inventory_warehouses":
       return {
         id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
@@ -342,8 +351,10 @@ export function snapshotRowsFromQuery(entityType: DeltaOperationalEntity, data: 
 }
 
 function idOf(row: unknown): string | null {
-  if (!isRow(row) || row.id === null || row.id === undefined) return null;
-  return String(row.id);
+  if (!isRow(row)) return null;
+  const id = row.id ?? row.stocktake_id ?? row.stocktakeId;
+  if (id === null || id === undefined) return null;
+  return String(id);
 }
 function scopedTo(row: Row, scope: DeltaCursorScope) {
   if (row.tenantId !== undefined && toNumber(row.tenantId) !== scope.tenantId) return false;

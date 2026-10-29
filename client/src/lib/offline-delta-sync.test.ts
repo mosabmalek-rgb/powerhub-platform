@@ -399,6 +399,42 @@ describe("offline delta sync", () => {
     expect(await storage.getCursor(movementScope)).toBe("11");
   });
 
+  it("caps stocktake sidecar retention at the newest 200 rows on snapshots and incremental updates", async () => {
+    const stocktakeScope: DeltaCursorScope = { ...scope, entityType: "inventory_stocktakes" };
+    const storage = memoryStorage();
+    const snapshot = Array.from({ length: 201 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id, stocktake_id: id, tenantId: stocktakeScope.tenantId, siteId: stocktakeScope.siteId,
+        created_at: new Date(Date.UTC(2026, 0, 1, 0, 0, id)).toISOString(), status: "counting",
+      };
+    });
+    await storage.replaceSnapshot(stocktakeScope, snapshot, "10");
+    const initial = await storage.listEntities(stocktakeScope);
+    expect(initial).toHaveLength(200);
+    expect(initial.some(row => row.entityId === "1")).toBe(false);
+    expect(initial.some(row => row.entityId === "2")).toBe(true);
+    expect(initial.some(row => row.entityId === "201")).toBe(true);
+    const newest = {
+      id: 202, stocktake_id: 202, tenantId: stocktakeScope.tenantId, siteId: stocktakeScope.siteId,
+      created_at: new Date(Date.UTC(2026, 0, 1, 0, 0, 202)).toISOString(), status: "counting",
+    };
+    const nextPage: DeltaPage<Record<string, unknown>> = page({
+      entity_type: "inventory_stocktakes", current_cursor: "11", through_cursor: "11", next_cursor: "11",
+      changes: [{
+        cursor: "11", entity_type: "inventory_stocktakes", entity_id: "202",
+        operation: "upsert", row_data: newest, changed_at: newest.created_at,
+      }],
+    });
+    await storage.commitPage(stocktakeScope, nextPage, "11");
+    const afterDelta = await storage.listEntities(stocktakeScope);
+    expect(afterDelta).toHaveLength(200);
+    expect(afterDelta.some(row => row.entityId === "2")).toBe(false);
+    expect(afterDelta.some(row => row.entityId === "3")).toBe(true);
+    expect(afterDelta.some(row => row.entityId === "202")).toBe(true);
+    expect(await storage.getCursor(stocktakeScope)).toBe("11");
+  });
+
   it("does not let an older snapshot replace a newer local cursor", async () => {
     const storage = memoryStorage();
     await storage.replaceSnapshot(scope, [{ id: 1, name: "new" }], "10");

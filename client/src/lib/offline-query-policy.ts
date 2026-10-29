@@ -110,6 +110,7 @@ const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "inventory.listSuppliers": new Set(["siteId", "search", "includeInactive"]),
   "inventory.listWarehouses": new Set(["siteId", "includeInactive"]),
   "inventory.listItemUnits": new Set(["siteId", "itemId", "includeInactive"]),
+  "inventory.listStocktakes": new Set(["siteId", "warehouseId", "limit"]),
 };
 
 function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: string[]) {
@@ -124,6 +125,10 @@ function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: stri
   if (procedure === "inventory.listItemUnits") {
     return Number.isSafeInteger(input.itemId) && Number(input.itemId) > 0 &&
       Object.keys(input).every((key) => ["siteId", "itemId", "includeInactive"].includes(key));
+  }
+  if (procedure === "inventory.listStocktakes") {
+    return input.limit === 100 && input.warehouseId === undefined &&
+      Object.keys(input).every((key) => ["siteId", "warehouseId", "limit"].includes(key));
   }
   if ((procedure === "inventory.listItems" || procedure === "inventory.listSuppliers") &&
       input.search !== undefined) return false;
@@ -273,7 +278,9 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") return true;
 
   if (segments[1] === "inventory") {
-    return ["listItems", "listItemUnits", "listSuppliers", "listWarehouses"].includes(segments[2] ?? "") || isSafeInventoryMovementList(queryKey, segments);
+    return ["listItems", "listItemUnits", "listSuppliers", "listWarehouses"].includes(segments[2] ?? "") ||
+      (segments[2] === "listStocktakes" && isSafeInventoryOfflineList(queryKey, segments)) ||
+      isSafeInventoryMovementList(queryKey, segments);
   }
   return segments[2] === "list" && DELTA_SYNC_PROCEDURES.has(segments[1] ?? "");
 }
@@ -302,7 +309,8 @@ export type OfflineQueryDeltaEntity =
   | "inventory_item_units"
   | "suppliers"
   | "inventory_warehouses"
-  | "inventory_stock_movements";
+  | "inventory_stock_movements"
+  | "inventory_stocktakes";
 
 /**
  * Returns the server change-feed entity only when this exact query key is
@@ -322,6 +330,7 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
   }
   if (segments[1] === "inventory") {
     if (segments[2] === "listStockMovements") return isSafeInventoryMovementList(queryKey, segments) ? "inventory_stock_movements" : null;
+    if (segments[2] === "listStocktakes") return isSafeInventoryOfflineList(queryKey, segments) ? "inventory_stocktakes" : null;
     if (segments[2] === "listItems") return "inventory_items";
     if (segments[2] === "listItemUnits") return "inventory_item_units";
     if (segments[2] === "listSuppliers") return "suppliers";

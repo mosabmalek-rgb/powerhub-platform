@@ -1,5 +1,5 @@
 import { openLegacyOfflineDatabaseIfPresent, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
-export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs" | "invoices" | "payments" | "expenses" | "company_accounts" | "company_accounts_all" | "inventory_items" | "inventory_item_units" | "suppliers" | "inventory_warehouses" | "inventory_stock_movements";
+export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs" | "invoices" | "payments" | "expenses" | "company_accounts" | "company_accounts_all" | "inventory_items" | "inventory_item_units" | "suppliers" | "inventory_warehouses" | "inventory_stock_movements" | "inventory_stocktakes";
 
 export type DeltaChange<Row extends Record<string, unknown> = Record<string, unknown>> = {
   cursor: string;
@@ -44,6 +44,7 @@ const CURSOR_STORE = "cursors";
 const ENTITY_STORE = "entities";
 
 const MAX_LOCAL_STOCK_MOVEMENT_ROWS = 500;
+const MAX_LOCAL_INVENTORY_STOCKTAKE_ROWS = 200;
 
 function movementProjection(value: Record<string, unknown>): Record<string, unknown> {
   const nested = value.rowData;
@@ -63,8 +64,8 @@ function compareStockMovementNewestFirst(
 ): number {
   const left = movementProjection(leftValue);
   const right = movementProjection(rightValue);
-  const leftParsed = Date.parse(String(left.occurred_at ?? left.occurredAt ?? ""));
-  const rightParsed = Date.parse(String(right.occurred_at ?? right.occurredAt ?? ""));
+  const leftParsed = Date.parse(String(left.occurred_at ?? left.occurredAt ?? left.created_at ?? left.createdAt ?? ""));
+  const rightParsed = Date.parse(String(right.occurred_at ?? right.occurredAt ?? right.created_at ?? right.createdAt ?? ""));
   const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
   const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
   if (leftTime !== rightTime) return rightTime - leftTime;
@@ -89,12 +90,13 @@ export function limitDeltaEntityRows<T extends Record<string, unknown>>(
   entityType: DeltaEntityType,
   rows: readonly T[],
 ): T[] {
-  if (entityType !== "inventory_stock_movements" || rows.length <= MAX_LOCAL_STOCK_MOVEMENT_ROWS) {
-    return [...rows];
-  }
-  return [...rows]
-    .sort(compareStockMovementNewestFirst)
-    .slice(0, MAX_LOCAL_STOCK_MOVEMENT_ROWS);
+  const limit = entityType === "inventory_stock_movements"
+    ? MAX_LOCAL_STOCK_MOVEMENT_ROWS
+    : entityType === "inventory_stocktakes"
+      ? MAX_LOCAL_INVENTORY_STOCKTAKE_ROWS
+      : null;
+  if (limit === null || rows.length <= limit) return [...rows];
+  return [...rows].sort(compareStockMovementNewestFirst).slice(0, limit);
 }
 
 function assertCursor(cursor: string) {
@@ -475,7 +477,7 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
           });
         }
       }
-      if (scope.entityType === "inventory_stock_movements") {
+      if (scope.entityType === "inventory_stock_movements" || scope.entityType === "inventory_stocktakes") {
         // Keep the 500-row sidecar bound in the same transaction as mutations and cursor.
         const retainedRequest = entities.index("byScope").getAll(IDBKeyRange.only(key));
         retainedRequest.onerror = () => failTransaction("تعذر تقليص سجل حركات المخزون المحلي.");

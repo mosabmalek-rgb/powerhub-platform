@@ -38,6 +38,34 @@ describe("company account Delta projection", () => {
   });
 });
 
+describe("inventory stocktake Delta projection", () => {
+  it("preserves safe headers and aggregate counters without adding financial line values", () => {
+    const row = normalizeDeltaEntityRow("inventory_stocktakes", {
+      stocktake_id: 81, tenant_id: 2, site_id: 10, stocktake_number: "ST-81",
+      warehouse_id: 20, warehouse_name: "Main", location_type: "branch_warehouse",
+      status: "submitted", reason: "Routine", notes: null, created_at: "2026-10-29T10:00:00Z",
+      item_count: 4, counted_count: 4, variance_count: 1, variance_quantity: "3.000",
+    });
+    expect(row).toMatchObject({ id: 81, stocktake_id: 81, tenantId: 2, siteId: 10, warehouse_id: 20,
+      item_count: 4, counted_count: 4, variance_count: 1, variance_quantity: "3.000" });
+    expect(row).not.toHaveProperty("system_value");
+    expect(row).not.toHaveProperty("system_unit_cost");
+    expect(row).not.toHaveProperty("counted_unit_cost");
+  });
+
+  it("updates cached stocktake rows by stocktake_id", () => {
+    const stocktakeScope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "inventory_stocktakes" };
+    const original = { stocktake_id: 81, tenantId: 2, siteId: 10, status: "counting" };
+    const update = basePage([{
+      cursor: "5", entity_type: "inventory_stocktakes", entity_id: "81", operation: "upsert",
+      row_data: { id: 81, stocktake_id: 81, tenantId: 2, siteId: 10, status: "submitted" },
+      changed_at: "2026-10-29T10:00:00Z",
+    }], "inventory_stocktakes");
+    expect(applyDeltaPageToList("inventory_stocktakes", [original], update, stocktakeScope))
+      .toEqual([{ id: 81, stocktake_id: 81, tenantId: 2, siteId: 10, status: "submitted" }]);
+  });
+});
+
 describe("inventory stock movement Delta projection", () => {
   it("normalizes stock movements without financial cost fields", () => {
     const row = normalizeDeltaEntityRow("inventory_stock_movements", {
