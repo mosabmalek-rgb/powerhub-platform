@@ -246,12 +246,16 @@ begin
   perform public.powerhub_emit_operational_delta_sync_change(NEW.tenant_id,NEW.site_id,v_entity_type,NEW.id);
   -- Inserts are reconciled by the bounded client projection. Rebuild the current
   -- top-500 only when an existing row can leave its old membership set.
-  if TG_OP='UPDATE' and not v_scope_changed and v_entity_type='fuel_readings'
-      and OLD.recorded_at is distinct from NEW.recorded_at then
-    perform public.powerhub_refresh_fuel_reading_delta_scope(NEW.tenant_id,NEW.site_id);
-  elsif TG_OP='UPDATE' and not v_scope_changed and v_entity_type='maintenance_preventive_plans'
-      and OLD.next_due_at is distinct from NEW.next_due_at then
-    perform public.powerhub_refresh_maintenance_plan_delta_scope(NEW.tenant_id,NEW.site_id);
+  if TG_OP='UPDATE' and not v_scope_changed then
+    if v_entity_type='fuel_readings' then
+      if OLD.recorded_at is distinct from NEW.recorded_at then
+        perform public.powerhub_refresh_fuel_reading_delta_scope(NEW.tenant_id,NEW.site_id);
+      end if;
+    elsif v_entity_type='maintenance_preventive_plans' then
+      if OLD.next_due_at is distinct from NEW.next_due_at then
+        perform public.powerhub_refresh_maintenance_plan_delta_scope(NEW.tenant_id,NEW.site_id);
+      end if;
+    end if;
   end if;
   return NEW;
 end $$;
