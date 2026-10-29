@@ -645,6 +645,29 @@ describe("inventory workspace UI contract", () => {
   });
 
 
+  it("queues offline fuel fills as intent and keeps stock posting server-owned", () => {
+    const fuelPanel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
+    const queue = read("client/src/lib/offline-work-queue.ts");
+    const sync = read("client/src/components/OfflineWorkSyncPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    expect(queue).toContain('"fuel_fill"');
+    expect(fuelPanel).toContain('kind: "fuel_fill"');
+    expect(fuelPanel).toContain("notifyOfflineWorkQueueChanged");
+    expect(fuelPanel).toContain("لم يُرحّل المخزون أو رصيد الخزان بعد");
+    expect(sync).toContain("trpc.powerhub.inventory.recordFuelFill.useMutation()");
+    expect(sync).toContain("operationKey: item.clientOperationId");
+    const start = router.indexOf("recordFuelFill: protectedProcedure");
+    const end = router.indexOf("recordFuelReading: protectedProcedure", start);
+    const procedure = router.slice(start, end);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(procedure).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageFuelAndConsumption")');
+    expect(procedure).toContain("powerhub_inventory_record_fuel_fill");
+    for (const finalAction of ["recordStockMovement", "postStocktake", "receivePurchase", "returnToSupplier"]) {
+      expect(queue).not.toContain('"'+finalAction+'"');
+    }
+  });
+
   it("preserves an exact-scope fuel report snapshot when live refresh fails", () => {
     const panel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
     const cache = read("client/src/lib/offline-operational-report-cache.ts");

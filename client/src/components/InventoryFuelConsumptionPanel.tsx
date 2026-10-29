@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
-import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { enqueueOfflineWork, notifyOfflineWorkQueueChanged, type FuelFillDraft } from "@/lib/offline-work-queue";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
@@ -342,7 +342,11 @@ export default function InventoryFuelConsumptionPanel({
     event.preventDefault();
     if (!canManageFuelAndConsumption) { toast.error("لا تملك صلاحية تسجيل تعبئة الوقود."); return; }
     if (optionsAuthorizationDenied) { toast.error("رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل عملية التعبئة."); return; }
-    if (isConnectivityChecking) { toast.info("يجري التحقق من اتصال PowerHub؛ لم تُرسل العملية بعد."); return; }
+    const reachability = getPowerHubConnectivitySnapshot();
+    if (isConnectivityChecking || reachability === null) {
+      toast.info("حالة اتصال PowerHub غير محسومة؛ لم تُرسل العملية أو تُحفظ كمسودة.");
+      return;
+    }
     const quantity = Number(litres);
     const before = levelBefore.trim() ? Number(levelBefore) : null;
     const after = levelAfter.trim() ? Number(levelAfter) : null;
@@ -369,7 +373,7 @@ export default function InventoryFuelConsumptionPanel({
       levelBeforeLiters: before, levelAfterLiters: after, operatingHours: hours,
       referenceNo: fillReference.trim() || undefined, notes: fillNotes.trim() || undefined,
     };
-    if (!isPowerHubOnline) {
+    if (reachability === false) {
       const userId = Number(auth.user?.id);
       if (!Number.isSafeInteger(userId) || userId < 1) {
         toast.error("تعذر تحديد مستخدم الجلسة لحفظ المسودة محليًا؛ لم تُحفظ العملية.");
@@ -443,6 +447,7 @@ export default function InventoryFuelConsumptionPanel({
           </div>
         </CardHeader>
         <CardContent>
+          {!isPowerHubOnline && !isConnectivityChecking ? <p role="status" className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700">PowerHub غير متاح الآن: يمكن حفظ تعبئة كمسودة محلية، ولن يتغير رصيد المخزون أو الخزان حتى يؤكد الخادم المزامنة.</p> : null}
           <form onSubmit={submitFill} className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             <label className="grid gap-1.5 text-sm">المولد *
               <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={activeGeneratorId} onChange={(e) => setGeneratorId(e.target.value)}>

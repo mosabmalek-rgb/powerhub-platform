@@ -168,6 +168,19 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     if (targets.has("generators")) {
       refreshes.push(utils.powerhub.generators.list.invalidate({ siteId }));
     }
+    if (targets.has("fuel")) {
+      refreshes.push(
+        utils.powerhub.inventory.fuelWorkspaceOptions.invalidate({ siteId }),
+        utils.powerhub.inventory.listFuelEvents.invalidate(),
+        utils.powerhub.inventory.listFuelReadings.invalidate(),
+        utils.powerhub.inventory.fuelConsumptionReport.invalidate(),
+        utils.powerhub.inventory.fuelConsumptionReportPeriod.invalidate(),
+        utils.powerhub.inventory.listFuelAlertSettings.invalidate(),
+        utils.powerhub.inventory.listFuelAlertDispatches.invalidate(),
+        utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
+        utils.powerhub.inventory.listStockMovements.invalidate({ siteId }),
+      );
+    }
     if (targets.has("readings")) {
       refreshes.push(utils.powerhub.readings.page.invalidate({ siteId, limit: 200 }));
     }
