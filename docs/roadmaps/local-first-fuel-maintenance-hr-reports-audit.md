@@ -54,3 +54,12 @@
 - **المعالجة المضافة في PR #359:** أضيفت الدالة `powerhub_refresh_maintenance_work_order_delta_scope` لإعادة إرسال أحدث 200 أمر بعد حذف أمر، أو نقل أمر بين نطاقات tenant/site، أو تغيير `reported_at`. الترتيب يستخدم `coalesce(reported_at, created_at) DESC, id DESC`، ويظل حد 200 محفوظًا.
 - **اختبار الانحدار المضاف:** `supabase/tests/fuel_maintenance_delta_sync_history.sql` ينشئ 201 أمرًا في fixture مؤقت، ويحذف أحدث أمر، ثم يتحقق من بقاء العدد 200 وظهور البديل السابق في المرتبة 201، ومن وجود tombstone للحذف وupsert للبديل في دفتر Delta.
 - **الحالة:** أُضيف الكود والاختبار إلى الفرع، لكن لم يُشغّل اختبار PostgreSQL أو CI بعد هذا التغيير. لا تُعتبر الفجوة مغلقة قبولًا حتى ينجح الاختبار وCI على رأس واحد. لم تُطبّق migration على أي بيئة ولم يُنشأ Preview.
+
+
+## تحقق CI من عضوية قائمة أوامر الصيانة — 2026-10-29
+
+- نجح GitHub Actions على رأس PR #359 `10a6aa0f504b27a9b0bd56c31069ad390b92f040`: PowerHub CI، PowerHub Security، Supabase Admin Guard، وReading Cycle PostgreSQL Integration.
+- أظهر سجل PostgreSQL تنفيذ migration `20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql` ثم نجاح اختبار `supabase/tests/fuel_maintenance_delta_sync_history.sql` برسالة: Fuel-event and maintenance work-order/parts Delta snapshot, update, redaction and scope assertions passed.
+- يتضمن ملف الاختبار تحققًا من عبور أمر الصيانة حدّ أحدث 200 بعد تغيير `reported_at`، ومن إعادة ملء القائمة بعد الحذف. أصبح ذلك تحقق CI ناجحًا على الرأس المذكور، وليس مجرد اختبار مضاف.
+- **ما بقي خارج هذا الإثبات:** اختبارات متصفح فعلية لإعادة تحميل الصفحة/إعادة فتح المتصفح/العمل دون اتصال ثم Delta عند العودة، والتحقق التشغيلي من التقارير المفلترة في واجهة المستخدم. لا يُعد نجاح PostgreSQL بديلًا عن هذه الاختبارات.
+- PR ما زال Draft وغير مدمج؛ لم تُطبّق migration على الإنتاج ولم يُنشأ Preview في هذه الجولة.
