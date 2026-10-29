@@ -107,7 +107,10 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
 
 const OPERATIONAL_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "inventory.listFuelReadings": new Set(["siteId", "generatorId", "limit"]),
+  "inventory.listFuelEvents": new Set(["siteId", "fromDate", "toDate", "generatorId", "limit"]),
   "maintenance.listPreventivePlans": new Set(["siteId", "generatorId"]),
+  "maintenance.listWorkOrders": new Set(["siteId", "generatorId", "status", "limit"]),
+  "maintenance.listParts": new Set(["siteId", "workOrderId"]),
 };
 
 function isSafeOperationalOfflineList(queryKey: readonly unknown[], segments: string[]) {
@@ -122,9 +125,19 @@ function isSafeOperationalOfflineList(queryKey: readonly unknown[], segments: st
       (!Number.isSafeInteger(input.generatorId) || Number(input.generatorId) < 1)) return false;
   if (procedure === "inventory.listFuelReadings") {
     // The current feed is capped at 500 rows per site, not per generator.
-    // A generator-filtered query could omit older rows, so don't persist it
-    // until the server provides a generator-scoped snapshot/cursor.
     return input.limit === 100 && input.generatorId === undefined;
+  }
+  if (procedure === "inventory.listFuelEvents") {
+    // Only the latest site-wide event snapshot has a matching Delta feed.
+    return input.limit === 100 && input.fromDate === undefined &&
+      input.toDate === undefined && input.generatorId === undefined;
+  }
+  if (procedure === "maintenance.listWorkOrders") {
+    return input.limit === 200 && input.generatorId === undefined && input.status === undefined;
+  }
+  if (procedure === "maintenance.listParts") {
+    return Number.isSafeInteger(input.workOrderId) && Number(input.workOrderId) > 0 &&
+      Object.keys(input).every((key) => key === "siteId" || key === "workOrderId");
   }
   return input.generatorId === undefined;
 }
@@ -354,7 +367,10 @@ export type OfflineQueryDeltaEntity =
   | "inventory_purchase_receipt_headers"
   | "inventory_supplier_return_headers"
   | "fuel_readings"
-  | "maintenance_preventive_plans";
+  | "maintenance_preventive_plans"
+  | "fuel_events"
+  | "maintenance_work_orders"
+  | `maintenance_work_order_parts:${number}`;
 
 /**
  * Returns the server change-feed entity only when this exact query key is
@@ -373,7 +389,16 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
     return null;
   }
   if (isSafeOperationalOfflineList(queryKey, segments)) {
-    return segments[1] === "inventory" ? "fuel_readings" : "maintenance_preventive_plans";
+    const procedure = `${segments[1]}.${segments[2]}`;
+    if (procedure === "inventory.listFuelReadings") return "fuel_readings";
+    if (procedure === "inventory.listFuelEvents") return "fuel_events";
+    if (procedure === "maintenance.listPreventivePlans") return "maintenance_preventive_plans";
+    if (procedure === "maintenance.listWorkOrders") return "maintenance_work_orders";
+    if (procedure === "maintenance.listParts") {
+      const workOrderId = Number(getOfflineQueryInput(queryKey).workOrderId);
+      return `maintenance_work_order_parts:${workOrderId}`;
+    }
+    return null;
   }
   if (segments[1] === "inventory") {
     if (segments[2] === "listStockMovements") return isSafeInventoryMovementList(queryKey, segments) ? "inventory_stock_movements" : null;
