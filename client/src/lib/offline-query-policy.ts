@@ -199,15 +199,26 @@ function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
   return Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0 &&
     Number.isSafeInteger(input.branchId) && Number(input.branchId) > 0;
 }
-function isSafeUnfilteredSubscriberDirectoryPage(queryKey: readonly unknown[]) {
+function isSafeSubscriberDirectoryPage(queryKey: readonly unknown[]) {
   const input = getOfflineQueryInput(queryKey);
   if (!input || Object.keys(input).some((key) => !SUBSCRIBER_DIRECTORY_INPUT_KEYS.has(key))) return false;
-  return Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0 &&
-    Number.isSafeInteger(input.page) && Number(input.page) >= 1 &&
-    Number(input.page) <= MAX_CACHEABLE_SUBSCRIBER_DIRECTORY_PAGE &&
-    input.pageSize === SUBSCRIBER_DIRECTORY_PAGE_SIZE &&
-    input.search === "" &&
-    input.subscriptionType === undefined;
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1 ||
+      !Number.isSafeInteger(input.page) || Number(input.page) < 1 ||
+      Number(input.page) > MAX_CACHEABLE_SUBSCRIBER_DIRECTORY_PAGE ||
+      input.pageSize !== SUBSCRIBER_DIRECTORY_PAGE_SIZE) return false;
+  const search = input.search;
+  if (search !== undefined && (typeof search !== "string" || search.length > 160)) return false;
+  const subscriptionType = input.subscriptionType;
+  const allowedTypes = new Set(["residential", "commercial", "institution", "mosque"]);
+  return subscriptionType === undefined ||
+    (typeof subscriptionType === "string" && allowedTypes.has(subscriptionType));
+}
+
+function isSafeExpenseFilterAccounts(queryKey: readonly unknown[], segments = getPowerHubQuerySegments(queryKey)) {
+  if (segments.length !== 3 || segments[1] !== "expenses" || segments[2] !== "filterAccounts") return false;
+  const input = getOfflineQueryInput(queryKey);
+  return Boolean(input && Object.keys(input).length === 1 &&
+    Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0);
 }
 
 const OFFLINE_PAGE_READ_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
@@ -282,6 +293,9 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
   if (isSafeHrOfflineProjection(queryKey, segments)) return true;
+  // The expense account selector is a minimized name/ID projection, not a balance.
+  // It is allowed before the expenses router blocklist and has a short IndexedDB TTL.
+  if (isSafeExpenseFilterAccounts(queryKey, segments)) return true;
   // Explicit site-scoped page allowlist is evaluated before BLOCKED_PROCEDURES:
   // only the named read pages above may persist, never their list/mutation/summaries.
   if (isSafeScopedOfflinePage(queryKey, segments)) return true;
@@ -298,12 +312,11 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   if (isSafeDashboardRevision(queryKey, segments)) return true;
   if (isSafeDashboardSnapshot(queryKey, segments)) return true;
 
-  // Cache only the unfiltered, fixed-size subscriber directory pages. Search
-  // results and type-filtered pages may contain a user's ad-hoc selections and
-  // are intentionally not persisted. The input contract also bounds page size
-  // and rejects extra query fields so unrelated procedures cannot opt in.
+  // Cache bounded subscriber directory pages, including search and type filters.
+  // The shared Delta feed contains the active subscriber set for the exact site;
+  // the runtime rebuilds each filtered page/count from that scoped snapshot.
   if (segments[1] === "subscribers" && segments[2] === "directoryPage") {
-    return isSafeUnfilteredSubscriberDirectoryPage(queryKey);
+    return isSafeSubscriberDirectoryPage(queryKey);
   }
 
   // Company-account Delta currently reconciles explicit single-branch lists only.
@@ -335,9 +348,12 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   if (isSafeHrOfflineProjection(queryKey, segments) &&
       ["offlineDirectory", "offlineAttendance"].includes(segments[2] ?? "")) return true;
 
-  // Reading and invoice history are materialized from their full scoped Delta
-  // snapshots into the exact keyset page shape expected by the UI.
+  // Reading, invoice, payment and expense history are materialized from their full
+  // scoped Delta snapshots into the exact page shape expected by the UI.
   if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") return true;
+  if (segments[1] === "subscribers" && segments[2] === "directoryPage") {
+    return isSafeSubscriberDirectoryPage(queryKey);
+  }
 
   if (isSafeOperationalOfflineList(queryKey, segments)) return true;
 
@@ -401,6 +417,9 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
   if (isSafeHrOfflineProjection(queryKey, segments) &&
       ["offlineDirectory", "offlineAttendance"].includes(segments[2] ?? "")) {
     return segments[2] === "offlineDirectory" ? "hr_employee_directory" : "hr_attendance";
+  }
+  if (segments[1] === "subscribers" && segments[2] === "directoryPage") {
+    return isSafeSubscriberDirectoryPage(queryKey) ? "subscribers" : null;
   }
   if (segments[2] === "page") {
     if (segments[1] === "readings" || segments[1] === "invoices" ||

@@ -910,3 +910,60 @@ export function projectInvoiceDeltaPage(
     nextCursor: hasNext && last ? encodeInvoicePageCursor(last) : null,
   };
 }
+
+
+/**
+ * Rebuild a subscriber directory page from the full scoped Delta snapshot.
+ * Filtering a previously paginated/filtered page is incorrect: it loses rows
+ * and leaves counts/pages stale after an upsert, archive, or deletion.
+ */
+export function projectSubscriberDirectoryPage(
+  rows: readonly Row[],
+  input: {
+    siteId?: unknown;
+    page?: unknown;
+    pageSize?: unknown;
+    search?: unknown;
+    subscriptionType?: unknown;
+  },
+  scope: Pick<DeltaCursorScope, "tenantId" | "siteId">,
+) {
+  const siteId = Number(input.siteId);
+  const page = input.page === undefined ? 1 : Number(input.page);
+  const pageSize = input.pageSize === undefined ? 20 : Number(input.pageSize);
+  if (siteId !== scope.siteId || !Number.isSafeInteger(page) || page < 1 ||
+      !Number.isSafeInteger(pageSize) || pageSize !== 20) {
+    throw new Error("نطاق أو ترقيم صفحة دليل المشتركين المحلي غير صالح.");
+  }
+  const rawSearch = String(input.search ?? "").trim();
+  const search = rawSearch.replace(/[%,().*\\]/g, " ").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const type = typeof input.subscriptionType === "string" ? input.subscriptionType : undefined;
+  const ordered = rows.filter((row) => {
+    const rowSiteId = toNumber(row.siteId ?? row.site_id);
+    const rowTenantId = toNumber(row.tenantId ?? row.tenant_id);
+    if (rowSiteId !== scope.siteId || rowTenantId !== scope.tenantId) return false;
+    if (type && String(row.subscriptionType ?? row.subscription_type ?? "") !== type) return false;
+    if (!search) return true;
+    const searchable = [
+      row.fullName ?? row.full_name,
+      row.subscriberNo ?? row.subscriber_no,
+      row.phone,
+      row.whatsappNumber ?? row.whatsapp_number,
+      row.address,
+    ];
+    return searchable.some((value) => String(value ?? "").toLocaleLowerCase().includes(search));
+  }).sort((left, right) => {
+    const leftDate = dateOrNull(left.createdAt ?? left.created_at)?.getTime() ?? 0;
+    const rightDate = dateOrNull(right.createdAt ?? right.created_at)?.getTime() ?? 0;
+    return rightDate - leftDate || toNumber(right.id) - toNumber(left.id);
+  });
+  const totalCount = ordered.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  return {
+    items: ordered.slice((page - 1) * pageSize, page * pageSize),
+    totalCount,
+    page,
+    pageSize,
+    totalPages,
+  };
+}

@@ -28,6 +28,7 @@ import {
   projectPaymentDeltaPage,
   projectExpenseDeltaPage,
   projectReadingDeltaPage,
+  projectSubscriberDirectoryPage,
   refreshPaymentRelatedProjection,
   type DeltaOperationalEntity,
 } from "@/lib/offline-delta-query-bridge";
@@ -101,8 +102,9 @@ function getQueryRows(query: Query): AnyRow[] | null {
   const segments = getSegments(query.queryKey);
   const data = query.state.data;
   if (segments[0] === "powerhub" &&
-      (segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments" || segments[1] === "expenses") &&
-      segments[2] === "page" && data !== null && typeof data === "object" && !Array.isArray(data)) {
+      (((segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") ||
+        (segments[1] === "subscribers" && segments[2] === "directoryPage")) &&
+      data !== null && typeof data === "object" && !Array.isArray(data)) {
     const items = (data as Record<string, unknown>).items;
     return Array.isArray(items) ? items as AnyRow[] : null;
   }
@@ -229,13 +231,22 @@ async function patchQueryCaches(
   let readingRowsAfterPage: AnyRow[] | null = null;
   let paymentRowsAfterPage: AnyRow[] | null = null;
   let expenseRowsAfterPage: AnyRow[] | null = null;
-  if ((entityType === "invoices" || entityType === "readings" || entityType === "payments" || entityType === "expenses") && page.changes.length > 0) {
+  let subscriberRowsAfterPage: AnyRow[] | null = null;
+  const hasSubscriberDirectoryQueries = queries.some((query) => {
+    const segments = getSegments(query.queryKey);
+    return segments[0] === "powerhub" && segments[1] === "subscribers" &&
+      segments[2] === "directoryPage" && isOfflineCacheableQueryKey(query.queryKey);
+  });
+  if ((entityType === "invoices" || entityType === "readings" || entityType === "payments" ||
+      entityType === "expenses" || (entityType === "subscribers" && hasSubscriberDirectoryQueries)) &&
+      page.changes.length > 0) {
     const local = await listDeltaEntities<AnyRow>(scope);
     const nextRows = applyDeltaChanges(local.map((record) => record.rowData), page.changes);
     if (entityType === "invoices") invoiceRowsAfterPage = nextRows;
     else if (entityType === "readings") readingRowsAfterPage = nextRows;
     else if (entityType === "payments") paymentRowsAfterPage = nextRows;
-    else expenseRowsAfterPage = nextRows;
+    else if (entityType === "expenses") expenseRowsAfterPage = nextRows;
+    else if (entityType === "subscribers") subscriberRowsAfterPage = nextRows;
   }
 
   for (const query of queries) {
@@ -254,7 +265,13 @@ async function patchQueryCaches(
     const rows = getQueryRows(query);
     if (!rows) continue;
     if (queryEntity === entityType) {
-      if (entityType === "hr_employee_directory" || entityType === "hr_attendance") {
+      if (entityType === "subscribers" && segments[1] === "subscribers" && segments[2] === "directoryPage") {
+        if (!subscriberRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectSubscriberDirectoryPage(
+          subscriberRowsAfterPage, getOfflineQueryInput(query.queryKey), scope,
+        ));
+        changedQueries.add(query);
+      } else if (entityType === "hr_employee_directory" || entityType === "hr_attendance") {
         const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
         const normalizedPage = {
           ...page,
@@ -536,6 +553,12 @@ export function OfflineDeltaSyncRuntime() {
               return bDate - aDate;
             });
             queryClient.setQueryData(query.queryKey, merged);
+          } else if (candidate.entityType === "subscribers" &&
+              getSegments(query.queryKey)[1] === "subscribers" &&
+              getSegments(query.queryKey)[2] === "directoryPage") {
+            queryClient.setQueryData(query.queryKey, projectSubscriberDirectoryPage(
+              queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), scope,
+            ));
           } else if (candidate.entityType === "hr_employee_directory" || candidate.entityType === "hr_attendance") {
             const ordered = (queryRows as AnyRow[]).slice().sort((a, b) => {
               if (candidate.entityType === "hr_attendance") {

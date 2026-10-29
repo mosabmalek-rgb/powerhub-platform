@@ -7,6 +7,7 @@ import {
   isOfflineQueryRecordUsable,
   offlineQueryCacheKey,
   OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS,
+  OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS,
   persistOfflineQuery,
   persistOfflineQueryForDeltaSync,
   sanitizeOfflineQueryData,
@@ -785,5 +786,41 @@ describe("HR local-first cache boundaries", () => {
     }]) as Array<Record<string, unknown>>;
     expect(payroll[0]).toMatchObject({ id: 40, period: "2026-10", totalNet: "80" });
     for (const field of ["payrollItems", "approvalToken", "createdByUserId"]) expect(payroll[0]).not.toHaveProperty(field);
+  });
+});
+
+
+describe("dynamic subscriber directory and minimized expense selector cache", () => {
+  it("persists bounded unfiltered, search and subscription-type directory pages through subscriber Delta", () => {
+    const keys = [
+      ["powerhub.subscribers.directoryPage", { input: { siteId: 7, page: 1, pageSize: 20, search: "" }, type: "query" }],
+      ["powerhub.subscribers.directoryPage", { input: { siteId: 7, page: 2, pageSize: 20, search: "أحمد" }, type: "query" }],
+      ["powerhub.subscribers.directoryPage", { input: { siteId: 7, page: 1, pageSize: 20, search: "059", subscriptionType: "commercial" }, type: "query" }],
+    ] as const;
+    for (const key of keys) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(true);
+      expect(getOfflineQueryDeltaEntity(key)).toBe("subscribers");
+      expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
+    }
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 1, pageSize: 20, search: "x", subscriptionType: "unknown" }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.directoryPage", {
+      input: { siteId: 7, page: 1, pageSize: 50, search: "x" }, type: "query",
+    }])).toBe(false);
+  });
+
+  it("stores only account labels and IDs for offline expense selection for 24 hours, not as a Delta feed", () => {
+    const key = ["powerhub.expenses.filterAccounts", { input: { siteId: 7 }, type: "query" }] as const;
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    expect(OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS).toBe(24 * 60 * 60 * 1000);
+    const safe = sanitizeOfflineQueryData(key, [
+      { id: 2, name: "Main", accountType: "cash", balance: "500.00", openingBalance: "450.00" },
+    ]);
+    expect(safe).toEqual([{ id: 2, name: "Main", accountType: "cash" }]);
   });
 });

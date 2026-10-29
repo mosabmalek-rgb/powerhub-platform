@@ -11,6 +11,7 @@ import {
   projectExpenseDeltaPage,
   refreshPaymentRelatedProjection,
   projectReadingDeltaPage,
+  projectSubscriberDirectoryPage,
 } from "./offline-delta-query-bridge";
 
 const scope: DeltaCursorScope = { userId: 7, tenantId: 2, siteId: 10, entityType: "subscribers" };
@@ -599,5 +600,58 @@ describe("HR Delta minimized projections", () => {
     for (const field of ["identityNo", "identity_no", "phone", "baseWage", "base_wage", "notes"]) {
       expect(attendance.employee).not.toHaveProperty(field);
     }
+  });
+});
+
+
+describe("subscriber directory Delta projection", () => {
+  const directoryScope = { tenantId: 2, siteId: 10 };
+  const directoryRows = [
+    normalizeDeltaEntityRow("subscribers", {
+      id: 11, tenant_id: 2, site_id: 10, subscriber_no: "SUB-000011",
+      full_name: "أحمد علي", phone: "0591000011", whatsapp_number: "0591000011",
+      address: "النصر", subscription_type: "commercial", created_at: "2026-10-01T10:00:00Z",
+    }),
+    normalizeDeltaEntityRow("subscribers", {
+      id: 12, tenant_id: 2, site_id: 10, subscriber_no: "SUB-000012",
+      full_name: "محمد علي", phone: "0591000012", whatsapp_number: null,
+      address: "الرمال", subscription_type: "residential", created_at: "2026-10-02T10:00:00Z",
+    }),
+    normalizeDeltaEntityRow("subscribers", {
+      id: 13, tenant_id: 2, site_id: 11, subscriber_no: "SUB-000013",
+      full_name: "أحمد خارج الفرع", phone: "0591000013",
+      subscription_type: "commercial", created_at: "2026-10-03T10:00:00Z",
+    }),
+    normalizeDeltaEntityRow("subscribers", {
+      id: 14, tenant_id: 9, site_id: 10, subscriber_no: "SUB-000014",
+      full_name: "أحمد خارج المستأجر", phone: "0591000014",
+      subscription_type: "commercial", created_at: "2026-10-04T10:00:00Z",
+    }),
+  ];
+
+  it("rebuilds dynamic search/type filters from full scoped data with stable order/counts", () => {
+    const result = projectSubscriberDirectoryPage(directoryRows, {
+      siteId: 10, page: 1, pageSize: 20, search: "أحمد", subscriptionType: "commercial",
+    }, directoryScope);
+    expect(result.items.map((row) => row.id)).toEqual([11]);
+    expect(result).toMatchObject({ totalCount: 1, totalPages: 1, page: 1, pageSize: 20 });
+  });
+
+  it("recounts and shifts pages when matching rows are added or removed from the Delta snapshot", () => {
+    const all = projectSubscriberDirectoryPage(directoryRows, {
+      siteId: 10, page: 1, pageSize: 20, search: "",
+    }, directoryScope);
+    const afterDelete = projectSubscriberDirectoryPage(directoryRows.filter((row) => row.id !== 12), {
+      siteId: 10, page: 1, pageSize: 20, search: "",
+    }, directoryScope);
+    expect(all.totalCount).toBe(2);
+    expect(afterDelete.totalCount).toBe(1);
+    expect(afterDelete.items.map((row) => row.id)).toEqual([11]);
+  });
+
+  it("rejects projections for a different site scope", () => {
+    expect(() => projectSubscriberDirectoryPage(directoryRows, {
+      siteId: 11, page: 1, pageSize: 20, search: "",
+    }, directoryScope)).toThrow(/نطاق/);
   });
 });

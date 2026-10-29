@@ -11,6 +11,7 @@ const AUTH_STORE = "auth-users";
 export const OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER = 200;
 export const OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
 export const OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
 let successfulWritesSincePrune = 0;
 let pruneInFlight: Promise<void> | null = null;
 
@@ -346,6 +347,15 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
+  if (segments[0] === "powerhub" && segments[1] === "expenses" && segments[2] === "filterAccounts" && Array.isArray(data)) {
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    return data.filter(isRow).map((row) => ({
+      id: Number(row.id),
+      name: String(row.name ?? ""),
+      accountType: String(row.accountType ?? row.account_type ?? ""),
+    })).filter((row) => Number.isSafeInteger(row.id) && row.id > 0 && row.name.length > 0);
+  }
   if (segments[0] === "powerhub" && segments[1] === "inventory" && segments[2] === "fuelWorkspaceOptions" &&
       data && typeof data === "object" && !Array.isArray(data)) {
     const options = data as Record<string, unknown>;
@@ -510,6 +520,8 @@ async function persistOfflineQueryWithPolicy(
     ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "");
   const hrCacheTtl = ["offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "")
     ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  const isExpenseFilterOptions = cacheKeySegments[0] === "powerhub" &&
+    cacheKeySegments[1] === "expenses" && cacheKeySegments[2] === "filterAccounts";
   const record: OfflineQueryRecord = {
     key: userId + ":" + serializedQueryKey,
     userId,
@@ -519,8 +531,9 @@ async function persistOfflineQueryWithPolicy(
     // Operational snapshots are retained across days; freshness is handled by sync cursors,
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
     expiresAt: isHrProjection ? now + hrCacheTtl
-      : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
-        ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
+      : isExpenseFilterOptions ? now + OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS
+        : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
+          ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
   };
 
   try {
