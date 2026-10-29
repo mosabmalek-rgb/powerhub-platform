@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { enqueueOfflineWork, notifyOfflineWorkQueueChanged, type FuelFillDraft } from "@/lib/offline-work-queue";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -94,6 +96,8 @@ export default function InventoryFuelConsumptionPanel({
 }: Props) {
   const utils = trpc.useUtils();
   const auth = useAuth();
+  const { isOnline: isPowerHubOnline, isChecking: isConnectivityChecking } = usePowerHubConnectivity();
+  const [savingFillDraft, setSavingFillDraft] = useState(false);
   const today = useMemo(() => todayLocalDate(), []);
   const [generatorId, setGeneratorId] = useState("");
   const [fuelItemId, setFuelItemId] = useState("");
@@ -336,7 +340,9 @@ export default function InventoryFuelConsumptionPanel({
 
   const submitFill = (event: FormEvent) => {
     event.preventDefault();
+    if (!canManageFuelAndConsumption) { toast.error("لا تملك صلاحية تسجيل تعبئة الوقود."); return; }
     if (optionsAuthorizationDenied) { toast.error("رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل عملية التعبئة."); return; }
+    if (isConnectivityChecking) { toast.info("يجري التحقق من اتصال PowerHub؛ لم تُرسل العملية بعد."); return; }
     const quantity = Number(litres);
     const before = levelBefore.trim() ? Number(levelBefore) : null;
     const after = levelAfter.trim() ? Number(levelAfter) : null;
@@ -347,19 +353,41 @@ export default function InventoryFuelConsumptionPanel({
     if (!Number.isFinite(quantity) || quantity <= 0 || Math.abs(quantity * 1000 - Math.round(quantity * 1000)) > 1e-7) {
       toast.error("أدخل كمية موجبة لا تتجاوز ثلاث منازل عشرية."); return;
     }
+    if (Number(sourceWarehouseId) === Number(destinationWarehouseId)) {
+      toast.error("مصدر الوقود وخزان المولد يجب أن يكونا مختلفين."); return;
+    }
     if ((before == null) !== (after == null) || (before != null && after != null && after < before)) {
       toast.error("أدخل مستوى الخزان قبل التعبئة وبعدها معًا، واجعل المستوى بعد التعبئة مساويًا أو أعلى."); return;
     }
     if ([before, after, hours].some((value) => value != null && (!Number.isFinite(value) || value < 0 || Math.abs(value * 1000 - Math.round(value * 1000)) > 1e-7))) {
       toast.error("المستويات وساعات التشغيل يجب أن تكون أرقامًا غير سالبة وبحد أقصى ثلاث منازل عشرية."); return;
     }
-    fillMutation.mutate({
-      siteId, generatorId: Number(activeGeneratorId), fuelItemId: Number(fuelItemId),
+    const payload: FuelFillDraft = {
+      generatorId: Number(activeGeneratorId), fuelItemId: Number(fuelItemId),
       sourceWarehouseId: Number(sourceWarehouseId), destinationWarehouseId: Number(destinationWarehouseId),
       litres: quantity, occurredAt: new Date(fillAt).toISOString(),
       levelBeforeLiters: before, levelAfterLiters: after, operatingHours: hours,
-      referenceNo: fillReference.trim() || undefined, notes: fillNotes.trim() || undefined, operationKey: fillKey,
-    });
+      referenceNo: fillReference.trim() || undefined, notes: fillNotes.trim() || undefined,
+    };
+    if (!isPowerHubOnline) {
+      const userId = Number(auth.user?.id);
+      if (!Number.isSafeInteger(userId) || userId < 1) {
+        toast.error("تعذر تحديد مستخدم الجلسة لحفظ المسودة محليًا؛ لم تُحفظ العملية.");
+        return;
+      }
+      setSavingFillDraft(true);
+      void enqueueOfflineWork({ userId, siteId, kind: "fuel_fill", clientOperationId: fillKey, payload })
+        .then(() => {
+          notifyOfflineWorkQueueChanged({ userId, siteId });
+          toast.success("حُفظت تعبئة الوقود محليًا كمسودة. لم يُرحّل المخزون أو رصيد الخزان بعد.");
+          setLitres(""); setLevelBefore(""); setLevelAfter(""); setFillOperatingHours(""); setFillReference(""); setFillNotes("");
+          setFillAt(nowLocalDateTime()); setFillKey(operationKey("fuel-fill"));
+        })
+        .catch(() => toast.error("تعذر حفظ مسودة الوقود مع بيانات المزامنة؛ بقي النموذج دون تغيير."))
+        .finally(() => setSavingFillDraft(false));
+      return;
+    }
+    fillMutation.mutate({ siteId, ...payload, operationKey: fillKey });
   };
 
   const submitReading = (event: FormEvent) => {
@@ -465,7 +493,7 @@ export default function InventoryFuelConsumptionPanel({
               مفتاح العملية ثابت أثناء المحاولة لمنع التكرار. لا تُحتسب الكمية المعبأة تلقائيًا على أنها استهلاك فعلي؛ يتطلب الاستهلاك المقاس قراءات مستوى صالحة.
               {selectedGenerator ? <span className="block mt-1">آخر قيمة محفوظة للمولد: مستوى {qty(selectedGenerator.fuelLevelLiters)} لتر، وساعات تشغيل {qty(selectedGenerator.operatingHours)}.</span> : null}
             </div>
-            <div><Button type="submit" disabled={fillMutation.isPending || options.isLoading || optionsAuthorizationDenied || !fuelItemId || !sourceWarehouseId || !destinationWarehouseId}>
+            <div><Button type="submit" disabled={fillMutation.isPending || savingFillDraft || isConnectivityChecking || options.isLoading || optionsAuthorizationDenied || !fuelItemId || !sourceWarehouseId || !destinationWarehouseId}>
               {fillMutation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} تسجيل التعبئة
             </Button></div>
           </form>

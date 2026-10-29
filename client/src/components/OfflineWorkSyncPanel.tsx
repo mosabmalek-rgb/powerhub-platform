@@ -4,7 +4,7 @@ import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, notifyOfflineWorkQueueChanged, subscribeOfflineWorkQueueChanges, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft } from "@/lib/offline-work-queue";
+import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, notifyOfflineWorkQueueChanged, subscribeOfflineWorkQueueChanges, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type FuelFillDraft } from "@/lib/offline-work-queue";
 import { getSyncMetadata, listSyncMetadata, upsertSyncMetadata, type SyncMetadataRecord } from "@/lib/offline-sync-metadata";
 import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
@@ -20,7 +20,7 @@ import { toast } from "sonner";
 
 const labelByKind = {
   subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد",
-  generator_update: "تعديل مولد", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق",
+  generator_update: "تعديل مولد", fuel_fill: "تعبئة وقود (مسودة)", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق",
   payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع",
   reading_create: "قراءة ميدانية معلقة", employee_create: "إضافة موظف (معلّق)", employee_update: "تعديل موظف (معلّق)",
   attendance_upsert: "تسجيل حضور (معلّق)", payroll_draft: "مسودة رواتب (معلّقة)",
@@ -76,6 +76,10 @@ function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["p
   if (item.kind === "employee_advance_repayment") {
     const payload = item.payload as HrEmployeeAdvanceRepaymentDraft;
     return { ...payload, amount: 0, referenceNo: undefined, notes: undefined };
+  }
+  if (item.kind === "fuel_fill") {
+    const payload = item.payload as FuelFillDraft;
+    return { ...payload, referenceNo: undefined, notes: undefined };
   }
   return item.payload;
 }
@@ -143,6 +147,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const submitPaymentDocumentation = trpc.powerhub.paymentDocumentation.submit.useMutation();
   const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
   const createReading = trpc.powerhub.readings.create.useMutation();
+  const recordFuelFill = trpc.powerhub.inventory.recordFuelFill.useMutation();
   const replayHrOffline = trpc.powerhub.hr.replayOfflineOperation.useMutation();
   const issueEmployeeAdvance = trpc.powerhub.hr.issueEmployeeAdvance.useMutation();
   const repayEmployeeAdvance = trpc.powerhub.hr.repayEmployeeAdvance.useMutation();
@@ -434,6 +439,19 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.id,
           appliedLabel: "سداد #" + result.id + " — الرصيد المتبقي " + result.remainingAmount,
+          payload: sanitizeCompletedPayload(item),
+        });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+      if (item.kind === "fuel_fill") {
+        const payload = item.payload as FuelFillDraft;
+        // This is only an intent; the protected server RPC alone posts stock and tank balances.
+        const result = await recordFuelFill.mutateAsync({
+          siteId: item.siteId, ...payload, operationKey: item.clientOperationId,
+        });
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined,
+          appliedLabel: "تعبئة " + payload.litres + " لتر للمولد #" + payload.generatorId,
           payload: sanitizeCompletedPayload(item),
         });
         return { outcome: result.replayed ? "already_applied" : "applied" };

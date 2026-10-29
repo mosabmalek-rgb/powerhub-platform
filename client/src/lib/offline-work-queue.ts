@@ -65,6 +65,7 @@ export type OfflineWorkKind =
   | "subscriber_update"
   | "generator_create"
   | "generator_update"
+  | "fuel_fill"
   | "invoice_issue"
   | "payment_create"
   | "payment_documentation_submit"
@@ -122,6 +123,20 @@ export type GeneratorUpdateDraft = {
   operatingHours: string;
   status: "active" | "maintenance" | "stopped" | "offline";
   expectedUpdatedAt: string;
+};
+
+export type FuelFillDraft = {
+  generatorId: number;
+  fuelItemId: number;
+  sourceWarehouseId: number;
+  destinationWarehouseId: number;
+  litres: number;
+  occurredAt: string;
+  levelBeforeLiters?: number | null;
+  levelAfterLiters?: number | null;
+  operatingHours?: number | null;
+  referenceNo?: string;
+  notes?: string;
 };
 
 export type InvoiceIssueDraft = {
@@ -266,6 +281,7 @@ export type OfflineWorkPayload =
   | SubscriberUpdateDraft
   | GeneratorCreateDraft
   | GeneratorUpdateDraft
+  | FuelFillDraft
   | InvoiceIssueDraft
   | PaymentDraft
   | PaymentDocumentationDraft
