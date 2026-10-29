@@ -676,7 +676,7 @@ describe("HR local-first cache boundaries", () => {
   it("strips private employee, repayment and payroll details before they reach IndexedDB", () => {
     const directory = sanitizeOfflineQueryData(key("offlineDirectory"), [{
       id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker",
-      employmentStatus: "active", contractType: "monthly", versionNo: 4,
+      employmentStatus: "active", contractType: "monthly", versionNo: 4, pendingOffline: true,
       identityNo: "PRIVATE-ID", phone: "PRIVATE-PHONE", baseWage: "9999",
       notes: "PRIVATE-NOTE", linkedUserId: 88, linked_user_id: 88,
     }]) as Array<Record<string, unknown>>;
@@ -690,12 +690,12 @@ describe("HR local-first cache boundaries", () => {
       attendance: {
         id: 20, tenantId: 2, employeeId: 10, siteId: 7, workDate: "2026-10-29",
         regularHours: "8", overtimeHours: "1", absentDays: "0", notes: "PRIVATE-ATTENDANCE-NOTE",
-        createdByUserId: 33, versionNo: 7,
+        createdByUserId: 33, versionNo: 7, pendingOffline: true,
       },
       employee: { id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker",
         employmentStatus: "active", identityNo: "PRIVATE-ID", phone: "PRIVATE-PHONE", baseWage: "9999" },
     }]) as Array<Record<string, any>>;
-    expect(attendance[0].attendance).toMatchObject({ notes: null, createdByUserId: null, versionNo: 7 });
+    expect(attendance[0].attendance).toMatchObject({ notes: null, createdByUserId: null, versionNo: 7, pendingOffline: true });
     for (const field of ["identityNo", "identity_no", "phone", "baseWage", "base_wage"]) {
       expect(attendance[0].employee).not.toHaveProperty(field);
     }

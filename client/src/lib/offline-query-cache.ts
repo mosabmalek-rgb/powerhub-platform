@@ -343,6 +343,7 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
       employmentStatus: row.employmentStatus ?? row.employment_status ?? "active",
       contractType: row.contractType ?? row.contract_type ?? "monthly", createdAt: row.createdAt ?? row.created_at,
       versionNo: row.versionNo ?? row.version_no ?? 1,
+      pendingOffline: Boolean(row.pendingOffline),
     }));
     if (segments[2] === "offlineAttendance") return data.filter(isRow).map((row) => {
       const attendance = isRow(row.attendance) ? row.attendance : row;
@@ -357,6 +358,7 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
           overtimeHours: attendance.overtimeHours ?? attendance.overtime_hours ?? 0, absentDays: attendance.absentDays ?? attendance.absent_days ?? 0,
           notes: null, createdByUserId: null, createdAt: attendance.createdAt ?? attendance.created_at, updatedAt: attendance.updatedAt ?? attendance.updated_at,
             versionNo: attendance.versionNo ?? attendance.version_no ?? 1,
+          pendingOffline: Boolean(attendance.pendingOffline),
         },
         employee: {
           id: employee.id, tenantId: employee.tenantId ?? employee.tenant_id, siteId: employee.siteId ?? employee.site_id ?? null,
