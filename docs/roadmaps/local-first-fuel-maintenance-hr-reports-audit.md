@@ -94,3 +94,12 @@
 - **دورة القراءة الحالية:** لا تُخزن لقطة `current_cycle` ولا تعرض دون اتصال لأن حدّي الدورة يُحسبان من الخادم، ولا يمكن التحقق محليًا من بقاء اللقطة ضمن الدورة نفسها.
 - **حدود الحساب المالي:** لقطات المراجعة ليست حالة مالية رسمية؛ أي اعتماد يسجل دون اتصال يبقى عملية Outbox تنتظر العودة إلى الشبكة والتحقق من الصلاحية وحالة الطلب على الخادم. لا ينشئ العميل دفعة أو حركة حسابية محلية.
 - **بوابة القبول:** تُطلب اختبارات CI على الرأس النهائي لهذه التعديلات، واختبار متصفح لتبديل الحساب/الفرع وإعادة فتح المراجعة دون اتصال. لم يُدمج PR ولم تُطبق migrations على الإنتاج أو staging.
+
+
+## HR Phase 1 — verified contract gaps (2026-10-29)
+
+- Employee directory ordering must match the existing server query: `created_at DESC, id DESC`; using `updated_at` for local membership is incorrect.
+- Attendance membership must match the current server limit of 1000 rows ordered by `work_date DESC` and then `id DESC`. The local IndexedDB bound is aligned to 1000; this alone does not implement HR Delta.
+- HR must remain excluded from generic cache until an exact, narrow read allowlist and safe projections are wired end-to-end. Never persist the raw employee response: it contains identity number, phone, wage and notes. Attendance results also join employee details and need the same minimization.
+- Acceptance still requires PostgreSQL entity constraints and private Snapshot/Pull functions; transactional triggers/tombstones and bounded-list refill; explicit HR read authorization; runtime and query-cache bridge wiring; reload/offline UI verification; and SQL/client tests for deletion, replacement rows, tenant/site isolation, company-wide `site_id IS NULL`, cursor reset and sensitive-field redaction.
+- No migration was applied to Supabase and no preview was deployed. HR phase 1 remains incomplete until all gates pass on one SHA.
