@@ -41,6 +41,13 @@ describe("PowerHub delta sync contract", () => {
     expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements"])');
     expect(router).toContain("requireSupabaseSiteRole(");
     expect(router).toContain('inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta"');
+    expect(router).toContain('inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot"');
+    expect(router).toContain('inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"]');
+    expect(router).toContain('"inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined');
+    expect(inventoryMigration).toContain("create trigger powerhub_delta_sync_inventory_stock_movements after insert on public.inventory_stock_movements");
+    expect(inventoryMigration).toContain("'movement_id',p_row->'id'");
+    expect(inventoryMigration).not.toContain("'unit_cost',p_row->'unit_cost'");
+
     expect(router).toContain("input.pageSize");
   });
 
