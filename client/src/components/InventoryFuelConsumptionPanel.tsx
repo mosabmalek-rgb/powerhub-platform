@@ -150,6 +150,12 @@ export default function InventoryFuelConsumptionPanel({
       generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 10_000 },
   );
+  // This unfiltered latest-100 feed is the persisted Delta snapshot. Filtered
+  // history remains server-authoritative and is never presented as complete offline.
+  const recentEvents = trpc.powerhub.inventory.listFuelEvents.useQuery(
+    { siteId, limit: 100 },
+    { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)) },
+  );
   const readings = trpc.powerhub.inventory.listFuelReadings.useQuery(
     { siteId, generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 10_000 },
@@ -324,7 +330,8 @@ export default function InventoryFuelConsumptionPanel({
     });
   };
 
-  const eventRows = (events.data ?? []) as FuelEvent[];
+  const eventRows = (events.data ?? recentEvents.data ?? []) as FuelEvent[];
+  const usingRecentOfflineEvents = events.data === undefined && recentEvents.data !== undefined;
   const readingRows = (readings.data ?? []) as FuelReading[];
   const reportRows = (report.data ?? []) as FuelReportRow[];
   const alertSettingRows = (alertSettings.data ?? []) as FuelAlertSetting[];
@@ -613,6 +620,7 @@ export default function InventoryFuelConsumptionPanel({
 
         <div>
           <h3 className="mb-2 font-medium">آخر التعبئات</h3>
+          {usingRecentOfflineEvents ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل السجل المفلتر؛ يعرض هذا الجدول آخر 100 تعبئة محفوظة محليًا، ولا تُطبّق عليها فلاتر التاريخ أو المولد حتى استعادة الاتصال.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">من المصدر إلى الخزان</th><th className="p-2">اللترات</th><th className="p-2">المستوى قبل ← بعد</th><th className="p-2">ساعات العداد</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{eventRows.map((row) => <tr key={row.event_id} className="border-t">
