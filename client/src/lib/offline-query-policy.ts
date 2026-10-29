@@ -27,8 +27,7 @@ const BLOCKED_PROCEDURES = new Set([
   "financialDashboard",
   "financialSettlements",
   "expenses",
-  // HR queries include identity/contact details, wages, attendance, advances and payroll.
-  // They remain server-only until an explicitly minimized, permission-scoped projection exists.
+  // Raw HR queries include sensitive fields; only named minimized projections can opt in.
   "hr",
   "payroll",
   "attendance",
@@ -269,9 +268,19 @@ function isSafeStableOfflineList(queryKey: readonly unknown[], segments: string[
   return Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0;
 }
 
+function isSafeHrOfflineProjection(queryKey: readonly unknown[], segments = getPowerHubQuerySegments(queryKey)) {
+  if (segments.length !== 3 || segments[1] !== "hr" ||
+      !["offlineDirectory", "offlineAttendance"].includes(segments[2] ?? "")) return false;
+  const input = getOfflineQueryInput(queryKey);
+  return Boolean(input && Object.keys(input).length === 1 &&
+    Object.prototype.hasOwnProperty.call(input, "siteId") &&
+    Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0);
+}
+
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
+  if (isSafeHrOfflineProjection(queryKey, segments)) return true;
   // Explicit site-scoped page allowlist is evaluated before BLOCKED_PROCEDURES:
   // only the named read pages above may persist, never their list/mutation/summaries.
   if (isSafeScopedOfflinePage(queryKey, segments)) return true;
@@ -322,6 +331,7 @@ export function isOfflineDashboardSnapshotQueryKey(queryKey: readonly unknown[])
 export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (!isOfflineCacheableQueryKey(queryKey) || segments.length < 3 || segments[0] !== "powerhub") return false;
+  if (isSafeHrOfflineProjection(queryKey, segments)) return true;
 
   // Reading and invoice history are materialized from their full scoped Delta
   // snapshots into the exact keyset page shape expected by the UI.
@@ -351,6 +361,8 @@ export function getOfflineQueryStaleTime(queryKey: readonly unknown[]): number {
 
 /** Canonical mapping shared by the Delta runtime and its query-policy tests. */
 export type OfflineQueryDeltaEntity =
+  | "hr_employee_directory"
+  | "hr_attendance"
   | "sites"
   | "subscribers"
   | "generators"
@@ -384,6 +396,9 @@ export type OfflineQueryDeltaEntity =
 export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): OfflineQueryDeltaEntity | null {
   if (!isDeltaSyncBackedQueryKey(queryKey)) return null;
   const segments = getPowerHubQuerySegments(queryKey);
+  if (isSafeHrOfflineProjection(queryKey, segments)) {
+    return segments[2] === "offlineDirectory" ? "hr_employee_directory" : "hr_attendance";
+  }
   if (segments[2] === "page") {
     if (segments[1] === "readings" || segments[1] === "invoices" ||
         segments[1] === "payments" || segments[1] === "expenses") {
