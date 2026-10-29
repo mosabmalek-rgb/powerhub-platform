@@ -275,7 +275,16 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
   if (segments[0] === "powerhub" && data && Array.isArray(data)) {
-    const input = getOfflineQueryInput(queryKey);
+    const options = queryKey[1];
+    const wrapper = options && typeof options === "object" && !Array.isArray(options)
+      ? options as Record<string, unknown>
+      : null;
+    const rawInput = wrapper && Object.prototype.hasOwnProperty.call(wrapper, "input")
+      ? wrapper.input
+      : wrapper;
+    const input = rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+      ? rawInput as Record<string, unknown>
+      : null;
     const procedure = `${segments[1]}.${segments[2]}`;
     const bounded = capOperationalListRows(procedure, input, data);
     if (bounded !== data) return bounded;
