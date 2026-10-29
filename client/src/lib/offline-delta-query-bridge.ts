@@ -504,6 +504,8 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         generator_id: optionalNumber(raw.generator_id ?? raw.generatorId), generatorId: optionalNumber(raw.generator_id ?? raw.generatorId),
         createdAt: dateOrNow(raw.created_at ?? raw.createdAt), updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
       };
+    default:
+      throw new Error("نوع كيان Delta غير مدعوم.");
   }
 }
 
