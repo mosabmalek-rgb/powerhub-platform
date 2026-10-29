@@ -42,3 +42,28 @@ describe("نطاق صلاحية لقطات التقارير المالية ال�
     expect(getUsableReportSnapshot(snapshot, scope, { now: 11_000, accessAllowed: false })).toBeUndefined();
   });
 });
+
+
+describe("تنقية محتوى التقرير قبل التخزين المحلي", () => {
+  it("persists only aggregate fields and omits debtor, collector and payment detail", async () => {
+    const { createOfflineReportSnapshotPayload } = await import("./offline-report-cache");
+    const safe = createOfflineReportSnapshotPayload({
+      range: { startDate: "2026-10-01", endDate: "2026-10-29" },
+      summary: { invoiced: 1200, collected: 800, outstanding: 400 },
+      scope: { branchCount: 1 },
+      branchSummaries: [{ siteId: 7, branchName: "فرع الاختبار", invoiced: 1200 }],
+      topDebtors: [{ subscriber: "مشترك حساس", invoiceNo: "INV-1", balanceDue: 400 }],
+      collectors: [{ name: "اسم موظف", count: 2, amount: 800 }],
+      paymentDetails: [{ paymentNo: "PAY-1", amount: 800 }],
+    }) as Record<string, unknown>;
+    expect(safe).toEqual({
+      range: { startDate: "2026-10-01", endDate: "2026-10-29" },
+      summary: { invoiced: 1200, collected: 800, outstanding: 400 },
+      scope: { branchCount: 1 },
+      branchSummaries: [{ siteId: 7, branchName: "فرع الاختبار", invoiced: 1200 }],
+    });
+    expect(safe).not.toHaveProperty("topDebtors");
+    expect(safe).not.toHaveProperty("collectors");
+    expect(safe).not.toHaveProperty("paymentDetails");
+  });
+});
