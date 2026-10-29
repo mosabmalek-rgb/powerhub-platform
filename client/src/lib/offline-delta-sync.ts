@@ -250,6 +250,14 @@ export function assertDeltaRowWithinScope(
   if (!identityMatches) {
     throw new Error("سجل المزامنة خارج نطاق المستأجر أو الفرع المطلوب.");
   }
+  if (entityType.startsWith("maintenance_work_order_parts:")) {
+    const match = /^maintenance_work_order_parts:([1-9][0-9]{0,15})$/.exec(entityType);
+    const expectedWorkOrderId = match ? Number(match[1]) : Number.NaN;
+    const rowWorkOrderId = Number(valueOf(primary, "workOrderId", "work_order_id"));
+    if (!Number.isSafeInteger(expectedWorkOrderId) || rowWorkOrderId !== expectedWorkOrderId) {
+      throw new Error("سجل قطع الغيار خارج نطاق أمر الصيانة المطلوب.");
+    }
+  }
 
   // Joined page projections must not smuggle a related record from another scope.
   const related: Array<{ label: string; value: unknown }> = [];
