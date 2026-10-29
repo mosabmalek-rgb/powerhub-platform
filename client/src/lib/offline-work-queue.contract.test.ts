@@ -53,7 +53,6 @@ describe("offline fuel fill intent contract", () => {
     expect(item.siteId).toBe(3);
     expect(item.payload).toEqual(payload);
   });
-}
   it("queues only a local intent and marks it applied only after the protected replay returns", () => {
     const fuelPanel = readFileSync(resolve(process.cwd(), "client/src/components/InventoryFuelConsumptionPanel.tsx"), "utf8");
     const syncPanel = readFileSync(resolve(process.cwd(), "client/src/components/OfflineWorkSyncPanel.tsx"), "utf8");
