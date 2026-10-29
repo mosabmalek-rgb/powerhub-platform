@@ -88,6 +88,14 @@ describe("fuel and maintenance Delta boundaries", () => {
     expect(snapshot).toContain("when plan_row.alert_type='overdue' then 0");
     expect(snapshot).toContain("when plan_row.alert_type='due_soon' then 1");
     expect(snapshot).toContain("coalesce(plan.next_due_at,'infinity'::timestamptz)");
+    const alertRefresh = operationalMigration.slice(
+      operationalMigration.indexOf("create or replace function public.powerhub_refresh_maintenance_plan_delta_scope"),
+      operationalMigration.indexOf("alter function public.powerhub_refresh_maintenance_plan_delta_scope"),
+    );
+    expect(alertRefresh).toContain("limit 500");
+    expect(alertRefresh).toContain("powerhub_emit_operational_delta_sync_change");
+    expect(operationalMigration).toContain("perform public.powerhub_refresh_maintenance_plan_delta_scope(NEW.tenant_id,NEW.site_id)");
+    expect(operationalMigration).toContain("perform public.powerhub_refresh_maintenance_plan_delta_scope(OLD.tenant_id,OLD.site_id)");
   });
 
   it("uses the same maintenance-specific read capability as the maintenance list endpoint", () => {
