@@ -220,7 +220,7 @@ create trigger powerhub_delta_sync_suppliers after insert or update or delete on
 drop trigger if exists powerhub_delta_sync_inventory_warehouses on public.inventory_warehouses;
 create trigger powerhub_delta_sync_inventory_warehouses after insert or update or delete on public.inventory_warehouses for each row execute function public.powerhub_capture_inventory_delta_sync_change();
 drop trigger if exists powerhub_delta_sync_inventory_stock_movements on public.inventory_stock_movements;
-create trigger powerhub_delta_sync_inventory_stock_movements after insert or update on public.inventory_stock_movements for each row execute function public.powerhub_capture_inventory_delta_sync_change();
+create trigger powerhub_delta_sync_inventory_stock_movements after insert on public.inventory_stock_movements for each row execute function public.powerhub_capture_inventory_delta_sync_change();
 
 revoke all on function public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text) from public,anon,authenticated;
 revoke all on function public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer) from public,anon,authenticated;
