@@ -470,7 +470,9 @@ async function persistOfflineQueryWithPolicy(
     ? cacheKeyParts.filter((part): part is string => typeof part === "string")
     : typeof cacheKeyParts === "string" ? cacheKeyParts.split(".") : [];
   const isHrProjection = cacheKeySegments[0] === "powerhub" && cacheKeySegments[1] === "hr" &&
-    (cacheKeySegments[2] === "offlineDirectory" || cacheKeySegments[2] === "offlineAttendance");
+    ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns"].includes(cacheKeySegments[2] ?? "");
+  const hrCacheTtl = cacheKeySegments[2] === "offlineEmployeeAdvances" || cacheKeySegments[2] === "offlinePayrollRuns"
+    ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
   const record: OfflineQueryRecord = {
     key: userId + ":" + serializedQueryKey,
     userId,
@@ -479,7 +481,7 @@ async function persistOfflineQueryWithPolicy(
     updatedAt: query.state.dataUpdatedAt || now,
     // Operational snapshots are retained across days; freshness is handled by sync cursors,
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
-    expiresAt: isHrProjection ? now + 7 * 24 * 60 * 60 * 1000
+    expiresAt: isHrProjection ? now + hrCacheTtl
       : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
         ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
   };

@@ -673,7 +673,7 @@ export async function getOfflineWork(id: string): Promise<QueuedOfflineWork | un
 export async function updateOfflineWork(
   id: string,
   patch: Partial<
-    Pick<QueuedOfflineWork, "status" | "error" | "appliedEntityId" | "appliedLabel" | "payload">
+    Pick<QueuedOfflineWork, "status" | "error" | "appliedEntityId" | "appliedLabel" | "appliedVersionNo" | "payload">
   >,
 ): Promise<void> {
   // Read and write the same row in one readwrite transaction. A separate readonly
