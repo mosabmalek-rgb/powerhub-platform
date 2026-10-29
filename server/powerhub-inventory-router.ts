@@ -1232,7 +1232,12 @@ export const powerhubInventoryRouter = router({
         p_warehouse_id: input.warehouseId ?? null, p_limit: input.limit,
       });
       if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل سجل جلسات الجرد.");
-      return data ?? [];
+      return (data ?? []).map((row) => ({
+        ...row,
+        id: Number(row.stocktake_id),
+        tenantId: access.tenantId,
+        siteId: input.siteId,
+      }));
     }),
 
   listStocktakeLines: protectedProcedure
