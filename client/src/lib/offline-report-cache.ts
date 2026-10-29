@@ -14,6 +14,20 @@ const storeName = "snapshots";
 export const OFFLINE_REPORT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_REPORT_SNAPSHOTS = 50;
 
+/**
+ * Persist only the approved aggregate report projection. Per-subscriber debt,
+ * invoice/payment details and named collector rows must remain server-only.
+ */
+export function createOfflineReportSnapshotPayload(report: unknown): unknown {
+  if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+  const source = report as Record<string, unknown>;
+  const safe: Record<string, unknown> = {};
+  for (const key of ["range", "summary", "scope", "branchSummaries"] as const) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) safe[key] = source[key];
+  }
+  return safe;
+}
+
 
 export type ReportSnapshotScope = Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">;
 
