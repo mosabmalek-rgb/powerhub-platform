@@ -339,12 +339,13 @@ begin
   );
   if TG_OP='UPDATE' then
     if TG_TABLE_NAME='generator_fuel_events' then
-      if OLD.occurred_at is distinct from NEW.occurred_at then
-        -- Reconcile both the event's new position and the row that may now enter top-500.
+      if v_scope_changed or OLD.occurred_at is distinct from NEW.occurred_at then
+        -- Reconcile the new scope too: moving an event can displace the target site's row #500.
         perform public.powerhub_refresh_fuel_event_delta_scope(NEW.tenant_id,NEW.site_id);
       end if;
     elsif TG_TABLE_NAME='generator_maintenance_work_orders' then
-      if OLD.reported_at is distinct from NEW.reported_at then
+      if v_scope_changed or OLD.reported_at is distinct from NEW.reported_at then
+        -- Reconcile the new scope as well as the old one after a cross-site move.
         perform public.powerhub_refresh_maintenance_work_order_delta_scope(NEW.tenant_id,NEW.site_id);
       end if;
     end if;
