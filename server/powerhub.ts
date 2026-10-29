@@ -4691,6 +4691,28 @@ export const powerhubRouter = router({
       if (errorText.includes("INVALID_EMPLOYEE_ADJUSTMENT_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات السلفة أو الخصم غير صحيحة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ السلفة أو الخصم في Supabase." });
     }),
+    offlineCompanyAccountOptions: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      const [accountsResult, linksResult] = await Promise.all([
+        supabaseAdmin().from("company_accounts")
+          .select("id,name,account_type,is_active")
+          .eq("tenant_id", access.tenantId).eq("is_active", true).order("id", { ascending: true }),
+        supabaseAdmin().from("company_account_sites")
+          .select("account_id,site_id")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId),
+      ]);
+      if (accountsResult.error || linksResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل خيارات حسابات الصرف الآمنة." });
+      }
+      const linkedIds = new Set((linksResult.data ?? []).map((link) => Number(link.account_id)));
+      // Minimized UI-only options: no balance, transaction history, phone, references or account movements.
+      return (accountsResult.data ?? []).filter((account) => linkedIds.has(Number(account.id))).map((account) => ({
+        id: Number(account.id),
+        name: account.name,
+        accountType: account.account_type,
+        isActive: Boolean(account.is_active),
+      }));
+    }),
     offlineEmployeeAdvances: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
       const { data, error } = await supabaseAdmin().from("employee_adjustments")
