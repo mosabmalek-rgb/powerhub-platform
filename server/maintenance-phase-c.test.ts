@@ -135,7 +135,9 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(panel).toContain("isExplicitAuthorizationDenial(parts.error)");
     expect(panel).toContain("isExplicitAuthorizationDenial(maintenanceReport.error)");
     expect(panel).toContain("ordersAuthorizationDenied ? [] : (orders.data ?? [])");
-    expect(panel).toContain("partsAuthorizationDenied ? [] : (parts.data ?? [])");
+    expect(panel).toContain("partsAuthorizationDenied || ordersAuthorizationDenied ? [] : (parts.data ?? [])");
+    expect(panel).toContain("!ordersAuthorizationDenied && Number(selectedPartsOrderId) > 0");
+    expect(panel).toContain("ordersAuthorizationDenied || partsAuthorizationDenied ? <p role=\"alert\"");
     expect(panel).toContain("if (ordersAuthorizationDenied) return;");
     expect(panel).toContain("const plan = plansAuthorizationDenied ? undefined : safePlans.find(");
     expect(panel).toContain("generatorsAuthorizationDenied ? <p role=\"alert\"");
