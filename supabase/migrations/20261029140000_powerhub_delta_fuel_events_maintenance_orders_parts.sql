@@ -197,6 +197,42 @@ alter function public.powerhub_emit_fuel_maintenance_delta_sync_change(bigint,bi
 revoke all on function public.powerhub_emit_fuel_maintenance_delta_sync_change(bigint,bigint,text,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_emit_fuel_maintenance_delta_sync_change(bigint,bigint,text,bigint) to service_role;
 
+-- Re-emit the current top-500 fuel events when an event leaves or changes
+-- position in the bounded site feed. Tombstones alone cannot reveal event #501.
+create or replace function public.powerhub_refresh_fuel_event_delta_scope(
+  p_tenant_id bigint,p_site_id bigint
+)
+returns void
+language plpgsql security definer
+set search_path=pg_catalog,public,pg_temp
+as $
+declare v_event record;
+begin
+  if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1 then
+    raise exception 'POWERHUB_SYNC_SCOPE_REQUIRED' using errcode='P0001';
+  end if;
+  if not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id) then
+    raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001';
+  end if;
+  for v_event in
+    select visible.id from (
+      select e.id
+      from public.generator_fuel_events e
+      where e.tenant_id=p_tenant_id and e.site_id=p_site_id
+      order by e.occurred_at desc,e.id desc
+      limit 500
+    ) visible
+    order by visible.id
+  loop
+    perform public.powerhub_emit_fuel_maintenance_delta_sync_change(
+      p_tenant_id,p_site_id,'fuel_events',v_event.id
+    );
+  end loop;
+end $;
+alter function public.powerhub_refresh_fuel_event_delta_scope(bigint,bigint) owner to postgres;
+revoke all on function public.powerhub_refresh_fuel_event_delta_scope(bigint,bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_refresh_fuel_event_delta_scope(bigint,bigint) to service_role;
+
 -- Re-emit the current top-200 work orders when a row leaves or changes position
 -- in this bounded feed. A tombstone/upsert alone cannot reveal row #201.
 create or replace function public.powerhub_refresh_maintenance_work_order_delta_scope(
@@ -258,8 +294,11 @@ begin
     perform public.powerhub_append_fuel_maintenance_delta_sync_change(
       OLD.tenant_id,OLD.site_id,v_entity_type,OLD.id::text,'delete',null
     );
-    if TG_TABLE_NAME='generator_maintenance_work_orders' then
-      -- Fill the slot vacated in the bounded top-200 after deleting a visible row.
+    if TG_TABLE_NAME='generator_fuel_events' then
+      -- Fill the slot vacated in the bounded top-500 after deleting a visible event.
+      perform public.powerhub_refresh_fuel_event_delta_scope(OLD.tenant_id,OLD.site_id);
+    elsif TG_TABLE_NAME='generator_maintenance_work_orders' then
+      -- Fill the slot vacated in the bounded top-200 after deleting a visible order.
       perform public.powerhub_refresh_maintenance_work_order_delta_scope(OLD.tenant_id,OLD.site_id);
     end if;
     return OLD;
@@ -286,7 +325,10 @@ begin
     perform public.powerhub_append_fuel_maintenance_delta_sync_change(
       OLD.tenant_id,OLD.site_id,v_old_entity_type,OLD.id::text,'delete',null
     );
-    if TG_TABLE_NAME='generator_maintenance_work_orders' then
+    if TG_TABLE_NAME='generator_fuel_events' then
+      -- A scope move must refill the old site's bounded feed as well as tombstone this event.
+      perform public.powerhub_refresh_fuel_event_delta_scope(OLD.tenant_id,OLD.site_id);
+    elsif TG_TABLE_NAME='generator_maintenance_work_orders' then
       -- A move to another tenant/site must also refill the old scope's bounded list.
       perform public.powerhub_refresh_maintenance_work_order_delta_scope(OLD.tenant_id,OLD.site_id);
     end if;
@@ -296,7 +338,12 @@ begin
     NEW.tenant_id,NEW.site_id,v_entity_type,NEW.id
   );
   if TG_OP='UPDATE' then
-    if TG_TABLE_NAME='generator_maintenance_work_orders' then
+    if TG_TABLE_NAME='generator_fuel_events' then
+      if OLD.occurred_at is distinct from NEW.occurred_at then
+        -- Reconcile both the event's new position and the row that may now enter top-500.
+        perform public.powerhub_refresh_fuel_event_delta_scope(NEW.tenant_id,NEW.site_id);
+      end if;
+    elsif TG_TABLE_NAME='generator_maintenance_work_orders' then
       if OLD.reported_at is distinct from NEW.reported_at then
         perform public.powerhub_refresh_maintenance_work_order_delta_scope(NEW.tenant_id,NEW.site_id);
       end if;
