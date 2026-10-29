@@ -78,5 +78,9 @@ describe("HR offline outbox contract", () => {
     expect(source).toContain("payload.expectedVersion = input.serverVersion");
     expect(source).toContain("export async function resolveOfflineEmployeeReferences");
     expect(source).toContain("export async function resolveOfflineAdjustmentReferences");
+    expect(source).toContain("export function notifyOfflineWorkQueueChanged");
+    expect(source).toContain("export function subscribeOfflineWorkQueueChanges");
+    expect(source).toContain("OFFLINE_WORK_QUEUE_CHANGED_CHANNEL");
+    expect(source).toContain("new BroadcastChannel(OFFLINE_WORK_QUEUE_CHANGED_CHANNEL)");
   });
 });

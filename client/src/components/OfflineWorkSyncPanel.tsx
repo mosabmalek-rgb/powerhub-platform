@@ -3,7 +3,7 @@ import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft } from "@/lib/offline-work-queue";
+import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, notifyOfflineWorkQueueChanged, subscribeOfflineWorkQueueChanges, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft } from "@/lib/offline-work-queue";
 import { getSyncMetadata, listSyncMetadata, upsertSyncMetadata, type SyncMetadataRecord } from "@/lib/offline-sync-metadata";
 import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
@@ -114,6 +114,10 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     catch { setConflictRecords([]); }
   }, [siteId, userId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!Number.isSafeInteger(userId) || userId < 1 || !Number.isSafeInteger(siteId) || siteId < 1) return;
+    return subscribeOfflineWorkQueueChanges({ userId, siteId }, () => { void load(); });
+  }, [load, siteId, userId]);
   const syncMetadataByOperationId = useMemo(
     () => new Map(syncMetadataRecords.map((record) => [record.operationId, record])),
     [syncMetadataRecords],
@@ -475,9 +479,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
       }
       await refresh(results);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("powerhub:offline-work-queue-changed", { detail: { userId, siteId } }));
-      }
+      notifyOfflineWorkQueueChanged({ userId, siteId });
       const successfulSubscriberChanges = results.filter((result) =>
         (result.item.kind === "subscriber_create" || result.item.kind === "subscriber_update") &&
         (result.outcome === "applied" || result.outcome === "already_applied"),
@@ -581,7 +583,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         candidate.id !== item.id && candidate.status !== "applied" &&
         (syncMetadataByOperationId.get(candidate.clientOperationId)?.dependsOn ?? []).includes(item.clientOperationId));
       return <div key={item.id} className="flex flex-col gap-3 rounded-xl border border-white/8 bg-white/[.018] p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-sm text-white">{labelByKind[item.kind]} {item.appliedLabel ? `— ${item.appliedLabel}` : ""}</p>{item.kind === "subscriber_create" && item.status !== "applied" ? ((item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft).offlineNumberClaim?.formattedNumber ? <p className="mt-1 text-xs text-amber-200">رقم محجوز محليًا: {(item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft).offlineNumberClaim?.formattedNumber} — بانتظار اعتماد الخادم</p> : null) : null}<p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString("ar-IQ")}</p>{(item.error || presentation.message) ? <p className="mt-1 max-w-2xl text-xs text-rose-200">{item.error || presentation.message}</p> : null}</div><div className="flex items-center gap-2"><Badge className={presentation.badgeClass}>{presentation.tone === "error" ? <AlertTriangle className="ml-1 h-3 w-3" /> : presentation.tone === "success" ? <CheckCircle2 className="ml-1 h-3 w-3" /> : null}{presentation.label}</Badge>{presentation.canSync ? <Button size="sm" variant="outline" disabled={!isOnline || syncing} onClick={() => void retryFailedAndSync()} className="border-white/15 text-slate-100"><RefreshCw className="ml-1 h-3 w-3" />{presentation.actionLabel}</Button> : null}<Button aria-label={`حذف مسودة ${labelByKind[item.kind]}`} size="icon" variant="ghost" disabled={syncing || hasUnresolvedDependents} onClick={() => void removeOfflineWork(item.id).then(() => removeOfflineConflict(userId, item.clientOperationId)).then(() => {
-          if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("powerhub:offline-work-queue-changed", { detail: { userId, siteId } }));
+          notifyOfflineWorkQueueChanged({ userId, siteId });
           return load();
         })} className="h-8 w-8 text-slate-400 hover:bg-rose-400/10 hover:text-rose-200" title={hasUnresolvedDependents ? "لا يمكن حذف نتيجة تعتمد عليها عمليات معلقة." : undefined}><Trash2 className="h-3.5 w-3.5" /></Button></div></div>; })}</div> : <p className="mt-4 rounded-xl border border-dashed border-white/10 px-4 py-5 text-center text-sm text-slate-500">لا توجد مسودات محلية في هذا الفرع.</p>}
     {unresolved.some((item) => item.status === "conflict") ? <p className="mt-3 text-xs leading-5 text-amber-100">تحذير: التعارض لا يدمج تلقائياً. احذف المسودة بعد مراجعة السجل الحالي وأنشئ تعديلاً جديداً من بيانات الخادم.</p> : null}</CardContent></Card>;

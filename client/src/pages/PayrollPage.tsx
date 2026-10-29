@@ -12,7 +12,7 @@ import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
-import { enqueueOfflineHrWork, listOfflineWork, type HrEmployeeCreateDraft, type HrPayrollDraftPayload } from "@/lib/offline-work-queue";
+import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeCreateDraft, type HrPayrollDraftPayload } from "@/lib/offline-work-queue";
 
 const statusLabels: Record<string, string> = { draft: "مسودة", approved: "معتمد", paid: "مصروف", cancelled: "ملغى" };
 const money = (value: unknown) => new Intl.NumberFormat("ar-PS", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
@@ -48,15 +48,11 @@ export default function PayrollPage({ embedded = false }: { embedded?: boolean }
             queueStatus: item.status, createdAt: new Date(item.createdAt) })));
       }).catch(() => { if (active) setPendingDrafts([]); });
     };
-    const reloadQueue = (event: Event) => {
-      const detail = (event as CustomEvent<{ userId?: number; siteId?: number }>).detail;
-      if (detail?.userId === userId && detail?.siteId === siteId) loadPendingDrafts();
-    };
-    window.addEventListener("powerhub:offline-work-queue-changed", reloadQueue);
+    const unsubscribe = subscribeOfflineWorkQueueChanges({ userId, siteId }, loadPendingDrafts);
     loadPendingDrafts();
     return () => {
       active = false;
-      window.removeEventListener("powerhub:offline-work-queue-changed", reloadQueue);
+      unsubscribe();
     };
   }, [userId, siteId, runs.dataUpdatedAt, payrollDataDenied]);
   const serverRuns: any[] = payrollDataDenied ? [] : (isHrOnline && runs.data ? runs.data : offlineRuns.data ?? []);

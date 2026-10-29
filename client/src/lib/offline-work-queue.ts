@@ -2,7 +2,7 @@ import { ensureLegacyFieldReadingsMigrated, openOfflineWorkspaceDatabase } from 
 import { OfflineNumberRangeError, selectNextAvailableOfflineNumber, type OfflineNumberClaim, type OfflineNumberGrant, type OfflineNumberScope } from "./offline-number-ranges";
 import type { SyncMetadataRecord } from "./offline-sync-metadata";
 import { isManualSyncRecoveryRequired } from "./offline-sync-engine";
-export type OfflineWorkKind =
+${helper}export type OfflineWorkKind =
   | "subscriber_create"
   | "subscriber_update"
   | "generator_create"
@@ -472,7 +472,15 @@ export async function enqueueOfflineHrWork(input: OfflineWorkEnqueueInput) {
     metadataRequest.onsuccess = () => { metadataRows = metadataRequest.result as SyncMetadataRecord[]; evaluate(); };
     operationsRequest.onerror = () => { failure = operationsRequest.error; try { tx.abort(); } catch {} };
     metadataRequest.onerror = () => { failure = metadataRequest.error; try { tx.abort(); } catch {} };
-    tx.oncomplete = () => { db.close(); output ? resolve(output) : reject(new OfflineWorkQueueError("لم تنتج إضافة عملية الموارد البشرية نتيجة محفوظة.")); };
+    tx.oncomplete = () => {
+      db.close();
+      if (!output) {
+        reject(new OfflineWorkQueueError("لم تنتج إضافة عملية الموارد البشرية نتيجة محفوظة."));
+        return;
+      }
+      notifyOfflineWorkQueueChanged({ userId: record.userId, siteId: record.siteId });
+      resolve(output);
+    };
     tx.onerror = () => { const error = tx.error; db.close(); reject(failure ?? error ?? new OfflineWorkQueueError("تعذر حفظ عملية الموارد البشرية."));
     };
     tx.onabort = () => { const error = tx.error; db.close(); reject(failure ?? error ?? new OfflineWorkQueueError("أُلغيت إضافة عملية الموارد البشرية.")); };

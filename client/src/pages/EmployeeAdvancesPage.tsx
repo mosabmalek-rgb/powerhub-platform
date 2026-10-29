@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
-import { enqueueOfflineHrWork, listOfflineWork, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
+import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
 import { HandCoins, Plus, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -27,15 +27,13 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
   useEffect(()=>{
     if(!Number.isSafeInteger(userId)||userId<1||!siteId){setPendingHrWork([]);return;}
     let active=true;
-    const reloadQueue=(event:Event)=>{
-      const detail=(event as CustomEvent<{userId?:number;siteId?:number}>).detail;
-      if(detail?.userId!==userId||detail?.siteId!==siteId)return;
-      void listOfflineWork({userId,siteId}).then((items)=>{if(active)setPendingHrWork(items);}).catch(()=>undefined);
+    const reloadQueue=()=>{
+      void listOfflineWork({userId,siteId}).then((items)=>{if(active)setPendingHrWork(items);})
+        .catch(()=>{if(active)setPendingHrWork([]);});
     };
-    window.addEventListener("powerhub:offline-work-queue-changed",reloadQueue);
-    void listOfflineWork({userId,siteId}).then((items)=>{if(active)setPendingHrWork(items);})
-      .catch(()=>{if(active)setPendingHrWork([]);});
-    return()=>{active=false;window.removeEventListener("powerhub:offline-work-queue-changed",reloadQueue);};
+    const unsubscribe=subscribeOfflineWorkQueueChanges({userId,siteId},reloadQueue);
+    reloadQueue();
+    return()=>{active=false;unsubscribe();};
   },[userId,siteId]);
   const refreshPendingHrWork=async()=>{
     const items=await listOfflineWork({userId,siteId:siteId!});
