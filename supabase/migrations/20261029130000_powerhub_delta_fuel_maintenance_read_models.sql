@@ -112,7 +112,9 @@ begin
     or p_change_type not in ('upsert','delete')
     or (p_change_type='upsert' and p_row_data is null)
     or (p_change_type='delete' and p_row_data is not null)
-    or not exists(select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id)
+    or (p_change_type='upsert' and not exists(
+      select 1 from public.sites s where s.id=p_site_id and s.tenant_id=p_tenant_id
+    ))
   then raise exception 'POWERHUB_OPERATIONAL_DELTA_CHANGE_INVALID' using errcode='P0001'; end if;
 
   insert into public.powerhub_sync_scope_state(tenant_id,site_id,entity_type,last_cursor,retained_from_cursor,updated_at)
