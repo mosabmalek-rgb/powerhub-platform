@@ -172,13 +172,42 @@ alter function public.powerhub_emit_operational_delta_sync_change(bigint,bigint,
 revoke all on function public.powerhub_emit_operational_delta_sync_change(bigint,bigint,text,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_emit_operational_delta_sync_change(bigint,bigint,text,bigint) to service_role;
 
+create or replace function public.powerhub_refresh_fuel_reading_delta_scope(
+  p_tenant_id bigint,p_site_id bigint
+)
+returns void
+language plpgsql
+security definer
+set search_path=pg_catalog,public,pg_temp
+as $
+declare v_reading record;
+begin
+  if p_tenant_id is null or p_site_id is null then return; end if;
+  -- Refresh the bounded membership after deletion or a timestamp/scope move.
+  -- This supplies the former 501st row when it becomes one of the newest 500.
+  for v_reading in
+    select r.id
+    from public.generator_fuel_readings r
+    where r.tenant_id=p_tenant_id and r.site_id=p_site_id
+    order by r.recorded_at desc,r.id desc
+    limit 500
+  loop
+    perform public.powerhub_emit_operational_delta_sync_change(
+      p_tenant_id,p_site_id,'fuel_readings',v_reading.id
+    );
+  end loop;
+end $;
+alter function public.powerhub_refresh_fuel_reading_delta_scope(bigint,bigint) owner to postgres;
+revoke all on function public.powerhub_refresh_fuel_reading_delta_scope(bigint,bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_refresh_fuel_reading_delta_scope(bigint,bigint) to service_role;
+
 create or replace function public.powerhub_capture_operational_delta_sync_change()
 returns trigger
 language plpgsql
 security definer
 set search_path=pg_catalog,public,pg_temp
-as $$
-declare v_entity_type text;
+as $
+declare v_entity_type text; v_scope_changed boolean:=false;
 begin
   v_entity_type:=case TG_TABLE_NAME
     when 'generator_fuel_readings' then 'fuel_readings'
@@ -192,19 +221,38 @@ begin
     perform public.powerhub_append_operational_delta_sync_change(
       OLD.tenant_id,OLD.site_id,v_entity_type,OLD.id::text,'delete',null
     );
+    if v_entity_type='fuel_readings' then
+      perform public.powerhub_refresh_fuel_reading_delta_scope(OLD.tenant_id,OLD.site_id);
+    else
+      perform public.powerhub_refresh_maintenance_plan_delta_scope(OLD.tenant_id,OLD.site_id);
+    end if;
     return OLD;
   end if;
 
   if TG_OP='UPDATE' and to_jsonb(OLD) is not distinct from to_jsonb(NEW) then return NEW; end if;
-  if TG_OP='UPDATE' and (OLD.tenant_id is distinct from NEW.tenant_id or OLD.site_id is distinct from NEW.site_id) then
+  v_scope_changed:=TG_OP='UPDATE' and
+    (OLD.tenant_id is distinct from NEW.tenant_id or OLD.site_id is distinct from NEW.site_id);
+  if v_scope_changed then
     perform public.powerhub_append_operational_delta_sync_change(
       OLD.tenant_id,OLD.site_id,v_entity_type,OLD.id::text,'delete',null
     );
+    if v_entity_type='fuel_readings' then
+      perform public.powerhub_refresh_fuel_reading_delta_scope(OLD.tenant_id,OLD.site_id);
+    else
+      perform public.powerhub_refresh_maintenance_plan_delta_scope(OLD.tenant_id,OLD.site_id);
+    end if;
   end if;
 
   perform public.powerhub_emit_operational_delta_sync_change(NEW.tenant_id,NEW.site_id,v_entity_type,NEW.id);
+  if v_entity_type='fuel_readings' and
+      (TG_OP='INSERT' or v_scope_changed or OLD.recorded_at is distinct from NEW.recorded_at) then
+    perform public.powerhub_refresh_fuel_reading_delta_scope(NEW.tenant_id,NEW.site_id);
+  elsif v_entity_type='maintenance_preventive_plans' and
+      (TG_OP='INSERT' or v_scope_changed or OLD.next_due_at is distinct from NEW.next_due_at) then
+    perform public.powerhub_refresh_maintenance_plan_delta_scope(NEW.tenant_id,NEW.site_id);
+  end if;
   return NEW;
-end $$;
+end $;
 alter function public.powerhub_capture_operational_delta_sync_change() owner to postgres;
 revoke all on function public.powerhub_capture_operational_delta_sync_change() from public,anon,authenticated;
 grant execute on function public.powerhub_capture_operational_delta_sync_change() to service_role;
@@ -301,7 +349,7 @@ returns void
 language plpgsql
 security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 declare v_plan record;
 begin
   if p_tenant_id is null or p_site_id is null then return; end if;
@@ -334,7 +382,7 @@ begin
       p_tenant_id,p_site_id,'maintenance_preventive_plans',v_plan.id
     );
   end loop;
-end $;
+end $$;
 alter function public.powerhub_refresh_maintenance_plan_delta_scope(bigint,bigint) owner to postgres;
 revoke all on function public.powerhub_refresh_maintenance_plan_delta_scope(bigint,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_maintenance_plan_delta_scope(bigint,bigint) to service_role;
@@ -344,7 +392,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 begin
   if TG_OP='DELETE' then
     -- Emit the changed row first (or a tombstone if its plan was deleted),
@@ -374,7 +422,7 @@ begin
   );
   perform public.powerhub_refresh_maintenance_plan_delta_scope(NEW.tenant_id,NEW.site_id);
   return NEW;
-end $;
+end $$;
 alter function public.powerhub_refresh_maintenance_plan_delta_after_alert_change() owner to postgres;
 revoke all on function public.powerhub_refresh_maintenance_plan_delta_after_alert_change() from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_maintenance_plan_delta_after_alert_change() to service_role;
