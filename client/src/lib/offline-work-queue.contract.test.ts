@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { blocksDuplicateOfflinePayrollPeriod, createOfflineLocalEntityId, createOfflineWork, type GeneratorCreateDraft, type GeneratorUpdateDraft, type QueuedOfflineWork } from "./offline-work-queue";
+import { blocksDuplicateOfflinePayrollPeriod, createOfflineLocalEntityId, createOfflineWork, type FuelFillDraft, type GeneratorCreateDraft, type GeneratorUpdateDraft, type QueuedOfflineWork } from "./offline-work-queue";
 
 describe("offline generator queue contract", () => {
   it("creates a scoped generator create operation with a stable client operation id", () => {
@@ -36,6 +36,24 @@ describe("offline generator queue contract", () => {
   });
 });
 
+
+describe("offline fuel fill intent contract", () => {
+  it("persists fuel fill as a pending scoped intent with a stable operation key", () => {
+    const payload: FuelFillDraft = {
+      generatorId: 11, fuelItemId: 9, sourceWarehouseId: 2, destinationWarehouseId: 7,
+      litres: 25.5, occurredAt: "2026-10-29T12:30:00.000Z",
+      levelBeforeLiters: 10, levelAfterLiters: 35.5, operatingHours: 120.25,
+    };
+    const item = createOfflineWork({ userId: 7, tenantId: 5, siteId: 3, kind: "fuel_fill", clientOperationId: "fuel-fill:op-1", payload });
+    expect(item.kind).toBe("fuel_fill");
+    expect(item.clientOperationId).toBe("fuel-fill:op-1");
+    expect(item.status).toBe("pending");
+    expect(item.userId).toBe(7);
+    expect(item.tenantId).toBe(5);
+    expect(item.siteId).toBe(3);
+    expect(item.payload).toEqual(payload);
+  });
+});
 
 describe("offline outbox update atomicity contract", () => {
   it("reads and writes an operation within one readwrite IndexedDB transaction", () => {

@@ -45,4 +45,23 @@ describe("dashboard Delta revision contract", () => {
     expect(procedure).not.toContain(".select(\"*\")");
     expect(procedure).not.toContain("row_data");
   });
+
+  it("maps each KPI fingerprint only to its declared journal dependencies", () => {
+    const start = router.indexOf("deltaRevision: protectedProcedure");
+    const end = router.indexOf("financialOverview: protectedProcedure", start);
+    const procedure = router.slice(start, end);
+    const dependencies = [
+      'activeSubscribers: revisionFor("activeSubscribers", ["sites", "subscribers"])',
+      'generatorStatus: revisionFor("generatorStatus", ["generators"])',
+      'periodInvoiced: revisionFor("periodInvoiced", ["readings", "tariffs", "invoices", "subscribers"])',
+      'periodCollected: revisionFor("periodCollected", ["payments"])',
+      'collectionRate: revisionFor("collectionRate", ["invoices", "payments"])',
+      'overdue: revisionFor("overdue", ["invoices", "payments"])',
+      'expenses: revisionFor("expenses", ["expenses"])',
+      'operatingProfit: revisionFor("operatingProfit", ["invoices", "payments", "expenses"])',
+      'financialOverview: revisionFor("financialOverview", ["sites", "subscribers", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"])',
+      'operationalStatus: revisionFor("operationalStatus", ["sites", "subscribers", "generators", "readings"])',
+    ];
+    for (const dependency of dependencies) expect(procedure).toContain(dependency);
+  });
 });
