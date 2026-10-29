@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
 import { Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -90,6 +92,7 @@ export default function InventoryFuelConsumptionPanel({
   siteId, isAuthenticated, canManageFuelAndConsumption, canViewInventoryReports,
 }: Props) {
   const utils = trpc.useUtils();
+  const auth = useAuth();
   const today = useMemo(() => todayLocalDate(), []);
   const [generatorId, setGeneratorId] = useState("");
   const [fuelItemId, setFuelItemId] = useState("");
@@ -173,6 +176,35 @@ export default function InventoryFuelConsumptionPanel({
     { enabled: Boolean(siteId && isAuthenticated && canViewInventoryReports &&
       (reportPeriodType === "custom" ? reportFromDate && reportToDate && reportFromDate <= reportToDate : reportAnchorDate)), staleTime: 15_000 },
   );
+  const fuelReportCacheInput = auth.user?.id ? {
+    userId: auth.user.id,
+    siteId,
+    reportType: "fuel-consumption" as const,
+    filters: {
+      periodType: reportPeriodType,
+      anchorDate: reportPeriodType === "custom" ? null : reportAnchorDate,
+      fromDate: reportPeriodType === "custom" ? reportFromDate : null,
+      toDate: reportPeriodType === "custom" ? reportToDate : null,
+      generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : null,
+      tankWarehouseId: reportTankId ? Number(reportTankId) : null,
+    },
+  } : null;
+  const [cachedFuelReport, setCachedFuelReport] = useState<{ rows: FuelReportRow[]; savedAt: number } | null>(null);
+  useEffect(() => {
+    let current = true;
+    setCachedFuelReport(null);
+    if (!fuelReportCacheInput || !canViewInventoryReports) return () => { current = false; };
+    void loadOperationalReportSnapshot(fuelReportCacheInput, { accessAllowed: canViewInventoryReports })
+      .then((snapshot) => {
+        if (current && snapshot) setCachedFuelReport({ rows: snapshot.rows as FuelReportRow[], savedAt: snapshot.savedAt });
+      })
+      .catch(() => undefined);
+    return () => { current = false; };
+  }, [auth.user?.id, siteId, canViewInventoryReports, reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId, reportTankId]);
+  useEffect(() => {
+    if (!fuelReportCacheInput || !canViewInventoryReports || !report.isSuccess || !report.isFetchedAfterMount || !Array.isArray(report.data)) return;
+    void saveOperationalReportSnapshot({ ...fuelReportCacheInput, rows: report.data }).catch(() => undefined);
+  }, [auth.user?.id, siteId, canViewInventoryReports, report.isSuccess, report.isFetchedAfterMount, report.data, reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId, reportTankId]);
   const alertSettings = trpc.powerhub.inventory.listFuelAlertSettings.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
@@ -333,7 +365,8 @@ export default function InventoryFuelConsumptionPanel({
   const eventRows = (events.data ?? recentEvents.data ?? []) as FuelEvent[];
   const usingRecentOfflineEvents = events.data === undefined && recentEvents.data !== undefined;
   const readingRows = (readings.data ?? []) as FuelReading[];
-  const reportRows = (report.data ?? []) as FuelReportRow[];
+  const reportRows = (report.data ?? cachedFuelReport?.rows ?? []) as FuelReportRow[];
+  const usingCachedFuelReport = report.data === undefined && cachedFuelReport !== null;
   const alertSettingRows = (alertSettings.data ?? []) as FuelAlertSetting[];
   const alertDispatchRows = (alertDispatches.data ?? []) as FuelAlertDispatch[];
   const selectedGenerator = generators.find((row) => row.id === Number(activeGeneratorId));
@@ -596,6 +629,7 @@ export default function InventoryFuelConsumptionPanel({
             </label>
           </div>
           {reportPeriodType === "cycle" ? <p className="text-xs text-muted-foreground">يستخدم التقرير تعريف دورة القراءات والمنطقة الزمنية المحفوظين للفرع، بما في ذلك الدورات الأسبوعية و10 أيام و15 يومًا والشهرية.</p> : null}
+          {usingCachedFuelReport ? <p role="status" className="text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {dateTime(new Date(cachedFuelReport.savedAt).toISOString())}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
           {report.isLoading ? <p className="text-sm text-muted-foreground">جارٍ احتساب التقرير…</p> : report.error ? <p className="text-sm text-destructive">تعذر احتساب التقرير. تحقق من إعدادات الدورة والصلاحيات.</p> : null}
         </div> : null}
         {canViewInventoryReports ? <div className="overflow-x-auto rounded-md border">
