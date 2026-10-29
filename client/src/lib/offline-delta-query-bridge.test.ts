@@ -38,6 +38,21 @@ describe("company account Delta projection", () => {
   });
 });
 
+describe("inventory stock movement Delta projection", () => {
+  it("normalizes stock movements without financial cost fields", () => {
+    const row = normalizeDeltaEntityRow("inventory_stock_movements", {
+      id: 901, movement_id: 901, tenant_id: 2, site_id: 10, warehouse_id: 20,
+      warehouse_code: "WH-20", warehouse_name: "Main", item_id: 1101, item_name: "Diesel",
+      category: "fuel", base_unit: "liter", movement_type: "issue", quantity: "2.500",
+      reference_no: "ISS-901", operation_key: "stock:901", occurred_at: "2026-10-29T10:00:00Z",
+      unit_cost: "3.5000", total_cost_amount: "8.75",
+    });
+    expect(row).toMatchObject({ id: 901, movement_id: 901, tenantId: 2, siteId: 10, quantity: "2.500", movement_type: "issue" });
+    expect(row).not.toHaveProperty("unit_cost");
+    expect(row).not.toHaveProperty("total_cost_amount");
+  });
+});
+
 describe("inventory catalog Delta projection", () => {
   it("normalizes catalog fields while preserving the snake-case UI contract", () => {
     expect(normalizeDeltaEntityRow("inventory_items", {
