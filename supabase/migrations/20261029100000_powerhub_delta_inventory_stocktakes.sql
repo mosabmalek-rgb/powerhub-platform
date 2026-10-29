@@ -75,7 +75,7 @@ returns jsonb language sql stable set search_path=pg_catalog,public,pg_temp as $
  )
  when 'inventory_stocktakes' then public.powerhub_delta_sync_project_stocktake_row(p_row)
  else null end
-$;
+$$;
 alter function public.powerhub_delta_sync_project_inventory_row(text,jsonb) owner to postgres;
 revoke all on function public.powerhub_delta_sync_project_inventory_row(text,jsonb) from public,anon,authenticated;
 grant execute on function public.powerhub_delta_sync_project_inventory_row(text,jsonb) to service_role;
