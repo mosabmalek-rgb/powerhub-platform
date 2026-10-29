@@ -3591,6 +3591,8 @@ export const powerhubRouter = router({
     // Lightweight revision fingerprint for dashboard snapshots. This exposes no
     // row data; it lets clients know when server-authoritative aggregates need
     // refetching after an operational Delta feed advances.
+    // Each KPI has its own scoped dependency fingerprint. This returns no rows or
+    // aggregate values; the UI refreshes the server-owned aggregate that supplies a changed KPI.
     deltaRevision: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       scope: z.enum(["branch", "all"]).default("branch"),
@@ -3614,13 +3616,31 @@ export const powerhubRouter = router({
         console.error("[PowerHub] dashboard.deltaRevision failed", { code: error.code, message: error.message });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تحديث مؤشرات لوحة التحكم." });
       }
-      const revisionPayload = (data ?? []).map((row) =>
-        `${row.site_id}:${row.entity_type}:${row.last_cursor}`,
-      ).join("|") || "0";
-      // Keep the response bounded for tenants with many branches while preserving
-      // an exact fingerprint of the scoped journal cursors.
-      const revision = createHash("sha256").update(revisionPayload).digest("hex");
-      return { revision, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
+      const rows = data ?? [];
+      const revisionFor = (metric: string, metricEntities: readonly string[]) => {
+        const relevant = new Set(metricEntities);
+        const payload = rows
+          .filter((row) => relevant.has(row.entity_type))
+          .map((row) => String(row.site_id) + ":" + row.entity_type + ":" + String(row.last_cursor))
+          .join("|") || "0";
+        return createHash("sha256").update(metric + ":" + payload).digest("hex");
+      };
+      // Independent fingerprints avoid invalidating every card after an unrelated change.
+      const revisions = {
+        activeSubscribers: revisionFor("activeSubscribers", ["sites", "subscribers"]),
+        generatorStatus: revisionFor("generatorStatus", ["generators"]),
+        periodInvoiced: revisionFor("periodInvoiced", ["readings", "tariffs", "invoices", "subscribers"]),
+        periodCollected: revisionFor("periodCollected", ["payments"]),
+        collectionRate: revisionFor("collectionRate", ["invoices", "payments"]),
+        overdue: revisionFor("overdue", ["invoices", "payments"]),
+        expenses: revisionFor("expenses", ["expenses"]),
+        operatingProfit: revisionFor("operatingProfit", ["invoices", "payments", "expenses"]),
+        financialOverview: revisionFor("financialOverview", ["sites", "subscribers", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"]),
+        operationalStatus: revisionFor("operationalStatus", ["sites", "subscribers", "generators", "readings"]),
+      };
+      // Retain one combined fingerprint for diagnostics and older clients.
+      const revision = createHash("sha256").update(JSON.stringify(revisions)).digest("hex");
+      return { revision, revisions, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
     }),
     financialOverview: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),

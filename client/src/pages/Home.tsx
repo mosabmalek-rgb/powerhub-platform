@@ -226,24 +226,36 @@ export function WorkspaceHome() {
   };
   const activeSubscribers = overview?.branchSummaries.reduce((sum: number, branch: { activeSubscribers: number }) => sum + branch.activeSubscribers, 0) ?? 0;
   const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
-  const lastDashboardRevision = useRef<{ key: string; revision: string } | null>(null);
+  const lastDashboardRevision = useRef<{ key: string; revisions: Record<string, string> } | null>(null);
 
   useEffect(() => {
-    const revision = dashboardRevisionQuery.data?.revision;
-    if (!siteId || typeof revision !== "string") return;
-    const key = `${user?.id ?? "unknown"}:${siteId}:${selectedScope}`;
+    const revisions = dashboardRevisionQuery.data?.revisions;
+    if (!siteId || !revisions || typeof revisions !== "object") return;
+    const key = [user?.id ?? "unknown", siteId, selectedScope].join(":");
     const previous = lastDashboardRevision.current;
-    lastDashboardRevision.current = { key, revision };
-    // Changing branch/scope already changes the aggregate query keys; only
-    // trigger a refresh when the same scoped server fingerprint advances.
-    if (!previous || previous.key !== key || previous.revision === revision) return;
-    void (selectedScope === "all" ? allBranchesSummaryQuery.refetch() : summaryQuery.refetch());
-    if (canViewFinancialOverview) {
+    lastDashboardRevision.current = { key, revisions };
+    if (!previous || previous.key !== key) return;
+
+    const changed = new Set(Object.keys(revisions).filter((metric) =>
+      typeof revisions[metric as keyof typeof revisions] === "string" &&
+      revisions[metric as keyof typeof revisions] !== previous.revisions[metric],
+    ));
+    if (changed.size === 0) return;
+
+    // Each KPI has a specific revision dependency set; values remain server aggregates.
+    if (changed.has("generatorStatus") || changed.has("operationalStatus")) {
+      void (selectedScope === "all" ? allBranchesSummaryQuery.refetch() : summaryQuery.refetch());
+    }
+    if (canViewFinancialOverview &&
+        ["activeSubscribers", "financialOverview", "expenses", "operatingProfit"].some((metric) => changed.has(metric))) {
       void financialOverviewQuery.refetch();
-      if (dashboardPeriod.isReady) void periodMetricsQuery.refetch();
+    }
+    if (canViewFinancialOverview && dashboardPeriod.isReady &&
+        ["periodInvoiced", "periodCollected", "collectionRate", "overdue", "expenses", "operatingProfit"].some((metric) => changed.has(metric))) {
+      void periodMetricsQuery.refetch();
     }
   }, [
-    dashboardRevisionQuery.data?.revision,
+    dashboardRevisionQuery.data?.revisions,
     siteId,
     selectedScope,
     user?.id,
