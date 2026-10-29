@@ -10,6 +10,7 @@ const inventoryMigration = readFileSync(resolve(process.cwd(), "supabase/migrati
 const stocktakeMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029100000_powerhub_delta_inventory_stocktakes.sql"), "utf8");
 const purchaseHeaderMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029110000_powerhub_delta_purchase_headers.sql"), "utf8");
 const receiptReturnMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029120000_powerhub_delta_receipt_return_headers.sql"), "utf8");
+const operationalMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql"), "utf8");
 const inventoryRouter = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
 const purchaseHeaderProjection = purchaseHeaderMigration.slice(
   purchaseHeaderMigration.indexOf("create or replace function public.powerhub_delta_sync_project_purchase_header_row"),
@@ -46,10 +47,10 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers", "fuel_readings", "maintenance_preventive_plans"])');
     expect(router).toContain("requireSupabaseSiteRole(");
-    expect(router).toContain('inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta"');
-    expect(router).toContain('inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot"');
+    expect(router).toContain('operationalDeltaEntity ? "powerhub_pull_operational_sync_delta" : inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta"');
+    expect(router).toContain('operationalDeltaEntity ? "powerhub_get_operational_sync_snapshot" : inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot"');
     expect(router).toContain('inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"]');
     expect(router).toContain('"inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined');
     expect(inventoryMigration).toContain("create trigger powerhub_delta_sync_inventory_stock_movements after insert on public.inventory_stock_movements");
@@ -159,4 +160,31 @@ describe("expense Delta extension", () => {
   expect(router).toContain('expenses: ["owner", "manager", "accountant", "viewer"]');
   expect(client).toContain('"expenses"');
  });
+});
+
+
+describe("fuel and preventive maintenance Delta extension", () => {
+  it("uses allowlisted projections, private cursor feeds, scoped triggers and tombstones", () => {
+    expect(operationalMigration).toContain("'fuel_readings','maintenance_preventive_plans'");
+    expect(operationalMigration).toContain("powerhub_project_fuel_reading_delta_row");
+    expect(operationalMigration).toContain("powerhub_project_maintenance_plan_delta_row");
+    expect(operationalMigration).toContain("powerhub_get_operational_sync_snapshot");
+    expect(operationalMigration).toContain("powerhub_pull_operational_sync_delta");
+    expect(operationalMigration).toContain("after insert or update or delete on public.generator_fuel_readings");
+    expect(operationalMigration).toContain("after insert or update or delete on public.generator_maintenance_preventive_plans");
+    expect(operationalMigration).toContain("after insert or update or delete on public.generator_maintenance_alert_events");
+    expect(operationalMigration).toContain("'reference_no',null");
+    expect(operationalMigration).toContain("'correction_reason',null");
+    expect(operationalMigration).not.toContain("'unit_cost'");
+    expect(operationalMigration).not.toContain("'total_cost_amount'");
+    expect(operationalMigration).not.toContain("'labor_cost'");
+    expect(operationalMigration).not.toContain("'external_service_cost'");
+    expect(operationalMigration).toContain("revoke all on function public.powerhub_pull_operational_sync_delta");
+    expect(operationalMigration).toContain("to service_role");
+    expect(router).toContain("requireDeltaOperationalReadAccess");
+    expect(router).toContain("manageFuelAndConsumption");
+    expect(router).toContain("maintenance_preventive_plans");
+    expect(client).toContain('"fuel_readings"');
+    expect(client).toContain('"maintenance_preventive_plans"');
+  });
 });
