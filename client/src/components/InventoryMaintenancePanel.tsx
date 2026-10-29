@@ -262,7 +262,6 @@ export default function InventoryMaintenancePanel({
   const reportRows = maintenanceReportAuthorizationDenied ? [] : maintenanceReport.data ?? cachedMaintenanceReportForCurrentScope?.rows ?? [];
   const usingCachedMaintenanceReport = !maintenanceReportAuthorizationDenied && maintenanceReport.data === undefined && cachedMaintenanceReportForCurrentScope !== null;
   const hasAvailableMaintenanceReport = !maintenanceReportAuthorizationDenied && (maintenanceReport.data !== undefined || cachedMaintenanceReportForCurrentScope !== null);
-  const hasAvailableMaintenanceReport = maintenanceReport.data !== undefined || cachedMaintenanceReportForCurrentScope !== null;
   const reportTotals = reportRows.reduce((sum, row) => ({
     workOrders: sum.workOrders + Number(row.work_order_count ?? 0),
     breakdowns: sum.breakdowns + Number(row.breakdown_count ?? 0),
