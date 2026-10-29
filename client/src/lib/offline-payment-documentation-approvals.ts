@@ -184,6 +184,29 @@ export async function removePaymentDocumentationApprovalSnapshot(
   });
 }
 
+/** Remove every filter snapshot for a user and site after an explicit server authorization denial. */
+export async function clearPaymentDocumentationApprovalSnapshots(userId: number, siteId: number) {
+  if (!isPositiveSafeId(userId) || !isPositiveSafeId(siteId)) {
+    throw new Error("نطاق لقطة اعتماد توثيق الدفع غير صالح.");
+  }
+  const db = await open();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const rows = request.result as Array<OfflinePaymentDocumentationApprovalSnapshot & { key: string }>;
+      for (const row of rows) {
+        if (row.userId === userId && row.siteId === siteId) store.delete(row.key);
+      }
+    };
+    request.onerror = () => { try { tx.abort(); } catch { /* transaction may already be inactive */ } };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("تعذر تنظيف لقطات اعتماد توثيق الدفع.")); };
+  });
+}
+
 export async function listPaymentDocumentationApprovalSnapshots(
   userId: number, siteId: number, snapshotScope: string,
 ) {

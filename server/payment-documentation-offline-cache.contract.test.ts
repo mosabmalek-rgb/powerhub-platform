@@ -28,6 +28,12 @@ describe("payment-documentation offline cache and HR privacy contracts", () => {
     expect(approvalCache).toContain("store.delete(row.key)");
     expect(approvalCache).toContain("export async function removePaymentDocumentationApprovalSnapshot(");
     expect(approvalCache).toContain("row.userId === userId && row.siteId === siteId && row.id === requestId");
+    expect(approvalCache).toContain("export async function clearPaymentDocumentationApprovalSnapshots(userId: number, siteId: number)");
+    expect(approvalCache).toContain("row.userId === userId && row.siteId === siteId) store.delete(row.key)");
+    expect(approvalPage).toContain("isExplicitAuthorizationDenial(requests.error)");
+    expect(approvalPage).toContain("clearPaymentDocumentationApprovalSnapshots(Number(user.id),siteId)");
+    expect(approvalPage).toContain("const visibleRequests:any[] = authorizationDenied ? []");
+    expect(approvalPage).toContain("if (authorizationDenied || isOnline || !siteId || !user?.id || !selectedIds.length) return");
   });
 
   it("does not treat cached review rows as current-cycle truth or as a local financial approval", () => {
