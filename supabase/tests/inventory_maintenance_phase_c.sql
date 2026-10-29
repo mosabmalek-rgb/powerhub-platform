@@ -467,3 +467,9 @@ end;
 $maintenance_phase_c$;
 
 select 'Phase C maintenance work orders, stock issue idempotency, costing, preventive alerts, audit and ACL checks passed' as result;
+
+-- Extend the same disposable fixture with the Delta journal and verify new fuel/maintenance feeds.
+\ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
+\ir ../migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql
+\ir ../migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql
+\ir fuel_maintenance_delta_sync_history.sql
