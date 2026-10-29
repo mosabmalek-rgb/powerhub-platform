@@ -78,6 +78,29 @@ function compareFuelReadingNewestFirst(
   return movementIdentity(rightValue, right).localeCompare(movementIdentity(leftValue, left), undefined, { numeric: true });
 }
 
+/** Match the server's bounded maintenance feed: reported_at falls back to created_at. */
+export function compareMaintenanceWorkOrderNewestFirst(
+  leftValue: Record<string, unknown>,
+  rightValue: Record<string, unknown>,
+): number {
+  const left = movementProjection(leftValue);
+  const right = movementProjection(rightValue);
+  const leftParsed = Date.parse(String(left.reported_at ?? left.reportedAt ?? left.created_at ?? left.createdAt ?? ""));
+  const rightParsed = Date.parse(String(right.reported_at ?? right.reportedAt ?? right.created_at ?? right.createdAt ?? ""));
+  const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
+  const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  const leftId = movementIdentity(leftValue, left);
+  const rightId = movementIdentity(rightValue, right);
+  try {
+    const leftBigInt = BigInt(leftId);
+    const rightBigInt = BigInt(rightId);
+    return leftBigInt === rightBigInt ? 0 : leftBigInt > rightBigInt ? -1 : 1;
+  } catch {
+    return rightId.localeCompare(leftId, undefined, { numeric: true });
+  }
+}
+
 function compareMaintenancePlanPriority(
   leftValue: Record<string, unknown>,
   rightValue: Record<string, unknown>,
