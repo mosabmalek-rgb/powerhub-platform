@@ -44,7 +44,7 @@ describe("PowerHub delta sync contract", () => {
     expect(router).toContain('inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot"');
     expect(router).toContain('inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"]');
     expect(router).toContain('"inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined');
-    expect(inventoryMigration).toContain("create trigger powerhub_delta_sync_inventory_stock_movements after insert or update on public.inventory_stock_movements");
+    expect(inventoryMigration).toContain("create trigger powerhub_delta_sync_inventory_stock_movements after insert on public.inventory_stock_movements");
     expect(inventoryMigration).toContain("'movement_id',p_row->'id'");
     expect(inventoryMigration).not.toContain("'unit_cost',p_row->'unit_cost'");
 
@@ -73,7 +73,7 @@ describe("inventory catalog Delta extension", () => {
     expect(inventoryMigration).toContain("'inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements'");
     expect(inventoryMigration).toContain("powerhub_get_inventory_sync_snapshot");
     expect(inventoryMigration).toContain("powerhub_pull_inventory_sync_delta");
-    expect(inventoryMigration).toContain("after insert or update on public.inventory_stock_movements");
+    expect(inventoryMigration).toContain("after insert on public.inventory_stock_movements");
     expect(inventoryMigration).not.toContain("'total_cost_amount',p_row->'total_cost_amount'");
     expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_items");
     expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_item_units");
