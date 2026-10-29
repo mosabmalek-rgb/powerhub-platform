@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,6 +32,7 @@ export default function InventoryMaintenancePanel({
   siteId, isAuthenticated, canViewMaintenance, canViewMaintenanceReport, canManageMaintenance, canIssueInventory, canManageExpenses,
 }: { siteId: number; isAuthenticated: boolean; canViewMaintenance: boolean; canViewMaintenanceReport: boolean; canManageMaintenance: boolean; canIssueInventory: boolean; canManageExpenses: boolean }) {
   const utils = trpc.useUtils();
+  const auth = useAuth();
   const [generatorId, setGeneratorId] = useState("");
   const [orderType, setOrderType] = useState<OrderType>("breakdown");
   const [preventivePlanId, setPreventivePlanId] = useState("");
@@ -63,6 +66,33 @@ export default function InventoryMaintenancePanel({
     { siteId, fromDate: reportFromDate, toDate: reportToDate, generatorId: reportGeneratorId ? Number(reportGeneratorId) : undefined },
     { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
   );
+  const maintenanceReportCacheInput = auth.user?.id ? {
+    userId: auth.user.id,
+    siteId,
+    reportType: "maintenance" as const,
+    filters: {
+      fromDate: reportFromDate,
+      toDate: reportToDate,
+      generatorId: reportGeneratorId ? Number(reportGeneratorId) : null,
+    },
+  } : null;
+  const [cachedMaintenanceReport, setCachedMaintenanceReport] = useState<{ rows: MaintenanceReportRow[]; savedAt: number } | null>(null);
+  useEffect(() => {
+    let current = true;
+    setCachedMaintenanceReport(null);
+    if (!maintenanceReportCacheInput || !canViewMaintenanceReport) return () => { current = false; };
+    void loadOperationalReportSnapshot(maintenanceReportCacheInput, { accessAllowed: canViewMaintenanceReport })
+      .then((snapshot) => {
+        if (current && snapshot) setCachedMaintenanceReport({ rows: snapshot.rows as MaintenanceReportRow[], savedAt: snapshot.savedAt });
+      })
+      .catch(() => undefined);
+    return () => { current = false; };
+  }, [auth.user?.id, siteId, canViewMaintenanceReport, reportFromDate, reportToDate, reportGeneratorId]);
+  useEffect(() => {
+    if (!maintenanceReportCacheInput || !canViewMaintenanceReport || !maintenanceReport.isSuccess ||
+        !maintenanceReport.isFetchedAfterMount || !Array.isArray(maintenanceReport.data)) return;
+    void saveOperationalReportSnapshot({ ...maintenanceReportCacheInput, rows: maintenanceReport.data }).catch(() => undefined);
+  }, [auth.user?.id, siteId, canViewMaintenanceReport, maintenanceReport.isSuccess, maintenanceReport.isFetchedAfterMount, maintenanceReport.data, reportFromDate, reportToDate, reportGeneratorId]);
   const reportBranding = trpc.powerhub.reportBranding.get.useQuery(
     { siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport), staleTime: 60_000 },
   );
@@ -194,7 +224,8 @@ export default function InventoryMaintenancePanel({
   if (!canViewMaintenance) return <Card><CardContent className="p-6 text-sm text-muted-foreground">لا تملك صلاحية عرض بيانات الصيانة لهذا الفرع.</CardContent></Card>;
   const itemsForMaintenance = (items.data ?? []).filter((item) => ["spare_part", "oil", "filter", "maintenance_supply", "other"].includes(item.category));
   const openOrders = (orders.data ?? []).filter((order) => openStatuses.includes(order.status));
-  const reportRows = maintenanceReport.data ?? [];
+  const reportRows = maintenanceReport.data ?? cachedMaintenanceReport?.rows ?? [];
+  const usingCachedMaintenanceReport = maintenanceReport.data === undefined && cachedMaintenanceReport !== null;
   const reportTotals = reportRows.reduce((sum, row) => ({
     workOrders: sum.workOrders + Number(row.work_order_count ?? 0),
     breakdowns: sum.breakdowns + Number(row.breakdown_count ?? 0),
@@ -202,7 +233,7 @@ export default function InventoryMaintenancePanel({
     cost: sum.cost + Number(row.total_cost_amount ?? 0),
   }), { workOrders: 0, breakdowns: 0, downtime: 0, cost: 0 });
   const exportMaintenanceReport = () => {
-    if (maintenanceReport.isError || maintenanceReport.isLoading) { toast.error("حمّل تقرير الصيانة بنجاح قبل التصدير."); return; }
+    if (maintenanceReport.isLoading || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport)) { toast.error("حمّل تقرير الصيانة بنجاح قبل التصدير."); return; }
     const rows = [["المولد","العطل / العمل","عدد الأوامر","الأعطال","الصيانة الوقائية","المكتملة","المفتوحة","التوقف بالدقائق","تكلفة القطع","تكلفة العمل","الخدمات الخارجية","إجمالي التكلفة","أول بلاغ","آخر بلاغ"], ...reportRows.map((r) => [r.generator_name,r.fault_title,r.work_order_count,r.breakdown_count,r.preventive_count,r.completed_count,r.open_count,r.downtime_minutes,r.parts_cost,r.labor_cost,r.external_service_cost,r.total_cost_amount,r.first_reported_at,r.last_reported_at])];
     const blob = new Blob([String.fromCharCode(0xfeff) + rows.map((row) => row.map(csvCell).join(",")).join(String.fromCharCode(13, 10))], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href=url; anchor.download=`powerhub-maintenance-report-${siteId}-${reportFromDate}-${reportToDate}.csv`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -211,8 +242,10 @@ export default function InventoryMaintenancePanel({
 
   const ensureReportReady = () => {
     if (!canViewMaintenanceReport) { toast.error("ليست لديك صلاحية عرض أو تصدير تقرير الصيانة."); return false; }
-    if (maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError) {
-      toast.error("انتظر نجاح تحميل تقرير الصيانة قبل التصدير."); return false;
+    if (maintenanceReport.isLoading || maintenanceReport.isFetching ||
+        (maintenanceReport.isError && !usingCachedMaintenanceReport) ||
+        (!maintenanceReport.data && !usingCachedMaintenanceReport)) {
+      toast.error("انتظر نجاح تحميل تقرير الصيانة أو توفر نسخة محلية صالحة قبل التصدير."); return false;
     }
     return true;
   };
@@ -379,8 +412,9 @@ export default function InventoryMaintenancePanel({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div><CardTitle>تقرير الصيانة والأعطال حسب المولد</CardTitle><p className="mt-1 text-sm text-muted-foreground">الأعطال المتكررة وأوامر الصيانة ومدة التوقف وتكاليف القطع والعمل والخدمات للفترة المختارة.</p></div>
+          {usingCachedMaintenanceReport ? <p role="status" className="mt-1 text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {new Date(cachedMaintenanceReport.savedAt).toLocaleString("ar-PS")}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError || reportExporting}><Download className="ml-2 h-4 w-4" /> CSV</Button>
+            <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><Download className="ml-2 h-4 w-4" /> CSV</Button>
             <Button type="button" variant="outline" onClick={() => void exportMaintenanceExcel()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError || reportExporting}><FileSpreadsheet className="ml-2 h-4 w-4" /> Excel</Button>
             <Button type="button" variant="outline" onClick={() => void exportMaintenancePdf()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || maintenanceReport.isError || reportExporting}><FileText className="ml-2 h-4 w-4" /> PDF</Button>
           </div>
