@@ -644,4 +644,17 @@ describe("inventory workspace UI contract", () => {
     expect(integration).toContain("PHASE_B_FUEL_READING_RPC_ACL_FAILED");
   });
 
+
+  it("preserves an exact-scope fuel report snapshot when live refresh fails", () => {
+    const panel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
+    const cache = read("client/src/lib/offline-operational-report-cache.ts");
+    expect(panel).toContain("loadOperationalReportSnapshot(fuelReportCacheInput");
+    expect(panel).toContain("const hasAvailableFuelReport = report.data !== undefined || cachedFuelReportForCurrentScope !== null;");
+    expect(panel).toContain("report.error && !hasAvailableFuelReport");
+    expect(panel).toContain("reportRows.map((row)");
+    expect(panel).toContain("هذه لقطة تجميعية وليست إعادة احتساب حيّة");
+    expect(cache).toContain("snapshot.key !== makeKey(input)");
+    expect(cache).toContain("now - snapshot.savedAt >= OFFLINE_OPERATIONAL_REPORT_TTL_MS");
+    expect(cache).toContain("options.accessAllowed === false");
+  });
 });
