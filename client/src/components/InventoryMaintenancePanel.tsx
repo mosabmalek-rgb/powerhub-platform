@@ -399,6 +399,10 @@ export default function InventoryMaintenancePanel({
   };
 
   return <div className="space-y-4" dir="rtl">
+    {generatorsAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى قائمة المولدات؛ أُخفيت الخيارات المحلية لهذا الطلب.</p> : null}
+    {suppliersAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى الموردين القابلين للإسناد؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : null}
+    {itemsAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى أصناف المخزون؛ أُخفيت الخيارات المحلية لهذا الطلب.</p> : null}
+    {warehousesAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى المخازن؛ أُخفيت الخيارات المحلية لهذا الطلب.</p> : null}
     {canManageMaintenance ? (
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Wrench className="h-5 w-5" /> تسجيل عطل أو أمر صيانة</CardTitle></CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-2">
