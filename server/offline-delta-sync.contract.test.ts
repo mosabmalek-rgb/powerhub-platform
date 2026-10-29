@@ -108,7 +108,7 @@ describe("inventory catalog Delta extension", () => {
     expect(purchaseHeaderProjection).not.toContain("'reference_no'");
     expect(purchaseHeaderProjection).not.toContain("'notes'");
     expect(router).toContain("requireDeltaPurchaseHeaderReadAccess");
-    expect(router).toContain('"inventory_purchase_headers"].includes(input.entityType)');
+    expect(router).toContain('"inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"].includes(input.entityType)');
     expect(router).toContain("requireDeltaPurchaseChildHistoryReadAccess");
     expect(inventoryRouter).toContain("listPurchaseReceiptHeaders");
     expect(inventoryRouter).toContain("listSupplierReturnHeaders");
