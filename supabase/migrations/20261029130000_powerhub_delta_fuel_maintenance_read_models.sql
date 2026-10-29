@@ -347,16 +347,22 @@ begin
     ) r;
   elsif p_entity_type='maintenance_preventive_plans' then
     select coalesce(jsonb_agg(public.powerhub_project_maintenance_plan_delta_row(p_tenant_id,p_site_id,p.id)
-      order by case when plan_row.alert_type='overdue' then 0 when plan_row.alert_type='due_soon' then 1 else 2 end,
+      order by case when p.alert_type='overdue' then 0 when p.alert_type='due_soon' then 1 else 2 end,
         coalesce(p.next_due_at,'infinity'::timestamptz),p.id),'[]'::jsonb) into v_rows
-    from public.generator_maintenance_preventive_plans p
-    left join lateral (
-      select e.alert_type from public.generator_maintenance_alert_events e
-      where e.tenant_id=p.tenant_id and e.site_id=p.site_id and e.plan_id=p.id
-        and e.alert_type in ('due_soon','overdue')
-      order by e.updated_at desc,e.id desc limit 1
-    ) plan_row on true
-    where p.tenant_id=p_tenant_id and p.site_id=p_site_id;
+    from (
+      select plan.id,plan.next_due_at,plan_row.alert_type
+      from public.generator_maintenance_preventive_plans plan
+      left join lateral (
+        select e.alert_type from public.generator_maintenance_alert_events e
+        where e.tenant_id=plan.tenant_id and e.site_id=plan.site_id and e.plan_id=plan.id
+          and e.alert_type in ('due_soon','overdue')
+        order by e.updated_at desc,e.id desc limit 1
+      ) plan_row on true
+      where plan.tenant_id=p_tenant_id and plan.site_id=p_site_id
+      order by case when plan_row.alert_type='overdue' then 0 when plan_row.alert_type='due_soon' then 1 else 2 end,
+        coalesce(plan.next_due_at,'infinity'::timestamptz),plan.id
+      limit 500
+    ) p;
   end if;
 
   return jsonb_build_object('status','ok','entity_type',p_entity_type,
