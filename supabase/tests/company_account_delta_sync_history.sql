@@ -120,12 +120,12 @@ create table public.inventory_stock_movements (
 -- in this isolated fixture because the test defines inventory_stock_movements locally.
 create or replace function public.powerhub_inventory_reject_stock_movement_mutation()
 returns trigger language plpgsql security invoker set search_path=public,pg_temp
-as $
+as $stock_movement_guard$
 begin
   raise exception 'INVENTORY_STOCK_MOVEMENT_IMMUTABLE'
     using errcode='P0001',detail=format('operation=%s movement_id=%s',tg_op,old.id);
 end;
-$;
+$stock_movement_guard$;
 revoke all on function public.powerhub_inventory_reject_stock_movement_mutation() from public,anon,authenticated;
 grant execute on function public.powerhub_inventory_reject_stock_movement_mutation() to service_role;
 create trigger inventory_stock_movement_append_only before update or delete on public.inventory_stock_movements
