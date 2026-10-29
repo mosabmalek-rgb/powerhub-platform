@@ -297,6 +297,22 @@ async function requirePurchaseReadAccess(userId: number, siteId: number) {
   return { ...access, canViewFinancials, canManageSupplierPayments };
 }
 
+async function requirePurchaseReceiptHistoryReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const allowed = access.permissions.includes("viewPurchases") ||
+    access.permissions.includes("receiveInventory") || access.permissions.includes("adjustInventory");
+  if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجل الاستلام." });
+  return access;
+}
+
+async function requireSupplierReturnHistoryReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const allowed = access.permissions.includes("viewPurchases") ||
+    access.permissions.includes("manageSupplierPayments") || access.permissions.includes("adjustInventory");
+  if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجل مرتجعات المورد." });
+  return access;
+}
+
 async function requireStockReadAccess(userId: number, siteId: number) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   if (!access.permissions.includes("viewInventory") && !access.permissions.includes("viewInventoryReports")) {
@@ -1045,6 +1061,70 @@ export const powerhubInventoryRouter = router({
           received_at: typeof row.received_at === "string" ? row.received_at : null,
           cancelled_at: typeof row.cancelled_at === "string" ? row.cancelled_at : null,
         };
+      });
+    }),
+
+  listPurchaseReceiptHeaders: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(100) }))
+    .query(async ({ ctx, input }) => {
+      const access = await requirePurchaseReceiptHistoryReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_inventory_sync_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: "inventory_purchase_receipt_headers",
+      });
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الاستلام التشغيلي." });
+      }
+      const snapshot = data as unknown as { rows?: unknown[] };
+      const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+      return rows.slice(0, input.limit).flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const row = item as Record<string, unknown>;
+        const id = Number(row.receipt_id ?? row.id);
+        const purchaseId = Number(row.purchase_id), supplierId = Number(row.supplier_id), warehouseId = Number(row.warehouse_id);
+        const supplierName = String(row.supplier_name ?? ""), warehouseName = String(row.warehouse_name ?? "");
+        return [{
+          id, receipt_id: id, tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId, purchase_id: purchaseId, purchaseId,
+          purchase_number: String(row.purchase_number ?? ""), receipt_number: String(row.receipt_number ?? ""),
+          receipt_date: String(row.receipt_date ?? ""), status: String(row.status ?? ""),
+          supplier_id: supplierId, supplierId, supplier_name: supplierName, supplierName,
+          supplier_code: (row.supplier_code ?? null) as string | null,
+          warehouse_id: warehouseId, warehouseId, warehouse_name: warehouseName, warehouseName,
+          received_at: (row.received_at ?? null) as string | null, created_at: String(row.created_at ?? ""),
+          line_count: Number(row.line_count ?? 0), received_quantity: String(row.received_quantity ?? "0.000"),
+        }];
+      });
+    }),
+
+  listSupplierReturnHeaders: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(100) }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupplierReturnHistoryReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_inventory_sync_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: "inventory_supplier_return_headers",
+      });
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل مرتجعات المورد التشغيلي." });
+      }
+      const snapshot = data as unknown as { rows?: unknown[] };
+      const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+      return rows.slice(0, input.limit).flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const row = item as Record<string, unknown>;
+        const id = Number(row.return_id ?? row.id);
+        const purchaseId = Number(row.purchase_id), supplierId = Number(row.supplier_id), warehouseId = Number(row.warehouse_id);
+        const supplierName = String(row.supplier_name ?? ""), warehouseName = String(row.warehouse_name ?? "");
+        return [{
+          id, return_id: id, tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId, purchase_id: purchaseId, purchaseId,
+          purchase_number: String(row.purchase_number ?? ""), return_number: String(row.return_number ?? ""),
+          return_date: String(row.return_date ?? ""), status: String(row.status ?? ""),
+          supplier_id: supplierId, supplierId, supplier_name: supplierName, supplierName,
+          supplier_code: (row.supplier_code ?? null) as string | null,
+          warehouse_id: warehouseId, warehouseId, warehouse_name: warehouseName, warehouseName,
+          returned_at: (row.returned_at ?? null) as string | null, created_at: String(row.created_at ?? ""),
+          line_count: Number(row.line_count ?? 0), returned_quantity: String(row.returned_quantity ?? "0.000"),
+        }];
       });
     }),
 

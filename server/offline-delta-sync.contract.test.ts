@@ -9,6 +9,8 @@ const expenseMigration = readFileSync(resolve(process.cwd(), "supabase/migration
 const inventoryMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029000000_powerhub_delta_inventory_catalog.sql"), "utf8");
 const stocktakeMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029100000_powerhub_delta_inventory_stocktakes.sql"), "utf8");
 const purchaseHeaderMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029110000_powerhub_delta_purchase_headers.sql"), "utf8");
+const receiptReturnMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029120000_powerhub_delta_receipt_return_headers.sql"), "utf8");
+const inventoryRouter = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
 const purchaseHeaderProjection = purchaseHeaderMigration.slice(
   purchaseHeaderMigration.indexOf("create or replace function public.powerhub_delta_sync_project_purchase_header_row"),
   purchaseHeaderMigration.indexOf("create or replace function public.powerhub_delta_sync_project_inventory_row"),
@@ -44,7 +46,7 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"])');
     expect(router).toContain("requireSupabaseSiteRole(");
     expect(router).toContain('inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta"');
     expect(router).toContain('inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot"');
@@ -107,6 +109,18 @@ describe("inventory catalog Delta extension", () => {
     expect(purchaseHeaderProjection).not.toContain("'notes'");
     expect(router).toContain("requireDeltaPurchaseHeaderReadAccess");
     expect(router).toContain('"inventory_purchase_headers"].includes(input.entityType)');
+    expect(router).toContain("requireDeltaPurchaseChildHistoryReadAccess");
+    expect(inventoryRouter).toContain("listPurchaseReceiptHeaders");
+    expect(inventoryRouter).toContain("listSupplierReturnHeaders");
+    expect(receiptReturnMigration).toContain("after insert or update or delete on public.supplier_purchase_receipts");
+    expect(receiptReturnMigration).toContain("after insert or update or delete on public.supplier_purchase_returns");
+    expect(receiptReturnMigration).toContain("'received_quantity',line_summary.received_quantity");
+    expect(receiptReturnMigration).toContain("'returned_quantity',line_summary.returned_quantity");
+    expect(receiptReturnMigration).not.toContain("'refund_amount'");
+    expect(receiptReturnMigration).not.toContain("'supplier_credit_amount'");
+    expect(receiptReturnMigration).not.toContain("'inventory_unit_cost'");
+    expect(client).toContain('"inventory_purchase_receipt_headers"');
+    expect(client).toContain('"inventory_supplier_return_headers"');
   });
 });
 
