@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { CheckCircle2, ClipboardList, Eye, FilePlus2, Loader2, PackageCheck, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -142,6 +143,15 @@ export default function InventoryPurchasesPanel({
   const [paymentReversalReasons, setPaymentReversalReasons] = useState<Record<number, string>>({});
   const [purchaseCancellationReason, setPurchaseCancellationReason] = useState("");
 
+  const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
+  const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
+  const ensureServerWriteAllowed = () => {
+    if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
+      toast.error("يلزم اتصال موثوق بخادم PowerHub لتنفيذ العملية؛ لم يُسجل استحقاق أو دفعة أو حركة مخزون.");
+      return false;
+    }
+    return true;
+  };
   const utils = trpc.useUtils();
   const purchases = trpc.powerhub.inventory.listPurchases.useQuery(
     { siteId, search: search.trim() || undefined },
@@ -385,6 +395,7 @@ export default function InventoryPurchasesPanel({
 
   const onCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!supplierId || !warehouseId) {
       toast.error("اختر المورد والمخزن قبل حفظ الفاتورة.");
       return;
@@ -437,6 +448,7 @@ export default function InventoryPurchasesPanel({
 
   const onSupplierPaymentSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!selectedPurchaseId || !details.data) return;
     const amount = Number(paymentAmount);
     const outstanding = Number(details.data.purchase.outstandingAmount ?? 0);
@@ -472,6 +484,7 @@ export default function InventoryPurchasesPanel({
 
   const onReturnSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!selectedPurchaseId || !details.data) return;
     const lines = details.data.lines
       .map((line) => ({ purchaseLineId: Number(line.id), quantity: Number(returnQuantities[Number(line.id)] ?? 0) }))
@@ -509,6 +522,7 @@ export default function InventoryPurchasesPanel({
 
   const onReceiveSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!selectedPurchaseId || !details.data) return;
     const lines = details.data.lines
       .map((line) => ({ purchaseLineId: Number(line.id), quantity: Number(receiptQuantities[Number(line.id)] ?? 0) }))
@@ -683,7 +697,7 @@ export default function InventoryPurchasesPanel({
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>إلغاء</Button>
-                <Button type="submit" disabled={createPurchase.isPending || options.isLoading || !options.data?.items.length || !options.data?.suppliers.length || !options.data?.warehouses.length}>
+                <Button type="submit" disabled={serverWriteBlocked || createPurchase.isPending || options.isLoading || !options.data?.items.length || !options.data?.suppliers.length || !options.data?.warehouses.length}>
                   {createPurchase.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="ml-2 h-4 w-4" />}
                   حفظ المسودة
                 </Button>
@@ -846,7 +860,7 @@ export default function InventoryPurchasesPanel({
                       })}
                     </div>
                     <div className="flex justify-end">
-                      <Button type="submit" disabled={returnToSupplier.isPending}>
+                      <Button type="submit" disabled={serverWriteBlocked || returnToSupplier.isPending}>
                         {returnToSupplier.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <RotateCcw className="ml-2 h-4 w-4" />} تسجيل مرتجع المورد
                       </Button>
                     </div>
@@ -884,7 +898,7 @@ export default function InventoryPurchasesPanel({
                           <td className="p-3">{payment.status === "reversed" ? <span className="text-muted-foreground">معكوسة{payment.reversal_reason ? <span className="block text-xs">{payment.reversal_reason}</span> : null}</span> : "مسجلة"}</td>
                           {canManageSupplierPayments ? <td className="p-3">{payment.status === "posted" ? <div className="flex min-w-56 flex-col gap-2">
                             <Input value={paymentReversalReasons[payment.id] ?? ""} onChange={(event) => setPaymentReversalReasons((current) => ({ ...current, [payment.id]: event.target.value }))} maxLength={500} placeholder="سبب عكس الدفعة" aria-label="سبب عكس الدفعة" />
-                            <Button type="button" size="sm" variant="outline" disabled={reverseSupplierPayment.isPending || (paymentReversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => reverseSupplierPayment.mutate({ siteId, paymentId: payment.id, reason: (paymentReversalReasons[payment.id] ?? "").trim() })}>عكس الدفعة</Button>
+                            <Button type="button" size="sm" variant="outline" disabled={serverWriteBlocked || reverseSupplierPayment.isPending || (paymentReversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => { if (ensureServerWriteAllowed()) reverseSupplierPayment.mutate({ siteId, paymentId: payment.id, reason: (paymentReversalReasons[payment.id] ?? "").trim() }); }}>عكس الدفعة</Button>
                           </div> : "—"}</td> : null}
                         </tr>)}</tbody>
                       </table>
@@ -928,7 +942,7 @@ export default function InventoryPurchasesPanel({
                     {companyAccountId && paymentAmount && Number(paymentAmount) > Number(paymentOptions.data?.find((account) => String(account.id) === companyAccountId)?.balance ?? 0)
                       ? <p className="text-sm text-destructive">المبلغ أكبر من الرصيد الحالي للحساب المحدد.</p> : null}
                     <div className="flex justify-end">
-                      <Button type="submit" disabled={recordSupplierPayment.isPending || paymentOptions.isLoading || !paymentOptions.data?.length}>
+                      <Button type="submit" disabled={serverWriteBlocked || recordSupplierPayment.isPending || paymentOptions.isLoading || !paymentOptions.data?.length}>
                         {recordSupplierPayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="ml-2 h-4 w-4" />}
                         تسجيل الدفعة
                       </Button>
@@ -939,14 +953,16 @@ export default function InventoryPurchasesPanel({
                 {["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases ? (
                   <form onSubmit={(event) => {
                     event.preventDefault();
+                    if (!ensureServerWriteAllowed()) return;
                     const reason = purchaseCancellationReason.trim();
                     if (reason.length < 3) { toast.error("اكتب سببًا واضحًا للإلغاء."); return; }
                     cancelPurchase.mutate({ siteId, purchaseId: selectedPurchaseId, reason });
                   }} className="space-y-3 rounded-md border border-destructive/30 p-3">
                     <div><p className="font-semibold">إلغاء فاتورة المشتريات</p><p className="text-sm text-muted-foreground">لا يُسمح بالإلغاء بعد الاستلام أو مع وجود دفعات مسجلة. عند إلغاء فاتورة معتمدة يُسجل قيد عكسي بدل حذف الاستحقاق الأصلي.</p></div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
+                    {serverWriteBlocked ? <p role="status" className="text-xs text-amber-700">الحفظ والاعتماد والاستلام والمرتجعات والدفعات تتطلب اتصالًا موثوقًا بالخادم؛ لا تُنفذ محليًا.</p> : null}
+                  <div className="flex flex-col gap-2 sm:flex-row">
                       <Input value={purchaseCancellationReason} onChange={(event) => setPurchaseCancellationReason(event.target.value)} maxLength={500} placeholder="سبب الإلغاء (إلزامي)" required minLength={3} />
-                      <Button type="submit" variant="destructive" disabled={cancelPurchase.isPending || purchaseCancellationReason.trim().length < 3}>
+                      <Button type="submit" variant="destructive" disabled={serverWriteBlocked || cancelPurchase.isPending || purchaseCancellationReason.trim().length < 3}>
                         {cancelPurchase.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} إلغاء الفاتورة
                       </Button>
                     </div>
@@ -956,7 +972,7 @@ export default function InventoryPurchasesPanel({
                 {details.data.purchase.status === "draft" && canApprovePurchases ? (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed p-3">
                     <div><p className="font-semibold">اعتماد الفاتورة</p><p className="text-sm text-muted-foreground">يسجل الاعتماد استحقاق المورد. لا تتغير كميات المخزون حتى تسجيل الاستلام.</p></div>
-                    <Button type="button" disabled={confirmPurchase.isPending} onClick={() => confirmPurchase.mutate({ siteId, purchaseId: selectedPurchaseId })}>
+                    <Button type="button" disabled={serverWriteBlocked || confirmPurchase.isPending} onClick={() => { if (ensureServerWriteAllowed()) confirmPurchase.mutate({ siteId, purchaseId: selectedPurchaseId }); }}>
                       {confirmPurchase.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="ml-2 h-4 w-4" />} اعتماد المشتريات
                     </Button>
                   </div>
@@ -984,7 +1000,7 @@ export default function InventoryPurchasesPanel({
                       })}
                     </div>
                     <div className="flex justify-end">
-                      <Button type="submit" disabled={receivePurchase.isPending}>
+                      <Button type="submit" disabled={serverWriteBlocked || receivePurchase.isPending}>
                         {receivePurchase.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <PackageCheck className="ml-2 h-4 w-4" />} تسجيل الاستلام
                       </Button>
                     </div>
