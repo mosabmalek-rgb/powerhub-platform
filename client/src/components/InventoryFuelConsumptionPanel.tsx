@@ -403,6 +403,7 @@ export default function InventoryFuelConsumptionPanel({
   }
 
   return <div className="space-y-4">
+    {optionsAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى خيارات الوقود لهذا الفرع؛ أُخفيت الخيارات المحلية حتى لا تُستخدم بيانات قديمة.</p> : null}
     {canManageFuelAndConsumption ? <>
       <Card>
         <CardHeader className="flex flex-row items-center gap-3 space-y-0">
@@ -528,6 +529,7 @@ export default function InventoryFuelConsumptionPanel({
         <p className="text-sm text-muted-foreground">يُرسل تنبيه داخل المنصة عند نزول المستوى عن الحد أو تجاوز معدل الاستهلاك المقاس. لا يُحتسب المعدل عند نقص القراءات أو تعارض التسوية.</p>
       </CardHeader>
       <CardContent className="space-y-4">
+        {alertSettingsAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية الوصول إلى إعدادات تنبيهات الوقود؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : alertSettings.error && alertSettings.data !== undefined ? <p role="status" className="text-xs text-amber-700">تعذر تحديث إعدادات التنبيهات؛ تُعرض آخر نسخة ناجحة لهذه الجلسة.</p> : alertSettings.error ? <p role="alert" className="text-sm text-destructive">تعذر تحميل إعدادات التنبيهات ولا توجد نسخة متاحة.</p> : null}
         <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={(event) => {
           event.preventDefault();
           const low = alertLowThreshold.trim() ? Number(alertLowThreshold) : null;
@@ -595,7 +597,7 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2"><div>{row.is_enabled ? "مفعّل" : "موقوف"}</div><div className="text-xs text-muted-foreground">{row.low_level_alert_active ? "مستوى منخفض نشط" : row.abnormal_alert_active ? "استهلاك غير اعتيادي نشط" : "لا يوجد تنبيه نشط"}</div></td>
               <td className="p-2">{dateTime(row.abnormal_last_triggered_at || row.low_level_last_triggered_at)}</td>
             </tr>)}
-            {alertSettingRows.length === 0 ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">لم تُضبط تنبيهات لهذا الفرع بعد.</td></tr> : null}</tbody>
+            {alertSettingRows.length === 0 ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">{alertSettingsAuthorizationDenied ? "رفض الخادم الوصول إلى إعدادات التنبيهات." : alertSettings.error ? "تعذر تحميل إعدادات التنبيهات." : "لم تُضبط تنبيهات لهذا الفرع بعد."}</td></tr> : null}</tbody>
           </table>
         </div>
       </CardContent>
@@ -713,6 +715,7 @@ export default function InventoryFuelConsumptionPanel({
         <p className="text-sm text-muted-foreground">كل صف يمثل بداية حالة تنبيه جديدة؛ لا تكرر إعادة التقييم التنبيه ما دامت الحالة مستمرة.</p>
       </CardHeader>
       <CardContent>
+        {alertDispatchesAuthorizationDenied ? <p role="alert" className="mb-2 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى سجل إرسال التنبيهات؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : alertDispatches.error && alertDispatches.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل التنبيهات؛ تُعرض آخر نتيجة ناجحة.</p> : alertDispatches.error ? <p role="alert" className="mb-2 text-sm text-destructive">تعذر تحميل سجل التنبيهات ولا توجد نسخة متاحة.</p> : null}
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right">
@@ -726,7 +729,7 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.threshold_value)} {row.alert_type === "low_fuel_level" ? "لتر" : "لتر/ساعة"}</td>
               <td className="p-2">{row.recipient_count > 0 ? "أُنشئ إشعار داخل المنصة" : "لم يوجد مستلم نشط وقت التقييم"}</td>
             </tr>)}
-            {alertDispatchRows.length === 0 ? <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">لا توجد تنبيهات مسجلة ضمن المرشحات.</td></tr> : null}</tbody>
+            {alertDispatchRows.length === 0 ? <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">{alertDispatchesAuthorizationDenied ? "رفض الخادم الوصول إلى سجل التنبيهات." : alertDispatches.error ? "تعذر تحميل سجل التنبيهات." : "لا توجد تنبيهات مسجلة ضمن المرشحات."}</td></tr> : null}</tbody>
           </table>
         </div>
       </CardContent>
