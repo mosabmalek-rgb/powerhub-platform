@@ -508,9 +508,9 @@ describe("public invoice and inquiry actions", () => {
     expect(review).toContain("refetchIntervalInBackground:false");
     expect(review).toContain('staleTime:0,refetchOnMount:"always"');
     const mobileSync = read("client/src/pages/MobileSyncPage.tsx");
-    expect(mobileSync).toContain('staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false');
-    expect(mobileSync).toContain("events.isFetching && events.data");
-    expect(mobileSync).toContain("readings.isFetching && readings.data");
+    expect(mobileSync).toContain('staleTime: 15_000, refetchOnMount: "always", refetchInterval: serverQueriesEnabled ? 15_000 : false, refetchIntervalInBackground: false, refetchOnReconnect: true');
+    expect(mobileSync).toContain("events.isFetching && eventsData");
+    expect(mobileSync).toContain("readings.isFetching && readingsData");
     expect(home).toContain("(sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword");
     expect(review).toContain("requests.isLoading&&isOnline");
     expect(review).toContain("requests.isFetching && requests.data");
