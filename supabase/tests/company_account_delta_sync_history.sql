@@ -108,6 +108,14 @@ create table public.inventory_warehouses (
 \ir ../migrations/20261027130000_powerhub_delta_payment_history.sql
 \ir ../migrations/20261027140000_powerhub_delta_expense_history.sql
 \ir ../migrations/20261027150000_powerhub_delta_company_account_history.sql
+create table public.inventory_stock_movements (
+ id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
+ generator_id bigint, movement_type text not null, quantity numeric(14,3) not null, unit_cost numeric(14,4) not null default 0,
+ total_cost_amount numeric(14,2) generated always as (round(quantity * unit_cost, 2)) stored,
+ purchase_id bigint, purchase_line_id bigint, reference_no text, notes text, operation_key text not null,
+ occurred_at timestamptz not null default now(), created_by_user_id bigint, created_at timestamptz not null default now(),
+ reversal_of_movement_id bigint, corrects_movement_id bigint, correction_reason text, corrected_by_movement_id bigint
+);
 \ir ../migrations/20261029000000_powerhub_delta_inventory_catalog.sql
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
@@ -364,17 +372,17 @@ declare
 begin
   insert into public.inventory_items(id,tenant_id,sku,name,category,base_unit,reorder_point,is_active)
   values (1101,1,'SKU-1101','Diesel','fuel','liter',10,true);
-  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,10,'inventory_items');
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_items');
   if jsonb_array_length(v_snapshot->'rows')<>1 or v_snapshot #>> '{rows,0,id}' is distinct from '1101' then
     raise exception 'Inventory item snapshot failed: %',v_snapshot;
   end if;
-  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,20,'inventory_items');
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,20,'inventory_items');
   if jsonb_array_length(v_snapshot->'rows')<>1 or v_snapshot #>> '{rows,0,id}' is distinct from '1101' then
     raise exception 'Tenant-wide inventory item did not reach second site: %',v_snapshot;
   end if;
   v_cursor10:=(v_snapshot->>'snapshot_cursor')::bigint;
   update public.inventory_items set is_active=false where tenant_id=1 and id=1101;
-  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,20,'inventory_items',v_cursor10,null,200);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,20,'inventory_items',v_cursor10,null,200);
   if jsonb_array_length(v_delta->'changes')<>1
      or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
      or v_delta #>> '{changes,0,entity_id}' is distinct from '1101' then
@@ -384,20 +392,20 @@ begin
   update public.inventory_items set is_active=true where tenant_id=1 and id=1101;
   insert into public.inventory_item_units(id,tenant_id,item_id,unit_label,factor_to_base,is_active)
   values (1201,1,1101,'barrel',200,true);
-  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,10,'inventory_item_units');
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_item_units');
   if jsonb_array_length(v_snapshot->'rows')<>1
      or v_snapshot #>> '{rows,0,item_id}' is distinct from '1101'
      or v_snapshot #>> '{rows,0,id}' is distinct from '1201' then
     raise exception 'Inventory item-unit snapshot failed: %',v_snapshot;
   end if;
-  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,20,'inventory_item_units',0,null,200);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,20,'inventory_item_units',0,null,200);
   if jsonb_array_length(v_delta->'changes')<>1
      or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
      or v_delta #>> '{changes,0,row_data,factor_to_base}' is distinct from '200' then
     raise exception 'Inventory item-unit Delta failed: %',v_delta;
   end if;
   update public.inventory_item_units set is_active=false where tenant_id=1 and id=1201;
-  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,20,'inventory_item_units',1,null,200);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,20,'inventory_item_units',1,null,200);
   if jsonb_array_length(v_delta->'changes')<>1
      or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
      or v_delta #>> '{changes,0,entity_id}' is distinct from '1201' then
@@ -406,7 +414,7 @@ begin
 
   insert into public.suppliers(id,tenant_id,supplier_code,name,supplier_type,is_active)
   values (1301,1,'SUP-1301','Supplier Delta Test','permanent',true);
-  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,10,'suppliers');
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'suppliers');
   if jsonb_array_length(v_snapshot->'rows')<>1
      or v_snapshot #>> '{rows,0,id}' is distinct from '1301'
      or v_snapshot #>> '{rows,0,supplier_type}' is distinct from 'permanent' then
@@ -415,22 +423,22 @@ begin
 
   insert into public.inventory_warehouses(id,tenant_id,site_id,code,name,is_active)
   values (1401,1,10,'WH-1401','Branch Warehouse',true);
-  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,10,'inventory_warehouses');
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_warehouses');
   if jsonb_array_length(v_snapshot->'rows')<>1 or v_snapshot #>> '{rows,0,id}' is distinct from '1401' then
     raise exception 'Warehouse snapshot failed: %',v_snapshot;
   end if;
   v_cursor10:=(v_snapshot->>'snapshot_cursor')::bigint;
-  v_snapshot:=public.powerhub_get_inventory_catalog_sync_snapshot(1,20,'inventory_warehouses');
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,20,'inventory_warehouses');
   if jsonb_array_length(v_snapshot->'rows')<>0 then
     raise exception 'Warehouse leaked into unrelated branch: %',v_snapshot;
   end if;
   v_cursor20:=(v_snapshot->>'snapshot_cursor')::bigint;
   update public.inventory_warehouses set site_id=20 where tenant_id=1 and id=1401;
-  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,10,'inventory_warehouses',v_cursor10,null,200);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_warehouses',v_cursor10,null,200);
   if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,operation}' is distinct from 'delete' then
     raise exception 'Warehouse move did not tombstone old branch: %',v_delta;
   end if;
-  v_delta:=public.powerhub_pull_inventory_catalog_sync_delta(1,20,'inventory_warehouses',v_cursor20,null,200);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,20,'inventory_warehouses',v_cursor20,null,200);
   if jsonb_array_length(v_delta->'changes')<>1
      or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
      or v_delta #>> '{changes,0,row_data,site_id}' is distinct from '20' then
@@ -438,20 +446,63 @@ begin
   end if;
 
   begin
-    perform public.powerhub_get_inventory_catalog_sync_snapshot(2,10,'inventory_items');
+    perform public.powerhub_get_inventory_sync_snapshot(2,10,'inventory_items');
     raise exception 'Expected inventory snapshot to reject cross-tenant site';
   exception when others then if sqlerrm<>'SITE_OUT_OF_SCOPE' then raise; end if; end;
 
-  if has_function_privilege('anon','public.powerhub_get_inventory_catalog_sync_snapshot(bigint,bigint,text)','EXECUTE')
-     or has_function_privilege('authenticated','public.powerhub_pull_inventory_catalog_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
-     or has_function_privilege('authenticated','public.powerhub_append_inventory_catalog_sync_change(bigint,bigint,text,text,text,jsonb)','EXECUTE')
+  if has_function_privilege('anon','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_append_inventory_sync_change(bigint,bigint,text,text,text,jsonb)','EXECUTE')
      or has_table_privilege('anon','public.powerhub_sync_changes','SELECT')
      or has_table_privilege('authenticated','public.powerhub_sync_scope_state','SELECT') then
     raise exception 'Inventory Delta server-only ACL boundary was weakened';
   end if;
-  if not has_function_privilege('service_role','public.powerhub_get_inventory_catalog_sync_snapshot(bigint,bigint,text)','EXECUTE')
-     or not has_function_privilege('service_role','public.powerhub_pull_inventory_catalog_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE') then
+  if not has_function_privilege('service_role','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE') then
     raise exception 'service_role cannot execute inventory Delta functions';
   end if;
 end;
 $inventory_catalog_delta_test$;
+
+-- Non-financial stock movement Delta is site-scoped and never projects costs.
+do $inventory_movement_delta_test$
+declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
+begin
+  insert into public.inventory_items(id,tenant_id,sku,name,category,base_unit,reorder_point,is_active)
+  values (2101,1,'SKU-2101','Diesel Movement','fuel','liter',0,true);
+  insert into public.inventory_warehouses(id,tenant_id,site_id,code,name,is_active)
+  values (2201,1,10,'WH-2201','Movement Warehouse',true);
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_stock_movements');
+  if jsonb_array_length(v_snapshot->'rows')<>0 then raise exception 'Expected empty stock movement snapshot: %',v_snapshot; end if;
+  insert into public.inventory_stock_movements(
+    id,tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,reference_no,operation_key
+  ) values (2301,1,10,2201,2101,'issue',2.500,3.5000,'ISS-2301','movement-test-2301');
+  select last_cursor into v_cursor from public.powerhub_sync_scope_state
+    where tenant_id=1 and site_id=10 and entity_type='inventory_stock_movements';
+  if v_cursor is distinct from 1 then raise exception 'Stock movement Delta cursor mismatch: %',v_cursor; end if;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stock_movements',0,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '2301'
+     or v_delta #>> '{changes,0,row_data,movement_id}' is distinct from '2301'
+     or v_delta #>> '{changes,0,row_data,quantity}' is distinct from '2.500'
+     or (v_delta #> '{changes,0,row_data}') ? 'unit_cost'
+     or (v_delta #> '{changes,0,row_data}') ? 'total_cost_amount' then
+    raise exception 'Stock movement Delta projection failed or exposed financial values: %',v_delta;
+  end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_stock_movements');
+  if jsonb_array_length(v_snapshot->'rows')<>1
+     or (v_snapshot #> '{rows,0}') ? 'unit_cost'
+     or (v_snapshot #> '{rows,0}') ? 'total_cost_amount' then
+    raise exception 'Stock movement snapshot failed or exposed financial values: %',v_snapshot;
+  end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,20,'inventory_stock_movements');
+  if jsonb_array_length(v_snapshot->'rows')<>0 then
+    raise exception 'Stock movement leaked to another branch: %',v_snapshot;
+  end if;
+  if has_function_privilege('anon','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'Stock movement Delta server-only ACL boundary was weakened';
+  end if;
+end;
+$inventory_movement_delta_test$;
