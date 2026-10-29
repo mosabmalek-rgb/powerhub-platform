@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createOfflineWork, type GeneratorCreateDraft, type GeneratorUpdateDraft } from "./offline-work-queue";
+import { blocksDuplicateOfflinePayrollPeriod, createOfflineLocalEntityId, createOfflineWork, type GeneratorCreateDraft, type GeneratorUpdateDraft, type QueuedOfflineWork } from "./offline-work-queue";
 
 describe("offline generator queue contract", () => {
   it("creates a scoped generator create operation with a stable client operation id", () => {
@@ -74,7 +74,8 @@ describe("HR offline outbox contract", () => {
     const source = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
     expect(source).toContain('if (record.kind === "employee_update")');
     expect(source).toContain('if (record.kind === "attendance_upsert")');
-    expect(source).toContain('item.kind === "payroll_draft" && item.status !== "applied" && item.status !== "failed"');
+    expect(source).toContain("blocksDuplicateOfflinePayrollPeriod(item, {");
+    expect(source).not.toContain('item.kind === "payroll_draft" && item.status !== "applied" && item.status !== "failed"');
     expect(source).toContain("payload.expectedVersion = input.serverVersion");
     expect(source).toContain("export async function resolveOfflineEmployeeReferences");
     expect(source).toContain("export async function resolveOfflineAdjustmentReferences");
@@ -99,6 +100,49 @@ describe("HR optimistic version integrity", () => {
     expect(employeePage).toContain("createdAt: new Date(item.createdAt), versionNo: 0");
     expect(attendancePage).toContain("contractType: payload.contractType, versionNo: 0");
     expect(attendancePage).toContain("versionNo: payload.expectedVersion ?? previous?.attendance.versionNo ?? 0");
+  });
+});
+
+describe("HR local identifiers and payroll deduplication", () => {
+  it("generates unique negative safe-integer IDs without depending on wall-clock time", () => {
+    const ids = Array.from({ length: 1_000 }, () => createOfflineLocalEntityId());
+    expect(ids.every((id) => Number.isSafeInteger(id) && id < 0)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("blocks duplicate periods for pending, ambiguous, conflicted, applied, or untracked operations", () => {
+    const base = createOfflineWork({
+      userId: 7, siteId: 3, kind: "payroll_draft",
+      payload: { period: "2026-10", items: [{ employeeId: 11, extraAmount: 0, advanceDeduction: 0, otherDeduction: 0 }] },
+    });
+    const scope = { userId: 7, siteId: 3, period: "2026-10" };
+    const meta = (outcome: "pending" | "syncing" | "retryable" | "conflict" | "rejected" | "applied") => ({
+      operationId: base.clientOperationId, userId: 7, siteId: 3, kind: "payroll_draft",
+      dependsOn: [], attempts: 1, nextAttemptAt: 0, outcome, updatedAt: 1,
+    });
+
+    expect(blocksDuplicateOfflinePayrollPeriod({ ...base, status: "pending" }, scope, meta("pending"))).toBe(true);
+    expect(blocksDuplicateOfflinePayrollPeriod({ ...base, status: "failed" }, scope, meta("retryable"))).toBe(true);
+    expect(blocksDuplicateOfflinePayrollPeriod({ ...base, status: "failed" }, scope, meta("syncing"))).toBe(true);
+    expect(blocksDuplicateOfflinePayrollPeriod({ ...base, status: "failed" }, scope, undefined)).toBe(true);
+    expect(blocksDuplicateOfflinePayrollPeriod({ ...base, status: "conflict" }, scope, meta("conflict"))).toBe(true);
+    expect(blocksDuplicateOfflinePayrollPeriod({ ...base, status: "applied" }, scope, meta("applied"))).toBe(true);
+    expect(blocksDuplicateOfflinePayrollPeriod({ ...base, status: "failed" }, scope, meta("rejected"))).toBe(false);
+    expect(blocksDuplicateOfflinePayrollPeriod(base, { ...scope, period: "2026-09" }, meta("pending"))).toBe(false);
+    expect(blocksDuplicateOfflinePayrollPeriod({ ...base, siteId: 4 }, scope, meta("pending"))).toBe(false);
+  });
+
+  it("uses random negative IDs for HR local employee, attendance, and advance references", () => {
+    const employeePage = readFileSync(resolve(process.cwd(), "client/src/pages/HumanResourcesPage.tsx"), "utf8");
+    const attendancePage = readFileSync(resolve(process.cwd(), "client/src/pages/AttendancePage.tsx"), "utf8");
+    const advancesPage = readFileSync(resolve(process.cwd(), "client/src/pages/EmployeeAdvancesPage.tsx"), "utf8");
+    expect(employeePage).toContain("const localEmployeeId = createOfflineLocalEntityId()");
+    expect(attendancePage).toContain("existing?.attendance.id ?? createOfflineLocalEntityId()");
+    expect(advancesPage).toContain("const localAdjustmentId=createOfflineLocalEntityId()");
+    expect(advancesPage).toContain("const localRepaymentId=createOfflineLocalEntityId()");
+    expect(employeePage).not.toContain("const localEmployeeId = -Date.now()");
+    expect(attendancePage).not.toContain("?? -Date.now()");
+    expect(advancesPage).not.toContain("=-Date.now()");
   });
 });
 

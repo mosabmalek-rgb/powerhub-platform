@@ -9,7 +9,7 @@ import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
 import { getSupabaseSession } from "@/lib/supabase";
-import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
+import { createOfflineLocalEntityId, enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { BriefcaseBusiness, PencilLine, Plus, Search, UserRound, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -128,7 +128,7 @@ export default function HumanResourcesPage({ embedded = false }: { embedded?: bo
         return;
       }
       try {
-        const localEmployeeId = -Date.now();
+        const localEmployeeId = createOfflineLocalEntityId();
         const queued = await enqueueOfflineHrWork({
           userId, tenantId, siteId, kind: "employee_create",
           payload: { localEmployeeId, ...payload },

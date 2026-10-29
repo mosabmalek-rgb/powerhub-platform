@@ -294,6 +294,34 @@ export type QueuedOfflineWork = {
   appliedLabel?: string;
   appliedVersionNo?: number;
 };
+
+ /**
+  * Generates a negative local-only reference with 52 random bits.
+  * Do not use wall-clock milliseconds for entity references: rapid submissions
+  * can collide and cause dependent Outbox operations to bind to the wrong row.
+  */
+export function createOfflineLocalEntityId(): number {
+  const magnitude = Number.parseInt(crypto.randomUUID().replace(/-/g, "").slice(0, 13), 16);
+  return -Math.max(1, magnitude);
+}
+
+/** Refuse a second payroll draft when a prior same-period operation is still
+ * pending, ambiguous, conflicted, missing metadata, or already applied locally.
+ * A definitively rejected, scope-matched operation is the only failed row that
+ * may be replaced by a corrected request using a new operation key.
+ */
+export function blocksDuplicateOfflinePayrollPeriod(
+  item: QueuedOfflineWork,
+  scope: { userId: number; siteId: number; period: string },
+  metadata?: SyncMetadataRecord,
+): boolean {
+  if (item.userId !== scope.userId || item.siteId !== scope.siteId || item.kind !== "payroll_draft") return false;
+  if ((item.payload as HrPayrollDraftPayload).period !== scope.period) return false;
+  const definitivelyRejected = item.status === "failed" &&
+    isSyncMetadataCompatibleWithWorkItem(item, metadata) &&
+    metadata.outcome === "rejected";
+  return !definitivelyRejected;
+}
 /**
  * Validate that persisted synchronization state belongs to this exact Outbox
  * operation. Legacy metadata without tenantId remains compatible only when all
@@ -513,10 +541,14 @@ export async function enqueueOfflineHrWork(input: OfflineWorkEnqueueInput) {
           return;
         }
         if (record.kind === "payroll_draft") {
-          const duplicate = operationRows.find((item) => item.userId === record.userId && item.siteId === record.siteId &&
-            item.kind === "payroll_draft" && item.status !== "applied" && item.status !== "failed" &&
-            (item.payload as HrPayrollDraftPayload).period === (record.payload as HrPayrollDraftPayload).period);
-          if (duplicate) throw new OfflineWorkQueueError("توجد مسودة رواتب محلية لهذه الفترة؛ راجعها أو أعد محاولتها قبل إنشاء مسودة مكررة.");
+          const incomingPeriod = (record.payload as HrPayrollDraftPayload).period;
+          const duplicate = operationRows.find((item) => {
+            const metadata = metadataRows!.find((entry) => entry.operationId === item.clientOperationId);
+            return blocksDuplicateOfflinePayrollPeriod(item, {
+              userId: record.userId, siteId: record.siteId, period: incomingPeriod,
+            }, metadata);
+          });
+          if (duplicate) throw new OfflineWorkQueueError("توجد عملية رواتب محفوظة لهذه الفترة؛ راجع نتيجتها قبل إنشاء مسودة أخرى.");
         }
         operationsStore.add(record);
         metadataStore.add(createInitialSyncMetadataRecord(record, dependsOn));

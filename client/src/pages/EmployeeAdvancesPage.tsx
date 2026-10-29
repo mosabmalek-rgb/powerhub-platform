@@ -8,7 +8,7 @@ import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
 import { getSupabaseSession } from "@/lib/supabase";
-import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
+import { createOfflineLocalEntityId, enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { can } from "@shared/powerhub-rbac";
 import { HandCoins, Plus, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -162,7 +162,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
     try{
       const queuedItems=await listOfflineWork({userId,siteId});
       const pendingCreate=selectedEmployeeId<0?queuedItems.find((item)=>item.kind==="employee_create"&&item.status!=="applied"&&(item.payload as HrEmployeeCreateDraft).localEmployeeId===selectedEmployeeId):undefined;
-      const localAdjustmentId=-Date.now();
+      const localAdjustmentId=createOfflineLocalEntityId();
       const payload={employeeId:selectedEmployeeId,advanceKind:kind,amount:n,...(kind==="employee_loan"?{monthlyDeduction:m}:{}),accountId:selectedAccountId,paymentDate:date,reason,localAdjustmentId};
       await enqueueOfflineHrWork({userId,tenantId,siteId,kind:"employee_advance_issue",dependsOn:pendingCreate?[pendingCreate.clientOperationId]:[],payload});
       await refreshPendingHrWork();
@@ -189,7 +189,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
     try{
       const queue=await listOfflineWork({userId,siteId});
       const pendingIssue=repayId<0?queue.find((item)=>item.kind==="employee_advance_issue"&&item.status!=="applied"&&(item.payload as any).localAdjustmentId===repayId):undefined;
-      const localRepaymentId=-Date.now();
+      const localRepaymentId=createOfflineLocalEntityId();
       await enqueueOfflineHrWork({userId,tenantId,siteId,kind:"employee_advance_repayment",dependsOn:pendingIssue?[pendingIssue.clientOperationId]:[],payload:{adjustmentId:repayId,accountId:selectedAccountId,amount:n,paymentDate:repayDate,notes:repayNotes||undefined,localRepaymentId}});
       await refreshPendingHrWork();
       setRepayId(null);setRepayAmount("");setRepayNotes("");

@@ -11,7 +11,7 @@ import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
 import { getSupabaseSession } from "@/lib/supabase";
-import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrAttendanceUpsertDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
+import { createOfflineLocalEntityId, enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrAttendanceUpsertDraft, type HrEmployeeCreateDraft, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { ClipboardCheck, ChevronDown } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -177,7 +177,7 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
         ? (await listOfflineWork({ userId, siteId })).find((item) => item.kind === "employee_create" &&
             item.status !== "applied" && (item.payload as HrEmployeeCreateDraft).localEmployeeId === selectedEmployeeId)
         : undefined;
-      const localAttendanceId = Number(existing?.attendance.id ?? -Date.now());
+      const localAttendanceId = Number(existing?.attendance.id ?? createOfflineLocalEntityId());
       const work = await enqueueOfflineHrWork({
         userId, tenantId, siteId, kind: "attendance_upsert",
         dependsOn: pendingCreate ? [pendingCreate.clientOperationId] : [],
