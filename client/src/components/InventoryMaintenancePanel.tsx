@@ -76,14 +76,16 @@ export default function InventoryMaintenancePanel({
       generatorId: reportGeneratorId ? Number(reportGeneratorId) : null,
     },
   } : null;
-  const [cachedMaintenanceReport, setCachedMaintenanceReport] = useState<{ rows: MaintenanceReportRow[]; savedAt: number } | null>(null);
+  const maintenanceReportCacheKey = maintenanceReportCacheInput ? JSON.stringify([maintenanceReportCacheInput.userId, maintenanceReportCacheInput.siteId, maintenanceReportCacheInput.reportType, maintenanceReportCacheInput.filters]) : null;
+  const [cachedMaintenanceReport, setCachedMaintenanceReport] = useState<{ key: string; rows: MaintenanceReportRow[]; savedAt: number } | null>(null);
+  const cachedMaintenanceReportForCurrentScope = cachedMaintenanceReport && cachedMaintenanceReport.key === maintenanceReportCacheKey ? cachedMaintenanceReport : null;
   useEffect(() => {
     let current = true;
     setCachedMaintenanceReport(null);
     if (!maintenanceReportCacheInput || !canViewMaintenanceReport) return () => { current = false; };
     void loadOperationalReportSnapshot(maintenanceReportCacheInput, { accessAllowed: canViewMaintenanceReport })
       .then((snapshot) => {
-        if (current && snapshot) setCachedMaintenanceReport({ rows: snapshot.rows as MaintenanceReportRow[], savedAt: snapshot.savedAt });
+        if (current && snapshot) setCachedMaintenanceReport({ key: snapshot.key, rows: snapshot.rows as MaintenanceReportRow[], savedAt: snapshot.savedAt });
       })
       .catch(() => undefined);
     return () => { current = false; };
@@ -224,8 +226,8 @@ export default function InventoryMaintenancePanel({
   if (!canViewMaintenance) return <Card><CardContent className="p-6 text-sm text-muted-foreground">لا تملك صلاحية عرض بيانات الصيانة لهذا الفرع.</CardContent></Card>;
   const itemsForMaintenance = (items.data ?? []).filter((item) => ["spare_part", "oil", "filter", "maintenance_supply", "other"].includes(item.category));
   const openOrders = (orders.data ?? []).filter((order) => openStatuses.includes(order.status));
-  const reportRows = maintenanceReport.data ?? cachedMaintenanceReport?.rows ?? [];
-  const usingCachedMaintenanceReport = maintenanceReport.data === undefined && cachedMaintenanceReport !== null;
+  const reportRows = maintenanceReport.data ?? cachedMaintenanceReportForCurrentScope?.rows ?? [];
+  const usingCachedMaintenanceReport = maintenanceReport.data === undefined && cachedMaintenanceReportForCurrentScope !== null;
   const reportTotals = reportRows.reduce((sum, row) => ({
     workOrders: sum.workOrders + Number(row.work_order_count ?? 0),
     breakdowns: sum.breakdowns + Number(row.breakdown_count ?? 0),
@@ -412,7 +414,7 @@ export default function InventoryMaintenancePanel({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div><CardTitle>تقرير الصيانة والأعطال حسب المولد</CardTitle><p className="mt-1 text-sm text-muted-foreground">الأعطال المتكررة وأوامر الصيانة ومدة التوقف وتكاليف القطع والعمل والخدمات للفترة المختارة.</p></div>
-          {usingCachedMaintenanceReport ? <p role="status" className="mt-1 text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {new Date(cachedMaintenanceReport.savedAt).toLocaleString("ar-PS")}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
+          {usingCachedMaintenanceReport ? <p role="status" className="mt-1 text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {new Date(cachedMaintenanceReportForCurrentScope!.savedAt).toLocaleString("ar-PS")}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={exportMaintenanceReport} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><Download className="ml-2 h-4 w-4" /> CSV</Button>
             <Button type="button" variant="outline" onClick={() => void exportMaintenanceExcel()} disabled={maintenanceReport.isLoading || maintenanceReport.isFetching || (maintenanceReport.isError && !usingCachedMaintenanceReport) || (!maintenanceReport.data && !usingCachedMaintenanceReport) || reportExporting}><FileSpreadsheet className="ml-2 h-4 w-4" /> Excel</Button>
