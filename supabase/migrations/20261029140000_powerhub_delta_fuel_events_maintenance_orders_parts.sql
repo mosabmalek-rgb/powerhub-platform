@@ -205,7 +205,7 @@ create or replace function public.powerhub_refresh_fuel_event_delta_scope(
 returns void
 language plpgsql security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 declare v_event record;
 begin
   if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1 then
@@ -228,7 +228,7 @@ begin
       p_tenant_id,p_site_id,'fuel_events',v_event.id
     );
   end loop;
-end $;
+end $$;
 alter function public.powerhub_refresh_fuel_event_delta_scope(bigint,bigint) owner to postgres;
 revoke all on function public.powerhub_refresh_fuel_event_delta_scope(bigint,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_fuel_event_delta_scope(bigint,bigint) to service_role;
