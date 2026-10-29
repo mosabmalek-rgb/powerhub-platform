@@ -82,11 +82,13 @@ export default function ReportsPage() {
   const activeQuery = scope === "all" ? allReportQuery : branchReportQuery;
   const liveReport = activeQuery.data as FinancialReport | undefined;
   const snapshotScope = user?.id && branchId ? { userId: user.id, siteId: branchId, scope, startDate, endDate } as const : null;
+  const reportAccessDenied = [activeQuery.error?.data?.code, roleQuery.error?.data?.code, accessQuery.error?.data?.code]
+    .some((code) => code === "FORBIDDEN" || code === "UNAUTHORIZED");
   const cachedSnapshotForCurrentScope = snapshotScope ? getUsableReportSnapshot(cachedSnapshot, snapshotScope, {
-    authorizationDenied: activeQuery.error?.data?.code === "FORBIDDEN" || activeQuery.error?.data?.code === "UNAUTHORIZED",
-    accessAllowed: scope !== "all" || canUseAllBranches,
+    authorizationDenied: reportAccessDenied,
+    accessAllowed: Boolean(user?.id && branchId && (scope !== "all" || canUseAllBranches)),
   }) : undefined;
-  const report = liveReport ?? cachedSnapshotForCurrentScope?.report as FinancialReport | undefined;
+  const report = reportAccessDenied ? undefined : liveReport ?? cachedSnapshotForCurrentScope?.report as FinancialReport | undefined;
   const usingCachedReport = !liveReport && Boolean(cachedSnapshotForCurrentScope);
   const scopeName = scope === "all" ? `جميع الأفرع (${report?.scope?.branchCount ?? sitesQuery.data?.length ?? 0})` : sitesQuery.data?.find((site) => site.id === branchId)?.name ?? "الفرع المحدد";
   const alternateBranchId = comparisonSiteId ?? (sitesQuery.data ?? []).find((site) => site.id !== branchId)?.id ?? null;
