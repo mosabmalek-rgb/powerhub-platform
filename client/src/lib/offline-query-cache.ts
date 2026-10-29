@@ -234,6 +234,26 @@ function capOperationalListRows(
         Number(b.reading_id ?? b.id ?? 0) - Number(a.reading_id ?? a.id ?? 0);
     }).slice(0, limit);
   }
+  if (procedure === "inventory.listFuelEvents") {
+    return [...data].sort((left, right) => {
+      const a = left && typeof left === "object" ? left as Record<string, unknown> : {};
+      const b = right && typeof right === "object" ? right as Record<string, unknown> : {};
+      const at = Date.parse(String(a.occurred_at ?? a.occurredAt ?? ""));
+      const bt = Date.parse(String(b.occurred_at ?? b.occurredAt ?? ""));
+      return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0) ||
+        Number(b.event_id ?? b.id ?? 0) - Number(a.event_id ?? a.id ?? 0);
+    }).slice(0, 100);
+  }
+  if (procedure === "maintenance.listWorkOrders") {
+    return [...data].sort((left, right) => {
+      const a = left && typeof left === "object" ? left as Record<string, unknown> : {};
+      const b = right && typeof right === "object" ? right as Record<string, unknown> : {};
+      const at = Date.parse(String(a.reported_at ?? a.reportedAt ?? ""));
+      const bt = Date.parse(String(b.reported_at ?? b.reportedAt ?? ""));
+      return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0) ||
+        Number(b.work_order_id ?? b.id ?? 0) - Number(a.work_order_id ?? a.id ?? 0);
+    }).slice(0, 200);
+  }
   if (procedure === "maintenance.listPreventivePlans") {
     return [...data].sort((left, right) => {
       const a = left && typeof left === "object" ? left as Record<string, unknown> : {};
