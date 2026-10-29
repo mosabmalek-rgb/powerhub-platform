@@ -405,16 +405,13 @@ describe("Delta-backed local snapshots", () => {
     expect(isDeltaSyncBackedQueryKey(["powerhub", "subscribers", "getById", { siteId: 7, id: 1 }])).toBe(false);
   });
 
-  it("keeps actual fuel, maintenance, HR and financial report procedures out of generic persistent cache", () => {
+  it("keeps unsupported fuel event/report, maintenance work-order/report, HR and financial procedures out of generic persistent cache", () => {
     const unsupportedKeys = [
       ["powerhub.inventory.fuelConsumptionReportPeriod", {
         input: { siteId: 7, periodType: "month", anchorDate: "2026-10-01" }, type: "query",
       }],
       ["powerhub.inventory.listFuelEvents", {
         input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29", limit: 100 }, type: "query",
-      }],
-      ["powerhub.inventory.listFuelReadings", {
-        input: { siteId: 7, limit: 100 }, type: "query",
       }],
       ["powerhub.maintenance.reportByGenerator", {
         input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29" }, type: "query",
@@ -447,8 +444,8 @@ describe("Delta-backed local snapshots", () => {
       expect(getOfflineQueryStaleTime(key)).toBe(30_000);
     }
 
-    // Generator snapshots have a defined Delta contract, but they do not
-    // replace fuel-event, consumption-report, or maintenance-history feeds.
+    // Generator snapshots have a defined Delta contract, and fuel readings have
+    // their own bounded feed; neither replaces fuel-event, consumption-report, or maintenance-history feeds.
     const generators = ["powerhub.generators.list", { input: { siteId: 7 }, type: "query" }] as const;
     expect(isOfflineCacheableQueryKey(generators)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(generators)).toBe(true);
