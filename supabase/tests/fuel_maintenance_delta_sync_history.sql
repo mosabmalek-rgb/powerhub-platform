@@ -6,6 +6,7 @@ do $fuel_maintenance_delta$
 declare
   v_tank_id bigint;
   v_fuel_event_id bigint;
+  v_fuel_item_id bigint;
   v_item_id bigint;
   v_order record;
   v_part record;
@@ -20,9 +21,17 @@ begin
   ) values (10,100,'DELTA-TANK','Delta fuel tank','generator_fuel_tank',10000,1)
   returning id into v_tank_id;
 
+  insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
+  values (10,'DELTA-FUEL-ITEM','Delta fuel item','fuel','liter',0,1)
+  returning id into v_fuel_item_id;
+  perform * from public.powerhub_inventory_record_stock_movement(
+    10,100,1,1,v_fuel_item_id,'adjustment_in',5,8.00,null,
+    'DELTA-FUEL-STOCK','Delta fuel fixture','delta-fuel-stock-001'
+  );
+
   select fuel_event_id into v_fuel_event_id
   from public.powerhub_inventory_record_fuel_fill(
-    10,100,1,10000,1,1,v_tank_id,1.000,now(),0,1,10,
+    10,100,1,10000,v_fuel_item_id,1,v_tank_id,1.000,now(),0,1,10,
     'DELTA-FUEL-REF','Do not persist this note','delta-fuel-event-001'
   );
   if v_fuel_event_id is null then raise exception 'DELTA_FUEL_EVENT_NOT_CREATED'; end if;
