@@ -3,7 +3,7 @@ import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft } from "@/lib/offline-work-queue";
+import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft } from "@/lib/offline-work-queue";
 import { getSyncMetadata, listSyncMetadata, upsertSyncMetadata, type SyncMetadataRecord } from "@/lib/offline-sync-metadata";
 import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
@@ -83,6 +83,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const [conflictRecords, setConflictRecords] = useState<OfflineConflictRecord[]>([]);
   const { isOnline, reconnectGeneration } = usePowerHubConnectivity();
   const resolvedLocalEmployees = useRef(new Map<number, { id: number; versionNo: number }>());
+  const resolvedLocalAdjustments = useRef(new Map<number, number>());
   const [syncing, setSyncing] = useState(false);
   const lastAutoSyncGeneration = useRef(0);
   const load = useCallback(async () => {
@@ -90,7 +91,14 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       const loadedItems = await listOfflineWork({ userId, siteId });
       setItems(loadedItems);
       resolvedLocalEmployees.current.clear();
+      resolvedLocalAdjustments.current.clear();
       for (const item of loadedItems) {
+        if (item.kind === "employee_advance_issue" && item.status === "applied" && item.appliedEntityId) {
+          const payload = item.payload as HrEmployeeAdvanceIssueDraft;
+          if (typeof payload.localAdjustmentId === "number" && payload.localAdjustmentId < 0) {
+            resolvedLocalAdjustments.current.set(payload.localAdjustmentId, item.appliedEntityId);
+          }
+        }
         if (item.kind !== "employee_create" || item.status !== "applied" || !item.appliedEntityId) continue;
         const payload = item.payload as HrEmployeeCreateDraft;
         if (payload.localEmployeeId < 0) resolvedLocalEmployees.current.set(payload.localEmployeeId, {
@@ -380,13 +388,24 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           appliedLabel: "سلفة #" + result.id + " — تم التحقق من الصرف خادميًا",
           payload: sanitizeCompletedPayload(item),
         });
+        if (typeof payload.localAdjustmentId === "number" && payload.localAdjustmentId < 0) {
+          resolvedLocalAdjustments.current.set(payload.localAdjustmentId, result.id);
+          await resolveOfflineAdjustmentReferences({
+            userId: item.userId, siteId: item.siteId,
+            localAdjustmentId: payload.localAdjustmentId, serverAdjustmentId: result.id,
+          });
+        }
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "employee_advance_repayment") {
         const payload = item.payload as HrEmployeeAdvanceRepaymentDraft;
+        const resolvedAdjustmentId = payload.adjustmentId < 0
+          ? resolvedLocalAdjustments.current.get(payload.adjustmentId) : undefined;
+        const adjustmentId = resolvedAdjustmentId ?? payload.adjustmentId;
+        if (adjustmentId < 1) throw new Error("تعذر ربط السداد بمعرف السلفة الخادمي؛ ستبقى العملية معلقة حتى يكتمل صرف السلفة.");
         const { localRepaymentId: _localRepaymentId, ...serverPayload } = payload;
         const result = await repayEmployeeAdvance.mutateAsync({
-          siteId: item.siteId, ...serverPayload, operationKey: item.clientOperationId,
+          siteId: item.siteId, ...serverPayload, adjustmentId, operationKey: item.clientOperationId,
         });
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.id,
