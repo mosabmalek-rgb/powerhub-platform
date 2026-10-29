@@ -3483,9 +3483,10 @@ export const powerhubRouter = router({
       description: z.string().min(2).max(255),
       amount: z.number().positive(),
       referenceNo: z.string().max(120).optional(),
+      clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageExpenses");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_expense_with_account", {
+      const rpcArgs = {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
         p_user_id: ctx.user.id,
@@ -3495,15 +3496,22 @@ export const powerhubRouter = router({
         p_description: input.description,
         p_amount: input.amount,
         p_reference_no: input.referenceNo ?? null,
-      });
+      };
+      const { data, error } = input.clientOperationId
+        ? await supabaseAdmin().rpc("powerhub_create_expense_with_account_idempotent", {
+            ...rpcArgs, p_client_operation_id: input.clientOperationId,
+          })
+        : await supabaseAdmin().rpc("powerhub_create_expense_with_account", rpcArgs);
       if (!error && data?.[0]) {
         return {
           id: Number((data[0] as { expense_id: number | string }).expense_id),
           transactionId: Number((data[0] as { transaction_id: number | string }).transaction_id),
+          replayed: Boolean((data[0] as { replayed?: boolean }).replayed),
         };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (error?.code === "PGRST202" || /powerhub_create_expense_with_account.*schema cache|schema cache.*powerhub_create_expense_with_account/i.test(errorText)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "دالة تسجيل المصروفات غير متاحة في مخطط Supabase. تم تحديث إعدادات قاعدة البيانات؛ حدّث الصفحة وأعد المحاولة." });
+      if (errorText.includes("IDEMPOTENCY_KEY_REUSED")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مستخدم سابقًا لبيانات مصروف مختلفة؛ أُوقفت إعادة الإرسال للحماية من التكرار." });
       if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة غير متاحة ضمن مساحة العمل الحالية." });
       if (errorText.includes("GENERATOR_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
       if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الصرف غير موجود أو غير نشط." });

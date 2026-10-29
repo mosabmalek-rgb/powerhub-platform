@@ -95,3 +95,17 @@ describe("payment documentation Outbox invalidation", () => {
       .toEqual(["payment-documentation", "payments", "invoices", "invoice-pages", "dashboard-summary", "financial-dashboard", "audit"]);
   });
 });
+
+
+describe("expense Outbox invalidation", () => {
+  it("does not refresh financial views while the expense is only queued or failed", () => {
+    expect(getOfflineSyncRefreshTargets([result("expense_create", "pending")])).toEqual([]);
+    expect(getOfflineSyncRefreshTargets([result("expense_create", "retryable")])).toEqual([]);
+    expect(getOfflineSyncRefreshTargets([result("expense_create", "rejected")])).toEqual([]);
+  });
+
+  it("refreshes expense, account, audit and financial views only after server-confirmed replay", () => {
+    expect(getOfflineSyncRefreshTargets([result("expense_create", "already_applied")]))
+      .toEqual(["expenses", "dashboard-summary", "financial-dashboard", "audit"]);
+  });
+});

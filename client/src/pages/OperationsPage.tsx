@@ -11,6 +11,8 @@ import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
+import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { cn } from "@/lib/utils";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
@@ -87,6 +89,7 @@ function ReadOnlyCard() {
 
 export default function OperationsPage({ section }: { section: Section }) {
   const { user, loading, isAuthenticated } = useAuth();
+  const { isOnline } = usePowerHubConnectivity();
   const meta = moduleMeta[section];
   const Icon = meta.icon;
   const utils = trpc.useUtils();
@@ -205,7 +208,7 @@ export default function OperationsPage({ section }: { section: Section }) {
     ]);
   }, onError: (error) => toast.error(error.message) });
   const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: () => {
-    toast.success("تم تسجيل المصروف.");
+    toast.success("تم تسجيل المصروف على الخادم.");
     refreshOperational(
       [
         () => utils.powerhub.expenses.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
@@ -219,6 +222,50 @@ export default function OperationsPage({ section }: { section: Section }) {
 
   const siteOptions = sitesQuery.data ?? [];
   const activeSite = useMemo(() => siteOptions.find((site) => site.id === siteId), [siteId, siteOptions]);
+  const submitExpense = async (payload: {
+    siteId: number; generatorId?: number; companyAccountId: number;
+    category: "fuel" | "maintenance" | "payroll" | "parts" | "transport" | "other";
+    description: string; amount: number; referenceNo?: string;
+  }) => {
+    const clientOperationId = crypto.randomUUID();
+    const completePayload = { ...payload, clientOperationId };
+    const queueDraft = async () => {
+      if (!user?.id) throw new Error("تعذر تحديد المستخدم الحالي لحفظ مسودة المصروف.");
+      await enqueueOfflineWork({
+        userId: user.id,
+        ...(Number.isSafeInteger(Number(activeSite?.tenantId)) && Number(activeSite?.tenantId) > 0
+          ? { tenantId: Number(activeSite?.tenantId) } : {}),
+        siteId: payload.siteId,
+        kind: "expense_create",
+        clientOperationId,
+        payload: {
+          generatorId: payload.generatorId,
+          companyAccountId: payload.companyAccountId,
+          category: payload.category,
+          description: payload.description,
+          amount: payload.amount,
+          referenceNo: payload.referenceNo,
+        },
+      });
+      return { queued: true as const };
+    };
+    if (!isOnline) {
+      await queueDraft();
+      toast.warning("حُفظ المصروف كمسودة محلية؛ لم يتغير رصيد الحساب ولم يُرحّل المصروف. سيُعاد التحقق والترحيل عبر الخادم عند الاتصال.");
+      return;
+    }
+    try {
+      return await addExpense.mutateAsync(completePayload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? "");
+      const networkFailure = error instanceof TypeError ||
+        /failed to fetch|networkerror|network request failed|load failed|fetch failed|connection (?:lost|reset|refused)|timeout/i.test(message);
+      if (!networkFailure) throw error;
+      await queueDraft();
+      toast.warning("نتيجة الاتصال غير مؤكدة؛ حُفظت المسودة بمفتاح العملية نفسه لمنع تكرار المصروف عند إعادة الإرسال.");
+      return { queued: true as const };
+    }
+  };
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
 
@@ -285,7 +332,7 @@ export default function OperationsPage({ section }: { section: Section }) {
       return queued;
     }
   };
-  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /><CollectorSessionsPanel siteId={siteId!} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
+  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /><CollectorSessionsPanel siteId={siteId!} /></>}{section === "expenses" && (canManageExpenses ? <><ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={submitExpense} isOnline={isOnline} userId={Number(user?.id ?? 0)} />{user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={Number(user.id)} /> : null}</> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
 
 function SubscribersOverview({ data, canManage }: { data: any[]; canManage: boolean }) {
@@ -750,8 +797,10 @@ function ExpenseHistoryPanel({ history, canCorrect = true }: { history: ReturnTy
   </SectionCard>;
 }
 
-function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any) {
-  const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId });
+function ExpensesModule({ siteId, generators, summary, pending, onSubmit, isOnline, userId }: any) {
+  // Keep only the minimized account selector projection in local storage. Cached balances
+  // are deliberately not shown or treated as spend authority.
+  const accountsQuery = trpc.powerhub.expenses.filterAccounts.useQuery({ siteId });
   const accounts = accountsQuery.data ?? [];
   const [accountId, setAccountId] = useState("");
   const history = useExpenseHistoryFilters(siteId, true, accounts);
@@ -787,16 +836,17 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
           <Field label="حساب الصرف من حسابات الشركة">
             <select required name="companyAccountId" value={accountId} onChange={(event) => setAccountId(event.target.value)} className={selectClass}>
               <option value="">اختر الحساب الذي تم الصرف منه</option>
-              {accounts.map((account: any) => <option key={account.id} value={account.id}>{account.name} — الرصيد {formatValue(account.balance, 2)} ش</option>)}
+              {accounts.map((account: any) => <option key={account.id} value={account.id}>{account.name} — {account.accountType ?? account.account_type ?? "حساب"}</option>)}
             </select>
           </Field>
-          {selectedAccount ? <p className="rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-rose-100">سيُخصم مبلغ المصروف من <strong>{selectedAccount.name}</strong> ويسجل كسحب في كشف الحساب، ولا يمكن إتمام العملية إذا كان الرصيد غير كافٍ.</p> : <p className="rounded-lg bg-white/[.03] px-3 py-2 text-xs text-slate-500">يجب تحديد الحساب الذي خرجت منه قيمة المصروف حتى تتطابق المصروفات مع حركة الحسابات.</p>}
+          {selectedAccount ? <p className="rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-rose-100">سيُعاد التحقق من صلاحية الحساب وارتباطه بالفرع ورصيده الحالي داخل معاملة الخادم. الاختيار المحلي لا يثبت توافر الرصيد ولا يرحّل أي حركة.</p> : <p className="rounded-lg bg-white/[.03] px-3 py-2 text-xs text-slate-500">يلزم تحديد حساب الصرف؛ الخيارات المخزنة محليًا أسماء ومعرّفات فقط وليست مرجعًا للرصيد أو الصلاحيات.</p>}
           <Field label="فئة المصروف"><select name="category" className={selectClass}><option value="fuel">وقود</option><option value="maintenance">صيانة</option><option value="payroll">رواتب</option><option value="parts">قطع غيار</option><option value="transport">نقل</option><option value="other">أخرى</option></select></Field>
           <Field label="المولد"><select name="generator" className={selectClass}><option value="">مصروف عام</option>{generators.map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
           <Field label="الوصف"><input required name="description" className={inputClass} placeholder="مثال: تعبئة ديزل" /></Field>
           <Field label="المبلغ"><input required name="amount" type="number" min="0.01" step="0.01" className={inputClass} dir="ltr" /></Field>
           <Field label="مرجع"><input name="reference" className={inputClass} placeholder="اختياري" /></Field>
-          <Button type="submit" disabled={pending || accountsQuery.isLoading || accountsQuery.isError || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError ? "تعذر تحميل حسابات الصرف" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : "حفظ المصروف"}</Button>
+          <Button type="submit" disabled={pending || !accounts.length || !userId} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError && !accounts.length ? "لا توجد خيارات حساب محفوظة" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : isOnline ? "حفظ المصروف" : "حفظ مسودة المصروف دون اتصال"}</Button>
+          {!isOnline ? <p className="text-xs leading-5 text-amber-200">ستُحفظ نية المصروف محليًا فقط. لا يتغير رصيد الحساب ولا يُنشأ قيد نهائي حتى يقبل الخادم العملية.</p> : null}
         </form>
       </SectionCard>
       <ExpenseHistoryPanel history={history} />

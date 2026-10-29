@@ -68,6 +68,7 @@ export type OfflineWorkKind =
   | "fuel_fill"
   | "invoice_issue"
   | "payment_create"
+  | "expense_create"
   | "payment_documentation_submit"
   | "payment_documentation_approve"
   | "reading_create"
@@ -145,6 +146,15 @@ export type InvoiceIssueDraft = {
   billingPeriod: string;
   dueDate: string;
   discountAmount: number;
+};
+
+export type ExpenseCreateDraft = {
+  generatorId?: number;
+  companyAccountId: number;
+  category: "fuel" | "maintenance" | "payroll" | "parts" | "transport" | "other";
+  description: string;
+  amount: number;
+  referenceNo?: string;
 };
 
 export type PaymentDraft = {
@@ -284,6 +294,7 @@ export type OfflineWorkPayload =
   | FuelFillDraft
   | InvoiceIssueDraft
   | PaymentDraft
+  | ExpenseCreateDraft
   | PaymentDocumentationDraft
   | PaymentDocumentationApprovalDraft
   | ReadingCreateDraft

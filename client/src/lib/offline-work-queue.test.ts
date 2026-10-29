@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canRequeueFailedOfflineWork, canRequeueOfflineWorkForManualRecovery, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
+import { canRequeueFailedOfflineWork, canRequeueOfflineWorkForManualRecovery, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft, type ExpenseCreateDraft } from "./offline-work-queue";
 import { SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
 
 describe("طابور المسودات دون اتصال", () => {
@@ -98,5 +98,24 @@ describe("طابور المسودات دون اتصال", () => {
     const draft = createOfflineWork({ userId: 22, siteId: 8, kind: "generator_update", payload });
     expect(draft.payload).toEqual(payload);
     expect(draft.status).toBe("pending");
+  });
+});
+
+
+describe("expense Outbox intent", () => {
+  it("stores a pending expense request with a stable idempotency key and no local posting claim", () => {
+    const payload: ExpenseCreateDraft = {
+      companyAccountId: 4, category: "fuel", description: "شراء ديزل", amount: 125,
+      referenceNo: "LOCAL-REF",
+    };
+    const item = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "expense_create",
+      clientOperationId: "8b9fda8e-7d36-4f3b-9d95-3f3a0e30f5f0", payload,
+    });
+    expect(item).toMatchObject({
+      status: "pending", kind: "expense_create", clientOperationId: "8b9fda8e-7d36-4f3b-9d95-3f3a0e30f5f0",
+      payload: { companyAccountId: 4, amount: 125, description: "شراء ديزل" },
+    });
+    expect(item).not.toHaveProperty("appliedEntityId");
   });
 });

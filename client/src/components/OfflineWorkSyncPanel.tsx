@@ -4,7 +4,7 @@ import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, notifyOfflineWorkQueueChanged, subscribeOfflineWorkQueueChanges, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type FuelFillDraft } from "@/lib/offline-work-queue";
+import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, notifyOfflineWorkQueueChanged, subscribeOfflineWorkQueueChanges, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type FuelFillDraft, type ExpenseCreateDraft } from "@/lib/offline-work-queue";
 import { getSyncMetadata, listSyncMetadata, upsertSyncMetadata, type SyncMetadataRecord } from "@/lib/offline-sync-metadata";
 import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
@@ -20,7 +20,7 @@ import { toast } from "sonner";
 
 const labelByKind = {
   subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد",
-  generator_update: "تعديل مولد", fuel_fill: "تعبئة وقود (مسودة)", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق",
+  generator_update: "تعديل مولد", fuel_fill: "تعبئة وقود (مسودة)", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", expense_create: "مصروف معلّق",
   payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع",
   reading_create: "قراءة ميدانية معلقة", employee_create: "إضافة موظف (معلّق)", employee_update: "تعديل موظف (معلّق)",
   attendance_upsert: "تسجيل حضور (معلّق)", payroll_draft: "مسودة رواتب (معلّقة)",
@@ -43,6 +43,10 @@ function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["p
   if (item.kind === "payment_create") {
     const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
     return { ...payload, receiptImageData: undefined, receiptImageMime: undefined };
+  }
+  if (item.kind === "expense_create") {
+    const payload = item.payload as ExpenseCreateDraft;
+    return { ...payload, description: "تمت المزامنة", referenceNo: undefined, amount: 0 };
   }
   if (item.kind === "payment_documentation_submit") {
     const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
@@ -144,6 +148,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const updateSubscriber = trpc.powerhub.subscribers.update.useMutation();
   const issueInvoice = trpc.powerhub.invoices.createFromReading.useMutation();
   const createPayment = trpc.powerhub.payments.create.useMutation();
+  const createExpense = trpc.powerhub.expenses.create.useMutation();
   const submitPaymentDocumentation = trpc.powerhub.paymentDocumentation.submit.useMutation();
   const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
   const createReading = trpc.powerhub.readings.create.useMutation();
@@ -200,6 +205,13 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       refreshes.push(
         utils.powerhub.payments.list.invalidate({ siteId }),
         utils.powerhub.payments.page.invalidate({ siteId, limit: 100 }),
+      );
+    }
+    if (targets.has("expenses")) {
+      refreshes.push(
+        utils.powerhub.expenses.list.invalidate({ siteId }),
+        utils.powerhub.expenses.page.invalidate({ siteId, limit: 100 }),
+        utils.powerhub.expenses.filterAccounts.invalidate({ siteId }),
       );
     }
     if (targets.has("dashboard-summary")) {
@@ -316,6 +328,18 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const payload = item.payload as import("@/lib/offline-work-queue").InvoiceIssueDraft;
         const result = await issueInvoice.mutateAsync({ siteId: item.siteId, ...payload, dueDate: new Date(payload.dueDate), clientOperationId: item.clientOperationId });
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.invoiceNo });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+      if (item.kind === "expense_create") {
+        const payload = item.payload as ExpenseCreateDraft;
+        const result = await createExpense.mutateAsync({
+          siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId,
+        });
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined, appliedEntityId: result.id,
+          appliedLabel: payload.description,
+          payload: sanitizeCompletedPayload(item),
+        });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "payment_create") {
