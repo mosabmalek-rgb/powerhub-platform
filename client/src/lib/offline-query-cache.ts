@@ -242,7 +242,20 @@ function capOperationalListRows(
       const bt = Date.parse(String(b.occurred_at ?? b.occurredAt ?? ""));
       return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0) ||
         Number(b.event_id ?? b.id ?? 0) - Number(a.event_id ?? a.id ?? 0);
-    }).slice(0, 100);
+    }).slice(0, 100).map((value) => {
+      const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+      return {
+        id: row.id ?? row.event_id, event_id: row.event_id ?? row.id,
+        generator_id: row.generator_id, generator_name: row.generator_name,
+        fuel_item_id: row.fuel_item_id, fuel_item_name: row.fuel_item_name,
+        source_warehouse_id: row.source_warehouse_id, source_warehouse_name: row.source_warehouse_name,
+        destination_warehouse_id: row.destination_warehouse_id, destination_warehouse_name: row.destination_warehouse_name,
+        litres: row.litres, occurred_at: row.occurred_at,
+        level_before_liters: row.level_before_liters, level_after_liters: row.level_after_liters,
+        operating_hours: row.operating_hours, reference_no: row.reference_no ?? null,
+        notes: null, stock_transfer_id: row.stock_transfer_id, created_by_user_id: null, created_at: row.created_at,
+      };
+    });
   }
   if (procedure === "maintenance.listWorkOrders") {
     return [...data].sort((left, right) => {
@@ -252,7 +265,34 @@ function capOperationalListRows(
       const bt = Date.parse(String(b.reported_at ?? b.reportedAt ?? ""));
       return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0) ||
         Number(b.work_order_id ?? b.id ?? 0) - Number(a.work_order_id ?? a.id ?? 0);
-    }).slice(0, 200);
+    }).slice(0, 200).map((value) => {
+      const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+      return {
+        id: row.id ?? row.work_order_id, work_order_id: row.work_order_id ?? row.id,
+        work_order_number: row.work_order_number, generator_id: row.generator_id, generator_name: row.generator_name,
+        preventive_plan_id: row.preventive_plan_id, order_type: row.order_type, priority: row.priority, status: row.status,
+        title: row.title, description: row.description ?? null, work_summary: row.work_summary ?? null,
+        reported_at: row.reported_at, scheduled_for: row.scheduled_for ?? null, started_at: row.started_at ?? null,
+        completed_at: row.completed_at ?? null, assigned_to_user_id: row.assigned_to_user_id ?? null,
+        assigned_supplier_id: row.assigned_supplier_id ?? null, assigned_supplier_name: row.assigned_supplier_name ?? null,
+        assigned_supplier_code: row.assigned_supplier_code ?? null, operating_hours_at_open: row.operating_hours_at_open ?? null,
+        operating_hours_at_close: row.operating_hours_at_close ?? null, downtime_minutes: row.downtime_minutes ?? 0,
+        labor_cost: row.labor_cost ?? 0, external_service_cost: row.external_service_cost ?? 0,
+        parts_cost: row.parts_cost ?? 0, total_cost_amount: row.total_cost_amount ?? 0, created_by_user_id: null,
+      };
+    });
+  }
+  if (procedure === "maintenance.listParts") {
+    return [...data].map((value) => {
+      const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+      return {
+        id: row.id ?? row.part_id, part_id: row.part_id ?? row.id, work_order_id: row.work_order_id,
+        item_id: row.item_id, item_name: row.item_name, category: row.category,
+        warehouse_id: row.warehouse_id, warehouse_name: row.warehouse_name, quantity: row.quantity,
+        unit_cost: row.unit_cost, total_cost_amount: row.total_cost_amount,
+        stock_movement_id: row.stock_movement_id, issued_at: row.issued_at, notes: null,
+      };
+    });
   }
   if (procedure === "maintenance.listPreventivePlans") {
     return [...data].sort((left, right) => {
