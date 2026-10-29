@@ -105,6 +105,27 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
   return true;
 }
 
+const OPERATIONAL_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
+  "inventory.listFuelReadings": new Set(["siteId", "generatorId", "limit"]),
+  "maintenance.listPreventivePlans": new Set(["siteId", "generatorId"]),
+};
+
+function isSafeOperationalOfflineList(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3) return false;
+  const procedure = `${segments[1]}.${segments[2]}`;
+  const allowedKeys = OPERATIONAL_OFFLINE_LIST_INPUT_KEYS[procedure];
+  if (!allowedKeys) return false;
+  const input = getOfflineQueryInput(queryKey);
+  if (!input || Object.keys(input).some((key) => !allowedKeys.has(key))) return false;
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1) return false;
+  if (input.generatorId !== undefined &&
+      (!Number.isSafeInteger(input.generatorId) || Number(input.generatorId) < 1)) return false;
+  if (procedure === "inventory.listFuelReadings") {
+    return input.limit === 100;
+  }
+  return input.generatorId === undefined;
+}
+
 const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "inventory.listItems": new Set(["siteId", "search", "includeInactive"]),
   "inventory.listSuppliers": new Set(["siteId", "search", "includeInactive"]),
@@ -242,6 +263,7 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // reconstructed from partial client-side financial rows.
   // Inventory catalog lists are persisted only in their default active,
   // unfiltered form and use the matching tenant/site-scoped Delta catalog feed.
+  if (isSafeOperationalOfflineList(queryKey, segments)) return true;
   if (isSafeInventoryOfflineList(queryKey, segments)) return true;
   if (isSafeInventoryMovementList(queryKey, segments)) return true;
   if (isSafeDashboardRevision(queryKey, segments)) return true;
@@ -286,6 +308,8 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   // snapshots into the exact keyset page shape expected by the UI.
   if ((segments[1] === "readings" || segments[1] === "invoices" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") return true;
 
+  if (isSafeOperationalOfflineList(queryKey, segments)) return true;
+
   if (segments[1] === "inventory") {
     return ["listItems", "listItemUnits", "listSuppliers", "listWarehouses"].includes(segments[2] ?? "") ||
       (segments[2] === "listStocktakes" && isSafeInventoryOfflineList(queryKey, segments)) ||
@@ -325,7 +349,9 @@ export type OfflineQueryDeltaEntity =
   | "inventory_stocktakes"
   | "inventory_purchase_headers"
   | "inventory_purchase_receipt_headers"
-  | "inventory_supplier_return_headers";
+  | "inventory_supplier_return_headers"
+  | "fuel_readings"
+  | "maintenance_preventive_plans";
 
 /**
  * Returns the server change-feed entity only when this exact query key is
@@ -342,6 +368,9 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
       return segments[1];
     }
     return null;
+  }
+  if (isSafeOperationalOfflineList(queryKey, segments)) {
+    return segments[1] === "inventory" ? "fuel_readings" : "maintenance_preventive_plans";
   }
   if (segments[1] === "inventory") {
     if (segments[2] === "listStockMovements") return isSafeInventoryMovementList(queryKey, segments) ? "inventory_stock_movements" : null;
