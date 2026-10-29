@@ -129,7 +129,7 @@ begin
   select id into v_replacement_reading_id from public.generator_fuel_readings
     where operation_key='delta-bounded-reading-001';
   delete from public.generator_fuel_readings where id=v_first_reading_id;
-  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'fuel_readings') into v_snapshot;
+  select public.powerhub_get_operational_sync_snapshot(10,100,'fuel_readings') into v_snapshot;
   v_visible_count:=jsonb_array_length(v_snapshot->'rows');
   if v_visible_count<>500 or exists (
     select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_first_reading_id::text
@@ -166,7 +166,7 @@ begin
   delete from public.generator_maintenance_alert_events where plan_id=v_first_plan_id;
   alter table public.generator_maintenance_alert_events enable trigger powerhub_delta_operational_maintenance_plans_after_alert_change;
   delete from public.generator_maintenance_preventive_plans where id=v_first_plan_id;
-  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_preventive_plans') into v_snapshot;
+  select public.powerhub_get_operational_sync_snapshot(10,100,'maintenance_preventive_plans') into v_snapshot;
   v_visible_count:=jsonb_array_length(v_snapshot->'rows');
   if v_visible_count<>500 or exists (
     select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_first_plan_id::text
@@ -181,7 +181,7 @@ begin
   update public.generator_maintenance_preventive_plans
     set next_due_at=timestamptz '2099-01-01 00:00:00+00',updated_at=clock_timestamp()
     where id=v_updated_plan_id;
-  select public.powerhub_get_fuel_maintenance_sync_snapshot(10,100,'maintenance_preventive_plans') into v_snapshot;
+  select public.powerhub_get_operational_sync_snapshot(10,100,'maintenance_preventive_plans') into v_snapshot;
   v_visible_count:=jsonb_array_length(v_snapshot->'rows');
   if v_visible_count<>500 or exists (
     select 1 from jsonb_array_elements(v_snapshot->'rows') r where r->>'id'=v_updated_plan_id::text
