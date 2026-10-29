@@ -132,6 +132,21 @@ create trigger inventory_stock_movement_append_only before update or delete on p
 for each row execute function public.powerhub_inventory_reject_stock_movement_mutation();
 
 \ir ../migrations/20261029000000_powerhub_delta_inventory_catalog.sql
+create table public.inventory_stocktakes (
+  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null,
+  stocktake_number text, status text not null, reason text not null, notes text,
+  operation_key text, operation_payload_hash text,
+  snapshot_at timestamptz not null default now(), created_at timestamptz not null default now(),
+  created_by_user_id bigint, submitted_at timestamptz, submitted_by_user_id bigint,
+  posted_at timestamptz, posted_by_user_id bigint, cancelled_at timestamptz, cancelled_by_user_id bigint, cancel_reason text
+);
+create table public.inventory_stocktake_lines (
+  id bigint primary key, tenant_id bigint not null, stocktake_id bigint not null, item_id bigint not null,
+  system_quantity numeric(14,3) not null, system_value numeric(14,2) not null default 0,
+  system_unit_cost numeric(14,4) not null default 0, counted_quantity numeric(14,3), counted_unit_cost numeric(14,4),
+  variance_quantity numeric(14,3), count_notes text, updated_at timestamptz not null default now()
+);
+\ir ../migrations/20261029100000_powerhub_delta_inventory_stocktakes.sql
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
 begin
@@ -565,3 +580,98 @@ begin
   end if;
 end;
 $inventory_movement_delta_test$;
+
+
+-- Stocktake Delta projects scoped headers and safe aggregate counters only.
+do $inventory_stocktake_delta_test$
+declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
+begin
+  insert into public.inventory_warehouses(id,tenant_id,site_id,code,name,is_active,location_type)
+  values (2202,1,20,'WH-2202','Site Two Warehouse',true,'branch_warehouse');
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_stocktakes');
+  if jsonb_array_length(v_snapshot->'rows')<>0 or v_snapshot #>> '{snapshot_cursor}' is distinct from '0' then
+    raise exception 'Initial stocktake snapshot/cursor failed: %',v_snapshot;
+  end if;
+  insert into public.inventory_stocktakes(id,tenant_id,site_id,warehouse_id,stocktake_number,status,reason,notes,operation_key,operation_payload_hash)
+  values (2401,1,10,2201,'ST-2401','counting','Routine count','Initial count','test-stocktake-2401','hash-2401');
+  select last_cursor into v_cursor from public.powerhub_sync_scope_state where tenant_id=1 and site_id=10 and entity_type='inventory_stocktakes';
+  if v_cursor is distinct from 1 then raise exception 'Stocktake insert cursor mismatch: %',v_cursor; end if;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stocktakes',0,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '2401'
+     or v_delta #>> '{changes,0,row_data,stocktake_id}' is distinct from '2401'
+     or v_delta #>> '{changes,0,row_data,item_count}' is distinct from '0'
+     or (v_delta #> '{changes,0,row_data}') ? 'system_value'
+     or (v_delta #> '{changes,0,row_data}') ? 'system_unit_cost' then
+    raise exception 'Stocktake header projection failed or exposed line values: %',v_delta;
+  end if;
+  insert into public.inventory_stocktake_lines(id,tenant_id,stocktake_id,item_id,system_quantity,system_value,system_unit_cost,counted_quantity,variance_quantity)
+  values (2501,1,2401,2101,10,30,3,null,null);
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stocktakes',1,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,row_data,item_count}' is distinct from '1'
+     or v_delta #>> '{changes,0,row_data,counted_count}' is distinct from '0' then
+    raise exception 'Stocktake line insert failed to refresh counts: %',v_delta;
+  end if;
+  update public.inventory_stocktake_lines set counted_quantity=15,variance_quantity=5,updated_at=now()
+    where tenant_id=1 and stocktake_id=2401 and id=2501;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stocktakes',2,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1
+     or v_delta #>> '{changes,0,row_data,counted_count}' is distinct from '1'
+     or v_delta #>> '{changes,0,row_data,variance_count}' is distinct from '1'
+     or v_delta #>> '{changes,0,row_data,variance_quantity}' is distinct from '5.000' then
+    raise exception 'Stocktake count update failed to refresh safe counters: %',v_delta;
+  end if;
+  update public.inventory_warehouses set name='Renamed Warehouse' where tenant_id=1 and site_id=10 and id=2201;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stocktakes',3,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,row_data,warehouse_name}' is distinct from 'Renamed Warehouse' then
+    raise exception 'Warehouse rename did not refresh stocktake projection: %',v_delta;
+  end if;
+  insert into public.inventory_stocktakes(id,tenant_id,site_id,warehouse_id,stocktake_number,status,reason,notes,operation_key,operation_payload_hash)
+  values (2402,1,10,2201,'ST-2402','counting','Second count',null,'test-stocktake-2402','hash-2402');
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stocktakes',4,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,entity_id}' is distinct from '2402' then
+    raise exception 'Second stocktake insert Delta failed: %',v_delta;
+  end if;
+  delete from public.inventory_stocktakes where tenant_id=1 and site_id=10 and id=2402;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stocktakes',5,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '2402'
+     or v_delta #> '{changes,0,row_data}' is distinct from 'null'::jsonb then
+    raise exception 'Stocktake delete tombstone failed: %',v_delta;
+  end if;
+  update public.inventory_stocktakes set site_id=20,warehouse_id=2202 where tenant_id=1 and site_id=10 and id=2401;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stocktakes',6,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,operation}' is distinct from 'delete'
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '2401' then
+    raise exception 'Stocktake branch move did not tombstone old scope: %',v_delta;
+  end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_stocktakes');
+  if jsonb_array_length(v_snapshot->'rows')<>0 then raise exception 'Moved stocktake leaked to old branch: %',v_snapshot; end if;
+  v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,20,'inventory_stocktakes');
+  if jsonb_array_length(v_snapshot->'rows')<>1 or v_snapshot #>> '{rows,0,stocktake_id}' is distinct from '2401'
+     or v_snapshot #>> '{rows,0,warehouse_name}' is distinct from 'Site Two Warehouse' then
+    raise exception 'Moved stocktake missing from new branch snapshot: %',v_snapshot;
+  end if;
+  v_delta:=public.powerhub_pull_inventory_sync_delta(1,20,'inventory_stocktakes',0,null,200);
+  if jsonb_array_length(v_delta->'changes')<>1 or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
+     or v_delta #>> '{changes,0,row_data,site_id}' is distinct from '20' then
+    raise exception 'Stocktake new-scope upsert failed: %',v_delta;
+  end if;
+  begin
+    perform public.powerhub_get_inventory_sync_snapshot(2,10,'inventory_stocktakes');
+    raise exception 'Expected cross-tenant stocktake snapshot denial';
+  exception when others then if sqlerrm<>'SITE_OUT_OF_SCOPE' then raise; end if; end;
+  if has_function_privilege('anon','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')
+     or has_function_privilege('anon','public.powerhub_append_inventory_sync_change(bigint,bigint,text,text,text,jsonb)','EXECUTE')
+     or has_table_privilege('anon','public.inventory_stocktakes','SELECT')
+     or has_table_privilege('authenticated','public.inventory_stocktake_lines','SELECT') then
+    raise exception 'Stocktake Delta server-only ACL boundary weakened';
+  end if;
+  if not has_function_privilege('service_role','public.powerhub_get_inventory_sync_snapshot(bigint,bigint,text)','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE') then
+    raise exception 'service_role cannot execute stocktake Delta functions';
+  end if;
+end;
+$inventory_stocktake_delta_test$;
