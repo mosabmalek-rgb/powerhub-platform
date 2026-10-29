@@ -138,6 +138,16 @@ describe("Delta row scope validation", () => {
       .toThrow(/خارج نطاق المستأجر أو الفرع/);
   });
 
+  it("rejects maintenance-part rows from a different work-order partition", () => {
+    const partsEntity = "maintenance_work_order_parts:77" as const;
+    expect(() => assertDeltaRowWithinScope(partsEntity, {
+      id: 5, tenantId: 1, siteId: 7, work_order_id: 77,
+    }, scoped)).not.toThrow();
+    expect(() => assertDeltaRowWithinScope(partsEntity, {
+      id: 5, tenantId: 1, siteId: 7, work_order_id: 78,
+    }, scoped)).toThrow(/خارج نطاق أمر الصيانة/);
+  });
+
   it("rejects readings without resolved site scope", () => {
     expect(() => assertDeltaRowWithinScope("readings", { id:700, tenantId:1, subscriberId:101 }, scoped))
       .toThrow(/خارج نطاق المستأجر أو الفرع/);
