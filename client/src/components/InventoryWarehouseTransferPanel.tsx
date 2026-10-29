@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 
 type Props = { siteId: number; isAuthenticated: boolean; canAdjustInventory: boolean };
 function operationKey() {
@@ -14,6 +15,15 @@ function operationKey() {
 }
 
 export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticated, canAdjustInventory }: Props) {
+  const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
+  const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
+  const ensureServerWriteAllowed = () => {
+    if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
+      toast.error("يلزم اتصال موثوق بخادم PowerHub؛ لم يُرحّل أي تحويل مخزني.");
+      return false;
+    }
+    return true;
+  };
   const utils = trpc.useUtils();
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery(
     { siteId }, { enabled: Boolean(siteId && isAuthenticated), staleTime: 30_000 },
@@ -63,6 +73,7 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!itemId || !sourceWarehouseId || !destinationWarehouseId || sourceWarehouseId === destinationWarehouseId) {
       toast.error("اختر الصنف ومخزنين مختلفين."); return;
     }
@@ -85,6 +96,7 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
       </div>
     </CardHeader>
     <CardContent>
+      {serverWriteBlocked ? <p role="status" className="mb-3 rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">التحويل بين المخازن يتطلب اتصالًا موثوقًا؛ اللقطات المحلية لا تُرحّل كميات أو تكلفة.</p> : null}
       {!canAdjustInventory ? <p className="text-sm text-muted-foreground">تحتاج إلى صلاحية تسوية المخزون لتنفيذ التحويل.</p>
         : <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={submit}>
           <label className="grid gap-1.5 text-sm">الصنف *
@@ -117,7 +129,7 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
           <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
             تُحتسب التكلفة من قيمة المخزون المصدر، وتُسجّل الحركتان معًا أو لا تُسجّل أي منهما. لا يمكن التحويل عند نقص الرصيد أو إغلاق الفترة المالية.
           </div>
-          <div><Button type="submit" disabled={transfer.isPending || warehouses.isLoading || items.isLoading || !itemId ||
+          <div><Button type="submit" disabled={serverWriteBlocked || transfer.isPending || warehouses.isLoading || items.isLoading || !itemId ||
             !sourceWarehouseId || !destinationWarehouseId || sourceWarehouseId === destinationWarehouseId}>
             {transfer.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ArrowLeftRight className="ml-2 h-4 w-4" />}
             تأكيد التحويل

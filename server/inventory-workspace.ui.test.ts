@@ -672,6 +672,7 @@ describe("inventory workspace UI contract", () => {
     const files = [
       "client/src/components/InventoryStockOperationsPanel.tsx",
       "client/src/components/InventoryStocktakePanel.tsx",
+      "client/src/components/InventoryWarehouseTransferPanel.tsx",
       "client/src/components/InventoryPurchasesPanel.tsx",
       "client/src/components/InventorySupplierPaymentsPanel.tsx",
     ];
@@ -685,9 +686,13 @@ describe("inventory workspace UI contract", () => {
     const stock = read(files[0]);
     const stocktake = read(files[1]);
     const purchases = read(files[2]);
-    const supplierPayments = read(files[3]);
+    const transfer = read(files[2]);
+    const purchases = read(files[3]);
+    const supplierPayments = read(files[4]);
     expect(stock).toContain("if (!ensureServerWriteAllowed()) return;");
     expect(stocktake).toContain("if (!ensureServerWriteAllowed()) return;");
+    expect(transfer).toContain("trpc.powerhub.inventory.transferStock.useMutation");
+    expect(transfer).toContain("if (!ensureServerWriteAllowed()) return;");
     expect(purchases).toContain("if (!ensureServerWriteAllowed()) return;");
     expect(supplierPayments).toContain("if (!ensureServerWriteAllowed()) return;");
     // Local snapshots are display-only; terminal stock/financial posting has no Outbox kind.
