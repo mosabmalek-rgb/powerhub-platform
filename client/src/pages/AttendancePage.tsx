@@ -96,7 +96,22 @@ export default function AttendancePage({ embedded = false }: { embedded?: boolea
     return (!fromDate || date >= fromDate) && (!toDate || date <= toDate) &&
       (!employeeId || Number(row.attendance.employeeId) === Number(employeeId));
   });
-  const displayRows: any[] = isHrOnline && rows.data ? rows.data : localAttendance;
+  const pendingAttendanceDisplay = localAttendance.filter((row: any) => row.attendance.pendingOffline);
+  const filteredServerAttendance = (rows.data ?? []).filter((row: any) => {
+    const raw = row.attendance.workDate;
+    const date = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw ?? "").slice(0, 10);
+    return (!fromDate || date >= fromDate) && (!toDate || date <= toDate) &&
+      (!employeeId || Number(row.attendance.employeeId) === Number(employeeId));
+  });
+  const displayRows: any[] = isHrOnline && rows.data
+    ? [
+        ...filteredServerAttendance.filter((row: any) => !pendingAttendanceDisplay.some((pending: any) =>
+          Number(pending.attendance.employeeId) === Number(row.attendance.employeeId) &&
+          String(pending.attendance.workDate instanceof Date ? pending.attendance.workDate.toISOString().slice(0, 10) : pending.attendance.workDate).slice(0, 10) ===
+            String(row.attendance.workDate instanceof Date ? row.attendance.workDate.toISOString().slice(0, 10) : row.attendance.workDate).slice(0, 10))),
+        ...pendingAttendanceDisplay,
+      ]
+    : localAttendance;
   const save = trpc.powerhub.hr.upsertAttendance.useMutation({ onSuccess: () => { void rows.refetch(); toast.success("تم حفظ سجل الحضور."); }, onError: (error) => toast.error(error.message) });
   const exportExcel = async () => { const ExcelJS = await import("exceljs"); const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("الحضور والانصراف", { views: [{ rightToLeft: true }] }); sheet.columns = [{ header: "الموظف", key: "employee", width: 28 }, { header: "التاريخ", key: "date", width: 16 }, { header: "الساعات الاعتيادية", key: "regular", width: 18 }, { header: "الساعات الإضافية", key: "overtime", width: 18 }, { header: "أيام الغياب", key: "absent", width: 16 }, { header: "ملاحظات", key: "notes", width: 30 }]; (displayRows ?? []).forEach((row) => sheet.addRow({ employee: row.employee.fullName, date: moneyDate(row.attendance.workDate), regular: Number(row.attendance.regularHours), overtime: Number(row.attendance.overtimeHours), absent: Number(row.attendance.absentDays), notes: row.attendance.notes ?? "" })); sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }; sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; const buffer = await workbook.xlsx.writeBuffer(); const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `تقرير-الحضور-${fromDate || "بداية"}-${toDate || "نهاية"}.xlsx`; anchor.click(); URL.revokeObjectURL(url); toast.success("تم تجهيز تقرير الحضور Excel."); };
   const exportPdf = async () => { const rowsData = displayRows ?? []; if (!rowsData.length) return toast.error("لا توجد سجلات حضور ضمن النطاق المحدد."); const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">تقرير الحضور والانصراف</h1><p>الفترة: ${escapeHtml(formatReportPeriod(fromDate || "", toDate || ""))}</p><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الموظف</th><th>التاريخ</th><th>الساعات الاعتيادية</th><th>الساعات الإضافية</th><th>أيام الغياب</th></tr></thead><tbody>${rowsData.map(row=>`<tr><td>${escapeHtml(row.employee.fullName)}</td><td>${moneyDate(row.attendance.workDate)}</td><td>${row.attendance.regularHours}</td><td>${row.attendance.overtimeHours}</td><td>${row.attendance.absentDays}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try{await downloadReportHtmlAsPdf(root,`تقرير-الحضور-${fromDate||"بداية"}.pdf`,{landscape:true,title:"تقرير الحضور والانصراف - PowerHub"});toast.success("تم تجهيز تقرير الحضور PDF.");}catch(error){toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF.");}finally{root.remove();} };
