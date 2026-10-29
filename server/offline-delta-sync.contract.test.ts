@@ -38,9 +38,9 @@ describe("PowerHub delta sync contract", () => {
 
   it("checks authenticated site scope and a per-entity capability before calling the private RPC", () => {
     expect(router).toContain("deltaSync: router({");
-    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses"])');
+    expect(router).toContain('entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements"])');
     expect(router).toContain("requireSupabaseSiteRole(");
-    expect(router).toContain('inventoryCatalogEntity ? "powerhub_pull_inventory_catalog_sync_delta" : "powerhub_pull_sync_delta"');
+    expect(router).toContain('inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta"');
     expect(router).toContain("input.pageSize");
   });
 
@@ -63,14 +63,16 @@ describe("PowerHub delta sync contract", () => {
 
 describe("inventory catalog Delta extension", () => {
   it("keeps tenant-wide catalogs and branch warehouses on explicit private feeds", () => {
-    expect(inventoryMigration).toContain("'inventory_items','inventory_item_units','suppliers','inventory_warehouses'");
-    expect(inventoryMigration).toContain("powerhub_get_inventory_catalog_sync_snapshot");
-    expect(inventoryMigration).toContain("powerhub_pull_inventory_catalog_sync_delta");
+    expect(inventoryMigration).toContain("'inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements'");
+    expect(inventoryMigration).toContain("powerhub_get_inventory_sync_snapshot");
+    expect(inventoryMigration).toContain("powerhub_pull_inventory_sync_delta");
+    expect(inventoryMigration).toContain("after insert on public.inventory_stock_movements");
+    expect(inventoryMigration).not.toContain("'total_cost_amount',p_row->'total_cost_amount'");
     expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_items");
     expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_item_units");
     expect(inventoryMigration).toContain("after insert or update or delete on public.suppliers");
     expect(inventoryMigration).toContain("after insert or update or delete on public.inventory_warehouses");
-    expect(inventoryMigration).toContain("revoke all on function public.powerhub_pull_inventory_catalog_sync_delta");
+    expect(inventoryMigration).toContain("revoke all on function public.powerhub_pull_inventory_sync_delta");
     expect(router).toContain('input.entityType === "suppliers" ? "viewSuppliers"');
     expect(router).toContain('? "viewInventory" : undefined');
     expect(client).toContain('"inventory_item_units"');
