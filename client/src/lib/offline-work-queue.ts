@@ -2,7 +2,65 @@ import { ensureLegacyFieldReadingsMigrated, openOfflineWorkspaceDatabase } from 
 import { OfflineNumberRangeError, selectNextAvailableOfflineNumber, type OfflineNumberClaim, type OfflineNumberGrant, type OfflineNumberScope } from "./offline-number-ranges";
 import type { SyncMetadataRecord } from "./offline-sync-metadata";
 import { isManualSyncRecoveryRequired } from "./offline-sync-engine";
-${helper}export type OfflineWorkKind =
+const OFFLINE_WORK_QUEUE_CHANGED_EVENT = "powerhub:offline-work-queue-changed";
+const OFFLINE_WORK_QUEUE_CHANGED_CHANNEL = "powerhub-offline-work-queue";
+const OFFLINE_WORK_QUEUE_SOURCE_ID = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+
+export type OfflineWorkQueueScope = { userId: number; siteId: number };
+
+/** Notify the current tab and sibling tabs after a durable Outbox change. */
+export function notifyOfflineWorkQueueChanged(scope: OfflineWorkQueueScope) {
+  const detail = { ...scope, sourceId: OFFLINE_WORK_QUEUE_SOURCE_ID };
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(OFFLINE_WORK_QUEUE_CHANGED_EVENT, { detail }));
+  }
+  if (typeof BroadcastChannel !== "undefined") {
+    try {
+      const channel = new BroadcastChannel(OFFLINE_WORK_QUEUE_CHANGED_CHANNEL);
+      channel.postMessage(detail);
+      channel.close();
+    } catch {
+      // Same-tab events remain available if BroadcastChannel is unavailable.
+    }
+  }
+}
+
+/** Subscribe to scoped Outbox changes from this tab and sibling browser tabs. */
+export function subscribeOfflineWorkQueueChanges(scope: OfflineWorkQueueScope, onChanged: () => void) {
+  if (typeof window === "undefined") return () => undefined;
+  const matches = (value: unknown) => {
+    if (!value || typeof value !== "object") return false;
+    const detail = value as { userId?: unknown; siteId?: unknown; sourceId?: unknown };
+    return Number(detail.userId) === scope.userId && Number(detail.siteId) === scope.siteId;
+  };
+  const onWindowChange = (event: Event) => {
+    if (matches((event as CustomEvent).detail)) onChanged();
+  };
+  window.addEventListener(OFFLINE_WORK_QUEUE_CHANGED_EVENT, onWindowChange);
+  let channel: BroadcastChannel | undefined;
+  let onMessage: ((event: MessageEvent) => void) | undefined;
+  if (typeof BroadcastChannel !== "undefined") {
+    try {
+      channel = new BroadcastChannel(OFFLINE_WORK_QUEUE_CHANGED_CHANNEL);
+      onMessage = (event: MessageEvent) => {
+        if (!matches(event.data)) return;
+        if ((event.data as { sourceId?: unknown }).sourceId === OFFLINE_WORK_QUEUE_SOURCE_ID) return;
+        onChanged();
+      };
+      channel.addEventListener("message", onMessage);
+    } catch {
+      channel?.close();
+      channel = undefined;
+    }
+  }
+  return () => {
+    window.removeEventListener(OFFLINE_WORK_QUEUE_CHANGED_EVENT, onWindowChange);
+    if (channel && onMessage) channel.removeEventListener("message", onMessage);
+    channel?.close();
+  };
+}
+
+export type OfflineWorkKind =
   | "subscriber_create"
   | "subscriber_update"
   | "generator_create"
