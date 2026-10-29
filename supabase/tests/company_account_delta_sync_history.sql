@@ -489,18 +489,27 @@ begin
      or (v_delta #> '{changes,0,row_data}') ? 'total_cost_amount' then
     raise exception 'Stock movement Delta projection failed or exposed financial values: %',v_delta;
   end if;
-  update public.inventory_stock_movements set corrected_by_movement_id=2302 where id=2301;
+  -- Mimic the immutable correction workflow: insert a reversal, then ensure the original
+  -- projection is emitted again with its derived corrected_by_movement_id.
+  insert into public.inventory_stock_movements(
+    id,tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,
+    reference_no,operation_key,reversal_of_movement_id,correction_reason
+  ) values (2302,1,10,2201,2101,'adjustment_in',2.500,3.5000,
+    'CORR-2301','movement-test-2301:reversal',2301,'test correction');
   v_delta:=public.powerhub_pull_inventory_sync_delta(1,10,'inventory_stock_movements',1,null,200);
-  if jsonb_array_length(v_delta->'changes')<>1
-     or v_delta #>> '{changes,0,entity_id}' is distinct from '2301'
-     or v_delta #>> '{changes,0,row_data,corrected_by_movement_id}' is distinct from '2302'
-     or (v_delta #> '{changes,0,row_data}') ? 'unit_cost' then
+  if jsonb_array_length(v_delta->'changes')<>2
+     or v_delta #>> '{changes,0,entity_id}' is distinct from '2302'
+     or v_delta #>> '{changes,1,entity_id}' is distinct from '2301'
+     or v_delta #>> '{changes,1,row_data,corrected_by_movement_id}' is distinct from '2302'
+     or (v_delta #> '{changes,0,row_data}') ? 'unit_cost'
+     or (v_delta #> '{changes,1,row_data}') ? 'unit_cost' then
     raise exception 'Stock movement correction metadata did not reach Delta safely: %',v_delta;
   end if;
   v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,10,'inventory_stock_movements');
-  if jsonb_array_length(v_snapshot->'rows')<>1
+  if jsonb_array_length(v_snapshot->'rows')<>2
      or (v_snapshot #> '{rows,0}') ? 'unit_cost'
-     or (v_snapshot #> '{rows,0}') ? 'total_cost_amount' then
+     or (v_snapshot #> '{rows,0}') ? 'total_cost_amount'
+     or v_snapshot #>> '{rows,1,corrected_by_movement_id}' is distinct from '2302' then
     raise exception 'Stock movement snapshot failed or exposed financial values: %',v_snapshot;
   end if;
   v_snapshot:=public.powerhub_get_inventory_sync_snapshot(1,20,'inventory_stock_movements');
