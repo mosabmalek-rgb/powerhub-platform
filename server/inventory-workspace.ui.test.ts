@@ -668,6 +668,35 @@ describe("inventory workspace UI contract", () => {
     }
   });
 
+  it("blocks final stock and supplier financial writes while server reachability is unknown or offline", () => {
+    const files = [
+      "client/src/components/InventoryStockOperationsPanel.tsx",
+      "client/src/components/InventoryStocktakePanel.tsx",
+      "client/src/components/InventoryPurchasesPanel.tsx",
+      "client/src/components/InventorySupplierPaymentsPanel.tsx",
+    ];
+    for (const file of files) {
+      const source = read(file);
+      expect(source).toContain("usePowerHubConnectivity");
+      expect(source).toContain("getPowerHubConnectivitySnapshot() !== true");
+      expect(source).toContain("ensureServerWriteAllowed");
+      expect(source).toContain("serverWriteBlocked");
+    }
+    const stock = read(files[0]);
+    const stocktake = read(files[1]);
+    const purchases = read(files[2]);
+    const supplierPayments = read(files[3]);
+    expect(stock).toContain("if (!ensureServerWriteAllowed()) return;");
+    expect(stocktake).toContain("if (!ensureServerWriteAllowed()) return;");
+    expect(purchases).toContain("if (!ensureServerWriteAllowed()) return;");
+    expect(supplierPayments).toContain("if (!ensureServerWriteAllowed()) return;");
+    // Local snapshots are display-only; terminal stock/financial posting has no Outbox kind.
+    const queue = read("client/src/lib/offline-work-queue.ts");
+    for (const finalAction of ["recordStockMovement", "postStocktake", "confirmPurchase", "receivePurchase", "returnToSupplier", "recordSupplierPayment"]) {
+      expect(queue).not.toContain(String.fromCharCode(34) + finalAction + String.fromCharCode(34));
+    }
+  });
+
   it("preserves an exact-scope fuel report snapshot when live refresh fails", () => {
     const panel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
     const cache = read("client/src/lib/offline-operational-report-cache.ts");
