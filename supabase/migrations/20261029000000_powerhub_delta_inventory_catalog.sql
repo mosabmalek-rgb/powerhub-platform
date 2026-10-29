@@ -28,7 +28,11 @@ returns jsonb language sql stable set search_path=pg_catalog,public,pg_temp as $
      'reversal_of_movement_id',p_row->'reversal_of_movement_id',
      'corrects_movement_id',p_row->'corrects_movement_id',
      'correction_reason',p_row->'correction_reason',
-     'corrected_by_movement_id',p_row->'corrected_by_movement_id'
+     'corrected_by_movement_id',(select c.id from public.inventory_stock_movements c
+       where c.tenant_id=nullif(p_row->>'tenant_id','')::bigint
+         and c.site_id=nullif(p_row->>'site_id','')::bigint
+         and c.reversal_of_movement_id=nullif(p_row->>'id','')::bigint
+       order by c.id desc limit 1)
    )
    from public.inventory_items i
    join public.inventory_warehouses w
@@ -183,6 +187,22 @@ begin
   if v_new is not null and v_new_visible then
    v_row:=public.powerhub_delta_sync_project_inventory_row(v_entity,v_new);
    perform public.powerhub_append_inventory_sync_change(v_new_tenant,v_new_site,v_entity,v_new->>'id','upsert',v_row);
+   -- A reversal changes the derived corrected_by_movement_id of the immutable original.
+   -- Emit a second upsert so every cached page updates that relation without mutating ledger history.
+   if v_entity='inventory_stock_movements'
+      and nullif(v_new->>'reversal_of_movement_id','') is not null then
+     select to_jsonb(original_movement) into v_old
+     from public.inventory_stock_movements original_movement
+     where original_movement.tenant_id=v_new_tenant
+       and original_movement.site_id=v_new_site
+       and original_movement.id=nullif(v_new->>'reversal_of_movement_id','')::bigint;
+     if found then
+       v_row:=public.powerhub_delta_sync_project_inventory_row(v_entity,v_old);
+       perform public.powerhub_append_inventory_sync_change(
+         v_new_tenant,v_new_site,v_entity,v_old->>'id','upsert',v_row
+       );
+     end if;
+   end if;
   end if;
  end if;
  if TG_OP='DELETE' then return OLD; else return NEW; end if;
