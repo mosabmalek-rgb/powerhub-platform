@@ -83,7 +83,9 @@ describe("offline sync UI contract", () => {
     expect(offlineReadingQueue).toContain('if (state.outcome === "applied" || state.outcome === "already_applied")');
     expect(offlineReadingQueue).toContain("await removeOfflineConflict(item.userId, item.clientOperationId)");
     expect(offlineWorkQueue).toContain("transaction.objectStore(storeName).add(record)");
-    expect(offlineWorkQueue).toContain("transaction.objectStore(syncMetadataStoreName).add(createInitialSyncMetadataRecord(record))");
+    expect(offlineWorkQueue).toContain('database.transaction([storeName, syncMetadataStoreName], "readwrite")');
+    expect(offlineWorkQueue).toContain("metadataStore.add(createInitialSyncMetadataRecord(record, dependsOn))");
+    expect(offlineWorkQueue).toContain("operationsStore.add(record)");
   });
 
   it("requeues an eligible failed work row and retry metadata in one IndexedDB transaction", () => {
