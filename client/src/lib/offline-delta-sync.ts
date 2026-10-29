@@ -1,5 +1,5 @@
 import { openLegacyOfflineDatabaseIfPresent, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
-export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs" | "invoices" | "payments" | "expenses" | "company_accounts" | "company_accounts_all" | "inventory_items" | "inventory_item_units" | "suppliers" | "inventory_warehouses" | "inventory_stock_movements" | "inventory_stocktakes" | "inventory_purchase_headers" | "inventory_purchase_receipt_headers" | "inventory_supplier_return_headers" | "fuel_readings" | "maintenance_preventive_plans" | "fuel_events" | "maintenance_work_orders" | `maintenance_work_order_parts:${number}`;
+export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs" | "invoices" | "payments" | "expenses" | "company_accounts" | "company_accounts_all" | "inventory_items" | "inventory_item_units" | "suppliers" | "inventory_warehouses" | "inventory_stock_movements" | "inventory_stocktakes" | "inventory_purchase_headers" | "inventory_purchase_receipt_headers" | "inventory_supplier_return_headers" | "fuel_readings" | "maintenance_preventive_plans" | "fuel_events" | "maintenance_work_orders" | "hr_employee_directory" | "hr_attendance" | `maintenance_work_order_parts:${number}`;
 
 export type DeltaChange<Row extends Record<string, unknown> = Record<string, unknown>> = {
   cursor: string;
@@ -51,6 +51,8 @@ const MAX_LOCAL_FUEL_READING_ROWS = 500;
 const MAX_LOCAL_MAINTENANCE_PLAN_ROWS = 500;
 const MAX_LOCAL_FUEL_EVENT_ROWS = 500;
 const MAX_LOCAL_MAINTENANCE_WORK_ORDER_ROWS = 200;
+const MAX_LOCAL_HR_EMPLOYEE_DIRECTORY_ROWS = 500;
+const MAX_LOCAL_HR_ATTENDANCE_ROWS = 500;
 
 function movementProjection(value: Record<string, unknown>): Record<string, unknown> {
   const nested = value.rowData;
@@ -131,6 +133,28 @@ function compareMaintenancePlanPriority(
   }
 }
 
+function compareHrEmployeeDirectoryNewestFirst(leftValue: Record<string, unknown>, rightValue: Record<string, unknown>): number {
+  const left = movementProjection(leftValue), right = movementProjection(rightValue);
+  const leftDate = Date.parse(String(left.updated_at ?? left.updatedAt ?? left.created_at ?? left.createdAt ?? ""));
+  const rightDate = Date.parse(String(right.updated_at ?? right.updatedAt ?? right.created_at ?? right.createdAt ?? ""));
+  const leftTime = Number.isFinite(leftDate) ? leftDate : 0, rightTime = Number.isFinite(rightDate) ? rightDate : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  const leftId = movementIdentity(leftValue, left), rightId = movementIdentity(rightValue, right);
+  try { const a = BigInt(leftId), b = BigInt(rightId); return a === b ? 0 : a > b ? -1 : 1; }
+  catch { return rightId.localeCompare(leftId, undefined, { numeric: true }); }
+}
+
+function compareHrAttendanceNewestFirst(leftValue: Record<string, unknown>, rightValue: Record<string, unknown>): number {
+  const left = movementProjection(leftValue), right = movementProjection(rightValue);
+  const leftDate = Date.parse(String(left.work_date ?? left.workDate ?? ""));
+  const rightDate = Date.parse(String(right.work_date ?? right.workDate ?? ""));
+  const leftTime = Number.isFinite(leftDate) ? leftDate : 0, rightTime = Number.isFinite(rightDate) ? rightDate : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  const leftId = movementIdentity(leftValue, left), rightId = movementIdentity(rightValue, right);
+  try { const a = BigInt(leftId), b = BigInt(rightId); return a === b ? 0 : a > b ? -1 : 1; }
+  catch { return rightId.localeCompare(leftId, undefined, { numeric: true }); }
+}
+
 function compareStockMovementNewestFirst(
   leftValue: Record<string, unknown>,
   rightValue: Record<string, unknown>,
@@ -168,7 +192,9 @@ export function isBoundedDeltaEntityType(entityType: DeltaEntityType): boolean {
     entityType === "fuel_readings" ||
     entityType === "maintenance_preventive_plans" ||
     entityType === "fuel_events" ||
-    entityType === "maintenance_work_orders";
+    entityType === "maintenance_work_orders" ||
+    entityType === "hr_employee_directory" ||
+    entityType === "hr_attendance";
 }
 
 /**
@@ -194,14 +220,24 @@ export function limitDeltaEntityRows<T extends Record<string, unknown>>(
               : entityType === "fuel_events"
                 ? MAX_LOCAL_FUEL_EVENT_ROWS
                 : entityType === "maintenance_work_orders"
-                  ? MAX_LOCAL_MAINTENANCE_WORK_ORDER_ROWS
-                  : null;
+                   ? MAX_LOCAL_MAINTENANCE_WORK_ORDER_ROWS
+                   : entityType === "hr_employee_directory"
+                     ? MAX_LOCAL_HR_EMPLOYEE_DIRECTORY_ROWS
+                     : entityType === "hr_attendance"
+                       ? MAX_LOCAL_HR_ATTENDANCE_ROWS
+                       : null;
   if (limit === null || rows.length <= limit) return [...rows];
   if (entityType === "fuel_readings") {
     return [...rows].sort(compareFuelReadingNewestFirst).slice(0, limit);
   }
   if (entityType === "maintenance_preventive_plans") {
     return [...rows].sort(compareMaintenancePlanPriority).slice(0, limit);
+  }
+  if (entityType === "hr_employee_directory") {
+    return [...rows].sort(compareHrEmployeeDirectoryNewestFirst).slice(0, limit);
+  }
+  if (entityType === "hr_attendance") {
+    return [...rows].sort(compareHrAttendanceNewestFirst).slice(0, limit);
   }
   if (entityType.startsWith("maintenance_work_order_parts:")) return [...rows];
   return [...rows].sort(compareStockMovementNewestFirst).slice(0, limit);
