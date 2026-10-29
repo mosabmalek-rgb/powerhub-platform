@@ -395,7 +395,7 @@ export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): Offlin
     if (procedure === "maintenance.listPreventivePlans") return "maintenance_preventive_plans";
     if (procedure === "maintenance.listWorkOrders") return "maintenance_work_orders";
     if (procedure === "maintenance.listParts") {
-      const workOrderId = Number(getOfflineQueryInput(queryKey).workOrderId);
+      const workOrderId = Number(getOfflineQueryInput(queryKey)?.workOrderId);
       return `maintenance_work_order_parts:${workOrderId}`;
     }
     return null;
