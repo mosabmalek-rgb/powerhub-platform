@@ -335,6 +335,35 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
+  if (segments[0] === "powerhub" && segments[1] === "hr" && Array.isArray(data)) {
+    const isRow = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
+    if (segments[2] === "offlineDirectory") return data.filter(isRow).map((row) => ({
+      id: row.id, tenantId: row.tenantId ?? row.tenant_id, siteId: row.siteId ?? row.site_id ?? null,
+      fullName: row.fullName ?? row.full_name ?? "", jobTitle: row.jobTitle ?? row.job_title ?? "other",
+      employmentStatus: row.employmentStatus ?? row.employment_status ?? "active",
+      contractType: row.contractType ?? row.contract_type ?? "monthly", createdAt: row.createdAt ?? row.created_at,
+    }));
+    if (segments[2] === "offlineAttendance") return data.filter(isRow).map((row) => {
+      const attendance = isRow(row.attendance) ? row.attendance : row;
+      const employee = isRow(row.employee) ? row.employee : {};
+      return {
+        id: row.id ?? attendance.id, tenantId: row.tenantId ?? row.tenant_id ?? attendance.tenantId ?? attendance.tenant_id,
+        siteId: row.siteId ?? row.site_id ?? attendance.siteId ?? attendance.site_id,
+        attendance: {
+          id: attendance.id, tenantId: attendance.tenantId ?? attendance.tenant_id,
+          employeeId: attendance.employeeId ?? attendance.employee_id, siteId: attendance.siteId ?? attendance.site_id,
+          workDate: attendance.workDate ?? attendance.work_date, regularHours: attendance.regularHours ?? attendance.regular_hours ?? 0,
+          overtimeHours: attendance.overtimeHours ?? attendance.overtime_hours ?? 0, absentDays: attendance.absentDays ?? attendance.absent_days ?? 0,
+          notes: null, createdByUserId: null, createdAt: attendance.createdAt ?? attendance.created_at, updatedAt: attendance.updatedAt ?? attendance.updated_at,
+        },
+        employee: {
+          id: employee.id, tenantId: employee.tenantId ?? employee.tenant_id, siteId: employee.siteId ?? employee.site_id ?? null,
+          fullName: employee.fullName ?? employee.full_name ?? "", jobTitle: employee.jobTitle ?? employee.job_title ?? "other",
+          employmentStatus: employee.employmentStatus ?? employee.employment_status ?? "active",
+        },
+      };
+    });
+  }
   if (segments[0] === "powerhub" && data && Array.isArray(data)) {
     const options = queryKey[1];
     const wrapper = options && typeof options === "object" && !Array.isArray(options)
