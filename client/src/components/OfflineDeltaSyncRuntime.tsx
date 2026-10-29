@@ -235,7 +235,7 @@ async function patchQueryCaches(
             return rows.some((row: AnyRow) => String(row.id ?? row.movement_id) === change.entity_id);
           }),
         };
-        const nextRows = applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers)
+        const nextRows = (applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers) as AnyRow[])
           .sort((a, b) => {
             const dateDiff = new Date(String(b.occurred_at ?? "")).getTime() - new Date(String(a.occurred_at ?? "")).getTime();
             return dateDiff || Number(b.id ?? b.movement_id) - Number(a.id ?? a.movement_id);
