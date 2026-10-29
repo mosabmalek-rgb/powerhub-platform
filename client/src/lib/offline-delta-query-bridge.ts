@@ -28,7 +28,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
   if (entityType === "fuel_events") {
     const id = toNumber(raw.event_id ?? raw.id);
     return {
-      ...raw, id, event_id: id,
+      id, event_id: id,
       tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
       siteId: toNumber(raw.site_id ?? raw.siteId),
       generator_id: toNumber(raw.generator_id ?? raw.generatorId),
@@ -54,7 +54,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
   if (entityType === "maintenance_work_orders") {
     const id = toNumber(raw.work_order_id ?? raw.id);
     return {
-      ...raw, id, work_order_id: id,
+      id, work_order_id: id,
       tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
       siteId: toNumber(raw.site_id ?? raw.siteId),
       work_order_number: String(raw.work_order_number ?? raw.workOrderNumber ?? ""),
@@ -88,7 +88,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
   if (entityType.startsWith("maintenance_work_order_parts:")) {
     const id = toNumber(raw.part_id ?? raw.id);
     return {
-      ...raw, id, part_id: id,
+      id, part_id: id,
       tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
       siteId: toNumber(raw.site_id ?? raw.siteId),
       work_order_id: toNumber(raw.work_order_id ?? raw.workOrderId),
