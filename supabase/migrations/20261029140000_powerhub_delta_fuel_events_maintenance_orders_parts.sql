@@ -295,10 +295,12 @@ begin
   perform public.powerhub_emit_fuel_maintenance_delta_sync_change(
     NEW.tenant_id,NEW.site_id,v_entity_type,NEW.id
   );
-  if TG_OP='UPDATE' and TG_TABLE_NAME='generator_maintenance_work_orders'
-    and OLD.reported_at is distinct from NEW.reported_at then
-    -- The changed order may have crossed the top-200 boundary; emit its replacement set.
-    perform public.powerhub_refresh_maintenance_work_order_delta_scope(NEW.tenant_id,NEW.site_id);
+  if TG_OP='UPDATE' then
+    if TG_TABLE_NAME='generator_maintenance_work_orders' then
+      if OLD.reported_at is distinct from NEW.reported_at then
+        perform public.powerhub_refresh_maintenance_work_order_delta_scope(NEW.tenant_id,NEW.site_id);
+      end if;
+    end if;
   end if;
   return NEW;
 end $$;
