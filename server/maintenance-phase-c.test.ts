@@ -147,6 +147,8 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(panel).toContain("generatorsAuthorizationDenied || !safeGenerators.some((row) => row.id === generator)");
     expect(panel).toContain("itemsAuthorizationDenied || warehousesAuthorizationDenied || !safeItems.some((row) => row.id === item)");
     expect(panel).toContain("if (order.preventive_plan_id && !plan)");
+    expect(panel).toContain("listPreventivePlans.useQuery({ siteId }");
+    expect(panel).toContain("safePlans.filter((p) => !planGeneratorId || Number(p.generator_id) === Number(planGeneratorId))");
     expect(panel).toContain("suppliersAuthorizationDenied || assignSupplier.isPending");
     expect(panel).toContain("maintenanceReport.error && !hasAvailableMaintenanceReport");
     expect(panel).toContain("reportRows.map((r)");
