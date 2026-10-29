@@ -38,6 +38,6 @@ describe("payment-documentation offline cache and HR privacy contracts", () => {
   it("explicitly keeps every HR query server-only until an approved minimized projection exists", () => {
     expect(queryPolicy).toContain('  "hr",');
     expect(hrScope).toContain("لا يتم تضمين بيانات الموظفين والرواتب والحضور والسلف في الكاش المحلي المستمر");
-    expect(hrScope).toContain("حتى اعتماد إسقاط محدود");
+    expect(hrScope).toContain("لا تُفتح هذه البيانات للكاش إلا بعد اعتماد إسقاط محدود");
   });
 });
