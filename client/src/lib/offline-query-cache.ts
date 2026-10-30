@@ -867,7 +867,8 @@ export function isOfflineDashboardQueryKeyForSite(
   const first = queryKey[0];
   const segments = Array.isArray(first)
     ? first.filter((part): part is string => typeof part === "string")
-    : typeof first === "string" ? first.split(".") : [];
+    : typeof first === "string" && first.includes(".") ? first.split(".")
+      : typeof first === "string" ? queryKey.slice(0, 3).filter((part): part is string => typeof part === "string") : [];
   if (segments.length !== 3 || segments[0] !== "powerhub" ||
       segments[1] !== "dashboard" || !procedures.includes(segments[2] ?? "")) return false;
   const wrapper = queryKey[1] && typeof queryKey[1] === "object" && !Array.isArray(queryKey[1])
