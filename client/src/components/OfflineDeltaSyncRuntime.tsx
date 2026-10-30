@@ -10,6 +10,7 @@ import {
   applyDeltaChanges,
   compareMaintenanceWorkOrderNewestFirst,
   listDeltaEntities,
+  limitDeltaEntityRows,
   getDeltaCursor,
   getDeltaSyncStatus,
   saveDeltaSyncStatus,
@@ -309,6 +310,17 @@ async function patchQueryCaches(
               Number(b.id) - Number(a.id);
           }).slice(0, entityType === "hr_employee_directory" ? MAX_LOCAL_HR_EMPLOYEE_ROWS : MAX_LOCAL_HR_ATTENDANCE_ROWS);
         queryClient.setQueryData(query.queryKey, nextRows);
+      } else if (entityType === "hr_employee_advances" || entityType === "hr_payroll_runs") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            if (change.operation !== "upsert" || !change.row_data) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, change.row_data as AnyRow) };
+          }),
+        };
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        queryClient.setQueryData(query.queryKey, limitDeltaEntityRows(entityType, nextRows));
       } else if (entityType === "inventory_item_units") {
         const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
         const visibleIds = new Set(rows.filter((row: AnyRow) =>
@@ -549,10 +561,11 @@ export function OfflineDeltaSyncRuntime() {
           const scoped = (candidate.entityType === "readings" ? row.subscriber : row) as Record<string, unknown> | undefined;
           const sharedInventoryEntity = candidate.entityType === "inventory_items" || candidate.entityType === "inventory_item_units" || candidate.entityType === "suppliers";
           const sharedEmployee = candidate.entityType === "hr_employee_directory" && scoped?.siteId === null;
+          const sharedPayroll = candidate.entityType === "hr_payroll_runs" && scoped?.siteId === null;
           const matchesScope = candidate.entityType === "sites"
             ? Number(scoped?.id) === candidate.siteId && Number(scoped?.tenantId) === candidate.tenantId
             : Number(scoped?.tenantId) === candidate.tenantId &&
-              (sharedInventoryEntity || sharedEmployee || Number(scoped?.siteId) === candidate.siteId);
+              (sharedInventoryEntity || sharedEmployee || sharedPayroll || Number(scoped?.siteId) === candidate.siteId);
           if (!matchesScope) {
             throw new Error("لقطة المزامنة تحتوي بيانات خارج نطاق الفرع.");
           }
@@ -588,6 +601,8 @@ export function OfflineDeltaSyncRuntime() {
             queryClient.setQueryData(query.queryKey, projectSubscriberDirectoryPage(
               queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), scope,
             ));
+          } else if (candidate.entityType === "hr_employee_advances" || candidate.entityType === "hr_payroll_runs") {
+            queryClient.setQueryData(query.queryKey, limitDeltaEntityRows(candidate.entityType, queryRows as AnyRow[]));
           } else if (candidate.entityType === "hr_employee_directory" || candidate.entityType === "hr_attendance") {
             const ordered = (queryRows as AnyRow[]).slice().sort((a, b) => {
               if (candidate.entityType === "hr_attendance") {
