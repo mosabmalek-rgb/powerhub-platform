@@ -365,7 +365,7 @@ create or replace function public.powerhub_refresh_inventory_stocktake_delta_sco
 returns void
 language plpgsql security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 declare v_stocktake record;
 begin
   if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1
@@ -381,7 +381,7 @@ begin
   loop
     perform public.powerhub_emit_inventory_stocktake_sync_change(p_tenant_id,v_stocktake.id);
   end loop;
-end $;
+end $$;
 alter function public.powerhub_refresh_inventory_stocktake_delta_scope(bigint,bigint) owner to postgres;
 revoke all on function public.powerhub_refresh_inventory_stocktake_delta_scope(bigint,bigint) from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_inventory_stocktake_delta_scope(bigint,bigint) to service_role;
@@ -390,7 +390,7 @@ create or replace function public.powerhub_capture_inventory_stocktake_delta_syn
 returns trigger
 language plpgsql security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 declare v_scope_changed boolean:=false; v_rank_changed boolean:=false;
 begin
   if TG_OP='DELETE' then
@@ -419,7 +419,7 @@ begin
     perform public.powerhub_refresh_inventory_stocktake_delta_scope(NEW.tenant_id,NEW.site_id);
   end if;
   return NEW;
-end $;
+end $$;
 alter function public.powerhub_capture_inventory_stocktake_delta_sync_change() owner to postgres;
 revoke all on function public.powerhub_capture_inventory_stocktake_delta_sync_change() from public,anon,authenticated;
 grant execute on function public.powerhub_capture_inventory_stocktake_delta_sync_change() to service_role;
@@ -428,11 +428,11 @@ create or replace function public.powerhub_refresh_stocktake_delta_after_warehou
 returns trigger
 language plpgsql security definer
 set search_path=pg_catalog,public,pg_temp
-as $
+as $$
 begin
   perform public.powerhub_refresh_inventory_stocktake_delta_scope(NEW.tenant_id,NEW.site_id);
   return NEW;
-end $;
+end $$;
 alter function public.powerhub_refresh_stocktake_delta_after_warehouse_update() owner to postgres;
 revoke all on function public.powerhub_refresh_stocktake_delta_after_warehouse_update() from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_stocktake_delta_after_warehouse_update() to service_role;
