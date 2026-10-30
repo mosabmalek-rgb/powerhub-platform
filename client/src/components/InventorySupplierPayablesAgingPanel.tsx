@@ -85,7 +85,7 @@ export default function InventorySupplierPayablesAgingPanel({
     { enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger), staleTime: 60_000 },
   );
   const exportExcel = async () => {
-    if (!result) { toast.error("حمّل تقرير أعمار الذمم بنجاح قبل التصدير."); return; }
+    if (authorizationDenied || !result) { toast.error("لا يمكن تصدير بيانات بعد رفض صلاحية الوصول أو دون تقرير متاح."); return; }
     try {
       const { default: ExcelJS } = await loadExcelJS();
       const workbook = new ExcelJS.Workbook();
@@ -133,7 +133,7 @@ export default function InventorySupplierPayablesAgingPanel({
     }
   };
   const exportPdf = async () => {
-    if (!result) { toast.error("حمّل تقرير أعمار الذمم بنجاح قبل التصدير."); return; }
+    if (authorizationDenied || !result) { toast.error("لا يمكن تصدير بيانات بعد رفض صلاحية الوصول أو دون تقرير متاح."); return; }
     if (result.rows.length > 5_000) { toast.error("تقرير الذمم يتجاوز 5,000 بند. استخدم Excel أو ضيّق نطاق التقرير."); return; }
     let root: HTMLDivElement | undefined;
     try {
@@ -188,8 +188,8 @@ export default function InventorySupplierPayablesAgingPanel({
             {expanded ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
             {expanded ? "إخفاء التفاصيل" : "عرض التفاصيل"}
           </Button>
-          <Button type="button" variant="outline" disabled={!result || query.isFetching} onClick={() => void exportExcel()}><Download className="ml-2 h-4 w-4" />Excel</Button>
-          <Button type="button" variant="outline" disabled={!result || query.isFetching} onClick={() => void exportPdf()}><Download className="ml-2 h-4 w-4" />PDF عربي</Button>
+          <Button type="button" variant="outline" disabled={authorizationDenied || !result || query.isFetching} onClick={() => void exportExcel()}><Download className="ml-2 h-4 w-4" />Excel</Button>
+          <Button type="button" variant="outline" disabled={authorizationDenied || !result || query.isFetching} onClick={() => void exportPdf()}><Download className="ml-2 h-4 w-4" />PDF عربي</Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -438,7 +438,7 @@ export default function InventoryWorkspacePage() {
               <InventorySupplierPayablesAgingPanel siteId={siteId} isAuthenticated={isAuthenticated} canViewSupplierLedger={canViewSupplierLedger} />
                 {canViewSupplierLedger && selectedSupplierLedgerId ? <Card>
                   <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-                    <div><CardTitle>كشف حساب المورد — {supplierLedgerAuthorizationDenied ? "غير متاح" : supplierLedger.data?.supplier?.name ?? "جارٍ التحميل…"}</CardTitle><p className="mt-1 text-sm text-muted-foreground">كشف الفرع الحالي؛ الرصيد الموجب يمثل مبلغًا مستحقًا للمورد.</p></div>
+                    <div><CardTitle>كشف حساب المورد — {supplierLedgerAuthorizationDenied ? "غير متاح" : supplierLedger.data?.supplier?.name ?? "جارٍ التحميل…"}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{supplierLedgerIsOfflineSnapshot ? "نسخة محلية محفوظة وقد لا تشمل آخر القيود؛ الرصيد للعرض فقط ولا يُعتمد في التسوية." : "كشف الفرع الحالي؛ الرصيد الموجب يمثل مبلغًا مستحقًا للمورد."}</p></div>
                     <div className="flex items-center gap-3"><div><p className="text-xs text-muted-foreground">الرصيد المستحق</p><p className="font-bold tabular-nums">{supplierLedger.data && !supplierLedgerAuthorizationDenied ? formatSupplierLedgerAmount(supplierLedger.data.balance) : "—"}</p></div><Button type="button" variant="outline" onClick={() => setSelectedSupplierLedgerId(null)}>إغلاق</Button></div>
                   </CardHeader>
                   <CardContent>

@@ -13,7 +13,7 @@ alter table public.powerhub_sync_scope_state
       'company_accounts','company_accounts_all','inventory_items','inventory_item_units','suppliers',
       'inventory_warehouses','inventory_stock_movements','inventory_stocktakes','inventory_purchase_headers',
       'inventory_purchase_receipt_headers','inventory_supplier_return_headers','fuel_readings',
-      'maintenance_preventive_plans','fuel_events','maintenance_work_orders'
+      'maintenance_preventive_plans','fuel_events','maintenance_work_orders','supplier_ledger'
     )
     or entity_type ~ '^maintenance_work_order_parts:[1-9][0-9]{0,15}$'
   );

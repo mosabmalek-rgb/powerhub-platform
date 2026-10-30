@@ -438,6 +438,17 @@ describe("inventory workspace UI contract", () => {
     expect(migration).toContain("supplier_payment_allocations");
     expect(migration).toContain("supplier_purchase_returns");
     expect(migration).not.toContain("insert into public.powerhub_sync_changes");
+    for (const migrationPath of [
+      "supabase/migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql",
+      "supabase/migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql",
+      "supabase/migrations/20261029150000_powerhub_hr_delta_sync.sql",
+    ]) {
+      const laterMigration = read(migrationPath);
+      const scopeStateBlock = laterMigration.slice(0, laterMigration.indexOf("alter table public.powerhub_sync_changes"));
+      expect(scopeStateBlock).toContain("'supplier_ledger'");
+      const changeBlock = laterMigration.slice(laterMigration.indexOf("alter table public.powerhub_sync_changes"));
+      expect(changeBlock).not.toContain("'supplier_ledger'");
+    }
   });
 
   it("wires standalone supplier payment batching, opening payable balances, aging, history and safe reversal", () => {

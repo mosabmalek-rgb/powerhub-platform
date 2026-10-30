@@ -158,7 +158,11 @@ begin
       where tenant_id=OLD.tenant_id and id=OLD.return_id;
     if found then perform public.powerhub_bump_supplier_ledger_revision(v_return.tenant_id,v_return.site_id,v_return.supplier_id); end if;
   end if;
-  if TG_OP<>'DELETE' and (TG_OP='INSERT' or OLD.tenant_id is distinct from NEW.tenant_id or OLD.return_id is distinct from NEW.return_id) then
+  if TG_OP='UPDATE' and (OLD.tenant_id is distinct from NEW.tenant_id or OLD.return_id is distinct from NEW.return_id) then
+    select tenant_id,site_id,supplier_id into v_return from public.supplier_purchase_returns
+      where tenant_id=NEW.tenant_id and id=NEW.return_id;
+    if found then perform public.powerhub_bump_supplier_ledger_revision(v_return.tenant_id,v_return.site_id,v_return.supplier_id); end if;
+  elsif TG_OP='INSERT' then
     select tenant_id,site_id,supplier_id into v_return from public.supplier_purchase_returns
       where tenant_id=NEW.tenant_id and id=NEW.return_id;
     if found then perform public.powerhub_bump_supplier_ledger_revision(v_return.tenant_id,v_return.site_id,v_return.supplier_id); end if;

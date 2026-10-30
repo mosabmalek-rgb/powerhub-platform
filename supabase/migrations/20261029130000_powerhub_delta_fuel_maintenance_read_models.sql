@@ -4,7 +4,7 @@
 
 alter table public.powerhub_sync_scope_state drop constraint if exists powerhub_sync_scope_state_entity_type_check;
 alter table public.powerhub_sync_scope_state add constraint powerhub_sync_scope_state_entity_type_check
-  check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices','payments','expenses','company_accounts','company_accounts_all','inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements','inventory_stocktakes','inventory_purchase_headers','inventory_purchase_receipt_headers','inventory_supplier_return_headers','fuel_readings','maintenance_preventive_plans'));
+  check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices','payments','expenses','company_accounts','company_accounts_all','inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements','inventory_stocktakes','inventory_purchase_headers','inventory_purchase_receipt_headers','inventory_supplier_return_headers','fuel_readings','maintenance_preventive_plans','supplier_ledger'));
 alter table public.powerhub_sync_changes drop constraint if exists powerhub_sync_changes_entity_type_check;
 alter table public.powerhub_sync_changes add constraint powerhub_sync_changes_entity_type_check
   check (entity_type in ('sites','subscribers','generators','readings','tariffs','invoices','payments','expenses','company_accounts','company_accounts_all','inventory_items','inventory_item_units','suppliers','inventory_warehouses','inventory_stock_movements','inventory_stocktakes','inventory_purchase_headers','inventory_purchase_receipt_headers','inventory_supplier_return_headers','fuel_readings','maintenance_preventive_plans'));
