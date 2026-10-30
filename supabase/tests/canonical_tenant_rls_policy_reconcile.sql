@@ -359,7 +359,14 @@ BEGIN
       WHERE n.nspname='public' AND c.relname=v_expected AND p.polname=v_expected_policy
         AND p.polroles=ARRAY[(SELECT oid FROM pg_roles WHERE rolname='authenticated')]::oid[]
     ) THEN RAISE EXCEPTION 'CANONICAL_RLS_POLICY_NAME_OR_ROLE_MISMATCH: %',v_expected; END IF;
-    IF v_command NOT IN ('*','r') THEN RAISE EXCEPTION 'CANONICAL_RLS_COMMAND_MISMATCH: %',v_expected; END IF;
+    IF v_expected IN ('inventory_items','inventory_stock_movements','inventory_warehouses','suppliers',
+      'supplier_purchases','supplier_purchase_lines','supplier_payments','supplier_payment_allocations',
+      'supplier_ledger_entries','supplier_purchase_receipts','supplier_purchase_receipt_lines','tenant_members',
+      'tenants','users') THEN
+      IF v_command <> 'r' THEN RAISE EXCEPTION 'CANONICAL_RLS_READ_ONLY_COMMAND_MISMATCH: %',v_expected; END IF;
+    ELSIF v_command <> '*' THEN
+      RAISE EXCEPTION 'CANONICAL_RLS_MUTATION_COMMAND_MISMATCH: %',v_expected;
+    END IF;
   END LOOP;
   FOREACH v_expected IN ARRAY ARRAY['emergency_requests','sms_dispatch_queue','tweet_sms_report_snapshots'] LOOP
     IF EXISTS(SELECT 1 FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid WHERE c.relname=v_expected) THEN
