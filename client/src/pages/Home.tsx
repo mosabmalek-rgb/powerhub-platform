@@ -250,7 +250,7 @@ export function WorkspaceHome() {
       if (financialKpiQueries.some((query) => isExplicitAuthorizationDenial(query.error))) denied.add("financialKpi");
     }
     if (denied.size) {
-      void clearOfflineDashboardSnapshotCacheForSite(user.id, siteId, [...denied]);
+      void clearOfflineDashboardSnapshotCacheForSite(String(user.id), siteId, [...denied]);
     }
   }, [
     user?.id, siteId, sitesQuery.error, accessQuery.error, dashboardRevisionQuery.error,
@@ -309,7 +309,7 @@ export function WorkspaceHome() {
     ? "…"
     : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(activeSubscribersKpiQuery.error) ||
       (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)
-      ? "—" : number(activeSubscribers);
+      ? "—" : number(activeSubscribersKpiQuery.data?.value ?? 0);
   const periodKpiNumber = (query: {
     data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
     isError: boolean;
