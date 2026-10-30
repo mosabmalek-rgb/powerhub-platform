@@ -76,10 +76,11 @@ describe("offline fuel fill intent contract", () => {
     expect(replayStart).toBeGreaterThanOrEqual(0);
     expect(replayEnd).toBeGreaterThan(replayStart);
     const replay = syncPanel.slice(replayStart, replayEnd);
-    const requestIndex = replay.indexOf("await recordFuelFill.mutateAsync");
+    const requestIndex = replay.indexOf("await runMutation(() => recordFuelFill.mutateAsync");
     const appliedIndex = replay.indexOf('status: "applied"');
     expect(requestIndex).toBeGreaterThanOrEqual(0);
     expect(appliedIndex).toBeGreaterThan(requestIndex);
+    expect(replay).toContain("assertCurrentOperation();");
     expect(replay).toContain("operationKey: item.clientOperationId");
     expect(replay).toContain("result.replayed ? \"already_applied\" : \"applied\"");
 
