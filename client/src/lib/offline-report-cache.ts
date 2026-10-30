@@ -43,14 +43,17 @@ export function getUsableReportSnapshot(
 ): CachedReportSnapshot | undefined {
   const now = options.now ?? Date.now();
   if (options.authorizationDenied || options.accessAllowed === false || !snapshot) return undefined;
-  if (snapshot.userId !== input.userId ||
+  if (snapshot.key !== cacheKey(input) ||
+      snapshot.userId !== input.userId ||
       snapshot.siteId !== input.siteId ||
       snapshot.scope !== input.scope ||
       snapshot.startDate !== input.startDate ||
       snapshot.endDate !== input.endDate) return undefined;
   if (!Number.isFinite(snapshot.savedAt) || snapshot.savedAt > now ||
       now - snapshot.savedAt >= OFFLINE_REPORT_CACHE_TTL_MS) return undefined;
-  return snapshot;
+  // Re-sanitize here as a second boundary: callers must never receive a legacy
+  // snapshot containing debtor, collector, invoice, or payment detail fields.
+  return { ...snapshot, report: createOfflineReportSnapshotPayload(snapshot.report) };
 }
 
 function cacheKey(input: Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">) {
