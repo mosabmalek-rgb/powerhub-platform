@@ -645,6 +645,19 @@ describe("HR Delta minimized projections", () => {
     expect(applyDeltaPageToList("subscribers", [], unrelatedSharedRow, { ...scope, entityType: "subscribers" })).toHaveLength(0);
   });
 
+  it("caps legacy HR advance query snapshots at four repayments and marks omitted history", () => {
+    const advance = normalizeDeltaEntityRow("hr_employee_advances", {
+      id: 72, tenant_id: 2, site_id: 10,
+      adjustment: { id: 72, tenant_id: 2, employee_id: 42, site_id: 10, amount: "100", remaining_amount: "40" },
+      employee: { id: 42, tenant_id: 2, site_id: 10, full_name: "Employee", job_title: "worker", employment_status: "active" },
+      repayments: Array.from({ length: 6 }, (_, index) => ({
+        id: index + 1, amount: "10", repayment_method: "cash", payment_date: "2026-10-01",
+      })),
+    }) as Record<string, any>;
+    expect(advance.repayments).toHaveLength(4);
+    expect(advance.repaymentHistoryTruncated).toBe(true);
+  });
+
   it("projects only minimized payroll run summaries and supports shared tenant-wide runs", () => {
     const run = normalizeDeltaEntityRow("hr_payroll_runs", {
       id: 90, tenant_id: 2, site_id: null, period: "2026-10", status: "paid",
