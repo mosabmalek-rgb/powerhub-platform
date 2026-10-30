@@ -446,12 +446,13 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
     if (segments[2] === "offlineEmployeeAdvances") return data.filter(isRow).map((row) => {
       const adjustment = isRow(row.adjustment) ? row.adjustment : {};
       const employee = isRow(row.employee) ? row.employee : {};
-      const repayments = Array.isArray(row.repayments) ? row.repayments.filter(isRow).map((payment) => ({
+      const rawRepayments = Array.isArray(row.repayments) ? row.repayments.filter(isRow) : [];
+      const repayments = rawRepayments.slice(0, 4).map((payment) => ({
         id: payment.id, amount: payment.amount, repaymentMethod: payment.repaymentMethod,
         companyAccountId: payment.companyAccountId ?? null, accountTransactionId: null,
         payrollRunId: payment.payrollRunId ?? null, paymentDate: payment.paymentDate,
         referenceNo: null, notes: null, createdByUserId: null, createdAt: payment.createdAt,
-      })) : [];
+      }));
       return {
         adjustment: {
           id: adjustment.id, tenantId: adjustment.tenantId ?? adjustment.tenant_id,
@@ -469,7 +470,7 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
           employmentStatus: employee.employmentStatus ?? employee.employment_status ?? "active",
         },
         repayments,
-        repaymentHistoryTruncated: Boolean(row.repaymentHistoryTruncated ?? row.repayment_history_truncated),
+        repaymentHistoryTruncated: Boolean(row.repaymentHistoryTruncated ?? row.repayment_history_truncated) || rawRepayments.length > 4,
       };
     });
     if (segments[2] === "offlineCompanyAccountOptions") return data.filter(isRow).map((row) => ({
