@@ -93,7 +93,7 @@ describe("independent dashboard KPI snapshots", () => {
     expect(home).toContain("isExplicitAuthorizationDenial(accessQuery.error)");
     expect(home).toContain("const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
     expect(home).toContain("dashboardRevisionQuery.isError");
-    expect(home).toContain("قد تكون بعض القيم المحفوظة قديمة");
+    expect(home).toContain("تعذر التحقق من حداثة لقطة لوحة التحكم. نعرض آخر مؤشرات محفوظة");
     expect(home).toContain("isExplicitAuthorizationDenial(query.error)");
     expect(home).toContain("clearOfflineDashboardSnapshotCacheForSite(String(user.id), siteId, [...denied])");
     expect(home).toContain("isExplicitAuthorizationDenial(summaryQuery.error)");
