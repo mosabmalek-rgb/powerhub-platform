@@ -21,11 +21,21 @@ const notificationTriggerMigrationUrl = new URL(
   "../supabase/migrations/20261024211000_powerhub_notification_trigger_rpc_hardening.sql",
   import.meta.url,
 );
+const browserDmlReconcileMigrationUrl = new URL(
+  "../supabase/migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql",
+  import.meta.url,
+);
+const browserDmlReconcileTestUrl = new URL(
+  "../supabase/tests/browser_direct_dml_acl_reconcile.sql",
+  import.meta.url,
+);
 const readMigration = () => readFile(migrationUrl, "utf8");
 const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
 const readQuotaAclMigration = () => readFile(quotaAclMigrationUrl, "utf8");
 const readSchemaReconciliationMigration = () => readFile(schemaReconciliationMigrationUrl, "utf8");
 const readNotificationTriggerMigration = () => readFile(notificationTriggerMigrationUrl, "utf8");
+const readBrowserDmlReconcileMigration = () => readFile(browserDmlReconcileMigrationUrl, "utf8");
+const readBrowserDmlReconcileTest = () => readFile(browserDmlReconcileTestUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
   it("revokes direct write privileges from public browser roles on core records", async () => {
@@ -99,5 +109,32 @@ describe("offline server-write ACL hardening migration", () => {
     expect(normalizedMigration).toContain("where scheduled_at is null");
     expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_request_owner_access_recovery(bigint,bigint,text)");
     expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb,uuid)");
+  });
+
+  it("reconciles every staging-only browser DML grant without changing reads, RLS or service-role writes", async () => {
+    const migration = (await readBrowserDmlReconcileMigration()).toLowerCase().replace(/\\s+/g, " ");
+    const integration = (await readBrowserDmlReconcileTest()).toLowerCase();
+    const expectedTables = [
+      "access_invitations", "collector_sessions", "company_account_sites", "custom_permission_roles",
+      "emergency_requests", "employee_adjustments", "employee_attendance", "employees",
+      "financial_settlements", "invoice_lines", "mobile_api_sessions", "mobile_sync_events",
+      "payroll_items", "payroll_runs", "platform_access_invitations", "platform_role_policies",
+      "platform_sms_plans", "site_portal_settings", "sms_dispatch_queue", "sms_package_requests",
+      "staff_profiles", "subscription_upgrade_requests", "tariffs", "tenant_branch_settings",
+      "tenant_messaging_configurations", "tenant_owner_profiles", "tenant_subscriptions", "tenants",
+      "tweet_sms_report_snapshots", "users",
+    ];
+    expect(migration).toContain("revoke insert, update, delete, truncate on table public.%i from public, anon, authenticated");
+    expect(migration).toContain("to_regclass(format('public.%i', v_table)) is not null");
+    for (const table of expectedTables) {
+      expect(migration).toContain("'" + table + "'");
+      expect(integration).toContain("create table public." + table);
+      expect(integration).toContain("public." + table);
+    }
+    expect(integration).toContain("re-run the forward-only reconciliation to assert idempotency");
+    expect(integration).toContain("service_role");
+    expect(integration).toContain("anon_select_removed_on_%");
+    expect(integration).toContain("authenticated_select_removed_on_%");
+    expect(integration).toContain("test_tenant_access");
   });
 });
