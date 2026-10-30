@@ -13,6 +13,7 @@ import { getOfflineSyncRefreshTargets } from "@/lib/offline-sync-refresh";
 import { getOfflineWorkStatusPresentation } from "@/lib/offline-work-status";
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
@@ -89,6 +90,45 @@ function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["p
 }
 
 export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { siteId: number; userId: number; compact?: boolean }) {
+  const auth = useAuth();
+  const authUserId = Number(auth.user?.id);
+  const identitySnapshot = {
+    userId, siteId, authUserId, isLoggingOut: auth.isLoggingOut,
+    isOnlineAuthenticated: auth.isOnlineAuthenticated,
+  };
+  const syncIdentityRef = useRef({ ...identitySnapshot, generation: 0 });
+  const previousIdentity = syncIdentityRef.current;
+  if (
+    previousIdentity.userId !== userId ||
+    previousIdentity.siteId !== siteId ||
+    previousIdentity.authUserId !== authUserId ||
+    previousIdentity.isLoggingOut !== auth.isLoggingOut ||
+    previousIdentity.isOnlineAuthenticated !== auth.isOnlineAuthenticated
+  ) {
+    syncIdentityRef.current = { ...identitySnapshot, generation: previousIdentity.generation + 1 };
+  }
+  const captureSyncRunGuard = (requireOnlineAuth = true) => {
+    const owner = syncIdentityRef.current;
+    return () => {
+      const current = syncIdentityRef.current;
+      if (
+        current.generation !== owner.generation ||
+        current.userId !== owner.userId ||
+        current.siteId !== owner.siteId ||
+        current.authUserId !== owner.userId ||
+        current.isLoggingOut ||
+        (requireOnlineAuth && !current.isOnlineAuthenticated)
+      ) {
+        throw Object.assign(new Error("توقف إرسال المسودات لأن هوية الحساب أو نطاق الفرع تغيّر."), {
+          name: "PowerHubOfflineSyncRunSupersededError",
+        });
+      }
+    };
+  };
+  const isSyncRunCurrent = (assertCurrent: () => void) => {
+    try { assertCurrent(); return true; } catch { return false; }
+  };
+  const operationRunGuards = useRef(new Map<string, () => void>());
   const utils = trpc.useUtils();
   const [items, setItems] = useState<QueuedOfflineWork[]>([]);
   const [syncMetadataRecords, setSyncMetadataRecords] = useState<SyncMetadataRecord[]>([]);
@@ -100,8 +140,10 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const [syncing, setSyncing] = useState(false);
   const lastAutoSyncGeneration = useRef(0);
   const load = useCallback(async () => {
+    const assertCurrent = captureSyncRunGuard(false);
     try {
       const loadedItems = await listOfflineWork({ userId, siteId });
+      assertCurrent();
       setItems(loadedItems);
       resolvedLocalEmployees.current.clear();
       resolvedLocalAdjustments.current.clear();
@@ -118,14 +160,33 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           id: item.appliedEntityId, versionNo: item.appliedVersionNo ?? 0,
         });
       }
-    } catch { toast.error("تعذر قراءة مسودات العمل المحلي على هذا الجهاز."); }
-    try { setSyncMetadataRecords(await listSyncMetadata({ userId, siteId })); }
-    catch { setSyncMetadataRecords([]); }
-    try { setDeltaStatuses(await listDeltaSyncStatuses({ userId, siteId })); }
-    catch { setDeltaStatuses([]); }
-    try { setConflictRecords(await listOfflineConflicts({ userId, siteId })); }
-    catch { setConflictRecords([]); }
-  }, [siteId, userId]);
+    } catch {
+      if (isSyncRunCurrent(assertCurrent)) toast.error("تعذر قراءة مسودات العمل المحلي على هذا الجهاز.");
+    }
+    try {
+      const records = await listSyncMetadata({ userId, siteId });
+      assertCurrent();
+      setSyncMetadataRecords(records);
+    } catch { if (isSyncRunCurrent(assertCurrent)) setSyncMetadataRecords([]); }
+    try {
+      const statuses = await listDeltaSyncStatuses({ userId, siteId });
+      assertCurrent();
+      setDeltaStatuses(statuses);
+    } catch { if (isSyncRunCurrent(assertCurrent)) setDeltaStatuses([]); }
+    try {
+      const conflicts = await listOfflineConflicts({ userId, siteId });
+      assertCurrent();
+      setConflictRecords(conflicts);
+    } catch { if (isSyncRunCurrent(assertCurrent)) setConflictRecords([]); }
+  }, [siteId, userId, authUserId, auth.isLoggingOut, auth.isOnlineAuthenticated]);
+  useEffect(() => {
+    setItems([]);
+    setSyncMetadataRecords([]);
+    setDeltaStatuses([]);
+    setConflictRecords([]);
+    setSyncing(false);
+  }, [siteId, userId, authUserId, auth.isLoggingOut]);
+
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!Number.isSafeInteger(userId) || userId < 1 || !Number.isSafeInteger(siteId) || siteId < 1) return;
@@ -256,15 +317,19 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     await Promise.all(refreshes);
   };
 
-  const buildMetadata = async (pendingItems: QueuedOfflineWork[]) => {
+  const buildMetadata = async (pendingItems: QueuedOfflineWork[], assertCurrent: () => void) => {
     const stored = await listSyncMetadata({ userId, siteId });
+    assertCurrent();
     const metadataByOperationId = new Map<string, SyncMetadata>();
     for (const item of pendingItems) {
+      assertCurrent();
       const storedRecord = stored.find((record) => record.operationId === item.clientOperationId);
       const existing = isSyncMetadataCompatibleWithWorkItem(item, storedRecord) ? storedRecord : undefined;
       if (!existing) {
         if (item.status !== "failed" || item.error !== MISSING_SYNC_METADATA_MESSAGE) {
+          assertCurrent();
           await updateOfflineWork(item.id, { status: "failed", error: MISSING_SYNC_METADATA_MESSAGE });
+          assertCurrent();
         }
         continue;
       }
@@ -279,44 +344,67 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   };
 
   const transport = async (item: QueuedOfflineWork, _metadata: SyncMetadata): Promise<SyncTransportResult> => {
+    const assertCurrentOperation = () => {
+      const assertCurrent = operationRunGuards.current.get(item.clientOperationId);
+      if (!assertCurrent || item.userId !== userId || item.siteId !== siteId) {
+        throw Object.assign(new Error("توقف إرسال العملية المحلية خارج نطاق مالكها الأصلي."), {
+          name: "PowerHubOfflineSyncRunSupersededError",
+        });
+      }
+      assertCurrent();
+    };
+    const runMutation = async <T,>(request: () => Promise<T>): Promise<T> => {
+      assertCurrentOperation();
+      const result = await request();
+      assertCurrentOperation();
+      return result;
+    };
     try {
+      assertCurrentOperation();
       const storedMetadata = await getSyncMetadata(item.clientOperationId, { userId: item.userId, siteId: item.siteId });
+      assertCurrentOperation();
       if (storedMetadata && isSyncMetadataCompatibleWithWorkItem(item, storedMetadata)) {
         await upsertSyncMetadata({ ...storedMetadata, outcome: "syncing", updatedAt: Date.now() });
+        assertCurrentOperation();
       }
       if (item.kind === "subscriber_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberCreateDraft;
-        const result = await createSubscriber.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
+        const result = await runMutation(() => createSubscriber.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId }));
+        assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.subscriberNo });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "subscriber_update") {
         const payload = item.payload as import("@/lib/offline-work-queue").SubscriberUpdateDraft;
-        const result = await updateSubscriber.mutateAsync({ siteId: item.siteId, id: payload.subscriberId, fullName: payload.fullName, phone: payload.phone, address: payload.address, subscriptionType: payload.subscriptionType, serviceStatus: payload.serviceStatus, expectedUpdatedAt: new Date(payload.expectedUpdatedAt), clientOperationId: item.clientOperationId });
+        const result = await runMutation(() => updateSubscriber.mutateAsync({ siteId: item.siteId, id: payload.subscriberId, fullName: payload.fullName, phone: payload.phone, address: payload.address, subscriptionType: payload.subscriptionType, serviceStatus: payload.serviceStatus, expectedUpdatedAt: new Date(payload.expectedUpdatedAt), clientOperationId: item.clientOperationId }));
+        assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: payload.subscriberId, appliedLabel: payload.fullName });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "generator_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorCreateDraft;
         const result = await syncGeneratorCreate({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
+        assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "generator_update") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorUpdateDraft;
         const result = await syncGeneratorUpdate({ siteId: item.siteId, generatorId: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, expectedUpdatedAt: payload.expectedUpdatedAt, clientOperationId: item.clientOperationId });
+        assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "reading_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").ReadingCreateDraft;
-        const result = await createReading.mutateAsync({
+        const result = await runMutation(() => createReading.mutateAsync({
           siteId: item.siteId, subscriberId: payload.subscriberId,
           readingValue: payload.readingValue, readingAt: new Date(payload.readingAt),
           captureMethod: payload.captureMethod, imageData: payload.imageData, imageMime: payload.imageMime,
           notes: payload.notes, isReadingReset: payload.isReadingReset, overrideSameDay: payload.overrideSameDay,
           fieldVerified: payload.fieldVerified, clientOperationId: item.clientOperationId,
-        });
+        }));
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: Number(result.id),
           appliedLabel: `قراءة للمشترك #${payload.subscriberId}`,
@@ -326,15 +414,17 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       }
       if (item.kind === "invoice_issue") {
         const payload = item.payload as import("@/lib/offline-work-queue").InvoiceIssueDraft;
-        const result = await issueInvoice.mutateAsync({ siteId: item.siteId, ...payload, dueDate: new Date(payload.dueDate), clientOperationId: item.clientOperationId });
+        const result = await runMutation(() => issueInvoice.mutateAsync({ siteId: item.siteId, ...payload, dueDate: new Date(payload.dueDate), clientOperationId: item.clientOperationId }));
+        assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.invoiceNo });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "expense_create") {
         const payload = item.payload as ExpenseCreateDraft;
-        const result = await createExpense.mutateAsync({
+        const result = await runMutation(() => createExpense.mutateAsync({
           siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId,
-        });
+        }));
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.id,
           appliedLabel: payload.description,
@@ -344,17 +434,19 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       }
       if (item.kind === "payment_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
-        const result = await createPayment.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
+        const result = await runMutation(() => createPayment.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId }));
         const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...sanitizedPayload } = payload;
+        assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo, payload: sanitizedPayload });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "payment_documentation_approve") {
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationApprovalDraft;
-        const result = await approvePaymentDocumentation.mutateAsync({ siteId: item.siteId, requestId: payload.requestId });
+        const result = await runMutation(() => approvePaymentDocumentation.mutateAsync({ siteId: item.siteId, requestId: payload.requestId }));
         // Server-confirmed approval is authoritative. Best-effort local cleanup must not
         // downgrade a committed financial approval to a failed client-side operation.
         await removePaymentDocumentationApprovalSnapshot(item.userId, item.siteId, payload.requestId).catch(() => undefined);
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: Number(result.paymentId),
           appliedLabel: `طلب #${payload.requestId} — حركة #${result.paymentId}`,
@@ -365,17 +457,19 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       if (item.kind === "employee_create") {
         const payload = item.payload as HrEmployeeCreateDraft;
         const { localEmployeeId, ...serverPayload } = payload;
-        const result = await replayHrOffline.mutateAsync({
+        const result = await runMutation(() => replayHrOffline.mutateAsync({
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "employee_create", payload: serverPayload,
-        });
+        }));
         if (!result.entityId || !result.versionNo) throw new Error("لم يُرجع الخادم معرف الموظف وإصدار النسخة بعد المزامنة.");
         if (localEmployeeId < 0) {
           resolvedLocalEmployees.current.set(localEmployeeId, { id: result.entityId, versionNo: result.versionNo });
+          assertCurrentOperation();
           await resolveOfflineEmployeeReferences({
             userId: item.userId, siteId: item.siteId, localEmployeeId,
             serverEmployeeId: result.entityId, serverVersion: result.versionNo,
           });
         }
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.entityId, appliedVersionNo: result.versionNo,
           appliedLabel: payload.fullName, payload: sanitizeCompletedPayload(item),
@@ -389,11 +483,12 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         if (employeeId < 1) throw new Error("تعذر ربط تعديل الموظف بمعرف الخادم؛ ستبقى العملية معلقة حتى اكتمال إضافة الموظف.");
         const expectedVersion = resolved?.versionNo ?? payload.expectedVersion;
         if (!expectedVersion || expectedVersion < 1) throw new Error("نسخة الموظف غير معروفة؛ يلزم استعادة اللقطة قبل إرسال التعديل.");
-        const result = await replayHrOffline.mutateAsync({
+        const result = await runMutation(() => replayHrOffline.mutateAsync({
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "employee_update",
           payload: { ...payload, employeeId, expectedVersion },
-        });
+        }));
         if (!result.versionNo || result.versionNo < 1) throw new Error("لم يُرجع الخادم إصدارًا موثوقًا للموظف؛ بقيت العملية محفوظة للمراجعة.");
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: employeeId,
           appliedVersionNo: result.versionNo, appliedLabel: "تعديل بيانات موظف",
@@ -407,12 +502,13 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const employeeId = resolved?.id ?? payload.employeeId;
         if (employeeId < 1) throw new Error("تعذر ربط الحضور بمعرف الموظف الخادمي؛ ستبقى العملية معلقة.");
         const { localAttendanceId: _localAttendanceId, ...serverPayload } = payload;
-        const result = await replayHrOffline.mutateAsync({
+        const result = await runMutation(() => replayHrOffline.mutateAsync({
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "attendance_upsert",
           payload: { ...serverPayload, employeeId },
-        });
+        }));
         if (!result.entityId) throw new Error("لم يُرجع الخادم معرف الحضور بعد المزامنة.");
         if (!result.versionNo || result.versionNo < 1) throw new Error("لم يُرجع الخادم إصدارًا موثوقًا لسجل الحضور؛ بقيت العملية محفوظة للمراجعة.");
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.entityId,
           appliedVersionNo: result.versionNo, appliedLabel: "تسجيل حضور " + employeeId + " — " + payload.workDate,
@@ -428,11 +524,12 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           if (employeeId < 1) throw new Error("توجد موظفة أو موظف في المسودة لم تكتمل إضافته بعد؛ ستنتظر المسودة مزامنته.");
           return { ...entry, employeeId };
         });
-        const result = await replayHrOffline.mutateAsync({
+        const result = await runMutation(() => replayHrOffline.mutateAsync({
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "payroll_draft",
           payload: { period: payload.period, items },
-        });
+        }));
         if (!result.entityId) throw new Error("لم يُرجع الخادم معرف مسودة الرواتب.");
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.entityId,
           appliedLabel: "كشف " + payload.period + " — إجمالي خادمي " + (result.totalNet ?? "بانتظار العرض"),
@@ -446,9 +543,10 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const employeeId = resolved?.id ?? payload.employeeId;
         if (employeeId < 1) throw new Error("طلب السلفة مرتبط بموظف لم تكتمل إضافته؛ ستبقى العملية معلقة.");
         const { localAdjustmentId: _localAdjustmentId, ...serverPayload } = payload;
-        const result = await issueEmployeeAdvance.mutateAsync({
+        const result = await runMutation(() => issueEmployeeAdvance.mutateAsync({
           siteId: item.siteId, ...serverPayload, employeeId, operationKey: item.clientOperationId,
-        });
+        }));
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.id,
           appliedLabel: "سلفة #" + result.id + " — تم التحقق من الصرف خادميًا",
@@ -456,6 +554,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         });
         if (typeof payload.localAdjustmentId === "number" && payload.localAdjustmentId < 0) {
           resolvedLocalAdjustments.current.set(payload.localAdjustmentId, result.id);
+          assertCurrentOperation();
           await resolveOfflineAdjustmentReferences({
             userId: item.userId, siteId: item.siteId,
             localAdjustmentId: payload.localAdjustmentId, serverAdjustmentId: result.id,
@@ -470,9 +569,10 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const adjustmentId = resolvedAdjustmentId ?? payload.adjustmentId;
         if (adjustmentId < 1) throw new Error("تعذر ربط السداد بمعرف السلفة الخادمي؛ ستبقى العملية معلقة حتى يكتمل صرف السلفة.");
         const { localRepaymentId: _localRepaymentId, ...serverPayload } = payload;
-        const result = await repayEmployeeAdvance.mutateAsync({
+        const result = await runMutation(() => repayEmployeeAdvance.mutateAsync({
           siteId: item.siteId, ...serverPayload, adjustmentId, operationKey: item.clientOperationId,
-        });
+        }));
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined, appliedEntityId: result.id,
           appliedLabel: "سداد #" + result.id + " — الرصيد المتبقي " + result.remainingAmount,
@@ -483,9 +583,10 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       if (item.kind === "fuel_fill") {
         const payload = item.payload as FuelFillDraft;
         // This is only an intent; the protected server RPC alone posts stock and tank balances.
-        const result = await recordFuelFill.mutateAsync({
+        const result = await runMutation(() => recordFuelFill.mutateAsync({
           siteId: item.siteId, ...payload, operationKey: item.clientOperationId,
-        });
+        }));
+        assertCurrentOperation();
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined,
           appliedLabel: "تعبئة " + payload.litres + " لتر للمولد #" + payload.generatorId,
@@ -494,14 +595,15 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;
-      const result = await submitPaymentDocumentation.mutateAsync({
+      const result = await runMutation(() => submitPaymentDocumentation.mutateAsync({
         siteId: item.siteId, subscriberId: payload.subscriberId, invoiceId: payload.invoiceId,
         destinationAccountId: payload.destinationAccountId, paymentAmount: payload.paymentAmount,
         paymentMethod: payload.paymentMethod, senderPhone: payload.senderPhone, referenceNo: payload.referenceNo,
         receiptImageData: payload.receiptImageData, receiptImageMime: payload.receiptImageMime,
         clientOperationId: item.clientOperationId,
-      });
-      await updateOfflineWork(item.id, {
+      }));
+      assertCurrentOperation();
+        await updateOfflineWork(item.id, {
         status: "applied", error: undefined, appliedEntityId: result.id,
         appliedLabel: `طلب توثيق #${result.id} — بانتظار المراجعة`,
         payload: { ...payload, receiptImageData: undefined, receiptImageMime: undefined },
@@ -512,24 +614,40 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     }
   };
 
-  const syncPendingUnlocked = async () => {
+  const syncPendingUnlocked = async (assertCurrent: () => void) => {
+    assertCurrent();
     if (!isOnline) {
       toast.error("تحتاج إلى اتصال قبل مزامنة المسودات.");
       return;
     }
     try {
       const allItems = await listOfflineWork({ userId, siteId });
+      assertCurrent();
       const pendingItems = allItems.filter((item) => item.status === "pending" || item.status === "failed");
       if (!pendingItems.length) return;
-      const metadataByOperationId = await buildMetadata(pendingItems);
+      const metadataByOperationId = await buildMetadata(pendingItems, assertCurrent);
+      assertCurrent();
       const missingMetadataCount = pendingItems.filter((item) => !metadataByOperationId.has(item.clientOperationId)).length;
       if (missingMetadataCount) toast.error(`توجد ${missingMetadataCount} مسودة بلا حالة مزامنة موثوقة؛ لم تُرسل تلقائيًا.`);
       const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId));
       if (!syncItems.length) return;
       const completedIds = new Set(allItems.filter((item) => item.status === "applied").map((item) => item.clientOperationId));
-      const results = await executeReadyOperations({ items: syncItems, metadataByOperationId, completedIds, transport, now: Date.now() });
+      for (const item of syncItems) operationRunGuards.current.set(item.clientOperationId, assertCurrent);
+      let results: Awaited<ReturnType<typeof executeReadyOperations>>;
+      try {
+        results = await executeReadyOperations({ items: syncItems, metadataByOperationId, completedIds, transport, now: Date.now() });
+      } finally {
+        for (const item of syncItems) {
+          if (operationRunGuards.current.get(item.clientOperationId) === assertCurrent) {
+            operationRunGuards.current.delete(item.clientOperationId);
+          }
+        }
+      }
+      assertCurrent();
       const storedAfter = await listSyncMetadata({ userId, siteId });
+      assertCurrent();
       for (const result of results) {
+        assertCurrent();
         const current = storedAfter.find((row) => row.operationId === result.item.clientOperationId);
         await upsertSyncMetadata({ operationId: result.item.clientOperationId, userId, siteId: result.item.siteId, kind: result.item.kind, dependsOn: result.metadata.dependsOn, attempts: result.metadata.attempts, nextAttemptAt: result.metadata.nextAttemptAt, outcome: result.outcome, ...(result.metadata.lastError ? { lastError: result.metadata.lastError } : {}), updatedAt: Date.now(), ...(current?.tenantId !== undefined ? { tenantId: current.tenantId } : {}) });
         if (result.outcome === "conflict") {
@@ -553,7 +671,9 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         else if (result.outcome === "conflict") await updateOfflineWork(result.item.id, { status: "conflict", error: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة." });
         else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
       }
+      assertCurrent();
       await refresh(results);
+      assertCurrent();
       notifyOfflineWorkQueueChanged({ userId, siteId });
       const successfulSubscriberChanges = results.filter((result) =>
         (result.item.kind === "subscriber_create" || result.item.kind === "subscriber_update") &&
@@ -578,52 +698,65 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       if (conflicts) toast.error(`توجد ${conflicts} عملية متعارضة تحتاج إلى مراجعة.`);
       
     } catch (error) {
-      toast.error(getErrorMessage(error));
+      if (isSyncRunCurrent(assertCurrent)) toast.error(getErrorMessage(error));
     }
   };
 
   const syncPending = async () => {
     if (!isOnline) return toast.error("تحتاج إلى اتصال قبل مزامنة المسودات.");
     if (syncing) return;
+    const assertCurrent = captureSyncRunGuard();
+    if (!isSyncRunCurrent(assertCurrent)) return;
     const lockResult = await withOfflineSyncLock({ userId, siteId }, async () => {
-      setSyncing(true);
       try {
-        await syncPendingUnlocked();
+        assertCurrent();
+        setSyncing(true);
+        await syncPendingUnlocked(assertCurrent);
       } finally {
-        setSyncing(false);
-        await load();
+        if (isSyncRunCurrent(assertCurrent)) {
+          setSyncing(false);
+          await load();
+        }
       }
     });
-    if (!lockResult.acquired) toast.info("المزامنة تعمل بالفعل في تبويب آخر لهذا الفرع.");
+    if (isSyncRunCurrent(assertCurrent) && !lockResult.acquired) toast.info("المزامنة تعمل بالفعل في تبويب آخر لهذا الفرع.");
   };
   const retryFailedAndSync = async () => {
     if (!isOnline) return toast.error("تحتاج إلى اتصال قبل إعادة المحاولة.");
     if (syncing) return;
+    const assertCurrent = captureSyncRunGuard();
+    if (!isSyncRunCurrent(assertCurrent)) return;
     const lockResult = await withOfflineSyncLock({ userId, siteId }, async () => {
-      setSyncing(true);
       try {
+        assertCurrent();
+        setSyncing(true);
         const allItems = await listOfflineWork({ userId, siteId });
+        assertCurrent();
         const now = Date.now();
         let requeued = 0;
         for (const item of allItems.filter((entry) => entry.status === "failed" || entry.status === "pending")) {
+          assertCurrent();
           const changed = await requeueOfflineWorkForManualRetry({
             id: item.id, clientOperationId: item.clientOperationId,
             userId, siteId, now,
           });
+          assertCurrent();
           if (changed) requeued += 1;
         }
         if (!requeued && !allItems.some((entry) => entry.status === "pending")) {
           toast.message("لا توجد مسودات فاشلة ذات نتيجة مؤقتة أو عمليات إرسال غير محسومة بلغت حد المحاولات.");
         }
-        await syncPendingUnlocked();
+        await syncPendingUnlocked(assertCurrent);
       } catch (error) {
-        toast.error(getErrorMessage(error));
+        if (isSyncRunCurrent(assertCurrent)) toast.error(getErrorMessage(error));
       } finally {
-        setSyncing(false);
-        await load();
+        if (isSyncRunCurrent(assertCurrent)) {
+          setSyncing(false);
+          await load();
+        }
       }
     });
-    if (!lockResult.acquired) toast.info("المزامنة تعمل بالفعل في تبويب آخر لهذا الفرع.");
+    if (isSyncRunCurrent(assertCurrent) && !lockResult.acquired) toast.info("المزامنة تعمل بالفعل في تبويب آخر لهذا الفرع.");
   };
   useEffect(() => {
     if (!isOnline || reconnectGeneration === 0 || lastAutoSyncGeneration.current === reconnectGeneration) return;
