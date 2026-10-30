@@ -68,9 +68,39 @@ describe("offline sync UI contract", () => {
     expect(retryBody).toContain("await requeueOfflineWorkForManualRetry({");
     expect(retryBody).not.toContain("upsertSyncMetadata(");
     expect(retryBody).not.toContain("updateOfflineWork(item.id, { status: \"pending\"");
-    expect(retryBody).toContain("await syncPendingUnlocked()");
+    expect(retryBody).toContain("await syncPendingUnlocked(assertCurrent)");
     expect(retryBody).not.toContain("await syncPending();");
-    expect(syncPanel).toContain("const syncPendingUnlocked = async () => {");
+    expect(syncPanel).toContain("const syncPendingUnlocked = async (assertCurrent: () => void) => {");
+  });
+
+  it("binds Outbox replay to the original user, branch and generation before each server mutation", () => {
+    expect(syncPanel).toContain('const auth = useAuth();');
+    expect(syncPanel).toContain("const syncIdentityRef = useRef({ ...identitySnapshot, generation: 0 });");
+    expect(syncPanel).toContain("current.authUserId !== owner.userId");
+    expect(syncPanel).toContain("current.generation !== owner.generation");
+    expect(syncPanel).toContain("const operationRunGuards = useRef(new Map<string, () => void>());");
+    expect(syncPanel).toContain("const runMutation = async <T,>(request: () => Promise<T>): Promise<T> => {");
+    expect(syncPanel).toContain("assertCurrentOperation();");
+    for (const mutation of [
+      "createSubscriber.mutateAsync",
+      "updateSubscriber.mutateAsync",
+      "createReading.mutateAsync",
+      "issueInvoice.mutateAsync",
+      "createExpense.mutateAsync",
+      "createPayment.mutateAsync",
+      "approvePaymentDocumentation.mutateAsync",
+      "replayHrOffline.mutateAsync",
+      "issueEmployeeAdvance.mutateAsync",
+      "repayEmployeeAdvance.mutateAsync",
+      "recordFuelFill.mutateAsync",
+      "submitPaymentDocumentation.mutateAsync",
+    ]) {
+      expect(syncPanel).toContain("runMutation(() => " + mutation);
+    }
+    expect(syncPanel).toContain("runMutation(() => syncGeneratorCreate(");
+    expect(syncPanel).toContain("runMutation(() => syncGeneratorUpdate(");
+    expect(syncPanel).toContain("assertCurrent();\n      const storedAfter = await listSyncMetadata");
+    expect(syncPanel).toContain("if (isSyncRunCurrent(assertCurrent)) toast.error(getErrorMessage(error));");
   });
 
   it("does not overwrite atomically persisted reading metadata with a stale pending result", () => {
