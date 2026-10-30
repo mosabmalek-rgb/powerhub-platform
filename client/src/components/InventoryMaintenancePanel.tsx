@@ -293,9 +293,14 @@ export default function InventoryMaintenancePanel({
   if (!canViewMaintenance) return <Card><CardContent className="p-6 text-sm text-muted-foreground">لا تملك صلاحية عرض بيانات الصيانة لهذا الفرع.</CardContent></Card>;
   const itemsForMaintenance = safeItems.filter((item) => ["spare_part", "oil", "filter", "maintenance_supply", "other"].includes(item.category));
   const openOrders = safeOrders.filter((order) => openStatuses.includes(order.status));
-  const reportRows = maintenanceReportAuthorizationDenied ? [] : maintenanceReport.data ?? cachedMaintenanceReportForCurrentScope?.rows ?? [];
-  const usingCachedMaintenanceReport = !maintenanceReportAuthorizationDenied && maintenanceReport.data === undefined && cachedMaintenanceReportForCurrentScope !== null;
-  const hasAvailableMaintenanceReport = !maintenanceReportAuthorizationDenied && (maintenanceReport.data !== undefined || cachedMaintenanceReportForCurrentScope !== null);
+  const maintenanceReportIsAuthoritative = !maintenanceReportAuthorizationDenied && hasAuthoritativeServerRead(maintenanceReport);
+  const reportRows = maintenanceReportAuthorizationDenied ? [] : maintenanceReportIsAuthoritative
+    ? maintenanceReport.data ?? []
+    : cachedMaintenanceReportForCurrentScope?.rows ?? [];
+  const usingCachedMaintenanceReport = !maintenanceReportAuthorizationDenied &&
+    !maintenanceReportIsAuthoritative && cachedMaintenanceReportForCurrentScope !== null;
+  const hasAvailableMaintenanceReport = !maintenanceReportAuthorizationDenied &&
+    (maintenanceReportIsAuthoritative || cachedMaintenanceReportForCurrentScope !== null);
   const reportTotals = reportRows.reduce((sum, row) => ({
     workOrders: sum.workOrders + Number(row.work_order_count ?? 0),
     breakdowns: sum.breakdowns + Number(row.breakdown_count ?? 0),
@@ -502,12 +507,12 @@ export default function InventoryMaintenancePanel({
           <div className="flex items-end"><Button type="button" variant="outline" onClick={() => void maintenanceReport.refetch()} disabled={maintenanceReport.isFetching || !reportFromDate || !reportToDate || reportFromDate > reportToDate}><RefreshCw className="ml-2 h-4 w-4" /> تحديث التقرير</Button></div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">أوامر الصيانة</p><p className="text-2xl font-semibold">{(maintenanceReport.isLoading || maintenanceReport.isError) && !hasAvailableMaintenanceReport ? "—" : reportTotals.workOrders.toLocaleString("ar-PS")}</p></div>
+          <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">أوامر الصيانة</p><p className="text-2xl font-semibold">{!hasAvailableMaintenanceReport ? "—" : reportTotals.workOrders.toLocaleString("ar-PS")}</p></div>
           <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">بلاغات الأعطال</p><p className="text-2xl font-semibold">{(maintenanceReport.isLoading || maintenanceReport.isError) && !hasAvailableMaintenanceReport ? "—" : reportTotals.breakdowns.toLocaleString("ar-PS")}</p></div>
           <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">التوقف المسجل</p><p className="text-2xl font-semibold">{(maintenanceReport.isLoading || maintenanceReport.isError) && !hasAvailableMaintenanceReport ? "—" : reportTotals.downtime.toLocaleString("ar-PS") + " دقيقة"}</p></div>
           <div className="rounded-md border p-3"><p className="text-sm text-muted-foreground">إجمالي التكلفة</p><p className="text-2xl font-semibold">{(maintenanceReport.isLoading || maintenanceReport.isError) && !hasAvailableMaintenanceReport ? "—" : money(reportTotals.cost)}</p></div>
         </div>
-        {maintenanceReport.isLoading && !hasAvailableMaintenanceReport ? <p className="py-6 text-center text-muted-foreground">جارٍ تجميع تقرير الصيانة…</p>
+        {(maintenanceReport.isLoading || maintenanceReport.isFetching) && !hasAvailableMaintenanceReport ? <p className="py-6 text-center text-muted-foreground">جارٍ التحقق من نتيجة تقرير الصيانة من الخادم…</p>
           : maintenanceReportAuthorizationDenied ? <p role="alert" className="py-6 text-center text-destructive">رفض الخادم صلاحية عرض تقرير الصيانة؛ أُخفيت أي نسخة محلية لهذا الطلب.</p>
            : maintenanceReport.error && !hasAvailableMaintenanceReport ? <p role="alert" className="py-6 text-center text-destructive">تعذر تحميل التقرير. اختر نطاقًا لا يتجاوز 366 يومًا ثم أعد المحاولة.</p>
           : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[1120px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","العطل / العمل المتكرر","الأوامر","الأعطال","الوقائية","المكتملة","المفتوحة","التوقف (دقيقة)","القطع","العمل","الخدمات","الإجمالي"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{reportRows.map((r) => <tr key={r.generator_id + ":" + r.fault_title} className="border-t"><td className="p-3">{r.generator_name} <span className="text-xs text-muted-foreground">#{r.generator_id}</span></td><td className="p-3">{r.fault_title}</td><td className="p-3">{r.work_order_count}</td><td className="p-3">{r.breakdown_count}</td><td className="p-3">{r.preventive_count}</td><td className="p-3">{r.completed_count}</td><td className="p-3">{r.open_count}</td><td className="p-3">{r.downtime_minutes}</td><td className="p-3 whitespace-nowrap">{money(r.parts_cost)}</td><td className="p-3 whitespace-nowrap">{money(r.labor_cost)}</td><td className="p-3 whitespace-nowrap">{money(r.external_service_cost)}</td><td className="p-3 whitespace-nowrap font-semibold">{money(r.total_cost_amount)}</td></tr>)}{!reportRows.length ? <tr><td colSpan={12} className="p-5 text-center text-muted-foreground">لا توجد أوامر صيانة في الفترة المحددة.</td></tr> : null}</tbody></table></div>}
