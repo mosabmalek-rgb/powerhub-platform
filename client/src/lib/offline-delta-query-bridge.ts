@@ -70,6 +70,62 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
       },
     };
   }
+
+  if (entityType === "hr_employee_advances") {
+    const adjustment = isRow(raw.adjustment) ? raw.adjustment : {};
+    const employee = isRow(raw.employee) ? raw.employee : {};
+    const repayments = Array.isArray(raw.repayments) ? raw.repayments.filter(isRow).map((payment) => ({
+      id: toNumber(payment.id), amount: String(payment.amount ?? 0),
+      repaymentMethod: String(payment.repayment_method ?? payment.repaymentMethod ?? ""),
+      companyAccountId: optionalNumber(payment.company_account_id ?? payment.companyAccountId),
+      accountTransactionId: null,
+      payrollRunId: optionalNumber(payment.payroll_run_id ?? payment.payrollRunId),
+      paymentDate: String(payment.payment_date ?? payment.paymentDate ?? ""),
+      referenceNo: null, notes: null, createdByUserId: null,
+      createdAt: dateOrNow(payment.created_at ?? payment.createdAt),
+    })) : [];
+    return {
+      id: toNumber(raw.id ?? adjustment.id),
+      tenantId: toNumber(raw.tenant_id ?? raw.tenantId ?? adjustment.tenant_id ?? adjustment.tenantId),
+      siteId: toNumber(raw.site_id ?? raw.siteId ?? adjustment.site_id ?? adjustment.siteId),
+      createdAt: dateOrNow(raw.created_at ?? raw.createdAt ?? adjustment.created_at ?? adjustment.createdAt),
+      adjustment: {
+        id: toNumber(adjustment.id), tenantId: toNumber(adjustment.tenant_id ?? adjustment.tenantId),
+        employeeId: toNumber(adjustment.employee_id ?? adjustment.employeeId),
+        siteId: toNumber(adjustment.site_id ?? adjustment.siteId), adjustmentType: "advance",
+        advanceKind: String(adjustment.advance_kind ?? adjustment.advanceKind ?? "salary_advance"),
+        monthlyDeduction: adjustment.monthly_deduction == null && adjustment.monthlyDeduction == null
+          ? null : String(adjustment.monthly_deduction ?? adjustment.monthlyDeduction),
+        amount: String(adjustment.amount ?? 0),
+        remainingAmount: String(adjustment.remaining_amount ?? adjustment.remainingAmount ?? 0),
+        reason: null, status: String(adjustment.status ?? "open"), createdByUserId: null,
+        createdAt: dateOrNow(adjustment.created_at ?? adjustment.createdAt),
+        updatedAt: dateOrNow(adjustment.updated_at ?? adjustment.updatedAt),
+      },
+      employee: {
+        id: toNumber(employee.id), tenantId: toNumber(employee.tenant_id ?? employee.tenantId),
+        siteId: optionalNumber(employee.site_id ?? employee.siteId),
+        fullName: String(employee.full_name ?? employee.fullName ?? ""),
+        jobTitle: String(employee.job_title ?? employee.jobTitle ?? "other"),
+        employmentStatus: String(employee.employment_status ?? employee.employmentStatus ?? "active"),
+      },
+      repayments,
+      repaymentHistoryTruncated: Boolean(raw.repayment_history_truncated ?? raw.repaymentHistoryTruncated),
+    };
+  }
+  if (entityType === "hr_payroll_runs") {
+    return {
+      id: toNumber(raw.id), tenantId: toNumber(raw.tenant_id ?? raw.tenantId),
+      siteId: optionalNumber(raw.site_id ?? raw.siteId),
+      period: String(raw.period ?? ""), status: String(raw.status ?? "draft"),
+      totalGross: String(raw.total_gross ?? raw.totalGross ?? 0),
+      totalDeductions: String(raw.total_deductions ?? raw.totalDeductions ?? 0),
+      totalNet: String(raw.total_net ?? raw.totalNet ?? 0),
+      paidAt: dateOrNull(raw.paid_at ?? raw.paidAt),
+      createdAt: dateOrNow(raw.created_at ?? raw.createdAt),
+      updatedAt: dateOrNow(raw.updated_at ?? raw.updatedAt),
+    };
+  }
   if (entityType === "fuel_events") {
     const id = toNumber(raw.event_id ?? raw.id);
     return {
@@ -587,10 +643,10 @@ function idOf(row: unknown): string | null {
   if (id === null || id === undefined) return null;
   return String(id);
 }
-function scopedTo(row: Row, scope: DeltaCursorScope, allowSharedCompanyEmployee = false) {
+function scopedTo(row: Row, scope: DeltaCursorScope, allowSharedScope = false) {
   if (row.tenantId !== undefined && toNumber(row.tenantId) !== scope.tenantId) return false;
-  if (row.siteId === null && allowSharedCompanyEmployee) return true;
-  if (row.siteId !== undefined && toNumber(row.siteId) !== scope.siteId) return false;
+  if (row.siteId === null && allowSharedScope) return true;
+  if (row.siteId !== undefined && row.siteId !== null && toNumber(row.siteId) !== scope.siteId) return false;
   return true;
 }
 
@@ -614,7 +670,7 @@ export function applyDeltaPageToList(
       byId.delete(change.entity_id);
       continue;
     }
-    if (!isRow(change.row_data) || idOf(change.row_data) !== change.entity_id || !scopedTo(change.row_data, scope, entityType === "hr_employee_directory")) continue;
+    if (!isRow(change.row_data) || idOf(change.row_data) !== change.entity_id || !scopedTo(change.row_data, scope, entityType === "hr_employee_directory" || entityType === "hr_payroll_runs")) continue;
     if (entityType === "sites" && change.entity_id !== String(scope.siteId)) continue;
     if (entityType !== "readings") {
       byId.set(change.entity_id, change.row_data);
