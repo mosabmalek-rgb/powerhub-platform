@@ -308,8 +308,8 @@ begin
   if exists(
     select 1 from jsonb_array_elements(v_snapshot->'rows') a,
       jsonb_array_elements(a->'repayments') p
-    where a ? 'reason' or a->'adjustment' ? 'reason'
-      or a->'adjustment' ? 'created_by_user_id'
+    where a->'adjustment'->>'reason' is not null
+      or a->'adjustment'->>'created_by_user_id' is not null
       or a->'employee' ? 'phone' or a->'employee' ? 'identity_no'
       or a->'employee' ? 'base_wage' or a->'employee' ? 'notes'
       or p ? 'reference_no' and p->>'reference_no' is not null
