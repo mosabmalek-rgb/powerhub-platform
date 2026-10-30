@@ -41,10 +41,11 @@ describe("dashboard Delta revision contract", () => {
     expect(revisions).toContain('financialOverview: ["sites", "subscribers", "invoices", "payments", "expenses"]');
   });
 
-  it("includes a UTC day bucket for KPIs that change with time even when no row is written", () => {
+  it("includes time buckets for deadline- and month-dependent KPIs even when no row is written", () => {
     expect(revisions).toContain('"periodOverdue"');
     expect(revisions).toContain('"currentArrears"');
     expect(revisions).toContain('"financialOverview"');
-    expect(revisions).toContain('now.toISOString().slice(0, 10)');
+    expect(revisions).toContain('now.toISOString().slice(0, 16)');
+    expect(revisions).toContain('dashboardKpiUtcMonthKey');
   });
 });
