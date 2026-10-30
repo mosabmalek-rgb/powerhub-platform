@@ -8,7 +8,7 @@ const revisions = readFileSync(resolve(process.cwd(), "server/dashboard-kpi-revi
 describe("dashboard Delta revision contract", () => {
   it("exposes only an authorized tenant/site-scoped fingerprint, never operational rows", () => {
     const start = router.indexOf("deltaRevision: protectedProcedure");
-    const end = router.indexOf("financialOverview: protectedProcedure", start);
+    const end = router.indexOf("financialTrend: protectedProcedure", start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const procedure = router.slice(start, end);
@@ -29,7 +29,7 @@ describe("dashboard Delta revision contract", () => {
     for (const key of [
       "activeSubscribers", "generatorStatus", "periodInvoiced", "periodCollected",
       "collectionRate", "periodOverdue", "expenses", "netCash", "currentArrears",
-      "financialOverview", "companyBalances",
+      "financialTrend", "companyBalances",
     ]) expect(revisions).toContain(`${key}:`);
     expect(revisions).not.toContain("operatingProfit:");
     expect(revisions).not.toContain("operationalStatus:");
@@ -38,13 +38,13 @@ describe("dashboard Delta revision contract", () => {
   it("keeps company-account balance revisions separate from cash flow and financial overview", () => {
     expect(revisions).toContain('companyBalances: ["company_accounts", "company_accounts_all"]');
     expect(revisions).toContain('netCash: ["payments", "expenses"]');
-    expect(revisions).toContain('financialOverview: ["sites", "subscribers", "invoices", "payments", "expenses"]');
+    expect(revisions).toContain('financialTrend: ["sites", "subscribers", "invoices", "payments", "expenses"]');
   });
 
   it("includes time buckets for deadline- and month-dependent KPIs even when no row is written", () => {
     expect(revisions).toContain('"periodOverdue"');
     expect(revisions).toContain('"currentArrears"');
-    expect(revisions).toContain('"financialOverview"');
+    expect(revisions).toContain('"financialTrend"');
     expect(revisions).toContain('now.toISOString().slice(0, 16)');
     expect(revisions).toContain('dashboardKpiUtcMonthKey');
   });
