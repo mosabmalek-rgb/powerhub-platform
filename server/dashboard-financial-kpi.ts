@@ -1,6 +1,16 @@
 import { decimalAmountToMinorUnits, minorUnitsToAmountString } from "./decimal-money";
 
 export type DashboardFinancialKpiMetric = "expenses" | "netCash" | "currentArrears";
+export type DashboardFinancialKpiSnapshot = {
+  metric: DashboardFinancialKpiMetric;
+  expenses?: number;
+  collected?: number;
+  netCash?: number;
+  outstanding?: number;
+  overdue?: number;
+  partialInvoices?: number;
+  accountCount?: number;
+};
 type AmountRow = { amount: number | string | null | undefined };
 type PaymentRow = AmountRow & { status?: string | null };
 type ArrearsRow = {
@@ -20,9 +30,12 @@ export function buildDashboardFinancialKpi(input: {
   payments?: readonly PaymentRow[];
   arrears?: readonly ArrearsRow[];
   now?: Date;
-}) {
+}): DashboardFinancialKpiSnapshot {
   if (input.metric === "expenses" || input.metric === "netCash") {
     const expensesMinor = (input.expenses ?? []).reduce((sum, row) => sum + minor(row.amount), 0n);
+    if (input.metric === "expenses") {
+      return { metric: input.metric, expenses: amount(expensesMinor) };
+    }
     const collectedMinor = (input.payments ?? [])
       .filter((row) => row.status === "completed")
       .reduce((sum, row) => sum + minor(row.amount), 0n);
