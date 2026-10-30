@@ -6,6 +6,7 @@ import { getSupabaseSession } from "@/lib/supabase";
 import { persistOfflineQueryForDeltaSync } from "@/lib/offline-query-cache";
 import {
   clearDeltaSyncDataForUser,
+  isDeltaSyncRunCurrent,
   applyDeltaChanges,
   compareMaintenanceWorkOrderNewestFirst,
   listDeltaEntities,
@@ -37,6 +38,14 @@ import { getOfflineQueryDeltaEntity } from "@/lib/offline-query-policy";
 
 type AnyRow = Record<string, unknown>;
 type Candidate = { entityType: DeltaOperationalEntity; siteId: number; tenantId: number };
+
+function assertDeltaRuntimeCurrent(isCurrent: () => boolean): void {
+  if (!isCurrent()) {
+    throw Object.assign(new Error("توقف تشغيل Delta لأن هوية المستخدم أو الجلسة تغيّرت."), {
+      name: "PowerHubDeltaSyncRunSupersededError",
+    });
+  }
+}
 const SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const SYNC_DEBOUNCE_MS = 350;
 const MAX_LOCAL_FUEL_READING_QUERY_ROWS = 100;
@@ -223,7 +232,9 @@ async function patchQueryCaches(
   entityType: DeltaOperationalEntity,
   page: DeltaPage<AnyRow>,
   cacheOwnerId: string,
+  isCurrent: () => boolean,
 ): Promise<void> {
+  assertDeltaRuntimeCurrent(isCurrent);
   const changedQueries = new Set<Query>();
   const queries = queryClient.getQueryCache().findAll();
   const subscribers = subscriberRowsForSite(queries, scope.siteId, scope.tenantId);
@@ -241,6 +252,7 @@ async function patchQueryCaches(
       entityType === "expenses" || (entityType === "subscribers" && hasSubscriberDirectoryQueries)) &&
       page.changes.length > 0) {
     const local = await listDeltaEntities<AnyRow>(scope);
+    assertDeltaRuntimeCurrent(isCurrent);
     const nextRows = applyDeltaChanges(local.map((record) => record.rowData), page.changes);
     if (entityType === "invoices") invoiceRowsAfterPage = nextRows;
     else if (entityType === "readings") readingRowsAfterPage = nextRows;
@@ -250,6 +262,7 @@ async function patchQueryCaches(
   }
 
   for (const query of queries) {
+    assertDeltaRuntimeCurrent(isCurrent);
     const queryEntity = queryIsSupportedList(query);
     if (!queryEntity) continue;
     const segments = getSegments(query.queryKey);
@@ -453,7 +466,11 @@ async function patchQueryCaches(
     }
   }
   // The cursor is committed only after every affected durable query snapshot is written.
-  for (const query of changedQueries) await persistOfflineQueryForDeltaSync(query, cacheOwnerId);
+  for (const query of changedQueries) {
+    assertDeltaRuntimeCurrent(isCurrent);
+    await persistOfflineQueryForDeltaSync(query, cacheOwnerId, Date.now(), isCurrent);
+    assertDeltaRuntimeCurrent(isCurrent);
+  }
 }
 
 export function OfflineDeltaSyncRuntime() {
@@ -464,6 +481,8 @@ export function OfflineDeltaSyncRuntime() {
   const rerunRequested = useRef(false);
   const lastOnlineUserId = useRef<number | null>(null);
   const activeUserId = Number(auth.user?.id);
+  const activeUserIdRef = useRef<number | null>(Number.isSafeInteger(activeUserId) && activeUserId > 0 ? activeUserId : null);
+  activeUserIdRef.current = Number.isSafeInteger(activeUserId) && activeUserId > 0 ? activeUserId : null;
   const isAuthorizedOnline = auth.isOnlineAuthenticated && !auth.isLoggingOut &&
     auth.powerHubReachable && onlineManager.isOnline() &&
     Number.isSafeInteger(activeUserId) && activeUserId > 0;
@@ -479,7 +498,10 @@ export function OfflineDeltaSyncRuntime() {
     }
     lastOnlineUserId.current = activeUserId;
 
+    const isRunCurrent = () => isDeltaSyncRunCurrent(activeUserId, activeUserIdRef.current, disposed);
+
     const syncOne = async (candidate: Candidate, cacheOwnerId: string) => {
+      assertDeltaRuntimeCurrent(isRunCurrent);
       const scope: DeltaCursorScope = {
         userId: activeUserId,
         tenantId: candidate.tenantId,
@@ -487,8 +509,11 @@ export function OfflineDeltaSyncRuntime() {
         entityType: candidate.entityType,
       };
       await withDeltaSyncLock(scope, async () => {
+      assertDeltaRuntimeCurrent(isRunCurrent);
       const afterCursor = await getDeltaCursor(scope);
+      assertDeltaRuntimeCurrent(isRunCurrent);
       const pull = async (args: { afterCursor: string | null; throughCursor: string | null; pageSize: number }) => {
+        assertDeltaRuntimeCurrent(isRunCurrent);
         const response = await utils.powerhub.deltaSync.pull.fetch({
           siteId: candidate.siteId,
           entityType: candidate.entityType,
@@ -496,15 +521,18 @@ export function OfflineDeltaSyncRuntime() {
           throughCursor: args.throughCursor,
           pageSize: args.pageSize,
         });
+        assertDeltaRuntimeCurrent(isRunCurrent);
         return normalizeDeltaPage(candidate.entityType, response as unknown as DeltaPage<AnyRow>);
       };
       const rebuildSnapshot = async () => {
+        assertDeltaRuntimeCurrent(isRunCurrent);
         // Rows and cursor are read by one STABLE PostgreSQL RPC, so changes committed
         // during snapshot creation cannot fall between the snapshot and its cursor.
         const snapshot = await utils.powerhub.deltaSync.snapshot.fetch({
           siteId: candidate.siteId,
           entityType: candidate.entityType,
         });
+        assertDeltaRuntimeCurrent(isRunCurrent);
         if (!Array.isArray(snapshot.rows) || typeof snapshot.snapshot_cursor !== "string") {
           throw new Error("استجابة لقطة المزامنة غير صالحة.");
         }
@@ -541,6 +569,7 @@ export function OfflineDeltaSyncRuntime() {
         });
         if (matchingQueries.length === 0) throw new Error("لا يوجد استعلام قائمة لاستقبال لقطة المزامنة.");
         for (const query of matchingQueries) {
+          assertDeltaRuntimeCurrent(isRunCurrent);
           if (candidate.entityType === "sites") {
             const current = query.state.data as AnyRow[];
             const siteRows = (queryRows as AnyRow[]).filter((row) => Number(row.id) === candidate.siteId);
@@ -655,7 +684,8 @@ export function OfflineDeltaSyncRuntime() {
           } else {
             queryClient.setQueryData(query.queryKey, queryRows);
           }
-          await persistOfflineQueryForDeltaSync(query, cacheOwnerId);
+          await persistOfflineQueryForDeltaSync(query, cacheOwnerId, Date.now(), isRunCurrent);
+          assertDeltaRuntimeCurrent(isRunCurrent);
         }
         return {
           cursor: snapshot.snapshot_cursor,
@@ -663,25 +693,35 @@ export function OfflineDeltaSyncRuntime() {
         };
       };
       try {
+        assertDeltaRuntimeCurrent(isRunCurrent);
         await pullDeltaPages({
           scope,
           afterCursor,
           pull,
           rebuildSnapshot,
-          applyPage: async (page) => patchQueryCaches(queryClient, scope, candidate.entityType, page as DeltaPage<AnyRow>, cacheOwnerId),
+          isCurrent: isRunCurrent,
+          applyPage: async (page) => patchQueryCaches(
+            queryClient, scope, candidate.entityType, page as DeltaPage<AnyRow>, cacheOwnerId, isRunCurrent,
+          ),
         });
+        assertDeltaRuntimeCurrent(isRunCurrent);
         const now = Date.now();
+        const syncedCursor = await getDeltaCursor(scope) ?? "0";
+        assertDeltaRuntimeCurrent(isRunCurrent);
         await saveDeltaSyncStatus({
           ...scope,
-          cursor: await getDeltaCursor(scope) ?? "0",
+          cursor: syncedCursor,
           lastSyncedAt: now,
           lastAttemptAt: now,
           outcome: "success",
         });
       } catch (error) {
+        if (!isRunCurrent()) throw error;
         const now = Date.now();
         const previous = await getDeltaSyncStatus(scope).catch(() => undefined);
+        if (!isRunCurrent()) throw error;
         const currentCursor = await getDeltaCursor(scope).catch(() => previous?.cursor ?? "0");
+        if (!isRunCurrent()) throw error;
         await saveDeltaSyncStatus({
           ...scope,
           cursor: currentCursor ?? "0",
@@ -690,14 +730,15 @@ export function OfflineDeltaSyncRuntime() {
           outcome: "failed",
           lastError: error instanceof Error ? error.message : "تعذر تنفيذ المزامنة التفاضلية.",
         }).catch((statusError) => console.warn("[PowerHub] Could not persist Delta sync status", statusError));
-        if (typeof window !== "undefined") {
+        if (isRunCurrent() && typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("powerhub:delta-sync-status-changed", {
             detail: { userId: activeUserId, siteId: candidate.siteId },
           }));
         }
         throw error;
       }
-      if (typeof window !== "undefined") {
+      assertDeltaRuntimeCurrent(isRunCurrent);
+      if (isRunCurrent() && typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("powerhub:delta-sync-status-changed", {
           detail: { userId: activeUserId, siteId: candidate.siteId },
         }));
@@ -716,16 +757,18 @@ export function OfflineDeltaSyncRuntime() {
       rerunRequested.current = false;
       try {
         const session = await getSupabaseSession();
-        if (!session?.user.id) return;
+        if (!isRunCurrent() || !session?.user.id) return;
         const cacheOwnerId = session.user.id;
         const queryList = queryClient.getQueryCache().findAll();
         const candidates = makeCandidates(queryList);
         for (const candidate of candidates) {
-          if (disposed || !onlineManager.isOnline()) break;
+          if (!isRunCurrent() || !onlineManager.isOnline()) break;
           try {
             await syncOne(candidate, cacheOwnerId);
           } catch (error) {
-            console.warn("[PowerHub] Delta sync deferred for scoped list", candidate.entityType, candidate.siteId, error);
+            if (isRunCurrent()) {
+              console.warn("[PowerHub] Delta sync deferred for scoped list", candidate.entityType, candidate.siteId, error);
+            }
           }
         }
       } finally {
