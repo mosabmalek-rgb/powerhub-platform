@@ -645,8 +645,8 @@ function idOf(row: unknown): string | null {
 }
 function scopedTo(row: Row, scope: DeltaCursorScope, allowSharedScope = false) {
   if (row.tenantId !== undefined && toNumber(row.tenantId) !== scope.tenantId) return false;
-  if (row.siteId === null && allowSharedScope) return true;
-  if (row.siteId !== undefined && row.siteId !== null && toNumber(row.siteId) !== scope.siteId) return false;
+  if (row.siteId === null) return allowSharedScope;
+  if (row.siteId !== undefined && toNumber(row.siteId) !== scope.siteId) return false;
   return true;
 }
 
