@@ -97,7 +97,7 @@ describe("offline data and financial truth boundaries", () => {
     }
     expect(stock).toContain("recordMovement.mutate");
     expect(stocktake).toContain("postStocktake.mutate");
-    expect(transfer).toContain("transferStock.mutate");
+    expect(transfer).toContain("transfer.mutate");
     expect(purchases).toContain("receivePurchase.mutate");
     expect(purchases).toContain("returnToSupplier.mutate");
     expect(purchases).toContain("recordSupplierPayment.mutate");
