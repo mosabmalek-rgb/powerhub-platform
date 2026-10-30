@@ -614,6 +614,37 @@ describe("HR Delta minimized projections", () => {
     expect(advance.employee).not.toHaveProperty("baseWage");
   });
 
+  it("allows shared rows only for the explicitly shared HR directory and payroll projections", () => {
+    const scope = { userId: 7, tenantId: 2, siteId: 10, entityType: "hr_payroll_runs" as const };
+    const sharedPayroll = basePage([{
+      cursor: "1", entity_type: "hr_payroll_runs", entity_id: "90", operation: "upsert",
+      row_data: { id: 90, tenantId: 2, siteId: null, period: "2026-10" },
+      changed_at: "2026-10-31T12:00:00Z",
+    }], "hr_payroll_runs");
+    expect(applyDeltaPageToList("hr_payroll_runs", [], sharedPayroll, scope)).toHaveLength(1);
+
+    const sharedEmployee = basePage([{
+      cursor: "1", entity_type: "hr_employee_directory", entity_id: "42", operation: "upsert",
+      row_data: { id: 42, tenantId: 2, siteId: null, fullName: "Shared employee" },
+      changed_at: "2026-10-31T12:00:00Z",
+    }], "hr_employee_directory");
+    expect(applyDeltaPageToList("hr_employee_directory", [], sharedEmployee, { ...scope, entityType: "hr_employee_directory" })).toHaveLength(1);
+
+    const wrongTenant = basePage([{
+      cursor: "1", entity_type: "hr_payroll_runs", entity_id: "91", operation: "upsert",
+      row_data: { id: 91, tenantId: 99, siteId: null, period: "2026-10" },
+      changed_at: "2026-10-31T12:00:01Z",
+    }], "hr_payroll_runs");
+    expect(applyDeltaPageToList("hr_payroll_runs", [], wrongTenant, scope)).toHaveLength(0);
+
+    const unrelatedSharedRow = basePage([{
+      cursor: "1", entity_type: "subscribers", entity_id: "11", operation: "upsert",
+      row_data: { id: 11, tenantId: 2, siteId: null, fullName: "Out of branch" },
+      changed_at: "2026-10-31T12:00:02Z",
+    }], "subscribers");
+    expect(applyDeltaPageToList("subscribers", [], unrelatedSharedRow, { ...scope, entityType: "subscribers" })).toHaveLength(0);
+  });
+
   it("projects only minimized payroll run summaries and supports shared tenant-wide runs", () => {
     const run = normalizeDeltaEntityRow("hr_payroll_runs", {
       id: 90, tenant_id: 2, site_id: null, period: "2026-10", status: "paid",
