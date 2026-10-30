@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { TRPCError } from "@trpc/server";
 
 const state = vi.hoisted(() => ({
@@ -1014,4 +1016,48 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
       expect(state.rpc).not.toHaveBeenCalled();
     },
   );
-});
+}
+  it("tracks every protected inventory mutation in the capability-denial tests", () => {
+    const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
+    const testSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.test.ts"), "utf8");
+    const declarations = [...routerSource.matchAll(/^\\s{4}([A-Za-z_]\\w*): protectedProcedure/gm)];
+    const mutationProcedures = declarations.filter((declaration, index) => {
+      const end = declarations[index + 1]?.index ?? routerSource.length;
+      return /\\.mutation\\s*\\(/.test(routerSource.slice(declaration.index, end));
+    }).map((declaration) => declaration[1]);
+
+    // These procedures have dedicated denial tests above the table-driven matrix.
+    const individualDenialProcedures = [
+      "recordStockMovement", "returnFromIssue", "correctStockMovement", "createItem",
+      "createSupplier", "createPurchase", "cancelPurchase", "reverseSupplierPayment",
+      "confirmPurchase", "recordSupplierPayment", "returnToSupplier", "transferStock",
+      "receivePurchase", "upsertFuelAlertSettings", "recordFuelFill", "recordFuelReading",
+    ] as const;
+    const matrixProcedures = cases.map((entry) => entry.procedure);
+    const matrixStart = testSource.indexOf('describe("PowerHub inventory mutation capability-denial matrix"');
+    expect(matrixStart).toBeGreaterThan(-1);
+
+    for (const procedure of individualDenialProcedures) {
+      const token = `_def.record.${procedure}`;
+      let cursor = testSource.indexOf(token);
+      let hasDenialAssertion = false;
+      while (cursor >= 0 && cursor < matrixStart) {
+        const testStart = testSource.lastIndexOf("\\n  it(", cursor);
+        const nextTest = testSource.indexOf("\\n  it(", cursor + token.length);
+        const testBlock = testSource.slice(testStart >= 0 ? testStart : 0, nextTest >= 0 ? nextTest : matrixStart);
+        if (testBlock.includes('rejects.toMatchObject({ code: "FORBIDDEN" })') &&
+            testBlock.includes("not.toHaveBeenCalled()")) {
+          hasDenialAssertion = true;
+          break;
+        }
+        cursor = testSource.indexOf(token, cursor + token.length);
+      }
+      expect(hasDenialAssertion, `Missing direct denial assertion for ${procedure}`).toBe(true);
+    }
+
+    const coveredProcedures = [...matrixProcedures, ...individualDenialProcedures];
+    expect(new Set(coveredProcedures).size).toBe(coveredProcedures.length);
+    expect([...coveredProcedures].sort()).toEqual([...mutationProcedures].sort());
+  });
+
+);
