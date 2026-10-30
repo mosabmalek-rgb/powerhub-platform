@@ -999,7 +999,7 @@ describe("HR local-first cache boundaries", () => {
     expect(clearOfflineHrProjectionCacheForSite).toBeTypeOf("function");
   });
 
-  it("allows only exact minimized HR read projections, and gives Delta only to directory and attendance", () => {
+  it("allows exact minimized HR projections and maps each supported projection to its own Delta feed", () => {
     const directory = key("offlineDirectory");
     const attendance = key("offlineAttendance");
     const advances = key("offlineEmployeeAdvances");
@@ -1010,13 +1010,18 @@ describe("HR local-first cache boundaries", () => {
     }
     expect(isDeltaSyncBackedQueryKey(directory)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(attendance)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(advances)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(payroll)).toBe(true);
     expect(getOfflineQueryDeltaEntity(directory)).toBe("hr_employee_directory");
     expect(getOfflineQueryDeltaEntity(attendance)).toBe("hr_attendance");
-    for (const queryKey of [advances, payroll, accountOptions]) {
-      expect(isDeltaSyncBackedQueryKey(queryKey)).toBe(false);
-      expect(getOfflineQueryDeltaEntity(queryKey)).toBeNull();
-      expect(getOfflineQueryStaleTime(queryKey)).toBe(30_000);
+    expect(getOfflineQueryDeltaEntity(advances)).toBe("hr_employee_advances");
+    expect(getOfflineQueryDeltaEntity(payroll)).toBe("hr_payroll_runs");
+    for (const queryKey of [directory, attendance, advances, payroll]) {
+      expect(getOfflineQueryStaleTime(queryKey)).toBe(Number.POSITIVE_INFINITY);
     }
+    expect(isDeltaSyncBackedQueryKey(accountOptions)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(accountOptions)).toBeNull();
+    expect(getOfflineQueryStaleTime(accountOptions)).toBe(30_000);
     for (const queryKey of [
       key("listEmployees"),
       key("listAttendance"),
@@ -1071,6 +1076,13 @@ describe("HR local-first cache boundaries", () => {
     expect(advances[0].employee).not.toHaveProperty("phone");
     expect(advances[0].employee).not.toHaveProperty("baseWage");
     expect(advances[0].repayments[0]).toMatchObject({ notes: null, referenceNo: null, createdByUserId: null, accountTransactionId: null });
+    expect(advances[0].repaymentHistoryTruncated).toBe(false);
+    const truncatedAdvances = sanitizeOfflineQueryData(key("offlineEmployeeAdvances"), [{
+      adjustment: { id: 30, tenantId: 2, siteId: 7, employeeId: 10, amount: "100", remainingAmount: "40" },
+      employee: { id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker", employmentStatus: "active" },
+      repayments: [], repaymentHistoryTruncated: true,
+    }]) as Array<Record<string, any>>;
+    expect(truncatedAdvances[0].repaymentHistoryTruncated).toBe(true);
 
     const options = sanitizeOfflineQueryData(key("offlineCompanyAccountOptions"), [{
       id: 71, name: "Cash", accountType: "cash", isActive: true, phoneNumber: "PRIVATE-PHONE",
