@@ -18,6 +18,14 @@ const offlineWorkQueue = readFileSync(
   resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"),
   "utf8",
 );
+const payrollPage = readFileSync(
+  resolve(process.cwd(), "client/src/pages/PayrollPage.tsx"),
+  "utf8",
+);
+const employeeAdvancesPage = readFileSync(
+  resolve(process.cwd(), "client/src/pages/EmployeeAdvancesPage.tsx"),
+  "utf8",
+);
 
 describe("offline sync UI contract", () => {
   it("refreshes the field-reading outbox view after the sync result is persisted", () => {
@@ -109,6 +117,20 @@ describe("offline sync UI contract", () => {
     expect(syncPanel).toContain("runMutation(() => syncGeneratorUpdate(");
     expect(syncPanel).toContain("assertCurrent();\n      const storedAfter = await listSyncMetadata");
     expect(syncPanel).toContain("if (isSyncRunCurrent(assertCurrent)) toast.error(getErrorMessage(error));");
+  });
+
+  it("labels non-Delta HR financial snapshots and requires fresh server reads before financial actions", () => {
+    expect(payrollPage).toContain("offlineRuns.dataUpdatedAt");
+    expect(payrollPage).toContain("isShowingCachedPayrollRuns");
+    expect(payrollPage).toContain("hasLivePayrollRuns");
+    expect(payrollPage).toContain("disabled={!hasLivePayrollRuns || run.pendingOffline}");
+    expect(payrollPage).toContain("هذه اللقطة ليست حالة حية ولا تغذية Delta");
+
+    expect(employeeAdvancesPage).toContain("offlineAdvances.dataUpdatedAt");
+    expect(employeeAdvancesPage).toContain("isShowingCachedAdvances");
+    expect(employeeAdvancesPage).toContain("canMutateAdvances");
+    expect(employeeAdvancesPage).toContain("تعذر التحقق من أحدث رصيد للسلفة وحساب الشركة");
+    expect(employeeAdvancesPage).toContain("هذه اللقطة ليست Delta ولا تمثل رصيدًا نهائيًا");
   });
 
   it("does not overwrite atomically persisted reading metadata with a stale pending result", () => {
