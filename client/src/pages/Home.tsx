@@ -268,13 +268,12 @@ export function WorkspaceHome() {
   // A persisted financial snapshot is display-only and must never substitute for a verified role.
   const overview = canViewFinancialOverview && !dashboardRevisionDenied &&
     !isExplicitAuthorizationDenial(financialOverviewQuery.error) ? financialOverviewQuery.data : undefined;
-  const dashboardDataError = sitesQuery.isError || accessQuery.isError || dashboardRevisionQuery.isError ||
+  const dashboardDataError = sitesQuery.isError || accessQuery.isError ||
     (canViewFinancialOverview && (financialOverviewQuery.isError || financialKpiError || todayKpiError || monthKpiError)) ||
     (selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError);
   const dashboardDataFailures: string[] = [];
   if (sitesQuery.isError) dashboardDataFailures.push(`الفروع: ${sitesQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (accessQuery.isError) dashboardDataFailures.push(`صلاحيات الفرع: ${accessQuery.error?.message ?? "تعذر تحديد السبب"}`);
-  if (dashboardRevisionQuery.isError) dashboardDataFailures.push("تعذر التحقق من حداثة مؤشرات لوحة التحكم؛ قد تكون بعض القيم المحفوظة قديمة.");
   if (canViewFinancialOverview && financialOverviewQuery.isError) dashboardDataFailures.push(`الملخص المالي: ${financialOverviewQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (canViewFinancialOverview && expensesKpiQuery.isError) dashboardDataFailures.push(`المصروفات: ${expensesKpiQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (canViewFinancialOverview && netCashKpiQuery.isError) dashboardDataFailures.push(`صافي النقد: ${netCashKpiQuery.error?.message ?? "تعذر تحديد السبب"}`);
