@@ -55,8 +55,8 @@ describe("payment-documentation offline cache and HR privacy contracts", () => {
     expect(queryPolicy).toContain('"offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"');
     expect(hrScope).toContain("لا تُخزّن استجابات الموارد البشرية الخام");
     expect(hrScope).toContain("hr_sync_version");
-    expect(hrScope).toContain("hr_employee_advances");
-    expect(hrScope).toContain("hr_payroll_runs");
+    expect(hrScope).toContain("offlineEmployeeAdvances");
+    expect(hrScope).toContain("offlinePayrollRuns");
     expect(hrScope).toContain("أصبح Delta-backed");
     expect(hrScope).toContain("ما زال كاشًا محدودًا غير Delta");
     expect(queryPolicy).toContain('"hr_employee_advances"');
