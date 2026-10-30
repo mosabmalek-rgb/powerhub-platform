@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
 import { Button } from "@/components/ui/button";
@@ -132,10 +133,10 @@ export default function InventoryMaintenancePanel({
     return () => { current = false; };
   }, [auth.user?.id, siteId, canViewMaintenanceReport, reportFromDate, reportToDate, reportGeneratorId]);
   useEffect(() => {
-    if (!maintenanceReportCacheInput || !canViewMaintenanceReport || !maintenanceReport.isSuccess ||
-        !maintenanceReport.isFetchedAfterMount || !Array.isArray(maintenanceReport.data)) return;
+    if (!maintenanceReportCacheInput || !canViewMaintenanceReport ||
+        !hasAuthoritativeServerRead(maintenanceReport) || !Array.isArray(maintenanceReport.data)) return;
     void saveOperationalReportSnapshot({ ...maintenanceReportCacheInput, rows: maintenanceReport.data }).catch(() => undefined);
-  }, [auth.user?.id, siteId, canViewMaintenanceReport, maintenanceReport.isSuccess, maintenanceReport.isFetchedAfterMount, maintenanceReport.data, reportFromDate, reportToDate, reportGeneratorId]);
+  }, [auth.user?.id, siteId, canViewMaintenanceReport, maintenanceReport.isSuccess, maintenanceReport.isError, maintenanceReport.isFetching, maintenanceReport.isFetchedAfterMount, maintenanceReport.isPlaceholderData, maintenanceReport.data, reportFromDate, reportToDate, reportGeneratorId]);
   const reportBranding = trpc.powerhub.reportBranding.get.useQuery(
     { siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport), staleTime: 60_000 },
   );
