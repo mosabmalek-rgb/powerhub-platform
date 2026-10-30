@@ -73,6 +73,8 @@ describe("offline data and financial truth boundaries", () => {
     expect(workspace).toContain("supplierLedgerIsAuthoritative");
     expect(workspace).toContain("supplierLedgerRequiresRevalidation");
     expect(workspace).toContain('"غير مؤكد"');
+    expect(workspace).toContain("supplierLedgerRequiresRevalidation ? (supplierLedgerIsOfflineSnapshot");
+    expect(workspace).toContain("supplierLedgerIsAuthoritative && supplierLedger.data && supplierLedger.data.entry_count > supplierLedger.data.entries.length");
   });
 
   it("requires current server data before supplier posting, receipt, return, or settlement", () => {
