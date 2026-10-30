@@ -476,9 +476,12 @@ export default function InventoryFuelConsumptionPanel({
   const usingRecentOfflineReadings = !hasFilteredReadingQuery &&
     !readingsAuthorizationDenied && !recentReadingsAuthorizationDenied &&
     readings.data === undefined && recentReadings.data !== undefined;
-  const reportRows = (reportAuthorizationDenied ? [] : report.data ?? cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];
-  const usingCachedFuelReport = !reportAuthorizationDenied && report.data === undefined && cachedFuelReportForCurrentScope !== null;
-  const hasAvailableFuelReport = !reportAuthorizationDenied && (report.data !== undefined || cachedFuelReportForCurrentScope !== null);
+  const reportIsAuthoritative = !reportAuthorizationDenied && hasAuthoritativeServerRead(report);
+  const reportRows = (reportAuthorizationDenied ? [] : reportIsAuthoritative
+    ? report.data ?? []
+    : cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];
+  const usingCachedFuelReport = !reportAuthorizationDenied && !reportIsAuthoritative && cachedFuelReportForCurrentScope !== null;
+  const hasAvailableFuelReport = !reportAuthorizationDenied && (reportIsAuthoritative || cachedFuelReportForCurrentScope !== null);
   const alertSettingRows = (alertSettingsAuthorizationDenied ? [] : alertSettings.data ?? []) as FuelAlertSetting[];
   const alertDispatchRows = (alertDispatchesAuthorizationDenied ? [] : alertDispatches.data ?? []) as FuelAlertDispatch[];
   const selectedGenerator = generators.find((row) => row.id === Number(activeGeneratorId));
@@ -746,7 +749,7 @@ export default function InventoryFuelConsumptionPanel({
           </div>
           {reportPeriodType === "cycle" ? <p className="text-xs text-muted-foreground">يستخدم التقرير تعريف دورة القراءات والمنطقة الزمنية المحفوظين للفرع، بما في ذلك الدورات الأسبوعية و10 أيام و15 يومًا والشهرية.</p> : null}
           {usingCachedFuelReport ? <p role="status" className="text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {dateTime(new Date(cachedFuelReportForCurrentScope!.savedAt).toISOString())}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
-          {reportAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية احتساب تقرير الوقود؛ أُخفيت أي نسخة محلية لهذا الطلب.</p> : report.isLoading && !hasAvailableFuelReport ? <p className="text-sm text-muted-foreground">جارٍ احتساب التقرير…</p> : report.error && !hasAvailableFuelReport ? <p role="alert" className="text-sm text-destructive">تعذر احتساب التقرير. تحقق من إعدادات الدورة والصلاحيات.</p> : report.error && hasAvailableFuelReport && !usingCachedFuelReport ? <p role="status" className="text-xs text-amber-700">تعذر تحديث التقرير؛ تُعرض آخر نتيجة ناجحة متاحة في الجلسة.</p> : null}
+          {reportAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية احتساب تقرير الوقود؛ أُخفيت أي نسخة محلية لهذا الطلب.</p> : (report.isLoading || report.isFetching) && !hasAvailableFuelReport ? <p className="text-sm text-muted-foreground">جارٍ احتساب التقرير…</p> : report.error && !hasAvailableFuelReport ? <p role="alert" className="text-sm text-destructive">تعذر احتساب التقرير. تحقق من إعدادات الدورة والصلاحيات.</p> : report.error && hasAvailableFuelReport && !usingCachedFuelReport ? <p role="status" className="text-xs text-amber-700">تعذر تحديث التقرير؛ تُعرض آخر نتيجة ناجحة متاحة في الجلسة.</p> : null}
         </div> : null}
         {canViewInventoryReports ? <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
