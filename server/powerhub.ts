@@ -3710,6 +3710,130 @@ export const powerhubRouter = router({
       const revision = createHash("sha256").update(JSON.stringify(revisions)).digest("hex");
       return { revision, revisions, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
     }),
+    activeSubscribersKpi: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+    })).query(async ({ ctx, input }) => {
+      let tenantId: number;
+      let siteIds: number[];
+      if (input.scope === "branch") {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        siteIds = [input.siteId];
+      } else {
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id")
+          .eq("tenant_id", tenantId)
+          .neq("status", "archived");
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد الأفرع لمؤشر المشتركين النشطين." });
+        siteIds = (data ?? []).map((row) => Number(row.id)).filter((id) => Number.isSafeInteger(id) && id > 0);
+      }
+      if (!siteIds.length) return { metric: "activeSubscribers" as const, value: 0, scope: input.scope, siteId: input.siteId };
+      const { count, error } = await supabaseAdmin().from("subscribers")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .in("site_id", siteIds)
+        .eq("service_status", "active");
+      if (error) {
+        console.error("[PowerHub] dashboard.activeSubscribersKpi failed", { code: error.code, message: error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل عدد المشتركين النشطين." });
+      }
+      return { metric: "activeSubscribers" as const, value: count ?? 0, scope: input.scope, siteId: input.siteId };
+    }),
+    // Each period KPI has its own tRPC cache key and small response. Invoice-only
+    // metrics do not read payments, and the collection-only metric does not read invoices.
+    periodKpi: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+      metric: z.enum(["periodInvoiced", "periodCollected", "collectionRate", "periodOverdue"]),
+      startDate: paymentDocumentationDateKeySchema,
+      endDate: paymentDocumentationDateKeySchema,
+    }).refine((input) => input.startDate <= input.endDate, {
+      message: "يجب أن يكون تاريخ بداية الفترة قبل تاريخ نهايتها أو مساوياً لها.",
+    })).query(async ({ ctx, input }) => {
+      let tenantId: number;
+      let siteRows: Array<{ id: number; name: string }>;
+      if (input.scope === "branch") {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .eq("id", input.siteId)
+          .neq("status", "archived")
+          .limit(1);
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الفرع لمؤشر الفترة." });
+        siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
+      } else {
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .neq("status", "archived")
+          .order("created_at", { ascending: true });
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الأفرع لمؤشر الفترة." });
+        siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
+      }
+
+      const siteIds = siteRows.map((site) => site.id);
+      const start = paymentDocumentationGazaDateBoundary(input.startDate);
+      const endExclusive = paymentDocumentationGazaDateBoundary(paymentDocumentationNextDateKey(input.endDate));
+      const needsInvoices = input.metric !== "periodCollected";
+      const needsPayments = input.metric === "periodCollected" || input.metric === "collectionRate";
+      const [invoiceRows, paymentRows] = siteIds.length ? await Promise.all([
+        needsInvoices
+          ? listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive, summaryOnly: true })
+          : Promise.resolve([]),
+        needsPayments
+          ? listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive, summaryOnly: true })
+          : Promise.resolve([]),
+      ]) : [[], []];
+
+      const branchNameById = new Map(siteRows.map((site) => [site.id, site.name]));
+      const invoices = invoiceRows
+        .filter((invoice) => invoice.status !== "cancelled" && invoice.status !== "draft")
+        .map((invoice) => ({
+          id: invoice.id,
+          siteId: invoice.siteId,
+          siteName: branchNameById.get(invoice.siteId) ?? "فرع غير محدد",
+          subscriberId: invoice.subscriberId,
+          subscriberName: "",
+          subscriberNo: "",
+          invoiceNo: invoice.invoiceNo,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          totalAmount: invoice.totalAmount,
+          paidAmount: invoice.paidAmount,
+          balanceDue: invoice.balanceDue,
+          status: invoice.status,
+        }));
+      const metrics = buildDashboardPeriodMetrics({
+        scope: input.scope,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        invoices,
+        payments: paymentRows.map(({ payment }) => ({ status: payment.status, amount: payment.amount })),
+        includeDetails: false,
+      });
+      const value = input.metric === "periodInvoiced"
+        ? metrics.summary.invoiced
+        : input.metric === "periodCollected"
+          ? metrics.summary.collected
+          : input.metric === "collectionRate"
+            ? metrics.summary.collectionRate
+            : metrics.summary.overdue;
+      return {
+        metric: input.metric,
+        value,
+        auxiliaryCount: input.metric === "periodOverdue" ? metrics.summary.overdueSubscriberCount : null,
+        range: metrics.range,
+        scope: metrics.scope,
+        siteId: input.siteId,
+      };
+    }),
     financialOverview: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       scope: z.enum(["branch", "all"]).default("branch"),
