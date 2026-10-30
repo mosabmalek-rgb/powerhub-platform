@@ -103,9 +103,10 @@ describe("offline query cache policy", () => {
     expect(safe.offlineSnapshot).toBe(true);
     expect(safe.canViewFinancials).toBe(false);
     expect(safe.purchase).toMatchObject({ id: 33, purchase_number: "PO-33", supplierName: "Supplier", canViewFinancials: false });
-    for (const field of ["supplier_invoice_no", "due_date", "total_amount", "payment_terms_days", "reference_no", "notes", "operation_key", "paidAmount", "outstandingAmount"]) {
+    for (const field of ["supplier_invoice_no", "due_date", "total_amount", "payment_terms_days", "reference_no", "notes", "paidAmount", "outstandingAmount"]) {
       expect(safe.purchase[field]).toBeNull();
     }
+    expect(safe.purchase).not.toHaveProperty("operation_key");
     expect(safe.lines[0]).toMatchObject({ itemName: "Filter", quantity: "10.000", received_quantity: "5.000" });
     for (const field of ["unit_price", "discount_amount", "tax_amount", "line_total", "notes"]) {
       expect(safe.lines[0]).not.toHaveProperty(field);
