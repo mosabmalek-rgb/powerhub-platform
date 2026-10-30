@@ -91,7 +91,8 @@ function sanitizeCompletedPayload(item: QueuedOfflineWork): QueuedOfflineWork["p
 
 export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { siteId: number; userId: number; compact?: boolean }) {
   const auth = useAuth();
-  const authUserId = Number(auth.user?.id);
+  const rawAuthUserId = Number(auth.user?.id);
+  const authUserId = Number.isSafeInteger(rawAuthUserId) && rawAuthUserId > 0 ? rawAuthUserId : null;
   const identitySnapshot = {
     userId, siteId, authUserId, isLoggingOut: auth.isLoggingOut,
     isOnlineAuthenticated: auth.isOnlineAuthenticated,
