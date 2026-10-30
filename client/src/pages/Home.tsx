@@ -251,7 +251,9 @@ export function WorkspaceHome() {
         ["activeSubscribers", "currentArrears", "expenses", "netCash", "financialOverview"].some((metric) => changed.has(metric))) {
       void financialOverviewQuery.refetch();
     }
-    if (canViewFinancialOverview && changed.has("companyBalances")) {
+    if (changed.has("companyBalances")) {
+      // The company-account list has its own server permission gate and revision;
+      // do not couple its freshness to the financial-overview role gate.
       void companyAccountsQuery.refetch();
     }
     if (canViewFinancialOverview && dashboardPeriod.isReady &&
