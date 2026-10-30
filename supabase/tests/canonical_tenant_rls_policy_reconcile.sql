@@ -7,8 +7,15 @@ DO $roles$ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN dupl
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$ SELECT NULL::uuid $function$;
 CREATE SCHEMA IF NOT EXISTS private;
-CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(bigint) RETURNS boolean LANGUAGE sql STABLE AS $function$ SELECT true $function$;
-CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin() RETURNS boolean LANGUAGE sql STABLE AS $function$ SELECT true $function$;
+CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint) RETURNS boolean LANGUAGE sql STABLE AS $function$
+  SELECT target_tenant_id = nullif(current_setting('test.tenant_id', true), '')::bigint
+$function$;
+CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin() RETURNS boolean LANGUAGE sql STABLE AS $function$
+  SELECT coalesce(nullif(current_setting('test.platform_admin', true), '') = 'true', false)
+$function$;
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$
+  SELECT nullif(current_setting('test.auth_uid', true), '')::uuid
+$function$;
 GRANT USAGE ON SCHEMA private TO authenticated;
 GRANT EXECUTE ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() TO authenticated;
 
@@ -248,6 +255,56 @@ GRANT ALL ON public.tweet_sms_report_snapshots TO anon, authenticated, service_r
 
 \ir ../migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql
 \ir ../migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql
+
+INSERT INTO public.tenants(id) VALUES (1), (2);
+INSERT INTO public.employees(id,tenant_id) VALUES (1,1), (2,2);
+INSERT INTO public.payroll_runs(id,tenant_id) VALUES (1,1), (2,2);
+INSERT INTO public.payroll_items(id,payroll_run_id) VALUES (1,1), (2,2);
+INSERT INTO public.platform_settings(id) VALUES (1), (2);
+INSERT INTO public.users(id,auth_user_id) VALUES
+  (1,'11111111-1111-4111-8111-111111111111'),
+  (2,'22222222-2222-4222-8222-222222222222');
+
+SET ROLE authenticated;
+SET test.tenant_id = '1';
+SET test.auth_uid = '11111111-1111-4111-8111-111111111111';
+SET test.platform_admin = 'false';
+
+DO $behavior$
+BEGIN
+  IF (SELECT count(*) FROM public.employees) <> 1
+     OR (SELECT count(*) FROM public.payroll_items) <> 1
+     OR (SELECT count(*) FROM public.tenants) <> 1
+     OR (SELECT count(*) FROM public.users) <> 1
+     OR (SELECT count(*) FROM public.platform_settings) <> 0 THEN
+    RAISE EXCEPTION 'CANONICAL_RLS_READ_SCOPE_MISMATCH';
+  END IF;
+
+  BEGIN
+    INSERT INTO public.employees(id,tenant_id) VALUES (99,2);
+    RAISE EXCEPTION 'CROSS_TENANT_EMPLOYEE_INSERT_WAS_ALLOWED';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+
+  BEGIN
+    INSERT INTO public.payroll_items(id,payroll_run_id) VALUES (99,2);
+    RAISE EXCEPTION 'CROSS_TENANT_PAYROLL_ITEM_INSERT_WAS_ALLOWED';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END
+$behavior$;
+
+SET test.platform_admin = 'true';
+DO $platform_admin$
+BEGIN
+  IF (SELECT count(*) FROM public.platform_settings) <> 2 THEN
+    RAISE EXCEPTION 'PLATFORM_ADMIN_POLICY_SCOPE_MISMATCH';
+  END IF;
+END
+$platform_admin$;
+RESET ROLE;
 
 DO $assert$
 DECLARE
