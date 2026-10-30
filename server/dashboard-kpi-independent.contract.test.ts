@@ -93,6 +93,9 @@ describe("independent dashboard KPI snapshots", () => {
     expect(home).toContain("isExplicitAuthorizationDenial(accessQuery.error)");
     expect(home).toContain("const sitesAccessDenied = isExplicitAuthorizationDenial(sitesQuery.error)");
     expect(home).toContain("const dashboardScopeDenied = sitesAccessDenied || isExplicitAuthorizationDenial(accessQuery.error)");
+    expect(home).toContain("accessQuery.data?.role === \"owner\" && !dashboardScopeDenied");
+    expect(home).toContain("selectedScope === \"all\" && !dashboardScopeDenied");
+
     expect(home).toContain("const dashboardRevisionDenied = dashboardScopeDenied || isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
     expect(home).toContain("const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
     expect(home).toContain("dashboardRevisionQuery.isError");
