@@ -92,6 +92,13 @@ BEGIN
     IF to_regclass(format('public.%I', v_target.table_name)) IS NULL THEN
       RAISE EXCEPTION 'POWERHUB_CANONICAL_RLS_TABLE_MISSING: %', v_target.table_name;
     END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_class c
+      WHERE c.oid = to_regclass(format('public.%I', v_target.table_name))
+        AND c.relrowsecurity = true
+    ) THEN
+      RAISE EXCEPTION 'POWERHUB_CANONICAL_RLS_DISABLED: %', v_target.table_name;
+    END IF;
 
     -- Drop every policy on the target table, not just the expected legacy name.
     -- This prevents an untracked permissive policy from surviving the reconcile.
