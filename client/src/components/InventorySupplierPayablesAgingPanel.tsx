@@ -3,6 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -80,12 +81,20 @@ export default function InventorySupplierPayablesAgingPanel({
       void clearOfflineSupplierFinancialQueryCacheForSite(String(auth.user.id), siteId);
     }
   }, [authorizationDenied, auth.user?.id, siteId]);
+  const result = query.data as unknown as AgingResult | undefined;
+  const totals = result?.totals;
+  const hasServerValidatedResult = Boolean(
+    result && hasAuthoritativeServerRead(query) &&
+    !authorizationDenied && !result.offlineSnapshot && result.complete !== false,
+  );
+  const isOfflineSnapshot = Boolean(result?.offlineSnapshot);
+  const requiresRevalidation = Boolean(result && !hasServerValidatedResult);
   const branding = trpc.powerhub.reportBranding.get.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger), staleTime: 60_000 },
   );
   const exportExcel = async () => {
-    if (authorizationDenied || !result) { toast.error("لا يمكن تصدير بيانات بعد رفض صلاحية الوصول أو دون تقرير متاح."); return; }
+    if (!hasServerValidatedResult || authorizationDenied || !result) { toast.error("تصدير أعمار الذمم يتطلب قراءة خادمية ناجحة ومكتملة لنفس تاريخ الاحتساب؛ اللقطة المحلية للعرض فقط."); return; }
     try {
       const { default: ExcelJS } = await loadExcelJS();
       const workbook = new ExcelJS.Workbook();
@@ -164,10 +173,6 @@ export default function InventorySupplierPayablesAgingPanel({
       root?.remove();
     }
   };
-  const result = query.data as unknown as AgingResult | undefined;
-  const totals = result?.totals;
-  const isOfflineSnapshot = Boolean(result?.offlineSnapshot);
-
   if (!canViewSupplierLedger) return null;
 
   return (
@@ -188,8 +193,8 @@ export default function InventorySupplierPayablesAgingPanel({
             {expanded ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
             {expanded ? "إخفاء التفاصيل" : "عرض التفاصيل"}
           </Button>
-          <Button type="button" variant="outline" disabled={authorizationDenied || !result || query.isFetching} onClick={() => void exportExcel()}><Download className="ml-2 h-4 w-4" />Excel</Button>
-          <Button type="button" variant="outline" disabled={authorizationDenied || !result || query.isFetching} onClick={() => void exportPdf()}><Download className="ml-2 h-4 w-4" />PDF عربي</Button>
+          <Button type="button" variant="outline" disabled={!hasServerValidatedResult || authorizationDenied || !result || query.isFetching} onClick={() => void exportExcel()}><Download className="ml-2 h-4 w-4" />Excel</Button>
+          <Button type="button" variant="outline" disabled={!hasServerValidatedResult || authorizationDenied || !result || query.isFetching} onClick={() => void exportPdf()}><Download className="ml-2 h-4 w-4" />PDF عربي</Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -197,7 +202,7 @@ export default function InventorySupplierPayablesAgingPanel({
           : authorizationDenied ? <div role="alert" className="py-4 text-center text-destructive">رفض الخادم صلاحية عرض ذمم الموردين؛ أُخفيت اللقطة المحلية وحُذفت من كاش هذا الفرع.</div>
           : query.error && !result ? <div className="space-y-3 py-4 text-center"><p className="text-destructive">تعذر تحميل تقرير الذمم. لم نعرض أرقامًا تقديرية.</p><Button type="button" variant="outline" onClick={() => void query.refetch()}>إعادة المحاولة</Button></div>
           : result ? <>
-            {isOfflineSnapshot ? <p role="status" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">هذا التقرير من آخر نسخة محلية محفوظة حتى {result.as_of_date}. الأرصدة والشرائح قد تكون تغيّرت بعد ذلك؛ استخدم الاتصال لتأكيد الذمم قبل أي قرار مالي.</p> : null}
+            {requiresRevalidation ? <p role="status" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{isOfflineSnapshot ? `هذا التقرير من آخر نسخة محلية محفوظة حتى ${result.as_of_date}.` : `هذه آخر نتيجة متاحة حتى ${result.as_of_date} ولم يكتمل التحقق الخادمي الحالي.`} الأرصدة والشرائح ليست حقيقة مالية معتمدة حتى تنجح إعادة القراءة من الخادم؛ التصدير الرسمي معطل.</p> : null}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {[
                 ["غير مستحقة", totals?.not_due],
