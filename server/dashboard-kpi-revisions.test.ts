@@ -18,7 +18,7 @@ describe("dashboard KPI revision dependencies", () => {
     expect(Object.keys(DASHBOARD_KPI_REVISION_DEPENDENCIES)).toEqual([
       "activeSubscribers", "generatorStatus", "periodInvoiced", "periodCollected",
       "collectionRate", "periodOverdue", "expenses", "netCash", "currentArrears",
-      "financialOverview", "companyBalances",
+      "financialTrend", "companyBalances",
     ]);
     expect(DASHBOARD_KPI_REVISION_ENTITIES).toEqual([
       "company_accounts", "company_accounts_all", "expenses", "generators", "invoices",
@@ -37,7 +37,7 @@ describe("dashboard KPI revision dependencies", () => {
     expect(after.collectionRate).not.toBe(before.collectionRate);
     expect(after.periodOverdue).not.toBe(before.periodOverdue);
     expect(after.currentArrears).not.toBe(before.currentArrears);
-    expect(after.financialOverview).not.toBe(before.financialOverview);
+    expect(after.financialTrend).not.toBe(before.financialTrend);
     expect(after.periodCollected).toBe(before.periodCollected);
     expect(after.expenses).toBe(before.expenses);
     expect(after.netCash).toBe(before.netCash);
@@ -52,7 +52,7 @@ describe("dashboard KPI revision dependencies", () => {
       new Date("2026-10-30T12:00:00.000Z"),
     );
     expect(afterAccount.companyBalances).not.toBe(before.companyBalances);
-    expect(afterAccount.financialOverview).toBe(before.financialOverview);
+    expect(afterAccount.financialTrend).toBe(before.financialTrend);
     expect(afterAccount.netCash).toBe(before.netCash);
     expect(afterAccount.expenses).toBe(before.expenses);
   });
@@ -62,7 +62,7 @@ describe("dashboard KPI revision dependencies", () => {
     const after = buildDashboardKpiRevisions(baseRows, new Date("2026-10-30T21:15:01.000Z"));
     expect(after.periodOverdue).not.toBe(before.periodOverdue);
     expect(after.currentArrears).not.toBe(before.currentArrears);
-    expect(after.financialOverview).not.toBe(before.financialOverview);
+    expect(after.financialTrend).not.toBe(before.financialTrend);
     expect(after.periodInvoiced).toBe(before.periodInvoiced);
     expect(after.periodCollected).toBe(before.periodCollected);
   });
