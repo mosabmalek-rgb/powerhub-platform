@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { CreditCard, Loader2, RefreshCw, RotateCcw, Wallet } from "lucide-react";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { toast } from "sonner";
 
 type PayableRow = {
@@ -111,14 +112,19 @@ export default function InventorySupplierPaymentsPanel({
     { enabled: Boolean(siteId && isAuthenticated && canManageSupplierPayments), staleTime: 10_000 },
   );
 
-  const batchOptions = batchOptionsQuery.data as unknown as BatchOptions | undefined;
+  const batchOptionsIsAuthoritative = hasAuthoritativeServerRead(batchOptionsQuery);
+  const accountOptionsIsAuthoritative = hasAuthoritativeServerRead(accountOptionsQuery);
+  const historyIsAuthoritative = hasAuthoritativeServerRead(historyQuery);
+  const batchOptions = batchOptionsIsAuthoritative
+    ? batchOptionsQuery.data as unknown as BatchOptions | undefined
+    : undefined;
   const suppliers = batchOptions?.suppliers ?? [];
   const allRows = batchOptions?.payables?.rows ?? [];
   const selectedRows = useMemo(
     () => allRows.filter((row) => Number(row.supplier_id) === Number(supplierId) && Number(row.outstanding_amount) > 0),
     [allRows, supplierId],
   );
-  const accounts = accountOptionsQuery.data ?? [];
+  const accounts = accountOptionsIsAuthoritative ? accountOptionsQuery.data ?? [] : [];
   const chosenAccount = accounts.find((account) => String(account.id) === companyAccountId);
   const selectedAllocations = useMemo(() => selectedRows.map((row) => {
     const key = `${row.document_type}:${row.document_id}`;
@@ -195,6 +201,7 @@ export default function InventorySupplierPaymentsPanel({
 
   const submitPayment = () => {
     if (!ensureServerWriteAllowed()) return;
+    if (!batchOptionsIsAuthoritative || !accountOptionsIsAuthoritative) { toast.error("يتطلب تسجيل الدفعة إعادة تحقق خادمية حديثة من المستندات وحسابات الشركة."); return; }
     if (!supplierId) { toast.error("اختر المورد أولًا."); return; }
     if (!companyAccountId) { toast.error("اختر حساب الدفع من حسابات الشركة."); return; }
     if (!selectedAllocations.length || totalAmount <= 0) { toast.error("أدخل مبلغًا على فاتورة أو رصيد افتتاحي واحد على الأقل."); return; }
@@ -220,6 +227,7 @@ export default function InventorySupplierPaymentsPanel({
 
   const submitOpeningBalance = () => {
     if (!ensureServerWriteAllowed()) return;
+    if (!batchOptionsIsAuthoritative) { toast.error("يتطلب الرصيد الافتتاحي التحقق من المورد من الخادم أولًا."); return; }
     if (!supplierId) { toast.error("اختر المورد أولًا."); return; }
     const parsed = Number(openingAmount);
     if (!Number.isFinite(parsed) || parsed <= 0 || Math.abs(parsed * 100 - Math.round(parsed * 100)) > 1e-7) {
@@ -236,7 +244,7 @@ export default function InventorySupplierPaymentsPanel({
     });
   };
 
-  const history = historyQuery.data ?? [];
+  const history = historyIsAuthoritative ? historyQuery.data ?? [] : [];
 
   if (!canManageSupplierPayments) {
     return <Card><CardContent className="p-6 text-center text-muted-foreground">لا تملك صلاحية تسجيل دفعات الموردين أو مراجعة سجلها.</CardContent></Card>;
@@ -245,6 +253,7 @@ export default function InventorySupplierPaymentsPanel({
   return (
     <div dir="rtl" className="space-y-4">
       {serverWriteBlocked ? <p role="status" className="rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">عرض اللقطات المحلية ممكن، لكن دفعات الموردين والرصيد الافتتاحي والعكس المالي تتطلب اتصالًا موثوقًا بالخادم.</p> : null}
+      {(!batchOptionsIsAuthoritative || !accountOptionsIsAuthoritative || !historyIsAuthoritative) && !serverWriteBlocked ? <p role="status" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">لا تُعرض أرصدة الموردين أو حسابات الشركة كبيانات حديثة حتى تنجح إعادة القراءة الخادمية. الترحيل المالي متوقف إلى أن تكتمل القراءات المطلوبة.</p> : null}
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
