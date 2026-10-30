@@ -314,6 +314,23 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
 \ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
 \ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
+\ir ../migrations/20261030150000_powerhub_inventory_trigger_acl_hardening.sql
+
+do $inventory_trigger_acl_assertions$
+begin
+  if has_function_privilege('anon','public.powerhub_inventory_validate_location_item()','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_inventory_validate_location_item()','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_inventory_validate_location_item()','EXECUTE')
+  then raise exception 'INVENTORY_LOCATION_TRIGGER_FUNCTION_ACL_FAILED'; end if;
+  if not exists (
+    select 1 from pg_trigger t
+    where t.tgrelid='public.inventory_stock_movements'::regclass
+      and t.tgname='inventory_stock_movements_location_item_guard'
+      and not t.tgisinternal
+      and t.tgfoid='public.powerhub_inventory_validate_location_item()'::regprocedure
+  ) then raise exception 'INVENTORY_LOCATION_TRIGGER_DETACHED'; end if;
+end
+$inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022160000_powerhub_inventory_item_units.sql
 \ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql
 \ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql
