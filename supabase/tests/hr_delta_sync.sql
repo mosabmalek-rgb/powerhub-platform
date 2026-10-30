@@ -46,9 +46,9 @@ create table public.payroll_adjustment_allocations(
 );
 create schema private;
 create function private.powerhub_has_tenant_access(bigint) returns boolean
-language sql stable security definer set search_path=pg_catalog,public,private as $ select false $;
+language sql stable security definer set search_path=pg_catalog,public,private as $body$ select false $body$;
 create function private.powerhub_is_platform_admin() returns boolean
-language sql stable security definer set search_path=pg_catalog,public,private as $ select false $;
+language sql stable security definer set search_path=pg_catalog,public,private as $body$ select false $body$;
 insert into public.tenants values(10),(20);
 insert into public.sites values(100,10),(200,10),(300,20);
 \ir ../migrations/20261029150000_powerhub_hr_delta_sync.sql
