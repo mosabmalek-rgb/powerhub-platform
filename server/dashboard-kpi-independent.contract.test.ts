@@ -25,6 +25,12 @@ describe("independent dashboard KPI snapshots", () => {
     expect(procedure).toContain("tenantId, siteIds, start, endExclusive");
     expect(procedure).toContain("includeDetails: false");
     expect(procedure).toContain("auxiliaryCount");
+    const financial = router.slice(router.indexOf("financialKpi: protectedProcedure"), router.indexOf("financialOverview: protectedProcedure", router.indexOf("financialKpi: protectedProcedure")));
+    expect(financial).toContain('metric: z.enum(["expenses", "netCash", "currentArrears"])');
+    expect(financial).toContain('input.metric === "netCash"');
+    expect(financial).toContain('input.metric === "currentArrears"');
+    expect(financial).toContain('.eq("tenant_id", tenantId)');
+    expect(financial).toContain('.in("site_id", siteIds)');
   });
 
   it("gives active subscribers a standalone tenant/site-authorized count query", () => {
