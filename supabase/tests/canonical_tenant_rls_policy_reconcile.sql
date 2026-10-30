@@ -27,6 +27,7 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $
       AND account_status='active'
   )
 $function$;
+REVOKE ALL ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() FROM PUBLIC, anon;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$
   SELECT nullif(current_setting('test.auth_uid', true), '')::uuid
 $function$;
