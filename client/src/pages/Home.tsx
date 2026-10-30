@@ -210,7 +210,11 @@ export function WorkspaceHome() {
   const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
     : !canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
-  const periodKpiNumber = (query: typeof periodInvoicedKpiQuery, fractionDigits = 2) =>
+  const periodKpiNumber = (query: {
+    data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
+    isError: boolean;
+    isLoading: boolean;
+  }, fractionDigits = 2) =>
     !canViewFinancialOverview || dashboardPeriod.isError || (query.isError && !query.data)
       ? "—"
       : dashboardPeriod.isLoading || !dashboardPeriod.isReady || query.isLoading || !query.data ||
@@ -218,7 +222,11 @@ export function WorkspaceHome() {
         query.data.range.endDate !== dashboardPeriod.endDate ||
         query.data.scope !== selectedScope
         ? "…" : number(query.data.value, fractionDigits);
-  const periodKpiRatio = (query: typeof collectionRateKpiQuery) =>
+  const periodKpiRatio = (query: {
+    data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
+    isError: boolean;
+    isLoading: boolean;
+  }) =>
     !canViewFinancialOverview || dashboardPeriod.isError || (query.isError && !query.data)
       ? "—"
       : dashboardPeriod.isLoading || !dashboardPeriod.isReady || query.isLoading || !query.data ||
