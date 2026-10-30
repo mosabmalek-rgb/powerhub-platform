@@ -136,7 +136,7 @@ describe("offline query cache policy", () => {
 
   it("accepts only valid exact-filter fuel snapshots and removes sensitive fields", () => {
     const filteredReadings = ["powerhub.inventory.listFuelReadings", {
-      input: { siteId: 7, generatorId: 21, readingType: "tank_level", limit: 100 }, type: "query",
+      input: { siteId: 7, generatorId: 21, limit: 100 }, type: "query",
     }] as const;
     const invalidReadingType = ["powerhub.inventory.listFuelReadings", {
       input: { siteId: 7, generatorId: 21, readingType: "secret", limit: 100 }, type: "query",
