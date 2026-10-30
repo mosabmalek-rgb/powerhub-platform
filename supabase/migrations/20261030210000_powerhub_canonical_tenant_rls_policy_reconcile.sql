@@ -160,6 +160,7 @@ BEGIN
 
     v_policy_name := CASE
       WHEN v_target.table_name = 'tenant_members' THEN 'tenant_members_member_read'
+      WHEN v_target.table_name = 'tenant_tweetsms_accounts' THEN 'tenant_tweetsms_tenant_isolation'
       WHEN v_target.table_name = 'platform_sms_fallback_providers' THEN 'platform_sms_fallback_admin_only'
       WHEN v_target.table_name = 'platform_tweetsms_accounts' THEN 'platform_tweetsms_admin_only'
       WHEN v_target.table_name = 'platform_tweetsms_balance_alerts' THEN 'platform_tweetsms_alert_admin_only'
