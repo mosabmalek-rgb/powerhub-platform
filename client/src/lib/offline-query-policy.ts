@@ -99,18 +99,22 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
   if (procedure === "dashboard.summary" || procedure === "dashboard.allBranchesSummary") {
     return Object.keys(input).length === 1;
   }
-  if (input.scope !== "branch" && input.scope !== "all" || input.includeDetails !== false) return false;
-  if (procedure === "dashboard.activeSubscribersKpi") return Object.keys(input).length === 2;
-  if (procedure === "dashboard.financialOverview") return Object.keys(input).length === 3;
-
-  if (Object.keys(input).length !== (procedure === "dashboard.periodKpi" ? 5 : 5) ||
-      !isValidOfflineDate(input.startDate) ||
-      !isValidOfflineDate(input.endDate) ||
-      String(input.startDate) > String(input.endDate)) return false;
+  const validScope = input.scope === "branch" || input.scope === "all";
+  if (procedure === "dashboard.activeSubscribersKpi") {
+    return validScope && Object.keys(input).length === 2;
+  }
+  if (procedure === "dashboard.financialOverview") {
+    return validScope && input.includeDetails === false && Object.keys(input).length === 3;
+  }
+  const datesAreValid = isValidOfflineDate(input.startDate) &&
+    isValidOfflineDate(input.endDate) &&
+    String(input.startDate) <= String(input.endDate);
+  if (!validScope || !datesAreValid || Object.keys(input).length !== 5) return false;
   if (procedure === "dashboard.periodKpi") {
     return ["periodInvoiced", "periodCollected", "collectionRate", "periodOverdue"].includes(String(input.metric));
   }
-  return true;
+  // Legacy aggregate period snapshot remains available to old clients only.
+  return input.includeDetails === false;
 }
 
 const OPERATIONAL_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
