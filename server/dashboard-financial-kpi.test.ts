@@ -6,7 +6,7 @@ describe("buildDashboardFinancialKpi", () => {
     expect(buildDashboardFinancialKpi({
       metric: "expenses",
       expenses: [{ amount: "0.10" }, { amount: "0.20" }],
-    })).toMatchObject({ metric: "expenses", expenses: 0.3, collected: 0, netCash: -0.3 });
+    })).toEqual({ metric: "expenses", expenses: 0.3 });
   });
 
   it("calculates monthly net cash using only completed collections and expenses", () => {
