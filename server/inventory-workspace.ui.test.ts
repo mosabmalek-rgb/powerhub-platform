@@ -755,10 +755,10 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("useDeltaRevisionRefresh");
     expect(panel).toContain("PURCHASE_DETAIL_REVISION_ENTITIES");
     expect(panel).toContain("clearOfflinePurchaseDetailQueryCacheForSite");
-    expect(panel).toContain("!detailsIsOfflineSnapshot && canAdjustInventory");
-    expect(panel).toContain('!detailsIsOfflineSnapshot && ["confirmed", "partially_received"].includes(details.data.purchase.status) && canReceiveInventory');
-    expect(panel).toContain("!detailsIsOfflineSnapshot && canManageSupplierPayments");
-    expect(panel).toContain('!detailsIsOfflineSnapshot && ["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases');
+    expect(panel).toContain("detailsIsAuthoritative && canAdjustInventory");
+    expect(panel).toContain('detailsIsAuthoritative && ["confirmed", "partially_received"].includes(details.data.purchase.status) && canReceiveInventory');
+    expect(panel).toContain("detailsIsAuthoritative && canManageSupplierPayments");
+    expect(panel).toContain('detailsIsAuthoritative && ["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases');
     expect(panel).toContain("detailsAuthorizationDenied");
     for (const entity of ["inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"]) {
       expect(revisions).toContain(entity);
@@ -773,7 +773,8 @@ describe("inventory workspace UI contract", () => {
     const panel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
     const cache = read("client/src/lib/offline-operational-report-cache.ts");
     expect(panel).toContain("loadOperationalReportSnapshot(fuelReportCacheInput");
-    expect(panel).toContain("const hasAvailableFuelReport = !reportAuthorizationDenied && (report.data !== undefined || cachedFuelReportForCurrentScope !== null);");
+    expect(panel).toContain("const hasAvailableFuelReport = !reportAuthorizationDenied && (reportIsAuthoritative || cachedFuelReportForCurrentScope !== null);");
+    expect(panel).toContain("const reportIsAuthoritative = !reportAuthorizationDenied && hasAuthoritativeServerRead(report)");
     expect(panel).toContain("isExplicitAuthorizationDenial(options.error)");
     expect(panel).toContain("isExplicitAuthorizationDenial(report.error)");
     expect(panel).toContain("eventsAuthorizationDenied || recentEventsAuthorizationDenied ? []");
@@ -781,7 +782,7 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("if (eventsChanged && hasFilteredEventQuery) void events.refetch()");
     expect(panel).toContain("clearOfflineFuelQueryCacheForSite");
     expect(panel).toContain("useDeltaRevisionRefresh");
-    expect(panel).toContain("reportAuthorizationDenied ? [] : report.data ?? cachedFuelReportForCurrentScope?.rows ?? []");
+    expect(panel).toContain("reportAuthorizationDenied ? [] : reportIsAuthoritative ? report.data ?? [] : cachedFuelReportForCurrentScope?.rows ?? []");
     expect(panel).toContain("لا توجد لقطة محلية مطابقة لفلاتر التعبئة الحالية");
     expect(panel).toContain("optionsAuthorizationDenied ? <p role=\"alert\"");
     expect(panel).toContain("alertSettingsAuthorizationDenied ? <p role=\"alert\"");
