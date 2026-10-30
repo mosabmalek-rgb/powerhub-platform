@@ -77,10 +77,16 @@ describe("offline sync UI contract", () => {
     expect(syncPanel).toContain('const auth = useAuth();');
     expect(syncPanel).toContain("const rawAuthUserId = Number(auth.user?.id);");
     expect(syncPanel).toContain("Number.isSafeInteger(rawAuthUserId) && rawAuthUserId > 0 ? rawAuthUserId : null");
-    expect(syncPanel).toContain("const syncIdentityRef = useRef({ ...identitySnapshot, generation: 0 });");
-    expect(syncPanel).toContain("current.authUserId !== owner.userId");
-    expect(syncPanel).toContain("current.generation !== owner.generation");
+    expect(syncPanel).toContain("const syncIdentityRef = useRef<OfflineSyncRunIdentity | null>(null);");
+    expect(syncPanel).toContain("advanceOfflineSyncRunIdentity(syncIdentityRef.current, identitySnapshot)");
+    expect(syncPanel).toContain("assertOfflineSyncRunCurrent(owner, syncIdentityRef.current!, requireOnlineAuth)");
     expect(syncPanel).toContain("const operationRunGuards = useRef(new Map<string, () => void>());");
+    expect(syncPanel).toContain("isCurrent: () => isSyncRunCurrent(assertCurrent)");
+    const runIdentity = readFileSync(resolve(process.cwd(), "client/src/lib/offline-sync-run-identity.ts"), "utf8");
+    expect(runIdentity).toContain("current.siteId === owner.siteId");
+    expect(runIdentity).toContain("current.authUserId === owner.userId");
+    expect(runIdentity).toContain("current.isLoggingOut");
+    expect(runIdentity).toContain("current.generation === owner.generation");
     expect(syncPanel).toContain("const runMutation = async <T,>(request: () => Promise<T>): Promise<T> => {");
     expect(syncPanel).toContain("assertCurrentOperation();");
     for (const mutation of [
