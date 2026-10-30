@@ -224,6 +224,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres canonical_tenant_rls_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname canonical_tenant_rls_test --set ON_ERROR_STOP=1 --file supabase/tests/canonical_tenant_rls_policy_reconcile.sql
 
+      - name: Verify chat RLS support access stays within support conversations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres chat_rls_scope_reconcile_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname chat_rls_scope_reconcile_test --set ON_ERROR_STOP=1 --file supabase/tests/chat_rls_scope_reconcile.sql
+
       - name: Verify production idempotency schema is restored without changing existing rows
         env:
           PGPASSWORD: postgres
