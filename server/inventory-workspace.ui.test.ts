@@ -701,6 +701,36 @@ describe("inventory workspace UI contract", () => {
     }
   });
 
+  it("hydrates safe purchase detail offline and keeps final stock/financial writes server-only", () => {
+    const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
+    const policy = read("client/src/lib/offline-query-policy.ts");
+    const cache = read("client/src/lib/offline-query-cache.ts");
+    const revisions = read("server/powerhub.ts");
+    const queue = read("client/src/lib/offline-work-queue.ts");
+
+    expect(policy).toContain("isSafePurchaseDetailSnapshot");
+    expect(cache).toContain("offlineSnapshot: true");
+    expect(cache).toContain("payments: []");
+    expect(cache).toContain("clearOfflinePurchaseDetailQueryCacheForSite");
+    expect(panel).toContain("trpc.powerhub.inventory.getPurchase.useQuery");
+    expect(panel).toContain("detailsIsOfflineSnapshot");
+    expect(panel).toContain("useDeltaRevisionRefresh");
+    expect(panel).toContain("PURCHASE_DETAIL_REVISION_ENTITIES");
+    expect(panel).toContain("clearOfflinePurchaseDetailQueryCacheForSite");
+    expect(panel).toContain("!detailsIsOfflineSnapshot && canAdjustInventory");
+    expect(panel).toContain('!detailsIsOfflineSnapshot && ["confirmed", "partially_received"].includes(details.data.purchase.status) && canReceiveInventory');
+    expect(panel).toContain("!detailsIsOfflineSnapshot && canManageSupplierPayments");
+    expect(panel).toContain('!detailsIsOfflineSnapshot && ["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases');
+    expect(panel).toContain("detailsAuthorizationDenied");
+    for (const entity of ["inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"]) {
+      expect(revisions).toContain(entity);
+    }
+    expect(revisions).toContain("requireDeltaPurchaseDetailRevisionReadAccess");
+    for (const finalAction of ["confirmPurchase", "receivePurchase", "returnToSupplier", "recordSupplierPayment", "reverseSupplierPayment"]) {
+      expect(queue).not.toContain('"'+finalAction+'"');
+    }
+  });
+
   it("preserves an exact-scope fuel report snapshot when live refresh fails", () => {
     const panel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
     const cache = read("client/src/lib/offline-operational-report-cache.ts");

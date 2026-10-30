@@ -1,8 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflinePurchaseDetailQueryCacheForSite } from "@/lib/offline-query-cache";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { CheckCircle2, ClipboardList, Eye, FilePlus2, Loader2, PackageCheck, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -33,6 +38,12 @@ type InventoryPurchasesPanelProps = {
 
 const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground";
 const inputGridClass = "grid gap-1.5 text-sm";
+const PURCHASE_DETAIL_REVISION_ENTITIES = [
+  "inventory_purchase_headers",
+  "inventory_purchase_receipt_headers",
+  "inventory_supplier_return_headers",
+] as const satisfies readonly OperationalDeltaRevisionEntity[];
+
 const accountTypeLabels: Record<string, string> = {
   cash: "نقدي", jawwal_pay: "جوال باي", palpay: "بال باي", bank_of_palestine: "بنك فلسطين", other: "أخرى",
 };
@@ -108,6 +119,7 @@ export default function InventoryPurchasesPanel({
   canAdjustInventory,
   canManageSupplierPayments,
 }: InventoryPurchasesPanelProps) {
+  const auth = useAuth();
   const [search, setSearch] = useState("");
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -196,8 +208,43 @@ export default function InventoryPurchasesPanel({
   );
   const details = trpc.powerhub.inventory.getPurchase.useQuery(
     { siteId, purchaseId: selectedPurchaseId ?? 0 },
-    { enabled: Boolean(siteId && isAuthenticated && canViewPurchases && selectedPurchaseId && !usingOfflineHeaders), staleTime: 10_000 },
+    {
+      // The exact query key is persisted as a minimized read-only snapshot.
+      // Keep it enabled offline so IndexedDB can hydrate the selected document.
+      enabled: Boolean(siteId && isAuthenticated && canViewPurchases && selectedPurchaseId),
+      staleTime: 30_000,
+    },
   );
+  const detailsIsOfflineSnapshot = Boolean(
+    (details.data as (typeof details.data & { offlineSnapshot?: boolean }) | undefined)?.offlineSnapshot,
+  );
+  const detailsAuthorizationDenied = isExplicitAuthorizationDenial(details.error);
+  const canViewPurchaseDetailFinancials = canViewFinancials && !detailsIsOfflineSnapshot;
+
+  const refreshPurchaseDetailsFromDelta = useCallback((changed: OperationalDeltaRevisionEntity[]) => {
+    if (!selectedPurchaseId) return;
+    const purchaseDetailSourceChanged = changed.some((entity) =>
+      entity === "inventory_purchase_headers" ||
+      entity === "inventory_purchase_receipt_headers" ||
+      entity === "inventory_supplier_return_headers",
+    );
+    if (purchaseDetailSourceChanged) void details.refetch();
+  }, [details.refetch, selectedPurchaseId]);
+
+  useDeltaRevisionRefresh({
+    siteId,
+    userId: auth.user?.id,
+    entityTypes: PURCHASE_DETAIL_REVISION_ENTITIES,
+    enabled: Boolean(isAuthenticated && canViewPurchases && selectedPurchaseId),
+    onChange: refreshPurchaseDetailsFromDelta,
+  });
+
+  useEffect(() => {
+    if (!detailsAuthorizationDenied || !auth.user?.id || !selectedPurchaseId) return;
+    void clearOfflinePurchaseDetailQueryCacheForSite(
+      String(auth.user.id), siteId, selectedPurchaseId,
+    );
+  }, [detailsAuthorizationDenied, auth.user?.id, siteId, selectedPurchaseId]);
 
   useEffect(() => {
     const firstSupplier = options.data?.suppliers[0];
@@ -740,7 +787,12 @@ export default function InventoryPurchasesPanel({
         </CardContent>
       </Card>
 
-      {selectedPurchaseId && usingOfflineHeaders && selectedOfflinePurchase ? (
+      {selectedPurchaseId && detailsAuthorizationDenied ? (
+        <p role="alert" className="rounded-md border border-destructive/30 p-3 text-sm text-destructive">
+          رفض الخادم صلاحية الوصول إلى تفاصيل هذه الفاتورة؛ أُخفيت اللقطة المحلية المرتبطة بها.
+        </p>
+      ) : null}
+      {selectedPurchaseId && usingOfflineHeaders && !details.data && selectedOfflinePurchase && !detailsAuthorizationDenied ? (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <div>
@@ -766,7 +818,7 @@ export default function InventoryPurchasesPanel({
           </CardContent>
         </Card>
       ) : null}
-      {selectedPurchaseId && !usingOfflineHeaders ? (
+      {selectedPurchaseId && (details.data !== undefined || !usingOfflineHeaders) && !detailsAuthorizationDenied ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex flex-wrap items-center justify-between gap-2">
@@ -775,6 +827,11 @@ export default function InventoryPurchasesPanel({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {detailsIsOfflineSnapshot ? (
+              <p role="status" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                هذه لقطة تشغيلية محفوظة محليًا للعرض فقط. استُبعدت الأسعار والتكاليف والدفعات والأرصدة والملاحظات ومفاتيح التشغيل. يلزم الاتصال بالخادم للتحقق من الحداثة أو تنفيذ أي اعتماد أو استلام أو مرتجع أو تسوية.
+              </p>
+            ) : null}
             {details.isLoading ? <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin" /></div> : null}
             {details.error ? <p className="text-sm text-destructive">تعذر تحميل التفاصيل: {details.error.message}</p> : null}
             {details.data ? (
@@ -785,11 +842,11 @@ export default function InventoryPurchasesPanel({
                   <div><p className="text-xs text-muted-foreground">المخزن</p><p className="font-semibold">{details.data.purchase.warehouseName}</p></div>
                   <div><p className="text-xs text-muted-foreground">الحالة</p><p className="font-semibold">{statusLabels[details.data.purchase.status] ?? details.data.purchase.status}</p></div>
                   <div><p className="text-xs text-muted-foreground">تاريخ الفاتورة</p><p>{details.data.purchase.invoice_date}</p></div>
-                  {canViewFinancials ? <><div><p className="text-xs text-muted-foreground">الإجمالي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.total_amount)}</p></div><div><p className="text-xs text-muted-foreground">الاستحقاق</p><p>{details.data.purchase.due_date || "—"}</p></div><div><p className="text-xs text-muted-foreground">المرجع</p><p>{details.data.purchase.reference_no || "—"}</p></div><div><p className="text-xs text-muted-foreground">إجمالي المدفوع</p><p className="font-semibold">{formatAmount(details.data.purchase.paidAmount)}</p></div><div><p className="text-xs text-muted-foreground">المتبقي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.outstandingAmount)}</p></div><div><p className="text-xs text-muted-foreground">حالة السداد</p><p className="font-semibold">{Number(details.data.purchase.total_amount) <= 0 ? "لا يوجد مبلغ مستحق" : Number(details.data.purchase.outstandingAmount) <= 0 ? "مسددة بالكامل" : Number(details.data.purchase.paidAmount) > 0 || Number(details.data.purchase.supplierReturnCreditAmount) > 0 ? "مسددة جزئيًا" : "على الحساب — غير مدفوعة"}</p></div></> : null}
+                  {canViewPurchaseDetailFinancials ? <><div><p className="text-xs text-muted-foreground">الإجمالي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.total_amount)}</p></div><div><p className="text-xs text-muted-foreground">الاستحقاق</p><p>{details.data.purchase.due_date || "—"}</p></div><div><p className="text-xs text-muted-foreground">المرجع</p><p>{details.data.purchase.reference_no || "—"}</p></div><div><p className="text-xs text-muted-foreground">إجمالي المدفوع</p><p className="font-semibold">{formatAmount(details.data.purchase.paidAmount)}</p></div><div><p className="text-xs text-muted-foreground">المتبقي</p><p className="text-lg font-bold">{formatAmount(details.data.purchase.outstandingAmount)}</p></div><div><p className="text-xs text-muted-foreground">حالة السداد</p><p className="font-semibold">{Number(details.data.purchase.total_amount) <= 0 ? "لا يوجد مبلغ مستحق" : Number(details.data.purchase.outstandingAmount) <= 0 ? "مسددة بالكامل" : Number(details.data.purchase.paidAmount) > 0 || Number(details.data.purchase.supplierReturnCreditAmount) > 0 ? "مسددة جزئيًا" : "على الحساب — غير مدفوعة"}</p></div></> : null}
                 </div>
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full min-w-[850px] text-right text-sm">
-                    <thead className="bg-muted/60"><tr>{(canViewFinancials ? ["الصنف","الكمية المطلوبة","المستلم","المتبقي","الوحدة","سعر الوحدة","الخصم","الضريبة","الإجمالي"] : ["الصنف","الكمية المطلوبة","المستلم","المتبقي","الوحدة"]).map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
+                    <thead className="bg-muted/60"><tr>{(canViewPurchaseDetailFinancials ? ["الصنف","الكمية المطلوبة","المستلم","المتبقي","الوحدة","سعر الوحدة","الخصم","الضريبة","الإجمالي"] : ["الصنف","الكمية المطلوبة","المستلم","المتبقي","الوحدة"]).map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
                     <tbody>{details.data.lines.map((line) => (
                       <tr key={line.id} className="border-t">
                         <td className="p-3 font-medium">{line.itemName}{line.itemSku ? <div className="text-xs text-muted-foreground">{line.itemSku}</div> : null}</td>
@@ -797,7 +854,7 @@ export default function InventoryPurchasesPanel({
                         <td className="p-3">{Number(line.received_quantity).toLocaleString("ar-PS", { maximumFractionDigits: 3 })}</td>
                         <td className="p-3 font-semibold">{Math.max(0, Number(line.quantity) - Number(line.received_quantity)).toLocaleString("ar-PS", { maximumFractionDigits: 3 })}</td>
                         <td className="p-3">{line.unit}</td>
-                        {canViewFinancials ? <><td className="p-3 whitespace-nowrap">{formatAmount(line.unit_price)}</td><td className="p-3 whitespace-nowrap">{formatAmount(line.discount_amount)}</td><td className="p-3 whitespace-nowrap">{formatAmount(line.tax_amount)}</td><td className="p-3 whitespace-nowrap font-semibold">{formatAmount(line.line_total)}</td></> : null}
+                        {canViewPurchaseDetailFinancials ? <><td className="p-3 whitespace-nowrap">{formatAmount(line.unit_price)}</td><td className="p-3 whitespace-nowrap">{formatAmount(line.discount_amount)}</td><td className="p-3 whitespace-nowrap">{formatAmount(line.tax_amount)}</td><td className="p-3 whitespace-nowrap font-semibold">{formatAmount(line.line_total)}</td></> : null}
                       </tr>
                     ))}</tbody>
                   </table>
@@ -808,14 +865,14 @@ export default function InventoryPurchasesPanel({
                     <h4 className="font-semibold">سجل مرتجعات المورد</h4>
                     <div className="overflow-x-auto rounded-md border">
                       <table className="w-full min-w-[760px] text-right text-sm">
-                        <thead className="bg-muted/60"><tr>{["رقم المرتجع","التاريخ","السبب","البنود",...(canViewFinancials ? ["قيمة تخفيض المورد","المسترد نقدًا","رصيد دائن متبقٍ"] : [])].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
+                        <thead className="bg-muted/60"><tr>{["رقم المرتجع","التاريخ","السبب","البنود",...(canViewPurchaseDetailFinancials ? ["قيمة تخفيض المورد","المسترد نقدًا","رصيد دائن متبقٍ"] : [])].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead>
                         <tbody>{details.data.returns.map((supplierReturn) => (
                           <tr key={supplierReturn.id} className="border-t align-top">
                             <td className="p-3 font-medium">{supplierReturn.return_number}</td>
                             <td className="p-3">{supplierReturn.return_date}</td>
-                            <td className="p-3">{supplierReturn.reason}{supplierReturn.notes ? <span className="block text-xs text-muted-foreground">{supplierReturn.notes}</span> : null}</td>
+                            <td className="p-3">{supplierReturn.reason || "—"}</td>
                             <td className="p-3">{supplierReturn.lines.map((line) => <div key={line.id}>{line.itemName}: {Number(line.quantity).toLocaleString("ar-PS", { maximumFractionDigits: 3 })} {line.unit}</div>)}</td>
-                            {canViewFinancials ? <><td className="p-3 whitespace-nowrap">{formatAmount(supplierReturn.total_credit_amount)}</td><td className="p-3 whitespace-nowrap">{formatAmount(supplierReturn.refund_amount)}</td><td className="p-3 whitespace-nowrap">{formatAmount(Number(supplierReturn.total_credit_amount ?? 0) - Number(supplierReturn.refund_amount ?? 0))}</td></> : null}
+                            {canViewPurchaseDetailFinancials ? <><td className="p-3 whitespace-nowrap">{formatAmount(supplierReturn.total_credit_amount)}</td><td className="p-3 whitespace-nowrap">{formatAmount(supplierReturn.refund_amount)}</td><td className="p-3 whitespace-nowrap">{formatAmount(Number(supplierReturn.total_credit_amount ?? 0) - Number(supplierReturn.refund_amount ?? 0))}</td></> : null}
                           </tr>
                         ))}</tbody>
                       </table>
@@ -823,7 +880,7 @@ export default function InventoryPurchasesPanel({
                   </div>
                 ) : null}
 
-                {canAdjustInventory && ["partially_received", "received"].includes(details.data.purchase.status) ? (
+                {!detailsIsOfflineSnapshot && canAdjustInventory && ["partially_received", "received"].includes(details.data.purchase.status) ? (
                   <form onSubmit={onReturnSubmit} className="space-y-3 rounded-md border border-dashed p-3">
                     <div className="flex items-center gap-2 font-semibold"><RotateCcw className="h-5 w-5" /> مرتجع إلى المورد</div>
                     <p className="text-sm text-muted-foreground">لا يمكن إرجاع أكثر من الكمية المستلمة والمتبقية بعد المرتجعات السابقة، ولا يتجاوز المرتجع المخزون الفعلي. تخفيض استحقاق المورد يُسجل مستقلًا عن المبلغ النقدي الذي يرده فعليًا.</p>
@@ -837,7 +894,7 @@ export default function InventoryPurchasesPanel({
                       <label className={inputGridClass + " sm:col-span-2"}>ملاحظات إضافية
                         <Input value={returnNotes} onChange={(event) => setReturnNotes(event.target.value)} maxLength={2000} />
                       </label>
-                      {canManageSupplierPayments ? <>
+                      {!detailsIsOfflineSnapshot && canManageSupplierPayments ? <>
                         <label className={inputGridClass}>المبلغ الذي استردته الشركة نقدًا (₪)
                           <Input type="number" min="0" step="0.01" value={returnRefundAmount} onChange={(event) => setReturnRefundAmount(event.target.value)} required />
                         </label>
@@ -896,7 +953,7 @@ export default function InventoryPurchasesPanel({
                           <td className="p-3">{payment.reference_no || "—"}</td>
                           <td className="p-3 font-semibold">{formatAmount(payment.allocated_amount)}</td>
                           <td className="p-3">{payment.status === "reversed" ? <span className="text-muted-foreground">معكوسة{payment.reversal_reason ? <span className="block text-xs">{payment.reversal_reason}</span> : null}</span> : "مسجلة"}</td>
-                          {canManageSupplierPayments ? <td className="p-3">{payment.status === "posted" ? <div className="flex min-w-56 flex-col gap-2">
+                          {!detailsIsOfflineSnapshot && canManageSupplierPayments ? <td className="p-3">{payment.status === "posted" ? <div className="flex min-w-56 flex-col gap-2">
                             <Input value={paymentReversalReasons[payment.id] ?? ""} onChange={(event) => setPaymentReversalReasons((current) => ({ ...current, [payment.id]: event.target.value }))} maxLength={500} placeholder="سبب عكس الدفعة" aria-label="سبب عكس الدفعة" />
                             <Button type="button" size="sm" variant="outline" disabled={serverWriteBlocked || reverseSupplierPayment.isPending || (paymentReversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => { if (ensureServerWriteAllowed()) reverseSupplierPayment.mutate({ siteId, paymentId: payment.id, reason: (paymentReversalReasons[payment.id] ?? "").trim() }); }}>عكس الدفعة</Button>
                           </div> : "—"}</td> : null}
@@ -906,7 +963,7 @@ export default function InventoryPurchasesPanel({
                   </div>
                 ) : null}
 
-                {canManageSupplierPayments
+                {!detailsIsOfflineSnapshot && canManageSupplierPayments
                   && ["confirmed", "partially_received", "received"].includes(details.data.purchase.status)
                   && Number(details.data.purchase.outstandingAmount ?? 0) > 0 ? (
                   <form onSubmit={onSupplierPaymentSubmit} className="space-y-3 rounded-md border border-dashed p-3">
@@ -950,7 +1007,7 @@ export default function InventoryPurchasesPanel({
                   </form>
                 ) : null}
 
-                {["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases ? (
+                {!detailsIsOfflineSnapshot && ["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases ? (
                   <form onSubmit={(event) => {
                     event.preventDefault();
                     if (!ensureServerWriteAllowed()) return;
@@ -969,7 +1026,7 @@ export default function InventoryPurchasesPanel({
                   </form>
                 ) : null}
 
-                {details.data.purchase.status === "draft" && canApprovePurchases ? (
+                {!detailsIsOfflineSnapshot && details.data.purchase.status === "draft" && canApprovePurchases ? (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed p-3">
                     <div><p className="font-semibold">اعتماد الفاتورة</p><p className="text-sm text-muted-foreground">يسجل الاعتماد استحقاق المورد. لا تتغير كميات المخزون حتى تسجيل الاستلام.</p></div>
                     <Button type="button" disabled={serverWriteBlocked || confirmPurchase.isPending} onClick={() => { if (ensureServerWriteAllowed()) confirmPurchase.mutate({ siteId, purchaseId: selectedPurchaseId }); }}>
@@ -978,7 +1035,7 @@ export default function InventoryPurchasesPanel({
                   </div>
                 ) : null}
 
-                {["confirmed", "partially_received"].includes(details.data.purchase.status) && canReceiveInventory ? (
+                {!detailsIsOfflineSnapshot && ["confirmed", "partially_received"].includes(details.data.purchase.status) && canReceiveInventory ? (
                   <form onSubmit={onReceiveSubmit} className="space-y-3 rounded-md border border-dashed p-3">
                     <div className="flex items-center gap-2 font-semibold"><PackageCheck className="h-5 w-5" /> تسجيل استلام فعلي</div>
                     <p className="text-sm text-muted-foreground">أدخل ما وصل فعليًا الآن فقط. يمكن استلام الفاتورة على دفعات؛ النظام يمنع تجاوز الكمية المطلوبة.</p>
