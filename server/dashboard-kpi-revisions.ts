@@ -27,11 +27,19 @@ export const DASHBOARD_KPI_REVISION_ENTITIES = Array.from(
   new Set(Object.values(DASHBOARD_KPI_REVISION_DEPENDENCIES).flat()),
 ).sort();
 
-const DATE_DEPENDENT_KPIS = new Set<DashboardKpiRevisionKey>([
+const MINUTE_DEPENDENT_KPIS = new Set<DashboardKpiRevisionKey>([
   "periodOverdue",
   "currentArrears",
   "financialOverview",
 ]);
+const MONTH_DEPENDENT_KPIS = new Set<DashboardKpiRevisionKey>([
+  "expenses",
+  "netCash",
+]);
+
+export function dashboardKpiUtcMonthKey(now: Date): string {
+  return dashboardKpiUtcDateKey(now).slice(0, 7);
+}
 
 export function dashboardKpiUtcDateKey(now: Date): string {
   if (!Number.isFinite(now.getTime())) throw new Error("Dashboard KPI clock is invalid.");
@@ -42,7 +50,8 @@ export function buildDashboardKpiRevisions(
   rows: readonly DashboardKpiRevisionRow[],
   now = new Date(),
 ): Record<DashboardKpiRevisionKey, string> {
-  const dateKey = dashboardKpiUtcDateKey(now);
+  const minuteKey = now.toISOString().slice(0, 16);
+  const monthKey = dashboardKpiUtcMonthKey(now);
   const revisions = {} as Record<DashboardKpiRevisionKey, string>;
 
   for (const metric of Object.keys(DASHBOARD_KPI_REVISION_DEPENDENCIES) as DashboardKpiRevisionKey[]) {
@@ -52,7 +61,11 @@ export function buildDashboardKpiRevisions(
       .map((row) => `${String(row.site_id)}:${row.entity_type}:${String(row.last_cursor ?? "0")}`)
       .sort()
       .join("|");
-    const timeBucket = DATE_DEPENDENT_KPIS.has(metric) ? `date:${dateKey}` : "";
+    const timeBucket = MINUTE_DEPENDENT_KPIS.has(metric)
+      ? `minute:${minuteKey}`
+      : MONTH_DEPENDENT_KPIS.has(metric)
+        ? `month:${monthKey}`
+        : "";
     revisions[metric] = createHash("sha256")
       .update(`${metric}:${journal || "0"}:${timeBucket}`)
       .digest("hex");
