@@ -79,4 +79,22 @@ describe("independent dashboard KPI snapshots", () => {
     expect(home).toContain("currentArrearsKpiQuery.refetch()");
     expect(home).not.toContain('changed.has("financialOverview")');
   });
+
+  it("keeps daily/monthly KPI refresh independent from the selected period filter", () => {
+    expect(home).toContain("const periodKpiBaseEnabled =");
+    expect(home).toContain("const periodKpiEnabled = periodKpiBaseEnabled && dashboardPeriod.isReady");
+    expect(home).toContain("enabled: periodKpiBaseEnabled");
+    expect(home).toContain("todayInvoicedKpiQuery.refetch()");
+    expect(home).toContain("todayCollectedKpiQuery.refetch()");
+    expect(home).toContain("monthCollectionRateKpiQuery.refetch()");
+  });
+
+  it("hides denied snapshots and purges only the affected dashboard scope", () => {
+    expect(home).toContain("isExplicitAuthorizationDenial(accessQuery.error)");
+    expect(home).toContain("const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
+    expect(home).toContain("isExplicitAuthorizationDenial(query.error)");
+    expect(home).toContain("clearOfflineDashboardSnapshotCacheForSite(String(user.id), siteId, [...denied])");
+    expect(home).toContain("isExplicitAuthorizationDenial(summaryQuery.error)");
+    expect(home).toContain("operationalSummaryDenied");
+  });
 });
