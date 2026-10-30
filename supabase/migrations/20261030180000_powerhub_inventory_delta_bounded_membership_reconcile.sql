@@ -299,8 +299,6 @@ begin
     order by p.site_id
   loop
     perform public.powerhub_refresh_inventory_purchase_header_delta_scope(NEW.tenant_id,v_site.site_id);
-    perform public.powerhub_refresh_inventory_purchase_receipt_header_delta_scope(NEW.tenant_id,v_site.site_id);
-    perform public.powerhub_refresh_inventory_supplier_return_header_delta_scope(NEW.tenant_id,v_site.site_id);
   end loop;
   return NEW;
 end $$;
@@ -338,8 +336,6 @@ set search_path=pg_catalog,public,pg_temp
 as $$
 begin
   perform public.powerhub_refresh_inventory_purchase_header_delta_scope(NEW.tenant_id,NEW.site_id);
-  perform public.powerhub_refresh_inventory_purchase_receipt_header_delta_scope(NEW.tenant_id,NEW.site_id);
-  perform public.powerhub_refresh_inventory_supplier_return_header_delta_scope(NEW.tenant_id,NEW.site_id);
   return NEW;
 end $$;
 alter function public.powerhub_refresh_purchase_headers_after_warehouse_update() owner to postgres;
