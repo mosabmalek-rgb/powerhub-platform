@@ -9,6 +9,7 @@ import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { enqueueOfflineWork, notifyOfflineWorkQueueChanged, type FuelFillDraft } from "@/lib/offline-work-queue";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { clearOfflineFuelQueryCacheForSite } from "@/lib/offline-query-cache";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
@@ -267,9 +268,9 @@ export default function InventoryFuelConsumptionPanel({
     return () => { current = false; };
   }, [auth.user?.id, siteId, canViewInventoryReports, reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId, reportTankId]);
   useEffect(() => {
-    if (!fuelReportCacheInput || !canViewInventoryReports || !report.isSuccess || !report.isFetchedAfterMount || !Array.isArray(report.data)) return;
+    if (!fuelReportCacheInput || !canViewInventoryReports || !hasAuthoritativeServerRead(report) || !Array.isArray(report.data)) return;
     void saveOperationalReportSnapshot({ ...fuelReportCacheInput, rows: report.data }).catch(() => undefined);
-  }, [auth.user?.id, siteId, canViewInventoryReports, report.isSuccess, report.isFetchedAfterMount, report.data, reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId, reportTankId]);
+  }, [auth.user?.id, siteId, canViewInventoryReports, report.isSuccess, report.isError, report.isFetching, report.isFetchedAfterMount, report.isPlaceholderData, report.data, reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId, reportTankId]);
   const alertSettings = trpc.powerhub.inventory.listFuelAlertSettings.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
