@@ -45,6 +45,9 @@ describe("operational Delta revision contract", () => {
     const workOrderGuardEnd = router.indexOf("export const powerhubRouter", workOrderGuardStart);
     const workOrderGuard = router.slice(workOrderGuardStart, workOrderGuardEnd);
     expect(workOrderGuard).not.toContain("viewInventoryReports");
-    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"], "viewInventory")');
+    expect(procedure).toContain('["owner", "manager", "technician", "accountant", "viewer"]');
+    expect(procedure).toContain('"viewInventoryReports"');
+    expect(workOrderGuard).toContain('requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"], "viewInventory")');
+    expect(workOrderGuard).toContain('requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician"], "manageMaintenance")');
   });
 });
