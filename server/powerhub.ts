@@ -3751,6 +3751,7 @@ export const powerhubRouter = router({
       metric: z.enum(["periodInvoiced", "periodCollected", "collectionRate", "periodOverdue"]),
       startDate: paymentDocumentationDateKeySchema,
       endDate: paymentDocumentationDateKeySchema,
+      boundaryMode: z.enum(["gaza", "utc"]).default("gaza"),
     }).refine((input) => input.startDate <= input.endDate, {
       message: "يجب أن يكون تاريخ بداية الفترة قبل تاريخ نهايتها أو مساوياً لها.",
     })).query(async ({ ctx, input }) => {
@@ -3780,8 +3781,13 @@ export const powerhubRouter = router({
       }
 
       const siteIds = siteRows.map((site) => site.id);
-      const start = paymentDocumentationGazaDateBoundary(input.startDate);
-      const endExclusive = paymentDocumentationGazaDateBoundary(paymentDocumentationNextDateKey(input.endDate));
+      const start = input.boundaryMode === "utc"
+        ? new Date(`${input.startDate}T00:00:00.000Z`)
+        : paymentDocumentationGazaDateBoundary(input.startDate);
+      const nextDate = paymentDocumentationNextDateKey(input.endDate);
+      const endExclusive = input.boundaryMode === "utc"
+        ? new Date(`${nextDate}T00:00:00.000Z`)
+        : paymentDocumentationGazaDateBoundary(nextDate);
       const needsInvoices = input.metric !== "periodCollected";
       const needsPayments = input.metric === "periodCollected" || input.metric === "collectionRate";
       const [invoiceRows, paymentRows] = siteIds.length ? await Promise.all([
