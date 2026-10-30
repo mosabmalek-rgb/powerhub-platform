@@ -455,6 +455,12 @@ describe("offline query cache policy", () => {
       expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
     }
     expect(isOfflineCacheableQueryKey(invalidIndependentPeriod)).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.dashboard.periodKpi", {
+      input: { siteId: 7, scope: "branch", metric: "periodInvoiced", startDate: "2026-10-01", endDate: "2026-10-31", boundaryMode: "utc" }, type: "query",
+    }])).toBe(true);
+    expect(isOfflineCacheableQueryKey(["powerhub.dashboard.periodKpi", {
+      input: { siteId: 7, scope: "branch", metric: "periodInvoiced", startDate: "2026-10-01", endDate: "2026-10-31", boundaryMode: "local" }, type: "query",
+    }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.dashboard.activeSubscribersKpi", {
       input: { siteId: 7, scope: "branch", tenantId: 99 }, type: "query",
     }])).toBe(false);
