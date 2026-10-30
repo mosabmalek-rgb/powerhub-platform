@@ -371,19 +371,28 @@ export function WorkspaceHome() {
   const generatorsUnavailable = selectedScope === "all"
     ? operationalSummaryDenied || (allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data)
     : operationalSummaryDenied || (summaryQuery.isError && !summaryQuery.data);
-  const lastDashboardRevision = useRef<{ key: string; revisions: Record<string, string> } | null>(null);
+  const lastDashboardRevisions = useRef<Map<string, Record<string, string>>>(new Map());
 
   useEffect(() => {
     const revisions = dashboardRevisionQuery.data?.revisions;
     if (!siteId || !revisions || typeof revisions !== "object") return;
     const key = [user?.id ?? "unknown", siteId, selectedScope].join(":");
-    const previous = lastDashboardRevision.current;
-    lastDashboardRevision.current = { key, revisions };
-    if (!previous || previous.key !== key) return;
+    const previousRevisions = lastDashboardRevisions.current.get(key);
+    // Keep independent baselines for branch and all-branch scopes. Switching
+    // away from a scope must not discard its last fingerprint; otherwise a
+    // cached KPI can survive a scope round-trip after its server data changed.
+    lastDashboardRevisions.current.delete(key);
+    lastDashboardRevisions.current.set(key, revisions);
+    while (lastDashboardRevisions.current.size > 32) {
+      const oldestKey = lastDashboardRevisions.current.keys().next().value;
+      if (oldestKey === undefined) break;
+      lastDashboardRevisions.current.delete(oldestKey);
+    }
+    if (!previousRevisions) return;
 
     const changed = new Set(Object.keys(revisions).filter((metric) =>
       typeof revisions[metric as keyof typeof revisions] === "string" &&
-      revisions[metric as keyof typeof revisions] !== previous.revisions[metric],
+      revisions[metric as keyof typeof revisions] !== previousRevisions[metric],
     ));
     if (changed.size === 0) return;
 
