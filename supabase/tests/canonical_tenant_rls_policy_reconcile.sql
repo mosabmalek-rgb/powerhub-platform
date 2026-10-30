@@ -309,8 +309,6 @@ RESET ROLE;
 DO $assert$
 DECLARE
   v record;
-  v_count integer;
-  v_roles text;
   v_command text;
   v_expected text;
   v_target constant text[] := ARRAY['access_invitations','collector_sessions','company_account_sites','custom_permission_roles','employee_adjustments','employee_attendance','employees','financial_settlements','invoice_lines','invoices','invoice_share_links','messaging_schedule_runs','mobile_api_sessions','mobile_sync_events','notification_messages','offline_sync_operations','payments','payroll_runs','site_portal_settings','sms_package_requests','staff_profiles','subscribers','subscription_upgrade_requests','tariffs','tenant_branch_settings','tenant_messaging_configurations','tenant_owner_profiles','tenant_subscriptions','tenant_invoice_message_templates','tenant_payment_receipt_message_templates','tenant_tweetsms_accounts','sites','inventory_items','inventory_stock_movements','inventory_warehouses','suppliers','supplier_purchases','supplier_purchase_lines','supplier_payments','supplier_payment_allocations','supplier_ledger_entries','supplier_purchase_receipts','supplier_purchase_receipt_lines','tenant_members','platform_access_invitations','platform_role_policies','platform_settings','platform_sms_fallback_providers','platform_sms_plans','platform_tweetsms_accounts','platform_tweetsms_balance_alerts','payroll_items','payroll_adjustment_allocations','tenants','users'];
@@ -320,16 +318,14 @@ BEGIN
     RAISE EXCEPTION 'CANONICAL_RLS_POLICY_COUNT_MISMATCH';
   END IF;
   FOREACH v_expected IN ARRAY v_target LOOP
-    SELECT p.polroles::text,p.polcmd::text INTO v_roles,v_command
+    SELECT p.polcmd::text INTO v_command
     FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='public' AND c.relname=v_expected;
-    IF v_roles <> ARRAY[(SELECT oid::text FROM pg_roles WHERE rolname='authenticated')]::text[]::text THEN
-      -- pg_policy stores role OIDs; verify semantically below instead of relying on OID text.
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='public' AND c.relname=v_expected AND p.polroles=ARRAY[(SELECT oid FROM pg_roles WHERE rolname='authenticated')]::oid[]
-      ) THEN RAISE EXCEPTION 'CANONICAL_RLS_ROLE_MISMATCH: %',v_expected; END IF;
-    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='public' AND c.relname=v_expected
+        AND p.polroles=ARRAY[(SELECT oid FROM pg_roles WHERE rolname='authenticated')]::oid[]
+    ) THEN RAISE EXCEPTION 'CANONICAL_RLS_ROLE_MISMATCH: %',v_expected; END IF;
     IF v_command NOT IN ('*','r') THEN RAISE EXCEPTION 'CANONICAL_RLS_COMMAND_MISMATCH: %',v_expected; END IF;
   END LOOP;
   FOREACH v_expected IN ARRAY ARRAY['emergency_requests','sms_dispatch_queue','tweet_sms_report_snapshots'] LOOP
