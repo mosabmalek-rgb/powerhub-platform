@@ -359,7 +359,15 @@ export function WorkspaceHome() {
     setLocation(`/subscribers?${params.toString()}#subscriber-arrears`);
   };
   const activeSubscribers = activeSubscribersKpiQuery.data?.value ?? 0;
-  const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
+  const operationalSummaryDenied = selectedScope === "all"
+    ? isExplicitAuthorizationDenial(allBranchesSummaryQuery.error)
+    : isExplicitAuthorizationDenial(summaryQuery.error);
+  const operationalSummary = operationalSummaryDenied
+    ? undefined
+    : selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
+  const generatorsUnavailable = selectedScope === "all"
+    ? operationalSummaryDenied || (allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data)
+    : operationalSummaryDenied || (summaryQuery.isError && !summaryQuery.data);
   const lastDashboardRevision = useRef<{ key: string; revisions: Record<string, string> } | null>(null);
 
   useEffect(() => {
@@ -496,7 +504,7 @@ export function WorkspaceHome() {
 
     <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
 
-    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={!canViewFinancialOverview || (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data : summaryQuery.isError && !summaryQuery.data} loading={(financialOverviewQuery.isLoading && !financialOverviewQuery.data) || (activeSubscribersKpiQuery.isLoading && !activeSubscribersKpiQuery.data) || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading && !allBranchesSummaryQuery.data : summaryQuery.isLoading && !summaryQuery.data)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
+    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={!canViewFinancialOverview || (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)} generatorsUnavailable={generatorsUnavailable} loading={(financialOverviewQuery.isLoading && !financialOverviewQuery.data) || (activeSubscribersKpiQuery.isLoading && !activeSubscribersKpiQuery.data) || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading && !allBranchesSummaryQuery.data : summaryQuery.isLoading && !summaryQuery.data)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {failedQuotaLabels.length > 0 ? <QuotaLoadErrorCard labels={failedQuotaLabels} onRetry={retryFailedQuotaQueries} /> : null}
     {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} packages={smsCreditPackagesQuery.data ?? []} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} onRetryPackageRequest={() => smsPackageRequestQuery.refetch()} onRequestPackage={(packageId, note) => requestSmsPackage.mutate({ siteId: siteId!, packageId, note })} onOpen={() => setLocation("/notifications")} /> : null}
