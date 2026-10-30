@@ -1020,7 +1020,7 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
   it("tracks every protected inventory mutation in the capability-denial tests", () => {
     const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
     const testSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.test.ts"), "utf8");
-    const declarations = [...routerSource.matchAll(/^ {4}([A-Za-z_][A-Za-z0-9_]*): protectedProcedure/gm)];
+    const declarations = [...routerSource.matchAll(/^ {2}([A-Za-z_][A-Za-z0-9_]*): protectedProcedure/gm)];
     const mutationProcedures = declarations.filter((declaration, index) => {
       const end = declarations[index + 1]?.index ?? routerSource.length;
       return routerSource.slice(declaration.index, end).includes(".mutation(");
