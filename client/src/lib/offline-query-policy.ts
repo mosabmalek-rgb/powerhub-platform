@@ -75,6 +75,7 @@ const DASHBOARD_SNAPSHOT_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "dashboard.periodMetrics": new Set(["siteId", "scope", "startDate", "endDate", "includeDetails"]),
   "dashboard.activeSubscribersKpi": new Set(["siteId", "scope"]),
   "dashboard.periodKpi": new Set(["siteId", "scope", "metric", "startDate", "endDate"]),
+  "dashboard.financialKpi": new Set(["siteId", "scope", "metric"]),
 };
 
 function isSafeDashboardRevision(queryKey: readonly unknown[], segments: string[]) {
@@ -105,6 +106,10 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
   }
   if (procedure === "dashboard.financialOverview") {
     return validScope && input.includeDetails === false && Object.keys(input).length === 3;
+  }
+  if (procedure === "dashboard.financialKpi") {
+    return validScope && Object.keys(input).length === 3 &&
+      ["expenses", "netCash", "currentArrears"].includes(String(input.metric));
   }
   const datesAreValid = isValidOfflineDate(input.startDate) &&
     isValidOfflineDate(input.endDate) &&
