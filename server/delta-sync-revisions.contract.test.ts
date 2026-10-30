@@ -44,10 +44,14 @@ describe("operational Delta revision contract", () => {
     const workOrderGuardStart = router.indexOf("async function requireDeltaFuelMaintenanceReadAccess");
     const workOrderGuardEnd = router.indexOf("export const powerhubRouter", workOrderGuardStart);
     const workOrderGuard = router.slice(workOrderGuardStart, workOrderGuardEnd);
-    expect(workOrderGuard).not.toContain("viewInventoryReports");
+    const workOrderDetailGuardStart = workOrderGuard.indexOf("  try {");
+    expect(workOrderDetailGuardStart).toBeGreaterThan(0);
+    const workOrderDetailGuard = workOrderGuard.slice(workOrderDetailGuardStart);
+    expect(workOrderDetailGuard).not.toContain("viewInventoryReports");
+    expect(workOrderDetailGuard).toContain('requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"], "viewInventory")');
+    expect(workOrderDetailGuard).toContain('requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician"], "manageMaintenance")');
     expect(procedure).toContain('["owner", "manager", "technician", "accountant", "viewer"]');
     expect(procedure).toContain('"viewInventoryReports"');
-    expect(workOrderGuard).toContain('requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"], "viewInventory")');
-    expect(workOrderGuard).toContain('requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician"], "manageMaintenance")');
+
   });
 });
