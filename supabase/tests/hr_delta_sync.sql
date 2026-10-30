@@ -193,7 +193,7 @@ begin
    select 1 from pg_policies
    where schemaname='public'
      and tablename in ('employees','employee_attendance','employee_adjustments','payroll_runs','payroll_items','payroll_adjustment_allocations')
-     and not ('authenticated'=any(roles))
+     and roles <> array['authenticated']::name[]
  ) then raise exception 'HR_POLICY_ROLE_NOT_AUTHENTICATED_ONLY'; end if;
 
  if has_sequence_privilege('anon','public.employees_id_seq','USAGE')
