@@ -217,6 +217,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres browser_direct_dml_acl_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname browser_direct_dml_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/browser_direct_dml_acl_reconcile.sql
 
+      - name: Verify canonical tenant RLS policies match production boundaries
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres canonical_tenant_rls_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname canonical_tenant_rls_test --set ON_ERROR_STOP=1 --file supabase/tests/canonical_tenant_rls_policy_reconcile.sql
+
       - name: Verify offline sync core writes remain server-only
         env:
           PGPASSWORD: postgres
