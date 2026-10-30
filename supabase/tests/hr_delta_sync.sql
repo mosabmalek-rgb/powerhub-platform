@@ -161,6 +161,59 @@ begin
  select public.powerhub_pull_hr_sync_delta(10,100,'hr_employee_directory',greatest(0,v_current-1),null,200) into v_delta;
  if v_delta->>'status'<>'reset_required' then raise exception 'HR_RETAINED_CURSOR_DID_NOT_REQUIRE_RESET'; end if;
 end $cursor_reset$;
+do $employee_site_move$
+declare
+ v_employee bigint;
+ v_attendance bigint;
+ v_old_directory_cursor bigint;
+ v_new_directory_cursor bigint;
+ v_old_attendance_cursor bigint;
+ v_old_directory_delta jsonb;
+ v_new_directory_delta jsonb;
+ v_old_attendance_delta jsonb;
+begin
+ -- Seed an in-bound employee and attendance row in the old branch. The future
+ -- created_at/work_date places this fixture above the existing 500/1000 bounds.
+ insert into public.employees(
+   tenant_id,site_id,full_name,job_title,employment_status,contract_type,base_wage,created_at
+ ) values(10,100,'HR site transfer fixture','worker','active','monthly',1000,timestamptz '2100-01-01 00:00:00+00')
+ returning id into v_employee;
+ insert into public.employee_attendance(
+   tenant_id,employee_id,site_id,work_date,regular_hours,overtime_hours,absent_days
+ ) values(10,v_employee,100,date '2100-01-01',8,0,0)
+ returning id into v_attendance;
+
+ select (public.powerhub_get_hr_sync_snapshot(10,100,'hr_employee_directory')->>'snapshot_cursor')::bigint
+   into v_old_directory_cursor;
+ select (public.powerhub_get_hr_sync_snapshot(10,200,'hr_employee_directory')->>'snapshot_cursor')::bigint
+   into v_new_directory_cursor;
+ select (public.powerhub_get_hr_sync_snapshot(10,100,'hr_attendance')->>'snapshot_cursor')::bigint
+   into v_old_attendance_cursor;
+
+ update public.employees set site_id=200 where id=v_employee;
+
+ select public.powerhub_pull_hr_sync_delta(10,100,'hr_employee_directory',v_old_directory_cursor,null,500)
+   into v_old_directory_delta;
+ select public.powerhub_pull_hr_sync_delta(10,200,'hr_employee_directory',v_new_directory_cursor,null,500)
+   into v_new_directory_delta;
+ select public.powerhub_pull_hr_sync_delta(10,100,'hr_attendance',v_old_attendance_cursor,null,500)
+   into v_old_attendance_delta;
+
+ if not exists(
+   select 1 from jsonb_array_elements(v_old_directory_delta->'changes') c
+   where c->>'entity_id'=v_employee::text and c->>'operation'='delete'
+ ) then raise exception 'HR_EMPLOYEE_SITE_MOVE_OLD_SCOPE_TOMBSTONE_FAILED'; end if;
+ if not exists(
+   select 1 from jsonb_array_elements(v_new_directory_delta->'changes') c
+   where c->>'entity_id'=v_employee::text and c->>'operation'='upsert'
+     and c->'row_data'->>'site_id'='200'
+ ) then raise exception 'HR_EMPLOYEE_SITE_MOVE_NEW_SCOPE_UPSERT_FAILED'; end if;
+ if not exists(
+   select 1 from jsonb_array_elements(v_old_attendance_delta->'changes') c
+   where c->>'entity_id'=v_attendance::text and c->>'operation'='delete'
+ ) then raise exception 'HR_EMPLOYEE_SITE_MOVE_ATTENDANCE_TOMBSTONE_FAILED'; end if;
+end $employee_site_move$;
+
 do $access$
 declare v_table text;
 begin
