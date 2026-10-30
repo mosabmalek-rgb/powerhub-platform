@@ -97,7 +97,7 @@ describe("independent dashboard KPI snapshots", () => {
     expect(home).toContain("selectedScope === \"all\" && !dashboardScopeDenied");
 
     expect(home).toContain("const dashboardRevisionDenied = dashboardScopeDenied || isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
-    expect(home).toContain("const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
+    expect(home).not.toContain("const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
     expect(home).toContain("dashboardRevisionQuery.isError");
     expect(home).toContain("تعذر التحقق من حداثة لقطة لوحة التحكم. نعرض آخر مؤشرات محفوظة");
     expect(home).toContain("isExplicitAuthorizationDenial(query.error)");
