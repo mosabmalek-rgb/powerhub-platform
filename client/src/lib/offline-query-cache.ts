@@ -362,6 +362,22 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
         siteId: snapshot.siteId,
       };
     }
+    if (segments[2] === "financialKpi") {
+      if (snapshot.metric === "expenses") return {
+        metric: snapshot.metric, expenses: snapshot.expenses, scope: snapshot.scope, siteId: snapshot.siteId,
+        observedAt: snapshot.observedAt,
+      };
+      if (snapshot.metric === "netCash") return {
+        metric: snapshot.metric, expenses: snapshot.expenses, collected: snapshot.collected,
+        netCash: snapshot.netCash, scope: snapshot.scope, siteId: snapshot.siteId, observedAt: snapshot.observedAt,
+      };
+      if (snapshot.metric === "currentArrears") return {
+        metric: snapshot.metric, outstanding: snapshot.outstanding, overdue: snapshot.overdue,
+        partialInvoices: snapshot.partialInvoices, accountCount: snapshot.accountCount,
+        scope: snapshot.scope, siteId: snapshot.siteId, observedAt: snapshot.observedAt,
+      };
+      return null;
+    }
     return data;
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
