@@ -17,7 +17,7 @@ export const DASHBOARD_KPI_REVISION_DEPENDENCIES = {
   expenses: ["expenses"],
   netCash: ["payments", "expenses"],
   currentArrears: ["invoices", "payments"],
-  financialOverview: ["sites", "subscribers", "invoices", "payments", "expenses"],
+  financialTrend: ["sites", "subscribers", "invoices", "payments", "expenses"],
   companyBalances: ["company_accounts", "company_accounts_all"],
 } as const satisfies Record<string, readonly string[]>;
 
@@ -30,7 +30,7 @@ export const DASHBOARD_KPI_REVISION_ENTITIES = Array.from(
 const MINUTE_DEPENDENT_KPIS = new Set<DashboardKpiRevisionKey>([
   "periodOverdue",
   "currentArrears",
-  "financialOverview",
+  "financialTrend",
 ]);
 const MONTH_DEPENDENT_KPIS = new Set<DashboardKpiRevisionKey>([
   "expenses",
