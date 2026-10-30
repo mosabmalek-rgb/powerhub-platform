@@ -16,6 +16,8 @@ $function$;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$
   SELECT nullif(current_setting('test.auth_uid', true), '')::uuid
 $function$;
+GRANT USAGE ON SCHEMA auth TO authenticated;
+GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
 GRANT USAGE ON SCHEMA private TO authenticated;
 GRANT EXECUTE ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() TO authenticated;
 
