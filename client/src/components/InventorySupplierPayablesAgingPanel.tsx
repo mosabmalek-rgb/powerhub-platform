@@ -142,7 +142,7 @@ export default function InventorySupplierPayablesAgingPanel({
     }
   };
   const exportPdf = async () => {
-    if (authorizationDenied || !result) { toast.error("لا يمكن تصدير بيانات بعد رفض صلاحية الوصول أو دون تقرير متاح."); return; }
+    if (!hasServerValidatedResult || authorizationDenied || !result) { toast.error("تصدير أعمار الذمم يتطلب قراءة خادمية ناجحة ومكتملة لنفس تاريخ الاحتساب؛ اللقطة المحلية للعرض فقط."); return; }
     if (result.rows.length > 5_000) { toast.error("تقرير الذمم يتجاوز 5,000 بند. استخدم Excel أو ضيّق نطاق التقرير."); return; }
     let root: HTMLDivElement | undefined;
     try {
