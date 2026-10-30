@@ -596,16 +596,24 @@ async function requireDeltaPurchaseChildHistoryReadAccess(
 }
 
 const deltaEntityTypeSchema = z.union([
-  z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers", "fuel_readings", "maintenance_preventive_plans", "fuel_events", "maintenance_work_orders", "hr_employee_directory", "hr_attendance"]),
+  z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers", "fuel_readings", "maintenance_preventive_plans", "fuel_events", "maintenance_work_orders", "hr_employee_directory", "hr_attendance", "hr_employee_advances", "hr_payroll_runs"]),
   z.string().regex(/^maintenance_work_order_parts:[1-9][0-9]{0,15}$/),
 ]);
 
 async function requireDeltaHrReadAccess(
-  userId: number, siteId: number, entityType: "hr_employee_directory" | "hr_attendance",
+  userId: number, siteId: number,
+  entityType: "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs",
 ) {
-  return entityType === "hr_employee_directory"
-    ? requireSupabaseSiteRole(userId, siteId, ["owner", "accountant"], "managePayroll")
-    : requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant"], "managePayroll");
+  if (entityType === "hr_employee_directory") {
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "accountant"], "managePayroll");
+  }
+  if (entityType === "hr_attendance") {
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant"], "managePayroll");
+  }
+  if (entityType === "hr_employee_advances") {
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant"], "manageExpenses");
+  }
+  return requireSupabaseSiteRole(userId, siteId, ["owner", "accountant"], "managePayroll");
 }
 
 async function requireDeltaFuelMaintenanceReadAccess(
@@ -726,11 +734,12 @@ export const powerhubRouter = router({
       } as const;
       const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
         : new Set(["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"]).has(input.entityType) ? "viewInventory" : undefined;
-      const isHrDeltaEntity = input.entityType === "hr_employee_directory" || input.entityType === "hr_attendance";
+      const isHrDeltaEntity = input.entityType === "hr_employee_directory" || input.entityType === "hr_attendance" ||
+        input.entityType === "hr_employee_advances" || input.entityType === "hr_payroll_runs";
       const isFuelMaintenanceEntity = input.entityType === "fuel_events" ||
         input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
       const access = isHrDeltaEntity
-        ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance")
+        ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs")
         : isFuelMaintenanceEntity
           ? await requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, input.entityType)
           : input.entityType === "company_accounts_all"
@@ -811,11 +820,12 @@ export const powerhubRouter = router({
       } as const;
       const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
         : ["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined;
-      const isHrDeltaEntity = input.entityType === "hr_employee_directory" || input.entityType === "hr_attendance";
+      const isHrDeltaEntity = input.entityType === "hr_employee_directory" || input.entityType === "hr_attendance" ||
+        input.entityType === "hr_employee_advances" || input.entityType === "hr_payroll_runs";
       const isFuelMaintenanceEntity = input.entityType === "fuel_events" ||
         input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
       const access = isHrDeltaEntity
-        ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance")
+        ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs")
         : isFuelMaintenanceEntity
           ? await requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, input.entityType)
           : input.entityType === "company_accounts_all"
