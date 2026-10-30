@@ -240,6 +240,41 @@ describe("executeReadyOperations", () => {
     expect(committedOperationIds.size).toBe(1);
   });
 
+  it("stops the executor after a late server response crosses an identity boundary", async () => {
+    const first = item("first", 1);
+    const second = item("second", 2);
+    let current = true;
+    let resolveFirst!: (value: { outcome: "applied" }) => void;
+    const pendingFirst = new Promise<{ outcome: "applied" }>((resolve) => { resolveFirst = resolve; });
+    const calls: string[] = [];
+
+    const run = executeReadyOperations({
+      items: [first, second],
+      metadataByOperationId: new Map([
+        [first.clientOperationId, createSyncMetadata(first, 0)],
+        [second.clientOperationId, createSyncMetadata(second, 0)],
+      ]),
+      transport: async (operation) => {
+        calls.push(operation.clientOperationId);
+        return operation.clientOperationId === first.clientOperationId
+          ? pendingFirst
+          : { outcome: "applied" as const };
+      },
+      isCurrent: () => current,
+      now: 100,
+    });
+
+    await Promise.resolve();
+    expect(calls).toEqual(["first"]);
+    current = false;
+    resolveFirst({ outcome: "applied" });
+
+    await expect(run).rejects.toMatchObject({
+      name: "PowerHubOfflineSyncRunSupersededError",
+    });
+    expect(calls).toEqual(["first"]);
+  });
+
   it("maps transport error codes through the central classifier", async () => {
     const a = item("a", 1);
 
