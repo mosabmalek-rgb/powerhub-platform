@@ -445,6 +445,7 @@ begin
       'revoke all privileges on table public.%I from public, anon, authenticated',
       v_table_name
     );
+    execute format('grant all privileges on table public.%I to service_role', v_table_name);
 
     -- Payroll allocations remain service-role-only as in Production. The
     -- application reads the approved/minimized payroll projections via RPC.
