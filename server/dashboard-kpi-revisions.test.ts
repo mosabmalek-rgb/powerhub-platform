@@ -57,15 +57,23 @@ describe("dashboard KPI revision dependencies", () => {
     expect(afterAccount.expenses).toBe(before.expenses);
   });
 
-  it("advances overdue fingerprints at UTC date rollover even without a database write", () => {
-    const before = buildDashboardKpiRevisions(baseRows, new Date("2026-10-30T23:59:59.000Z"));
-    const after = buildDashboardKpiRevisions(baseRows, new Date("2026-10-31T00:00:01.000Z"));
+  it("advances overdue fingerprints as due-date status changes within a day", () => {
+    const before = buildDashboardKpiRevisions(baseRows, new Date("2026-10-30T21:14:59.000Z"));
+    const after = buildDashboardKpiRevisions(baseRows, new Date("2026-10-30T21:15:01.000Z"));
     expect(after.periodOverdue).not.toBe(before.periodOverdue);
     expect(after.currentArrears).not.toBe(before.currentArrears);
     expect(after.financialOverview).not.toBe(before.financialOverview);
     expect(after.periodInvoiced).toBe(before.periodInvoiced);
     expect(after.periodCollected).toBe(before.periodCollected);
-    expect(after.netCash).toBe(before.netCash);
+  });
+
+  it("advances monthly cash and expense fingerprints at UTC month rollover without a new row", () => {
+    const before = buildDashboardKpiRevisions(baseRows, new Date("2026-10-31T23:59:00.000Z"));
+    const after = buildDashboardKpiRevisions(baseRows, new Date("2026-11-01T00:00:00.000Z"));
+    expect(after.expenses).not.toBe(before.expenses);
+    expect(after.netCash).not.toBe(before.netCash);
+    expect(after.periodOverdue).not.toBe(before.periodOverdue);
+    expect(after.currentArrears).not.toBe(before.currentArrears);
   });
 
   it("ignores unrelated journal entities", () => {
