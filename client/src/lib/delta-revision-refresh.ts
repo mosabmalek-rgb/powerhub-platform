@@ -5,7 +5,8 @@ export type OperationalDeltaRevisionEntity =
   | "maintenance_work_orders"
   | "inventory_purchase_headers"
   | "inventory_purchase_receipt_headers"
-  | "inventory_supplier_return_headers";
+  | "inventory_supplier_return_headers"
+  | "supplier_ledger";
 
 export type OperationalDeltaRevisionMap = Readonly<Record<string, string>>;
 

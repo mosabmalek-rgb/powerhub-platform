@@ -31,10 +31,10 @@ describe("operational Delta revision contract", () => {
   });
 
   it("accepts only the seven bounded operational feed names and rejects duplicates", () => {
-    for (const entity of ["fuel_events", "fuel_readings", "maintenance_preventive_plans", "maintenance_work_orders", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"]) {
+    for (const entity of ["fuel_events", "fuel_readings", "maintenance_preventive_plans", "maintenance_work_orders", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers", "supplier_ledger"]) {
       expect(procedure).toContain('"' + entity + '"');
     }
-    expect(procedure).toContain(".min(1).max(7)");
+    expect(procedure).toContain(".min(1).max(8)");
     expect(procedure).toContain("new Set(values).size === values.length");
   });
 
@@ -53,6 +53,20 @@ describe("operational Delta revision contract", () => {
     expect(procedure).toContain('["owner", "manager", "technician", "accountant", "viewer"]');
     expect(procedure).toContain('"viewInventoryReports"');
 
+  });
+
+  it("exposes only an authorized opaque supplier-ledger revision, never a row-level Delta feed", () => {
+    expect(procedure).toContain('"supplier_ledger"');
+    expect(procedure).toContain("requireDeltaSupplierLedgerRevisionReadAccess");
+    const helperStart = router.indexOf("async function requireDeltaSupplierLedgerRevisionReadAccess");
+    const helperEnd = router.indexOf("async function requireDeltaPurchaseChildHistoryReadAccess", helperStart);
+    const helper = router.slice(helperStart, helperEnd);
+    expect(helper).toContain('"viewSupplierLedger"');
+    expect(helper).not.toContain("supabaseAdmin");
+    const genericPullSchema = router.slice(router.indexOf("const deltaEntityTypeSchema"), router.indexOf("async function requireDeltaHrReadAccess"));
+    expect(genericPullSchema).not.toContain('"supplier_ledger"');
+    expect(procedure).not.toContain("row_data");
+    expect(procedure).not.toContain("changes:");
   });
 
   it("exposes purchase, receipt and return revisions without widening Delta row access", () => {

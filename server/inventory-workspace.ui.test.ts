@@ -413,6 +413,33 @@ describe("inventory workspace UI contract", () => {
   
 
 
+  it("wires supplier financial offline snapshots to opaque revisions and explicit permission denial cleanup", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const aging = read("client/src/components/InventorySupplierPayablesAgingPanel.tsx");
+    const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
+    const policy = read("client/src/lib/offline-query-policy.ts");
+    const cache = read("client/src/lib/offline-query-cache.ts");
+    const revisions = read("server/powerhub.ts");
+    const migration = read("supabase/migrations/20261030100000_powerhub_supplier_ledger_revision.sql");
+    expect(workspace).toContain('entityTypes: ["supplier_ledger"]');
+    expect(workspace).toContain("supplierLedgerIsOfflineSnapshot");
+    expect(workspace).toContain("clearOfflineSupplierFinancialQueryCacheForSite");
+    expect(aging).toContain('entityTypes: ["supplier_ledger"]');
+    expect(aging).toContain("isOfflineSnapshot");
+    expect(aging).toContain("clearOfflineSupplierFinancialQueryCacheForSite");
+    expect(dashboard).toContain('entityTypes: ["supplier_ledger"]');
+    expect(dashboard).toContain("payablesAreOfflineSnapshot");
+    expect(policy).toContain("isSafeSupplierLedgerStatementSnapshot");
+    expect(policy).toContain("isSafeSupplierPayablesAgingSnapshot");
+    expect(cache).toContain("OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS");
+    expect(cache).toContain("isOfflineSupplierFinancialQueryKeyForSite");
+    expect(revisions).toContain("requireDeltaSupplierLedgerRevisionReadAccess");
+    expect(migration).toContain("'supplier_ledger'");
+    expect(migration).toContain("supplier_payment_allocations");
+    expect(migration).toContain("supplier_purchase_returns");
+    expect(migration).not.toContain("insert into public.powerhub_sync_changes");
+  });
+
   it("wires standalone supplier payment batching, opening payable balances, aging, history and safe reversal", () => {
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     const payments = read("client/src/components/InventorySupplierPaymentsPanel.tsx");

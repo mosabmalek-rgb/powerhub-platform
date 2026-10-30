@@ -1,6 +1,6 @@
 import type { Query, QueryClient } from "@tanstack/react-query";
 import superjson from "superjson";
-import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey, isSafeFilteredOperationalSnapshot, isSafePurchaseDetailSnapshot } from "./offline-query-policy";
+import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey, isSafeFilteredOperationalSnapshot, isSafePurchaseDetailSnapshot, isSafeSupplierLedgerStatementSnapshot, isSafeSupplierPayablesAgingSnapshot } from "./offline-query-policy";
 import { clearOperationalReportSnapshotsForUser } from "./offline-operational-report-cache";
 export { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey } from "./offline-query-policy";
 
@@ -12,6 +12,7 @@ export const OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER = 200;
 export const OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
 export const OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 let successfulWritesSincePrune = 0;
 let pruneInFlight: Promise<void> | null = null;
 
@@ -473,6 +474,63 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
       return projected;
     });
   }
+  const queryWrapper = queryKey[1];
+  const queryOptions = queryWrapper && typeof queryWrapper === "object" && !Array.isArray(queryWrapper)
+    ? queryWrapper as Record<string, unknown> : null;
+  const queryRawInput = queryOptions && Object.prototype.hasOwnProperty.call(queryOptions, "input")
+    ? queryOptions.input : queryOptions;
+  const queryInput = queryRawInput && typeof queryRawInput === "object" && !Array.isArray(queryRawInput)
+    ? queryRawInput as Record<string, unknown> : null;
+  if (isSafeSupplierLedgerStatementSnapshot(queryKey, segments) &&
+      data && typeof data === "object" && !Array.isArray(data)) {
+    const source = data as Record<string, unknown>;
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    const supplier = isRow(source.supplier) ? source.supplier : {};
+    const entries = Array.isArray(source.entries) ? source.entries.filter(isRow) : [];
+    return {
+      offlineSnapshot: true,
+      supplier: { id: supplier.id, name: supplier.name, supplier_code: supplier.supplier_code ?? null },
+      site_id: Number(queryInput?.siteId),
+      balance: source.balance,
+      entry_count: source.entry_count,
+      entries: entries.slice(0, 200).map((entry) => ({
+        id: entry.id, entry_type: entry.entry_type,
+        debit_amount: entry.debit_amount, credit_amount: entry.credit_amount,
+        purchase_id: entry.purchase_id ?? null,
+        supplier_payment_id: entry.supplier_payment_id ?? null,
+        supplier_return_id: entry.supplier_return_id ?? null,
+        reference_no: entry.reference_no ?? null,
+        description: entry.description, occurred_at: entry.occurred_at, created_at: entry.created_at,
+      })),
+    };
+  }
+  if (isSafeSupplierPayablesAgingSnapshot(queryKey, segments) &&
+      data && typeof data === "object" && !Array.isArray(data)) {
+    const source = data as Record<string, unknown>;
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    if (!isRow(source.totals) || !Array.isArray(source.rows) || source.rows.length > 500) return data;
+    const totals = source.totals;
+    const rows = source.rows.filter(isRow).slice(0, 500).map((row) => ({
+      document_type: row.document_type, document_id: row.document_id,
+      supplier_id: row.supplier_id, supplier_name: row.supplier_name,
+      document_number: row.document_number, document_date: row.document_date,
+      due_date: row.due_date, gross_amount: row.gross_amount,
+      paid_amount: row.paid_amount, credit_amount: row.credit_amount,
+      outstanding_amount: row.outstanding_amount, days_overdue: row.days_overdue,
+      aging_bucket: row.aging_bucket,
+    }));
+    return {
+      offlineSnapshot: true, as_of_date: source.as_of_date ?? queryInput?.asOfDate ?? null,
+      totals: {
+        not_due: totals.not_due, days_1_30: totals.days_1_30, days_31_60: totals.days_31_60,
+        days_61_90: totals.days_61_90, days_91_plus: totals.days_91_plus,
+        total_outstanding: totals.total_outstanding,
+      },
+      rows, cached_row_count: rows.length, complete: rows.length === source.rows.length,
+    };
+  }
   if (isSafePurchaseDetailSnapshot(queryKey, segments) &&
       data && typeof data === "object" && !Array.isArray(data)) {
     const source = data as Record<string, unknown>;
@@ -592,6 +650,15 @@ async function persistOfflineQueryWithPolicy(
 
   const serializedQueryKey = offlineQueryCacheKey(query.queryKey);
   const safeData = sanitizeOfflineQueryData(query.queryKey, query.state.data);
+  if (isSafeSupplierPayablesAgingSnapshot(query.queryKey)) {
+    const rows = safeData && typeof safeData === "object" && !Array.isArray(safeData)
+      ? (safeData as Record<string, unknown>).rows : null;
+    if (!Array.isArray(rows) || rows.length > 500 ||
+        (safeData as Record<string, unknown>).complete !== true) {
+      await deleteQueryCacheKeys([userId + ":" + offlineQueryCacheKey(query.queryKey)]).catch(() => undefined);
+      return;
+    }
+  }
   const serializedData = superjson.stringify(safeData);
   if (new TextEncoder().encode(serializedData).byteLength > OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES) {
     if (requiredForDeltaSync) {
@@ -609,6 +676,8 @@ async function persistOfflineQueryWithPolicy(
   const hrCacheTtl = ["offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "")
     ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
   const isPurchaseDetailSnapshot = isSafePurchaseDetailSnapshot(query.queryKey);
+  const isSupplierFinancialSnapshot = isSafeSupplierLedgerStatementSnapshot(query.queryKey) ||
+    isSafeSupplierPayablesAgingSnapshot(query.queryKey);
   const isExpenseFilterOptions = cacheKeySegments[0] === "powerhub" &&
     cacheKeySegments[1] === "expenses" && cacheKeySegments[2] === "filterAccounts";
   const record: OfflineQueryRecord = {
@@ -620,6 +689,7 @@ async function persistOfflineQueryWithPolicy(
     // Operational snapshots are retained across days; freshness is handled by sync cursors,
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
     expiresAt: isPurchaseDetailSnapshot ? now + 24 * 60 * 60 * 1000
+      : isSupplierFinancialSnapshot ? now + OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS
       : isHrProjection ? now + hrCacheTtl
       : isExpenseFilterOptions ? now + OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS
         : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
@@ -775,6 +845,42 @@ export function isOfflinePurchaseDetailQueryKeyForSite(
 }
 
 /** Purge denied purchase detail snapshots only; the shared Outbox is untouched. */
+export function isOfflineSupplierFinancialQueryKeyForSite(queryKey: readonly unknown[], siteId: number): boolean {
+  if (!Number.isSafeInteger(siteId) || siteId < 1) return false;
+  const first = queryKey[0];
+  const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string" ? first.split(".") : [];
+  if (segments.length !== 3 || segments[0] !== "powerhub" || segments[1] !== "inventory" ||
+      !["supplierLedgerStatement", "supplierPayablesAging"].includes(segments[2] ?? "")) return false;
+  const wrapper = queryKey[1];
+  if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
+  const options = wrapper as Record<string, unknown>;
+  const rawInput = Object.prototype.hasOwnProperty.call(options, "input") ? options.input : options;
+  if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) return false;
+  return Number((rawInput as Record<string, unknown>).siteId) === siteId &&
+    (segments[2] === "supplierLedgerStatement"
+      ? isSafeSupplierLedgerStatementSnapshot(queryKey, segments)
+      : isSafeSupplierPayablesAgingSnapshot(queryKey, segments));
+}
+
+export async function clearOfflineSupplierFinancialQueryCacheForSite(userId: string, siteId: number) {
+  if (!userId || !Number.isSafeInteger(siteId) || siteId < 1) return;
+  try {
+    const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
+    const keys = records.filter((record) => {
+      if (record.userId !== userId) return false;
+      try {
+        return isOfflineSupplierFinancialQueryKeyForSite(
+          superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId,
+        );
+      } catch { return false; }
+    }).map((record) => record.key);
+    await deleteQueryCacheKeys(keys);
+  } catch {
+    // UI must also hide data after explicit authorization denial.
+  }
+}
+
 export async function clearOfflinePurchaseDetailQueryCacheForSite(
   userId: string,
   siteId: number,

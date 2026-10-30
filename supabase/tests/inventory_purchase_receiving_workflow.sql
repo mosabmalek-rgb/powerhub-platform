@@ -331,6 +331,21 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261023130000_powerhub_inventory_phase_d_schema_cache_reload.sql
 \ir ../migrations/20261023183000_powerhub_supplier_types_and_purchase_payment_mode.sql
 
+-- Minimal cursor metadata table for the revision-only supplier-ledger integration.
+create table public.powerhub_sync_scope_state (
+  tenant_id bigint not null, site_id bigint not null,
+  entity_type text not null check (entity_type in ('sites','subscribers','generators','readings','tariffs')),
+  last_cursor bigint not null default 0 check (last_cursor>=0),
+  retained_from_cursor bigint not null default 0 check (retained_from_cursor>=0),
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,site_id,entity_type),
+  check (retained_from_cursor<=last_cursor)
+);
+alter table public.powerhub_sync_scope_state enable row level security;
+revoke all on table public.powerhub_sync_scope_state from public,anon,authenticated;
+grant all on table public.powerhub_sync_scope_state to service_role;
+\ir ../migrations/20261030100000_powerhub_supplier_ledger_revision.sql
+
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
        (20,'DSL-01','Diesel other tenant','fuel','liter',20,1);
@@ -4058,6 +4073,42 @@ begin
   end;
 end;
 $phase_d_financial_details_assertions$;
+
+do $supplier_ledger_revision_assertions$
+declare
+  v_supplier_id bigint; v_entry_id bigint; v_cursor bigint; v_after bigint;
+begin
+  select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='PUR-WF-SUP';
+  if v_supplier_id is null then raise exception 'SUPPLIER_LEDGER_REVISION_FIXTURE_MISSING'; end if;
+  select coalesce(last_cursor,0) into v_cursor from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+
+  insert into public.supplier_ledger_entries(
+    tenant_id,site_id,supplier_id,entry_type,debit_amount,credit_amount,
+    entry_key,reference_no,description,occurred_at,created_by_user_id
+  ) values (10,100,v_supplier_id,'adjustment',1,0,'supplier-ledger-revision:insert-test',
+    'REV-INSERT','Revision cursor insert test',now(),1) returning id into v_entry_id;
+  select last_cursor into v_after from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_after<>coalesce(v_cursor,0)+1 then raise exception 'SUPPLIER_LEDGER_INSERT_REVISION_FAILED'; end if;
+
+  update public.supplier_ledger_entries set debit_amount=2,reference_no='REV-UPDATE'
+  where tenant_id=10 and site_id=100 and id=v_entry_id;
+  select last_cursor into v_cursor from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_cursor<>v_after+1 then raise exception 'SUPPLIER_LEDGER_UPDATE_REVISION_FAILED'; end if;
+
+  delete from public.supplier_ledger_entries where tenant_id=10 and id=v_entry_id;
+  select last_cursor into v_after from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_after<>v_cursor+1 then raise exception 'SUPPLIER_LEDGER_DELETE_REVISION_FAILED'; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_bump_supplier_ledger_revision(bigint,bigint,bigint)','EXECUTE')
+    then raise exception 'AUTHENTICATED_CAN_EXECUTE_SUPPLIER_LEDGER_REVISION_FUNCTION'; end if;
+  if not has_function_privilege('service_role','public.powerhub_bump_supplier_ledger_revision(bigint,bigint,bigint)','EXECUTE')
+    then raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_SUPPLIER_LEDGER_REVISION_FUNCTION'; end if;
+end;
+$supplier_ledger_revision_assertions$;
 
 select 'inventory purchasing, supplier ledger, fuel fill/reading, measured consumption and stock operations PostgreSQL integration passed' as result;
 

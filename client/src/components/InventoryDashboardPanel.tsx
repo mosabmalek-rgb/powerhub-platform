@@ -1,4 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
 import { toast } from "sonner";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
@@ -159,6 +163,7 @@ export default function InventoryDashboardPanel({
   canReadPurchases, canAccessStocktakes, canManageFuelAndConsumption, onNavigate,
 }: Props) {
   const enabled = Boolean(siteId && isAuthenticated);
+  const auth = useAuth();
   const utils = trpc.useUtils();
   const [exportingReport, setExportingReport] = useState(false);
   const today = useMemo(() => gazaDateKey(new Date()), []);
@@ -234,6 +239,22 @@ export default function InventoryDashboardPanel({
     { siteId, asOfDate: dateRange?.toDate },
     { enabled: enabled && canViewSupplierLedger && Boolean(dateRange), staleTime: 15_000, retry: 1 },
   );
+  const payablesAuthorizationDenied = isExplicitAuthorizationDenial(payables.error);
+  const payablesAreOfflineSnapshot = Boolean(
+    (payables.data as (typeof payables.data & { offlineSnapshot?: boolean }) | undefined)?.offlineSnapshot,
+  );
+  useDeltaRevisionRefresh({
+    siteId, userId: auth.user?.id, entityTypes: ["supplier_ledger"],
+    enabled: Boolean(enabled && canViewSupplierLedger),
+    onChange: (changed) => {
+      if (changed.includes("supplier_ledger")) void payables.refetch();
+    },
+  });
+  useEffect(() => {
+    if (payablesAuthorizationDenied && auth.user?.id) {
+      void clearOfflineSupplierFinancialQueryCacheForSite(String(auth.user.id), siteId);
+    }
+  }, [payablesAuthorizationDenied, auth.user?.id, siteId]);
   const phaseDFinancialSummary = trpc.powerhub.inventory.phaseDFinancialSummary.useQuery(
     { siteId, fromDate: dateRange?.fromDate ?? today, toDate: dateRange?.toDate ?? today },
     { enabled: enabled && canViewInventoryReports && Boolean(dateRange), staleTime: 15_000, retry: 1 },
@@ -759,7 +780,7 @@ export default function InventoryDashboardPanel({
             <Metric label="مواقع تحتاج إعادة طلب" value={stock.isLoading || stock.isError ? "—" : totals.lowLocations.toLocaleString("ar-PS")} description={totals.lowLocations === 0 ? "لا توجد مواقع مطابقة أسفل حد إعادة الطلب." : `تشمل ${totals.lowItems.toLocaleString("ar-PS")} صنفًا.`} icon={ArrowLeftRight} />
           </> : null}
           {canViewInventoryReports ? <Metric label="القيمة الدفترية للمخزون" value={stock.isLoading || stock.isError ? "—" : amount(totals.stockValue)} description="القيمة الحالية وفق متوسط التكلفة، وليست مصروفًا نقديًا جديدًا." icon={CircleDollarSign} /> : null}
-          {canViewSupplierLedger ? <Metric label="الذمم المستحقة للموردين" value={payables.isLoading || payables.isError ? "—" : debt ? amount(numberOf(debt.totals?.total_outstanding)) : "—"} description={debt?.as_of_date ? `حتى ${debt.as_of_date}، حسب الذمم المرحلة.` : "من تقرير أعمار الذمم في الفرع المحدد."} icon={Store} /> : null}
+          {canViewSupplierLedger ? <Metric label="الذمم المستحقة للموردين" value={payablesAuthorizationDenied || payables.isLoading || payables.isError ? "—" : debt ? amount(numberOf(debt.totals?.total_outstanding)) : "—"} description={payablesAreOfflineSnapshot ? `نسخة محلية حتى ${debt?.as_of_date ?? "آخر تحديث"}؛ تحتاج اتصالًا لتأكيد الرصيد.` : debt?.as_of_date ? `حتى ${debt.as_of_date}، حسب الذمم المرحلة.` : "من تقرير أعمار الذمم في الفرع المحدد."} icon={Store} /> : null}
           {canViewInventoryReports && financialTotals?.purchaseInvoiceAmount !== null && financialTotals?.purchaseInvoiceAmount !== undefined ? <Metric label="المشتريات المعتمدة" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.purchaseInvoiceAmount))} description={`${numberOf(financialTotals.purchaseInvoiceCount).toLocaleString("ar-PS")} فاتورة مؤكدة/مستلمة ضمن الفترة؛ ليست مصروف تشغيل جديدًا.`} icon={ClipboardList} /> : null}
           {canViewInventoryReports && financialTotals?.supplierPaymentAmount !== null && financialTotals?.supplierPaymentAmount !== undefined ? <Metric label="دفعات الموردين المرحلة" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.supplierPaymentAmount))} description={`${numberOf(financialTotals.supplierPaymentCount).toLocaleString("ar-PS")} دفعة غير معكوسة ضمن الفترة؛ تمثل التسوية النقدية لا قيمة مشتريات إضافية.`} icon={CircleDollarSign} /> : null}
           {canViewInventoryReports && financialTotals?.supplierReturnCreditAmount !== null && financialTotals?.supplierReturnCreditAmount !== undefined ? <Metric label="ائتمانات مرتجعات الموردين" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.supplierReturnCreditAmount))} description={`${numberOf(financialTotals.supplierReturnCount).toLocaleString("ar-PS")} مرتجعًا مرحلًا؛ يُعرض كائتمان منفصل عن الدفعات النقدية.`} icon={ArrowLeftRight} /> : null}

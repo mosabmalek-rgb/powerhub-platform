@@ -1,4 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,6 +39,8 @@ type AgingResult = {
     total_outstanding: number | string;
   };
   rows: AgingRow[];
+  offlineSnapshot?: boolean;
+  complete?: boolean;
 };
 
 function amount(value: number | string | null | undefined) {
@@ -51,6 +57,7 @@ export default function InventorySupplierPayablesAgingPanel({
   isAuthenticated: boolean;
   canViewSupplierLedger: boolean;
 }) {
+  const auth = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [asOfDate, setAsOfDate] = useState(() => {
     const now = new Date();
@@ -60,6 +67,19 @@ export default function InventorySupplierPayablesAgingPanel({
     { siteId, asOfDate },
     { enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger), staleTime: 15_000 },
   );
+  const authorizationDenied = isExplicitAuthorizationDenial(query.error);
+  useDeltaRevisionRefresh({
+    siteId, userId: auth.user?.id, entityTypes: ["supplier_ledger"],
+    enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger),
+    onChange: (changed) => {
+      if (changed.includes("supplier_ledger")) void query.refetch();
+    },
+  });
+  useEffect(() => {
+    if (authorizationDenied && auth.user?.id) {
+      void clearOfflineSupplierFinancialQueryCacheForSite(String(auth.user.id), siteId);
+    }
+  }, [authorizationDenied, auth.user?.id, siteId]);
   const branding = trpc.powerhub.reportBranding.get.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger), staleTime: 60_000 },
@@ -146,6 +166,7 @@ export default function InventorySupplierPayablesAgingPanel({
   };
   const result = query.data as unknown as AgingResult | undefined;
   const totals = result?.totals;
+  const isOfflineSnapshot = Boolean(result?.offlineSnapshot);
 
   if (!canViewSupplierLedger) return null;
 
@@ -173,8 +194,10 @@ export default function InventorySupplierPayablesAgingPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         {query.isLoading && !result ? <p className="py-5 text-center text-muted-foreground"><Loader2 className="ml-2 inline h-4 w-4 animate-spin" /> جارٍ تحميل أعمار الديون…</p>
-          : query.error ? <div className="space-y-3 py-4 text-center"><p className="text-destructive">تعذر تحميل تقرير الذمم. لم نعرض أرقامًا تقديرية.</p><Button type="button" variant="outline" onClick={() => void query.refetch()}>إعادة المحاولة</Button></div>
+          : authorizationDenied ? <div role="alert" className="py-4 text-center text-destructive">رفض الخادم صلاحية عرض ذمم الموردين؛ أُخفيت اللقطة المحلية وحُذفت من كاش هذا الفرع.</div>
+          : query.error && !result ? <div className="space-y-3 py-4 text-center"><p className="text-destructive">تعذر تحميل تقرير الذمم. لم نعرض أرقامًا تقديرية.</p><Button type="button" variant="outline" onClick={() => void query.refetch()}>إعادة المحاولة</Button></div>
           : result ? <>
+            {isOfflineSnapshot ? <p role="status" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">هذا التقرير من آخر نسخة محلية محفوظة حتى {result.as_of_date}. الأرصدة والشرائح قد تكون تغيّرت بعد ذلك؛ استخدم الاتصال لتأكيد الذمم قبل أي قرار مالي.</p> : null}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {[
                 ["غير مستحقة", totals?.not_due],

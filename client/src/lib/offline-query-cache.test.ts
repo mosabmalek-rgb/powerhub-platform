@@ -10,11 +10,12 @@ import {
   offlineQueryCacheKey,
   OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS,
   OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS,
+  OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS,
   persistOfflineQuery,
   persistOfflineQueryForDeltaSync,
   sanitizeOfflineQueryData,
 } from "./offline-query-cache";
-import { getOfflineQueryDeltaEntity, getOfflineQueryStaleTime, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey } from "./offline-query-policy";
+import { getOfflineQueryDeltaEntity, getOfflineQueryStaleTime, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey, isSafeSupplierLedgerStatementSnapshot, isSafeSupplierPayablesAgingSnapshot } from "./offline-query-policy";
 
 describe("offline query cache policy", () => {
   it("caches tenant-scoped operational PowerHub queries", () => {
@@ -47,6 +48,60 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listWarehouses", { input: { siteId: 0, includeInactive: false }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 0 }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12, includeInactive: true }, type: "query" }])).toBe(false);
+  });
+
+  it("caches authorized supplier statements and complete aging reports as bounded read-only snapshots", () => {
+    const ledgerKey = ["powerhub.inventory.supplierLedgerStatement", {
+      input: { siteId: 7, supplierId: 11, limit: 200 }, type: "query",
+    }] as const;
+    const agingKey = ["powerhub.inventory.supplierPayablesAging", {
+      input: { siteId: 7, asOfDate: "2026-10-30" }, type: "query",
+    }] as const;
+    expect(isSafeSupplierLedgerStatementSnapshot(ledgerKey)).toBe(true);
+    expect(isSafeSupplierPayablesAgingSnapshot(agingKey)).toBe(true);
+    for (const key of [ledgerKey, agingKey]) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+      expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+      expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    }
+    const badLedger = ["powerhub.inventory.supplierLedgerStatement", {
+      input: { siteId: 7, supplierId: 11, limit: 200, includePayments: true }, type: "query",
+    }] as const;
+    expect(isSafeSupplierLedgerStatementSnapshot(badLedger)).toBe(false);
+
+    const statement = sanitizeOfflineQueryData(ledgerKey, {
+      supplier: { id: 11, name: "Supplier A", supplier_code: "SUP-A", phone: "PRIVATE" },
+      site_id: 7, balance: "125.00", entry_count: 2,
+      entries: [{
+        id: 1, entry_type: "purchase", debit_amount: "100", credit_amount: "0",
+        purchase_id: 8, supplier_payment_id: null, supplier_return_id: null,
+        reference_no: "INV-8", description: "Invoice", entry_key: "PRIVATE-KEY",
+        created_by_user_id: 9, occurred_at: "2026-10-30T10:00:00Z",
+      }],
+    }) as Record<string, any>;
+    expect(statement.offlineSnapshot).toBe(true);
+    expect(statement.balance).toBe("125.00");
+    expect(statement.supplier).toEqual({ id: 11, name: "Supplier A", supplier_code: "SUP-A" });
+    expect(statement.entries[0]).not.toHaveProperty("entry_key");
+    expect(statement.entries[0]).not.toHaveProperty("created_by_user_id");
+
+    const aging = sanitizeOfflineQueryData(agingKey, {
+      as_of_date: "2026-10-30",
+      totals: { not_due: "0", days_1_30: "10", days_31_60: "20", days_61_90: "30", days_91_plus: "40", total_outstanding: "100" },
+      rows: [{
+        document_type: "purchase_invoice", document_id: 8, supplier_id: 11, supplier_name: "Supplier A",
+        document_number: "PO-8", document_date: "2026-10-01", due_date: "2026-10-15",
+        gross_amount: "100", paid_amount: "20", credit_amount: "0", outstanding_amount: "80",
+        days_overdue: 15, aging_bucket: "days_1_30", private_notes: "DO-NOT-CACHE",
+      }],
+    }) as Record<string, any>;
+    expect(aging.offlineSnapshot).toBe(true);
+    expect(aging.complete).toBe(true);
+    expect(aging.totals.total_outstanding).toBe("100");
+    expect(aging.rows[0].outstanding_amount).toBe("80");
+    expect(aging.rows[0]).not.toHaveProperty("private_notes");
+    expect(OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS).toBe(24 * 60 * 60 * 1000);
   });
 
   it("persists exact purchase detail only as a sanitized non-Delta display snapshot", () => {

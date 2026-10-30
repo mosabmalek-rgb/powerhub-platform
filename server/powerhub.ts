@@ -573,6 +573,12 @@ async function requireDeltaPurchaseDetailRevisionReadAccess(userId: number, site
   return access;
 }
 
+async function requireDeltaSupplierLedgerRevisionReadAccess(userId: number, siteId: number) {
+  return requireSupabaseSiteRole(
+    userId, siteId, ["owner", "manager", "accountant", "collector", "viewer"], "viewSupplierLedger",
+  );
+}
+
 async function requireDeltaPurchaseChildHistoryReadAccess(
   userId: number, siteId: number,
   entityType: "inventory_purchase_receipt_headers" | "inventory_supplier_return_headers",
@@ -627,7 +633,8 @@ export const powerhubRouter = router({
       entityTypes: z.array(z.enum([
         "fuel_events", "fuel_readings", "maintenance_preventive_plans", "maintenance_work_orders",
         "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers",
-      ])).min(1).max(7).refine((values) => new Set(values).size === values.length, {
+        "supplier_ledger",
+      ])).min(1).max(8).refine((values) => new Set(values).size === values.length, {
         message: "يجب أن تكون أنواع Delta المطلوبة فريدة.",
       }),
     })).query(async ({ ctx, input }) => {
@@ -642,6 +649,9 @@ export const powerhubRouter = router({
             ["owner", "manager", "technician", "accountant", "viewer"],
             "viewInventoryReports",
           );
+        }
+        if (entityType === "supplier_ledger") {
+          return requireDeltaSupplierLedgerRevisionReadAccess(ctx.user.id, input.siteId);
         }
         if (
           entityType === "inventory_purchase_headers" ||
