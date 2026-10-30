@@ -269,10 +269,10 @@ export default function InventoryPurchasesPanel({
   }, [options.data]);
 
   useEffect(() => {
-    const accounts = paymentOptions.data ?? [];
+    const accounts = currentPaymentOptions;
     if (!accounts.length) return;
     setCompanyAccountId((current) => accounts.some((account) => String(account.id) === current) ? current : String(accounts[0].id));
-  }, [paymentOptions.data]);
+  }, [currentPaymentOptions]);
 
   useEffect(() => {
     const outstanding = details.data?.purchase.outstandingAmount;
@@ -529,7 +529,7 @@ export default function InventoryPurchasesPanel({
     if (!selectedPurchaseId || !details.data) return;
     const amount = Number(paymentAmount);
     const outstanding = Number(details.data.purchase.outstandingAmount ?? 0);
-    const account = paymentOptions.data?.find((row) => String(row.id) === companyAccountId);
+    const account = currentPaymentOptions.find((row) => String(row.id) === companyAccountId);
     if (!account) {
       toast.error("اختر حساب شركة نشطًا ومتاحًا لهذا الفرع.");
       return;
@@ -699,7 +699,7 @@ export default function InventoryPurchasesPanel({
                 <label className={inputGridClass}>مدة السداد بالأيام
                   <Input type="number" min={0} max={3650} step={1} value={paymentMode === "immediate" ? "0" : paymentTermsDays} onChange={(event) => setPaymentTermsDays(event.target.value)} placeholder="اتركها لاستخدام مدة المورد" disabled={paymentMode === "immediate"} />
                 </label>
-                {paymentMode === "immediate" ? <div className={inputGridClass + " sm:col-span-2 lg:col-span-3"}><label>حساب الشركة للسداد الكامل</label><select className={selectClass} value={companyAccountId} onChange={(event) => setCompanyAccountId(event.target.value)} required><option value="">اختر حسابًا يكفي رصيده</option>{paymentOptions.data?.map((account) => <option key={account.id} value={account.id}>{account.name} — {formatAmount(account.balance)}</option>)}</select><p className="text-xs text-muted-foreground">يُنشأ الشراء ثم يعتمد ثم يسدد كاملًا. إذا تعثر السداد بعد الاعتماد تبقى الفاتورة معتمدة ومستحقة ويظهر تنبيه بذلك.</p></div> : null}
+                {paymentMode === "immediate" ? <div className={inputGridClass + " sm:col-span-2 lg:col-span-3"}><label>حساب الشركة للسداد الكامل</label><select className={selectClass} value={companyAccountId} onChange={(event) => setCompanyAccountId(event.target.value)} required><option value="">اختر حسابًا يكفي رصيده</option>{currentPaymentOptions.map((account) => <option key={account.id} value={account.id}>{account.name} — {formatAmount(account.balance)}</option>)}</select><p className="text-xs text-muted-foreground">يُنشأ الشراء ثم يعتمد ثم يسدد كاملًا. إذا تعثر السداد بعد الاعتماد تبقى الفاتورة معتمدة ومستحقة ويظهر تنبيه بذلك.</p></div> : null}
                 <label className={inputGridClass}>المرجع
                   <Input value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} maxLength={120} />
                 </label>
@@ -995,7 +995,7 @@ export default function InventoryPurchasesPanel({
                           <td className="p-3">{payment.reference_no || "—"}</td>
                           <td className="p-3 font-semibold">{formatAmount(payment.allocated_amount)}</td>
                           <td className="p-3">{payment.status === "reversed" ? <span className="text-muted-foreground">معكوسة{payment.reversal_reason ? <span className="block text-xs">{payment.reversal_reason}</span> : null}</span> : "مسجلة"}</td>
-                          {!detailsIsOfflineSnapshot && canManageSupplierPayments ? <td className="p-3">{payment.status === "posted" ? <div className="flex min-w-56 flex-col gap-2">
+                          {detailsIsAuthoritative && canManageSupplierPayments ? <td className="p-3">{payment.status === "posted" ? <div className="flex min-w-56 flex-col gap-2">
                             <Input value={paymentReversalReasons[payment.id] ?? ""} onChange={(event) => setPaymentReversalReasons((current) => ({ ...current, [payment.id]: event.target.value }))} maxLength={500} placeholder="سبب عكس الدفعة" aria-label="سبب عكس الدفعة" />
                             <Button type="button" size="sm" variant="outline" disabled={serverWriteBlocked || reverseSupplierPayment.isPending || (paymentReversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => { if (ensureServerWriteAllowed()) reverseSupplierPayment.mutate({ siteId, paymentId: payment.id, reason: (paymentReversalReasons[payment.id] ?? "").trim() }); }}>عكس الدفعة</Button>
                           </div> : "—"}</td> : null}
@@ -1022,7 +1022,7 @@ export default function InventoryPurchasesPanel({
                       <label className={inputGridClass}>حساب الشركة
                         <select className={selectClass} value={companyAccountId} onChange={(event) => setCompanyAccountId(event.target.value)} required>
                           <option value="">اختر الحساب</option>
-                          {paymentOptions.data?.map((account) => <option key={account.id} value={account.id}>{account.name} — {accountTypeLabels[account.accountType] ?? account.accountType} — الرصيد {formatAmount(account.balance)}</option>)}
+                          {currentPaymentOptions.map((account) => <option key={account.id} value={account.id}>{account.name} — {accountTypeLabels[account.accountType] ?? account.accountType} — الرصيد {formatAmount(account.balance)}</option>)}
                         </select>
                       </label>
                       <label className={inputGridClass}>مبلغ الدفعة
@@ -1041,7 +1041,7 @@ export default function InventoryPurchasesPanel({
                     {companyAccountId && paymentAmount && Number(paymentAmount) > Number(currentPaymentOptions.find((account) => String(account.id) === companyAccountId)?.balance ?? 0)
                       ? <p className="text-sm text-destructive">المبلغ أكبر من الرصيد الحالي للحساب المحدد.</p> : null}
                     <div className="flex justify-end">
-                      <Button type="submit" disabled={serverWriteBlocked || recordSupplierPayment.isPending || paymentOptions.isLoading || !paymentOptions.data?.length}>
+                      <Button type="submit" disabled={serverWriteBlocked || recordSupplierPayment.isPending || paymentOptions.isLoading || !paymentOptionsAreAuthoritative || !currentPaymentOptions.length}>
                         {recordSupplierPayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="ml-2 h-4 w-4" />}
                         تسجيل الدفعة
                       </Button>
