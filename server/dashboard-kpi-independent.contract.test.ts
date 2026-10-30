@@ -80,6 +80,19 @@ describe("independent dashboard KPI snapshots", () => {
     expect(home).not.toContain('changed.has("financialOverview")');
   });
 
+  it("retains independent revision baselines across branch/all-branch scope switches", () => {
+    const start = home.indexOf("const lastDashboardRevisions = useRef<Map<string, Record<string, string>>>");
+    const end = home.indexOf("const openPeriodArrears", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const effect = home.slice(start, end);
+    expect(effect).toContain("lastDashboardRevisions.current.get(key)");
+    expect(effect).toContain("lastDashboardRevisions.current.set(key, revisions)");
+    expect(effect).toContain("while (lastDashboardRevisions.current.size > 32)");
+    expect(effect).toContain("previousRevisions[metric]");
+    expect(effect).not.toContain("previous.key !== key");
+  });
+
   it("keeps daily/monthly KPI refresh independent from the selected period filter", () => {
     expect(home).toContain("const periodKpiBaseEnabled =");
     expect(home).toContain("const periodKpiEnabled = periodKpiBaseEnabled && dashboardPeriod.isReady");
