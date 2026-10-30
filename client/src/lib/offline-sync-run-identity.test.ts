@@ -35,9 +35,13 @@ describe("Outbox run identity", () => {
     const current = advanceOfflineSyncRunIdentity(owner, changed);
     expect(current.generation).toBe(owner.generation + 1);
     expect(isOfflineSyncRunCurrent(owner, current)).toBe(false);
-    expect(() => assertOfflineSyncRunCurrent(owner, current)).toThrowError(
-      expect.objectContaining({ name: "PowerHubOfflineSyncRunSupersededError" }),
-    );
+    let thrown: unknown;
+    try {
+      assertOfflineSyncRunCurrent(owner, current);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ name: "PowerHubOfflineSyncRunSupersededError" });
   });
 
   it("allows local cache reads without an online auth lease but never allows network replay", () => {
