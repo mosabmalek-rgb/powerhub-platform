@@ -156,17 +156,29 @@ export function WorkspaceHome() {
     },
   );
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 });
-  const periodMetricsQuery = trpc.powerhub.dashboard.periodMetrics.useQuery({
-    siteId: siteId ?? 0,
-    scope: selectedScope,
-    startDate: dashboardPeriod.startDate,
-    endDate: dashboardPeriod.endDate,
-    includeDetails: false,
-  }, {
-    enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword && dashboardPeriod.isReady),
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
-  });
+  const periodKpiEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword && dashboardPeriod.isReady);
+  const periodInvoicedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "periodInvoiced",
+    startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
+  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const periodCollectedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "periodCollected",
+    startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
+  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const collectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
+    startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
+  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const periodOverdueKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "periodOverdue",
+    startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
+  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const activeSubscribersKpiQuery = trpc.powerhub.dashboard.activeSubscribersKpi.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope },
+    { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 30_000 },
+  );
+  const periodKpiQueries = [periodInvoicedKpiQuery, periodCollectedKpiQuery, collectionRateKpiQuery, periodOverdueKpiQuery] as const;
+  const periodKpiError = periodKpiQueries.some((query) => query.isError);
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const requestAddon = trpc.powerhub.subscription.requestAddon.useMutation({ onSuccess: async (result) => { await addonRequestsQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب إضافة قيد المتابعة بالفعل." : "تم إرسال طلب الإضافة إلى إدارة PowerHub."); }, onError: (error) => toast.error(error.message) });
@@ -187,7 +199,7 @@ export function WorkspaceHome() {
     if (canViewFinancialOverview) {
       void financialOverviewQuery.refetch();
       dashboardPeriod.retry();
-      void periodMetricsQuery.refetch();
+      void Promise.all(periodKpiQueries.filter((query) => query.isError).map((query) => query.refetch()));
     }
     if (selectedScope === "all") void allBranchesSummaryQuery.refetch();
     else void summaryQuery.refetch();
@@ -198,19 +210,23 @@ export function WorkspaceHome() {
   const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
     : !canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
-  const periodMetricsMatch = Boolean(
-    periodMetricsQuery.data &&
-    periodMetricsQuery.data.range.startDate === dashboardPeriod.startDate &&
-    periodMetricsQuery.data.range.endDate === dashboardPeriod.endDate &&
-    periodMetricsQuery.data.scope === selectedScope
-  );
-  const periodMetricsLoading = dashboardPeriod.isLoading || !dashboardPeriod.isReady || periodMetricsQuery.isLoading || !periodMetricsMatch;
-  const periodMetricNumber = (value: unknown, fractionDigits = 2) => !canViewFinancialOverview || dashboardPeriod.isError || (periodMetricsQuery.isError && !periodMetricsQuery.data)
-    ? "—"
-    : periodMetricsLoading ? "…" : number(value, fractionDigits);
-  const periodMetricRatio = (value: unknown) => !canViewFinancialOverview || dashboardPeriod.isError || (periodMetricsQuery.isError && !periodMetricsQuery.data)
-    ? "—"
-    : periodMetricsLoading ? "…" : ratio(value);
+  const periodKpiNumber = (query: typeof periodInvoicedKpiQuery, fractionDigits = 2) =>
+    !canViewFinancialOverview || dashboardPeriod.isError || (query.isError && !query.data)
+      ? "—"
+      : dashboardPeriod.isLoading || !dashboardPeriod.isReady || query.isLoading || !query.data ||
+        query.data.range.startDate !== dashboardPeriod.startDate ||
+        query.data.range.endDate !== dashboardPeriod.endDate ||
+        query.data.scope !== selectedScope
+        ? "…" : number(query.data.value, fractionDigits);
+  const periodKpiRatio = (query: typeof collectionRateKpiQuery) =>
+    !canViewFinancialOverview || dashboardPeriod.isError || (query.isError && !query.data)
+      ? "—"
+      : dashboardPeriod.isLoading || !dashboardPeriod.isReady || query.isLoading || !query.data ||
+        query.data.range.startDate !== dashboardPeriod.startDate ||
+        query.data.range.endDate !== dashboardPeriod.endDate ||
+        query.data.scope !== selectedScope
+        ? "…" : ratio(query.data.value);
+
   const openPeriodArrears = () => {
     if (!canViewFinancialOverview || !siteId || !dashboardPeriod.isReady || !dashboardPeriod.startDate || !dashboardPeriod.endDate) return;
     const params = new URLSearchParams({
@@ -224,7 +240,7 @@ export function WorkspaceHome() {
     });
     setLocation(`/subscribers?${params.toString()}#subscriber-arrears`);
   };
-  const activeSubscribers = overview?.branchSummaries.reduce((sum: number, branch: { activeSubscribers: number }) => sum + branch.activeSubscribers, 0) ?? 0;
+  const activeSubscribers = activeSubscribersKpiQuery.data?.value ?? 0;
   const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
   const lastDashboardRevision = useRef<{ key: string; revisions: Record<string, string> } | null>(null);
 
@@ -256,9 +272,14 @@ export function WorkspaceHome() {
       // do not couple its freshness to the financial-overview role gate.
       void companyAccountsQuery.refetch();
     }
-    if (canViewFinancialOverview && dashboardPeriod.isReady &&
-        ["periodInvoiced", "periodCollected", "collectionRate", "periodOverdue"].some((metric) => changed.has(metric))) {
-      void periodMetricsQuery.refetch();
+    if (changed.has("activeSubscribers")) {
+      void activeSubscribersKpiQuery.refetch();
+    }
+    if (canViewFinancialOverview && dashboardPeriod.isReady) {
+      if (changed.has("periodInvoiced")) void periodInvoicedKpiQuery.refetch();
+      if (changed.has("periodCollected")) void periodCollectedKpiQuery.refetch();
+      if (changed.has("collectionRate")) void collectionRateKpiQuery.refetch();
+      if (changed.has("periodOverdue")) void periodOverdueKpiQuery.refetch();
     }
   }, [
     dashboardRevisionQuery.data?.revisions,
@@ -271,7 +292,11 @@ export function WorkspaceHome() {
     allBranchesSummaryQuery.refetch,
     financialOverviewQuery.refetch,
     companyAccountsQuery.refetch,
-    periodMetricsQuery.refetch,
+    activeSubscribersKpiQuery.refetch,
+    periodInvoicedKpiQuery.refetch,
+    periodCollectedKpiQuery.refetch,
+    collectionRateKpiQuery.refetch,
+    periodOverdueKpiQuery.refetch,
   ]);
 
   useEffect(() => {
@@ -314,7 +339,7 @@ export function WorkspaceHome() {
 
 
     {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p><ul className="mt-2 space-y-1 text-xs leading-5 text-amber-100/90">{dashboardDataFailures.map((failure) => <li key={failure}>{failure}</li>)}</ul></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
-    {dashboardRevisionQuery.isError && (summaryQuery.data || allBranchesSummaryQuery.data || financialOverviewQuery.data || periodMetricsQuery.data) ? <Card role="status" className="border-amber-300/25 bg-amber-300/[.045] shadow-panel"><CardContent className="p-4 text-sm leading-6 text-amber-100">تعذر التحقق من حداثة لقطة لوحة التحكم. نعرض آخر مؤشرات محفوظة لهذا المستخدم والفرع، ولا نعتبرها بيانات مؤكدة حديثة حتى ينجح الاتصال بالخادم.</CardContent></Card> : null}
+    {dashboardRevisionQuery.isError && (summaryQuery.data || allBranchesSummaryQuery.data || financialOverviewQuery.data || periodInvoicedKpiQuery.data || periodCollectedKpiQuery.data || collectionRateKpiQuery.data || periodOverdueKpiQuery.data || activeSubscribersKpiQuery.data) ? <Card role="status" className="border-amber-300/25 bg-amber-300/[.045] shadow-panel"><CardContent className="p-4 text-sm leading-6 text-amber-100">تعذر التحقق من حداثة لقطة لوحة التحكم. نعرض آخر مؤشرات محفوظة لهذا المستخدم والفرع، ولا نعتبرها بيانات مؤكدة حديثة حتى ينجح الاتصال بالخادم.</CardContent></Card> : null}
 
     <DashboardKpiPeriodFilter
       value={dashboardPeriod.preset}
@@ -324,16 +349,16 @@ export function WorkspaceHome() {
       onStartDateChange={dashboardPeriod.setStartDate}
       onEndDateChange={dashboardPeriod.setEndDate}
       disabled={dashboardPeriod.isLoading}
-      error={dashboardPeriod.isError || periodMetricsQuery.isError}
-      onRetry={() => { dashboardPeriod.retry(); void periodMetricsQuery.refetch(); }}
+      error={dashboardPeriod.isError || periodKpiError}
+      onRetry={() => { dashboardPeriod.retry(); void Promise.all(periodKpiQueries.map((query) => query.refetch())); }}
     />
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      <MetricCard label="فوترة الفترة" value={periodMetricNumber(periodMetricsQuery.data?.summary.invoiced)} unit="ش" periodLabel={dashboardPeriod.label} description={periodMetricsQuery.isError ? "تعذر تحميل فوترة الفترة المحددة." : `إجمالي الفواتير الصادرة من ${dashboardPeriod.startDate} إلى ${dashboardPeriod.endDate}.`} icon={ReceiptText} accent="gold" />
-      <MetricCard label="تحصيل الفترة" value={periodMetricNumber(periodMetricsQuery.data?.summary.collected)} unit="ش" periodLabel={dashboardPeriod.label} description={periodMetricsQuery.isError ? "تعذر تحميل تحصيل الفترة المحددة." : "الدفعات المكتملة بتاريخ التحصيل ضمن الفترة المحددة."} icon={CircleDollarSign} accent="emerald" />
-      <MetricCard label="نسبة التحصيل" value={periodMetricRatio(periodMetricsQuery.data?.summary.collectionRate)} unit="" periodLabel={dashboardPeriod.label} description="التحصيل المكتمل مقارنة بإجمالي الفوترة في الفترة نفسها." icon={ArrowUpLeft} accent="blue" />
+      <MetricCard label="فوترة الفترة" value={periodKpiNumber(periodInvoicedKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodInvoicedKpiQuery.isError ? "تعذر تحميل فوترة الفترة المحددة." : `إجمالي الفواتير الصادرة من ${dashboardPeriod.startDate} إلى ${dashboardPeriod.endDate}.`} icon={ReceiptText} accent="gold" />
+      <MetricCard label="تحصيل الفترة" value={periodKpiNumber(periodCollectedKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodCollectedKpiQuery.isError ? "تعذر تحميل تحصيل الفترة المحددة." : "الدفعات المكتملة بتاريخ التحصيل ضمن الفترة المحددة."} icon={CircleDollarSign} accent="emerald" />
+      <MetricCard label="نسبة التحصيل" value={periodKpiRatio(collectionRateKpiQuery)} unit="" periodLabel={dashboardPeriod.label} description="التحصيل المكتمل مقارنة بإجمالي الفوترة في الفترة نفسها." icon={ArrowUpLeft} accent="blue" />
       <div role="button" tabIndex={!siteId || !dashboardPeriod.isReady ? -1 : 0} aria-label="فتح المتأخرات في تبويب المشتركين للفترة المحددة" aria-disabled={!siteId || !dashboardPeriod.isReady} onClick={openPeriodArrears} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openPeriodArrears(); } }} className="block w-full min-w-0 cursor-pointer rounded-2xl text-right outline-none transition focus-visible:ring-2 focus-visible:ring-[#F5B800] aria-disabled:cursor-wait aria-disabled:opacity-70">
-        <MetricCard label="المتأخرات" value={periodMetricNumber(periodMetricsQuery.data?.summary.overdue)} unit="ش" periodLabel={dashboardPeriod.label} description={periodMetricsQuery.isError ? "تعذر تحميل المتأخرات للفترة المحددة." : `${number(periodMetricsQuery.data?.summary.overdueSubscriberCount)} مشتركاً بفواتير متأخرة صادرة ضمن الفترة. اضغط لعرض التفاصيل.`} icon={CircleAlert} accent="rose" />
+        <MetricCard label="المتأخرات" value={periodKpiNumber(periodOverdueKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodOverdueKpiQuery.isError ? "تعذر تحميل المتأخرات للفترة المحددة." : `${number(periodOverdueKpiQuery.data?.auxiliaryCount)} مشتركاً بفواتير متأخرة صادرة ضمن الفترة. اضغط لعرض التفاصيل.`} icon={CircleAlert} accent="rose" />
       </div>
       <MetricCard label="المشتركون النشطون" value={metricNumber(activeSubscribers)} unit="مشترك" periodLabel="العدد الحالي" description={financialOverviewQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
     </section>
