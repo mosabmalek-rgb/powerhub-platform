@@ -209,4 +209,22 @@ BEGIN
 END
 $assert_acl$;
 
-SELECT 'browser direct DML ACL reconciliation passed for 30 tenant-scoped tables' AS result;
+-- These three Staging-only tables are absent from Production. The conditional
+-- migration must skip them cleanly when the same forward migration is replayed.
+DROP TABLE public.emergency_requests;
+DROP TABLE public.sms_dispatch_queue;
+DROP TABLE public.tweet_sms_report_snapshots;
+
+\\ir ../migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql
+
+DO $assert_optional_tables$
+BEGIN
+  IF to_regclass('public.emergency_requests') IS NOT NULL
+     OR to_regclass('public.sms_dispatch_queue') IS NOT NULL
+     OR to_regclass('public.tweet_sms_report_snapshots') IS NOT NULL THEN
+    RAISE EXCEPTION 'OPTIONAL_STAGING_TABLE_WAS_RECREATED';
+  END IF;
+END
+$assert_optional_tables$;
+
+SELECT 'browser direct DML ACL reconciliation passed for 30 tenant-scoped tables and 3 absent production tables' AS result;
