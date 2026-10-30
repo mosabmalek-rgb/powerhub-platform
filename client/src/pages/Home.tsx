@@ -107,17 +107,19 @@ export function WorkspaceHome() {
     powerHubReachable,
   } = useAuth();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword, staleTime: 30_000 });
+  const sitesAccessDenied = isExplicitAuthorizationDenial(sitesQuery.error);
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [scope, setScope] = useState<"branch" | "all">("branch");
-  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
+  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
   const packageCatalogQuery = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
   const packageCodes = (packageCatalogQuery.data?.packages ?? []).filter((pkg: any) => pkg.active !== false).map((pkg: any) => String(pkg.code));
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
+  const dashboardScopeDenied = sitesAccessDenied || isExplicitAuthorizationDenial(accessQuery.error);
   // The API intentionally restricts the financial overview to these roles. Do not
   // fire a known-forbidden query for technicians/collectors and misreport that as
   // a dashboard data-loading failure.
-  const canViewFinancialOverview = !isExplicitAuthorizationDenial(accessQuery.error) && Boolean(
+  const canViewFinancialOverview = !dashboardScopeDenied && Boolean(
     accessQuery.data && ["owner", "manager", "accountant", "viewer"].includes(accessQuery.data.role),
   );
   const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
@@ -146,18 +148,18 @@ export function WorkspaceHome() {
   const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (sitesQuery.data?.length ?? 0) > 1);
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
-  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword), staleTime: 30_000 });
+  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const dashboardRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
     { siteId: siteId ?? 0, scope: selectedScope },
     {
-      enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword),
+      enabled: Boolean(isAuthenticated && siteId && !dashboardScopeDenied && !user?.mustChangePassword),
       staleTime: 0,
       refetchInterval: 30_000,
       refetchOnReconnect: true,
       refetchOnWindowFocus: true,
     },
   );
-  const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error);
+  const dashboardRevisionDenied = dashboardScopeDenied || isExplicitAuthorizationDenial(dashboardRevisionQuery.error);
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 60_000 });
   const periodKpiBaseEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword);
   const periodKpiEnabled = periodKpiBaseEnabled && dashboardPeriod.isReady;
@@ -360,9 +362,9 @@ export function WorkspaceHome() {
     setLocation(`/subscribers?${params.toString()}#subscriber-arrears`);
   };
   const activeSubscribers = activeSubscribersKpiQuery.data?.value ?? 0;
-  const operationalSummaryDenied = selectedScope === "all"
+  const operationalSummaryDenied = dashboardScopeDenied || (selectedScope === "all"
     ? isExplicitAuthorizationDenial(allBranchesSummaryQuery.error)
-    : isExplicitAuthorizationDenial(summaryQuery.error);
+    : isExplicitAuthorizationDenial(summaryQuery.error));
   const operationalSummary = operationalSummaryDenied
     ? undefined
     : selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
