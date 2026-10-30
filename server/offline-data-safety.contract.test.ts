@@ -58,6 +58,7 @@ describe("offline data and financial truth boundaries", () => {
     const readGate = read("client/src/lib/authoritative-server-read.ts");
     const reports = read("client/src/pages/ReportsPage.tsx");
     const aging = read("client/src/components/InventorySupplierPayablesAgingPanel.tsx");
+    const subscriberArrears = read("client/src/pages/NetworkDirectoryPage.tsx");
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     expect(readGate).toContain("state.isFetchedAfterMount === true");
     expect(readGate).toContain("state.isFetching !== true");
@@ -65,6 +66,10 @@ describe("offline data and financial truth boundaries", () => {
     expect(reports).toContain("!liveReport || usingCachedReport || reportAccessDenied");
     expect(aging).toContain("hasServerValidatedResult");
     expect(aging).toContain("if (!hasServerValidatedResult || authorizationDenied || !result)");
+    expect(subscriberArrears).toContain("const periodMetricsIsAuthoritative = hasAuthoritativeServerRead(periodMetricsQuery)");
+    expect(subscriberArrears).toContain("periodMetricsIsAuthoritative ? periodMetricsQuery.data?.outstandingInvoices ?? [] : []");
+    expect(subscriberArrears).toContain("!periodMetricsIsAuthoritative || !periodMetricsQuery.data");
+    expect(subscriberArrears).toContain('totalOpenCount ?? "غير متحقق"');
     expect(workspace).toContain("supplierLedgerIsAuthoritative");
     expect(workspace).toContain("supplierLedgerRequiresRevalidation");
     expect(workspace).toContain('"غير مؤكد"');
