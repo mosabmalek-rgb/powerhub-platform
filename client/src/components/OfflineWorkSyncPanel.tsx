@@ -718,6 +718,8 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         assertCurrent();
         setSyncing(true);
         await syncPendingUnlocked(assertCurrent);
+      } catch (error) {
+        if (isSyncRunCurrent(assertCurrent)) toast.error(getErrorMessage(error));
       } finally {
         if (isSyncRunCurrent(assertCurrent)) {
           setSyncing(false);
