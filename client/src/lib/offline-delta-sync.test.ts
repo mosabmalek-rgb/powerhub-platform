@@ -234,9 +234,10 @@ describe("maintenance work-order Delta ordering", () => {
 });
 
 describe("bounded Delta sidecar retention policy", () => {
-  it("prunes bounded fuel and maintenance entities but never truncates a per-order parts partition", () => {
+  it("prunes bounded fuel, maintenance and HR financial entities but never truncates a per-order parts partition", () => {
     for (const entityType of [
       "fuel_readings", "maintenance_preventive_plans", "fuel_events", "maintenance_work_orders",
+      "hr_employee_directory", "hr_attendance", "hr_employee_advances", "hr_payroll_runs",
     ] as const) {
       expect(isBoundedDeltaEntityType(entityType), entityType).toBe(true);
     }
@@ -503,6 +504,22 @@ describe("offline delta sync", () => {
 
     const parts = Array.from({ length: 501 }, (_, index) => ({ id: index + 1, work_order_id: 77 }));
     expect(limitDeltaEntityRows("maintenance_work_order_parts:77", parts)).toHaveLength(501);
+
+    const advances = Array.from({ length: 501 }, (_, index) => ({
+      id: index + 1, created_at: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+    }));
+    const boundedAdvances = limitDeltaEntityRows("hr_employee_advances", advances);
+    expect(boundedAdvances).toHaveLength(500);
+    expect(boundedAdvances[0]?.id).toBe(501);
+    expect(boundedAdvances.some(row => row.id === 1)).toBe(false);
+
+    const payrollRuns = Array.from({ length: 121 }, (_, index) => ({
+      id: index + 1, period: new Date(Date.UTC(2026, index, 1)).toISOString().slice(0, 7),
+    }));
+    const boundedPayroll = limitDeltaEntityRows("hr_payroll_runs", payrollRuns);
+    expect(boundedPayroll).toHaveLength(120);
+    expect(boundedPayroll[0]?.id).toBe(121);
+    expect(boundedPayroll.some(row => row.id === 1)).toBe(false);
   });
 
   it("keeps the newest 500 fuel readings when pruning the local Delta snapshot", async () => {
