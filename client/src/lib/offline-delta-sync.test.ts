@@ -109,12 +109,14 @@ function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>
 }
 
 describe("Delta run identity guard", () => {
-  it("allows writes only while the run owner is still the active authenticated user", () => {
+  it("allows writes only while the run owner is still the active authenticated user", async () => {
     expect(isDeltaSyncRunCurrent(7, 7, false)).toBe(true);
     expect(isDeltaSyncRunCurrent(7, 8, false)).toBe(false);
     expect(isDeltaSyncRunCurrent(7, null, false)).toBe(false);
     expect(isDeltaSyncRunCurrent(7, 7, true)).toBe(false);
     expect(isDeltaSyncRunCurrent(0, 0, false)).toBe(false);
+    await expect(persistOfflineQueryForDeltaSync(deltaCacheQuery, "1", 1_000, () => false))
+      .rejects.toMatchObject({ name: "PowerHubDeltaSyncRunSupersededError" });
   });
 
   it("discards a late page after the authenticated owner changes without applying rows or advancing its cursor", async () => {
