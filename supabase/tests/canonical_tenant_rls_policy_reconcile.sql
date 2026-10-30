@@ -295,6 +295,20 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN
     NULL;
   END;
+
+  BEGIN
+    INSERT INTO public.suppliers(id,tenant_id) VALUES (99,1);
+    RAISE EXCEPTION 'READ_ONLY_SUPPLIER_POLICY_ALLOWED_INSERT';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+
+  BEGIN
+    INSERT INTO public.inventory_items(id,tenant_id) VALUES (99,1);
+    RAISE EXCEPTION 'READ_ONLY_INVENTORY_POLICY_ALLOWED_INSERT';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
 END
 $behavior$;
 
