@@ -182,19 +182,19 @@ export function WorkspaceHome() {
   const dashboardMonthEnd = new Date(Date.UTC(dashboardClock.getUTCFullYear(), dashboardClock.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
   const todayInvoicedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "periodInvoiced",
-    startDate: dashboardToday, endDate: dashboardToday,
+    startDate: dashboardToday, endDate: dashboardToday, boundaryMode: "utc",
   }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const todayCollectedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "periodCollected",
-    startDate: dashboardToday, endDate: dashboardToday,
+    startDate: dashboardToday, endDate: dashboardToday, boundaryMode: "utc",
   }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const todayCollectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
-    startDate: dashboardToday, endDate: dashboardToday,
+    startDate: dashboardToday, endDate: dashboardToday, boundaryMode: "utc",
   }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const monthCollectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
-    startDate: dashboardMonthStart, endDate: dashboardMonthEnd,
+    startDate: dashboardMonthStart, endDate: dashboardMonthEnd, boundaryMode: "utc",
   }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const activeSubscribersKpiQuery = trpc.powerhub.dashboard.activeSubscribersKpi.useQuery(
     { siteId: siteId ?? 0, scope: selectedScope },
