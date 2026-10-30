@@ -66,6 +66,10 @@ declare
   v_snapshot jsonb;
   v_delta jsonb;
   v_rows integer;
+  v_move_warehouse_id bigint;
+  v_move_purchase_id bigint;
+  v_old_site_cursor bigint;
+  v_new_site_cursor bigint;
 begin
   select id into v_supplier_id from public.suppliers
     where tenant_id=10 and supplier_code='PUR-WF-SUP';
@@ -107,6 +111,51 @@ begin
      or not exists(select 1 from jsonb_array_elements(v_delta->'changes') c
       where c->>'entity_id'=v_purchase_replacement_id::text and c->>'operation'='upsert') then
     raise exception 'BOUNDED_PURCHASE_DELETE_DID_NOT_REFILL_RANK_201';
+  end if;
+
+  -- A scope move must remove the purchase from its previous branch feed and
+  -- publish it into the destination branch feed. Both cursors are captured before
+  -- the move so this verifies the actual Delta contract, not a fresh snapshot only.
+  insert into public.inventory_warehouses(tenant_id,site_id,code,name,created_by_user_id)
+  values (10,101,'BDELTA-OTHER','Bounded Delta destination warehouse',1)
+  returning id into v_move_warehouse_id;
+
+  select public.powerhub_get_inventory_sync_snapshot(10,100,'inventory_purchase_headers') into v_snapshot;
+  if v_snapshot->>'status'<>'ok' then
+    raise exception 'BOUNDED_PURCHASE_OLD_SCOPE_SNAPSHOT_FAILED';
+  end if;
+  v_old_site_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
+
+  select public.powerhub_get_inventory_sync_snapshot(10,101,'inventory_purchase_headers') into v_snapshot;
+  if v_snapshot->>'status'<>'ok' or jsonb_array_length(v_snapshot->'rows')<>0 then
+    raise exception 'BOUNDED_PURCHASE_NEW_SCOPE_BASELINE_NOT_EMPTY';
+  end if;
+  v_new_site_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
+
+  select id into v_move_purchase_id from public.supplier_purchases
+    where tenant_id=10 and operation_key='bounded-delta-purchase-200';
+  if v_move_purchase_id is null then
+    raise exception 'BOUNDED_PURCHASE_SCOPE_MOVE_FIXTURE_MISSING';
+  end if;
+  update public.supplier_purchases
+    set site_id=101,warehouse_id=v_move_warehouse_id
+    where tenant_id=10 and id=v_move_purchase_id;
+
+  select public.powerhub_pull_inventory_sync_delta(
+    10,100,'inventory_purchase_headers',v_old_site_cursor,null,500
+  ) into v_delta;
+  if not exists(select 1 from jsonb_array_elements(v_delta->'changes') c
+      where c->>'entity_id'=v_move_purchase_id::text and c->>'operation'='delete') then
+    raise exception 'BOUNDED_PURCHASE_SCOPE_MOVE_MISSING_OLD_SITE_TOMBSTONE';
+  end if;
+
+  select public.powerhub_pull_inventory_sync_delta(
+    10,101,'inventory_purchase_headers',v_new_site_cursor,null,500
+  ) into v_delta;
+  if not exists(select 1 from jsonb_array_elements(v_delta->'changes') c
+      where c->>'entity_id'=v_move_purchase_id::text and c->>'operation'='upsert'
+        and (c->'row_data'->>'site_id')::bigint=101) then
+    raise exception 'BOUNDED_PURCHASE_SCOPE_MOVE_MISSING_NEW_SITE_UPSERT';
   end if;
 
   -- Receipt headers use received_at ordering and share the same replacement rule.
