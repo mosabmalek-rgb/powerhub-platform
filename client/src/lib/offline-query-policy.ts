@@ -441,7 +441,7 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (!isOfflineCacheableQueryKey(queryKey) || segments.length < 3 || segments[0] !== "powerhub") return false;
   if (isSafeHrOfflineProjection(queryKey, segments) &&
-      ["offlineDirectory", "offlineAttendance"].includes(segments[2] ?? "")) return true;
+      ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns"].includes(segments[2] ?? "")) return true;
 
   // Reading, invoice, payment and expense history are materialized from their full
   // scoped Delta snapshots into the exact page shape expected by the UI.
@@ -476,6 +476,8 @@ export function getOfflineQueryStaleTime(queryKey: readonly unknown[]): number {
 export type OfflineQueryDeltaEntity =
   | "hr_employee_directory"
   | "hr_attendance"
+  | "hr_employee_advances"
+  | "hr_payroll_runs"
   | "sites"
   | "subscribers"
   | "generators"
@@ -509,9 +511,11 @@ export type OfflineQueryDeltaEntity =
 export function getOfflineQueryDeltaEntity(queryKey: readonly unknown[]): OfflineQueryDeltaEntity | null {
   if (!isDeltaSyncBackedQueryKey(queryKey)) return null;
   const segments = getPowerHubQuerySegments(queryKey);
-  if (isSafeHrOfflineProjection(queryKey, segments) &&
-      ["offlineDirectory", "offlineAttendance"].includes(segments[2] ?? "")) {
-    return segments[2] === "offlineDirectory" ? "hr_employee_directory" : "hr_attendance";
+  if (isSafeHrOfflineProjection(queryKey, segments)) {
+    if (segments[2] === "offlineDirectory") return "hr_employee_directory";
+    if (segments[2] === "offlineAttendance") return "hr_attendance";
+    if (segments[2] === "offlineEmployeeAdvances") return "hr_employee_advances";
+    if (segments[2] === "offlinePayrollRuns") return "hr_payroll_runs";
   }
   if (segments[1] === "subscribers" && segments[2] === "directoryPage") {
     return isSafeSubscriberDirectoryPage(queryKey) ? "subscribers" : null;
