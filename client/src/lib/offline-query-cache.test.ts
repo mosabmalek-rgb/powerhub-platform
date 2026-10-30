@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearOfflineHrProjectionCacheForSite,
+  isOfflineDashboardQueryKeyForSite,
   isOfflineHrProjectionQueryKeyForSite,
   isOfflineFuelQueryKeyForSite,
   isOfflinePurchaseDetailQueryKeyForSite,
@@ -16,6 +17,24 @@ import {
   sanitizeOfflineQueryData,
 } from "./offline-query-cache";
 import { getOfflineQueryDeltaEntity, getOfflineQueryStaleTime, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey, isSafeSupplierLedgerStatementSnapshot, isSafeSupplierPayablesAgingSnapshot } from "./offline-query-policy";
+
+describe("dashboard cache scope matching", () => {
+  it("matches only authorized dashboard snapshot procedures for the exact site", () => {
+    const financial = ["powerhub.dashboard.financialKpi", {
+      input: { siteId: 7, scope: "branch", metric: "netCash" }, type: "query",
+    }];
+    const revision = ["powerhub.dashboard.deltaRevision", {
+      input: { siteId: 7, scope: "branch" }, type: "query",
+    }];
+    expect(isOfflineDashboardQueryKeyForSite(financial, 7, ["financialKpi"])).toBe(true);
+    expect(isOfflineDashboardQueryKeyForSite(financial, 8, ["financialKpi"])).toBe(false);
+    expect(isOfflineDashboardQueryKeyForSite(financial, 7, ["deltaRevision"])).toBe(false);
+    expect(isOfflineDashboardQueryKeyForSite(revision, 7, ["deltaRevision"])).toBe(true);
+    expect(isOfflineDashboardQueryKeyForSite(["powerhub.dashboard.financialKpi", {
+      input: { siteId: 7, scope: "all", metric: "unknown" }, type: "query",
+    }], 7, ["financialKpi"])).toBe(false);
+  });
+});
 
 describe("offline query cache policy", () => {
   it("caches tenant-scoped operational PowerHub queries", () => {
