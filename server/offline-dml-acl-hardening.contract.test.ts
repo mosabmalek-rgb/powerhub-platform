@@ -37,6 +37,14 @@ const canonicalRlsTestUrl = new URL(
   "../supabase/tests/canonical_tenant_rls_policy_reconcile.sql",
   import.meta.url,
 );
+const idempotencySchemaMigrationUrl = new URL(
+  "../supabase/migrations/20261030220000_powerhub_missing_idempotency_schema_reconcile.sql",
+  import.meta.url,
+);
+const idempotencySchemaTestUrl = new URL(
+  "../supabase/tests/missing_idempotency_schema_reconcile.sql",
+  import.meta.url,
+);
 const readMigration = () => readFile(migrationUrl, "utf8");
 const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
 const readQuotaAclMigration = () => readFile(quotaAclMigrationUrl, "utf8");
@@ -46,6 +54,8 @@ const readBrowserDmlReconcileMigration = () => readFile(browserDmlReconcileMigra
 const readBrowserDmlReconcileTest = () => readFile(browserDmlReconcileTestUrl, "utf8");
 const readCanonicalRlsMigration = () => readFile(canonicalRlsMigrationUrl, "utf8");
 const readCanonicalRlsTest = () => readFile(canonicalRlsTestUrl, "utf8");
+const readIdempotencySchemaMigration = () => readFile(idempotencySchemaMigrationUrl, "utf8");
+const readIdempotencySchemaTest = () => readFile(idempotencySchemaTestUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
   it("revokes direct write privileges from public browser roles on core records", async () => {
@@ -147,6 +157,24 @@ describe("offline server-write ACL hardening migration", () => {
     expect(integration).toContain("authenticated_select_removed_on_%");
     expect(integration).toContain("test_tenant_access");
   });
+  it("restores the production idempotency columns and unique replay indexes", async () => {
+    const migration = (await readIdempotencySchemaMigration()).toLowerCase();
+    const integration = (await readIdempotencySchemaTest()).toLowerCase();
+    for (const table of ["access_invitations", "custom_permission_roles", "platform_access_invitations"]) {
+      expect(migration).toContain("alter table public." + table);
+      expect(migration).toContain("add column if not exists client_operation_id text");
+      expect(migration).toContain("add column if not exists request_fingerprint text");
+      expect(integration).toContain("public." + table);
+    }
+    expect(migration).toContain("access_invitations_client_operation_id_uidx");
+    expect(migration).toContain("custom_permission_roles_operation_uidx");
+    expect(migration).toContain("platform_access_invitations_client_operation_id_uidx");
+    expect(integration).toContain("access_invitation_operation_duplicate_allowed");
+    expect(integration).toContain("custom_role_operation_duplicate_allowed");
+    expect(integration).toContain("platform_invitation_operation_duplicate_allowed");
+    expect(integration).toContain("existing_rows_changed_during_idempotency_reconcile");
+  });
+
   it("keeps the canonical RLS integration fixture aligned with live tenant behavior", async () => {
     const integration = (await readCanonicalRlsTest()).toLowerCase();
     expect(integration).toContain("grant usage on schema auth to authenticated");
