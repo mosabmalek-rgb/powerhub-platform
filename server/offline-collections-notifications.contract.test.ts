@@ -32,8 +32,9 @@ describe("PowerHub offline collection, opening-reading, and notification contrac
   });
 
   it("keeps dashboard KPI queries fresh in memory and avoids duplicate full summary reads", () => {
-    expect(dashboardPage).toContain("dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 })");
-    expect(dashboardPage).toContain("dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 })");
+    expect(dashboardPage).toContain("const dashboardScopeDenied = sitesAccessDenied || isExplicitAuthorizationDenial(accessQuery.error)");
+    expect(dashboardPage).toContain("const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 })");
+    expect(dashboardPage).toContain("trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 60_000 })");
     expect(dashboardPage).toContain("staleTime: 30_000,");
     expect(dashboardReads).toContain("const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([");
     expect(dashboardReads).not.toContain("const [subscriberResult, generatorResult, invoiceResult, expenseResult]");
