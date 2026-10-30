@@ -783,7 +783,8 @@ export function isOfflineHrProjectionQueryKeyForSite(
   const first = queryKey[0];
   const segments = Array.isArray(first)
     ? first.filter((part): part is string => typeof part === "string")
-    : typeof first === "string" ? first.split(".") : [];
+    : typeof first === "string" && first.includes(".") ? first.split(".")
+      : typeof first === "string" ? queryKey.slice(0, 3).filter((part): part is string => typeof part === "string") : [];
   const procedure = segments[2] ?? "";
   if (segments[0] !== "powerhub" || segments[1] !== "hr" ||
       !["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances",
