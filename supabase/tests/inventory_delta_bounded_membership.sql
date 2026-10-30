@@ -44,7 +44,10 @@ alter table public.powerhub_sync_scope_state
       'inventory_purchase_receipt_headers','inventory_supplier_return_headers','fuel_readings',
       'maintenance_preventive_plans','fuel_events','maintenance_work_orders','hr_employee_directory',
       'hr_attendance','supplier_ledger'
-    ) or entity_type ~ '^maintenance_work_order_parts:[1-9][0-9]{0,15}do $bounded_inventory_delta_membership$
+    ) or entity_type ~ '^maintenance_work_order_parts:[1-9][0-9]{0,15}$'
+  );
+
+do $bounded_inventory_delta_membership$
 declare
   v_supplier_id bigint;
   v_warehouse_id bigint;
