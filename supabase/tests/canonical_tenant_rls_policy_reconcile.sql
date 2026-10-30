@@ -5,36 +5,12 @@ DO $roles$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_obj
 DO $roles$ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $roles$;
 
 CREATE SCHEMA IF NOT EXISTS auth;
-CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$ SELECT NULL::uuid $function$;
-CREATE SCHEMA IF NOT EXISTS private;
-CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
-  SELECT EXISTS (
-    SELECT 1 FROM public.tenant_members tm
-    JOIN public.users u ON u.id=tm.user_id
-    WHERE tm.tenant_id=target_tenant_id
-      AND u.auth_user_id=auth.uid()
-      AND tm.is_active=true
-      AND tm.membership_status='active'
-  )
-$function$;
-CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin()
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
-  SELECT EXISTS (
-    SELECT 1 FROM public.users
-    WHERE auth_user_id=auth.uid()
-      AND platform_role IN ('platform_owner','platform_admin','finance_admin')
-      AND account_status='active'
-  )
-$function$;
-REVOKE ALL ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() FROM PUBLIC, anon;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$
   SELECT nullif(current_setting('test.auth_uid', true), '')::uuid
 $function$;
 GRANT USAGE ON SCHEMA auth TO authenticated;
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
-GRANT USAGE ON SCHEMA private TO authenticated;
-GRANT EXECUTE ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() TO authenticated;
+CREATE SCHEMA IF NOT EXISTS private;
 
 CREATE TABLE public.access_invitations (id bigint primary key, tenant_id bigint);
 ALTER TABLE public.access_invitations ENABLE ROW LEVEL SECURITY;
@@ -275,6 +251,30 @@ CREATE TABLE public.tweet_sms_report_snapshots (id bigint primary key, tenant_id
 ALTER TABLE public.tweet_sms_report_snapshots ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fixture_open ON public.tweet_sms_report_snapshots FOR ALL TO PUBLIC USING (true) WITH CHECK (true);
 GRANT ALL ON public.tweet_sms_report_snapshots TO anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.tenant_members tm
+    JOIN public.users u ON u.id=tm.user_id
+    WHERE tm.tenant_id=target_tenant_id
+      AND u.auth_user_id=auth.uid()
+      AND tm.is_active=true
+      AND tm.membership_status='active'
+  )
+$function$;
+CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.users
+    WHERE auth_user_id=auth.uid()
+      AND platform_role IN ('platform_owner','platform_admin','finance_admin')
+      AND account_status='active'
+  )
+$function$;
+REVOKE ALL ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() FROM PUBLIC, anon;
+GRANT USAGE ON SCHEMA private TO authenticated;
+GRANT EXECUTE ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() TO authenticated;
 
 \ir ../migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql
 \ir ../migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql
