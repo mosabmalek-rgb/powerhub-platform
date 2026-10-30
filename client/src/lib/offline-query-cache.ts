@@ -672,7 +672,16 @@ async function persistOfflineQueryWithPolicy(
   userId: string,
   now: number,
   requiredForDeltaSync: boolean,
+  isStillCurrent?: () => boolean,
 ): Promise<void> {
+  const assertCurrentRun = () => {
+    if (requiredForDeltaSync && isStillCurrent && !isStillCurrent()) {
+      throw Object.assign(new Error("توقف حفظ كاش Delta لأن هوية الجلسة أو نطاق التشغيل تغيّر."), {
+        name: "PowerHubDeltaSyncRunSupersededError",
+      });
+    }
+  };
+  assertCurrentRun();
   if (query.state.status !== "success" || query.state.data === undefined) {
     if (requiredForDeltaSync) throw new Error("لا يمكن تثبيت مؤشر Delta دون بيانات استعلام ناجحة قابلة للحفظ.");
     return;
@@ -731,8 +740,15 @@ async function persistOfflineQueryWithPolicy(
   };
 
   try {
+    assertCurrentRun();
     if (requiredForDeltaSync) {
-      await withCommittedStore("queries", "readwrite", (store) => store.put(record));
+      // The guard runs after IndexedDB opens and immediately before the put.
+      // If the identity changed while opening storage, no stale write is queued.
+      await withCommittedStore("queries", "readwrite", (store) => {
+        assertCurrentRun();
+        return store.put(record);
+      });
+      assertCurrentRun();
     } else {
       await withStore("queries", "readwrite", (store) => store.put(record));
     }
@@ -764,8 +780,13 @@ export async function persistOfflineQuery(query: Query, userId: string, now = Da
  * checkpointed by Delta sync. Rejects if the record cannot be saved or its
  * IndexedDB transaction fails, including an abort after request.onsuccess.
  */
-export async function persistOfflineQueryForDeltaSync(query: Query, userId: string, now = Date.now()) {
-  await persistOfflineQueryWithPolicy(query, userId, now, true);
+export async function persistOfflineQueryForDeltaSync(
+  query: Query,
+  userId: string,
+  now = Date.now(),
+  isStillCurrent?: () => boolean,
+) {
+  await persistOfflineQueryWithPolicy(query, userId, now, true, isStillCurrent);
 }
 
 /**
