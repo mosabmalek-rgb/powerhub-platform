@@ -30,6 +30,7 @@ describe("dashboard cache scope matching", () => {
     expect(isOfflineDashboardQueryKeyForSite(financial, 8, ["financialKpi"])).toBe(false);
     expect(isOfflineDashboardQueryKeyForSite(financial, 7, ["deltaRevision"])).toBe(false);
     expect(isOfflineDashboardQueryKeyForSite(revision, 7, ["deltaRevision"])).toBe(true);
+    expect(isOfflineDashboardQueryKeyForSite(["powerhub", "dashboard", "summary", { siteId: 7 }], 7, ["summary"])).toBe(true);
     expect(isOfflineDashboardQueryKeyForSite(["powerhub.dashboard.financialKpi", {
       input: { siteId: 7, scope: "all", metric: "unknown" }, type: "query",
     }], 7, ["financialKpi"])).toBe(false);
