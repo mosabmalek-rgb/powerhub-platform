@@ -31,6 +31,11 @@ describe("independent dashboard KPI snapshots", () => {
     expect(financial).toContain('input.metric === "currentArrears"');
     expect(financial).toContain('.eq("tenant_id", tenantId)');
     expect(financial).toContain('.in("site_id", siteIds)');
+    expect(financial).toContain('input.metric === "expenses" || input.metric === "netCash"');
+    expect(financial).toContain('input.metric === "netCash"');
+    expect(financial).toContain('input.metric === "currentArrears"');
+    expect(financial).toContain('buildDashboardFinancialKpi');
+
   });
 
   it("gives active subscribers a standalone tenant/site-authorized count query", () => {
