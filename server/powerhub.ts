@@ -599,10 +599,6 @@ async function requireDeltaFuelMaintenanceReadAccess(
     }
     return access;
   }
-  if (entityType === "maintenance_work_orders") {
-    const access = await resolveSupabaseSiteAccess(userId, siteId);
-    if (access.permissions.includes("viewInventoryReports")) return access;
-  }
   try {
     return await requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"], "viewInventory");
   } catch (error) {
@@ -623,11 +619,20 @@ export const powerhubRouter = router({
     })).query(async ({ ctx, input }) => {
       // Expose opaque revisions only. Each feed is authorized before its cursor
       // metadata is read, and every read remains inside the selected tenant/site.
-      const accesses = await Promise.all(input.entityTypes.map((entityType) =>
-        entityType === "fuel_events" || entityType === "maintenance_work_orders"
+      const accesses = await Promise.all(input.entityTypes.map((entityType) => {
+        // Report-only users may observe the maintenance revision, but this does
+        // not grant them access to the detailed work-order Delta snapshot/pull.
+        if (entityType === "maintenance_work_orders") {
+          return requireSupabaseSiteRole(
+            ctx.user.id, input.siteId,
+            ["owner", "manager", "technician", "accountant", "viewer"],
+            "viewInventoryReports",
+          );
+        }
+        return entityType === "fuel_events"
           ? requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, entityType)
-          : requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, entityType),
-      ));
+          : requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, entityType);
+      }));
       const tenantId = accesses[0]?.tenantId;
       if (!tenantId || accesses.some((access) => access.tenantId !== tenantId)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "نطاق مزامنة المؤشرات غير متطابق." });

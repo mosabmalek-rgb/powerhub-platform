@@ -38,8 +38,13 @@ describe("operational Delta revision contract", () => {
     expect(procedure).toContain("new Set(values).size === values.length");
   });
 
-  it("allows the maintenance report permission to observe work-order revision only", () => {
-    expect(router).toContain('if (entityType === "maintenance_work_orders")');
-    expect(router).toContain('access.permissions.includes("viewInventoryReports")');
+  it("allows report-only roles to observe the maintenance revision without broadening work-order Delta row access", () => {
+    expect(procedure).toContain('if (entityType === "maintenance_work_orders")');
+    expect(procedure).toContain('"viewInventoryReports"');
+    const workOrderGuardStart = router.indexOf("async function requireDeltaFuelMaintenanceReadAccess");
+    const workOrderGuardEnd = router.indexOf("export const powerhubRouter", workOrderGuardStart);
+    const workOrderGuard = router.slice(workOrderGuardStart, workOrderGuardEnd);
+    expect(workOrderGuard).not.toContain("viewInventoryReports");
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"], "viewInventory")');
   });
 });
