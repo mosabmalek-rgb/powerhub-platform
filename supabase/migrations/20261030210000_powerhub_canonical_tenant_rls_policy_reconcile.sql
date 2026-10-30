@@ -6,17 +6,20 @@
 
 DO $preflight$
 BEGIN
-  IF to_regprocedure('private.powerhub_has_tenant_access(bigint)') IS NULL
+  IF to_regprocedure('private.powerhub_current_user_id()') IS NULL
+     OR to_regprocedure('private.powerhub_has_tenant_access(bigint)') IS NULL
      OR to_regprocedure('private.powerhub_is_platform_admin()') IS NULL
      OR to_regprocedure('auth.uid()') IS NULL THEN
     RAISE EXCEPTION 'POWERHUB_CANONICAL_RLS_HELPERS_MISSING';
   END IF;
   IF NOT has_schema_privilege('authenticated', 'private', 'USAGE')
+     OR NOT has_function_privilege('authenticated', 'private.powerhub_current_user_id()', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'private.powerhub_has_tenant_access(bigint)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'private.powerhub_is_platform_admin()', 'EXECUTE') THEN
     RAISE EXCEPTION 'POWERHUB_CANONICAL_RLS_HELPER_GRANTS_MISSING';
   END IF;
-  IF has_function_privilege('anon', 'private.powerhub_has_tenant_access(bigint)', 'EXECUTE')
+  IF has_function_privilege('anon', 'private.powerhub_current_user_id()', 'EXECUTE')
+     OR has_function_privilege('anon', 'private.powerhub_has_tenant_access(bigint)', 'EXECUTE')
      OR has_function_privilege('anon', 'private.powerhub_is_platform_admin()', 'EXECUTE') THEN
     RAISE EXCEPTION 'POWERHUB_ANON_RLS_HELPER_EXECUTE_MUST_REMAIN_REVOKED';
   END IF;
