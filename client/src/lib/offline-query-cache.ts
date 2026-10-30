@@ -344,6 +344,24 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
     if (segments[2] === "periodMetrics") {
       return { ...snapshot, outstandingInvoices: [] };
     }
+    if (segments[2] === "activeSubscribersKpi") {
+      return {
+        metric: snapshot.metric,
+        value: snapshot.value,
+        scope: snapshot.scope,
+        siteId: snapshot.siteId,
+      };
+    }
+    if (segments[2] === "periodKpi") {
+      return {
+        metric: snapshot.metric,
+        value: snapshot.value,
+        auxiliaryCount: snapshot.auxiliaryCount ?? null,
+        range: snapshot.range,
+        scope: snapshot.scope,
+        siteId: snapshot.siteId,
+      };
+    }
     return data;
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
