@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
-import { dashboardDateKey, useDashboardKpiPeriod } from "@/hooks/useDashboardKpiPeriod";
+import { useDashboardKpiPeriod } from "@/hooks/useDashboardKpiPeriod";
 import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter";
 import { trpc } from "@/lib/trpc";
 import { describeAuthFailure } from "@/lib/auth-diagnostics";
@@ -180,27 +180,28 @@ export function WorkspaceHome() {
     startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
   }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const dashboardClock = new Date();
-  // Dashboard day/month labels follow the Gaza business calendar. The API's
-  // default boundary mode converts these date keys to Asia/Gaza day boundaries.
-  const dashboardToday = dashboardDateKey(dashboardClock);
-  const [dashboardYear, dashboardMonth] = dashboardToday.split("-").map(Number);
-  const dashboardMonthStart = `${dashboardYear}-${String(dashboardMonth).padStart(2, "0")}-01`;
-  const dashboardMonthEnd = new Date(Date.UTC(dashboardYear, dashboardMonth, 0)).toISOString().slice(0, 10);
+  const dashboardToday = dashboardClock.toISOString().slice(0, 10);
+  const dashboardMonthStart = new Date(Date.UTC(dashboardClock.getUTCFullYear(), dashboardClock.getUTCMonth(), 1)).toISOString().slice(0, 10);
+  const dashboardMonthEnd = new Date(Date.UTC(dashboardClock.getUTCFullYear(), dashboardClock.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
   const todayInvoicedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "periodInvoiced",
     startDate: dashboardToday, endDate: dashboardToday,
+    boundaryMode: "utc",
   }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const todayCollectedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "periodCollected",
     startDate: dashboardToday, endDate: dashboardToday,
+    boundaryMode: "utc",
   }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const todayCollectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
     startDate: dashboardToday, endDate: dashboardToday,
+    boundaryMode: "utc",
   }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const monthCollectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
     startDate: dashboardMonthStart, endDate: dashboardMonthEnd,
+    boundaryMode: "utc",
   }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const activeSubscribersKpiQuery = trpc.powerhub.dashboard.activeSubscribersKpi.useQuery(
     { siteId: siteId ?? 0, scope: selectedScope },
