@@ -242,19 +242,20 @@ export function WorkspaceHome() {
     ));
     if (changed.size === 0) return;
 
-    // Each KPI has a specific revision dependency set; values remain server aggregates.
-    if (["generatorStatus", "operationalStatus", "operatingProfit"].some((metric) => changed.has(metric))) {
+    // Each changed KPI refreshes only its owning server snapshot. Values are
+    // never recomposed from partial Delta rows on the client.
+    if (changed.has("generatorStatus")) {
       void (selectedScope === "all" ? allBranchesSummaryQuery.refetch() : summaryQuery.refetch());
     }
     if (canViewFinancialOverview &&
-        ["activeSubscribers", "financialOverview", "expenses", "operatingProfit"].some((metric) => changed.has(metric))) {
+        ["activeSubscribers", "currentArrears", "expenses", "netCash", "financialOverview"].some((metric) => changed.has(metric))) {
       void financialOverviewQuery.refetch();
     }
-    if (canViewFinancialOverview && changed.has("financialOverview")) {
+    if (canViewFinancialOverview && changed.has("companyBalances")) {
       void companyAccountsQuery.refetch();
     }
     if (canViewFinancialOverview && dashboardPeriod.isReady &&
-        ["periodInvoiced", "periodCollected", "collectionRate", "overdue"].some((metric) => changed.has(metric))) {
+        ["periodInvoiced", "periodCollected", "collectionRate", "periodOverdue"].some((metric) => changed.has(metric))) {
       void periodMetricsQuery.refetch();
     }
   }, [
