@@ -782,7 +782,8 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("if (eventsChanged && hasFilteredEventQuery) void events.refetch()");
     expect(panel).toContain("clearOfflineFuelQueryCacheForSite");
     expect(panel).toContain("useDeltaRevisionRefresh");
-    expect(panel).toContain("reportAuthorizationDenied ? [] : reportIsAuthoritative ? report.data ?? [] : cachedFuelReportForCurrentScope?.rows ?? []");
+    expect(panel).toContain("const reportRows = (reportAuthorizationDenied ? [] : reportIsAuthoritative");
+    expect(panel).toContain(": cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];");
     expect(panel).toContain("لا توجد لقطة محلية مطابقة لفلاتر التعبئة الحالية");
     expect(panel).toContain("optionsAuthorizationDenied ? <p role=\"alert\"");
     expect(panel).toContain("alertSettingsAuthorizationDenied ? <p role=\"alert\"");
