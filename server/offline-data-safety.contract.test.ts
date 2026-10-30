@@ -63,6 +63,7 @@ describe("offline data and financial truth boundaries", () => {
     const reports = read("client/src/pages/ReportsPage.tsx");
     const aging = read("client/src/components/InventorySupplierPayablesAgingPanel.tsx");
     const subscriberArrears = read("client/src/pages/NetworkDirectoryPage.tsx");
+    const subscriberStatement = read("client/src/pages/SubscriberAccountStatementPage.tsx");
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     expect(readGate).toContain("state.isFetchedAfterMount === true");
     expect(readGate).toContain("state.isFetching !== true");
@@ -74,6 +75,14 @@ describe("offline data and financial truth boundaries", () => {
     expect(subscriberArrears).toContain("periodMetricsIsAuthoritative ? periodMetricsQuery.data?.outstandingInvoices ?? [] : []");
     expect(subscriberArrears).toContain("!periodMetricsIsAuthoritative || !periodMetricsQuery.data");
     expect(subscriberArrears).toContain('totalOpenCount ?? "غير متحقق"');
+    expect(subscriberStatement).toContain("const statementIsAuthoritative=hasAuthoritativeServerRead(q)");
+    expect(subscriberStatement).toContain("const data=statementIsAuthoritative?q.data:undefined");
+    expect(subscriberStatement).toContain("if(!statementIsAuthoritative||!pdfRef.current||!data)");
+    expect(subscriberStatement).toContain("if(!statementIsAuthoritative||!data)");
+    expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative} onClick={excel}");
+    expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative} onClick={pdf}");
+    expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative||createShareLink.isPending}");
+    expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative||sendReminder.isPending}");
     expect(workspace).toContain("supplierLedgerIsAuthoritative");
     expect(workspace).toContain("supplierLedgerRequiresRevalidation");
     expect(workspace).toContain('"غير مؤكد"');
