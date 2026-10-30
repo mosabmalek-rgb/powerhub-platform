@@ -773,6 +773,14 @@ const indexedDbStorage: DeltaSyncStorage = {
  * single local transaction; if a page is replayed after interruption, the local
  * store rejects an older cursor rather than overwriting fresher records.
  */
+function assertDeltaSyncRunActive(isCurrent?: () => boolean): void {
+  if (isCurrent && !isCurrent()) {
+    throw Object.assign(new Error("توقف تشغيل Delta لأن هوية الجلسة أو نطاق التشغيل تغيّر."), {
+      name: "PowerHubDeltaSyncRunSupersededError",
+    });
+  }
+}
+
 export async function pullDeltaPages<Row extends Record<string, unknown>>(input: {
   scope: DeltaCursorScope;
   afterCursor: string | null;
@@ -781,6 +789,8 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   applyPage?: (page: DeltaPage<Row>) => Promise<void>;
   rebuildSnapshot: (requestedCursor: string) => Promise<{ cursor: string; rows: readonly Row[] }>;
   storage?: DeltaSyncStorage<Row>;
+  /** Prevent an obsolete authenticated run from applying or checkpointing late RPC results. */
+  isCurrent?: () => boolean;
 }): Promise<{ cursor: string; appliedChanges: number; resetRequired: boolean }> {
   const pageSize = input.pageSize ?? 200;
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 500) throw new Error("حجم صفحة المزامنة غير صالح.");
@@ -791,12 +801,17 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   let resetRequired = false;
   let pages = 0;
   while (pages++ < 10000) {
+    assertDeltaSyncRunActive(input.isCurrent);
     const page = await input.pull({ afterCursor: cursor, throughCursor: through, pageSize });
+    assertDeltaSyncRunActive(input.isCurrent);
     if (page.entity_type !== input.scope.entityType) throw new Error("استجابة المزامنة لا تطابق نوع البيانات المطلوب.");
     if (page.status === "reset_required") {
+      assertDeltaSyncRunActive(input.isCurrent);
       const snapshot = await input.rebuildSnapshot(assertCursor(page.snapshot_cursor ?? page.current_cursor));
+      assertDeltaSyncRunActive(input.isCurrent);
       const snapshotCursor = assertCursor(snapshot.cursor);
       await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor);
+      assertDeltaSyncRunActive(input.isCurrent);
       cursor = snapshotCursor;
       through = null;
       resetRequired = true;
@@ -816,8 +831,14 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     // Update the live query cache and await its durable offline-cache write
     // before advancing the separate delta cursor. If the browser stops here,
     // the old cursor causes a safe idempotent replay instead of a skipped change.
-    if (input.applyPage && page.changes.length) await input.applyPage(page);
+    assertDeltaSyncRunActive(input.isCurrent);
+    if (input.applyPage && page.changes.length) {
+      await input.applyPage(page);
+      assertDeltaSyncRunActive(input.isCurrent);
+    }
+    assertDeltaSyncRunActive(input.isCurrent);
     await storage.commitPage(input.scope, page, next);
+    assertDeltaSyncRunActive(input.isCurrent);
     appliedChanges += page.changes.length;
     cursor = next;
     if (!page.has_more) return { cursor: through, appliedChanges, resetRequired };
