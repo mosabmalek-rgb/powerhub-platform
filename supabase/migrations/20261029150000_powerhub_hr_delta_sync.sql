@@ -382,3 +382,131 @@ end $$;
 alter function public.powerhub_pull_hr_sync_delta(bigint,bigint,text,bigint,bigint,integer) owner to postgres;
 revoke all on function public.powerhub_pull_hr_sync_delta(bigint,bigint,text,bigint,bigint,integer) from public,anon,authenticated;
 grant execute on function public.powerhub_pull_hr_sync_delta(bigint,bigint,text,bigint,bigint,integer) to service_role;
+
+
+-- Close the legacy HR browser-write surface before enabling Local-First HR use.
+-- The application writes HR changes only through guarded server RPCs. Direct
+-- authenticated DML and PUBLIC/anon table or sequence access are not required.
+-- Reuse the same active-membership and narrow platform-admin helpers used by
+-- the production core RLS policies; never use the broader is_platform_user().
+do $hr_access_boundary$
+declare
+  v_helper_schema text;
+  v_tenant_guard text;
+  v_admin_guard text;
+  v_table_name text;
+  v_sequence_name text;
+begin
+  if to_regprocedure('private.powerhub_has_tenant_access(bigint)') is not null
+     and to_regprocedure('private.powerhub_is_platform_admin()') is not null then
+    v_helper_schema := 'private';
+  elsif to_regprocedure('powerhub_private.has_tenant_access(bigint)') is not null
+        and to_regprocedure('powerhub_private.is_platform_admin()') is not null then
+    v_helper_schema := 'powerhub_private';
+  else
+    raise exception 'POWERHUB_HR_RLS_HELPERS_NOT_FOUND';
+  end if;
+
+  v_tenant_guard := format('%I.powerhub_has_tenant_access', v_helper_schema);
+  if v_helper_schema = 'powerhub_private' then
+    v_tenant_guard := 'powerhub_private.has_tenant_access';
+    v_admin_guard := 'powerhub_private.is_platform_admin';
+  else
+    v_admin_guard := format('%I.powerhub_is_platform_admin', v_helper_schema);
+  end if;
+
+  execute format('grant usage on schema %I to authenticated, service_role', v_helper_schema);
+  if v_helper_schema = 'private' then
+    execute 'revoke all on function private.powerhub_has_tenant_access(bigint) from public, anon';
+    execute 'revoke all on function private.powerhub_is_platform_admin() from public, anon';
+    execute 'grant execute on function private.powerhub_has_tenant_access(bigint) to authenticated, service_role';
+    execute 'grant execute on function private.powerhub_is_platform_admin() to authenticated, service_role';
+  else
+    execute 'revoke all on function powerhub_private.has_tenant_access(bigint) from public, anon';
+    execute 'revoke all on function powerhub_private.is_platform_admin() from public, anon';
+    execute 'grant execute on function powerhub_private.has_tenant_access(bigint) to authenticated, service_role';
+    execute 'grant execute on function powerhub_private.is_platform_admin() to authenticated, service_role';
+  end if;
+
+  foreach v_table_name in array array[
+    'employees',
+    'employee_attendance',
+    'employee_adjustments',
+    'payroll_runs',
+    'payroll_items',
+    'payroll_adjustment_allocations'
+  ] loop
+    if to_regclass(format('public.%I', v_table_name)) is null then
+      raise exception 'POWERHUB_HR_RLS_TABLE_NOT_FOUND: %', v_table_name;
+    end if;
+
+    execute format('alter table public.%I enable row level security', v_table_name);
+    execute format(
+      'revoke all privileges on table public.%I from public, anon, authenticated',
+      v_table_name
+    );
+
+    -- Payroll allocations remain service-role-only as in Production. The
+    -- application reads the approved/minimized payroll projections via RPC.
+    if v_table_name <> 'payroll_adjustment_allocations' then
+      execute format('grant select on table public.%I to authenticated', v_table_name);
+    end if;
+
+    -- Sequence grants are independent of table grants. Revoke browser access
+    -- to every HR identifier allocator and preserve explicit backend access.
+    v_sequence_name := pg_get_serial_sequence(format('public.%I', v_table_name), 'id');
+    if v_sequence_name is not null then
+      execute format(
+        'revoke all privileges on sequence %s from public, anon, authenticated',
+        v_sequence_name::regclass
+      );
+      execute format(
+        'grant usage, select on sequence %s to service_role',
+        v_sequence_name::regclass
+      );
+    end if;
+  end loop;
+
+  drop policy if exists employee_tenant_access on public.employees;
+  drop policy if exists employees_tenant_isolation on public.employees;
+  execute format(
+    'create policy employees_tenant_isolation on public.employees for select to authenticated using (%s(tenant_id) or %s())',
+    v_tenant_guard, v_admin_guard
+  );
+
+  drop policy if exists attendance_tenant_access on public.employee_attendance;
+  drop policy if exists employee_attendance_tenant_isolation on public.employee_attendance;
+  execute format(
+    'create policy employee_attendance_tenant_isolation on public.employee_attendance for select to authenticated using (%s(tenant_id) or %s())',
+    v_tenant_guard, v_admin_guard
+  );
+
+  drop policy if exists adjustment_tenant_access on public.employee_adjustments;
+  drop policy if exists employee_adjustments_tenant_isolation on public.employee_adjustments;
+  execute format(
+    'create policy employee_adjustments_tenant_isolation on public.employee_adjustments for select to authenticated using (%s(tenant_id) or %s())',
+    v_tenant_guard, v_admin_guard
+  );
+
+  drop policy if exists payroll_tenant_access on public.payroll_runs;
+  drop policy if exists payroll_runs_tenant_isolation on public.payroll_runs;
+  execute format(
+    'create policy payroll_runs_tenant_isolation on public.payroll_runs for select to authenticated using (%s(tenant_id) or %s())',
+    v_tenant_guard, v_admin_guard
+  );
+
+  drop policy if exists payroll_item_tenant_access on public.payroll_items;
+  drop policy if exists payroll_items_tenant_isolation on public.payroll_items;
+  execute format(
+    'create policy payroll_items_tenant_isolation on public.payroll_items for select to authenticated using (exists (select 1 from public.payroll_runs payroll where payroll.id = payroll_items.payroll_run_id and (%s(payroll.tenant_id) or %s())))',
+    v_tenant_guard, v_admin_guard
+  );
+
+  drop policy if exists payroll_adjustment_allocations_tenant_isolation on public.payroll_adjustment_allocations;
+  execute format(
+    'create policy payroll_adjustment_allocations_tenant_isolation on public.payroll_adjustment_allocations for select to authenticated using (exists (select 1 from public.payroll_runs payroll where payroll.id = payroll_adjustment_allocations.payroll_run_id and (%s(payroll.tenant_id) or %s())))',
+    v_tenant_guard, v_admin_guard
+  );
+end
+$hr_access_boundary$;
+
