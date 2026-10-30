@@ -9,6 +9,7 @@ import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { buildDashboardPeriodMetrics } from "./dashboard-period-metrics";
+import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
@@ -3608,10 +3609,7 @@ export const powerhubRouter = router({
       const access = input.scope === "all"
         ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"])
         : await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
-      const entityTypes = [
-        "sites", "subscribers", "generators", "readings", "tariffs",
-        "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses",
-      ];
+      const entityTypes = DASHBOARD_KPI_REVISION_ENTITIES;
       let query = supabaseAdmin().from("powerhub_sync_scope_state")
         .select("site_id,entity_type,last_cursor")
         .eq("tenant_id", access.tenantId)
@@ -3624,29 +3622,9 @@ export const powerhubRouter = router({
         console.error("[PowerHub] dashboard.deltaRevision failed", { code: error.code, message: error.message });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تحديث مؤشرات لوحة التحكم." });
       }
-      const rows = data ?? [];
-      const revisionFor = (metric: string, metricEntities: readonly string[]) => {
-        const relevant = new Set(metricEntities);
-        const payload = rows
-          .filter((row) => relevant.has(row.entity_type))
-          .map((row) => String(row.site_id) + ":" + row.entity_type + ":" + String(row.last_cursor))
-          .join("|") || "0";
-        return createHash("sha256").update(metric + ":" + payload).digest("hex");
-      };
-      // Independent fingerprints avoid invalidating every card after an unrelated change.
-      const revisions = {
-        activeSubscribers: revisionFor("activeSubscribers", ["sites", "subscribers"]),
-        generatorStatus: revisionFor("generatorStatus", ["generators"]),
-        periodInvoiced: revisionFor("periodInvoiced", ["invoices"]),
-        periodCollected: revisionFor("periodCollected", ["payments"]),
-        collectionRate: revisionFor("collectionRate", ["invoices", "payments"]),
-        overdue: revisionFor("overdue", ["invoices", "payments"]),
-        expenses: revisionFor("expenses", ["expenses"]),
-        operatingProfit: revisionFor("operatingProfit", ["invoices", "payments", "expenses"]),
-        financialOverview: revisionFor("financialOverview", ["sites", "subscribers", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"]),
-        operationalStatus: revisionFor("operationalStatus", ["sites", "subscribers", "generators", "readings"]),
-      };
-      // Retain one combined fingerprint for diagnostics and older clients.
+      const revisions = buildDashboardKpiRevisions(data ?? []);
+      // Keep a combined fingerprint for old diagnostic consumers; KPI refreshes
+      // use the independent scoped revisions above.
       const revision = createHash("sha256").update(JSON.stringify(revisions)).digest("hex");
       return { revision, revisions, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
     }),
