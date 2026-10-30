@@ -409,13 +409,23 @@ describe("offline query cache policy", () => {
     const period = ["powerhub.dashboard.periodMetrics", {
       input: { siteId: 7, scope: "branch", startDate: "2026-10-01", endDate: "2026-10-29", includeDetails: false }, type: "query",
     }];
+    const activeSubscribers = ["powerhub.dashboard.activeSubscribersKpi", {
+      input: { siteId: 7, scope: "branch" }, type: "query",
+    }];
+    const independentPeriod = ["powerhub.dashboard.periodKpi", {
+      input: { siteId: 7, scope: "branch", metric: "periodInvoiced", startDate: "2026-10-01", endDate: "2026-10-29" }, type: "query",
+    }];
+    const invalidIndependentPeriod = ["powerhub.dashboard.periodKpi", {
+      input: { siteId: 7, scope: "branch", metric: "privateDetails", startDate: "2026-10-01", endDate: "2026-10-29" }, type: "query",
+    }];
     const revision = ["powerhub.dashboard.deltaRevision", { input: { siteId: 7, scope: "branch" }, type: "query" }];
 
-    for (const key of [summary, financial, period]) {
+    for (const key of [summary, financial, period, activeSubscribers, independentPeriod]) {
       expect(isOfflineCacheableQueryKey(key)).toBe(true);
       expect(isOfflineDashboardSnapshotQueryKey(key)).toBe(true);
       expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
     }
+    expect(isOfflineCacheableQueryKey(invalidIndependentPeriod)).toBe(false);
     expect(isOfflineCacheableQueryKey(revision)).toBe(true);
     expect(isOfflineDashboardRevisionQueryKey(revision)).toBe(true);
     expect(isOfflineDashboardSnapshotQueryKey(revision)).toBe(false);
@@ -638,6 +648,27 @@ describe("offline cache privacy sanitization", () => {
     expect(sanitizeOfflineQueryData(periodKey, {
       summary: { collected: 12 }, outstandingInvoices: [{ subscriber: "Private name" }],
     })).toEqual({ summary: { collected: 12 }, outstandingInvoices: [] });
+
+    const periodKpiKey = ["powerhub.dashboard.periodKpi", {
+      input: { siteId: 7, scope: "branch", metric: "periodOverdue", startDate: "2026-10-01", endDate: "2026-10-29" }, type: "query",
+    }];
+    expect(sanitizeOfflineQueryData(periodKpiKey, {
+      metric: "periodOverdue", value: 55, auxiliaryCount: 4,
+      range: { startDate: "2026-10-01", endDate: "2026-10-29" },
+      scope: "branch", siteId: 7,
+      privateInvoiceRows: [{ subscriber: "Private name" }],
+    })).toEqual({
+      metric: "periodOverdue", value: 55, auxiliaryCount: 4,
+      range: { startDate: "2026-10-01", endDate: "2026-10-29" },
+      scope: "branch", siteId: 7,
+    });
+    const activeSubscribersKey = ["powerhub.dashboard.activeSubscribersKpi", {
+      input: { siteId: 7, scope: "branch" }, type: "query",
+    }];
+    expect(sanitizeOfflineQueryData(activeSubscribersKey, {
+      metric: "activeSubscribers", value: 25, scope: "branch", siteId: 7,
+      privateRows: [{ subscriber: "Private name" }],
+    })).toEqual({ metric: "activeSubscribers", value: 25, scope: "branch", siteId: 7 });
   });
 
   it("does not invent HR optimistic-lock versions for legacy snapshots", () => {
