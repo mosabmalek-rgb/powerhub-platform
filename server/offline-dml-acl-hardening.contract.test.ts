@@ -218,7 +218,8 @@ describe("offline server-write ACL hardening migration", () => {
   it("keeps the canonical RLS integration fixture aligned with live tenant behavior", async () => {
     const integration = (await readCanonicalRlsTest()).toLowerCase();
     expect(integration).toContain("grant usage on schema auth to authenticated");
-    expect(integration).toContain("tm.is_active=true");
+    expect(integration).toContain("membership.is_active=true");
+    expect(integration).toContain("private.powerhub_current_user_id()");
     expect(integration).toContain("platform_role in ('platform_owner','platform_admin','finance_admin')");
     expect(integration).toContain("security definer set search_path=public");
     expect(integration).toContain("cross_tenant_employee_insert_was_allowed");
