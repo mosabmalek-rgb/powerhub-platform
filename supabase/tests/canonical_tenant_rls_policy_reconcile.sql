@@ -326,6 +326,7 @@ BEGIN
     WHERE n.nspname='public' AND c.relname=v_expected;
     v_expected_policy := CASE
       WHEN v_expected = 'tenant_members' THEN 'tenant_members_member_read'
+      WHEN v_expected = 'tenant_tweetsms_accounts' THEN 'tenant_tweetsms_tenant_isolation'
       WHEN v_expected = 'platform_sms_fallback_providers' THEN 'platform_sms_fallback_admin_only'
       WHEN v_expected = 'platform_tweetsms_accounts' THEN 'platform_tweetsms_admin_only'
       WHEN v_expected = 'platform_tweetsms_balance_alerts' THEN 'platform_tweetsms_alert_admin_only'
