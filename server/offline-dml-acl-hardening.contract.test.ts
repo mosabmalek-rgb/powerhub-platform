@@ -112,7 +112,7 @@ describe("offline server-write ACL hardening migration", () => {
   });
 
   it("reconciles every staging-only browser DML grant without changing reads, RLS or service-role writes", async () => {
-    const migration = (await readBrowserDmlReconcileMigration()).toLowerCase().replace(/\\s+/g, " ");
+    const migration = (await readBrowserDmlReconcileMigration()).toLowerCase().replace(/\s+/g, " ");
     const integration = (await readBrowserDmlReconcileTest()).toLowerCase();
     const expectedTables = [
       "access_invitations", "collector_sessions", "company_account_sites", "custom_permission_roles",
