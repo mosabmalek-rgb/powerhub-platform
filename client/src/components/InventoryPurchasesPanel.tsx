@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflinePurchaseDetailQueryCacheForSite } from "@/lib/offline-query-cache";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
@@ -173,7 +174,7 @@ export default function InventoryPurchasesPanel({
     { siteId, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && canViewPurchases), staleTime: Number.POSITIVE_INFINITY },
   );
-  const usingOfflineHeaders = !purchases.data && purchaseHeaders.data !== undefined;
+  const purchasesAreAuthoritative = hasAuthoritativeServerRead(purchases);
   const receiptHeaders = trpc.powerhub.inventory.listPurchaseReceiptHeaders.useQuery(
     { siteId, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && canViewPurchases), staleTime: Number.POSITIVE_INFINITY },
@@ -182,6 +183,7 @@ export default function InventoryPurchasesPanel({
     { siteId, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && canViewPurchases), staleTime: Number.POSITIVE_INFINITY },
   );
+  const usingOfflineHeaders = !purchasesAreAuthoritative && purchaseHeaders.data !== undefined;
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const offlinePurchaseRows = (purchaseHeaders.data ?? [])
     .filter((row) => !normalizedSearch || [row.purchase_number, row.supplierName, row.warehouseName]
@@ -196,8 +198,8 @@ export default function InventoryPurchasesPanel({
   const selectedOfflinePurchase = offlinePurchaseRows.find((row) => Number(row.id) === Number(selectedPurchaseId));
   const selectedOfflineReceipts = (receiptHeaders.data ?? []).filter((row) => Number(row.purchase_id ?? row.purchaseId) === Number(selectedPurchaseId));
   const selectedOfflineReturns = (supplierReturnHeaders.data ?? []).filter((row) => Number(row.purchase_id ?? row.purchaseId) === Number(selectedPurchaseId));
-  const visiblePurchases = purchases.data ?? offlinePurchaseRows;
-  const showFinancialColumns = canViewFinancials && !usingOfflineHeaders;
+  const visiblePurchases = purchasesAreAuthoritative ? purchases.data ?? [] : offlinePurchaseRows;
+  const showFinancialColumns = canViewFinancials && purchasesAreAuthoritative;
   const options = trpc.powerhub.inventory.listPurchaseOptions.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && canCreatePurchases), staleTime: 30_000 },
@@ -206,6 +208,8 @@ export default function InventoryPurchasesPanel({
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && canManageSupplierPayments), staleTime: 15_000 },
   );
+  const paymentOptionsAreAuthoritative = hasAuthoritativeServerRead(paymentOptions);
+  const currentPaymentOptions = paymentOptionsAreAuthoritative ? paymentOptions.data ?? [] : [];
   const details = trpc.powerhub.inventory.getPurchase.useQuery(
     { siteId, purchaseId: selectedPurchaseId ?? 0 },
     {
@@ -219,7 +223,10 @@ export default function InventoryPurchasesPanel({
     (details.data as (typeof details.data & { offlineSnapshot?: boolean }) | undefined)?.offlineSnapshot,
   );
   const detailsAuthorizationDenied = isExplicitAuthorizationDenial(details.error);
-  const canViewPurchaseDetailFinancials = canViewFinancials && !detailsIsOfflineSnapshot;
+  const detailsIsAuthoritative = Boolean(
+    !detailsAuthorizationDenied && !detailsIsOfflineSnapshot && hasAuthoritativeServerRead(details),
+  );
+  const canViewPurchaseDetailFinancials = canViewFinancials && detailsIsAuthoritative;
 
   const refreshPurchaseDetailsFromDelta = useCallback((changed: OperationalDeltaRevisionEntity[]) => {
     if (!selectedPurchaseId) return;
@@ -332,6 +339,11 @@ export default function InventoryPurchasesPanel({
       immediateSettlementRef.current = true;
       toast.info("تم إنشاء الفاتورة؛ جارٍ اعتمادها ثم سداد كامل المبلغ.");
       try {
+        if (!ensureServerWriteAllowed()) {
+          immediateSettlementRef.current = false;
+          await refreshPurchaseData(purchaseId);
+          return;
+        }
         await confirmPurchase.mutateAsync({ siteId, purchaseId });
       } catch (error) {
         immediateSettlementRef.current = false;
@@ -340,6 +352,12 @@ export default function InventoryPurchasesPanel({
         return;
       }
       try {
+        if (!ensureServerWriteAllowed()) {
+          immediateSettlementRef.current = false;
+          toast.error("تم اعتماد الفاتورة، لكن الاتصال انقطع قبل السداد؛ بقي المبلغ مستحقًا ولم يُخصم من الحساب.");
+          await refreshPurchaseData(purchaseId);
+          return;
+        }
         const amount = Math.round(Number(result.total_amount) * 100) / 100;
         await recordSupplierPayment.mutateAsync({
           siteId, purchaseId, companyAccountId: settlement.companyAccountId, amount,
@@ -443,6 +461,10 @@ export default function InventoryPurchasesPanel({
   const onCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ensureServerWriteAllowed()) return;
+    if (!hasAuthoritativeServerRead(options)) {
+      toast.error("تعذر التحقق من أحدث الموردين والمخازن والأصناف؛ حدّث الخيارات قبل إنشاء المسودة.");
+      return;
+    }
     if (!supplierId || !warehouseId) {
       toast.error("اختر المورد والمخزن قبل حفظ الفاتورة.");
       return;
@@ -472,7 +494,11 @@ export default function InventoryPurchasesPanel({
     }
     if (paymentMode === "immediate") {
       if (!canApprovePurchases || !canManageSupplierPayments) { toast.error("يتطلب الدفع الفوري صلاحية اعتماد المشتريات وإدارة دفعات الموردين."); return; }
-      const account = paymentOptions.data?.find((row) => String(row.id) === companyAccountId);
+      if (!paymentOptionsAreAuthoritative) {
+        toast.error("تعذر التحقق من رصيد حساب الشركة من الخادم؛ حدّث الحسابات قبل طلب الدفع الفوري.");
+        return;
+      }
+      const account = currentPaymentOptions.find((row) => String(row.id) === companyAccountId);
       const amount = Math.round(previewTotal * 100) / 100;
       if (!account || amount <= 0 || amount > Number(account.balance)) { toast.error("اختر حساب شركة نشطًا يكفي رصيده لسداد إجمالي الفاتورة."); return; }
       pendingSettlementRef.current = { mode: "immediate", companyAccountId: Number(account.id), paymentDate: paymentDate || invoiceDate || todayForInput(), referenceNo: paymentReferenceNo.trim() || undefined, notes: paymentNotes.trim() || purchaseNotes.trim() || undefined };
@@ -496,6 +522,10 @@ export default function InventoryPurchasesPanel({
   const onSupplierPaymentSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ensureServerWriteAllowed()) return;
+    if (!detailsIsAuthoritative || !hasAuthoritativeServerRead(paymentOptions)) {
+      toast.error("يتطلب تسجيل دفعة المورد تفاصيل فاتورة وحساب شركة تم التحقق منهما خادميًا.");
+      return;
+    }
     if (!selectedPurchaseId || !details.data) return;
     const amount = Number(paymentAmount);
     const outstanding = Number(details.data.purchase.outstandingAmount ?? 0);
@@ -532,6 +562,10 @@ export default function InventoryPurchasesPanel({
   const onReturnSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ensureServerWriteAllowed()) return;
+    if (!detailsIsAuthoritative) {
+      toast.error("يتطلب مرتجع المورد تفاصيل فاتورة واستلام مؤكدة من الخادم.");
+      return;
+    }
     if (!selectedPurchaseId || !details.data) return;
     const lines = details.data.lines
       .map((line) => ({ purchaseLineId: Number(line.id), quantity: Number(returnQuantities[Number(line.id)] ?? 0) }))
@@ -547,6 +581,10 @@ export default function InventoryPurchasesPanel({
     const refundAmount = Number(returnRefundAmount || 0);
     if (!Number.isFinite(refundAmount) || refundAmount < 0 || Math.abs(refundAmount * 100 - Math.round(refundAmount * 100)) >= 1e-7) {
       toast.error("مبلغ الاسترداد يجب أن يكون صفرًا أو موجبًا وبحد أقصى منزلتين عشريتين.");
+      return;
+    }
+    if (refundAmount > 0 && !paymentOptionsAreAuthoritative) {
+      toast.error("يتطلب تسجيل الاسترداد النقدي حساب شركة تم التحقق من رصيده خادميًا.");
       return;
     }
     if (refundAmount > 0 && !returnRefundAccountId) {
@@ -570,6 +608,10 @@ export default function InventoryPurchasesPanel({
   const onReceiveSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ensureServerWriteAllowed()) return;
+    if (!detailsIsAuthoritative) {
+      toast.error("يتطلب الاستلام تفاصيل فاتورة محدثة من الخادم.");
+      return;
+    }
     if (!selectedPurchaseId || !details.data) return;
     const lines = details.data.lines
       .map((line) => ({ purchaseLineId: Number(line.id), quantity: Number(receiptQuantities[Number(line.id)] ?? 0) }))
@@ -827,9 +869,9 @@ export default function InventoryPurchasesPanel({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {detailsIsOfflineSnapshot ? (
+            {details.data && !detailsIsAuthoritative ? (
               <p role="status" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                هذه لقطة تشغيلية محفوظة محليًا للعرض فقط. استُبعدت الأسعار والتكاليف والدفعات والأرصدة والملاحظات ومفاتيح التشغيل. يلزم الاتصال بالخادم للتحقق من الحداثة أو تنفيذ أي اعتماد أو استلام أو مرتجع أو تسوية.
+                هذه بيانات محفوظة أو نتيجة سابقة لم يثبت تحديثها من الخادم في العرض الحالي. تُستخدم للقراءة فقط؛ لا تُعرض المبالغ والتكاليف والأرصدة، ولا تتاح عمليات الاعتماد أو الاستلام أو المرتجعات أو التسوية حتى نجاح إعادة التحقق.
               </p>
             ) : null}
             {details.isLoading ? <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin" /></div> : null}
@@ -880,7 +922,7 @@ export default function InventoryPurchasesPanel({
                   </div>
                 ) : null}
 
-                {!detailsIsOfflineSnapshot && canAdjustInventory && ["partially_received", "received"].includes(details.data.purchase.status) ? (
+                {detailsIsAuthoritative && canAdjustInventory && ["partially_received", "received"].includes(details.data.purchase.status) ? (
                   <form onSubmit={onReturnSubmit} className="space-y-3 rounded-md border border-dashed p-3">
                     <div className="flex items-center gap-2 font-semibold"><RotateCcw className="h-5 w-5" /> مرتجع إلى المورد</div>
                     <p className="text-sm text-muted-foreground">لا يمكن إرجاع أكثر من الكمية المستلمة والمتبقية بعد المرتجعات السابقة، ولا يتجاوز المرتجع المخزون الفعلي. تخفيض استحقاق المورد يُسجل مستقلًا عن المبلغ النقدي الذي يرده فعليًا.</p>
@@ -894,14 +936,14 @@ export default function InventoryPurchasesPanel({
                       <label className={inputGridClass + " sm:col-span-2"}>ملاحظات إضافية
                         <Input value={returnNotes} onChange={(event) => setReturnNotes(event.target.value)} maxLength={2000} />
                       </label>
-                      {!detailsIsOfflineSnapshot && canManageSupplierPayments ? <>
+                      {detailsIsAuthoritative && canManageSupplierPayments ? <>
                         <label className={inputGridClass}>المبلغ الذي استردته الشركة نقدًا (₪)
                           <Input type="number" min="0" step="0.01" value={returnRefundAmount} onChange={(event) => setReturnRefundAmount(event.target.value)} required />
                         </label>
                         {Number(returnRefundAmount) > 0 ? <label className={inputGridClass}>حساب الشركة المستلم
                           <select className={selectClass} value={returnRefundAccountId} onChange={(event) => setReturnRefundAccountId(event.target.value)} required>
                             <option value="">اختر حسابًا</option>
-                            {(paymentOptions.data ?? []).map((account) => <option key={account.id} value={account.id}>{account.name} — الرصيد {formatAmount(account.balance)}</option>)}
+                            {currentPaymentOptions.map((account) => <option key={account.id} value={account.id}>{account.name} — الرصيد {formatAmount(account.balance)}</option>)}
                           </select>
                         </label> : null}
                       </> : null}
@@ -973,7 +1015,7 @@ export default function InventoryPurchasesPanel({
                     </div>
                     {paymentOptions.isLoading ? <p className="text-sm text-muted-foreground">جارٍ تحميل حسابات الشركة وأرصدتها…</p> : null}
                     {paymentOptions.error ? <p className="text-sm text-destructive">تعذر تحميل حسابات الشركة: {paymentOptions.error.message}</p> : null}
-                    {!paymentOptions.isLoading && !paymentOptions.error && !paymentOptions.data?.length
+                    {!paymentOptions.isLoading && !paymentOptions.error && !currentPaymentOptions.length
                       ? <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">لا يوجد حساب شركة نشط مرتبط بهذا الفرع أو متاح للشركة بالكامل.</p>
                       : null}
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -996,7 +1038,7 @@ export default function InventoryPurchasesPanel({
                         <Input value={paymentNotes} onChange={(event) => setPaymentNotes(event.target.value)} maxLength={2000} />
                       </label>
                     </div>
-                    {companyAccountId && paymentAmount && Number(paymentAmount) > Number(paymentOptions.data?.find((account) => String(account.id) === companyAccountId)?.balance ?? 0)
+                    {companyAccountId && paymentAmount && Number(paymentAmount) > Number(currentPaymentOptions.find((account) => String(account.id) === companyAccountId)?.balance ?? 0)
                       ? <p className="text-sm text-destructive">المبلغ أكبر من الرصيد الحالي للحساب المحدد.</p> : null}
                     <div className="flex justify-end">
                       <Button type="submit" disabled={serverWriteBlocked || recordSupplierPayment.isPending || paymentOptions.isLoading || !paymentOptions.data?.length}>
@@ -1007,7 +1049,7 @@ export default function InventoryPurchasesPanel({
                   </form>
                 ) : null}
 
-                {!detailsIsOfflineSnapshot && ["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases ? (
+                {detailsIsAuthoritative && ["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases ? (
                   <form onSubmit={(event) => {
                     event.preventDefault();
                     if (!ensureServerWriteAllowed()) return;
@@ -1026,7 +1068,7 @@ export default function InventoryPurchasesPanel({
                   </form>
                 ) : null}
 
-                {!detailsIsOfflineSnapshot && details.data.purchase.status === "draft" && canApprovePurchases ? (
+                {detailsIsAuthoritative && details.data.purchase.status === "draft" && canApprovePurchases ? (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-dashed p-3">
                     <div><p className="font-semibold">اعتماد الفاتورة</p><p className="text-sm text-muted-foreground">يسجل الاعتماد استحقاق المورد. لا تتغير كميات المخزون حتى تسجيل الاستلام.</p></div>
                     <Button type="button" disabled={serverWriteBlocked || confirmPurchase.isPending} onClick={() => { if (ensureServerWriteAllowed()) confirmPurchase.mutate({ siteId, purchaseId: selectedPurchaseId }); }}>
@@ -1035,7 +1077,7 @@ export default function InventoryPurchasesPanel({
                   </div>
                 ) : null}
 
-                {!detailsIsOfflineSnapshot && ["confirmed", "partially_received"].includes(details.data.purchase.status) && canReceiveInventory ? (
+                {detailsIsAuthoritative && ["confirmed", "partially_received"].includes(details.data.purchase.status) && canReceiveInventory ? (
                   <form onSubmit={onReceiveSubmit} className="space-y-3 rounded-md border border-dashed p-3">
                     <div className="flex items-center gap-2 font-semibold"><PackageCheck className="h-5 w-5" /> تسجيل استلام فعلي</div>
                     <p className="text-sm text-muted-foreground">أدخل ما وصل فعليًا الآن فقط. يمكن استلام الفاتورة على دفعات؛ النظام يمنع تجاوز الكمية المطلوبة.</p>
