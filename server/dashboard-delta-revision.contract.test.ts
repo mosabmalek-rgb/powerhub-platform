@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
+const revisions = readFileSync(resolve(process.cwd(), "server/dashboard-kpi-revisions.ts"), "utf8");
 
 describe("dashboard Delta revision contract", () => {
-  it("exposes only a scoped change fingerprint and no operational rows", () => {
+  it("exposes only an authorized tenant/site-scoped fingerprint, never operational rows", () => {
     const start = router.indexOf("deltaRevision: protectedProcedure");
     const end = router.indexOf("financialOverview: protectedProcedure", start);
     expect(start).toBeGreaterThanOrEqual(0);
@@ -17,51 +18,33 @@ describe("dashboard Delta revision contract", () => {
     expect(procedure).toContain('.eq("tenant_id", access.tenantId)');
     expect(procedure).toContain('.in("entity_type", entityTypes)');
     expect(procedure).toContain('query = query.eq("site_id", input.siteId)');
-    expect(procedure).toContain("last_cursor");
-    expect(procedure).toContain("revision, revisions, observedAt");
-    expect(procedure).not.toContain(".select(\"*\")");
+    expect(procedure).toContain("DASHBOARD_KPI_REVISION_ENTITIES");
+    expect(procedure).toContain("buildDashboardKpiRevisions(data ?? [])");
+    expect(procedure).not.toContain('.select("*")');
     expect(procedure).not.toContain("row_data");
   });
 
-  it("tracks only the explicit journaled entities that can affect dashboard aggregates", () => {
-    const start = router.indexOf("deltaRevision: protectedProcedure");
-    const end = router.indexOf("financialOverview: protectedProcedure", start);
-    const procedure = router.slice(start, end);
-    for (const entity of [
-      "sites", "subscribers", "generators", "readings", "tariffs",
-      "invoices", "payments", "expenses", "company_accounts", "company_accounts_all",
-    ]) expect(procedure).toContain(`"${entity}"`);
-  });
-
-  it("exposes independent fingerprint keys for each dashboard KPI", () => {
-    const start = router.indexOf("deltaRevision: protectedProcedure");
-    const end = router.indexOf("financialOverview: protectedProcedure", start);
-    const procedure = router.slice(start, end);
-    for (const metric of [
+  it("uses one central exact dependency registry for all dashboard KPI fingerprints", () => {
+    expect(router).toContain('from "./dashboard-kpi-revisions"');
+    for (const key of [
       "activeSubscribers", "generatorStatus", "periodInvoiced", "periodCollected",
-      "collectionRate", "overdue", "expenses", "operatingProfit", "financialOverview", "operationalStatus",
-    ]) expect(procedure).toContain(metric + ": revisionFor(\"" + metric + "\"");
-    expect(procedure).toContain("JSON.stringify(revisions)");
-    expect(procedure).not.toContain(".select(\"*\")");
-    expect(procedure).not.toContain("row_data");
+      "collectionRate", "periodOverdue", "expenses", "netCash", "currentArrears",
+      "financialOverview", "companyBalances",
+    ]) expect(revisions).toContain(`${key}:`);
+    expect(revisions).not.toContain("operatingProfit:");
+    expect(revisions).not.toContain("operationalStatus:");
   });
 
-  it("maps each KPI fingerprint only to its declared journal dependencies", () => {
-    const start = router.indexOf("deltaRevision: protectedProcedure");
-    const end = router.indexOf("financialOverview: protectedProcedure", start);
-    const procedure = router.slice(start, end);
-    const dependencies = [
-      'activeSubscribers: revisionFor("activeSubscribers", ["sites", "subscribers"])',
-      'generatorStatus: revisionFor("generatorStatus", ["generators"])',
-      'periodInvoiced: revisionFor("periodInvoiced", ["invoices"])',
-      'periodCollected: revisionFor("periodCollected", ["payments"])',
-      'collectionRate: revisionFor("collectionRate", ["invoices", "payments"])',
-      'overdue: revisionFor("overdue", ["invoices", "payments"])',
-      'expenses: revisionFor("expenses", ["expenses"])',
-      'operatingProfit: revisionFor("operatingProfit", ["invoices", "payments", "expenses"])',
-      'financialOverview: revisionFor("financialOverview", ["sites", "subscribers", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all"])',
-      'operationalStatus: revisionFor("operationalStatus", ["sites", "subscribers", "generators", "readings"])',
-    ];
-    for (const dependency of dependencies) expect(procedure).toContain(dependency);
+  it("keeps company-account balance revisions separate from cash flow and financial overview", () => {
+    expect(revisions).toContain('companyBalances: ["company_accounts", "company_accounts_all"]');
+    expect(revisions).toContain('netCash: ["payments", "expenses"]');
+    expect(revisions).toContain('financialOverview: ["sites", "subscribers", "invoices", "payments", "expenses"]');
+  });
+
+  it("includes a UTC day bucket for KPIs that change with time even when no row is written", () => {
+    expect(revisions).toContain('"periodOverdue"');
+    expect(revisions).toContain('"currentArrears"');
+    expect(revisions).toContain('"financialOverview"');
+    expect(revisions).toContain('now.toISOString().slice(0, 10)');
   });
 });
