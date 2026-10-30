@@ -35,7 +35,7 @@ describe("offline sync UI contract", () => {
   it("routes field reading creates through the shared offline executor", () => {
     expect(meterReadingsPage).toContain("executeReadyOperations({");
     expect(syncPanel).toContain('if (item.kind === "reading_create")');
-    expect(syncPanel).toContain("executeReadyOperations({ items: syncItems");
+    expect(syncPanel).toContain("executeReadyOperations({\n          items: syncItems, metadataByOperationId, completedIds, transport, now: Date.now(),\n          isCurrent: () => isSyncRunCurrent(assertCurrent),");
     expect(syncPanel).toContain("const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId))");
     expect(syncPanel).toContain("حالة المزامنة المحلية مفقودة أو لا تطابق نطاق المسودة؛ أُوقفت إعادة الإرسال تلقائيًا");
     expect(syncPanel).toContain("isSyncMetadataCompatibleWithWorkItem(item, storedRecord)");
