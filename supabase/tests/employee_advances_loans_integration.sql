@@ -133,6 +133,18 @@ grant select on public.payroll_adjustment_allocations to anon, authenticated;
 
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
+
+-- The production HR Delta migration requires the canonical private RLS guards.
+-- This isolated ledger fixture intentionally has no tenant-membership model, so
+-- provide fail-closed helpers rather than weakening the migration's precondition.
+create schema if not exists private;
+create or replace function private.powerhub_has_tenant_access(target_tenant_id bigint)
+returns boolean language sql stable security definer set search_path=pg_catalog
+as $fixture$ select false $fixture$;
+create or replace function private.powerhub_is_platform_admin()
+returns boolean language sql stable security definer set search_path=pg_catalog
+as $fixture$ select false $fixture$;
+
 -- Replay the DDL to verify migration idempotency before running workflow assertions.
 \ir ../migrations/20261023214342_powerhub_payroll_period_constraint_reconcile.sql
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
@@ -143,6 +155,30 @@ grant select on public.payroll_adjustment_allocations to anon, authenticated;
 -- Re-run both migrations to verify DDL and trigger idempotency.
 \ir ../migrations/20261029150000_powerhub_hr_delta_sync.sql
 \ir ../migrations/20261029160000_powerhub_hr_offline_operation_idempotency.sql
+
+do $hr_replay_access_assertions$
+begin
+  if has_table_privilege('anon','public.employees','SELECT')
+     or has_table_privilege('authenticated','public.employees','INSERT')
+     or has_table_privilege('authenticated','public.employees','UPDATE')
+     or has_table_privilege('authenticated','public.employees','DELETE')
+  then raise exception 'HR_REPLAY_REOPENED_BROWSER_ACCESS'; end if;
+  if has_table_privilege('anon','public.payroll_adjustment_allocations','SELECT')
+     or has_table_privilege('authenticated','public.payroll_adjustment_allocations','SELECT')
+  then raise exception 'HR_REPLAY_EXPOSED_PAYROLL_ALLOCATIONS'; end if;
+  if not has_table_privilege('service_role','public.employees','INSERT')
+     or not has_table_privilege('service_role','public.employees','UPDATE')
+     or not has_table_privilege('service_role','public.employees','DELETE')
+  then raise exception 'HR_REPLAY_REMOVED_SERVICE_ROLE_DML'; end if;
+  if not exists(
+    select 1 from pg_policies
+    where schemaname='public' and tablename='employees'
+      and policyname='employees_tenant_isolation'
+      and cmd='SELECT' and roles=array['authenticated']::name[]
+      and qual like '%powerhub_has_tenant_access%'
+  ) then raise exception 'HR_REPLAY_TENANT_POLICY_MISSING'; end if;
+end
+$hr_replay_access_assertions$;
 
 do $employee_advance_fk_index_assertions$
 declare
