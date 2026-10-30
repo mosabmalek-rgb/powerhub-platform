@@ -581,6 +581,54 @@ describe("HR Delta minimized projections", () => {
     expect(attendance.attendance.versionNo).toBe(0);
   });
 
+  it("projects advance balance and only the last four redacted repayments", () => {
+    const advance = normalizeDeltaEntityRow("hr_employee_advances", {
+      id: 71, tenant_id: 2, site_id: 10, created_at: "2026-10-01T00:00:00Z",
+      adjustment: {
+        id: 71, tenant_id: 2, employee_id: 42, site_id: 10, adjustment_type: "advance",
+        advance_kind: "employee_loan", monthly_deduction: "25", amount: "100",
+        remaining_amount: "50", status: "open", reason: "PRIVATE-REASON", created_by_user_id: 88,
+      },
+      employee: {
+        id: 42, tenant_id: 2, site_id: null, full_name: "Employee", job_title: "worker",
+        employment_status: "active", phone: "PRIVATE-PHONE", base_wage: "9999",
+      },
+      repayments: [{
+        id: 11, amount: "10", repayment_method: "cash", company_account_id: 9,
+        account_transaction_id: 90, payroll_run_id: null, payment_date: "2026-10-02",
+        reference_no: "PRIVATE-REFERENCE", notes: "PRIVATE-NOTE", created_by_user_id: 88,
+      }],
+      repayment_history_truncated: true,
+    }) as Record<string, any>;
+    expect(advance).toMatchObject({
+      id: 71, tenantId: 2, siteId: 10,
+      adjustment: { id: 71, remainingAmount: "50", advanceKind: "employee_loan", reason: null, createdByUserId: null },
+      employee: { id: 42, fullName: "Employee" },
+      repaymentHistoryTruncated: true,
+    });
+    expect(advance.repayments[0]).toMatchObject({
+      id: 11, amount: "10", companyAccountId: 9, accountTransactionId: null,
+      referenceNo: null, notes: null, createdByUserId: null,
+    });
+    expect(advance.employee).not.toHaveProperty("phone");
+    expect(advance.employee).not.toHaveProperty("baseWage");
+  });
+
+  it("projects only minimized payroll run summaries and supports shared tenant-wide runs", () => {
+    const run = normalizeDeltaEntityRow("hr_payroll_runs", {
+      id: 90, tenant_id: 2, site_id: null, period: "2026-10", status: "paid",
+      total_gross: "1000", total_deductions: "100", total_net: "900",
+      paid_at: "2026-10-31T12:00:00Z", created_at: "2026-10-31T11:00:00Z",
+      payroll_items: [{ employee_id: 42, base_amount: "999" }],
+      paid_from_account_id: 12, created_by_user_id: 88,
+    }) as Record<string, any>;
+    expect(run).toMatchObject({ id: 90, tenantId: 2, siteId: null, period: "2026-10", status: "paid", totalNet: "900" });
+    expect(run.paidAt).toBeInstanceOf(Date);
+    for (const field of ["payrollItems", "paidFromAccountId", "createdByUserId", "approvedByUserId"]) {
+      expect(run).not.toHaveProperty(field);
+    }
+  });
+
   it("keeps attendance versions and bounded employee fields but never notes or audit identities", () => {
     const attendance = normalizeDeltaEntityRow("hr_attendance", {
       id: 81, tenant_id: 2, site_id: 10,
