@@ -14,6 +14,7 @@ const operationalMigration = readFileSync(resolve(process.cwd(), "supabase/migra
 const fuelMaintenanceMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql"), "utf8");
 const hrDeltaMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029150000_powerhub_hr_delta_sync.sql"), "utf8");
 const hrOfflineMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261029160000_powerhub_hr_offline_operation_idempotency.sql"), "utf8");
+const hrFinancialDeltaMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261030110000_powerhub_hr_financial_delta_sync.sql"), "utf8");
 const maintenanceGuardSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.ts"), "utf8");
 const inventoryRouter = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
 const purchaseHeaderProjection = purchaseHeaderMigration.slice(
@@ -129,6 +130,31 @@ describe("HR offline operation replay contract", () => {
     expect(router).toContain("replayOfflineOperation: protectedProcedure");
     expect(router).toContain("powerhub_hr_replay_offline_operation");
   });
+});
+
+describe("HR financial Delta boundaries", () => {
+  it("routes payroll and advance feeds through server-only HR snapshot and pull RPCs", () => {
+    expect(router).toContain('"hr_employee_advances", "hr_payroll_runs"');
+    expect(router).toContain('input.entityType === "hr_employee_advances" || input.entityType === "hr_payroll_runs"');
+    expect(router).toContain('isHrDeltaEntity ? "powerhub_pull_hr_sync_delta"');
+    expect(router).toContain('isHrDeltaEntity ? "powerhub_get_hr_sync_snapshot"');
+    const guardStart = router.indexOf("async function requireDeltaHrReadAccess");
+    const guardEnd = router.indexOf("\n}", guardStart);
+    const guard = router.slice(guardStart, guardEnd);
+    expect(guard).toContain('["owner", "manager", "accountant"], "manageExpenses"');
+    expect(guard).toContain('["owner", "accountant"], "managePayroll"');
+    expect(hrFinancialDeltaMigration).toContain("'hr_employee_advances','hr_payroll_runs'");
+    expect(hrFinancialDeltaMigration).toContain("revoke all on function public.powerhub_pull_hr_sync_delta");
+    expect(hrFinancialDeltaMigration).toContain("grant execute on function public.powerhub_pull_hr_sync_delta");
+    expect(hrFinancialDeltaMigration).toContain("to service_role");
+  });
+
+  it("does not broaden shared-site scope beyond employee directory and shared payroll summaries", () => {
+    expect(hrFinancialDeltaMigration).toContain("p_entity_type in ('hr_employee_directory','hr_payroll_runs')");
+    expect(hrFinancialDeltaMigration).toContain("p_entity_type in ('hr_attendance','hr_employee_advances')");
+    expect(router).toContain('input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs"');
+  });
+
 });
 
 describe("fuel and maintenance Delta boundaries", () => {
