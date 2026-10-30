@@ -17,7 +17,6 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import {
   advanceOfflineSyncRunIdentity,
   assertOfflineSyncRunCurrent,
-  isOfflineSyncRunCurrent,
   type OfflineSyncRunIdentity,
   type OfflineSyncRunIdentitySnapshot,
 } from "@/lib/offline-sync-run-identity";
