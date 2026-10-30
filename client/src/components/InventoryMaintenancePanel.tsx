@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +14,7 @@ import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 
 type OrderType = "breakdown" | "preventive" | "inspection" | "repair" | "other";
+const MAINTENANCE_REVISION_ENTITIES = ["maintenance_work_orders"] as const satisfies readonly OperationalDeltaRevisionEntity[];
 type OrderStatus = "scheduled" | "new" | "in_progress" | "waiting_for_parts" | "completed" | "cancelled";
 type Priority = "low" | "normal" | "high" | "urgent";
 type MaintenanceReportRow = {
@@ -91,6 +94,19 @@ export default function InventoryMaintenancePanel({
     { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport && reportFromDate && reportToDate && reportFromDate <= reportToDate), staleTime: 30_000 },
   );
   const maintenanceReportAuthorizationDenied = isExplicitAuthorizationDenial(maintenanceReport.error);
+  const refreshMaintenanceReportFromDelta = useCallback((changed: OperationalDeltaRevisionEntity[]) => {
+    if (changed.includes("maintenance_work_orders") && canViewMaintenanceReport) {
+      // Costs remain server-calculated; reload the exact report filters.
+      void maintenanceReport.refetch();
+    }
+  }, [maintenanceReport.refetch, canViewMaintenanceReport]);
+  useDeltaRevisionRefresh({
+    siteId,
+    userId: auth.user?.id,
+    entityTypes: MAINTENANCE_REVISION_ENTITIES,
+    enabled: Boolean(isAuthenticated && canViewMaintenanceReport),
+    onChange: refreshMaintenanceReportFromDelta,
+  });
   const maintenanceReportCacheInput = auth.user?.id ? {
     userId: auth.user.id,
     siteId,
@@ -123,11 +139,17 @@ export default function InventoryMaintenancePanel({
   const reportBranding = trpc.powerhub.reportBranding.get.useQuery(
     { siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenanceReport), staleTime: 60_000 },
   );
-  // This generator-filtered query stays server-authoritative when narrowed; closeout
-  // fails closed if its referenced plan is not in the currently loaded plan scope.
-  const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery({ siteId, generatorId: planGeneratorId ? Number(planGeneratorId) : undefined }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 15_000 });
+  // Keep the full site-wide bounded projection so the preventive-plan Delta feed
+  // can reconcile it. The selected generator remains a local display filter.
+  const plans = trpc.powerhub.maintenance.listPreventivePlans.useQuery(
+    { siteId },
+    { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: Number.POSITIVE_INFINITY },
+  );
   const plansAuthorizationDenied = isExplicitAuthorizationDenial(plans.error);
   const safePlans = plansAuthorizationDenied ? [] : (plans.data ?? []);
+  const visiblePlans = safePlans.filter((plan) =>
+    !planGeneratorId || Number(plan.generator_id) === Number(planGeneratorId),
+  );
 
   // Evaluation is explicit from the "Update due dates" button. The scheduled worker
   // performs automatic evaluation; mounting this tab must remain read-only.
@@ -441,7 +463,7 @@ export default function InventoryMaintenancePanel({
       </div>
       ) : null}
       {plansAuthorizationDenied ? <p role="alert" className="text-xs text-destructive">رفض الخادم صلاحية الوصول إلى الخطط الوقائية؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : plans.error && plans.data && !plansAuthorizationDenied ? <p role="status" className="text-xs text-amber-700">تعذر تحديث الخطط الوقائية؛ تُعرض آخر نسخة تم تحميلها.</p> : plans.error ? <p role="alert" className="text-xs text-destructive">تعذر تحميل الخطط الوقائية ولا توجد نسخة متاحة في هذه الجلسة.</p> : null}
-      <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","الخطة","الفترة","تاريخ الاستحقاق","ساعات التشغيل","الحالة"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{safePlans.map((p) => <tr key={p.plan_id} className="border-t"><td className="p-3">{p.generator_name}</td><td className="p-3">{p.title}<div className="text-xs text-muted-foreground">{p.plan_code}</div></td><td className="p-3">{[p.interval_days ? String(p.interval_days) + " يوم" : null, p.interval_operating_hours ? String(p.interval_operating_hours) + " ساعة تشغيل" : null].filter(Boolean).join(" / ") || "—"}</td><td className="p-3">{p.next_due_at ? new Date(p.next_due_at).toLocaleDateString("ar-PS") : "—"}</td><td className="p-3">{p.next_due_operating_hours ?? "—"}</td><td className="p-3">{p.alert_type ? <span className={p.alert_type === "overdue" ? "text-destructive font-medium" : "text-amber-700"}>{alertLabels[p.alert_type] ?? p.alert_type}</span> : "ضمن الموعد"}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","الخطة","الفترة","تاريخ الاستحقاق","ساعات التشغيل","الحالة"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{visiblePlans.map((p) => <tr key={p.plan_id} className="border-t"><td className="p-3">{p.generator_name}</td><td className="p-3">{p.title}<div className="text-xs text-muted-foreground">{p.plan_code}</div></td><td className="p-3">{[p.interval_days ? String(p.interval_days) + " يوم" : null, p.interval_operating_hours ? String(p.interval_operating_hours) + " ساعة تشغيل" : null].filter(Boolean).join(" / ") || "—"}</td><td className="p-3">{p.next_due_at ? new Date(p.next_due_at).toLocaleDateString("ar-PS") : "—"}</td><td className="p-3">{p.next_due_operating_hours ?? "—"}</td><td className="p-3">{p.alert_type ? <span className={p.alert_type === "overdue" ? "text-destructive font-medium" : "text-amber-700"}>{alertLabels[p.alert_type] ?? p.alert_type}</span> : "ضمن الموعد"}</td></tr>)}</tbody></table></div>
       </CardContent>
     </Card>
 

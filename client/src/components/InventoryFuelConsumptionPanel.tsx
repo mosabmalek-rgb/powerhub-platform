@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,8 +9,13 @@ import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { enqueueOfflineWork, notifyOfflineWorkQueueChanged, type FuelFillDraft } from "@/lib/offline-work-queue";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineFuelQueryCacheForSite } from "@/lib/offline-query-cache";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
 import { Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
+
+const FUEL_REVISION_ENTITIES = ["fuel_events", "fuel_readings"] as const satisfies readonly OperationalDeltaRevisionEntity[];
 
 type Props = {
   siteId: number;
@@ -180,6 +185,24 @@ export default function InventoryFuelConsumptionPanel({
   const recentEventsAuthorizationDenied = isExplicitAuthorizationDenial(recentEvents.error);
   const readingsAuthorizationDenied = isExplicitAuthorizationDenial(readings.error);
   const recentReadingsAuthorizationDenied = isExplicitAuthorizationDenial(recentReadings.error);
+  const hasFilteredEventQuery = Boolean(fromDate || toDate || activeReportGeneratorId);
+  const hasFilteredReadingQuery = Boolean(activeReportGeneratorId);
+
+  useEffect(() => {
+    if (!auth.user?.id || !siteId) return;
+    const userId = String(auth.user.id);
+    if (eventsAuthorizationDenied || recentEventsAuthorizationDenied) {
+      void clearOfflineFuelQueryCacheForSite(userId, siteId, ["listFuelEvents"]);
+    }
+    if (readingsAuthorizationDenied || recentReadingsAuthorizationDenied) {
+      void clearOfflineFuelQueryCacheForSite(userId, siteId, ["listFuelReadings"]);
+    }
+  }, [
+    auth.user?.id, siteId,
+    eventsAuthorizationDenied, recentEventsAuthorizationDenied,
+    readingsAuthorizationDenied, recentReadingsAuthorizationDenied,
+  ]);
+
   const report = trpc.powerhub.inventory.fuelConsumptionReportPeriod.useQuery(
     {
       siteId,
@@ -194,6 +217,28 @@ export default function InventoryFuelConsumptionPanel({
       (reportPeriodType === "custom" ? reportFromDate && reportToDate && reportFromDate <= reportToDate : reportAnchorDate)), staleTime: 15_000 },
   );
   const reportAuthorizationDenied = isExplicitAuthorizationDenial(report.error);
+  const refreshFuelFromDelta = useCallback((changed: OperationalDeltaRevisionEntity[]) => {
+    const eventsChanged = changed.includes("fuel_events");
+    const readingsChanged = changed.includes("fuel_readings");
+    if (eventsChanged && hasFilteredEventQuery) void events.refetch();
+    if (readingsChanged && hasFilteredReadingQuery) void readings.refetch();
+    const reportReady = reportPeriodType === "custom"
+      ? Boolean(reportFromDate && reportToDate && reportFromDate <= reportToDate)
+      : Boolean(reportAnchorDate);
+    if ((eventsChanged || readingsChanged) && canViewInventoryReports && reportReady) void report.refetch();
+  }, [
+    events.refetch, readings.refetch, report.refetch,
+    hasFilteredEventQuery, hasFilteredReadingQuery, canViewInventoryReports,
+    reportPeriodType, reportFromDate, reportToDate, reportAnchorDate,
+  ]);
+  useDeltaRevisionRefresh({
+    siteId,
+    userId: auth.user?.id,
+    entityTypes: FUEL_REVISION_ENTITIES,
+    enabled: Boolean(isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)),
+    onChange: refreshFuelFromDelta,
+  });
+
   const fuelReportCacheInput = auth.user?.id ? {
     userId: auth.user.id,
     siteId,
@@ -414,13 +459,21 @@ export default function InventoryFuelConsumptionPanel({
     });
   };
 
-  const eventRows = (eventsAuthorizationDenied ? [] : events.data !== undefined ? events.data :
-    recentEventsAuthorizationDenied ? [] : recentEvents.data ?? []) as FuelEvent[];
-  const usingRecentOfflineEvents = !eventsAuthorizationDenied && !recentEventsAuthorizationDenied &&
+  const eventRows = (
+    eventsAuthorizationDenied || recentEventsAuthorizationDenied ? []
+      : events.data !== undefined ? events.data
+        : !hasFilteredEventQuery ? recentEvents.data ?? [] : []
+  ) as FuelEvent[];
+  const usingRecentOfflineEvents = !hasFilteredEventQuery &&
+    !eventsAuthorizationDenied && !recentEventsAuthorizationDenied &&
     events.data === undefined && recentEvents.data !== undefined;
-  const readingRows = (readingsAuthorizationDenied ? [] : readings.data !== undefined ? readings.data :
-    recentReadingsAuthorizationDenied ? [] : recentReadings.data ?? []) as FuelReading[];
-  const usingRecentOfflineReadings = !readingsAuthorizationDenied && !recentReadingsAuthorizationDenied &&
+  const readingRows = (
+    readingsAuthorizationDenied || recentReadingsAuthorizationDenied ? []
+      : readings.data !== undefined ? readings.data
+        : !hasFilteredReadingQuery ? recentReadings.data ?? [] : []
+  ) as FuelReading[];
+  const usingRecentOfflineReadings = !hasFilteredReadingQuery &&
+    !readingsAuthorizationDenied && !recentReadingsAuthorizationDenied &&
     readings.data === undefined && recentReadings.data !== undefined;
   const reportRows = (reportAuthorizationDenied ? [] : report.data ?? cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];
   const usingCachedFuelReport = !reportAuthorizationDenied && report.data === undefined && cachedFuelReportForCurrentScope !== null;
@@ -716,7 +769,7 @@ export default function InventoryFuelConsumptionPanel({
 
         <div>
           <h3 className="mb-2 font-medium">آخر التعبئات</h3>
-          {eventsAuthorizationDenied ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل التعبئات؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : recentEventsAuthorizationDenied && events.data === undefined ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل التعبئات؛ لا يمكن استخدام النسخة المحلية الاحتياطية.</p> : events.error && events.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل التعبئات؛ تُعرض آخر نتيجة ناجحة تطابق الفلاتر الحالية.</p> : usingRecentOfflineEvents ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل السجل المفلتر؛ يعرض هذا الجدول آخر 100 تعبئة محفوظة محليًا، ولا تُطبّق عليها فلاتر التاريخ أو المولد حتى استعادة الاتصال.</p> : events.error && !recentEvents.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل التعبئات ولا توجد نسخة محلية متاحة.</p> : null}
+          {eventsAuthorizationDenied || recentEventsAuthorizationDenied ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل التعبئات؛ أُخفيت اللقطات المحلية المرتبطة به.</p> : events.error && events.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل التعبئات؛ تُعرض آخر لقطة محفوظة مطابقة للفلاتر الحالية.</p> : usingRecentOfflineEvents ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث السجل؛ يعرض الجدول آخر 100 تعبئة للفرع دون فلاتر إضافية.</p> : events.error && hasFilteredEventQuery && events.data === undefined ? <p role="status" className="mb-2 text-xs text-amber-700">لا توجد لقطة محلية مطابقة لفلاتر التعبئة الحالية؛ أعد الاتصال لتحميل النطاق المطلوب.</p> : events.error && !recentEvents.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل التعبئات ولا توجد نسخة محلية متاحة.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">من المصدر إلى الخزان</th><th className="p-2">اللترات</th><th className="p-2">المستوى قبل ← بعد</th><th className="p-2">ساعات العداد</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{eventRows.map((row) => <tr key={row.event_id} className="border-t">
@@ -725,13 +778,13 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.litres)}</td><td className="p-2">{qty(row.level_before_liters)} ← {qty(row.level_after_liters)}</td>
               <td className="p-2">{qty(row.operating_hours)}</td><td className="p-2">{row.reference_no || "—"}</td>
             </tr>)}
-            {eventRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{events.error && !recentEvents.data ? "تعذر تحميل سجل التعبئات ولا توجد نسخة متاحة." : "لا توجد تعبئات في الفترة المحددة."}</td></tr> : null}</tbody>
+            {eventRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{events.error && hasFilteredEventQuery && events.data === undefined ? "لا توجد لقطة محلية مطابقة للفلاتر الحالية." : events.error && !recentEvents.data ? "تعذر تحميل سجل التعبئات ولا توجد نسخة محلية متاحة." : "لا توجد تعبئات في الفترة المحددة."}</td></tr> : null}</tbody>
           </table></div>
         </div>
 
         <div>
           <h3 className="mb-2 font-medium">آخر القراءات</h3>
-          {readingsAuthorizationDenied ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل القراءات؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : recentReadingsAuthorizationDenied && readings.data === undefined ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل القراءات؛ لا يمكن استخدام النسخة المحلية الاحتياطية.</p> : usingRecentOfflineReadings ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحميل القراءات المفلترة؛ يعرض هذا الجدول آخر 100 قراءة محفوظة للفرع دون تطبيق فلتر المولد حتى استعادة الاتصال.</p> : readings.error && readings.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ تُعرض آخر نتيجة ناجحة لهذا الاستعلام.</p> : readings.error && !recentReadings.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل القراءات ولا توجد نسخة محلية متاحة لهذا النطاق.</p> : null}
+          {readingsAuthorizationDenied || recentReadingsAuthorizationDenied ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل القراءات؛ أُخفيت اللقطات المحلية المرتبطة به.</p> : readings.error && readings.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ تُعرض آخر لقطة محفوظة مطابقة للفلاتر الحالية.</p> : usingRecentOfflineReadings ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ يعرض الجدول آخر 100 قراءة للفرع دون فلتر مولد.</p> : readings.error && hasFilteredReadingQuery && readings.data === undefined ? <p role="status" className="mb-2 text-xs text-amber-700">لا توجد لقطة محلية مطابقة لفلتر المولد الحالي؛ أعد الاتصال لتحميل القراءات.</p> : readings.error && !recentReadings.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل القراءات ولا توجد نسخة محلية متاحة لهذا النطاق.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">النوع</th><th className="p-2">الخزان</th><th className="p-2">القراءة</th><th className="p-2">تصحيح القراءة</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{readingRows.map((row) => <tr key={row.reading_id} className="border-t">
@@ -740,7 +793,7 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.reading_value)}</td>
               <td className="p-2">{row.corrects_reading_id ? `تصحيح #${row.corrects_reading_id}: ${row.correction_reason || ""}` : "—"}</td><td className="p-2">{row.reference_no || "—"}</td>
             </tr>)}
-            {readingRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{readings.error && !recentReadings.data ? "تعذر تحميل القراءات ولا توجد نسخة متاحة." : "لا توجد قراءات مسجلة."}</td></tr> : null}</tbody>
+            {readingRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{readings.error && hasFilteredReadingQuery && readings.data === undefined ? "لا توجد لقطة محلية مطابقة للمولد المحدد." : readings.error && !recentReadings.data ? "تعذر تحميل القراءات ولا توجد نسخة محلية متاحة." : "لا توجد قراءات مسجلة."}</td></tr> : null}</tbody>
           </table></div>
         </div>
       </CardContent>

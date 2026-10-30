@@ -108,7 +108,7 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
 }
 
 const OPERATIONAL_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
-  "inventory.listFuelReadings": new Set(["siteId", "generatorId", "readingType", "limit"]),
+  "inventory.listFuelReadings": new Set(["siteId", "generatorId", "limit"]),
   "inventory.listFuelEvents": new Set(["siteId", "fromDate", "toDate", "generatorId", "limit"]),
   "maintenance.listPreventivePlans": new Set(["siteId", "generatorId"]),
   "maintenance.listWorkOrders": new Set(["siteId", "generatorId", "status", "limit"]),
@@ -173,9 +173,7 @@ export function isSafeFilteredOperationalSnapshot(
     return hasFromDate || hasToDate || input.generatorId !== undefined;
   }
 
-  if (input.readingType !== undefined &&
-      input.readingType !== "tank_level" && input.readingType !== "operating_hours") return false;
-  return input.generatorId !== undefined || input.readingType !== undefined;
+  return input.generatorId !== undefined;
 }
 
 const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
