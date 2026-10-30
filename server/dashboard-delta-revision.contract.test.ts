@@ -8,7 +8,7 @@ const revisions = readFileSync(resolve(process.cwd(), "server/dashboard-kpi-revi
 describe("dashboard Delta revision contract", () => {
   it("exposes only an authorized tenant/site-scoped fingerprint, never operational rows", () => {
     const start = router.indexOf("deltaRevision: protectedProcedure");
-    const end = router.indexOf("financialTrend: protectedProcedure", start);
+    const end = router.indexOf("financialOverview: protectedProcedure", start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const procedure = router.slice(start, end);
