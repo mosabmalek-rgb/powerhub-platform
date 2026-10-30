@@ -599,6 +599,10 @@ async function requireDeltaFuelMaintenanceReadAccess(
     }
     return access;
   }
+  if (entityType === "maintenance_work_orders") {
+    const access = await resolveSupabaseSiteAccess(userId, siteId);
+    if (access.permissions.includes("viewInventoryReports")) return access;
+  }
   try {
     return await requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"], "viewInventory");
   } catch (error) {
@@ -609,6 +613,48 @@ async function requireDeltaFuelMaintenanceReadAccess(
 
 export const powerhubRouter = router({
   deltaSync: router({
+    revisions: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      entityTypes: z.array(z.enum([
+        "fuel_events", "fuel_readings", "maintenance_preventive_plans", "maintenance_work_orders",
+      ])).min(1).max(4).refine((values) => new Set(values).size === values.length, {
+        message: "يجب أن تكون أنواع Delta المطلوبة فريدة.",
+      }),
+    })).query(async ({ ctx, input }) => {
+      // Expose opaque revisions only. Each feed is authorized before its cursor
+      // metadata is read, and every read remains inside the selected tenant/site.
+      const accesses = await Promise.all(input.entityTypes.map((entityType) =>
+        entityType === "fuel_events" || entityType === "maintenance_work_orders"
+          ? requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, entityType)
+          : requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, entityType),
+      ));
+      const tenantId = accesses[0]?.tenantId;
+      if (!tenantId || accesses.some((access) => access.tenantId !== tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "نطاق مزامنة المؤشرات غير متطابق." });
+      }
+
+      const { data, error } = await supabaseAdmin().from("powerhub_sync_scope_state")
+        .select("entity_type,last_cursor,retained_from_cursor")
+        .eq("tenant_id", tenantId)
+        .eq("site_id", input.siteId)
+        .in("entity_type", input.entityTypes);
+      if (error) {
+        console.error("[PowerHub] deltaSync.revisions failed", { code: error.code, message: error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تحديث سجلات التشغيل." });
+      }
+
+      const rows = data ?? [];
+      const revisions: Record<string, string> = {};
+      for (const entityType of input.entityTypes) {
+        const row = rows.find((candidate) => candidate.entity_type === entityType);
+        const cursor = String(row?.last_cursor ?? "0");
+        const retained = String(row?.retained_from_cursor ?? "0");
+        revisions[entityType] = createHash("sha256")
+          .update(entityType + ":" + cursor + ":" + retained)
+          .digest("hex");
+      }
+      return { siteId: input.siteId, revisions, observedAt: new Date().toISOString() };
+    }),
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       entityType: deltaEntityTypeSchema,
