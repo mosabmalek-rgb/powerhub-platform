@@ -1016,14 +1016,14 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
       expect(state.rpc).not.toHaveBeenCalled();
     },
   );
-}
+
   it("tracks every protected inventory mutation in the capability-denial tests", () => {
     const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
     const testSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.test.ts"), "utf8");
-    const declarations = [...routerSource.matchAll(/^\\s{4}([A-Za-z_]\\w*): protectedProcedure/gm)];
+    const declarations = [...routerSource.matchAll(/^ {4}([A-Za-z_][A-Za-z0-9_]*): protectedProcedure/gm)];
     const mutationProcedures = declarations.filter((declaration, index) => {
       const end = declarations[index + 1]?.index ?? routerSource.length;
-      return /\\.mutation\\s*\\(/.test(routerSource.slice(declaration.index, end));
+      return routerSource.slice(declaration.index, end).includes(".mutation(");
     }).map((declaration) => declaration[1]);
 
     // These procedures have dedicated denial tests above the table-driven matrix.
@@ -1042,8 +1042,8 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
       let cursor = testSource.indexOf(token);
       let hasDenialAssertion = false;
       while (cursor >= 0 && cursor < matrixStart) {
-        const testStart = testSource.lastIndexOf("\\n  it(", cursor);
-        const nextTest = testSource.indexOf("\\n  it(", cursor + token.length);
+        const testStart = testSource.lastIndexOf('  it("', cursor);
+        const nextTest = testSource.indexOf('  it("', cursor + token.length);
         const testBlock = testSource.slice(testStart >= 0 ? testStart : 0, nextTest >= 0 ? nextTest : matrixStart);
         if (testBlock.includes('rejects.toMatchObject({ code: "FORBIDDEN" })') &&
             testBlock.includes("not.toHaveBeenCalled()")) {
@@ -1059,5 +1059,4 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
     expect(new Set(coveredProcedures).size).toBe(coveredProcedures.length);
     expect([...coveredProcedures].sort()).toEqual([...mutationProcedures].sort());
   });
-
-);
+});
