@@ -1,6 +1,6 @@
 import type { Query, QueryClient } from "@tanstack/react-query";
 import superjson from "superjson";
-import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey } from "./offline-query-policy";
+import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey, isSafeFilteredOperationalSnapshot } from "./offline-query-policy";
 import { clearOperationalReportSnapshotsForUser } from "./offline-operational-report-cache";
 export { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey } from "./offline-query-policy";
 
@@ -449,6 +449,30 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
       pendingOffline: Boolean(row.pendingOffline),
     }));
   }
+  if (isSafeFilteredOperationalSnapshot(queryKey, segments) && Array.isArray(data)) {
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    const fields = segments[2] === "listFuelEvents"
+      ? [
+          "id", "event_id", "tenant_id", "site_id", "generator_id", "generator_name",
+          "fuel_item_name", "source_warehouse_id", "source_warehouse_name",
+          "destination_warehouse_id", "destination_warehouse_name", "litres",
+          "occurred_at", "level_before_liters", "level_after_liters",
+          "operating_hours", "reference_no",
+        ]
+      : [
+          "id", "reading_id", "tenant_id", "site_id", "generator_id", "generator_name",
+          "reading_type", "tank_warehouse_id", "tank_name", "reading_value",
+          "recorded_at", "reference_no", "corrects_reading_id",
+        ];
+    return data.filter(isRow).slice(0, 100).map((row) => {
+      const projected: Record<string, unknown> = {};
+      for (const field of fields) {
+        if (Object.prototype.hasOwnProperty.call(row, field)) projected[field] = row[field];
+      }
+      return projected;
+    });
+  }
   if (segments[0] === "powerhub" && data && Array.isArray(data)) {
     const options = queryKey[1];
     const wrapper = options && typeof options === "object" && !Array.isArray(options)
@@ -611,6 +635,54 @@ export function isOfflineHrProjectionQueryKeyForSite(
  * explicitly denies access. A later reload must not rehydrate a revoked snapshot.
  * This deliberately leaves Outbox operations intact for review/reconciliation.
  */
+/** Match persisted fuel event/reading snapshots for exactly one branch. */
+export function isOfflineFuelQueryKeyForSite(
+  queryKey: readonly unknown[],
+  siteId: number,
+  procedures: readonly string[] = ["listFuelEvents", "listFuelReadings"],
+): boolean {
+  if (!Number.isSafeInteger(siteId) || siteId < 1 || procedures.length === 0) return false;
+  const first = queryKey[0];
+  const segments = Array.isArray(first)
+    ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string" ? first.split(".") : [];
+  const procedure = segments[2] ?? "";
+  if (segments[0] !== "powerhub" || segments[1] !== "inventory" ||
+      !["listFuelEvents", "listFuelReadings"].includes(procedure) ||
+      !procedures.includes(procedure)) return false;
+  const wrapper = queryKey[1];
+  if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
+  const options = wrapper as Record<string, unknown>;
+  const input = Object.prototype.hasOwnProperty.call(options, "input") ? options.input : options;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  return Number((input as Record<string, unknown>).siteId) === siteId;
+}
+
+/** Purge filtered fuel snapshots for this identity/site only; Outbox is a separate store. */
+export async function clearOfflineFuelQueryCacheForSite(
+  userId: string,
+  siteId: number,
+  procedures: readonly string[] = ["listFuelEvents", "listFuelReadings"],
+) {
+  if (!userId || !Number.isSafeInteger(siteId) || siteId < 1 || procedures.length === 0) return;
+  try {
+    const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
+    const keys = records.filter((record) => {
+      if (record.userId !== userId) return false;
+      try {
+        return isOfflineFuelQueryKeyForSite(
+          superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId, procedures,
+        );
+      } catch {
+        return false;
+      }
+    }).map((record) => record.key);
+    await deleteQueryCacheKeys(keys);
+  } catch {
+    // UI access-denial guards also hide the query immediately.
+  }
+}
+
 export async function clearOfflineHrProjectionCacheForSite(
   userId: string,
   siteId: number,

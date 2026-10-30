@@ -108,7 +108,7 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
 }
 
 const OPERATIONAL_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
-  "inventory.listFuelReadings": new Set(["siteId", "generatorId", "limit"]),
+  "inventory.listFuelReadings": new Set(["siteId", "generatorId", "readingType", "limit"]),
   "inventory.listFuelEvents": new Set(["siteId", "fromDate", "toDate", "generatorId", "limit"]),
   "maintenance.listPreventivePlans": new Set(["siteId", "generatorId"]),
   "maintenance.listWorkOrders": new Set(["siteId", "generatorId", "status", "limit"]),
@@ -142,6 +142,40 @@ function isSafeOperationalOfflineList(queryKey: readonly unknown[], segments: st
       Object.keys(input).every((key) => key === "siteId" || key === "workOrderId");
   }
   return input.generatorId === undefined;
+}
+
+/**
+ * Exact-filter fuel query results may be stored for offline display, but the
+ * site's bounded Delta snapshot cannot prove the completeness of those filters.
+ * They remain ordinary cache snapshots and are refreshed via source revisions.
+ */
+export function isSafeFilteredOperationalSnapshot(
+  queryKey: readonly unknown[],
+  segments = getPowerHubQuerySegments(queryKey),
+): boolean {
+  if (segments.length !== 3 || segments[0] !== "powerhub" || segments[1] !== "inventory") return false;
+  const procedure = `inventory.${segments[2]}`;
+  if (procedure !== "inventory.listFuelEvents" && procedure !== "inventory.listFuelReadings") return false;
+
+  const input = getOfflineQueryInput(queryKey);
+  const allowedKeys = OPERATIONAL_OFFLINE_LIST_INPUT_KEYS[procedure];
+  if (!input || !allowedKeys || Object.keys(input).some((key) => !allowedKeys.has(key))) return false;
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1 || input.limit !== 100) return false;
+  if (input.generatorId !== undefined &&
+      (!Number.isSafeInteger(input.generatorId) || Number(input.generatorId) < 1)) return false;
+
+  if (procedure === "inventory.listFuelEvents") {
+    const hasFromDate = input.fromDate !== undefined;
+    const hasToDate = input.toDate !== undefined;
+    if ((hasFromDate && !isValidOfflineDate(input.fromDate)) ||
+        (hasToDate && !isValidOfflineDate(input.toDate)) ||
+        (hasFromDate && hasToDate && String(input.fromDate) > String(input.toDate))) return false;
+    return hasFromDate || hasToDate || input.generatorId !== undefined;
+  }
+
+  if (input.readingType !== undefined &&
+      input.readingType !== "tank_level" && input.readingType !== "operating_hours") return false;
+  return input.generatorId !== undefined || input.readingType !== undefined;
 }
 
 const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
@@ -307,6 +341,7 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   // Inventory catalog lists are persisted only in their default active,
   // unfiltered form and use the matching tenant/site-scoped Delta catalog feed.
   if (isSafeOperationalOfflineList(queryKey, segments)) return true;
+  if (isSafeFilteredOperationalSnapshot(queryKey, segments)) return true;
   if (isSafeInventoryOfflineList(queryKey, segments)) return true;
   if (isSafeInventoryMovementList(queryKey, segments)) return true;
   if (isSafeDashboardRevision(queryKey, segments)) return true;

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearOfflineHrProjectionCacheForSite,
   isOfflineHrProjectionQueryKeyForSite,
+  isOfflineFuelQueryKeyForSite,
   isOfflineCacheableQueryKey,
   isDeltaSyncBackedQueryKey,
   isOfflineQueryRecordUsable,
@@ -90,10 +91,11 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listFuelReadings", {
       input: { siteId: 7, limit: 99 }, type: "query",
     }])).toBe(false);
-    // The server retains only the latest 500 readings per site, not per generator.
-    // Filtered generator histories are therefore not complete enough for offline persistence.
-    expect(isOfflineCacheableQueryKey(filteredFuelReadings)).toBe(false);
+    // Filtered readings are exact server snapshots, not direct Delta projections.
+    expect(isOfflineCacheableQueryKey(filteredFuelReadings)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(filteredFuelReadings)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(filteredFuelReadings)).toBeNull();
+    expect(getOfflineQueryStaleTime(filteredFuelReadings)).toBe(30_000);
     expect(isOfflineCacheableQueryKey(["powerhub.maintenance.listPreventivePlans", {
       input: { siteId: 7, generatorId: 21 }, type: "query",
     }])).toBe(false);
@@ -122,11 +124,81 @@ describe("offline query cache policy", () => {
       expect(getOfflineQueryDeltaEntity(key)).toBe(entity);
       expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
     }
-    expect(isOfflineCacheableQueryKey(filteredFuelEvents)).toBe(false);
+    expect(isOfflineCacheableQueryKey(filteredFuelEvents)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(filteredFuelEvents)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(filteredFuelEvents)).toBeNull();
+    expect(getOfflineQueryStaleTime(filteredFuelEvents)).toBe(30_000);
     expect(isOfflineCacheableQueryKey(filteredWorkOrders)).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.maintenance.listParts", {
       input: { siteId: 7, workOrderId: 0 }, type: "query",
     }])).toBe(false);
+  });
+
+  it("accepts only valid exact-filter fuel snapshots and removes sensitive fields", () => {
+    const filteredReadings = ["powerhub.inventory.listFuelReadings", {
+      input: { siteId: 7, generatorId: 21, readingType: "tank_level", limit: 100 }, type: "query",
+    }] as const;
+    const invalidReadingType = ["powerhub.inventory.listFuelReadings", {
+      input: { siteId: 7, generatorId: 21, readingType: "secret", limit: 100 }, type: "query",
+    }] as const;
+    const invalidReadLimit = ["powerhub.inventory.listFuelReadings", {
+      input: { siteId: 7, generatorId: 21, limit: 500 }, type: "query",
+    }] as const;
+    const filteredEvents = ["powerhub.inventory.listFuelEvents", {
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29", generatorId: 21, limit: 100 }, type: "query",
+    }] as const;
+    const invalidEvents = ["powerhub.inventory.listFuelEvents", {
+      input: { siteId: 7, fromDate: "2026-10-30", toDate: "2026-10-01", limit: 100 }, type: "query",
+    }] as const;
+
+    expect(isOfflineCacheableQueryKey(filteredReadings)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(filteredReadings)).toBe(false);
+    expect(isOfflineCacheableQueryKey(filteredEvents)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(filteredEvents)).toBe(false);
+    expect(isOfflineCacheableQueryKey(invalidReadingType)).toBe(false);
+    expect(isOfflineCacheableQueryKey(invalidReadLimit)).toBe(false);
+    expect(isOfflineCacheableQueryKey(invalidEvents)).toBe(false);
+
+    const safeEvents = sanitizeOfflineQueryData(filteredEvents, [{
+      id: 4, event_id: 4, tenant_id: 2, site_id: 7, generator_id: 21, generator_name: "G-21",
+      fuel_item_name: "Diesel", source_warehouse_id: 2, source_warehouse_name: "Main",
+      destination_warehouse_id: 3, destination_warehouse_name: "Tank", litres: "20.000",
+      occurred_at: "2026-10-21T12:00:00Z", level_before_liters: "10.000",
+      level_after_liters: "30.000", operating_hours: "120.00", reference_no: "F-4",
+      notes: "private", unit_cost: "5.00", total_cost_amount: "100.00", created_by_user_id: 99,
+    }]) as Array<Record<string, unknown>>;
+    expect(safeEvents[0]).toMatchObject({ id: 4, event_id: 4, site_id: 7, generator_id: 21, litres: "20.000" });
+    expect(safeEvents[0]).not.toHaveProperty("notes");
+    expect(safeEvents[0]).not.toHaveProperty("unit_cost");
+    expect(safeEvents[0]).not.toHaveProperty("total_cost_amount");
+    expect(safeEvents[0]).not.toHaveProperty("created_by_user_id");
+
+    const safeReadings = sanitizeOfflineQueryData(filteredReadings, [{
+      id: 5, reading_id: 5, tenant_id: 2, site_id: 7, generator_id: 21, generator_name: "G-21",
+      reading_type: "tank_level", tank_warehouse_id: 30, tank_name: "Tank",
+      reading_value: "33.000", recorded_at: "2026-10-21T12:00:00Z", reference_no: "R-5",
+      corrects_reading_id: null, notes: "private", correction_reason: "private", created_by_user_id: 99,
+    }]) as Array<Record<string, unknown>>;
+    expect(safeReadings[0]).toMatchObject({ id: 5, reading_id: 5, site_id: 7, generator_id: 21, reading_type: "tank_level" });
+    expect(safeReadings[0]).not.toHaveProperty("notes");
+    expect(safeReadings[0]).not.toHaveProperty("correction_reason");
+    expect(safeReadings[0]).not.toHaveProperty("created_by_user_id");
+  });
+
+  it("matches exact fuel cache purges to the requested user/site procedures", () => {
+    const eventKey = ["powerhub.inventory.listFuelEvents", {
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29", limit: 100 }, type: "query",
+    }] as const;
+    const readingKey = ["powerhub.inventory.listFuelReadings", {
+      input: { siteId: 7, generatorId: 21, limit: 100 }, type: "query",
+    }] as const;
+    const otherSiteKey = ["powerhub.inventory.listFuelEvents", {
+      input: { siteId: 8, limit: 100 }, type: "query",
+    }] as const;
+    expect(isOfflineFuelQueryKeyForSite(eventKey, 7)).toBe(true);
+    expect(isOfflineFuelQueryKeyForSite(readingKey, 7)).toBe(true);
+    expect(isOfflineFuelQueryKeyForSite(otherSiteKey, 7)).toBe(false);
+    expect(isOfflineFuelQueryKeyForSite(eventKey, 7, ["listFuelReadings"])).toBe(false);
   });
 
   it("caps fuel and maintenance query data during cache save and hydration", async () => {
