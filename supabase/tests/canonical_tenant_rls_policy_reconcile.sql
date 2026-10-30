@@ -7,11 +7,25 @@ DO $roles$ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN dupl
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$ SELECT NULL::uuid $function$;
 CREATE SCHEMA IF NOT EXISTS private;
-CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint) RETURNS boolean LANGUAGE sql STABLE AS $function$
-  SELECT target_tenant_id = nullif(current_setting('test.tenant_id', true), '')::bigint
+CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.tenant_members tm
+    JOIN public.users u ON u.id=tm.user_id
+    WHERE tm.tenant_id=target_tenant_id
+      AND u.auth_user_id=auth.uid()
+      AND tm.is_active=true
+      AND tm.membership_status='active'
+  )
 $function$;
-CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin() RETURNS boolean LANGUAGE sql STABLE AS $function$
-  SELECT coalesce(nullif(current_setting('test.platform_admin', true), '') = 'true', false)
+CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.users
+    WHERE auth_user_id=auth.uid()
+      AND platform_role IN ('platform_owner','platform_admin','finance_admin')
+      AND account_status='active'
+  )
 $function$;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$
   SELECT nullif(current_setting('test.auth_uid', true), '')::uuid
@@ -193,7 +207,10 @@ CREATE TABLE public.supplier_purchase_receipt_lines (id bigint primary key, tena
 ALTER TABLE public.supplier_purchase_receipt_lines ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fixture_open ON public.supplier_purchase_receipt_lines FOR ALL TO PUBLIC USING (true) WITH CHECK (true);
 GRANT ALL ON public.supplier_purchase_receipt_lines TO anon, authenticated, service_role;
-CREATE TABLE public.tenant_members (id bigint primary key, tenant_id bigint);
+CREATE TABLE public.tenant_members (
+  id bigint primary key, tenant_id bigint, user_id bigint,
+  is_active boolean, membership_status text
+);
 ALTER TABLE public.tenant_members ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fixture_open ON public.tenant_members FOR ALL TO PUBLIC USING (true) WITH CHECK (true);
 GRANT ALL ON public.tenant_members TO anon, authenticated, service_role;
@@ -237,7 +254,10 @@ CREATE TABLE public.tenants (id bigint primary key);
 ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fixture_open ON public.tenants FOR ALL TO PUBLIC USING (true) WITH CHECK (true);
 GRANT ALL ON public.tenants TO anon, authenticated, service_role;
-CREATE TABLE public.users (id bigint primary key, auth_user_id uuid);
+CREATE TABLE public.users (
+  id bigint primary key, auth_user_id uuid, platform_role text,
+  account_status text, role text
+);
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fixture_open ON public.users FOR ALL TO PUBLIC USING (true) WITH CHECK (true);
 GRANT ALL ON public.users TO anon, authenticated, service_role;
@@ -263,14 +283,14 @@ INSERT INTO public.employees(id,tenant_id) VALUES (1,1), (2,2);
 INSERT INTO public.payroll_runs(id,tenant_id) VALUES (1,1), (2,2);
 INSERT INTO public.payroll_items(id,payroll_run_id) VALUES (1,1), (2,2);
 INSERT INTO public.platform_settings(id) VALUES (1), (2);
-INSERT INTO public.users(id,auth_user_id) VALUES
-  (1,'11111111-1111-4111-8111-111111111111'),
-  (2,'22222222-2222-4222-8222-222222222222');
+INSERT INTO public.users(id,auth_user_id,platform_role,account_status,role) VALUES
+  (1,'11111111-1111-4111-8111-111111111111',NULL,'active','user'),
+  (2,'22222222-2222-4222-8222-222222222222','platform_owner','active','admin');
+INSERT INTO public.tenant_members(id,tenant_id,user_id,is_active,membership_status)
+VALUES (1,1,1,true,'active');
 
 SET ROLE authenticated;
-SET test.tenant_id = '1';
 SET test.auth_uid = '11111111-1111-4111-8111-111111111111';
-SET test.platform_admin = 'false';
 
 DO $behavior$
 BEGIN
@@ -312,7 +332,7 @@ BEGIN
 END
 $behavior$;
 
-SET test.platform_admin = 'true';
+SET test.auth_uid = '22222222-2222-4222-8222-222222222222';
 DO $platform_admin$
 BEGIN
   IF (SELECT count(*) FROM public.platform_settings) <> 2 THEN
