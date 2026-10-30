@@ -159,7 +159,8 @@ export function WorkspaceHome() {
   );
   const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error);
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 60_000 });
-  const periodKpiEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword && dashboardPeriod.isReady);
+  const periodKpiBaseEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword);
+  const periodKpiEnabled = periodKpiBaseEnabled && dashboardPeriod.isReady;
   const periodInvoicedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "periodInvoiced",
     startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
@@ -183,19 +184,19 @@ export function WorkspaceHome() {
   const todayInvoicedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "periodInvoiced",
     startDate: dashboardToday, endDate: dashboardToday, boundaryMode: "utc",
-  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const todayCollectedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "periodCollected",
     startDate: dashboardToday, endDate: dashboardToday, boundaryMode: "utc",
-  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const todayCollectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
     startDate: dashboardToday, endDate: dashboardToday, boundaryMode: "utc",
-  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const monthCollectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
     startDate: dashboardMonthStart, endDate: dashboardMonthEnd, boundaryMode: "utc",
-  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const activeSubscribersKpiQuery = trpc.powerhub.dashboard.activeSubscribersKpi.useQuery(
     { siteId: siteId ?? 0, scope: selectedScope },
     { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 30_000 },
@@ -405,13 +406,16 @@ export function WorkspaceHome() {
     if (changed.has("activeSubscribers")) {
       void activeSubscribersKpiQuery.refetch();
     }
-    if (canViewFinancialOverview && dashboardPeriod.isReady) {
-      if (changed.has("periodInvoiced")) void Promise.all([periodInvoicedKpiQuery.refetch(), todayInvoicedKpiQuery.refetch()]);
-      if (changed.has("periodCollected")) void Promise.all([periodCollectedKpiQuery.refetch(), todayCollectedKpiQuery.refetch()]);
-      if (changed.has("collectionRate")) void Promise.all([
-        collectionRateKpiQuery.refetch(), todayCollectionRateKpiQuery.refetch(), monthCollectionRateKpiQuery.refetch(),
-      ]);
-      if (changed.has("periodOverdue")) void periodOverdueKpiQuery.refetch();
+    if (canViewFinancialOverview) {
+      if (dashboardPeriod.isReady) {
+        if (changed.has("periodInvoiced")) void periodInvoicedKpiQuery.refetch();
+        if (changed.has("periodCollected")) void periodCollectedKpiQuery.refetch();
+        if (changed.has("collectionRate")) void collectionRateKpiQuery.refetch();
+        if (changed.has("periodOverdue")) void periodOverdueKpiQuery.refetch();
+      }
+      if (changed.has("periodInvoiced")) void todayInvoicedKpiQuery.refetch();
+      if (changed.has("periodCollected")) void todayCollectedKpiQuery.refetch();
+      if (changed.has("collectionRate")) void Promise.all([todayCollectionRateKpiQuery.refetch(), monthCollectionRateKpiQuery.refetch()]);
     }
   }, [
     dashboardRevisionQuery.data?.revisions,
