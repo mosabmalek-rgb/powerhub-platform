@@ -1,5 +1,9 @@
 \set ON_ERROR_STOP on
 
+DO $roles$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $roles$;
+DO $roles$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $roles$;
+DO $roles$ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $roles$;
+
 CREATE OR REPLACE FUNCTION public.powerhub_set_updated_at()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $function$
 BEGIN
