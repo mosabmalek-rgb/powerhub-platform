@@ -215,7 +215,7 @@ DROP TABLE public.emergency_requests;
 DROP TABLE public.sms_dispatch_queue;
 DROP TABLE public.tweet_sms_report_snapshots;
 
-\\ir ../migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql
+\ir ../migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql
 
 DO $assert_optional_tables$
 BEGIN
