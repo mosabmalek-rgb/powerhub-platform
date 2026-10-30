@@ -383,14 +383,14 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       }
       if (item.kind === "generator_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorCreateDraft;
-        const result = await syncGeneratorCreate({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId });
+        const result = await runMutation(() => syncGeneratorCreate({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId }));
         assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       if (item.kind === "generator_update") {
         const payload = item.payload as import("@/lib/offline-work-queue").GeneratorUpdateDraft;
-        const result = await syncGeneratorUpdate({ siteId: item.siteId, generatorId: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, expectedUpdatedAt: payload.expectedUpdatedAt, clientOperationId: item.clientOperationId });
+        const result = await runMutation(() => syncGeneratorUpdate({ siteId: item.siteId, generatorId: payload.generatorId, name: payload.name, ratedCapacityKw: payload.ratedCapacityKw, fuelLevelLiters: payload.fuelLevelLiters, operatingHours: payload.operatingHours, status: payload.status, expectedUpdatedAt: payload.expectedUpdatedAt, clientOperationId: item.clientOperationId }));
         assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: result.name });
         return { outcome: result.replayed ? "already_applied" : "applied" };
@@ -435,6 +435,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       if (item.kind === "payment_create") {
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDraft;
         const result = await runMutation(() => createPayment.mutateAsync({ siteId: item.siteId, ...payload, clientOperationId: item.clientOperationId }));
+        assertCurrentOperation();
         const { receiptImageData: _receiptImageData, receiptImageMime: _receiptImageMime, ...sanitizedPayload } = payload;
         assertCurrentOperation();
         await updateOfflineWork(item.id, { status: "applied", error: undefined, appliedEntityId: result.id, appliedLabel: payload.paymentNo, payload: sanitizedPayload });
@@ -443,6 +444,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       if (item.kind === "payment_documentation_approve") {
         const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationApprovalDraft;
         const result = await runMutation(() => approvePaymentDocumentation.mutateAsync({ siteId: item.siteId, requestId: payload.requestId }));
+        assertCurrentOperation();
         // Server-confirmed approval is authoritative. Best-effort local cleanup must not
         // downgrade a committed financial approval to a failed client-side operation.
         await removePaymentDocumentationApprovalSnapshot(item.userId, item.siteId, payload.requestId).catch(() => undefined);
@@ -460,6 +462,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         const result = await runMutation(() => replayHrOffline.mutateAsync({
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "employee_create", payload: serverPayload,
         }));
+        assertCurrentOperation();
         if (!result.entityId || !result.versionNo) throw new Error("لم يُرجع الخادم معرف الموظف وإصدار النسخة بعد المزامنة.");
         if (localEmployeeId < 0) {
           resolvedLocalEmployees.current.set(localEmployeeId, { id: result.entityId, versionNo: result.versionNo });
@@ -487,6 +490,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "employee_update",
           payload: { ...payload, employeeId, expectedVersion },
         }));
+        assertCurrentOperation();
         if (!result.versionNo || result.versionNo < 1) throw new Error("لم يُرجع الخادم إصدارًا موثوقًا للموظف؛ بقيت العملية محفوظة للمراجعة.");
         assertCurrentOperation();
         await updateOfflineWork(item.id, {
@@ -506,6 +510,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "attendance_upsert",
           payload: { ...serverPayload, employeeId },
         }));
+        assertCurrentOperation();
         if (!result.entityId) throw new Error("لم يُرجع الخادم معرف الحضور بعد المزامنة.");
         if (!result.versionNo || result.versionNo < 1) throw new Error("لم يُرجع الخادم إصدارًا موثوقًا لسجل الحضور؛ بقيت العملية محفوظة للمراجعة.");
         assertCurrentOperation();
@@ -528,6 +533,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           siteId: item.siteId, operationKey: item.clientOperationId, operationType: "payroll_draft",
           payload: { period: payload.period, items },
         }));
+        assertCurrentOperation();
         if (!result.entityId) throw new Error("لم يُرجع الخادم معرف مسودة الرواتب.");
         assertCurrentOperation();
         await updateOfflineWork(item.id, {
