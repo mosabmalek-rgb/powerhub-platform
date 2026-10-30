@@ -6,6 +6,7 @@ import {
   compareMaintenanceWorkOrderNewestFirst,
   limitDeltaEntityRows,
   isBoundedDeltaEntityType,
+  isDeltaSyncRunCurrent,
   pullDeltaPages,
   withDeltaSyncLock,
   type DeltaPage,
@@ -106,6 +107,51 @@ function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>
     clearUser: async () => { cursor = "0"; rows.clear(); },
   };
 }
+
+describe("Delta run identity guard", () => {
+  it("allows writes only while the run owner is still the active authenticated user", () => {
+    expect(isDeltaSyncRunCurrent(7, 7, false)).toBe(true);
+    expect(isDeltaSyncRunCurrent(7, 8, false)).toBe(false);
+    expect(isDeltaSyncRunCurrent(7, null, false)).toBe(false);
+    expect(isDeltaSyncRunCurrent(7, 7, true)).toBe(false);
+    expect(isDeltaSyncRunCurrent(0, 0, false)).toBe(false);
+  });
+
+  it("discards a late page after the authenticated owner changes without applying rows or advancing its cursor", async () => {
+    const storage = memoryStorage("3");
+    let active = true;
+    let resolvePull!: (value: DeltaPage<Record<string, unknown>>) => void;
+    const pendingPull = new Promise<DeltaPage<Record<string, unknown>>>((resolve) => {
+      resolvePull = resolve;
+    });
+    const pull = vi.fn(() => pendingPull);
+    const applyPage = vi.fn(async () => undefined);
+    const pendingRun = pullDeltaPages({
+      scope,
+      storage,
+      afterCursor: "3",
+      pull,
+      applyPage,
+      rebuildSnapshot: async (cursor) => ({ cursor, rows: [] }),
+      isCurrent: () => isDeltaSyncRunCurrent(7, active ? 7 : 8, false),
+    });
+
+    active = false;
+    resolvePull(page({
+      current_cursor: "4",
+      through_cursor: "4",
+      next_cursor: "4",
+      changes: [change("4", "99", "upsert", { id: 99, tenantId: 1, siteId: 7 })],
+    }));
+
+    await expect(pendingRun).rejects.toMatchObject({
+      name: "PowerHubDeltaSyncRunSupersededError",
+    });
+    expect(applyPage).not.toHaveBeenCalled();
+    expect(await storage.getCursor(scope)).toBe("3");
+    expect(await storage.listEntities(scope)).toEqual([]);
+  });
+});
 
 describe("Delta row scope validation", () => {
   const scoped = { tenantId: 1, siteId: 7 };
