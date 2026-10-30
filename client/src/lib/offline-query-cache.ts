@@ -469,6 +469,7 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
           employmentStatus: employee.employmentStatus ?? employee.employment_status ?? "active",
         },
         repayments,
+        repaymentHistoryTruncated: Boolean(row.repaymentHistoryTruncated ?? row.repayment_history_truncated),
       };
     });
     if (segments[2] === "offlineCompanyAccountOptions") return data.filter(isRow).map((row) => ({
