@@ -340,7 +340,7 @@ begin
     select 1 from jsonb_array_elements(v_delta->'changes') c
     where c->>'entity_id'=v_advance::text and c->>'operation'='upsert'
       and c->'row_data'->>'repayment_history_truncated'='true'
-      and not (c->'row_data'->'repayments'->0 ? 'notes')
+      and c->'row_data'->'repayments'->0->>'notes' is null
   ) then raise exception 'HR_ADVANCE_REPAYMENT_UPDATE_OR_REDACTION_DELTA_MISSING'; end if;
 
   select (public.powerhub_get_hr_sync_snapshot(10,100,'hr_employee_advances')->>'snapshot_cursor')::bigint into v_cursor;
