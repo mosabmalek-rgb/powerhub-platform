@@ -33,12 +33,18 @@ describe("offline data and financial truth boundaries", () => {
     expect(fuel).toContain("generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : null");
     expect(fuel).toContain("tankWarehouseId: reportTankId ? Number(reportTankId) : null");
     expect(fuel).toContain("hasAuthoritativeServerRead(report)");
+    expect(fuel).toContain("const reportRows = (reportAuthorizationDenied ? [] : reportIsAuthoritative");
+    expect(fuel).toContain("!reportIsAuthoritative && cachedFuelReportForCurrentScope !== null");
+    expect(fuel).not.toContain("report.data ?? cachedFuelReportForCurrentScope?.rows");
     expect(fuel).toContain("void report.refetch()");
     expect(maintenance).toContain('reportType: "maintenance" as const');
     expect(maintenance).toContain("fromDate: reportFromDate");
     expect(maintenance).toContain("toDate: reportToDate");
     expect(maintenance).toContain("generatorId: reportGeneratorId ? Number(reportGeneratorId) : null");
     expect(maintenance).toContain("hasAuthoritativeServerRead(maintenanceReport)");
+    expect(maintenance).toContain("const maintenanceReportIsAuthoritative = !maintenanceReportAuthorizationDenied && hasAuthoritativeServerRead(maintenanceReport)");
+    expect(maintenance).toContain("!maintenanceReportIsAuthoritative && cachedMaintenanceReportForCurrentScope !== null");
+    expect(maintenance).not.toContain("maintenanceReport.data ?? cachedMaintenanceReportForCurrentScope?.rows");
     expect(maintenance).toContain('MAINTENANCE_REVISION_ENTITIES = ["maintenance_work_orders"]');
     expect(maintenance).toContain("void maintenanceReport.refetch()");
     expect(maintenance).not.toContain('"maintenance_reports"');
