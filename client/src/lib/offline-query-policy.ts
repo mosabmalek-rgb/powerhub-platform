@@ -321,10 +321,26 @@ function isSafeHrOfflineProjection(queryKey: readonly unknown[], segments = getP
     Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0);
 }
 
+export function isSafePurchaseDetailSnapshot(
+  queryKey: readonly unknown[],
+  segments = getPowerHubQuerySegments(queryKey),
+): boolean {
+  if (segments.length !== 3 || segments[0] !== "powerhub" ||
+      segments[1] !== "inventory" || segments[2] !== "getPurchase") return false;
+  const input = getOfflineQueryInput(queryKey);
+  return Boolean(input &&
+    Object.keys(input).length === 2 &&
+    Object.keys(input).every((key) => key === "siteId" || key === "purchaseId") &&
+    Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0 &&
+    Number.isSafeInteger(input.purchaseId) && Number(input.purchaseId) > 0);
+}
+
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
   if (isSafeHrOfflineProjection(queryKey, segments)) return true;
+  // One exact purchase detail may be stored as a sanitized read-only display snapshot.
+  if (isSafePurchaseDetailSnapshot(queryKey, segments)) return true;
   // The expense account selector is a minimized name/ID projection, not a balance.
   // It is allowed before the expenses router blocklist and has a short IndexedDB TTL.
   if (isSafeExpenseFilterAccounts(queryKey, segments)) return true;

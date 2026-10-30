@@ -3,6 +3,7 @@ import {
   clearOfflineHrProjectionCacheForSite,
   isOfflineHrProjectionQueryKeyForSite,
   isOfflineFuelQueryKeyForSite,
+  isOfflinePurchaseDetailQueryKeyForSite,
   isOfflineCacheableQueryKey,
   isDeltaSyncBackedQueryKey,
   isOfflineQueryRecordUsable,
@@ -46,6 +47,88 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listWarehouses", { input: { siteId: 0, includeInactive: false }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 0 }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listItemUnits", { input: { siteId: 7, itemId: 12, includeInactive: true }, type: "query" }])).toBe(false);
+  });
+
+  it("persists exact purchase detail only as a sanitized non-Delta display snapshot", () => {
+    const key = ["powerhub.inventory.getPurchase", {
+      input: { siteId: 7, purchaseId: 33 }, type: "query",
+    }] as const;
+    const malformed = ["powerhub.inventory.getPurchase", {
+      input: { siteId: 7, purchaseId: 33, withPayments: true }, type: "query",
+    }] as const;
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    expect(isOfflineCacheableQueryKey(malformed)).toBe(false);
+
+    const safe = sanitizeOfflineQueryData(key, {
+      purchase: {
+        id: 33, tenant_id: 2, site_id: 7, supplier_id: 11, warehouse_id: 5,
+        purchase_number: "PO-33", supplier_invoice_no: "PRIVATE-INVOICE",
+        invoice_date: "2026-10-28", due_date: "2026-11-28", status: "partially_received",
+        subtotal_amount: "100", total_amount: "120", payment_terms_days: 30,
+        reference_no: "PRIVATE-REFERENCE", notes: "PRIVATE-NOTE", operation_key: "PRIVATE-KEY",
+        received_at: null, received_by_user_id: 9, confirmed_at: "2026-10-28T10:00:00Z",
+        confirmed_by_user_id: 9, created_by_user_id: 9, created_at: "2026-10-28T10:00:00Z",
+        updated_at: "2026-10-29T10:00:00Z", supplierName: "Supplier", supplierCode: "SUP-11",
+        warehouseName: "Main", canViewFinancials: true, paidAmount: 50, outstandingAmount: 70,
+      },
+      canViewFinancials: true,
+      lines: [{
+        id: 1, purchase_id: 33, item_id: 8, quantity: "10.000", unit: "piece",
+        units_to_base_factor: "1", unit_price: "12.00", discount_amount: "0",
+        tax_amount: "0", line_subtotal: "120", line_total: "120", received_quantity: "5.000",
+        notes: "PRIVATE-LINE-NOTE", itemName: "Filter", itemSku: "FLT-8", baseUnit: "piece",
+      }],
+      receipts: [{
+        id: 2, receipt_number: "REC-2", receipt_date: "2026-10-29",
+        operation_key: "PRIVATE-RECEIPT-KEY", notes: "PRIVATE-RECEIPT-NOTE",
+        received_at: "2026-10-29T10:00:00Z", received_by_user_id: 9, created_at: "2026-10-29T10:00:00Z",
+      }],
+      returns: [{
+        id: 3, return_number: "RET-3", return_date: "2026-10-29", status: "posted",
+        reason: "PRIVATE-REASON", notes: "PRIVATE-RETURN-NOTE", total_credit_amount: "12",
+        stock_cost_amount: "10", refund_amount: "5", refund_company_account_id: 15,
+        returned_at: "2026-10-29T12:00:00Z", operation_key: "PRIVATE-RETURN-KEY",
+        lines: [{
+          id: 4, return_id: 3, purchase_line_id: 1, stock_movement_id: 8,
+          quantity: "1", base_quantity: "1", supplier_credit_amount: "12",
+          inventory_unit_cost: "10", stock_cost_amount: "10", itemName: "Filter", unit: "piece",
+        }],
+      }],
+      payments: [{ id: 90, amount: 100, company_account_name: "Cash", reference_no: "PRIVATE" }],
+    }) as Record<string, any>;
+
+    expect(safe.offlineSnapshot).toBe(true);
+    expect(safe.canViewFinancials).toBe(false);
+    expect(safe.purchase).toMatchObject({ id: 33, purchase_number: "PO-33", supplierName: "Supplier", canViewFinancials: false });
+    for (const field of ["supplier_invoice_no", "due_date", "total_amount", "payment_terms_days", "reference_no", "notes", "operation_key", "paidAmount", "outstandingAmount"]) {
+      expect(safe.purchase[field]).toBeNull();
+    }
+    expect(safe.lines[0]).toMatchObject({ itemName: "Filter", quantity: "10.000", received_quantity: "5.000" });
+    for (const field of ["unit_price", "discount_amount", "tax_amount", "line_total", "notes"]) {
+      expect(safe.lines[0]).not.toHaveProperty(field);
+    }
+    expect(safe.receipts[0]).toMatchObject({ receipt_number: "REC-2", notes: null });
+    expect(safe.receipts[0]).not.toHaveProperty("operation_key");
+    expect(safe.returns[0]).toMatchObject({ return_number: "RET-3", reason: null, notes: null, total_credit_amount: null });
+    expect(safe.returns[0].lines[0]).toMatchObject({ itemName: "Filter", quantity: "1", purchase_line_id: 1 });
+    for (const field of ["stock_movement_id", "supplier_credit_amount", "inventory_unit_cost", "stock_cost_amount"]) {
+      expect(safe.returns[0].lines[0]).not.toHaveProperty(field);
+    }
+    expect(safe.payments).toEqual([]);
+  });
+
+  it("matches purchase detail cache cleanup to the denied user/site/purchase only", () => {
+    const exact = ["powerhub.inventory.getPurchase", { input: { siteId: 7, purchaseId: 33 }, type: "query" }] as const;
+    const otherPurchase = ["powerhub.inventory.getPurchase", { input: { siteId: 7, purchaseId: 34 }, type: "query" }] as const;
+    const otherSite = ["powerhub.inventory.getPurchase", { input: { siteId: 8, purchaseId: 33 }, type: "query" }] as const;
+    const anotherProcedure = ["powerhub.inventory.supplierLedgerStatement", { input: { siteId: 7, supplierId: 11 }, type: "query" }] as const;
+    expect(isOfflinePurchaseDetailQueryKeyForSite(exact, 7, 33)).toBe(true);
+    expect(isOfflinePurchaseDetailQueryKeyForSite(otherPurchase, 7, 33)).toBe(false);
+    expect(isOfflinePurchaseDetailQueryKeyForSite(otherSite, 7)).toBe(false);
+    expect(isOfflinePurchaseDetailQueryKeyForSite(anotherProcedure, 7)).toBe(false);
   });
 
   it("caches minimized fuel workspace dropdowns without treating them as a Delta feed", () => {

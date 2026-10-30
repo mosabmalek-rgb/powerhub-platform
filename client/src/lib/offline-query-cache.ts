@@ -1,6 +1,6 @@
 import type { Query, QueryClient } from "@tanstack/react-query";
 import superjson from "superjson";
-import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey, isSafeFilteredOperationalSnapshot } from "./offline-query-policy";
+import { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey, isOfflineDashboardSnapshotQueryKey, isOfflineDashboardRevisionQueryKey, isSafeFilteredOperationalSnapshot, isSafePurchaseDetailSnapshot } from "./offline-query-policy";
 import { clearOperationalReportSnapshotsForUser } from "./offline-operational-report-cache";
 export { isOfflineCacheableQueryKey, isDeltaSyncBackedQueryKey } from "./offline-query-policy";
 
@@ -473,6 +473,70 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
       return projected;
     });
   }
+  if (isSafePurchaseDetailSnapshot(queryKey, segments) &&
+      data && typeof data === "object" && !Array.isArray(data)) {
+    const source = data as Record<string, unknown>;
+    const purchase = source.purchase && typeof source.purchase === "object" && !Array.isArray(source.purchase)
+      ? source.purchase as Record<string, unknown> : {};
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    const rows = (value: unknown) => Array.isArray(value) ? value.filter(isRow) : [];
+    const project = (row: Record<string, unknown>, fields: readonly string[]) => {
+      const safe: Record<string, unknown> = {};
+      for (const field of fields) if (Object.prototype.hasOwnProperty.call(row, field)) safe[field] = row[field];
+      return safe;
+    };
+    const safeLines = rows(source.lines).slice(0, 300).map((line) => project(line, [
+      "id", "purchase_id", "item_id", "quantity", "unit", "units_to_base_factor",
+      "received_quantity", "itemName", "itemSku", "baseUnit",
+    ]));
+    const safeReceipts = rows(source.receipts).slice(0, 100).map((receipt) => ({
+      ...project(receipt, ["id", "receipt_number", "receipt_date", "received_at", "created_at"]),
+      notes: null,
+    }));
+    const safeReturns = rows(source.returns).slice(0, 100).map((supplierReturn) => ({
+      ...project(supplierReturn, ["id", "return_number", "return_date", "status", "returned_at"]),
+      reason: null,
+      notes: null,
+      total_credit_amount: null,
+      stock_cost_amount: null,
+      refund_amount: null,
+      refund_company_account_id: null,
+      lines: rows(supplierReturn.lines).slice(0, 300).map((line) => project(line, [
+        "id", "return_id", "purchase_line_id", "quantity", "base_quantity", "itemName", "unit",
+      ])),
+    }));
+
+    return {
+      offlineSnapshot: true,
+      canViewFinancials: false,
+      purchase: {
+        ...project(purchase, [
+          "id", "tenant_id", "site_id", "supplier_id", "warehouse_id", "purchase_number",
+          "invoice_date", "status", "received_at", "confirmed_at", "created_at", "updated_at",
+          "supplierName", "supplierCode", "warehouseName",
+        ]),
+        supplier_invoice_no: null,
+        due_date: null,
+        total_amount: null,
+        subtotal_amount: null,
+        discount_amount: null,
+        tax_amount: null,
+        other_charges_amount: null,
+        payment_terms_days: null,
+        reference_no: null,
+        notes: null,
+        paidAmount: null,
+        supplierReturnCreditAmount: null,
+        outstandingAmount: null,
+        canViewFinancials: false,
+      },
+      lines: safeLines,
+      receipts: safeReceipts,
+      returns: safeReturns,
+      payments: [],
+    };
+  }
   if (segments[0] === "powerhub" && data && Array.isArray(data)) {
     const options = queryKey[1];
     const wrapper = options && typeof options === "object" && !Array.isArray(options)
@@ -544,6 +608,7 @@ async function persistOfflineQueryWithPolicy(
     ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "");
   const hrCacheTtl = ["offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "")
     ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  const isPurchaseDetailSnapshot = isSafePurchaseDetailSnapshot(query.queryKey);
   const isExpenseFilterOptions = cacheKeySegments[0] === "powerhub" &&
     cacheKeySegments[1] === "expenses" && cacheKeySegments[2] === "filterAccounts";
   const record: OfflineQueryRecord = {
@@ -554,7 +619,8 @@ async function persistOfflineQueryWithPolicy(
     updatedAt: query.state.dataUpdatedAt || now,
     // Operational snapshots are retained across days; freshness is handled by sync cursors,
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
-    expiresAt: isHrProjection ? now + hrCacheTtl
+    expiresAt: isPurchaseDetailSnapshot ? now + 24 * 60 * 60 * 1000
+      : isHrProjection ? now + hrCacheTtl
       : isExpenseFilterOptions ? now + OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS
         : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
           ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
@@ -680,6 +746,57 @@ export async function clearOfflineFuelQueryCacheForSite(
     await deleteQueryCacheKeys(keys);
   } catch {
     // UI access-denial guards also hide the query immediately.
+  }
+}
+
+/** Match only the exact getPurchase detail query for one user/site/purchase. */
+export function isOfflinePurchaseDetailQueryKeyForSite(
+  queryKey: readonly unknown[],
+  siteId: number,
+  purchaseId?: number,
+): boolean {
+  if (!Number.isSafeInteger(siteId) || siteId < 1 ||
+      (purchaseId !== undefined && (!Number.isSafeInteger(purchaseId) || purchaseId < 1))) return false;
+  const first = queryKey[0];
+  const segments = Array.isArray(first)
+    ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string" ? first.split(".") : [];
+  if (segments.length !== 3 || segments[0] !== "powerhub" ||
+      segments[1] !== "inventory" || segments[2] !== "getPurchase") return false;
+  const wrapper = queryKey[1];
+  if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
+  const options = wrapper as Record<string, unknown>;
+  const input = Object.prototype.hasOwnProperty.call(options, "input") ? options.input : options;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  const scoped = input as Record<string, unknown>;
+  return Number(scoped.siteId) === siteId &&
+    Number.isSafeInteger(scoped.purchaseId) && Number(scoped.purchaseId) > 0 &&
+    (purchaseId === undefined || Number(scoped.purchaseId) === purchaseId);
+}
+
+/** Purge denied purchase detail snapshots only; the shared Outbox is untouched. */
+export async function clearOfflinePurchaseDetailQueryCacheForSite(
+  userId: string,
+  siteId: number,
+  purchaseId?: number,
+) {
+  if (!userId || !Number.isSafeInteger(siteId) || siteId < 1 ||
+      (purchaseId !== undefined && (!Number.isSafeInteger(purchaseId) || purchaseId < 1))) return;
+  try {
+    const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
+    const keys = records.filter((record) => {
+      if (record.userId !== userId) return false;
+      try {
+        return isOfflinePurchaseDetailQueryKeyForSite(
+          superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId, purchaseId,
+        );
+      } catch {
+        return false;
+      }
+    }).map((record) => record.key);
+    await deleteQueryCacheKeys(keys);
+  } catch {
+    // Explicit denial is hidden by the UI; cleanup is best effort.
   }
 }
 
