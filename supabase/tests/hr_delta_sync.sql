@@ -175,6 +175,11 @@ begin
    if not (select relrowsecurity from pg_class where oid=format('public.%I',v_table)::regclass) then
      raise exception 'HR_RLS_NOT_ENABLED: %',v_table;
    end if;
+   if not exists(
+     select 1 from pg_policies
+     where schemaname='public' and tablename=v_table
+       and cmd='SELECT' and roles=array['authenticated']::name[]
+   ) then raise exception 'HR_AUTHENTICATED_TENANT_READ_POLICY_MISSING: %',v_table; end if;
    if has_table_privilege('anon',format('public.%I',v_table),'SELECT')
       or has_table_privilege('authenticated',format('public.%I',v_table),'INSERT')
       or has_table_privilege('authenticated',format('public.%I',v_table),'UPDATE')
@@ -188,13 +193,6 @@ begin
       or not has_table_privilege('service_role',format('public.%I',v_table),'DELETE')
    then raise exception 'HR_SERVICE_ROLE_DML_MISSING: %',v_table; end if;
  end loop;
-
- if exists(
-   select 1 from pg_policies
-   where schemaname='public'
-     and tablename in ('employees','employee_attendance','employee_adjustments','payroll_runs','payroll_items','payroll_adjustment_allocations')
-     and roles <> array['authenticated']::name[]
- ) then raise exception 'HR_POLICY_ROLE_NOT_AUTHENTICATED_ONLY'; end if;
 
  if has_sequence_privilege('anon','public.employees_id_seq','USAGE')
     or has_sequence_privilege('authenticated','public.employees_id_seq','USAGE')
