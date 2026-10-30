@@ -9,6 +9,7 @@ import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { buildDashboardPeriodMetrics } from "./dashboard-period-metrics";
+import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
@@ -3833,6 +3834,95 @@ export const powerhubRouter = router({
         scope: metrics.scope,
         siteId: input.siteId,
       };
+    }),
+    financialKpi: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+      metric: z.enum(["expenses", "netCash", "currentArrears"]),
+    })).query(async ({ ctx, input }) => {
+      let tenantId: number;
+      let siteIds: number[];
+      if (input.scope === "branch") {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        siteIds = [input.siteId];
+      } else {
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id")
+          .eq("tenant_id", tenantId)
+          .neq("status", "archived");
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد الأفرع للمؤشر المالي." });
+        siteIds = (data ?? []).map((row) => Number(row.id)).filter((id) => Number.isSafeInteger(id) && id > 0);
+      }
+
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+      const admin = supabaseAdmin();
+      let expenseRows: Array<{ amount: number | string }> = [];
+      let paymentRows: Array<{ amount: number | string; status: string }> = [];
+      let arrearsRows: Array<{
+        site_id: number | string;
+        subscriber_id: number | string;
+        due_date: string;
+        balance_due: number | string;
+        status: string;
+      }> = [];
+
+      if (siteIds.length && (input.metric === "expenses" || input.metric === "netCash")) {
+        expenseRows = await readSupabaseReportPages((from, to) =>
+          admin.from("expenses")
+            .select("amount")
+            .eq("tenant_id", tenantId)
+            .in("site_id", siteIds)
+            .gte("occurred_at", monthStart.toISOString())
+            .lt("occurred_at", nextMonthStart.toISOString())
+            .order("id", { ascending: true })
+            .range(from, to),
+        "تعذر تحميل مصروفات الشهر لمؤشر لوحة التحكم.");
+      }
+      if (siteIds.length && input.metric === "netCash") {
+        paymentRows = await readSupabaseReportPages((from, to) =>
+          admin.from("payments")
+            .select("amount, status")
+            .eq("tenant_id", tenantId)
+            .in("site_id", siteIds)
+            .gte("paid_at", monthStart.toISOString())
+            .lt("paid_at", nextMonthStart.toISOString())
+            .eq("status", "completed")
+            .order("id", { ascending: true })
+            .range(from, to),
+        "تعذر تحميل تحصيلات الشهر لصافي النقد.");
+      }
+      if (siteIds.length && input.metric === "currentArrears") {
+        arrearsRows = await readSupabaseReportPages((from, to) =>
+          admin.from("invoices")
+            .select("site_id, subscriber_id, due_date, balance_due, status")
+            .eq("tenant_id", tenantId)
+            .in("site_id", siteIds)
+            .not("status", "in", "(cancelled,draft)")
+            .gt("balance_due", 0)
+            .order("id", { ascending: true })
+            .range(from, to),
+        "تعذر تحميل الذمم الحالية لمؤشر لوحة التحكم.");
+      }
+
+      const result = buildDashboardFinancialKpi({
+        metric: input.metric as DashboardFinancialKpiMetric,
+        expenses: expenseRows,
+        payments: paymentRows,
+        arrears: arrearsRows.map((row) => ({
+          siteId: row.site_id,
+          subscriberId: row.subscriber_id,
+          dueDate: row.due_date,
+          balanceDue: row.balance_due,
+          status: row.status,
+        })),
+        now,
+      });
+      return { ...result, scope: input.scope, siteId: input.siteId, observedAt: now.toISOString() };
     }),
     financialOverview: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
