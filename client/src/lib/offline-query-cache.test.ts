@@ -12,6 +12,8 @@ import {
   OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS,
   OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS,
   OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS,
+  OFFLINE_HR_DELTA_PROJECTION_TTL_MS,
+  OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS,
   persistOfflineQuery,
   persistOfflineQueryForDeltaSync,
   sanitizeOfflineQueryData,
@@ -1078,10 +1080,12 @@ describe("HR local-first cache boundaries", () => {
     expect(advances[0].repayments[0]).toMatchObject({ notes: null, referenceNo: null, createdByUserId: null, accountTransactionId: null });
     expect(advances[0].repaymentHistoryTruncated).toBe(false);
     const manyRepayments = sanitizeOfflineQueryData(key("offlineEmployeeAdvances"), [{
+      id: 30, tenantId: 2, siteId: 7, createdAt: "2026-10-01T00:00:00Z",
       adjustment: { id: 30, tenantId: 2, siteId: 7, employeeId: 10, amount: "100", remainingAmount: "40" },
       employee: { id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker", employmentStatus: "active" },
       repayments: Array.from({ length: 6 }, (_, index) => ({ id: index + 1, amount: "10", notes: "PRIVATE" })),
     }]) as Array<Record<string, any>>;
+    expect(manyRepayments[0]).toMatchObject({ id: 30, tenantId: 2, siteId: 7 });
     expect(manyRepayments[0].repayments).toHaveLength(4);
     expect(manyRepayments[0].repaymentHistoryTruncated).toBe(true);
     const truncatedAdvances = sanitizeOfflineQueryData(key("offlineEmployeeAdvances"), [{
@@ -1110,6 +1114,11 @@ describe("HR local-first cache boundaries", () => {
 
 
 describe("dynamic subscriber directory and minimized expense selector cache", () => {
+  it("retains Delta-backed HR projections for seven days but limits non-Delta account options to 24 hours", () => {
+    expect(OFFLINE_HR_DELTA_PROJECTION_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS).toBe(24 * 60 * 60 * 1000);
+  });
+
   it("persists bounded unfiltered, search and subscription-type directory pages through subscriber Delta", () => {
     const keys = [
       ["powerhub.subscribers.directoryPage", { input: { siteId: 7, page: 1, pageSize: 20, search: "" }, type: "query" }],
