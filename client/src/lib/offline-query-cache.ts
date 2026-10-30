@@ -853,6 +853,60 @@ export async function clearOfflineFuelQueryCacheForSite(
   }
 }
 
+/** Match one allowlisted dashboard snapshot/revision for the exact site. */
+export function isOfflineDashboardQueryKeyForSite(
+  queryKey: readonly unknown[],
+  siteId: number,
+  procedures: readonly string[] = [
+    "summary", "allBranchesSummary", "financialOverview", "periodMetrics",
+    "activeSubscribersKpi", "periodKpi", "financialKpi", "deltaRevision",
+  ],
+): boolean {
+  if (!Number.isSafeInteger(siteId) || siteId < 1 || procedures.length === 0) return false;
+  const first = queryKey[0];
+  const segments = Array.isArray(first)
+    ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string" ? first.split(".") : [];
+  if (segments.length !== 3 || segments[0] !== "powerhub" ||
+      segments[1] !== "dashboard" || !procedures.includes(segments[2] ?? "")) return false;
+  const wrapper = queryKey[1] && typeof queryKey[1] === "object" && !Array.isArray(queryKey[1])
+    ? queryKey[1]
+    : queryKey[queryKey.length - 1];
+  if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
+  const options = wrapper as Record<string, unknown>;
+  const input = Object.prototype.hasOwnProperty.call(options, "input") ? options.input : options;
+  if (!input || typeof input !== "object" || Array.isArray(input) ||
+      Number((input as Record<string, unknown>).siteId) !== siteId) return false;
+  return segments[2] === "deltaRevision"
+    ? isOfflineDashboardRevisionQueryKey(queryKey)
+    : isOfflineDashboardSnapshotQueryKey(queryKey);
+}
+
+/** Purge denied dashboard snapshots for this user/site without touching other procedures or the Outbox. */
+export async function clearOfflineDashboardSnapshotCacheForSite(
+  userId: string,
+  siteId: number,
+  procedures?: readonly string[],
+) {
+  if (!userId || !Number.isSafeInteger(siteId) || siteId < 1) return;
+  try {
+    const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
+    const keys = records.filter((record) => {
+      if (record.userId !== userId) return false;
+      try {
+        return isOfflineDashboardQueryKeyForSite(
+          superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId, procedures,
+        );
+      } catch {
+        return false;
+      }
+    }).map((record) => record.key);
+    await deleteQueryCacheKeys(keys);
+  } catch {
+    // UI authorization guards also hide the denied KPI if storage cleanup is unavailable.
+  }
+}
+
 /** Match only the exact getPurchase detail query for one user/site/purchase. */
 export function isOfflinePurchaseDetailQueryKeyForSite(
   queryKey: readonly unknown[],
