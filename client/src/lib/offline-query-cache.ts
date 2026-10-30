@@ -13,6 +13,8 @@ export const OFFLINE_QUERY_CACHE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
 export const OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_HR_DELTA_PROJECTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
 let successfulWritesSincePrune = 0;
 let pruneInFlight: Promise<void> | null = null;
 
@@ -454,6 +456,10 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
         referenceNo: null, notes: null, createdByUserId: null, createdAt: payment.createdAt,
       }));
       return {
+        id: row.id ?? adjustment.id,
+        tenantId: row.tenantId ?? row.tenant_id ?? adjustment.tenantId ?? adjustment.tenant_id,
+        siteId: row.siteId ?? row.site_id ?? adjustment.siteId ?? adjustment.site_id ?? null,
+        createdAt: row.createdAt ?? row.created_at ?? adjustment.createdAt ?? adjustment.created_at,
         adjustment: {
           id: adjustment.id, tenantId: adjustment.tenantId ?? adjustment.tenant_id,
           employeeId: adjustment.employeeId ?? adjustment.employee_id, siteId: adjustment.siteId ?? adjustment.site_id,
@@ -718,8 +724,8 @@ async function persistOfflineQueryWithPolicy(
     : typeof cacheKeyParts === "string" ? cacheKeyParts.split(".") : [];
   const isHrProjection = cacheKeySegments[0] === "powerhub" && cacheKeySegments[1] === "hr" &&
     ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "");
-  const hrCacheTtl = ["offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "")
-    ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  const hrCacheTtl = cacheKeySegments[2] === "offlineCompanyAccountOptions"
+    ? OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS : OFFLINE_HR_DELTA_PROJECTION_TTL_MS;
   const isPurchaseDetailSnapshot = isSafePurchaseDetailSnapshot(query.queryKey);
   const isSupplierFinancialSnapshot = isSafeSupplierLedgerStatementSnapshot(query.queryKey) ||
     isSafeSupplierPayablesAgingSnapshot(query.queryKey);
