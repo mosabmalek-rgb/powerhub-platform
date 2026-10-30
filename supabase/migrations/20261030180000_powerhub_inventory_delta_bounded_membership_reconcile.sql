@@ -360,4 +360,85 @@ alter function public.powerhub_refresh_purchase_child_headers_after_warehouse_up
 revoke all on function public.powerhub_refresh_purchase_child_headers_after_warehouse_update() from public,anon,authenticated;
 grant execute on function public.powerhub_refresh_purchase_child_headers_after_warehouse_update() to service_role;
 
+
+-- Stocktake snapshots are bounded to the newest 200. A deletion or created_at
+-- correction must publish the row that moves from rank 201 into the visible set.
+create or replace function public.powerhub_refresh_inventory_stocktake_delta_scope(
+  p_tenant_id bigint,p_site_id bigint
+)
+returns void
+language plpgsql security definer
+set search_path=pg_catalog,public,pg_temp
+as $
+declare v_stocktake record;
+begin
+  if p_tenant_id is null or p_tenant_id<1 or p_site_id is null or p_site_id<1
+     or not exists(select 1 from public.sites s where s.tenant_id=p_tenant_id and s.id=p_site_id) then
+    raise exception 'POWERHUB_SYNC_SCOPE_INVALID' using errcode='P0001';
+  end if;
+  for v_stocktake in
+    select st.id
+    from public.inventory_stocktakes st
+    where st.tenant_id=p_tenant_id and st.site_id=p_site_id
+    order by st.created_at desc,st.id desc
+    limit 200
+  loop
+    perform public.powerhub_emit_inventory_stocktake_sync_change(p_tenant_id,v_stocktake.id);
+  end loop;
+end $;
+alter function public.powerhub_refresh_inventory_stocktake_delta_scope(bigint,bigint) owner to postgres;
+revoke all on function public.powerhub_refresh_inventory_stocktake_delta_scope(bigint,bigint) from public,anon,authenticated;
+grant execute on function public.powerhub_refresh_inventory_stocktake_delta_scope(bigint,bigint) to service_role;
+
+create or replace function public.powerhub_capture_inventory_stocktake_delta_sync_change()
+returns trigger
+language plpgsql security definer
+set search_path=pg_catalog,public,pg_temp
+as $
+declare v_scope_changed boolean:=false; v_rank_changed boolean:=false;
+begin
+  if TG_OP='DELETE' then
+    perform public.powerhub_append_inventory_sync_change(
+      OLD.tenant_id,OLD.site_id,'inventory_stocktakes',OLD.id::text,'delete',null
+    );
+    perform public.powerhub_refresh_inventory_stocktake_delta_scope(OLD.tenant_id,OLD.site_id);
+    return OLD;
+  end if;
+
+  if TG_OP='UPDATE' then
+    if to_jsonb(OLD) is not distinct from to_jsonb(NEW) then return NEW; end if;
+    v_scope_changed:=OLD.tenant_id is distinct from NEW.tenant_id
+      or OLD.site_id is distinct from NEW.site_id;
+    v_rank_changed:=OLD.created_at is distinct from NEW.created_at;
+    if v_scope_changed then
+      perform public.powerhub_append_inventory_sync_change(
+        OLD.tenant_id,OLD.site_id,'inventory_stocktakes',OLD.id::text,'delete',null
+      );
+      perform public.powerhub_refresh_inventory_stocktake_delta_scope(OLD.tenant_id,OLD.site_id);
+    end if;
+  end if;
+
+  perform public.powerhub_emit_inventory_stocktake_sync_change(NEW.tenant_id,NEW.id);
+  if TG_OP='UPDATE' and (v_scope_changed or v_rank_changed) then
+    perform public.powerhub_refresh_inventory_stocktake_delta_scope(NEW.tenant_id,NEW.site_id);
+  end if;
+  return NEW;
+end $;
+alter function public.powerhub_capture_inventory_stocktake_delta_sync_change() owner to postgres;
+revoke all on function public.powerhub_capture_inventory_stocktake_delta_sync_change() from public,anon,authenticated;
+grant execute on function public.powerhub_capture_inventory_stocktake_delta_sync_change() to service_role;
+
+create or replace function public.powerhub_refresh_stocktake_delta_after_warehouse_update()
+returns trigger
+language plpgsql security definer
+set search_path=pg_catalog,public,pg_temp
+as $
+begin
+  perform public.powerhub_refresh_inventory_stocktake_delta_scope(NEW.tenant_id,NEW.site_id);
+  return NEW;
+end $;
+alter function public.powerhub_refresh_stocktake_delta_after_warehouse_update() owner to postgres;
+revoke all on function public.powerhub_refresh_stocktake_delta_after_warehouse_update() from public,anon,authenticated;
+grant execute on function public.powerhub_refresh_stocktake_delta_after_warehouse_update() to service_role;
+
 select pg_notify('pgrst','reload schema');
