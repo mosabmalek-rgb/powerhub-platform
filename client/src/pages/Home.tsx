@@ -14,6 +14,8 @@ import { useDashboardKpiPeriod } from "@/hooks/useDashboardKpiPeriod";
 import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter";
 import { trpc } from "@/lib/trpc";
 import { describeAuthFailure } from "@/lib/auth-diagnostics";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineDashboardSnapshotCacheForSite } from "@/lib/offline-query-cache";
 import { resetSupabaseSessionReadBackoff } from "@/lib/supabase";
 import { authenticatedHomePath } from "@/lib/role-routing";
 import {
@@ -115,7 +117,7 @@ export function WorkspaceHome() {
   // The API intentionally restricts the financial overview to these roles. Do not
   // fire a known-forbidden query for technicians/collectors and misreport that as
   // a dashboard data-loading failure.
-  const canViewFinancialOverview = Boolean(
+  const canViewFinancialOverview = !isExplicitAuthorizationDenial(accessQuery.error) && Boolean(
     accessQuery.data && ["owner", "manager", "accountant", "viewer"].includes(accessQuery.data.role),
   );
   const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
@@ -155,7 +157,8 @@ export function WorkspaceHome() {
       refetchOnWindowFocus: true,
     },
   );
-  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 });
+  const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error);
+  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 60_000 });
   const periodKpiEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword && dashboardPeriod.isReady);
   const periodInvoicedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
     siteId: siteId ?? 0, scope: selectedScope, metric: "periodInvoiced",
@@ -195,9 +198,9 @@ export function WorkspaceHome() {
   }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const activeSubscribersKpiQuery = trpc.powerhub.dashboard.activeSubscribersKpi.useQuery(
     { siteId: siteId ?? 0, scope: selectedScope },
-    { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 30_000 },
+    { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 30_000 },
   );
-  const financialKpiEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword);
+  const financialKpiEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword);
   const expensesKpiQuery = trpc.powerhub.dashboard.financialKpi.useQuery(
     { siteId: siteId ?? 0, scope: selectedScope, metric: "expenses" },
     { enabled: financialKpiEnabled, staleTime: 30_000 },
@@ -217,11 +220,48 @@ export function WorkspaceHome() {
     todayInvoicedKpiQuery, todayCollectedKpiQuery, todayCollectionRateKpiQuery, monthCollectionRateKpiQuery,
   ] as const;
   const periodKpiError = periodKpiQueries.some((query) => query.isError);
+
+  useEffect(() => {
+    if (!user?.id || !siteId) return;
+    const allDashboardProcedures = [
+      "summary", "allBranchesSummary", "financialOverview", "periodMetrics",
+      "activeSubscribersKpi", "periodKpi", "financialKpi", "deltaRevision",
+    ];
+    const denied = new Set<string>();
+    if (isExplicitAuthorizationDenial(accessQuery.error) ||
+        isExplicitAuthorizationDenial(dashboardRevisionQuery.error) ||
+        isExplicitAuthorizationDenial(sitesQuery.error)) {
+      allDashboardProcedures.forEach((procedure) => denied.add(procedure));
+    } else {
+      if (isExplicitAuthorizationDenial(summaryQuery.error)) denied.add("summary");
+      if (isExplicitAuthorizationDenial(allBranchesSummaryQuery.error)) denied.add("allBranchesSummary");
+      if (isExplicitAuthorizationDenial(financialOverviewQuery.error)) denied.add("financialOverview");
+      if (isExplicitAuthorizationDenial(activeSubscribersKpiQuery.error)) denied.add("activeSubscribersKpi");
+      if ([
+        periodInvoicedKpiQuery, periodCollectedKpiQuery, collectionRateKpiQuery,
+        periodOverdueKpiQuery, todayInvoicedKpiQuery, todayCollectedKpiQuery,
+        todayCollectionRateKpiQuery, monthCollectionRateKpiQuery,
+      ].some((query) => isExplicitAuthorizationDenial(query.error))) denied.add("periodKpi");
+      if (financialKpiQueries.some((query) => isExplicitAuthorizationDenial(query.error))) denied.add("financialKpi");
+    }
+    if (denied.size) {
+      void clearOfflineDashboardSnapshotCacheForSite(user.id, siteId, [...denied]);
+    }
+  }, [
+    user?.id, siteId, sitesQuery.error, accessQuery.error, dashboardRevisionQuery.error,
+    summaryQuery.error, allBranchesSummaryQuery.error, financialOverviewQuery.error,
+    activeSubscribersKpiQuery.error, periodInvoicedKpiQuery.error, periodCollectedKpiQuery.error,
+    collectionRateKpiQuery.error, periodOverdueKpiQuery.error, todayInvoicedKpiQuery.error,
+    todayCollectedKpiQuery.error, todayCollectionRateKpiQuery.error, monthCollectionRateKpiQuery.error,
+    expensesKpiQuery.error, netCashKpiQuery.error, currentArrearsKpiQuery.error,
+  ]);
+
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const requestAddon = trpc.powerhub.subscription.requestAddon.useMutation({ onSuccess: async (result) => { await addonRequestsQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب إضافة قيد المتابعة بالفعل." : "تم إرسال طلب الإضافة إلى إدارة PowerHub."); }, onError: (error) => toast.error(error.message) });
   // A persisted financial snapshot is display-only and must never substitute for a verified role.
-  const overview = canViewFinancialOverview ? financialOverviewQuery.data : undefined;
+  const overview = canViewFinancialOverview && !dashboardRevisionDenied &&
+    !isExplicitAuthorizationDenial(financialOverviewQuery.error) ? financialOverviewQuery.data : undefined;
   const dashboardDataError = sitesQuery.isError || accessQuery.isError ||
     (canViewFinancialOverview && (financialOverviewQuery.isError || financialKpiError)) ||
     (selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError);
@@ -248,23 +288,29 @@ export function WorkspaceHome() {
   };
   const metricNumber = (value: unknown, fractionDigits = 0) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
-    : !canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : number(value, fractionDigits);
+    : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(financialOverviewQuery.error) ||
+      (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : number(value, fractionDigits);
   const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
-    : !canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
-  const financialKpiNumber = (value: unknown, query: { isLoading: boolean; isError: boolean; data: unknown }, fractionDigits = 2) =>
+    : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(financialOverviewQuery.error) ||
+      (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
+  const financialKpiNumber = (value: unknown, query: { isLoading: boolean; isError: boolean; data: unknown; error: unknown }, fractionDigits = 2) =>
     accessQuery.isLoading || query.isLoading ? "…" :
-      !canViewFinancialOverview || (query.isError && !query.data) ? "—" : number(value, fractionDigits);
+      !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
+      (query.isError && !query.data) ? "—" : number(value, fractionDigits);
   const activeSubscriberMetric = accessQuery.isLoading || activeSubscribersKpiQuery.isLoading
     ? "…"
-    : !canViewFinancialOverview || (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)
+    : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(activeSubscribersKpiQuery.error) ||
+      (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)
       ? "—" : number(activeSubscribers);
   const periodKpiNumber = (query: {
     data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
     isError: boolean;
     isLoading: boolean;
+    error: unknown;
   }, fractionDigits = 2) =>
-    !canViewFinancialOverview || dashboardPeriod.isError || (query.isError && !query.data)
+    !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
+      dashboardPeriod.isError || (query.isError && !query.data)
       ? "—"
       : dashboardPeriod.isLoading || !dashboardPeriod.isReady || query.isLoading || !query.data ||
         query.data.range.startDate !== dashboardPeriod.startDate ||
@@ -275,8 +321,10 @@ export function WorkspaceHome() {
     data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
     isError: boolean;
     isLoading: boolean;
+    error: unknown;
   }) =>
-    !canViewFinancialOverview || dashboardPeriod.isError || (query.isError && !query.data)
+    !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
+      dashboardPeriod.isError || (query.isError && !query.data)
       ? "—"
       : dashboardPeriod.isLoading || !dashboardPeriod.isReady || query.isLoading || !query.data ||
         query.data.range.startDate !== dashboardPeriod.startDate ||
