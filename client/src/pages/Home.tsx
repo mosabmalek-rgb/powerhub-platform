@@ -177,6 +177,21 @@ export function WorkspaceHome() {
     { siteId: siteId ?? 0, scope: selectedScope },
     { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 30_000 },
   );
+  const financialKpiEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword);
+  const expensesKpiQuery = trpc.powerhub.dashboard.financialKpi.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope, metric: "expenses" },
+    { enabled: financialKpiEnabled, staleTime: 30_000 },
+  );
+  const netCashKpiQuery = trpc.powerhub.dashboard.financialKpi.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope, metric: "netCash" },
+    { enabled: financialKpiEnabled, staleTime: 30_000 },
+  );
+  const currentArrearsKpiQuery = trpc.powerhub.dashboard.financialKpi.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope, metric: "currentArrears" },
+    { enabled: financialKpiEnabled, staleTime: 30_000 },
+  );
+  const financialKpiQueries = [expensesKpiQuery, netCashKpiQuery, currentArrearsKpiQuery] as const;
+  const financialKpiError = financialKpiQueries.some((query) => query.isError);
   const periodKpiQueries = [periodInvoicedKpiQuery, periodCollectedKpiQuery, collectionRateKpiQuery, periodOverdueKpiQuery] as const;
   const periodKpiError = periodKpiQueries.some((query) => query.isError);
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
@@ -185,12 +200,15 @@ export function WorkspaceHome() {
   // A persisted financial snapshot is display-only and must never substitute for a verified role.
   const overview = canViewFinancialOverview ? financialOverviewQuery.data : undefined;
   const dashboardDataError = sitesQuery.isError || accessQuery.isError ||
-    (canViewFinancialOverview && financialOverviewQuery.isError) ||
+    (canViewFinancialOverview && (financialOverviewQuery.isError || financialKpiError)) ||
     (selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError);
   const dashboardDataFailures: string[] = [];
   if (sitesQuery.isError) dashboardDataFailures.push(`الفروع: ${sitesQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (accessQuery.isError) dashboardDataFailures.push(`صلاحيات الفرع: ${accessQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (canViewFinancialOverview && financialOverviewQuery.isError) dashboardDataFailures.push(`الملخص المالي: ${financialOverviewQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && expensesKpiQuery.isError) dashboardDataFailures.push(`المصروفات: ${expensesKpiQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && netCashKpiQuery.isError) dashboardDataFailures.push(`صافي النقد: ${netCashKpiQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && currentArrearsKpiQuery.isError) dashboardDataFailures.push(`الذمم الحالية: ${currentArrearsKpiQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (selectedScope === "all" && allBranchesSummaryQuery.isError) dashboardDataFailures.push(`ملخص جميع الفروع: ${allBranchesSummaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (selectedScope !== "all" && summaryQuery.isError) dashboardDataFailures.push(`مؤشرات الفرع: ${summaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
   const retryDashboardData = () => {
@@ -198,6 +216,7 @@ export function WorkspaceHome() {
     void accessQuery.refetch();
     if (canViewFinancialOverview) {
       void financialOverviewQuery.refetch();
+      void Promise.all(financialKpiQueries.filter((query) => query.isError).map((query) => query.refetch()));
       dashboardPeriod.retry();
       void Promise.all(periodKpiQueries.filter((query) => query.isError).map((query) => query.refetch()));
     }
@@ -210,6 +229,9 @@ export function WorkspaceHome() {
   const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
     : !canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
+  const financialKpiNumber = (value: unknown, query: { isLoading: boolean; isError: boolean; data: unknown }, fractionDigits = 2) =>
+    accessQuery.isLoading || query.isLoading ? "…" :
+      !canViewFinancialOverview || (query.isError && !query.data) ? "—" : number(value, fractionDigits);
   const activeSubscriberMetric = accessQuery.isLoading || activeSubscribersKpiQuery.isLoading
     ? "…"
     : !canViewFinancialOverview || (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)
@@ -275,9 +297,13 @@ export function WorkspaceHome() {
     if (changed.has("generatorStatus")) {
       void (selectedScope === "all" ? allBranchesSummaryQuery.refetch() : summaryQuery.refetch());
     }
-    if (canViewFinancialOverview &&
-        ["currentArrears", "expenses", "netCash", "financialOverview"].some((metric) => changed.has(metric))) {
-      void financialOverviewQuery.refetch();
+    if (canViewFinancialOverview) {
+      if (changed.has("currentArrears")) void currentArrearsKpiQuery.refetch();
+      if (changed.has("expenses")) void expensesKpiQuery.refetch();
+      if (changed.has("netCash")) void netCashKpiQuery.refetch();
+      // The aggregate financialOverview is a supporting chart/debtor snapshot,
+      // not a KPI owner. Its dedicated revision is intentionally separate.
+      if (changed.has("financialTrend")) void financialOverviewQuery.refetch();
     }
     if (changed.has("companyBalances")) {
       // The company-account list has its own server permission gate and revision;
@@ -303,6 +329,9 @@ export function WorkspaceHome() {
     summaryQuery.refetch,
     allBranchesSummaryQuery.refetch,
     financialOverviewQuery.refetch,
+    expensesKpiQuery.refetch,
+    netCashKpiQuery.refetch,
+    currentArrearsKpiQuery.refetch,
     companyAccountsQuery.refetch,
     activeSubscribersKpiQuery.refetch,
     periodInvoicedKpiQuery.refetch,
@@ -387,8 +416,8 @@ export function WorkspaceHome() {
     <CompanyBalancesDashboardCard accounts={companyAccountsQuery.data ?? []} loading={companyAccountsQuery.isLoading} error={companyAccountsQuery.isError} onRetry={() => companyAccountsQuery.refetch()} onOpen={() => setLocation("/company-accounts")} />
 
     <section className="grid gap-6 xl:grid-cols-[1.35fr_.85fr]">
-      <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-col gap-3 border-b border-white/8 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><h2 className="font-bold text-white">نبض التحصيل</h2><p className="mt-1 text-sm text-slate-400">قراءة سريعة لنتيجة اليوم ووضع الشهر المالي.</p></div><Badge className="w-fit border-[#F5B800]/20 bg-[#F5B800]/10 text-[#F5B800] hover:bg-[#F5B800]/10">{selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"}</Badge></div><div className="grid gap-4 p-5 sm:grid-cols-2"><div className="rounded-2xl border border-sky-400/15 bg-sky-400/[.045] p-5"><div className="flex items-center gap-2 text-sm font-bold text-sky-200"><CalendarDays className="h-4 w-4" />نتيجة اليوم</div><p className="mt-5 font-display text-3xl font-extrabold text-white">{metricNumber(overview?.today.collected, 2)}</p><p className="mt-1 text-xs text-slate-400">تحصيل اليوم من فوترة {metricNumber(overview?.today.invoiced, 2)}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-sky-950/80"><div className="h-full rounded-full bg-sky-400 transition-[width] duration-300" style={{ width: `${Math.min(100, Number(overview?.today.collectionRate ?? 0))}%` }} /></div><p className="mt-2 text-xs font-bold text-sky-200">نسبة تحصيل اليوم: {metricRatio(overview?.today.collectionRate)}</p></div><div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[.045] p-5"><div className="flex items-center gap-2 text-sm font-bold text-emerald-200"><CircleDollarSign className="h-4 w-4" />صافي النقد الشهري</div><p className="mt-5 font-display text-3xl font-extrabold text-white">{metricNumber(overview?.month.netCash, 2)}</p><p className="mt-1 text-xs text-slate-400">التحصيل {metricNumber(overview?.month.collected, 2)} − المصروفات {metricNumber(overview?.month.expenses, 2)}</p><div className="mt-5 flex items-center justify-between rounded-xl border border-white/8 bg-[#0D1117]/35 px-3 py-2 text-xs"><span className="text-slate-400">نسبة تحصيل الشهر</span><strong className="text-emerald-300">{metricRatio(overview?.month.collectionRate)}</strong></div></div></div></CardContent></Card>
-      <Card className="border-rose-400/20 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex items-center justify-between border-b border-white/8 px-5 py-5"><div><h2 className="font-bold text-white">تحتاج متابعة الآن</h2><p className="mt-1 text-sm text-slate-400">أولوية التحصيل والذمم المفتوحة.</p></div><Clock3 className="h-5 w-5 text-rose-300" /></div><div className="divide-y divide-white/8"><StateLine label="رصيد متأخر" value={metricNumber(overview?.outstanding.overdue, 2)} hint="فواتير تجاوزت تاريخ الاستحقاق." tone="bg-rose-400" /><StateLine label="دفعات جزئية" value={metricNumber(overview?.outstanding.partialInvoices)} hint="فواتير تحتاج متابعة الرصيد المتبقي." tone="bg-amber-400" /><StateLine label="حسابات مفتوحة" value={metricNumber(overview?.outstanding.accountCount)} hint="مشتركون لديهم رصيد قائم." tone="bg-sky-400" /></div></CardContent></Card>
+      <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-col gap-3 border-b border-white/8 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><h2 className="font-bold text-white">نبض التحصيل</h2><p className="mt-1 text-sm text-slate-400">قراءة سريعة لنتيجة اليوم ووضع الشهر المالي.</p></div><Badge className="w-fit border-[#F5B800]/20 bg-[#F5B800]/10 text-[#F5B800] hover:bg-[#F5B800]/10">{selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"}</Badge></div><div className="grid gap-4 p-5 sm:grid-cols-2"><div className="rounded-2xl border border-sky-400/15 bg-sky-400/[.045] p-5"><div className="flex items-center gap-2 text-sm font-bold text-sky-200"><CalendarDays className="h-4 w-4" />نتيجة اليوم</div><p className="mt-5 font-display text-3xl font-extrabold text-white">{metricNumber(overview?.today.collected, 2)}</p><p className="mt-1 text-xs text-slate-400">تحصيل اليوم من فوترة {metricNumber(overview?.today.invoiced, 2)}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-sky-950/80"><div className="h-full rounded-full bg-sky-400 transition-[width] duration-300" style={{ width: `${Math.min(100, Number(overview?.today.collectionRate ?? 0))}%` }} /></div><p className="mt-2 text-xs font-bold text-sky-200">نسبة تحصيل اليوم: {metricRatio(overview?.today.collectionRate)}</p></div><div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[.045] p-5"><div className="flex items-center gap-2 text-sm font-bold text-emerald-200"><CircleDollarSign className="h-4 w-4" />صافي النقد الشهري</div><p className="mt-5 font-display text-3xl font-extrabold text-white">{financialKpiNumber(netCashKpiQuery.data?.netCash, netCashKpiQuery, 2)}</p><p className="mt-1 text-xs text-slate-400">التحصيل {financialKpiNumber(netCashKpiQuery.data?.collected, netCashKpiQuery, 2)} − المصروفات {financialKpiNumber(expensesKpiQuery.data?.expenses, expensesKpiQuery, 2)}</p><div className="mt-5 flex items-center justify-between rounded-xl border border-white/8 bg-[#0D1117]/35 px-3 py-2 text-xs"><span className="text-slate-400">نسبة تحصيل الشهر</span><strong className="text-emerald-300">{metricRatio(overview?.month.collectionRate)}</strong></div></div></div></CardContent></Card>
+      <Card className="border-rose-400/20 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex items-center justify-between border-b border-white/8 px-5 py-5"><div><h2 className="font-bold text-white">تحتاج متابعة الآن</h2><p className="mt-1 text-sm text-slate-400">أولوية التحصيل والذمم المفتوحة.</p></div><Clock3 className="h-5 w-5 text-rose-300" /></div><div className="divide-y divide-white/8"><StateLine label="رصيد متأخر" value={financialKpiNumber(currentArrearsKpiQuery.data?.overdue, currentArrearsKpiQuery, 2)} hint="فواتير تجاوزت تاريخ الاستحقاق." tone="bg-rose-400" /><StateLine label="دفعات جزئية" value={financialKpiNumber(currentArrearsKpiQuery.data?.partialInvoices, currentArrearsKpiQuery, 0)} hint="فواتير تحتاج متابعة الرصيد المتبقي." tone="bg-amber-400" /><StateLine label="حسابات مفتوحة" value={financialKpiNumber(currentArrearsKpiQuery.data?.accountCount, currentArrearsKpiQuery, 0)} hint="مشتركون لديهم رصيد قائم." tone="bg-sky-400" /></div></CardContent></Card>
     </section>
 
     <section className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">
