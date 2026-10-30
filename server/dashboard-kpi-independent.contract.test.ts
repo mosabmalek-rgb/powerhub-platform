@@ -82,7 +82,7 @@ describe("independent dashboard KPI snapshots", () => {
 
   it("retains independent revision baselines across branch/all-branch scope switches", () => {
     const start = home.indexOf("const lastDashboardRevisions = useRef<Map<string, Record<string, string>>>");
-    const end = home.indexOf("const openPeriodArrears", start);
+    const end = home.indexOf("const changed = new Set", start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const effect = home.slice(start, end);
