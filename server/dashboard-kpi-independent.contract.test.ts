@@ -91,6 +91,9 @@ describe("independent dashboard KPI snapshots", () => {
 
   it("hides denied snapshots and purges only the affected dashboard scope", () => {
     expect(home).toContain("isExplicitAuthorizationDenial(accessQuery.error)");
+    expect(home).toContain("const sitesAccessDenied = isExplicitAuthorizationDenial(sitesQuery.error)");
+    expect(home).toContain("const dashboardScopeDenied = sitesAccessDenied || isExplicitAuthorizationDenial(accessQuery.error)");
+    expect(home).toContain("const dashboardRevisionDenied = dashboardScopeDenied || isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
     expect(home).toContain("const dashboardRevisionDenied = isExplicitAuthorizationDenial(dashboardRevisionQuery.error)");
     expect(home).toContain("dashboardRevisionQuery.isError");
     expect(home).toContain("تعذر التحقق من حداثة لقطة لوحة التحكم. نعرض آخر مؤشرات محفوظة");
