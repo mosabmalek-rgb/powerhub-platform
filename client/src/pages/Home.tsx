@@ -210,6 +210,10 @@ export function WorkspaceHome() {
   const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
     : !canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
+  const activeSubscriberMetric = accessQuery.isLoading || activeSubscribersKpiQuery.isLoading
+    ? "…"
+    : !canViewFinancialOverview || (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)
+      ? "—" : number(activeSubscribers);
   const periodKpiNumber = (query: {
     data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
     isError: boolean;
@@ -272,7 +276,7 @@ export function WorkspaceHome() {
       void (selectedScope === "all" ? allBranchesSummaryQuery.refetch() : summaryQuery.refetch());
     }
     if (canViewFinancialOverview &&
-        ["activeSubscribers", "currentArrears", "expenses", "netCash", "financialOverview"].some((metric) => changed.has(metric))) {
+        ["currentArrears", "expenses", "netCash", "financialOverview"].some((metric) => changed.has(metric))) {
       void financialOverviewQuery.refetch();
     }
     if (changed.has("companyBalances")) {
@@ -368,12 +372,12 @@ export function WorkspaceHome() {
       <div role="button" tabIndex={!siteId || !dashboardPeriod.isReady ? -1 : 0} aria-label="فتح المتأخرات في تبويب المشتركين للفترة المحددة" aria-disabled={!siteId || !dashboardPeriod.isReady} onClick={openPeriodArrears} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openPeriodArrears(); } }} className="block w-full min-w-0 cursor-pointer rounded-2xl text-right outline-none transition focus-visible:ring-2 focus-visible:ring-[#F5B800] aria-disabled:cursor-wait aria-disabled:opacity-70">
         <MetricCard label="المتأخرات" value={periodKpiNumber(periodOverdueKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodOverdueKpiQuery.isError ? "تعذر تحميل المتأخرات للفترة المحددة." : `${number(periodOverdueKpiQuery.data?.auxiliaryCount)} مشتركاً بفواتير متأخرة صادرة ضمن الفترة. اضغط لعرض التفاصيل.`} icon={CircleAlert} accent="rose" />
       </div>
-      <MetricCard label="المشتركون النشطون" value={metricNumber(activeSubscribers)} unit="مشترك" periodLabel="العدد الحالي" description={financialOverviewQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
+      <MetricCard label="المشتركون النشطون" value={activeSubscriberMetric} unit="مشترك" periodLabel="العدد الحالي" description={activeSubscribersKpiQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
     </section>
 
     <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
 
-    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={!canViewFinancialOverview || (financialOverviewQuery.isError && !financialOverviewQuery.data)} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data : summaryQuery.isError && !summaryQuery.data} loading={(financialOverviewQuery.isLoading && !financialOverviewQuery.data) || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading && !allBranchesSummaryQuery.data : summaryQuery.isLoading && !summaryQuery.data)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
+    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={!canViewFinancialOverview || (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data : summaryQuery.isError && !summaryQuery.data} loading={(financialOverviewQuery.isLoading && !financialOverviewQuery.data) || (activeSubscribersKpiQuery.isLoading && !activeSubscribersKpiQuery.data) || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading && !allBranchesSummaryQuery.data : summaryQuery.isLoading && !summaryQuery.data)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {failedQuotaLabels.length > 0 ? <QuotaLoadErrorCard labels={failedQuotaLabels} onRetry={retryFailedQuotaQueries} /> : null}
     {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} packages={smsCreditPackagesQuery.data ?? []} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} onRetryPackageRequest={() => smsPackageRequestQuery.refetch()} onRequestPackage={(packageId, note) => requestSmsPackage.mutate({ siteId: siteId!, packageId, note })} onOpen={() => setLocation("/notifications")} /> : null}
