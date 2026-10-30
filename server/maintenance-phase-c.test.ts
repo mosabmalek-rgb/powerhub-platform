@@ -130,7 +130,8 @@ describe("PowerHub Phase C maintenance integration", () => {
     const panel = read("client/src/components/InventoryMaintenancePanel.tsx");
     const cache = read("client/src/lib/offline-operational-report-cache.ts");
     expect(panel).toContain("loadOperationalReportSnapshot(maintenanceReportCacheInput");
-    expect(panel).toContain("const hasAvailableMaintenanceReport = !maintenanceReportAuthorizationDenied && (maintenanceReportIsAuthoritative || cachedMaintenanceReportForCurrentScope !== null);");
+    expect(panel).toContain("const hasAvailableMaintenanceReport = !maintenanceReportAuthorizationDenied &&");
+    expect(panel).toContain("(maintenanceReportIsAuthoritative || cachedMaintenanceReportForCurrentScope !== null);");
     expect(panel).toContain("const maintenanceReportIsAuthoritative = !maintenanceReportAuthorizationDenied && hasAuthoritativeServerRead(maintenanceReport)");
     expect(panel).toContain("const reportRows = maintenanceReportAuthorizationDenied ? [] : maintenanceReportIsAuthoritative");
     expect(panel).not.toContain("maintenanceReport.data ?? cachedMaintenanceReportForCurrentScope?.rows");
