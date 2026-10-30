@@ -301,6 +301,18 @@ export async function withDeltaSyncLock<T>(
   }
 }
 
+/** A run may mutate the live QueryCache only while its authenticated owner is still active. */
+export function isDeltaSyncRunCurrent(
+  runUserId: number,
+  activeUserId: number | null,
+  disposed: boolean,
+): boolean {
+  return !disposed &&
+    Number.isSafeInteger(runUserId) &&
+    runUserId > 0 &&
+    activeUserId === runUserId;
+}
+
 export function compareDeltaCursors(a: string, b: string) {
   const left = BigInt(assertCursor(a));
   const right = BigInt(assertCursor(b));
