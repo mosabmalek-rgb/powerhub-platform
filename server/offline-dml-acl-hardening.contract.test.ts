@@ -209,6 +209,8 @@ describe("offline server-write ACL hardening migration", () => {
     expect(migration).toContain("private.powerhub_is_platform_admin()");
     expect(migration).toContain("auth.uid()");
     expect(migration).toContain("drop policy %i on public.%i");
+    expect(migration).toContain("c.relrowsecurity = true");
+    expect(migration).toContain("powerhub_canonical_rls_disabled");
     for (const table of expectedTables) {
       expect(migration).toContain("'" + table + "'");
       expect(integration).toContain("create table public." + table);
