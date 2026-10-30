@@ -158,13 +158,17 @@ BEGIN
       EXECUTE format('DROP POLICY %I ON public.%I', v_policy.polname, v_target.table_name);
     END LOOP;
 
-    v_policy_name := CASE v_target.policy_kind
-      WHEN 'tenant_all' THEN v_target.table_name || '_tenant_isolation'
-      WHEN 'tenant_read' THEN v_target.table_name || '_tenant_read'
-      WHEN 'platform_all' THEN v_target.table_name || '_platform_admin_only'
-      WHEN 'payroll_parent_all' THEN v_target.table_name || '_tenant_isolation'
-      WHEN 'tenant_id_read' THEN 'tenants_member_read'
-      WHEN 'users_read' THEN 'users_self_read'
+    v_policy_name := CASE
+      WHEN v_target.table_name = 'tenant_members' THEN 'tenant_members_member_read'
+      WHEN v_target.table_name = 'platform_sms_fallback_providers' THEN 'platform_sms_fallback_admin_only'
+      WHEN v_target.table_name = 'platform_tweetsms_accounts' THEN 'platform_tweetsms_admin_only'
+      WHEN v_target.table_name = 'platform_tweetsms_balance_alerts' THEN 'platform_tweetsms_alert_admin_only'
+      WHEN v_target.policy_kind = 'tenant_all' THEN v_target.table_name || '_tenant_isolation'
+      WHEN v_target.policy_kind = 'tenant_read' THEN v_target.table_name || '_tenant_read'
+      WHEN v_target.policy_kind = 'platform_all' THEN v_target.table_name || '_platform_admin_only'
+      WHEN v_target.policy_kind = 'payroll_parent_all' THEN v_target.table_name || '_tenant_isolation'
+      WHEN v_target.policy_kind = 'tenant_id_read' THEN 'tenants_member_read'
+      WHEN v_target.policy_kind = 'users_read' THEN 'users_self_read'
       ELSE NULL
     END;
 
