@@ -11,6 +11,10 @@ describe("offline data and financial truth boundaries", () => {
     expect(fuel).toContain(": !hasFilteredEventQuery ? recentEvents.data ?? [] : []");
     expect(fuel).toContain("const hasFilteredReadingQuery = Boolean(activeReportGeneratorId)");
     expect(fuel).toContain(": !hasFilteredReadingQuery ? recentReadings.data ?? [] : []");
+    expect(fuel).toContain("أحدث 100 نتيجة مطابقة للفلاتر الحالية فقط");
+    expect(fuel).toContain("آخر 100 تعبئة للفرع دون فلاتر؛ لا تمثل كامل التاريخ");
+    expect(fuel).toContain("أحدث 100 قراءة مطابقة للمولد المحدد فقط");
+    expect(fuel).toContain("آخر 100 قراءة للفرع دون فلتر مولد؛ لا تمثل كامل التاريخ");
     expect(fuel).toContain("const recentEvents = trpc.powerhub.inventory.listFuelEvents.useQuery");
     expect(fuel).toContain("const recentReadings = trpc.powerhub.inventory.listFuelReadings.useQuery");
     expect(fuel).toContain('if (eventsChanged && hasFilteredEventQuery) void events.refetch()');
