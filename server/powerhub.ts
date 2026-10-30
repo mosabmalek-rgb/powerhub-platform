@@ -560,6 +560,19 @@ async function requireDeltaOperationalReadAccess(
   }
 }
 
+async function requireDeltaPurchaseDetailRevisionReadAccess(userId: number, siteId: number) {
+  // This helper gates opaque revision hashes only, not any Delta snapshot/pull rows.
+  // Match the read scope used by getPurchase without exposing row-level access.
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const allowed = access.permissions.some((permission) =>
+    ["viewPurchases", "manageSupplierPayments", "receiveInventory", "adjustInventory"].includes(permission),
+  );
+  if (!allowed) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تفاصيل فاتورة المشتريات." });
+  }
+  return access;
+}
+
 async function requireDeltaPurchaseChildHistoryReadAccess(
   userId: number, siteId: number,
   entityType: "inventory_purchase_receipt_headers" | "inventory_supplier_return_headers",
@@ -613,7 +626,8 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(),
       entityTypes: z.array(z.enum([
         "fuel_events", "fuel_readings", "maintenance_preventive_plans", "maintenance_work_orders",
-      ])).min(1).max(4).refine((values) => new Set(values).size === values.length, {
+        "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers",
+      ])).min(1).max(7).refine((values) => new Set(values).size === values.length, {
         message: "يجب أن تكون أنواع Delta المطلوبة فريدة.",
       }),
     })).query(async ({ ctx, input }) => {
@@ -628,6 +642,13 @@ export const powerhubRouter = router({
             ["owner", "manager", "technician", "accountant", "viewer"],
             "viewInventoryReports",
           );
+        }
+        if (
+          entityType === "inventory_purchase_headers" ||
+          entityType === "inventory_purchase_receipt_headers" ||
+          entityType === "inventory_supplier_return_headers"
+        ) {
+          return requireDeltaPurchaseDetailRevisionReadAccess(ctx.user.id, input.siteId);
         }
         return entityType === "fuel_events"
           ? requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, entityType)

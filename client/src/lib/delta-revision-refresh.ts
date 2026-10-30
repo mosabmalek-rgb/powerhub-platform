@@ -2,7 +2,10 @@ export type OperationalDeltaRevisionEntity =
   | "fuel_events"
   | "fuel_readings"
   | "maintenance_preventive_plans"
-  | "maintenance_work_orders";
+  | "maintenance_work_orders"
+  | "inventory_purchase_headers"
+  | "inventory_purchase_receipt_headers"
+  | "inventory_supplier_return_headers";
 
 export type OperationalDeltaRevisionMap = Readonly<Record<string, string>>;
 

@@ -54,4 +54,21 @@ describe("operational Delta revision contract", () => {
     expect(procedure).toContain('"viewInventoryReports"');
 
   });
+
+  it("exposes purchase, receipt and return revisions without widening Delta row access", () => {
+    expect(procedure).toContain('"inventory_purchase_headers"');
+    expect(procedure).toContain('"inventory_purchase_receipt_headers"');
+    expect(procedure).toContain('"inventory_supplier_return_headers"');
+    expect(procedure).toContain("requireDeltaPurchaseDetailRevisionReadAccess");
+    const helperStart = router.indexOf("async function requireDeltaPurchaseDetailRevisionReadAccess");
+    const helperEnd = router.indexOf("async function requireDeltaPurchaseChildHistoryReadAccess", helperStart);
+    const helper = router.slice(helperStart, helperEnd);
+    for (const capability of ["viewPurchases", "manageSupplierPayments", "receiveInventory", "adjustInventory"]) {
+      expect(helper).toContain('"'+capability+'"');
+    }
+    expect(helper).not.toContain("supabaseAdmin");
+    expect(router.match(/requireDeltaPurchaseDetailRevisionReadAccess/g)).toHaveLength(2);
+    expect(procedure).toContain('.select("entity_type,last_cursor,retained_from_cursor")');
+  });
+
 });
