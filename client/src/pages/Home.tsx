@@ -123,16 +123,16 @@ export function WorkspaceHome() {
     accessQuery.data && ["owner", "manager", "accountant", "viewer"].includes(accessQuery.data.role),
   );
   const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
-  const smsCreditPackagesQuery = trpc.powerhub.messaging.smsCreditPackages.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), staleTime: 60_000 });
-  const branchPolicyQuery = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
-  const subaccountQuotaQuery = trpc.powerhub.staff.allowedSubaccountRoles.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
-  const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), refetchInterval: 15000 });
+  const smsCreditPackagesQuery = trpc.powerhub.messaging.smsCreditPackages.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 60_000 });
+  const branchPolicyQuery = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
+  const subaccountQuotaQuery = trpc.powerhub.staff.allowedSubaccountRoles.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
+  const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword), refetchInterval: 15000 });
   const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { await Promise.all([smsPackageRequestQuery.refetch(), smsQuotaQuery.refetch()]); toast.success("تم إرسال طلب الحزمة للمراجعة."); }, onError: (error) => toast.error(error.message) });
   // Most owners have a single branch; skip the cross-branch permission query unless it can affect the UI.
-  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword), staleTime: 30_000 });
+  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const ownerRenewalQuery = trpc.powerhub.subscription.ownerRenewalStatus.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), refetchInterval: 5 * 60 * 1000 });
-  const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
+  const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
 
   const quotaQueries = [
     { label: "المشتركون", query: subscriberQuotaQuery },
