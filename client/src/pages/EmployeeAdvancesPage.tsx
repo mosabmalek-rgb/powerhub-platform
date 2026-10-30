@@ -75,12 +75,14 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
       Number((item.payload as HrEmployeeCreateDraft).localEmployeeId)===Number(employee.id))),
   ].filter((employee)=>employee.employmentStatus==="active");
   const allowed=isHrOnline?serverAllowed&&!hrAccessDenied:Boolean(siteId&&Number.isSafeInteger(userId)&&userId>0);
-  const hasLiveAdvances = Boolean(isHrOnline && advances.data !== undefined && !advances.isError &&
-    accounts.data !== undefined && !accounts.isError);
+  const hasLiveAdvances = Boolean(isHrOnline && advances.data !== undefined &&
+    advances.isFetchedAfterMount && !advances.isError &&
+    accounts.data !== undefined && accounts.isFetchedAfterMount && !accounts.isError);
   const canMutateAdvances = allowed && (!isHrOnline || hasLiveAdvances);
-  const isShowingCachedAdvances = !advancesAccessDenied && !hasLiveAdvances &&
-    (offlineAdvances.data !== undefined || advances.data !== undefined || accounts.data !== undefined);
-  const baseAdvances:any[]=(advancesAccessDenied?[]:(isHrOnline&&advances.data?advances.data:offlineAdvances.data??[]))
+  const isShowingCachedAdvances = !advancesAccessDenied && !hasLiveAdvances && offlineAdvances.data !== undefined;
+  const isShowingStaleAdvances = !advancesAccessDenied && !hasLiveAdvances &&
+    offlineAdvances.data === undefined && (advances.data !== undefined || accounts.data !== undefined);
+  const baseAdvances:any[]=(advancesAccessDenied?[]:(hasLiveAdvances?advances.data??[]:offlineAdvances.data??(isHrOnline?advances.data??[]:[])))
     .filter((row:any)=>Number(row.adjustment?.id)>0)
     .map((row:any)=>{
       const pendingPayments=(row.repayments??[]).filter((payment:any)=>payment.pendingOffline);
@@ -206,7 +208,7 @@ export default function EmployeeAdvancesPage({embedded=false}:{embedded?:boolean
   const content=<div dir="rtl" className="space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#111823] p-5"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><HandCoins className="h-4 w-4"/>السلف والديون</div><h1 className="mt-2 text-2xl font-extrabold text-white">سجل سلف الموظفين وديونهم</h1><p className="mt-1 text-sm text-slate-400">كل صرف مرتبط بحساب الشركة، مع سداد جزئي ورصيد متبقٍ وسجل تدقيقي.</p></div>{canMutateAdvances?<Button onClick={()=>setShowIssue(v=>!v)} className="bg-[#F5B800] font-bold text-[#0D1117]"><Plus className="ml-2 h-4 w-4"/>تسجيل سلفة أو دين</Button>:null}</header>
     {advancesAccessDenied?<p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-sm leading-6 text-rose-100">رفض الخادم صلاحية الوصول إلى السلف أو الحسابات المرتبطة؛ أُخفيت لقطاتها المحلية، وبقيت الطلبات المعلقة في مركز المزامنة للمراجعة.</p>:employeeDirectoryDenied?<p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-sm leading-6 text-rose-100">رفض الخادم الوصول إلى دليل الموظفين؛ تبقى السجلات المصرح بها ظاهرة، لكن أوقفنا إنشاء طلبات جديدة إلى حين التحقق من الموظف.</p>:null}
-    {isShowingCachedAdvances?<p role="status" className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm leading-6 text-amber-100">تُعرض آخر نسخة محلية من ملخصات السلف والسداد المتزامنة عبر Delta. خيارات حسابات الشركة المخزنة ليست تغذية Delta ولا تتضمن الأرصدة؛ لذلك لا يُعتمد رصيد مالي ولا يتم صرف أو قبض نهائي قبل تأكيد الخادم.</p>:null}
+    {isShowingCachedAdvances?<p role="status" className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm leading-6 text-amber-100">تُعرض آخر نسخة محلية من ملخصات السلف والسداد المتزامنة عبر Delta. خيارات حسابات الشركة المخزنة ليست تغذية Delta ولا تتضمن الأرصدة؛ لذلك لا يُعتمد رصيد مالي ولا يتم صرف أو قبض نهائي قبل تأكيد الخادم.</p>:null}{isShowingStaleAdvances?<p role="status" className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm leading-6 text-amber-100">لا تتوفر قراءة Delta محلية للسلف ولا قراءة خادمية حديثة لهذه الصفحة؛ تُعرض آخر نتيجة في الذاكرة للقراءة فقط. أوقفنا الصرف والسداد حتى ينجح التحقق الحي من السجل وحسابات الشركة.</p>:null}
     {showIssue&&canMutateAdvances?<Card className="border-white/10 bg-[#111823]"><CardContent className="p-4"><form className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" onSubmit={submitIssue}>
       <label className="text-sm text-slate-300">الموظف<select required value={employeeId} onChange={e=>setEmployeeId(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-white/10 bg-[#0D1117] px-3 text-white"><option value="">اختر الموظف</option>{displayEmployees.map((p)=><option key={p.id} value={p.id}>{p.fullName}{p.id<0?" — لم تُزامن بعد":""}</option>)}</select></label>
       <label className="text-sm text-slate-300">النوع<select value={kind} onChange={e=>setKind(e.target.value as typeof kind)} className="mt-1 h-10 w-full rounded-md border border-white/10 bg-[#0D1117] px-3 text-white"><option value="salary_advance">سلفة من الراتب</option><option value="employee_loan">دين / قرض على الموظف</option></select></label>
