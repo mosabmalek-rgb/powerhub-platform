@@ -74,7 +74,7 @@ const DASHBOARD_SNAPSHOT_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "dashboard.financialOverview": new Set(["siteId", "scope", "includeDetails"]),
   "dashboard.periodMetrics": new Set(["siteId", "scope", "startDate", "endDate", "includeDetails"]),
   "dashboard.activeSubscribersKpi": new Set(["siteId", "scope"]),
-  "dashboard.periodKpi": new Set(["siteId", "scope", "metric", "startDate", "endDate"]),
+  "dashboard.periodKpi": new Set(["siteId", "scope", "metric", "startDate", "endDate", "boundaryMode"]),
   "dashboard.financialKpi": new Set(["siteId", "scope", "metric"]),
 };
 
@@ -114,7 +114,10 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
   const datesAreValid = isValidOfflineDate(input.startDate) &&
     isValidOfflineDate(input.endDate) &&
     String(input.startDate) <= String(input.endDate);
-  if (!validScope || !datesAreValid || Object.keys(input).length !== 5) return false;
+  const boundaryModeIsValid = input.boundaryMode === undefined ||
+    input.boundaryMode === "gaza" || input.boundaryMode === "utc";
+  const expectedKeyCount = input.boundaryMode === undefined ? 5 : 6;
+  if (!validScope || !datesAreValid || !boundaryModeIsValid || Object.keys(input).length !== expectedKeyCount) return false;
   if (procedure === "dashboard.periodKpi") {
     return ["periodInvoiced", "periodCollected", "collectionRate", "periodOverdue"].includes(String(input.metric));
   }
