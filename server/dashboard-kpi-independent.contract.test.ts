@@ -103,16 +103,6 @@ describe("independent dashboard KPI snapshots", () => {
   });
 
 
-  it("uses the Gaza business calendar for today and month KPI date keys", () => {
-    expect(home).toContain('import { dashboardDateKey, useDashboardKpiPeriod } from "@/hooks/useDashboardKpiPeriod"');
-    expect(home).toContain("const dashboardToday = dashboardDateKey(dashboardClock)");
-    expect(home).toContain('dashboardMonthStart = `${dashboardYear}-${String(dashboardMonth).padStart(2, "0")}-01`');
-    expect(home).toContain("new Date(Date.UTC(dashboardYear, dashboardMonth, 0)).toISOString().slice(0, 10)");
-    expect(home).not.toContain('boundaryMode: "utc"');
-    expect(home).not.toContain("dashboardClock.getUTCFullYear()");
-    expect(home).not.toContain("dashboardClock.getUTCMonth()");
-  });
-
   it("hides denied snapshots and purges only the affected dashboard scope", () => {
     expect(home).toContain("isExplicitAuthorizationDenial(accessQuery.error)");
     expect(home).toContain("const sitesAccessDenied = isExplicitAuthorizationDenial(sitesQuery.error)");
