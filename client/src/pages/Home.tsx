@@ -111,10 +111,10 @@ export function WorkspaceHome() {
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [scope, setScope] = useState<"branch" | "all">("branch");
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
-  const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
+  const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const packageCatalogQuery = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
   const packageCodes = (packageCatalogQuery.data?.packages ?? []).filter((pkg: any) => pkg.active !== false).map((pkg: any) => String(pkg.code));
-  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const dashboardScopeDenied = sitesAccessDenied || isExplicitAuthorizationDenial(accessQuery.error);
   // The API intentionally restricts the financial overview to these roles. Do not
   // fire a known-forbidden query for technicians/collectors and misreport that as
@@ -122,7 +122,7 @@ export function WorkspaceHome() {
   const canViewFinancialOverview = !dashboardScopeDenied && Boolean(
     accessQuery.data && ["owner", "manager", "accountant", "viewer"].includes(accessQuery.data.role),
   );
-  const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
+  const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
   const smsCreditPackagesQuery = trpc.powerhub.messaging.smsCreditPackages.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), staleTime: 60_000 });
   const branchPolicyQuery = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
   const subaccountQuotaQuery = trpc.powerhub.staff.allowedSubaccountRoles.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
