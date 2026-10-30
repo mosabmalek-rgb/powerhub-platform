@@ -619,9 +619,6 @@ describe("Delta-backed local snapshots", () => {
       ["powerhub.inventory.fuelConsumptionReportPeriod", {
         input: { siteId: 7, periodType: "month", anchorDate: "2026-10-01" }, type: "query",
       }],
-      ["powerhub.inventory.listFuelEvents", {
-        input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29", limit: 100 }, type: "query",
-      }],
       ["powerhub.maintenance.reportByGenerator", {
         input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29" }, type: "query",
       }],
@@ -652,6 +649,15 @@ describe("Delta-backed local snapshots", () => {
       expect(getOfflineQueryDeltaEntity(key)).toBeNull();
       expect(getOfflineQueryStaleTime(key)).toBe(30_000);
     }
+
+    const filteredFuelEvents = ["powerhub.inventory.listFuelEvents", {
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-29", limit: 100 }, type: "query",
+    }] as const;
+    // This is a bounded, exact-filter snapshot, not a direct site-wide Delta projection.
+    expect(isOfflineCacheableQueryKey(filteredFuelEvents)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(filteredFuelEvents)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(filteredFuelEvents)).toBeNull();
+    expect(getOfflineQueryStaleTime(filteredFuelEvents)).toBe(30_000);
 
     // Generator snapshots have a defined Delta contract, and fuel readings have
     // their own bounded feed; neither replaces fuel-event, consumption-report, or maintenance-history feeds.
