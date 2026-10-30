@@ -29,6 +29,14 @@ const browserDmlReconcileTestUrl = new URL(
   "../supabase/tests/browser_direct_dml_acl_reconcile.sql",
   import.meta.url,
 );
+const canonicalRlsMigrationUrl = new URL(
+  "../supabase/migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql",
+  import.meta.url,
+);
+const canonicalRlsTestUrl = new URL(
+  "../supabase/tests/canonical_tenant_rls_policy_reconcile.sql",
+  import.meta.url,
+);
 const readMigration = () => readFile(migrationUrl, "utf8");
 const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
 const readQuotaAclMigration = () => readFile(quotaAclMigrationUrl, "utf8");
@@ -36,6 +44,8 @@ const readSchemaReconciliationMigration = () => readFile(schemaReconciliationMig
 const readNotificationTriggerMigration = () => readFile(notificationTriggerMigrationUrl, "utf8");
 const readBrowserDmlReconcileMigration = () => readFile(browserDmlReconcileMigrationUrl, "utf8");
 const readBrowserDmlReconcileTest = () => readFile(browserDmlReconcileTestUrl, "utf8");
+const readCanonicalRlsMigration = () => readFile(canonicalRlsMigrationUrl, "utf8");
+const readCanonicalRlsTest = () => readFile(canonicalRlsTestUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
   it("revokes direct write privileges from public browser roles on core records", async () => {
@@ -136,5 +146,38 @@ describe("offline server-write ACL hardening migration", () => {
     expect(integration).toContain("anon_select_removed_on_%");
     expect(integration).toContain("authenticated_select_removed_on_%");
     expect(integration).toContain("test_tenant_access");
+  });
+  it("reconciles canonical tenant and platform RLS boundaries without leaving permissive drift", async () => {
+    const migration = (await readCanonicalRlsMigration()).toLowerCase().replace(/\\s+/g, " ");
+    const integration = (await readCanonicalRlsTest()).toLowerCase();
+    const expectedTables = [
+      "access_invitations", "collector_sessions", "company_account_sites", "custom_permission_roles",
+      "employee_adjustments", "employee_attendance", "employees", "financial_settlements", "invoice_lines",
+      "invoices", "invoice_share_links", "messaging_schedule_runs", "mobile_api_sessions", "mobile_sync_events",
+      "notification_messages", "offline_sync_operations", "payments", "payroll_runs", "site_portal_settings",
+      "sms_package_requests", "staff_profiles", "subscribers", "subscription_upgrade_requests", "tariffs",
+      "tenant_branch_settings", "tenant_messaging_configurations", "tenant_owner_profiles", "tenant_subscriptions",
+      "tenant_invoice_message_templates", "tenant_payment_receipt_message_templates", "tenant_tweetsms_accounts",
+      "sites", "inventory_items", "inventory_stock_movements", "inventory_warehouses", "suppliers",
+      "supplier_purchases", "supplier_purchase_lines", "supplier_payments", "supplier_payment_allocations",
+      "supplier_ledger_entries", "supplier_purchase_receipts", "supplier_purchase_receipt_lines", "tenant_members",
+      "platform_access_invitations", "platform_role_policies", "platform_settings", "platform_sms_fallback_providers",
+      "platform_sms_plans", "platform_tweetsms_accounts", "platform_tweetsms_balance_alerts", "payroll_items",
+      "payroll_adjustment_allocations", "tenants", "users",
+    ];
+    expect(migration).toContain("for all to authenticated using");
+    expect(migration).toContain("private.powerhub_has_tenant_access(tenant_id)");
+    expect(migration).toContain("private.powerhub_is_platform_admin()");
+    expect(migration).toContain("auth.uid()");
+    expect(migration).toContain("drop policy %i on public.%i");
+    for (const table of expectedTables) {
+      expect(migration).toContain("'" + table + "'");
+      expect(integration).toContain("create table public." + table);
+    }
+    expect(integration).toContain("cross_tenant_employee_insert_was_allowed");
+    expect(integration).toContain("cross_tenant_payroll_item_insert_was_allowed");
+    expect(integration).toContain("platform_admin_policy_scope_mismatch");
+    expect(integration).toContain("set role authenticated");
+    expect(integration).toContain("reset role");
   });
 });
