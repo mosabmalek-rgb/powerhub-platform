@@ -30,11 +30,11 @@ describe("operational Delta revision contract", () => {
     expect(procedure).not.toContain("changes:");
   });
 
-  it("accepts only the four bounded operational feed names and rejects duplicates", () => {
-    for (const entity of ["fuel_events", "fuel_readings", "maintenance_preventive_plans", "maintenance_work_orders"]) {
+  it("accepts only the seven bounded operational feed names and rejects duplicates", () => {
+    for (const entity of ["fuel_events", "fuel_readings", "maintenance_preventive_plans", "maintenance_work_orders", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"]) {
       expect(procedure).toContain('"' + entity + '"');
     }
-    expect(procedure).toContain(".min(1).max(4)");
+    expect(procedure).toContain(".min(1).max(7)");
     expect(procedure).toContain("new Set(values).size === values.length");
   });
 
