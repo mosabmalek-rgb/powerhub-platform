@@ -14,6 +14,13 @@ import { getOfflineWorkStatusPresentation } from "@/lib/offline-work-status";
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import {
+  advanceOfflineSyncRunIdentity,
+  assertOfflineSyncRunCurrent,
+  isOfflineSyncRunCurrent,
+  type OfflineSyncRunIdentity,
+  type OfflineSyncRunIdentitySnapshot,
+} from "@/lib/offline-sync-run-identity";
 import { AlertTriangle, CheckCircle2, CloudOff, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
@@ -93,38 +100,15 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const auth = useAuth();
   const rawAuthUserId = Number(auth.user?.id);
   const authUserId = Number.isSafeInteger(rawAuthUserId) && rawAuthUserId > 0 ? rawAuthUserId : null;
-  const identitySnapshot = {
+  const identitySnapshot: OfflineSyncRunIdentitySnapshot = {
     userId, siteId, authUserId, isLoggingOut: auth.isLoggingOut,
     isOnlineAuthenticated: auth.isOnlineAuthenticated,
   };
-  const syncIdentityRef = useRef({ ...identitySnapshot, generation: 0 });
-  const previousIdentity = syncIdentityRef.current;
-  if (
-    previousIdentity.userId !== userId ||
-    previousIdentity.siteId !== siteId ||
-    previousIdentity.authUserId !== authUserId ||
-    previousIdentity.isLoggingOut !== auth.isLoggingOut ||
-    previousIdentity.isOnlineAuthenticated !== auth.isOnlineAuthenticated
-  ) {
-    syncIdentityRef.current = { ...identitySnapshot, generation: previousIdentity.generation + 1 };
-  }
+  const syncIdentityRef = useRef<OfflineSyncRunIdentity | null>(null);
+  syncIdentityRef.current = advanceOfflineSyncRunIdentity(syncIdentityRef.current, identitySnapshot);
   const captureSyncRunGuard = (requireOnlineAuth = true) => {
-    const owner = syncIdentityRef.current;
-    return () => {
-      const current = syncIdentityRef.current;
-      if (
-        current.generation !== owner.generation ||
-        current.userId !== owner.userId ||
-        current.siteId !== owner.siteId ||
-        current.authUserId !== owner.userId ||
-        current.isLoggingOut ||
-        (requireOnlineAuth && !current.isOnlineAuthenticated)
-      ) {
-        throw Object.assign(new Error("توقف إرسال المسودات لأن هوية الحساب أو نطاق الفرع تغيّر."), {
-          name: "PowerHubOfflineSyncRunSupersededError",
-        });
-      }
-    };
+    const owner = syncIdentityRef.current!;
+    return () => assertOfflineSyncRunCurrent(owner, syncIdentityRef.current!, requireOnlineAuth);
   };
   const isSyncRunCurrent = (assertCurrent: () => void) => {
     try { assertCurrent(); return true; } catch { return false; }
@@ -642,7 +626,10 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
       for (const item of syncItems) operationRunGuards.current.set(item.clientOperationId, assertCurrent);
       let results: Awaited<ReturnType<typeof executeReadyOperations>>;
       try {
-        results = await executeReadyOperations({ items: syncItems, metadataByOperationId, completedIds, transport, now: Date.now() });
+        results = await executeReadyOperations({
+          items: syncItems, metadataByOperationId, completedIds, transport, now: Date.now(),
+          isCurrent: () => isSyncRunCurrent(assertCurrent),
+        });
       } finally {
         for (const item of syncItems) {
           if (operationRunGuards.current.get(item.clientOperationId) === assertCurrent) {
