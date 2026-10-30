@@ -1005,7 +1005,7 @@ export default function InventoryPurchasesPanel({
                   </div>
                 ) : null}
 
-                {!detailsIsOfflineSnapshot && canManageSupplierPayments
+                {detailsIsAuthoritative && canManageSupplierPayments
                   && ["confirmed", "partially_received", "received"].includes(details.data.purchase.status)
                   && Number(details.data.purchase.outstandingAmount ?? 0) > 0 ? (
                   <form onSubmit={onSupplierPaymentSubmit} className="space-y-3 rounded-md border border-dashed p-3">
