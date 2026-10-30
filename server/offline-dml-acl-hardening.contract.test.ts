@@ -45,6 +45,14 @@ const idempotencySchemaTestUrl = new URL(
   "../supabase/tests/missing_idempotency_schema_reconcile.sql",
   import.meta.url,
 );
+const productionTriggerMigrationUrl = new URL(
+  "../supabase/migrations/20261030230000_powerhub_missing_production_triggers_reconcile.sql",
+  import.meta.url,
+);
+const productionTriggerTestUrl = new URL(
+  "../supabase/tests/missing_production_triggers_reconcile.sql",
+  import.meta.url,
+);
 const readMigration = () => readFile(migrationUrl, "utf8");
 const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
 const readQuotaAclMigration = () => readFile(quotaAclMigrationUrl, "utf8");
@@ -56,6 +64,8 @@ const readCanonicalRlsMigration = () => readFile(canonicalRlsMigrationUrl, "utf8
 const readCanonicalRlsTest = () => readFile(canonicalRlsTestUrl, "utf8");
 const readIdempotencySchemaMigration = () => readFile(idempotencySchemaMigrationUrl, "utf8");
 const readIdempotencySchemaTest = () => readFile(idempotencySchemaTestUrl, "utf8");
+const readProductionTriggerMigration = () => readFile(productionTriggerMigrationUrl, "utf8");
+const readProductionTriggerTest = () => readFile(productionTriggerTestUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
   it("revokes direct write privileges from public browser roles on core records", async () => {
@@ -157,6 +167,36 @@ describe("offline server-write ACL hardening migration", () => {
     expect(integration).toContain("authenticated_select_removed_on_%");
     expect(integration).toContain("test_tenant_access");
   });
+  it("restores all production-only triggers and protects their domain invariants", async () => {
+    const migration = (await readProductionTriggerMigration()).toLowerCase();
+    const integration = (await readProductionTriggerTest()).toLowerCase();
+    const triggers = [
+      "collector_sessions_set_updated_at", "custom_permission_roles_set_updated_at",
+      "employees_set_updated_at", "financial_settlements_set_updated_at",
+      "trg_powerhub_guard_locked_financial_settlement", "platform_sms_fallback_set_updated_at",
+      "platform_sms_plans_set_updated_at", "platform_tweetsms_set_updated_at",
+      "platform_tweetsms_alert_set_updated_at", "staff_profiles_set_updated_at",
+      "subscribers_set_updated_at", "trg_powerhub_sync_sms_addon_end",
+      "tenant_branch_settings_set_updated_at", "trg_powerhub_tenant_feature_control_scope",
+      "tenant_owner_profiles_set_updated_at", "tenant_subscriptions_set_updated_at",
+      "trg_powerhub_trial_duration", "tenant_tweetsms_set_updated_at",
+      "tenants_set_updated_at", "users_set_updated_at",
+    ];
+    for (const trigger of triggers) {
+      expect(migration).toContain("'" + trigger + "'");
+      expect(integration).toContain("'" + trigger + "'");
+    }
+    expect(migration).toContain("powerhub_guard_locked_financial_settlement");
+    expect(migration).toContain("powerhub_guard_tenant_feature_control_scope");
+    expect(migration).toContain("powerhub_apply_trial_duration");
+    expect(migration).toContain("powerhub_sync_sms_addon_end_to_subscription");
+    expect(integration).toContain("locked_settlement_mutation_was_allowed");
+    expect(integration).toContain("overlapping_locked_settlement_was_allowed");
+    expect(integration).toContain("non_controllable_feature_was_allowed");
+    expect(integration).toContain("trial_duration_trigger_mismatch");
+    expect(integration).toContain("sms_addon_end_not_aligned_to_subscription");
+  });
+
   it("restores the production idempotency columns and unique replay indexes", async () => {
     const migration = (await readIdempotencySchemaMigration()).toLowerCase();
     const integration = (await readIdempotencySchemaTest()).toLowerCase();
