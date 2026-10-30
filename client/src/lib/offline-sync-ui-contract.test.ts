@@ -120,17 +120,21 @@ describe("offline sync UI contract", () => {
   });
 
   it("labels non-Delta HR financial snapshots and requires fresh server reads before financial actions", () => {
-    expect(payrollPage).toContain("offlineRuns.dataUpdatedAt");
     expect(payrollPage).toContain("isShowingCachedPayrollRuns");
     expect(payrollPage).toContain("hasLivePayrollRuns");
+    expect(payrollPage).toContain("runs.isFetchedAfterMount");
+    expect(payrollPage).toContain("isShowingStalePayrollRuns");
     expect(payrollPage).toContain("disabled={!hasLivePayrollRuns || run.pendingOffline}");
-    expect(payrollPage).toContain("هذه اللقطة ليست حالة حية ولا تغذية Delta");
+    expect(payrollPage).toContain("ملخصات الرواتب المتزامنة عبر Delta");
 
-    expect(employeeAdvancesPage).toContain("offlineAdvances.dataUpdatedAt");
     expect(employeeAdvancesPage).toContain("isShowingCachedAdvances");
+    expect(employeeAdvancesPage).toContain("hasLiveAdvances");
+    expect(employeeAdvancesPage).toContain("advances.isFetchedAfterMount");
+    expect(employeeAdvancesPage).toContain("accounts.isFetchedAfterMount");
+    expect(employeeAdvancesPage).toContain("isShowingStaleAdvances");
     expect(employeeAdvancesPage).toContain("canMutateAdvances");
-    expect(employeeAdvancesPage).toContain("تعذر التحقق من أحدث رصيد للسلفة وحساب الشركة");
-    expect(employeeAdvancesPage).toContain("هذه اللقطة ليست Delta ولا تمثل رصيدًا نهائيًا");
+    expect(employeeAdvancesPage).toContain("لا يُعتمد رصيد مالي ولا يتم صرف أو قبض نهائي قبل تأكيد الخادم");
+    expect(employeeAdvancesPage).toContain("repaymentHistoryTruncated");
   });
 
   it("does not overwrite atomically persisted reading metadata with a stale pending result", () => {
