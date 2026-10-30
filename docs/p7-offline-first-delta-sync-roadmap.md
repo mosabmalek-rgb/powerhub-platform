@@ -1185,3 +1185,21 @@ Safety invariants:
 - يثبت الاختبار الوحداتي ترتيب الإلغاء قبل dispatch اللاحق، لكنه لا يحل محل E2E عبر متصفحين/تبويبين أو اختبار انقطاع/إغلاق المتصفح الفعلي.
 - تشغيلات CI على الرأس الذي يتضمن هذه الحراسة يجب أن تنجح جميعها على SHA واحد قبل اعتبار هذه الشريحة مقبولة.
 - لا تُمسح IndexedDB أو Outbox عند تبديل الهوية، ولا تُنشأ آلية تخزين/مزامنة موازية. لم تُطبق migrations على Staging أو Production، ولم يُنشر Preview.
+## إغلاق انحراف منح DML المباشر في Staging — 2026-10-30
+
+**المراجعة الحية (قراءة فقط):**
+- تمت مقارنة منح INSERT/UPDATE/DELETE على جميع جداول `public` بين Staging (`iyuryuhaylhisjfcrwkz`) وProduction (`vvcdiqcyhaloxesvpppc`). ظهر 148 جدولًا في Staging مقابل 145 في Production. كان عدد الجداول التي لديها منح كتابة مباشرة لأدوار `anon` أو `authenticated` هو 35 في Staging مقابل 5 في Production؛ خمسة جداول من مجموعة الكتابة المشتركة هي جداول دعم المحادثة، ولم يشملها الإصلاح لأنها تملك النمط نفسه في البيئتين.
+- عُزلت 30 جدولًا في Staging لديها منح كتابة مباشرة لا تظهر في Production: access_invitations, collector_sessions, company_account_sites, custom_permission_roles, emergency_requests, employee_adjustments, employee_attendance, employees, financial_settlements, invoice_lines, mobile_api_sessions, mobile_sync_events, payroll_items, payroll_runs, platform_access_invitations, platform_role_policies, platform_sms_plans, site_portal_settings, sms_dispatch_queue, sms_package_requests, staff_profiles, subscription_upgrade_requests, tariffs, tenant_branch_settings, tenant_messaging_configurations, tenant_owner_profiles, tenant_subscriptions, tenants, tweet_sms_report_snapshots, users.
+- كانت RLS مفعلة على الجداول الثلاثين، لكن عدداً من السياسات القديمة من نوع `FOR ALL TO PUBLIC` كان يسمح بالكتابة وفق نطاق العضوية/استثناء دور المنصة بدل صلاحية المجال الدقيقة. لذلك لا يكفي وجود RLS وحده لإثبات منع تجاوز مسار RPC ذي الصلاحية الدقيقة.
+- أظهر البحث عن مسارات الكتابة المعروفة أن تحديثات المستخدمين/المستأجرين وأحداث مزامنة الموبايل تتم من الخادم باستخدام `supabaseAdmin`؛ ولم يظهر دليل على أن واجهة المتصفح تكتب مباشرة في هذه الجداول. احتُفظ بصلاحيات القراءة الحالية.
+
+**الإصلاح المضاف على PR #359 (لم يُطبّق على أي بيئة):**
+- أضيف `20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql` بترحيل forward-only وidempotent: يسحب `INSERT, UPDATE, DELETE, TRUNCATE` من `PUBLIC`, `anon`, `authenticated` لكل جدول من القائمة إذا كان موجوداً، دون افتراض وجود كل جداول Staging في Production.
+- لا يغير الترحيل SELECT أو RLS policies أو قيود/أعمدة الجداول أو أي منحة لـ`service_role`. لم يشمل جداول دعم المحادثة الخمسة لأنها تطابق Production في هذه النقطة.
+- أضيف `supabase/tests/browser_direct_dml_acl_reconcile.sql` يعيد إنتاج منح Staging الواسعة في PostgreSQL معزول، يشغل الترحيل مرتين، ثم يتحقق من بقاء RLS وسياسة الاختبار وSELECT، ورفض DML للأدوار browser، واستمرار DML لـ`service_role`.
+- أضيف تشغيل الاختبار إلى `.github/workflows/reading-cycle-sql-integration.yml` واختبار عقد في `server/offline-dml-acl-hardening.contract.test.ts` يحرس قائمة الجداول وسلوك الترحيل.
+
+**حدود الإغلاق:**
+- يلزم نجاح PowerHub CI وPostgreSQL Integration وSupabase Admin Guard وSecurity على SHA واحد يحتوي هذا الترحيل والاختبار.
+- هذه نتيجة تدقيق بنيوي/ACL وليست إثباتاً بتنفيذ اختبار صلاحيات كل دور على كل واجهة. تبقى مراجعة مصفوفة `staff_profiles` و`is_platform_user` و`powerhub_is_platform_admin` واختلافات الأعمدة/الفهارس/المشغلات والسياسات بين البيئتين بنداً منفصلاً؛ لا تُسوّى الفروق النصية أو التاريخية آلياً.
+- لم تُنفذ أي أوامر DDL على Staging أو Production، ولم يُنشأ Preview أو Production deployment. PR ما زال Draft وغير مدمج.
