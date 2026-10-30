@@ -73,6 +73,8 @@ const DASHBOARD_SNAPSHOT_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "dashboard.allBranchesSummary": new Set(["siteId"]),
   "dashboard.financialOverview": new Set(["siteId", "scope", "includeDetails"]),
   "dashboard.periodMetrics": new Set(["siteId", "scope", "startDate", "endDate", "includeDetails"]),
+  "dashboard.activeSubscribersKpi": new Set(["siteId", "scope"]),
+  "dashboard.periodKpi": new Set(["siteId", "scope", "metric", "startDate", "endDate"]),
 };
 
 function isSafeDashboardRevision(queryKey: readonly unknown[], segments: string[]) {
@@ -98,12 +100,16 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
     return Object.keys(input).length === 1;
   }
   if (input.scope !== "branch" && input.scope !== "all" || input.includeDetails !== false) return false;
+  if (procedure === "dashboard.activeSubscribersKpi") return Object.keys(input).length === 2;
   if (procedure === "dashboard.financialOverview") return Object.keys(input).length === 3;
 
-  if (Object.keys(input).length !== 5 ||
+  if (Object.keys(input).length !== (procedure === "dashboard.periodKpi" ? 5 : 5) ||
       !isValidOfflineDate(input.startDate) ||
       !isValidOfflineDate(input.endDate) ||
       String(input.startDate) > String(input.endDate)) return false;
+  if (procedure === "dashboard.periodKpi") {
+    return ["periodInvoiced", "periodCollected", "collectionRate", "periodOverdue"].includes(String(input.metric));
+  }
   return true;
 }
 
