@@ -66,5 +66,17 @@ describe("independent dashboard KPI snapshots", () => {
     expect(home).toContain('changed.has("activeSubscribers")');
     expect(home).toContain("activeSubscribersKpiQuery.refetch()");
     expect(home).not.toContain("periodMetricsQuery");
+    expect(home).toContain("todayInvoicedKpiQuery.refetch()");
+    expect(home).toContain("todayCollectedKpiQuery.refetch()");
+    expect(home).toContain("todayCollectionRateKpiQuery.refetch()");
+    expect(home).toContain("monthCollectionRateKpiQuery.refetch()");
+    expect(home).toContain('changed.has("financialTrend")');
+    expect(home).toContain('changed.has("expenses")');
+    expect(home).toContain('changed.has("netCash")');
+    expect(home).toContain('changed.has("currentArrears")');
+    expect(home).toContain("expensesKpiQuery.refetch()");
+    expect(home).toContain("netCashKpiQuery.refetch()");
+    expect(home).toContain("currentArrearsKpiQuery.refetch()");
+    expect(home).not.toContain('changed.has("financialOverview")');
   });
 });
