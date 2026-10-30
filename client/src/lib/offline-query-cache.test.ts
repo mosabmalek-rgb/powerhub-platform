@@ -418,9 +418,18 @@ describe("offline query cache policy", () => {
     const invalidIndependentPeriod = ["powerhub.dashboard.periodKpi", {
       input: { siteId: 7, scope: "branch", metric: "privateDetails", startDate: "2026-10-01", endDate: "2026-10-29" }, type: "query",
     }];
+    const expensesKpi = ["powerhub.dashboard.financialKpi", {
+      input: { siteId: 7, scope: "branch", metric: "expenses" }, type: "query",
+    }];
+    const netCashKpi = ["powerhub.dashboard.financialKpi", {
+      input: { siteId: 7, scope: "branch", metric: "netCash" }, type: "query",
+    }];
+    const currentArrearsKpi = ["powerhub.dashboard.financialKpi", {
+      input: { siteId: 7, scope: "branch", metric: "currentArrears" }, type: "query",
+    }];
     const revision = ["powerhub.dashboard.deltaRevision", { input: { siteId: 7, scope: "branch" }, type: "query" }];
 
-    for (const key of [summary, financial, period, activeSubscribers, independentPeriod]) {
+    for (const key of [summary, financial, period, activeSubscribers, independentPeriod, expensesKpi, netCashKpi, currentArrearsKpi]) {
       expect(isOfflineCacheableQueryKey(key)).toBe(true);
       expect(isOfflineDashboardSnapshotQueryKey(key)).toBe(true);
       expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
@@ -675,6 +684,17 @@ describe("offline cache privacy sanitization", () => {
       metric: "activeSubscribers", value: 25, scope: "branch", siteId: 7,
       privateRows: [{ subscriber: "Private name" }],
     })).toEqual({ metric: "activeSubscribers", value: 25, scope: "branch", siteId: 7 });
+
+    const financialKpiKey = ["powerhub.dashboard.financialKpi", {
+      input: { siteId: 7, scope: "branch", metric: "currentArrears" }, type: "query",
+    }];
+    expect(sanitizeOfflineQueryData(financialKpiKey, {
+      metric: "currentArrears", outstanding: 130, overdue: 110, partialInvoices: 1,
+      accountCount: 2, scope: "branch", siteId: 7, privateRows: [{ subscriber: "Private name" }],
+    })).toEqual({
+      metric: "currentArrears", outstanding: 130, overdue: 110, partialInvoices: 1,
+      accountCount: 2, scope: "branch", siteId: 7, observedAt: undefined,
+    });
   });
 
   it("does not invent HR optimistic-lock versions for legacy snapshots", () => {
