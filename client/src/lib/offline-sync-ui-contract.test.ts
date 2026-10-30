@@ -75,6 +75,8 @@ describe("offline sync UI contract", () => {
 
   it("binds Outbox replay to the original user, branch and generation before each server mutation", () => {
     expect(syncPanel).toContain('const auth = useAuth();');
+    expect(syncPanel).toContain("const rawAuthUserId = Number(auth.user?.id);");
+    expect(syncPanel).toContain("Number.isSafeInteger(rawAuthUserId) && rawAuthUserId > 0 ? rawAuthUserId : null");
     expect(syncPanel).toContain("const syncIdentityRef = useRef({ ...identitySnapshot, generation: 0 });");
     expect(syncPanel).toContain("current.authUserId !== owner.userId");
     expect(syncPanel).toContain("current.generation !== owner.generation");
