@@ -1203,3 +1203,22 @@ Safety invariants:
 - يلزم نجاح PowerHub CI وPostgreSQL Integration وSupabase Admin Guard وSecurity على SHA واحد يحتوي هذا الترحيل والاختبار.
 - هذه نتيجة تدقيق بنيوي/ACL وليست إثباتاً بتنفيذ اختبار صلاحيات كل دور على كل واجهة. تبقى مراجعة مصفوفة `staff_profiles` و`is_platform_user` و`powerhub_is_platform_admin` واختلافات الأعمدة/الفهارس/المشغلات والسياسات بين البيئتين بنداً منفصلاً؛ لا تُسوّى الفروق النصية أو التاريخية آلياً.
 - لم تُنفذ أي أوامر DDL على Staging أو Production، ولم يُنشأ Preview أو Production deployment. PR ما زال Draft وغير مدمج.
+
+## مواءمة سياسات RLS بين Staging وProduction — 2026-10-30
+
+**تدقيق مباشر للسياسات (قراءة فقط):**
+- تمت مقارنة تعريفات السياسات على جداول `public` في البيئتين بعد إغلاق منح DML. ظهرت 63 بصمة سياسة مختلفة؛ منها خمس جداول محادثة (`chat_bot_handoffs`, `chat_conversations`, `chat_message_attachments`, `chat_message_receipts`, `chat_participants`) تُركت خارج هذا الترحيل لأن Production يستخدم دوال محادثة متخصصة تختلف عن Staging وتحتاج مراجعة مستقلة.
+- عولجت 55 طاولة مشتركة لها سياسة إنتاجية مرجعية: 32 سياسة tenant-scoped للقراءة/الكتابة، و12 سياسة قراءة فقط للمخزون والموردين وعضوية المستأجر، و7 سياسات لإدارة المنصة، وسياسَتا payroll child تربطان السجل بأصل `payroll_runs`، إضافة إلى سياسة قراءة المستأجرين وسياسة المستخدم الحالي (العدد الإجمالي 55).
+- استبدلت السياسات القديمة التي كانت `TO PUBLIC` أو تستخدم `powerhub_private.is_platform_user()` الأوسع بسياسات `TO authenticated` تستخدم `private.powerhub_has_tenant_access` و`private.powerhub_is_platform_admin`، مع اعتماد `auth.uid()` لقراءة سجل المستخدم الحالي. هذا يعيد حدود Production الفعلية؛ لا يوسّع دور `finance_admin` إلى جداول إدارة المنصة التي لم تسمح له Production بالوصول إليها.
+- أضيفت سياسات Production المفقودة في Staging على الجداول المشتركة، ومنها `invoice_share_links`, `messaging_schedule_runs`, `notification_messages`, `payroll_adjustment_allocations`, وإعدادات المنصة ومزودو الرسائل.
+- الجداول الثلاثة الخاصة بـStaging فقط (`emergency_requests`, `sms_dispatch_queue`, `tweet_sms_report_snapshots`) لا يوجد لها مرجع Production أو استخدام تطبيقي في المستودع؛ الترحيل يحتفظ بالجداول وبياناتها ومنح `service_role`، لكنه يسحب كل منح أدوار العميل ويحذف سياسات RLS القديمة.
+
+**الملفات المضافة على PR #359 (لم تطبق على أي بيئة):**
+- `20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql`: ترحيل أمامي قابل لإعادة التنفيذ، يفحص وجود مساعدات RLS وصلاحياتها، ثم يستبدل كل سياسات الجداول الـ55 المستهدفة بسياسة مرجعية واحدة لكل جدول. لا يغير الأعمدة أو القيود أو الفهارس أو المشغلات أو بيانات الأعمال.
+- `supabase/tests/canonical_tenant_rls_policy_reconcile.sql`: قاعدة PostgreSQL معزولة تنشئ 55 جدولاً مصغراً وثلاثة جداول قديمة، وتعيد تشغيل الترحيل مرتين، وتتحقق من الدور/نوع السياسة، وعزل المستأجر في الموظفين والرواتب، وحدود قراءة المستخدم، ووصول مدير المنصة، وإزالة وصول العميل للجداول القديمة مع بقاء وصول الخدمة.
+- أضيف الاختبار إلى `.github/workflows/reading-cycle-sql-integration.yml`، وأضيفت حراسة عقد في `server/offline-dml-acl-hardening.contract.test.ts`.
+
+**الفروق المؤجلة عمدًا:**
+- سياسات المحادثة الخمس لا تُنسخ آليًا؛ يلزم اختبار سلوك المشاركين ومحادثات الدعم و`manageSupportChat` ومقارنة دوال `chat_rls_can_select_*` قبل أي مواءمة.
+- بقيت فروق الأعمدة والقيود والفهارس والمشغلات خارج هذا الترحيل. من الفروق التي ظهرت: عمود منشئ رابط الفاتورة في Staging، قيد دقة مبلغ توزيع تسوية الراتب (Staging أشد)، وبعض أعمدة/قيود الاشتراك والفواتير. لا تُزال أو تُضاف هذه القيود دون مراجعة توافق البيانات ومسارات الكتابة.
+- لم تُنفذ أي أوامر DDL على Staging أو Production، ولم يُنشأ Preview أو Production deployment. يجب نجاح جميع بوابات CI/PostgreSQL/Security/Admin Guard على SHA واحد بعد هذه الإضافات قبل اعتمادها.
