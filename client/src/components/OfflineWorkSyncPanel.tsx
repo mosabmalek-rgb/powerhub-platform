@@ -656,6 +656,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
         assertCurrent();
         const current = storedAfter.find((row) => row.operationId === result.item.clientOperationId);
         await upsertSyncMetadata({ operationId: result.item.clientOperationId, userId, siteId: result.item.siteId, kind: result.item.kind, dependsOn: result.metadata.dependsOn, attempts: result.metadata.attempts, nextAttemptAt: result.metadata.nextAttemptAt, outcome: result.outcome, ...(result.metadata.lastError ? { lastError: result.metadata.lastError } : {}), updatedAt: Date.now(), ...(current?.tenantId !== undefined ? { tenantId: current.tenantId } : {}) });
+        assertCurrent();
         if (result.outcome === "conflict") {
           await upsertOfflineConflict({
             userId,
@@ -669,13 +670,23 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
             updatedAt: Date.now(),
             localPayload: result.item.payload,
           });
+          assertCurrent();
         } else if (result.outcome === "applied" || result.outcome === "already_applied") {
           await updateOfflineWork(result.item.id, { status: "applied", error: undefined, payload: sanitizeCompletedPayload(result.item) });
+          assertCurrent();
           await removeOfflineConflict(userId, result.item.clientOperationId);
+          assertCurrent();
         }
-        if (result.outcome === "retryable") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
-        else if (result.outcome === "conflict") await updateOfflineWork(result.item.id, { status: "conflict", error: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة." });
-        else if (result.outcome === "rejected") await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
+        if (result.outcome === "retryable") {
+          await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "تعذر مزامنة العملية مؤقتاً." });
+          assertCurrent();
+        } else if (result.outcome === "conflict") {
+          await updateOfflineWork(result.item.id, { status: "conflict", error: result.metadata.lastError ?? "تعارض يحتاج إلى مراجعة." });
+          assertCurrent();
+        } else if (result.outcome === "rejected") {
+          await updateOfflineWork(result.item.id, { status: "failed", error: result.metadata.lastError ?? "رفض الخادم العملية." });
+          assertCurrent();
+        }
       }
       assertCurrent();
       await refresh(results);
