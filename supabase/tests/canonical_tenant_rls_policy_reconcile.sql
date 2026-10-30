@@ -186,7 +186,7 @@ CREATE POLICY fixture_open ON public.supplier_purchase_receipt_lines FOR ALL TO 
 GRANT ALL ON public.supplier_purchase_receipt_lines TO anon, authenticated, service_role;
 CREATE TABLE public.tenant_members (
   id bigint primary key, tenant_id bigint, user_id bigint,
-  is_active boolean, membership_status text
+  is_active boolean, membership_status text, expires_at timestamptz
 );
 ALTER TABLE public.tenant_members ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fixture_open ON public.tenant_members FOR ALL TO PUBLIC USING (true) WITH CHECK (true);
@@ -252,29 +252,33 @@ ALTER TABLE public.tweet_sms_report_snapshots ENABLE ROW LEVEL SECURITY;
 CREATE POLICY fixture_open ON public.tweet_sms_report_snapshots FOR ALL TO PUBLIC USING (true) WITH CHECK (true);
 GRANT ALL ON public.tweet_sms_report_snapshots TO anon, authenticated, service_role;
 
+CREATE OR REPLACE FUNCTION private.powerhub_current_user_id()
+RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
+  SELECT id FROM public.users WHERE auth_user_id=auth.uid() LIMIT 1
+$function$;
 CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
   SELECT EXISTS (
-    SELECT 1 FROM public.tenant_members tm
-    JOIN public.users u ON u.id=tm.user_id
-    WHERE tm.tenant_id=target_tenant_id
-      AND u.auth_user_id=auth.uid()
-      AND tm.is_active=true
-      AND tm.membership_status='active'
+    SELECT 1 FROM public.tenant_members membership
+    WHERE membership.tenant_id=target_tenant_id
+      AND membership.user_id=private.powerhub_current_user_id()
+      AND membership.is_active=true
+      AND membership.membership_status='active'
+      AND (membership.expires_at IS NULL OR membership.expires_at>now())
   )
 $function$;
 CREATE OR REPLACE FUNCTION private.powerhub_is_platform_admin()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $function$
   SELECT EXISTS (
     SELECT 1 FROM public.users
-    WHERE auth_user_id=auth.uid()
+    WHERE id=private.powerhub_current_user_id()
       AND platform_role IN ('platform_owner','platform_admin','finance_admin')
       AND account_status='active'
   )
 $function$;
-REVOKE ALL ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION private.powerhub_current_user_id(), private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() FROM PUBLIC, anon;
 GRANT USAGE ON SCHEMA private TO authenticated;
-GRANT EXECUTE ON FUNCTION private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() TO authenticated;
+GRANT EXECUTE ON FUNCTION private.powerhub_current_user_id(), private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() TO authenticated;
 
 \ir ../migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql
 \ir ../migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql
@@ -287,8 +291,8 @@ INSERT INTO public.platform_settings(id) VALUES (1), (2);
 INSERT INTO public.users(id,auth_user_id,platform_role,account_status,role) VALUES
   (1,'11111111-1111-4111-8111-111111111111',NULL,'active','user'),
   (2,'22222222-2222-4222-8222-222222222222','platform_owner','active','admin');
-INSERT INTO public.tenant_members(id,tenant_id,user_id,is_active,membership_status)
-VALUES (1,1,1,true,'active');
+INSERT INTO public.tenant_members(id,tenant_id,user_id,is_active,membership_status,expires_at)
+VALUES (1,1,1,true,'active',NULL);
 
 SET ROLE authenticated;
 SET test.auth_uid = '11111111-1111-4111-8111-111111111111';
