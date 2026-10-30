@@ -35,8 +35,8 @@ export type DeltaEntityRecord<Row extends Record<string, unknown> = Record<strin
 export interface DeltaSyncStorage<Row extends Record<string, unknown> = Record<string, unknown>> {
   getCursor(scope: DeltaCursorScope): Promise<string | null>;
   listEntities(scope: DeltaCursorScope): Promise<DeltaEntityRecord<Row>[]>;
-  commitPage(scope: DeltaCursorScope, page: DeltaPage<Row>, nextCursor: string): Promise<void>;
-  replaceSnapshot(scope: DeltaCursorScope, rows: readonly Row[], cursor: string): Promise<void>;
+  commitPage(scope: DeltaCursorScope, page: DeltaPage<Row>, nextCursor: string, isCurrent?: () => boolean): Promise<void>;
+  replaceSnapshot(scope: DeltaCursorScope, rows: readonly Row[], cursor: string, isCurrent?: () => boolean): Promise<void>;
   clearUser(userId: number): Promise<void>;
 }
 
@@ -574,7 +574,9 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
   page: DeltaPage<Row>,
   nextCursor: string,
   now = Date.now(),
+  isCurrent?: () => boolean,
 ) {
+  assertDeltaSyncRunActive(isCurrent);
   const key = scopeKey(scope);
   assertCursor(nextCursor);
   if (page.status !== "ok" || page.entity_type !== scope.entityType) throw new Error("صفحة المزامنة لا تطابق نطاقها.");
@@ -599,6 +601,7 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
     }
   }
   const db = await openDatabase();
+  assertDeltaSyncRunActive(isCurrent);
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction([CURSOR_STORE, ENTITY_STORE], "readwrite");
     const cursors = tx.objectStore(CURSOR_STORE);
@@ -614,6 +617,10 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
     existingCursorRequest.onerror = () => failTransaction("تعذر التحقق من مؤشر المزامنة الحالي.");
     existingCursorRequest.onsuccess = () => {
       if (rejected) return;
+      if (isCurrent && !isCurrent()) {
+        failTransaction("توقف تثبيت صفحة Delta بعد تغيّر هوية التشغيل.");
+        return;
+      }
       const existing = (existingCursorRequest.result as DeltaCursorRecord | undefined)?.cursor ?? "0";
       if (compareDeltaCursors(nextCursor, existing) < 0) {
         failTransaction("وصلت صفحة مزامنة أقدم من البيانات المحفوظة؛ أعد قراءة المؤشر.");
@@ -648,6 +655,10 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
         retainedRequest.onerror = () => failTransaction("تعذر تقليص سجل المزامنة المحلي.");
         retainedRequest.onsuccess = () => {
           if (rejected) return;
+          if (isCurrent && !isCurrent()) {
+            failTransaction("توقف تقليص سجل Delta بعد تغيّر هوية التشغيل.");
+            return;
+          }
           const stored = retainedRequest.result as Array<Record<string, unknown>>;
           const retainedIds = new Set(
             limitDeltaEntityRows(scope.entityType, stored).map((record) => String(record.entityId)),
@@ -674,7 +685,9 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
   rows: readonly Row[],
   cursor: string,
   now = Date.now(),
+  isCurrent?: () => boolean,
 ) {
+  assertDeltaSyncRunActive(isCurrent);
   const key = scopeKey(scope);
   assertCursor(cursor);
   const normalized = new Map<string, Row>();
@@ -689,6 +702,7 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
     boundedRows.map((row) => [String(row.id), row]),
   );
   const db = await openDatabase();
+  assertDeltaSyncRunActive(isCurrent);
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction([CURSOR_STORE, ENTITY_STORE], "readwrite");
     const cursors = tx.objectStore(CURSOR_STORE);
@@ -704,6 +718,10 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
     request.onerror = () => failTransaction("تعذر التحقق من مؤشر لقطة المزامنة.");
     request.onsuccess = () => {
       if (rejected) return;
+      if (isCurrent && !isCurrent()) {
+        failTransaction("توقف استبدال لقطة Delta بعد تغيّر هوية التشغيل.");
+        return;
+      }
       const existing = (request.result as DeltaCursorRecord | undefined)?.cursor ?? "0";
       if (compareDeltaCursors(cursor, existing) < 0) {
         failTransaction("لقطة أقدم من مؤشر محلي أحدث؛ أعد المحاولة بالمؤشر الحالي.");
@@ -714,6 +732,10 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
       keysRequest.onerror = () => failTransaction("تعذر تجهيز استبدال لقطة المزامنة.");
       keysRequest.onsuccess = () => {
         if (rejected) return;
+        if (isCurrent && !isCurrent()) {
+          failTransaction("توقف استبدال سجلات لقطة Delta بعد تغيّر هوية التشغيل.");
+          return;
+        }
         for (const entityKey of keysRequest.result) entities.delete(entityKey);
         for (const [entityId, rowData] of boundedNormalized) {
           entities.put({ scopeKey: key, ...scope, entityId, rowData, updatedAt: now });
@@ -763,8 +785,10 @@ export async function clearDeltaSyncDataForUser(userId: number) {
 const indexedDbStorage: DeltaSyncStorage = {
   getCursor: getDeltaCursor,
   listEntities: listDeltaEntities,
-  commitPage: commitDeltaPage,
-  replaceSnapshot: replaceDeltaSnapshot,
+  commitPage: (scope, page, nextCursor, isCurrent) =>
+    commitDeltaPage(scope, page, nextCursor, Date.now(), isCurrent),
+  replaceSnapshot: (scope, rows, cursor, isCurrent) =>
+    replaceDeltaSnapshot(scope, rows, cursor, Date.now(), isCurrent),
   clearUser: clearDeltaSyncDataForUser,
 };
 
@@ -810,7 +834,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
       const snapshot = await input.rebuildSnapshot(assertCursor(page.snapshot_cursor ?? page.current_cursor));
       assertDeltaSyncRunActive(input.isCurrent);
       const snapshotCursor = assertCursor(snapshot.cursor);
-      await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor);
+      await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent);
       assertDeltaSyncRunActive(input.isCurrent);
       cursor = snapshotCursor;
       through = null;
@@ -837,7 +861,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
       assertDeltaSyncRunActive(input.isCurrent);
     }
     assertDeltaSyncRunActive(input.isCurrent);
-    await storage.commitPage(input.scope, page, next);
+    await storage.commitPage(input.scope, page, next, input.isCurrent);
     assertDeltaSyncRunActive(input.isCurrent);
     appliedChanges += page.changes.length;
     cursor = next;
