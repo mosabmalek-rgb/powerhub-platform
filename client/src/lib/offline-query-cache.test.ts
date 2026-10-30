@@ -1077,6 +1077,13 @@ describe("HR local-first cache boundaries", () => {
     expect(advances[0].employee).not.toHaveProperty("baseWage");
     expect(advances[0].repayments[0]).toMatchObject({ notes: null, referenceNo: null, createdByUserId: null, accountTransactionId: null });
     expect(advances[0].repaymentHistoryTruncated).toBe(false);
+    const manyRepayments = sanitizeOfflineQueryData(key("offlineEmployeeAdvances"), [{
+      adjustment: { id: 30, tenantId: 2, siteId: 7, employeeId: 10, amount: "100", remainingAmount: "40" },
+      employee: { id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker", employmentStatus: "active" },
+      repayments: Array.from({ length: 6 }, (_, index) => ({ id: index + 1, amount: "10", notes: "PRIVATE" })),
+    }]) as Array<Record<string, any>>;
+    expect(manyRepayments[0].repayments).toHaveLength(4);
+    expect(manyRepayments[0].repaymentHistoryTruncated).toBe(true);
     const truncatedAdvances = sanitizeOfflineQueryData(key("offlineEmployeeAdvances"), [{
       adjustment: { id: 30, tenantId: 2, siteId: 7, employeeId: 10, amount: "100", remainingAmount: "40" },
       employee: { id: 10, tenantId: 2, siteId: null, fullName: "Employee", jobTitle: "worker", employmentStatus: "active" },
