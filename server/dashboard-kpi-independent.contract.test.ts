@@ -82,10 +82,10 @@ describe("independent dashboard KPI snapshots", () => {
 
   it("retains independent revision baselines across branch/all-branch scope switches", () => {
     const start = home.indexOf("const lastDashboardRevisions = useRef<Map<string, Record<string, string>>>");
-    const end = home.indexOf("\\n  useEffect(() => {\\n    // A failed profile check is recoverable", start);
+    const comparison = home.indexOf("previousRevisions[metric]", start);
     expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    const effect = home.slice(start, end);
+    expect(comparison).toBeGreaterThan(start);
+    const effect = home.slice(start, comparison + "previousRevisions[metric]".length);
     expect(effect).toContain("lastDashboardRevisions.current.get(key)");
     expect(effect).toContain("lastDashboardRevisions.current.set(key, revisions)");
     expect(effect).toContain("while (lastDashboardRevisions.current.size > 32)");
