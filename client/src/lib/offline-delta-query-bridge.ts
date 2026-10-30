@@ -74,7 +74,8 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
   if (entityType === "hr_employee_advances") {
     const adjustment = isRow(raw.adjustment) ? raw.adjustment : {};
     const employee = isRow(raw.employee) ? raw.employee : {};
-    const repayments = Array.isArray(raw.repayments) ? raw.repayments.filter(isRow).map((payment) => ({
+    const rawRepayments = Array.isArray(raw.repayments) ? raw.repayments.filter(isRow) : [];
+    const repayments = rawRepayments.slice(0, 4).map((payment) => ({
       id: toNumber(payment.id), amount: String(payment.amount ?? 0),
       repaymentMethod: String(payment.repayment_method ?? payment.repaymentMethod ?? ""),
       companyAccountId: optionalNumber(payment.company_account_id ?? payment.companyAccountId),
@@ -83,7 +84,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
       paymentDate: String(payment.payment_date ?? payment.paymentDate ?? ""),
       referenceNo: null, notes: null, createdByUserId: null,
       createdAt: dateOrNow(payment.created_at ?? payment.createdAt),
-    })) : [];
+    })): [];
     return {
       id: toNumber(raw.id ?? adjustment.id),
       tenantId: toNumber(raw.tenant_id ?? raw.tenantId ?? adjustment.tenant_id ?? adjustment.tenantId),
@@ -110,7 +111,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
         employmentStatus: String(employee.employment_status ?? employee.employmentStatus ?? "active"),
       },
       repayments,
-      repaymentHistoryTruncated: Boolean(raw.repayment_history_truncated ?? raw.repaymentHistoryTruncated),
+      repaymentHistoryTruncated: Boolean(raw.repayment_history_truncated ?? raw.repaymentHistoryTruncated) || rawRepayments.length > 4,
     };
   }
   if (entityType === "hr_payroll_runs") {
