@@ -1222,3 +1222,16 @@ Safety invariants:
 - سياسات المحادثة الخمس لا تُنسخ آليًا؛ يلزم اختبار سلوك المشاركين ومحادثات الدعم و`manageSupportChat` ومقارنة دوال `chat_rls_can_select_*` قبل أي مواءمة.
 - بقيت فروق الأعمدة والقيود والفهارس والمشغلات خارج هذا الترحيل. من الفروق التي ظهرت: عمود منشئ رابط الفاتورة في Staging، قيد دقة مبلغ توزيع تسوية الراتب (Staging أشد)، وبعض أعمدة/قيود الاشتراك والفواتير. لا تُزال أو تُضاف هذه القيود دون مراجعة توافق البيانات ومسارات الكتابة.
 - لم تُنفذ أي أوامر DDL على Staging أو Production، ولم يُنشأ Preview أو Production deployment. يجب نجاح جميع بوابات CI/PostgreSQL/Security/Admin Guard على SHA واحد بعد هذه الإضافات قبل اعتمادها.
+
+## استعادة أعمدة وفهارس Idempotency المفقودة في Staging — 2026-10-30
+
+- أظهرت مقارنة الأعمدة أن Staging يفتقد `client_operation_id` و`request_fingerprint` في `access_invitations` و`custom_permission_roles` و`platform_access_invitations`، رغم وجودها في Production واستخدامها في عقود RPC الحالية.
+- أظهرت مقارنة الفهارس كذلك غياب فهارس إعادة المحاولة الفريدة في الجداول الثلاثة، وغياب `access_invitations_tenant_email_status_idx`.
+- أضيف `20261030220000_powerhub_missing_idempotency_schema_reconcile.sql`: يضيف الأعمدة الستة كأعمدة nullable مطابقة لعقد Production، وينشئ فهارس replay الجزئية الفريدة وفهرس دعوات المستأجر. كل العمليات `IF NOT EXISTS` ولا تعيد كتابة السجلات الحالية.
+- أضيف اختبار PostgreSQL مستقل يعيد تشغيل الترحيل مرتين، ويتحقق من بقاء السجلات القديمة، ووجود الأعمدة والفهارس، ورفض تكرار `client_operation_id` في نطاقه الفريد. رُبط الاختبار بـCI وأضيف عقد TypeScript.
+- ما زال هذا ترحيلاً غير مطبق. يلزم فحص حالات البيانات الفعلية على Staging قبل التطبيق؛ الأعمدة الجديدة nullable لتجنب افتراض قيم تاريخية غير موجودة.
+
+**فروق المخطط المؤجلة للمراجعة:**
+- `platform_security_settings.value`: النوع `jsonb` في Staging و`text` في Production. لا تحويل تلقائي قبل فحص القيم واستهلاك الخادم.
+- حقول legacy `plan/current_plan/requested_plan` موجودة في Staging وغير موجودة في Production، بينما حقول `package_code/current_package_code/requested_package_code` هي عقد الكتالوج الحالي؛ لا تُحذف أعمدة legacy دون مراجعة كل RPC قديم.
+- ظهر فرق في قيد `payroll_adjustment_allocations.amount`: Staging يفرض التقريب إلى منزلتين، وهو أشد من Production. لا نخفف القيد ولا نغيّر بيانات الرواتب قبل اختبار توافق القيم الحالية.
