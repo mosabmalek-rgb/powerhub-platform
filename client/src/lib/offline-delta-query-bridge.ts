@@ -84,7 +84,7 @@ export function normalizeDeltaEntityRow(entityType: DeltaOperationalEntity, raw:
       paymentDate: String(payment.payment_date ?? payment.paymentDate ?? ""),
       referenceNo: null, notes: null, createdByUserId: null,
       createdAt: dateOrNow(payment.created_at ?? payment.createdAt),
-    })): [];
+    }));
     return {
       id: toNumber(raw.id ?? adjustment.id),
       tenantId: toNumber(raw.tenant_id ?? raw.tenantId ?? adjustment.tenant_id ?? adjustment.tenantId),
