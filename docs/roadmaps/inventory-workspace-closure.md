@@ -328,3 +328,12 @@ Status: implementation merged in PR #320 and included in Phase D reporting in PR
 - Added PostgreSQL regression coverage for one unambiguous overload, service-role-only ACL, preservation of pre-existing roles, create/replay returning the same role, same-key/different-fingerprint conflict, missing-key rejection, update/no-op replay, and exactly-once audit events. Added server and UI tests for required operation identity, fingerprint propagation, and durable client operation-key reuse.
 - The PostgreSQL Integration run on commit `1c364acb6df585ba047e63ae7b40f3fae83129d1` passed the new custom-role reconciliation test, and the same commit passed PowerHub CI (TypeScript, all tests, production build), PowerHub Security dependency audit, Supabase Admin Guard, and Reading Cycle PostgreSQL Integration.
 - The new reconciliation migration is not applied to either live environment. The current live migration ledger confirms it is absent from both Production and Staging. No live database write or Preview deployment was performed.
+
+
+### Independent financial-report Delta refresh — 2026-10-31
+
+- Added a separate `financialReport` revision to the central dashboard dependency registry. It advances on the scoped `sites`, `subscribers`, `invoices`, `payments`, and `expenses` journals, without inheriting the minute clock bucket used for overdue metrics.
+- The Reports page now polls the existing authorization-gated, tenant/site-scoped opaque dashboard revision (30 seconds; refresh on reconnect/focus). On a changed revision it reruns the exact active server report query; period comparisons refresh with the same scope, and branch comparisons watch an independent revision for the alternate branch.
+- No report totals are reconstructed from partial client Delta rows. Existing aggregate-only IndexedDB snapshots remain scoped by user/branch/scope/date range, and debtor, collector, invoice, and payment details remain excluded. Official print/export still requires a successful authoritative server read for the exact filters.
+- Added server regression coverage proving invoice/payment/expense cursor changes advance the financial-report revision while unrelated generator changes do not, and contract coverage for the active report and comparison refresh paths and the role gate.
+- This is source/test implementation only. No live migrations, Preview deployment, or browser acceptance was performed in this step; Staging browser reload/offline/reconnect acceptance and the previously recorded live migration/ACL release gates remain open.
