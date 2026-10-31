@@ -381,3 +381,9 @@ jobs:
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres employee_advances_prod_compatibility_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname employee_advances_prod_compatibility_test --set ON_ERROR_STOP=1 --set PREEXIST_PAYROLL_ALLOCATIONS=1 --file supabase/tests/employee_advances_loans_integration.sql
+      - name: Verify platform and tenant invitation RPC idempotency, concurrency, scope and server-only ACLs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres invitation_rpc_idempotency_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname invitation_rpc_idempotency_test --set ON_ERROR_STOP=1 --file supabase/tests/invitation_rpc_idempotency.sql
