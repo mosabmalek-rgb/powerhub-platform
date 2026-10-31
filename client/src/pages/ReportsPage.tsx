@@ -134,6 +134,7 @@ export default function ReportsPage() {
     scopeKey: "financial-report:" + String(user?.id ?? "unknown") + ":" + String(branchId ?? 0) + ":" + scope,
     enabled: Boolean(baseEnabled && canReadFinancialReport && !reportAccessDenied && (scope !== "all" || canUseAllBranches)),
     check: checkFinancialReportRevision,
+    realtimeTopic: reportRevisionQuery.data?.realtimeTopic,
   });
   const checkComparisonBranchRevision = useCallback(async () => {
     await comparisonBranchRevisionQuery.refetch();
@@ -142,6 +143,7 @@ export default function ReportsPage() {
     scopeKey: "financial-report-comparison:" + String(user?.id ?? "unknown") + ":" + String(alternateBranchId ?? 0),
     enabled: comparisonBranchRevisionEnabled,
     check: checkComparisonBranchRevision,
+    realtimeTopic: comparisonBranchRevisionQuery.data?.realtimeTopic,
   });
   const comparisonScopeName = comparisonMode === "branch" ? sitesQuery.data?.find((site) => site.id === alternateBranchId)?.name ?? "الفرع المقارن" : `${scopeName} — ${comparisonStartDate} إلى ${comparisonEndDate}`;
   const brandingQuery = trpc.powerhub.reportBranding.get.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
