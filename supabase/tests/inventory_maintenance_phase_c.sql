@@ -372,22 +372,6 @@ begin
     raise exception 'MAINTENANCE_REOPEN_DUPLICATED_PARTS_OR_COST';
   end if;
 
-  -- A later recurrence of the same breakdown is a new auditable work-order cycle.
-  -- It must not reopen or overwrite the completed source order or inherit old parts/costs.
-  select * into v_recurring_order from public.powerhub_maintenance_create_work_order(
-    10,100,1,10000,null,'breakdown','high','Phase C test repair','Recurring breakdown after completed repair',
-    '2026-10-24T12:00:00Z',null,null,'maint-test-recurring-breakdown-c-01'
-  );
-  if v_recurring_order.replayed or v_recurring_order.work_order_id in (v_order.work_order_id,v_reopened_order_id)
-     or v_recurring_order.status<>'new' then
-    raise exception 'MAINTENANCE_RECURRING_BREAKDOWN_NOT_NEW_CYCLE';
-  end if;
-  if (select status from public.generator_maintenance_work_orders where id=v_order.work_order_id)<>'completed'
-     or (select count(*) from public.generator_maintenance_work_order_parts
-         where tenant_id=10 and site_id=100 and work_order_id=v_recurring_order.work_order_id)<>0
-     or (select parts_cost from public.generator_maintenance_work_orders where id=v_recurring_order.work_order_id)<>0 then
-    raise exception 'MAINTENANCE_RECURRING_BREAKDOWN_MUTATED_OR_INHERITED_HISTORY';
-  end if;
   begin
     perform * from public.powerhub_maintenance_reopen_completed_work_order(
       10,100,1,v_order.work_order_id,'','maint-test-reopen-no-reason-c-01'
@@ -412,6 +396,32 @@ begin
   exception when sqlstate 'P0001' then
     if sqlerrm<>'MAINTENANCE_IDEMPOTENCY_KEY_REUSED' then raise; end if;
   end;
+  -- Close the first follow-up cycle before simulating a later recurrence.
+  -- This distinguishes a genuine recurring breakdown from a duplicate concurrent open follow-up.
+  perform * from public.powerhub_maintenance_transition_work_order(
+    10,100,1,v_reopened_order_id,'start',null,null,null,0,0,null,'maint-test-followup-start-c-01'
+  );
+  perform * from public.powerhub_maintenance_transition_work_order(
+    10,100,1,v_reopened_order_id,'complete',
+    'Follow-up repair completed',null,0,0,0,null,'maint-test-followup-complete-c-01'
+  );
+
+  -- A later recurrence of the same breakdown is a new auditable work-order cycle.
+  -- It must not reopen or overwrite the completed source order or inherit old parts/costs.
+  select * into v_recurring_order from public.powerhub_maintenance_create_work_order(
+    10,100,1,10000,null,'breakdown','high','Phase C test repair','Recurring breakdown after completed repair',
+    '2026-10-24T12:00:00Z',null,null,'maint-test-recurring-breakdown-c-01'
+  );
+  if v_recurring_order.replayed or v_recurring_order.work_order_id in (v_order.work_order_id,v_reopened_order_id)
+     or v_recurring_order.status<>'new' then
+    raise exception 'MAINTENANCE_RECURRING_BREAKDOWN_NOT_NEW_CYCLE';
+  end if;
+  if (select status from public.generator_maintenance_work_orders where id=v_order.work_order_id)<>'completed'
+     or (select count(*) from public.generator_maintenance_work_order_parts
+         where tenant_id=10 and site_id=100 and work_order_id=v_recurring_order.work_order_id)<>0
+     or (select parts_cost from public.generator_maintenance_work_orders where id=v_recurring_order.work_order_id)<>0 then
+    raise exception 'MAINTENANCE_RECURRING_BREAKDOWN_MUTATED_OR_INHERITED_HISTORY';
+  end if;
   begin
     perform * from public.powerhub_maintenance_transition_work_order(
       10,100,1,v_order.work_order_id,'correct_completion',
