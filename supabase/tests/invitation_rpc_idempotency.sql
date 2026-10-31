@@ -75,6 +75,23 @@ create table public.platform_security_events (
   created_by_user_id bigint
 );
 
+-- Seed legacy overloads explicitly so the migration proves it removes
+-- stale PostgREST signatures instead of merely observing their absence.
+create function public.powerhub_admin_invite_platform_access(
+  bigint,text,text,text,timestamptz
+) returns table(id bigint,email text,platform_role text,status text,expires_at timestamptz)
+language sql as $ select 1::bigint,''::text,''::text,''::text,now() $;
+
+create function public.powerhub_admin_invite_platform_access(
+  bigint,text,text,integer
+) returns table(id bigint,email text,platform_role text,expires_at timestamptz,status text)
+language sql as $ select 1::bigint,''::text,''::text,now(),''::text $;
+
+create function public.powerhub_admin_invite_tenant_access(
+  bigint,bigint,bigint,text,text,text,text,timestamptz
+) returns table(invitation_id bigint,email text,expires_at timestamptz,status text)
+language sql as $ select 1::bigint,''::text,now(),''::text $;
+
 insert into public.users(id,email,role,platform_role,account_status) values
   (1,'owner@example.test','admin','platform_owner','active'),
   (2,'admin@example.test','admin','platform_admin','active'),
