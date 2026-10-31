@@ -91,7 +91,7 @@ export default function PlatformAccessPanel() {
               <select aria-label={`دور حساب ${account.id}`} value={account.platformRole ?? "platform_admin"} onChange={(event) => setRole.mutate({ userId: account.id, platformRole: event.target.value as "platform_admin" | "finance_admin" | "platform_support" })} disabled={setRole.isPending} className="rounded-lg border border-white/10 bg-[#0D1117] px-2 py-1 text-xs text-white">
                 <option value="platform_support">موظف دعم</option><option value="platform_admin">مشرف منصة</option><option value="finance_admin">مشرف مالي</option>
               </select>
-              <select aria-label={`حالة حساب ${account.id}`} value={account.accountStatus} onChange={(event) => setStatus.mutate({ userId: account.id, accountStatus: event.target.value as "active" | "locked" | "disabled" })} disabled={setStatus.isPending} className="rounded-lg border border-white/10 bg-[#0D1117] px-2 py-1 text-xs text-white">
+              <select aria-label={`حالة حساب ${account.id}`} value={account.accountStatus} onChange={(event) => setStatus.mutate({ userId: account.id, status: event.target.value as "active" | "locked" | "disabled" })} disabled={setStatus.isPending} className="rounded-lg border border-white/10 bg-[#0D1117] px-2 py-1 text-xs text-white">
                 <option value="active">فعّال</option><option value="locked">مقفل</option><option value="disabled">معطل</option>
               </select>
             </>}
