@@ -3449,7 +3449,15 @@ begin
     or not has_function_privilege('service_role','public.powerhub_inventory_list_stocktake_lines(bigint,bigint,bigint)','EXECUTE') then
     raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_STOCKTAKE_RPC';
   end if;
-  if not exists(select 1 from public.platform_role_policies where role='manager' and capability='manageStocktakes')  if not (select c.relrowsecurity from pg_class c where c.oid='public.powerhub_inventory_stocktake_count_operations'::regclass)
+  if not exists(select 1 from public.platform_role_policies where role='manager' and capability='manageStocktakes')
+    or not exists(select 1 from public.platform_role_policies where role='manager' and capability='approveStocktakes') then
+    -- A dedicated manager approve grant is deliberately a valid default for this test persona.
+    insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id)
+    values('manager','manageStocktakes',true,1),('manager','approveStocktakes',true,1)
+    on conflict(role,capability) do update set is_allowed=excluded.is_allowed;
+  end if;
+
+  if not (select c.relrowsecurity from pg_class c where c.oid='public.powerhub_inventory_stocktake_count_operations'::regclass)
     or has_table_privilege('anon','public.powerhub_inventory_stocktake_count_operations','SELECT')
     or has_table_privilege('authenticated','public.powerhub_inventory_stocktake_count_operations','SELECT')
     or has_table_privilege('anon','public.powerhub_inventory_stocktake_count_operations','INSERT')
@@ -3457,14 +3465,6 @@ begin
     or not has_table_privilege('service_role','public.powerhub_inventory_stocktake_count_operations','SELECT')
     or not has_table_privilege('service_role','public.powerhub_inventory_stocktake_count_operations','INSERT') then
     raise exception 'STOCKTAKE_COUNT_OPERATION_LEDGER_ACL_FAILED';
-  end if;
-
-
-    or not exists(select 1 from public.platform_role_policies where role='manager' and capability='approveStocktakes') then
-    -- A dedicated manager approve grant is deliberately a valid default for this test persona.
-    insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id)
-    values('manager','manageStocktakes',true,1),('manager','approveStocktakes',true,1)
-    on conflict(role,capability) do update set is_allowed=excluded.is_allowed;
   end if;
   if not exists(select 1 from public.staff_profile_capability_overrides where tenant_id=10
     and profile_id=101 and capability='manageStocktakes') then

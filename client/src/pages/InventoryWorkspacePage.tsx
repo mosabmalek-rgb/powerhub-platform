@@ -71,7 +71,7 @@ export default function InventoryWorkspacePage() {
     staleTime: 30_000,
   });
   const supplierAccessAuthorizationDenied = isExplicitAuthorizationDenial(supplierAccess.error);
-  const effectiveSupplierAccess = supplierAccessAuthorizationDenied ? undefined : effectiveSupplierAccess;
+  const effectiveSupplierAccess = supplierAccessAuthorizationDenied ? undefined : supplierAccess.data;
   useEffect(() => {
     if (!supplierAccessAuthorizationDenied || !user?.id || !siteId) return;
     void clearOfflineSiteAccessQueryCacheForSite(String(user.id), siteId);
