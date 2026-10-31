@@ -43,6 +43,10 @@ describe("independent dashboard KPI snapshots", () => {
   it("refreshes financial reports from their independent invoice/payment/expense revision", () => {
     expect(dashboardRevisions).toContain('financialReport: ["sites", "subscribers", "invoices", "payments", "expenses"]');
     expect(reports).toContain("trpc.powerhub.dashboard.deltaRevision.useQuery(");
+    expect(reports).toContain("canReadFinancialReport && !reportAccessDenied");
+    expect(reports).toContain("refetchInterval: 30_000");
+    expect(reports).toContain("refetchOnReconnect: true");
+    expect(reports).toContain("comparisonBranchRevisionEnabled = comparisonBranchEnabled && canReadFinancialReport");
     expect(reports).toContain("revisions?.financialReport");
     expect(reports).toContain("lastReportRevisions.current.get(key)");
     expect(reports).toContain("lastReportRevisions.current.set(key, revision)");
