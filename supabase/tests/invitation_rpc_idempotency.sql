@@ -80,17 +80,17 @@ create table public.platform_security_events (
 create function public.powerhub_admin_invite_platform_access(
   bigint,text,text,text,timestamptz
 ) returns table(id bigint,email text,platform_role text,status text,expires_at timestamptz)
-language sql as $ select 1::bigint,''::text,''::text,''::text,now() $;
+language sql as $legacy$ select 1::bigint,''::text,''::text,''::text,now() $legacy$;
 
 create function public.powerhub_admin_invite_platform_access(
   bigint,text,text,integer
 ) returns table(id bigint,email text,platform_role text,expires_at timestamptz,status text)
-language sql as $ select 1::bigint,''::text,''::text,now(),''::text $;
+language sql as $legacy$ select 1::bigint,''::text,''::text,now(),''::text $legacy$;
 
 create function public.powerhub_admin_invite_tenant_access(
   bigint,bigint,bigint,text,text,text,text,timestamptz
 ) returns table(invitation_id bigint,email text,expires_at timestamptz,status text)
-language sql as $ select 1::bigint,''::text,now(),''::text $;
+language sql as $legacy$ select 1::bigint,''::text,now(),''::text $legacy$;
 
 insert into public.users(id,email,role,platform_role,account_status) values
   (1,'owner@example.test','admin','platform_owner','active'),
@@ -229,7 +229,6 @@ declare
   v_id bigint;
   v_retry_id bigint;
   v_replayed boolean;
-  v_role text;
   v_count integer;
 begin
   select invitation_id,replayed into v_id,v_replayed
@@ -337,12 +336,6 @@ begin
   end;
 
   -- Tenant ownership forces the matching site role to owner.
-  select site_role into v_role
-  from public.access_invitations
-  where client_operation_id = (
-    select client_operation_id from public.access_invitations
-    where email='legacy-tenant@example.test'
-  );
   -- The legacy row remains nullable and is not rewritten.
   if not exists (
     select 1 from public.access_invitations
