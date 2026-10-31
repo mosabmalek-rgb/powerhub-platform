@@ -13,6 +13,7 @@ type TopicEntry = {
   listeners: Set<Listener>;
   disposed: boolean;
   started: boolean;
+  status: AdaptiveDeltaTopicStatus | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
 };
 
@@ -20,6 +21,7 @@ const entries = new Map<string, TopicEntry>();
 const TOPIC_PATTERN = /^powerhub:tenant:[1-9][0-9]{0,18}:(?:site:[1-9][0-9]{0,18}|all)$/;
 
 function notifyStatus(entry: TopicEntry, status: AdaptiveDeltaTopicStatus): void {
+  entry.status = status;
   for (const listener of entry.listeners) listener.onStatus(status);
 }
 
@@ -81,11 +83,12 @@ export function subscribeAdaptiveDeltaTopic(
       if (!current || current.disposed) return;
       for (const subscriber of current.listeners) subscriber.onInvalidate();
     });
-    entry = { channel, listeners: new Set(), disposed: false, started: false, retryTimer: null };
+    entry = { channel, listeners: new Set(), disposed: false, started: false, status: null, retryTimer: null };
     entries.set(topic, entry);
   }
 
   entry.listeners.add(listener);
+  if (entry.status) listener.onStatus(entry.status);
   startEntry(topic, entry);
 
   let active = true;
