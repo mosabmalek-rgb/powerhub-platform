@@ -31,7 +31,7 @@ const baseInput = {
 };
 
 beforeEach(() => {
-  state.lookup.mockResolvedValue({ data: { id: 91 }, error: null });
+  state.lookup.mockResolvedValue({ data: { id: 91, account_status: "active" }, error: null });
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -40,6 +40,13 @@ describe("inviteTenantAccess Supabase adapter", () => {
     state.lookup.mockResolvedValue({ data: null, error: null });
 
     await expect(inviteTenantAccess(baseInput)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects inactive user accounts before creating a tenant invitation", async () => {
+    state.lookup.mockResolvedValue({ data: { id: 91, account_status: "disabled" }, error: null });
+
+    await expect(inviteTenantAccess(baseInput)).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
