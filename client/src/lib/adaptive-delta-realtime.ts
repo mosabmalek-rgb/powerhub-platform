@@ -12,6 +12,7 @@ type TopicEntry = {
   channel: RealtimeChannel;
   listeners: Set<Listener>;
   disposed: boolean;
+  started: boolean;
   retryTimer: ReturnType<typeof setTimeout> | null;
 };
 
@@ -32,7 +33,8 @@ function removeEntry(topic: string, entry: TopicEntry): void {
 }
 
 function startEntry(topic: string, entry: TopicEntry): void {
-  if (entry.disposed || entries.get(topic) !== entry) return;
+  if (entry.disposed || entry.started || entries.get(topic) !== entry) return;
+  entry.started = true;
   void supabase.realtime.setAuth().then(() => {
     if (entry.disposed || entries.get(topic) !== entry) return;
     entry.channel.subscribe((status) => {
@@ -44,6 +46,7 @@ function startEntry(topic: string, entry: TopicEntry): void {
     });
   }).catch(() => {
     if (entry.disposed || entries.get(topic) !== entry) return;
+    entry.started = false;
     notifyStatus(entry, "disconnected");
     if (entry.retryTimer === null) {
       entry.retryTimer = setTimeout(() => {
@@ -78,7 +81,7 @@ export function subscribeAdaptiveDeltaTopic(
       if (!current || current.disposed) return;
       for (const subscriber of current.listeners) subscriber.onInvalidate();
     });
-    entry = { channel, listeners: new Set(), disposed: false, retryTimer: null };
+    entry = { channel, listeners: new Set(), disposed: false, started: false, retryTimer: null };
     entries.set(topic, entry);
   }
 
