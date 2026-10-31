@@ -22,7 +22,11 @@ import {
 } from "./adaptive-delta-realtime";
 
 function setupChannel() {
-  const fakeChannel = {
+  let fakeChannel: {
+    on: ReturnType<typeof vi.fn>;
+    subscribe: ReturnType<typeof vi.fn>;
+  };
+  fakeChannel = {
     on: vi.fn((_type: string, _filter: unknown, handler: (message: any) => void) => {
       mockState.broadcastHandler = handler;
       return fakeChannel;
