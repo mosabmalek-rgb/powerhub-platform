@@ -78,7 +78,8 @@ export function subscribeAdaptiveDeltaTopic(
     const channel = supabase.channel(topic, {
       config: { private: true },
     }).on("broadcast", { event: "powerhub_delta_changed" }, (message) => {
-      if (message?.payload?.version !== 1) return;
+      const payload = message?.payload;
+      if (!payload || payload.version !== 1 || Object.keys(payload).length !== 1) return;
       const current = entries.get(topic);
       if (!current || current.disposed) return;
       for (const subscriber of current.listeners) subscriber.onInvalidate();
