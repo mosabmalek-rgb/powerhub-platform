@@ -168,7 +168,7 @@ AS $function$
     and lower(trim(pkg->>'code'))=lower(trim(p_package_code))
     and coalesce((pkg->>'active')::boolean,true)=true
   limit 1
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_catalog_package(text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_catalog_package(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_catalog_package(text) TO service_role;
@@ -185,7 +185,7 @@ begin
   end if;
   return true;
 end;
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_validate_package_code(text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_validate_package_code(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_validate_package_code(text) TO service_role;
@@ -213,7 +213,7 @@ AS $function$
   left join public.tenant_owner_profiles p on p.tenant_id=r.tenant_id
   order by r.created_at desc
   limit 300;
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_admin_subscription_upgrade_requests() OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_admin_subscription_upgrade_requests() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_admin_subscription_upgrade_requests() TO service_role;
@@ -376,7 +376,7 @@ begin
       case when p_decision='approved' then v_request.requested_package_code else v_request.current_package_code end,
       false;
 end;
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_admin_review_subscription_upgrade_request(bigint,bigint,text,text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_admin_review_subscription_upgrade_request(bigint,bigint,text,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_admin_review_subscription_upgrade_request(bigint,bigint,text,text) TO service_role;
@@ -492,7 +492,7 @@ begin
 
   return query select true, p_package_code;
 end;
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_admin_quick_upgrade_owner_plan(bigint,bigint,text,text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_admin_quick_upgrade_owner_plan(bigint,bigint,text,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_admin_quick_upgrade_owner_plan(bigint,bigint,text,text) TO service_role;
@@ -637,7 +637,7 @@ begin
 
   return query select true,v_package_code,false;
 end;
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_admin_quick_upgrade_owner_plan_idempotent(bigint,bigint,text,text,text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_admin_quick_upgrade_owner_plan_idempotent(bigint,bigint,text,text,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_admin_quick_upgrade_owner_plan_idempotent(bigint,bigint,text,text,text) TO service_role;
@@ -661,7 +661,7 @@ begin
   );
   return query select v_result.success,v_result.subscription_id,v_result.site_id;
 end;
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint) TO service_role;
@@ -831,7 +831,7 @@ begin
   return query
     select true,v_sub.id,v_site_id,false;
 end;
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint,text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,text,timestamptz,boolean,text,bigint,text) TO service_role;
@@ -1022,7 +1022,7 @@ begin
   return query
     select v_existing_id,v_requested_package,false;
 end;
-$function$
+$function$;
 ALTER FUNCTION public.powerhub_request_subscription_upgrade(bigint,bigint,bigint,text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_request_subscription_upgrade(bigint,bigint,bigint,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_request_subscription_upgrade(bigint,bigint,bigint,text) TO service_role;
