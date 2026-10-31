@@ -881,7 +881,7 @@ begin
     raise exception 'INVALID_REQUESTED_PACKAGE_CODE' using errcode='P0001';
   end if;
 
-  perform pg_advisory_xact_lock(p_tenant_id,hashtext('subscription-upgrade'));
+  perform pg_advisory_xact_lock(hashtextextended('subscription-upgrade:'||p_tenant_id::text,0));
 
   perform 1
   from public.sites
