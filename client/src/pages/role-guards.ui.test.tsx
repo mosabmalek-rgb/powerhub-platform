@@ -92,6 +92,7 @@ vi.mock("@/lib/trpc", () => ({
     powerhub: {
       inventory: {
         recordFuelFill: { useMutation: mocks.mutation },
+        recordStocktakeCount: { useMutation: mocks.mutation },
       },
       hr: {
         replayOfflineOperation: { useMutation: mocks.mutation },
