@@ -79,21 +79,21 @@ export default function ReportsPage() {
   const canManageBranding = roleQuery.data?.role === "owner";
   const canReadFinancialReport = ["owner", "manager", "accountant", "viewer"].includes(roleQuery.data?.role ?? "");
   const baseEnabled = Boolean(branchId && isAuthenticated && startDate <= endDate);
+  const branchReportQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "branch" });
+  const allReportQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "all" && canUseAllBranches });
+  const activeQuery = scope === "all" ? allReportQuery : branchReportQuery;
+  const reportAccessDenied = [activeQuery.error?.data?.code, roleQuery.error?.data?.code, accessQuery.error?.data?.code]
+    .some((code) => code === "FORBIDDEN" || code === "UNAUTHORIZED");
   const reportRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
     { siteId: branchId ?? 0, scope },
     {
-      enabled: Boolean(baseEnabled && canReadFinancialReport && (scope !== "all" || canUseAllBranches)),
+      enabled: Boolean(baseEnabled && canReadFinancialReport && !reportAccessDenied && (scope !== "all" || canUseAllBranches)),
       staleTime: 0,
       refetchInterval: 30_000,
       refetchOnReconnect: true,
       refetchOnWindowFocus: true,
     },
   );
-  const branchReportQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "branch" });
-  const allReportQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "all" && canUseAllBranches });
-  const activeQuery = scope === "all" ? allReportQuery : branchReportQuery;
-  const reportAccessDenied = [activeQuery.error?.data?.code, roleQuery.error?.data?.code, accessQuery.error?.data?.code]
-    .some((code) => code === "FORBIDDEN" || code === "UNAUTHORIZED");
   // React Query can retain previous data after a failed refetch. Only a
   // successful, current-scope read may refresh the local financial snapshot.
   const liveReport = !reportAccessDenied && hasAuthoritativeServerRead(activeQuery)
@@ -119,9 +119,10 @@ export default function ReportsPage() {
     ? comparisonActiveQuery.data as FinancialReport | undefined
     : undefined;
   const comparisonIsFetching = comparisonActiveQuery.isFetching;
+  const comparisonBranchRevisionEnabled = comparisonBranchEnabled && canReadFinancialReport;
   const comparisonBranchRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
     { siteId: alternateBranchId ?? 0, scope: "branch" },
-    { enabled: comparisonBranchEnabled, staleTime: 0, refetchInterval: 30_000, refetchOnReconnect: true, refetchOnWindowFocus: true },
+    { enabled: comparisonBranchRevisionEnabled, staleTime: 0, refetchInterval: 30_000, refetchOnReconnect: true, refetchOnWindowFocus: true },
   );
   const lastReportRevisions = useRef<Map<string, string>>(new Map());
   const lastComparisonReportRevisions = useRef<Map<string, string>>(new Map());
@@ -155,7 +156,7 @@ export default function ReportsPage() {
   ]);
   useEffect(() => {
     const revision = comparisonBranchRevisionQuery.data?.revisions?.financialReport;
-    if (!user?.id || !alternateBranchId || !revision || !comparisonBranchEnabled) return;
+    if (!user?.id || !alternateBranchId || !revision || !comparisonBranchRevisionEnabled) return;
     const key = [user.id, alternateBranchId].join(":");
     const previous = lastComparisonReportRevisions.current.get(key);
     lastComparisonReportRevisions.current.set(key, revision);
@@ -168,7 +169,7 @@ export default function ReportsPage() {
   }, [
     comparisonBranchRevisionQuery.dataUpdatedAt,
     comparisonBranchRevisionQuery.data?.revisions?.financialReport,
-    user?.id, alternateBranchId, comparisonBranchEnabled, comparisonBranchQuery.refetch,
+    user?.id, alternateBranchId, comparisonBranchRevisionEnabled, comparisonBranchQuery.refetch,
   ]);
 
   useEffect(() => { if (scope === "all" && !canUseAllBranches) setScope("branch"); }, [canUseAllBranches, scope]);
