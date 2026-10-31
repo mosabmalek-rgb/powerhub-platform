@@ -136,9 +136,9 @@ USING (tenant_id=ANY(powerhub_private.current_tenant_ids()) OR private.powerhub_
 
 DO $assert_helper_contract$
 BEGIN
-  IF NOT powerhub_private.is_platform_admin() IS NOT NULL
-     OR NOT powerhub_private.is_platform_user() IS NOT NULL
-     OR NOT private.powerhub_is_platform_admin() IS NOT NULL THEN
+  IF powerhub_private.is_platform_admin() IS NULL
+     OR powerhub_private.is_platform_user() IS NULL
+     OR private.powerhub_is_platform_admin() IS NULL THEN
     RAISE EXCEPTION 'PLATFORM_IDENTITY_HELPER_NULL_RESULT';
   END IF;
   IF has_function_privilege('anon','powerhub_private.is_platform_admin()','EXECUTE')
