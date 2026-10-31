@@ -425,7 +425,7 @@ begin
   end if;
 
   update public.tenant_reading_cycle_configurations
-  set cycle_type='WEEKLY',weekly_start_day=7
+  set cycle_type='WEEKLY',weekly_start_day=1
   where tenant_id=10 and site_id=100;
   select * into v_cycle from public.powerhub_cycle_for_reading(
     10,100,timestamp '2026-11-01 12:00:00' at time zone 'Asia/Gaza'
