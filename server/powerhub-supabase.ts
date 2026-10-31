@@ -36,9 +36,10 @@ function decodeHistoryCursor(value: string | undefined): SupabaseKeysetCursor | 
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<SupabaseKeysetCursor>;
     const id = parsed.id;
     if (typeof parsed.at !== "string" || !Number.isInteger(id) || (id ?? 0) < 1 || Number.isNaN(Date.parse(parsed.at))) throw new Error("invalid");
-    const normalizedAt = new Date(parsed.at).toISOString();
-    if (normalizedAt !== parsed.at) throw new Error("non-canonical timestamp");
-    return { at: normalizedAt, id: id as number };
+    if (parsed.at.length > 40 || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(parsed.at)) {
+      throw new Error("invalid timestamp format");
+    }
+    return { at: parsed.at, id: id as number };
   } catch {
     throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر الصفحة غير صالح؛ أعد تحميل القائمة." });
   }
@@ -586,7 +587,7 @@ export async function listSupabaseSubscriberAccountStatementHistoryPage(
     }));
     const last = pageRows.at(-1);
     const hasNext = rows.length > limit;
-    return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: new Date(last.issue_date).toISOString(), id: Number(last.id) }) : null };
+    return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.issue_date), id: Number(last.id) }) : null };
   }
 
   if (section === "payments") {
@@ -621,7 +622,7 @@ export async function listSupabaseSubscriberAccountStatementHistoryPage(
     }));
     const last = pageRows.at(-1);
     const hasNext = rows.length > limit;
-    return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: new Date(last.paid_at).toISOString(), id: Number(last.id) }) : null };
+    return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.paid_at), id: Number(last.id) }) : null };
   }
 
   let readingQuery = admin.from("meter_readings")
@@ -645,7 +646,7 @@ export async function listSupabaseSubscriberAccountStatementHistoryPage(
   }));
   const last = pageRows.at(-1);
   const hasNext = rows.length > limit;
-  return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: new Date(last.reading_at).toISOString(), id: Number(last.id) }) : null };
+  return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.reading_at), id: Number(last.id) }) : null };
 }
 
 export async function listSupabaseTariffs(siteId: number) {
@@ -882,7 +883,7 @@ export async function listSupabasePaymentPage(siteId: number, input: { limit?: n
     return { payment: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method, transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type, referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), status: row.status, collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id), paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: null }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null };
   })).then((values) => values.filter(Boolean));
   const last = pageRows.at(-1) as any;
-  return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: new Date(last.paid_at).toISOString(), id: Number(last.id) }) : null };
+  return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: String(last.paid_at), id: Number(last.id) }) : null };
 }
 
 export async function listSupabaseExpenses(siteId: number) {
