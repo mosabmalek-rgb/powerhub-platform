@@ -18,13 +18,13 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_class
     WHERE oid='public.powerhub_sync_scope_state'::regclass
-      AND relrowsecurity=false
+      AND relrowsecurity=true
   ) THEN
-    -- This journal is server-only and its direct browser grants are deliberately
-    -- revoked. Do not modify its existing RLS configuration in this migration.
-    IF has_table_privilege('authenticated','public.powerhub_sync_scope_state','SELECT') THEN
-      RAISE EXCEPTION 'POWERHUB_SYNC_SCOPE_STATE_MUST_REMAIN_SERVER_ONLY';
-    END IF;
+    RAISE EXCEPTION 'POWERHUB_SYNC_SCOPE_STATE_RLS_MUST_REMAIN_ENABLED';
+  END IF;
+  IF has_table_privilege('anon','public.powerhub_sync_scope_state','SELECT')
+     OR has_table_privilege('authenticated','public.powerhub_sync_scope_state','SELECT') THEN
+    RAISE EXCEPTION 'POWERHUB_SYNC_SCOPE_STATE_MUST_REMAIN_SERVER_ONLY';
   END IF;
   IF NOT has_table_privilege('authenticated','realtime.messages','SELECT') THEN
     RAISE EXCEPTION 'POWERHUB_REALTIME_MESSAGES_SELECT_GRANT_MISSING';
@@ -115,7 +115,7 @@ BEGIN
                 AND sp.user_id = v_user_id
                 AND sp.is_active = true
                 AND (sp.site_id = p_site_id OR sp.site_id IS NULL)
-              ORDER BY (sp.site_id = p_site_id) DESC
+              ORDER BY (sp.site_id = p_site_id) DESC NULLS LAST
               LIMIT 1
             ) selected_profile
             WHERE NOT (
