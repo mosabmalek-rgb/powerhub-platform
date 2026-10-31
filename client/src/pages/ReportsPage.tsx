@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { useAdaptiveDeltaRefresh } from "@/hooks/useAdaptiveDeltaRefresh";
 import { trpc } from "@/lib/trpc";
 import { listOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS, formatReportDate, formatReportPeriod } from "@/lib/report-design-system";
@@ -14,7 +15,7 @@ import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -89,9 +90,9 @@ export default function ReportsPage() {
     {
       enabled: Boolean(baseEnabled && canReadFinancialReport && !reportAccessDenied && (scope !== "all" || canUseAllBranches)),
       staleTime: 0,
-      refetchInterval: 30_000,
-      refetchOnReconnect: true,
-      refetchOnWindowFocus: true,
+      refetchInterval: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
     },
   );
   // React Query can retain previous data after a failed refetch. Only a
@@ -122,10 +123,26 @@ export default function ReportsPage() {
   const comparisonBranchRevisionEnabled = comparisonBranchEnabled && canReadFinancialReport;
   const comparisonBranchRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
     { siteId: alternateBranchId ?? 0, scope: "branch" },
-    { enabled: comparisonBranchRevisionEnabled, staleTime: 0, refetchInterval: 30_000, refetchOnReconnect: true, refetchOnWindowFocus: true },
+    { enabled: comparisonBranchRevisionEnabled, staleTime: 0, refetchInterval: false, refetchOnReconnect: false, refetchOnWindowFocus: false },
   );
   const lastReportRevisions = useRef<Map<string, string>>(new Map());
   const lastComparisonReportRevisions = useRef<Map<string, string>>(new Map());
+  const checkFinancialReportRevision = useCallback(async () => {
+    await reportRevisionQuery.refetch();
+  }, [reportRevisionQuery.refetch]);
+  useAdaptiveDeltaRefresh({
+    scopeKey: "financial-report:" + String(user?.id ?? "unknown") + ":" + String(branchId ?? 0) + ":" + scope,
+    enabled: Boolean(baseEnabled && canReadFinancialReport && !reportAccessDenied && (scope !== "all" || canUseAllBranches)),
+    check: checkFinancialReportRevision,
+  });
+  const checkComparisonBranchRevision = useCallback(async () => {
+    await comparisonBranchRevisionQuery.refetch();
+  }, [comparisonBranchRevisionQuery.refetch]);
+  useAdaptiveDeltaRefresh({
+    scopeKey: "financial-report-comparison:" + String(user?.id ?? "unknown") + ":" + String(alternateBranchId ?? 0),
+    enabled: comparisonBranchRevisionEnabled,
+    check: checkComparisonBranchRevision,
+  });
   const comparisonScopeName = comparisonMode === "branch" ? sitesQuery.data?.find((site) => site.id === alternateBranchId)?.name ?? "الفرع المقارن" : `${scopeName} — ${comparisonStartDate} إلى ${comparisonEndDate}`;
   const brandingQuery = trpc.powerhub.reportBranding.get.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
   const brandingMutation = trpc.powerhub.reportBranding.update.useMutation({ onSuccess: async () => { await brandingQuery.refetch(); toast.success("تم تحديث هوية التقرير الرسمية."); }, onError: (error) => toast.error(error.message) });
