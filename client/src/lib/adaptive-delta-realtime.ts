@@ -16,7 +16,7 @@ type TopicEntry = {
 };
 
 const entries = new Map<string, TopicEntry>();
-const TOPIC_PATTERN = /^powerhub:tenant:[1-9][0-9]*:(?:site:[1-9][0-9]*|all)$/;
+const TOPIC_PATTERN = /^powerhub:tenant:[1-9][0-9]{0,18}:(?:site:[1-9][0-9]{0,18}|all)$/;
 
 function notifyStatus(entry: TopicEntry, status: AdaptiveDeltaTopicStatus): void {
   for (const listener of entry.listeners) listener.onStatus(status);
