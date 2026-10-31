@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { useDashboardKpiPeriod } from "@/hooks/useDashboardKpiPeriod";
+import { useAdaptiveDeltaRefresh } from "@/hooks/useAdaptiveDeltaRefresh";
 import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter";
 import { trpc } from "@/lib/trpc";
 import { describeAuthFailure } from "@/lib/auth-diagnostics";
@@ -28,7 +29,7 @@ import {
   CircleDollarSign, Clock3, FilePlus2, FileText, MessageSquareText, ReceiptText,
   UsersRound, WalletCards, Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import MarketingLandingPage from "./MarketingLandingPage";
 
@@ -154,12 +155,20 @@ export function WorkspaceHome() {
     {
       enabled: Boolean(isAuthenticated && siteId && !dashboardScopeDenied && !user?.mustChangePassword),
       staleTime: 0,
-      refetchInterval: 30_000,
-      refetchOnReconnect: true,
-      refetchOnWindowFocus: true,
+      refetchInterval: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
     },
   );
   const dashboardRevisionDenied = dashboardScopeDenied || isExplicitAuthorizationDenial(dashboardRevisionQuery.error);
+  const checkDashboardRevision = useCallback(async () => {
+    await dashboardRevisionQuery.refetch();
+  }, [dashboardRevisionQuery.refetch]);
+  useAdaptiveDeltaRefresh({
+    scopeKey: "dashboard:" + String(user?.id ?? "unknown") + ":" + String(siteId ?? 0) + ":" + selectedScope,
+    enabled: Boolean(isAuthenticated && siteId && !dashboardScopeDenied && !user?.mustChangePassword),
+    check: checkDashboardRevision,
+  });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 60_000 });
   const periodKpiBaseEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword);
   const periodKpiEnabled = periodKpiBaseEnabled && dashboardPeriod.isReady;
