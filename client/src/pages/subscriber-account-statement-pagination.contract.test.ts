@@ -16,6 +16,12 @@ describe("subscriber account statement complete-history contract", () => {
     expect(page).toContain("setInvoiceCursor(invoicePage.data.nextCursor??undefined)");
     expect(page).toContain("setPaymentCursor(paymentPage.data.nextCursor??undefined)");
     expect(page).toContain("setReadingCursor(readingPage.data.nextCursor??undefined)");
+    expect(page).toContain("invoicePage.isSuccess");
+    expect(page).toContain("paymentPage.isSuccess");
+    expect(page).toContain("readingPage.isSuccess");
+    expect(page).toContain("invoicePage.isError&&!invoicePage.isFetching");
+    expect(page).toContain("paymentPage.isError&&!paymentPage.isFetching");
+    expect(page).toContain("readingPage.isError&&!readingPage.isFetching");
   });
 
   it("does not export a partial or count-inconsistent statement", () => {
