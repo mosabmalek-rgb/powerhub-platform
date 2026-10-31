@@ -96,7 +96,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_reject_payment_documentation(
   p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_request_id bigint,p_rejection_reason text
-) RETURNS void LANGUAGE sql AS $function$ SELECT; $function$;
+) RETURNS void LANGUAGE plpgsql AS $function$ BEGIN RETURN; END; $function$;
 
 \ir ../migrations/20261031131000_powerhub_payment_documentation_public_rpc_reconcile.sql
 
