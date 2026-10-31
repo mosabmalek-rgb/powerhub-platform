@@ -43,7 +43,7 @@ export default function SubscriberAccountStatementPage(){
  useEffect(()=>{if(!loadPaymentPage||paymentPage.isFetching||!paymentPage.isSuccess||!paymentPage.data)return;setAllPayments(current=>mergeById(current,paymentPage.data.items as StatementData["payments"]));setPaymentCursor(paymentPage.data.nextCursor??undefined);setLoadPaymentPage(false);},[loadPaymentPage,paymentPage.data,paymentPage.isFetching]);
  useEffect(()=>{if(!loadReadingPage||readingPage.isFetching||!readingPage.isSuccess||!readingPage.data)return;setAllReadings(current=>mergeById(current,readingPage.data.items as StatementData["readings"]));setReadingCursor(readingPage.data.nextCursor??undefined);setLoadReadingPage(false);},[loadReadingPage,readingPage.data,readingPage.isFetching]);
  const historyCountsMatch=Boolean(data&&allInvoices.length===Number(data.summary.invoiceCount)&&allPayments.length===Number(data.summary.paymentCount)&&allReadings.length===Number(data.summary.readingCount));
- const sumScaled=(values:Array<string|number|null|undefined>,scale:number)=>values.reduce((total,value)=>total+Math.round(Number(value??0)*scale),0);
+ const sumScaled=(values:Array<string|number|null|undefined>,scale:number)=>values.reduce<number>((total,value)=>total+Math.round(Number(value??0)*scale),0);
  const historyAggregatesMatch=Boolean(data
   &&sumScaled(allInvoices.map(row=>row.totalAmount),100)===Math.round(Number(data.summary.totalInvoiced)*100)
   &&sumScaled(allPayments.map(row=>row.amount),100)===Math.round(Number(data.summary.totalCollected)*100)
