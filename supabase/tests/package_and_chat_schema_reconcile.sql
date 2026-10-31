@@ -27,7 +27,9 @@ CREATE TABLE public.subscription_upgrade_requests(
  current_plan text NOT NULL,requested_plan text NOT NULL,
  reason text NOT NULL DEFAULT 'subscriber_limit_reached',status text NOT NULL DEFAULT 'pending',
  note text,reviewed_by_user_id bigint,reviewed_at timestamptz,
- created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now()
+ created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now(),
+ CONSTRAINT subscription_upgrade_requests_current_plan_check CHECK (current_plan IN ('starter','professional','enterprise')),
+ CONSTRAINT subscription_upgrade_requests_requested_plan_check CHECK (requested_plan IN ('starter','professional','enterprise'))
 );
 CREATE TABLE public.users(id bigint PRIMARY KEY,role text,platform_role text,account_status text);
 CREATE TABLE public.sites(id bigint PRIMARY KEY,tenant_id bigint,status text);
