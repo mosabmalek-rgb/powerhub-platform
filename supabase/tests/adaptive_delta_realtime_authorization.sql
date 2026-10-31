@@ -311,6 +311,9 @@ BEGIN
 END
 $assert_expired_readonly_retention$;
 RESET ROLE;
+UPDATE public.tenant_subscriptions
+SET status='active', ends_at=now()+interval '30 days', read_only_until=NULL
+WHERE tenant_id=10;
 SELECT set_config('test.auth_uid','33333333-3333-4333-8333-333333333333',false);
 
 DO $assert_topic_validation$
