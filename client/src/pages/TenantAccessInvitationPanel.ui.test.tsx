@@ -68,12 +68,12 @@ describe("Tenant access invitation panel", () => {
   it("shows tenant choices, pending invitation status, and honest delivery instructions", () => {
     render(<TenantAccessInvitationPanel tenants={tenants} invitations={invitations} />);
 
-    expect(screen.getByText("دعوة مستخدم إلى مساحة صاحب المولد")).toBeInTheDocument();
+    expect(screen.getByText("منح وصول لمستخدم لديه حساب PowerHub")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "مساحة الشمال" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "مساحة الوسط" })).toBeInTheDocument();
     expect(screen.getByText("staff@example.test")).toBeInTheDocument();
     expect(screen.getByText("بانتظار تسجيل الدخول")).toBeInTheDocument();
-    expect(screen.getByText(/لا يرسل هذا الإجراء رسالة بريد إلكتروني تلقائيًا/)).toBeInTheDocument();
+    expect(screen.getByText(/لا ينشئ حساب مصادقة ولا يرسل بريدًا إلكترونيًا/)).toBeInTheDocument();
   });
 
   it("keeps the form and reuses the same operation id after a retry", () => {
