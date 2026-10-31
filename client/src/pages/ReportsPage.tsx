@@ -12,6 +12,7 @@ import { listOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queu
 import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS, formatReportDate, formatReportPeriod } from "@/lib/report-design-system";
 import { createOfflineReportSnapshotPayload, getUsableReportSnapshot, loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
 import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
@@ -134,7 +135,7 @@ export default function ReportsPage() {
     scopeKey: "financial-report:" + String(user?.id ?? "unknown") + ":" + String(branchId ?? 0) + ":" + scope,
     enabled: Boolean(baseEnabled && canReadFinancialReport && !reportAccessDenied && (scope !== "all" || canUseAllBranches)),
     check: checkFinancialReportRevision,
-    realtimeTopic: reportRevisionQuery.data?.realtimeTopic,
+    realtimeTopic: isExplicitAuthorizationDenial(reportRevisionQuery.error) ? null : reportRevisionQuery.data?.realtimeTopic,
   });
   const checkComparisonBranchRevision = useCallback(async () => {
     await comparisonBranchRevisionQuery.refetch();
@@ -143,7 +144,7 @@ export default function ReportsPage() {
     scopeKey: "financial-report-comparison:" + String(user?.id ?? "unknown") + ":" + String(alternateBranchId ?? 0),
     enabled: comparisonBranchRevisionEnabled,
     check: checkComparisonBranchRevision,
-    realtimeTopic: comparisonBranchRevisionQuery.data?.realtimeTopic,
+    realtimeTopic: isExplicitAuthorizationDenial(comparisonBranchRevisionQuery.error) ? null : comparisonBranchRevisionQuery.data?.realtimeTopic,
   });
   const comparisonScopeName = comparisonMode === "branch" ? sitesQuery.data?.find((site) => site.id === alternateBranchId)?.name ?? "الفرع المقارن" : `${scopeName} — ${comparisonStartDate} إلى ${comparisonEndDate}`;
   const brandingQuery = trpc.powerhub.reportBranding.get.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
