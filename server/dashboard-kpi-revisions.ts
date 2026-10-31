@@ -18,6 +18,9 @@ export const DASHBOARD_KPI_REVISION_DEPENDENCIES = {
   netCash: ["payments", "expenses"],
   currentArrears: ["invoices", "payments"],
   financialTrend: ["sites", "subscribers", "invoices", "payments", "expenses"],
+  // Financial reports use a server-computed aggregate snapshot and need their own source revision.
+  // Unlike overdue KPIs, report totals do not change merely because the clock advances.
+  financialReport: ["sites", "subscribers", "invoices", "payments", "expenses"],
   companyBalances: ["company_accounts", "company_accounts_all"],
 } as const satisfies Record<string, readonly string[]>;
 
