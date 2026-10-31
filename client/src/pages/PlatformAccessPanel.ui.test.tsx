@@ -78,7 +78,7 @@ describe("Platform access owner panel", () => {
 
     submitInvite();
     const firstPayload = mocks.mutate.mock.calls[0][0];
-    fireEvent.change(screen.getByRole("form").querySelector('select[name="platformRole"]') as HTMLSelectElement, { target: { value: "platform_admin" } });
+    fireEvent.change(email.closest("form")!.querySelector('select[name="platformRole"]') as HTMLSelectElement, { target: { value: "platform_admin" } });
     submitInvite();
     const changedPayload = mocks.mutate.mock.calls[1][0];
 
