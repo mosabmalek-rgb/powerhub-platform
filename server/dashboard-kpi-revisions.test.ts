@@ -18,7 +18,7 @@ describe("dashboard KPI revision dependencies", () => {
     expect(Object.keys(DASHBOARD_KPI_REVISION_DEPENDENCIES)).toEqual([
       "activeSubscribers", "generatorStatus", "periodInvoiced", "periodCollected",
       "collectionRate", "periodOverdue", "expenses", "netCash", "currentArrears",
-      "financialTrend", "companyBalances",
+      "financialTrend", "financialReport", "companyBalances",
     ]);
     expect(DASHBOARD_KPI_REVISION_ENTITIES).toEqual([
       "company_accounts", "company_accounts_all", "expenses", "generators", "invoices",
@@ -43,6 +43,22 @@ describe("dashboard KPI revision dependencies", () => {
     expect(after.netCash).toBe(before.netCash);
     expect(after.companyBalances).toBe(before.companyBalances);
     expect(after.generatorStatus).toBe(before.generatorStatus);
+  });
+
+  it("advances the financial report revision only when invoice, payment or expense sources advance", () => {
+    const before = buildDashboardKpiRevisions(baseRows, new Date("2026-10-30T12:00:00.000Z"));
+    for (const entity of ["invoices", "payments", "expenses"]) {
+      const after = buildDashboardKpiRevisions(
+        baseRows.map((row) => row.entity_type === entity ? { ...row, last_cursor: row.last_cursor + "-next" } : row),
+        new Date("2026-10-30T12:00:00.000Z"),
+      );
+      expect(after.financialReport).not.toBe(before.financialReport);
+    }
+    const unrelated = buildDashboardKpiRevisions(
+      baseRows.map((row) => row.entity_type === "generators" ? { ...row, last_cursor: "gen-2" } : row),
+      new Date("2026-10-30T12:00:00.000Z"),
+    );
+    expect(unrelated.financialReport).toBe(before.financialReport);
   });
 
   it("keeps account balances independent from cash flow and financial overview revisions", () => {
