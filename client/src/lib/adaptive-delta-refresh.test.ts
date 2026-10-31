@@ -150,7 +150,7 @@ describe("AdaptiveDeltaRefreshManager", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(check).toHaveBeenCalledTimes(1);
     expect(manager.getScopeState("scope:retry")).toMatchObject({ failures: 1, hasTimer: true });
-    await vi.advanceTimersByTimeAsync(59_999);
+    await vi.advanceTimersByTimeAsync(29_999);
     expect(check).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(check).toHaveBeenCalledTimes(2);
