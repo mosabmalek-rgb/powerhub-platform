@@ -30,6 +30,12 @@ describe("subscriber account statement complete-history contract", () => {
     expect(page).toContain("allInvoices.length===Number(data.summary.invoiceCount)");
     expect(page).toContain("allPayments.length===Number(data.summary.paymentCount)");
     expect(page).toContain("allReadings.length===Number(data.summary.readingCount)");
+    expect(page).toContain("historyAggregatesMatch");
+    expect(page).toContain("sumScaled(allInvoices.map(row=>row.totalAmount),100)");
+    expect(page).toContain("sumScaled(allPayments.map(row=>row.amount),100)");
+    expect(page).toContain("sumScaled(allInvoices.map(row=>row.balanceDue),100)");
+    expect(page).toContain("sumScaled(allInvoices.map(row=>row.consumptionKwh),1000)");
+    expect(page).toContain("historySummaryMatches");
     expect(page).toContain("!historyComplete||!pdfRef.current||!pdfData");
     expect(page).toContain("!historyComplete||!pdfData");
     expect(page).toContain("disabled={!statementIsAuthoritative||!historyComplete}");
