@@ -21,6 +21,17 @@ describe("platform access Supabase canonical contract", () => {
     expect(source).not.toContain("p_expires_in_hours");
   });
 
+  it("uses the idempotent tenant invitation adapter and router contract", () => {
+    const adapter = readFileSync(join(serverRoot, "invite-tenant-access-supabase.ts"), "utf8");
+    const router = readFileSync(join(serverRoot, "admin-tenant-access-router.ts"), "utf8");
+    expect(adapter).toContain('rpc("powerhub_admin_invite_tenant_access"');
+    expect(adapter).toContain("p_client_operation_id: input.clientOperationId");
+    expect(adapter).toContain("p_request_fingerprint: requestFingerprint");
+    expect(adapter).toContain("replayed: row.replayed === true");
+    expect(router).toContain("clientOperationId: z.string().uuid()");
+    expect(router).toContain("expiresInHours: input.expiresInHours");
+  });
+
   it("routes platform access mutations through the canonical Supabase adapter", () => {
     const source = readFileSync(join(serverRoot, "admin-platform-access-router.ts"), "utf8");
     expect(source).toContain('from "./admin-platform-access-supabase"');
