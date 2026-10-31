@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const home = readFileSync(resolve(process.cwd(), "client/src/pages/Home.tsx"), "utf8");
+const reports = readFileSync(resolve(process.cwd(), "client/src/pages/ReportsPage.tsx"), "utf8");
 
 describe("independent dashboard KPI snapshots", () => {
   it("exposes a dedicated server snapshot for each period KPI", () => {
@@ -36,6 +37,21 @@ describe("independent dashboard KPI snapshots", () => {
     expect(financial).toContain('input.metric === "currentArrears"');
     expect(financial).toContain('buildDashboardFinancialKpi');
 
+  });
+
+  it("refreshes financial reports from their independent invoice/payment/expense revision", () => {
+    expect(home).toContain('financialReport: ["sites", "subscribers", "invoices", "payments", "expenses"]');
+    expect(reports).toContain("trpc.powerhub.dashboard.deltaRevision.useQuery(");
+    expect(reports).toContain("revisions?.financialReport");
+    expect(reports).toContain("lastReportRevisions.current.get(key)");
+    expect(reports).toContain("lastReportRevisions.current.set(key, revision)");
+    expect(reports).toContain("void activeQuery.refetch()");
+    expect(reports).toContain("if (comparisonMode === \"period\") void comparisonActiveQuery.refetch()");
+    expect(reports).toContain("comparisonBranchRevisionQuery");
+    expect(reports).toContain("void comparisonBranchQuery.refetch()");
+    expect(reports).toContain("hasAuthoritativeServerRead(activeQuery)");
+    expect(reports).toContain("createOfflineReportSnapshotPayload(liveReport)");
+    expect(reports).not.toContain("row_data");
   });
 
   it("gives active subscribers a standalone tenant/site-authorized count query", () => {
