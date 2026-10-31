@@ -55,7 +55,8 @@ describe("offline data and financial truth boundaries", () => {
     const tests = read("client/src/lib/offline-query-cache.test.ts");
     expect(cache).toContain("OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000");
     expect(cache).toContain('cacheKeySegments[2] === "offlineCompanyAccountOptions"');
-    expect(cache).toContain("now + hrCacheTtl");
+    expect(cache).toContain("getOfflineHrCompanyAccountOptionsExpiry(now)");
+    expect(cache).toContain(": isHrProjection ? hrCacheExpiry");
     expect(cache).toContain('id: row.id, name: String(row.name ?? "")');
     expect(cache).toContain("accountType: String(row.accountType ?? row.account_type ?? \"other\")");
     expect(cache).not.toContain('entityType: "hr_company_account_options"');
@@ -148,5 +149,24 @@ describe("offline data and financial truth boundaries", () => {
     expect(fuel).not.toContain("listStockMovements.setData");
     expect(contracts).toContain("offline fuel fill intent contract");
     expect(contracts).toContain("HR offline outbox contract");
+  });
+
+  it("prevents payroll exports and payouts from using cached local financial data", () => {
+    const payroll = read("client/src/pages/PayrollPage.tsx");
+    const guards = read("client/src/lib/payroll-report-guards.ts");
+    const guardTests = read("client/src/lib/payroll-report-guards.test.ts");
+    expect(payroll).toContain("getVerifiedPayrollExportSource");
+    expect(payroll).toContain("const livePayrollRuns: any[] = payrollDataDenied || !hasLivePayrollRuns ? [] : runs.data ?? []");
+    expect(payroll).toContain("source.rows.forEach");
+    expect(payroll).not.toContain("(displayRuns ?? []).forEach((run) => sheet.addRow");
+    expect(payroll).not.toContain("(displayRuns ?? []).map((run)=>");
+    expect(payroll).toContain("const safePayrollDetails = hasLivePayrollDetails && !detailsAccessDenied ? details.data : undefined");
+    expect(payroll).toContain("accountRead = await accounts.refetch()");
+    expect(payroll).toContain("resolvePayrollPayoutAccountId(accountRead.data, accountId)");
+    expect(payroll).toContain("pay.mutateAsync({ siteId, payrollRunId, accountId: confirmedAccountId })");
+    expect(payroll).not.toContain("onClick={() => pay.mutate({");
+    expect(guards).toContain("!state.fetching");
+    expect(guards).toContain("!state.error");
+    expect(guardTests).toContain("does not treat cached account IDs as valid");
   });
 });
