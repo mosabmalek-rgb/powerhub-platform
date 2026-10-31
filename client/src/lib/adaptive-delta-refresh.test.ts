@@ -110,7 +110,7 @@ describe("AdaptiveDeltaRefreshManager", () => {
     stop();
   });
 
-  it("stops periodic polling while connected and verifies immediately on recovery", async () => {
+  it("keeps the 30-second visible safety poll while connected and refreshes immediately on recovery", async () => {
     vi.useFakeTimers();
     const { manager } = harness();
     const check = vi.fn();
@@ -118,12 +118,13 @@ describe("AdaptiveDeltaRefreshManager", () => {
     manager.setRealtimeStatus("scope:realtime", "connected");
     await Promise.resolve();
     expect(check).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(180_000);
-    expect(check).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(manager.getScopeState("scope:realtime")).toMatchObject({ hasTimer: true, realtimeStatus: "connected" });
     manager.setRealtimeStatus("scope:realtime", "disconnected");
     manager.setRealtimeStatus("scope:realtime", "connected");
     await Promise.resolve();
-    expect(check).toHaveBeenCalledTimes(2);
+    expect(check).toHaveBeenCalledTimes(3);
     stop();
   });
 
