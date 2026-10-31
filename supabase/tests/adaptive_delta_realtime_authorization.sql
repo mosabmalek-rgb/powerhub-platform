@@ -245,7 +245,7 @@ BEGIN
 END
 $assert_platform_admin$;
 RESET ROLE;
-SELECT set_config('test.auth_uid','22222222-2222-4222-8222-222222222222',false);
+SELECT set_config('test.auth_uid','33333333-3333-4333-8333-333333333333',false);
 
 DO $assert_topic_validation$
 BEGIN
