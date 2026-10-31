@@ -20,6 +20,7 @@ const baseInput = {
   siteRole: "accountant" as const,
   tokenHash: "a".repeat(64),
   expiresAt: new Date("2026-09-15T10:00:00.000Z"),
+  expiresInHours: 72,
   clientOperationId: "c0e9a8e5-fbfb-4b4d-bacf-df191ac220d1",
 };
 
@@ -37,6 +38,7 @@ describe("inviteTenantAccess Supabase adapter", () => {
       email: "staff@example.test",
       tenantRole: "member",
       siteRole: "accountant",
+      expiresInHours: 72,
     })).digest("hex");
 
     expect(result).toMatchObject({ id: 41, email: "staff@example.test", status: "invited", replayed: false });
