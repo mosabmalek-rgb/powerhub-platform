@@ -262,7 +262,6 @@ export class AdaptiveDeltaRefreshManager {
     this.clearTimer(state);
     if (this.scopes.get(state.key) !== state || state.checks.size === 0 || !this.canRun()) return;
     if (state.inFlight || state.debounceTimer) return;
-    if (state.realtimeStatus === "connected" && state.failures === 0) return;
 
     let delayMs = this.options.pollingIntervalMs;
     if (state.realtimeStatus === "disconnected") {
