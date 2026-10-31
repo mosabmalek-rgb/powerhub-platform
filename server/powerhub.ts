@@ -698,7 +698,7 @@ export const powerhubRouter = router({
           .update(entityType + ":" + cursor + ":" + retained)
           .digest("hex");
       }
-      return { siteId: input.siteId, revisions, observedAt: new Date().toISOString() };
+      return { siteId: input.siteId, revisions, realtimeTopic: `powerhub:tenant:${tenantId}:site:${input.siteId}`, observedAt: new Date().toISOString() };
     }),
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
@@ -3737,7 +3737,7 @@ export const powerhubRouter = router({
       // Keep a combined fingerprint for old diagnostic consumers; KPI refreshes
       // use the independent scoped revisions above.
       const revision = createHash("sha256").update(JSON.stringify(revisions)).digest("hex");
-      return { revision, revisions, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
+      return { revision, revisions, realtimeTopic: input.scope === "all" ? `powerhub:tenant:${access.tenantId}:all` : `powerhub:tenant:${access.tenantId}:site:${input.siteId}`, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
     }),
     activeSubscribersKpi: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
