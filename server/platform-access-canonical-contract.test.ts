@@ -55,7 +55,7 @@ describe("platform access Supabase canonical contract", () => {
     expect(source).toContain("لا ينشئ حساب مصادقة ولا يرسل بريدًا إلكترونيًا");
     expect(source).toContain("البريد مسجّلًا مسبقًا في PowerHub / Supabase Auth");
     expect(page).toContain("<TenantAccessInvitationPanel");
-    expect(page).toContain('row.kind === "tenant" && row.invitationStatus === "invited"');
+    expect(page).toContain('row?.kind === "tenant" && row.invitationStatus === "invited"');
   });
 
   it("routes platform access mutations through the canonical Supabase adapter", () => {
