@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const home = readFileSync(resolve(process.cwd(), "client/src/pages/Home.tsx"), "utf8");
 const reports = readFileSync(resolve(process.cwd(), "client/src/pages/ReportsPage.tsx"), "utf8");
+const dashboardRevisions = readFileSync(resolve(process.cwd(), "server/dashboard-kpi-revisions.ts"), "utf8");
 
 describe("independent dashboard KPI snapshots", () => {
   it("exposes a dedicated server snapshot for each period KPI", () => {
@@ -40,7 +41,7 @@ describe("independent dashboard KPI snapshots", () => {
   });
 
   it("refreshes financial reports from their independent invoice/payment/expense revision", () => {
-    expect(home).toContain('financialReport: ["sites", "subscribers", "invoices", "payments", "expenses"]');
+    expect(dashboardRevisions).toContain('financialReport: ["sites", "subscribers", "invoices", "payments", "expenses"]');
     expect(reports).toContain("trpc.powerhub.dashboard.deltaRevision.useQuery(");
     expect(reports).toContain("revisions?.financialReport");
     expect(reports).toContain("lastReportRevisions.current.get(key)");
