@@ -48,6 +48,7 @@ export function useDeltaRevisionRefresh(input: UseDeltaRevisionRefreshInput) {
     scopeKey: "operational:" + scopeKey,
     enabled: active,
     check: checkRevision,
+    realtimeTopic: revisionQuery.data?.realtimeTopic,
   });
 
   useEffect(() => { onChangeRef.current = input.onChange; }, [input.onChange]);
