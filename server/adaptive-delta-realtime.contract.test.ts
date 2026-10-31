@@ -38,6 +38,8 @@ describe("Adaptive Delta Realtime contract", () => {
     expect(migration).toContain("sp.suspension_ends_at");
     expect(migration).toContain("private.powerhub_is_platform_admin()");
     expect(migration).toContain("u.account_status = 'active'");
+    expect(migration).toContain("u.role = 'admin'");
+    expect(migration).not.toContain("IF private.powerhub_is_platform_admin() THEN");
     expect(migration).toContain("public.users");
     expect(migration).toContain("public.tenant_subscriptions");
     expect(migration).toContain("current_subscription.status IN ('trial','active')");
