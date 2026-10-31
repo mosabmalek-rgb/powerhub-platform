@@ -128,6 +128,19 @@ describe("HR offline outbox contract", () => {
     expect(source).toContain('metadata?.outcome === "pending" && metadata.attempts === 0');
   });
 
+  it("declares local employee dependencies for HR updates, attendance, payroll, advances, and repayments", () => {
+    const employeePage = readFileSync(resolve(process.cwd(), "client/src/pages/HumanResourcesPage.tsx"), "utf8");
+    const attendancePage = readFileSync(resolve(process.cwd(), "client/src/pages/AttendancePage.tsx"), "utf8");
+    const advancesPage = readFileSync(resolve(process.cwd(), "client/src/pages/EmployeeAdvancesPage.tsx"), "utf8");
+    const payrollPage = readFileSync(resolve(process.cwd(), "client/src/pages/PayrollPage.tsx"), "utf8");
+
+    expect(employeePage).toContain("dependsOn: localCreate ? [localCreate.clientOperationId] : []");
+    expect(attendancePage).toContain("dependsOn: pendingCreate ? [pendingCreate.clientOperationId] : []");
+    expect(advancesPage).toContain("kind:\"employee_advance_issue\",dependsOn:pendingCreate?[pendingCreate.clientOperationId]:[]");
+    expect(advancesPage).toContain("kind:\"employee_advance_repayment\",dependsOn:pendingIssue?[pendingIssue.clientOperationId]:[]");
+    expect(payrollPage).toContain("kind: \"payroll_draft\", dependsOn: dependencies");
+  });
+
   it("coalesces only unattempted employee and attendance edits and refuses duplicate local payroll periods", () => {
     const source = readFileSync(resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"), "utf8");
     expect(source).toContain('if (record.kind === "employee_update")');
