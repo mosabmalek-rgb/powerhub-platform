@@ -109,6 +109,16 @@ insert into public.company_accounts(tenant_id,name,account_type,opening_balance)
 values (1,'صندوق الفرع','cash',5000),(2,'صندوق مستأجر آخر','cash',5000);
 insert into public.company_account_sites(tenant_id,account_id,site_id) values (1,1,100),(2,2,200);
 
+-- Same-tenant second-branch fixtures make branch isolation distinct from tenant isolation.
+insert into public.sites(id,tenant_id,status) values (101,1,'active');
+insert into public.employees(tenant_id,site_id,full_name,job_title,employment_status,contract_type,base_wage)
+values (1,101,'موظف فرع آخر في المستأجر نفسه','worker','active','monthly',800);
+insert into public.company_accounts(tenant_id,name,account_type,opening_balance)
+values (1,'صندوق الفرع 101','cash',1000);
+insert into public.company_account_sites(tenant_id,account_id,site_id)
+select 1,a.id,101 from public.company_accounts a
+where a.tenant_id=1 and a.name='صندوق الفرع 101';
+
 \ir ../migrations/20261023214342_powerhub_payroll_period_constraint_reconcile.sql
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
 \if :{?PREEXIST_PAYROLL_ALLOCATIONS}
@@ -553,5 +563,193 @@ begin
     or has_table_privilege('authenticated','public.powerhub_hr_offline_operation_results','SELECT')
   then raise exception 'HR_OFFLINE_RESULT_TABLE_BROWSER_ACCESSIBLE'; end if;
 end $hr_offline_idempotency$;
+
+do $hr_object_scope_isolation$
+declare
+  v_branch_employee_id bigint;
+  v_branch_account_id bigint;
+  v_foreign_account_id bigint;
+  v_branch_adjustment_id bigint;
+  v_branch_payroll_id bigint;
+  v_branch_payroll_net numeric;
+  v_adjustment_count bigint;
+  v_transaction_count bigint;
+  v_expense_count bigint;
+  v_repayment_count bigint;
+begin
+  select id into v_branch_employee_id
+  from public.employees
+  where tenant_id=1 and site_id=101 and full_name='موظف فرع آخر في المستأجر نفسه';
+  select id into v_branch_account_id
+  from public.company_accounts
+  where tenant_id=1 and name='صندوق الفرع 101';
+  select id into v_foreign_account_id
+  from public.company_accounts
+  where tenant_id=2 and name='صندوق مستأجر آخر';
+
+  if v_branch_employee_id is null or v_branch_account_id is null or v_foreign_account_id is null then
+    raise exception 'HR_OBJECT_SCOPE_FIXTURE_LOOKUP_FAILED';
+  end if;
+
+  select count(*) into v_adjustment_count from public.employee_adjustments;
+  select count(*) into v_transaction_count from public.account_transactions;
+
+  -- A valid tenant cannot use an employee attached to a different branch.
+  begin
+    perform * from public.powerhub_issue_employee_advance(
+      1,100,10,v_branch_employee_id,'salary_advance',10,null,1,
+      '2098-01-01','رفض موظف من فرع آخر','scope-employee-other-site'
+    );
+    raise exception 'HR_ADVANCE_ACCEPTED_EMPLOYEE_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'EMPLOYEE_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  -- An employee in the requested branch cannot be paid from an account bound only to another branch.
+  begin
+    perform * from public.powerhub_issue_employee_advance(
+      1,100,10,1,'salary_advance',10,null,v_branch_account_id,
+      '2098-01-01','رفض حساب فرع آخر','scope-account-other-site'
+    );
+    raise exception 'HR_ADVANCE_ACCEPTED_ACCOUNT_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'COMPANY_ACCOUNT_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  -- A foreign tenant account is not distinguishable as a valid account in this tenant.
+  begin
+    perform * from public.powerhub_issue_employee_advance(
+      1,100,10,1,'salary_advance',10,null,v_foreign_account_id,
+      '2098-01-01','رفض حساب مستأجر آخر','scope-account-other-tenant'
+    );
+    raise exception 'HR_ADVANCE_ACCEPTED_ACCOUNT_FROM_OTHER_TENANT';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'COMPANY_ACCOUNT_NOT_FOUND' then raise; end if;
+  end;
+
+  if (select count(*) from public.employee_adjustments)<>v_adjustment_count
+    or (select count(*) from public.account_transactions)<>v_transaction_count then
+    raise exception 'HR_REJECTED_ADVANCE_SCOPE_ATTEMPT_LEFT_SIDE_EFFECTS';
+  end if;
+
+  -- A correctly scoped advance is created in branch 101; the following attempts must not cross back into branch 100.
+  select adjustment_id into v_branch_adjustment_id
+  from public.powerhub_issue_employee_advance(
+    1,101,10,v_branch_employee_id,'salary_advance',25,null,v_branch_account_id,
+    '2098-01-02','سلفة اختبار الفرع الثاني','scope-valid-branch-advance'
+  );
+  select count(*) into v_transaction_count from public.account_transactions;
+
+  begin
+    perform * from public.powerhub_repay_employee_advance(
+      1,100,10,v_branch_adjustment_id,1,5,'2098-01-03',null,null,'scope-repay-other-site'
+    );
+    raise exception 'HR_REPAY_ACCEPTED_ADVANCE_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'ADVANCE_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_repay_employee_advance(
+      1,101,10,v_branch_adjustment_id,1,5,'2098-01-03',null,null,'scope-repay-account-other-site'
+    );
+    raise exception 'HR_REPAY_ACCEPTED_ACCOUNT_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'COMPANY_ACCOUNT_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  if (select count(*) from public.account_transactions)<>v_transaction_count
+    or exists(select 1 from public.employee_adjustment_repayments where operation_key in ('scope-repay-other-site','scope-repay-account-other-site')) then
+    raise exception 'HR_REJECTED_REPAYMENT_SCOPE_ATTEMPT_LEFT_SIDE_EFFECTS';
+  end if;
+
+  -- The HR offline replay endpoint applies the same employee-to-site validation as online RPCs.
+  begin
+    perform public.powerhub_hr_replay_offline_operation(
+      1,100,10,'550e8400-e29b-41d4-a716-446655440110','employee_update',
+      jsonb_build_object('employeeId',v_branch_employee_id,'expectedVersion',1,
+        'patch',jsonb_build_object('fullName','يجب ألا يعبر الفرع'))
+    );
+    raise exception 'HR_OFFLINE_UPDATE_ACCEPTED_EMPLOYEE_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'EMPLOYEE_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform public.powerhub_hr_replay_offline_operation(
+      1,100,10,'550e8400-e29b-41d4-a716-446655440111','attendance_upsert',
+      jsonb_build_object('employeeId',v_branch_employee_id,'workDate','2098-01-04',
+        'expectedVersion',null,'regularHours',8,'overtimeHours',0,'absentDays',0)
+    );
+    raise exception 'HR_OFFLINE_ATTENDANCE_ACCEPTED_EMPLOYEE_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'EMPLOYEE_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  -- Payroll draft must reject an employee from another branch even when tenant IDs match.
+  begin
+    perform * from public.powerhub_create_payroll_draft(
+      1,101,10,'2098-02',
+      jsonb_build_array(jsonb_build_object('employee_id',1,'extra_amount',0,'advance_deduction',0,'other_deduction',0))
+    );
+    raise exception 'HR_PAYROLL_ACCEPTED_EMPLOYEE_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'EMPLOYEE_OUT_OF_SCOPE_OR_INACTIVE' then raise; end if;
+  end;
+
+  -- Build a valid branch-101 payroll run and prove its identifiers cannot be approved or paid through branch 100.
+  select payroll_run_id,total_net into v_branch_payroll_id,v_branch_payroll_net
+  from public.powerhub_create_payroll_draft(
+    1,101,10,'2098-02',
+    jsonb_build_array(jsonb_build_object('employee_id',v_branch_employee_id,'extra_amount',0,'advance_deduction',0,'other_deduction',0))
+  );
+  if v_branch_payroll_id is null or v_branch_payroll_net<>775 then
+    raise exception 'HR_BRANCH_PAYROLL_FIXTURE_FAILED run=% net=%',v_branch_payroll_id,v_branch_payroll_net;
+  end if;
+
+  begin
+    perform * from public.powerhub_approve_payroll(1,100,10,v_branch_payroll_id);
+    raise exception 'HR_PAYROLL_APPROVED_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'PAYROLL_RUN_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_pay_payroll(1,100,10,v_branch_payroll_id,1);
+    raise exception 'HR_PAYROLL_PAID_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'PAYROLL_RUN_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  perform * from public.powerhub_approve_payroll(1,101,10,v_branch_payroll_id);
+  select count(*) into v_expense_count from public.expenses;
+  select count(*) into v_transaction_count from public.account_transactions;
+
+  begin
+    perform * from public.powerhub_pay_payroll(1,101,10,v_branch_payroll_id,1);
+    raise exception 'HR_PAYROLL_ACCEPTED_ACCOUNT_FROM_OTHER_SITE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'COMPANY_ACCOUNT_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_pay_payroll(1,101,10,v_branch_payroll_id,v_foreign_account_id);
+    raise exception 'HR_PAYROLL_ACCEPTED_ACCOUNT_FROM_OTHER_TENANT';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'COMPANY_ACCOUNT_NOT_FOUND' then raise; end if;
+  end;
+
+  if (select count(*) from public.expenses)<>v_expense_count
+    or (select count(*) from public.account_transactions)<>v_transaction_count
+    or (select status from public.payroll_runs where id=v_branch_payroll_id)<>'approved' then
+    raise exception 'HR_REJECTED_PAYROLL_SCOPE_ATTEMPT_LEFT_SIDE_EFFECTS';
+  end if;
+
+  if exists(select 1 from public.powerhub_hr_offline_operation_results
+    where operation_key in ('550e8400-e29b-41d4-a716-446655440110'::uuid,'550e8400-e29b-41d4-a716-446655440111'::uuid)) then
+    raise exception 'HR_REJECTED_OFFLINE_SCOPE_ATTEMPT_PERSISTED_RESULT';
+  end if;
+end
+$hr_object_scope_isolation$;
 
 select 'EMPLOYEE_ADVANCES_LOANS_INTEGRATION_OK' as result;
