@@ -73,14 +73,14 @@ export default function PlatformAccessPanel() {
     <div className="mt-6 grid gap-5 xl:grid-cols-2">
       <section><h3 className="text-sm font-bold text-white">حسابات الإدارة</h3><div className="mt-3 space-y-2">
         {directory.data?.accounts.map((account) => <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[.02] p-3">
-          <div><p className="font-bold text-white">{account.name ?? account.email ?? \`حساب #\${account.id}\`}</p><p className="mt-1 text-xs text-slate-500" dir="ltr">{account.email ?? "لا يوجد بريد"}</p></div>
+          <div><p className="font-bold text-white">{account.name ?? account.email ?? `حساب #${account.id}`}</p><p className="mt-1 text-xs text-slate-500" dir="ltr">{account.email ?? "لا يوجد بريد"}</p></div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge className={account.platformRole === "platform_support" ? "bg-sky-400/10 text-sky-300" : "bg-[#F5B800]/10 text-[#F5B800]"}>{roleLabel(account.platformRole)}</Badge>
             {account.platformRole !== "platform_owner" && <>
-              <select aria-label={\`دور حساب \${account.id}\`} value={account.platformRole ?? "platform_admin"} onChange={(event) => setRole.mutate({ userId: account.id, platformRole: event.target.value as "platform_admin" | "finance_admin" | "platform_support" })} disabled={setRole.isPending} className="rounded-lg border border-white/10 bg-[#0D1117] px-2 py-1 text-xs text-white">
+              <select aria-label={`دور حساب ${account.id}`} value={account.platformRole ?? "platform_admin"} onChange={(event) => setRole.mutate({ userId: account.id, platformRole: event.target.value as "platform_admin" | "finance_admin" | "platform_support" })} disabled={setRole.isPending} className="rounded-lg border border-white/10 bg-[#0D1117] px-2 py-1 text-xs text-white">
                 <option value="platform_support">موظف دعم</option><option value="platform_admin">مشرف منصة</option><option value="finance_admin">مشرف مالي</option>
               </select>
-              <select aria-label={\`حالة حساب \${account.id}\`} value={account.accountStatus} onChange={(event) => setStatus.mutate({ userId: account.id, accountStatus: event.target.value as "active" | "locked" | "disabled" })} disabled={setStatus.isPending} className="rounded-lg border border-white/10 bg-[#0D1117] px-2 py-1 text-xs text-white">
+              <select aria-label={`حالة حساب ${account.id}`} value={account.accountStatus} onChange={(event) => setStatus.mutate({ userId: account.id, accountStatus: event.target.value as "active" | "locked" | "disabled" })} disabled={setStatus.isPending} className="rounded-lg border border-white/10 bg-[#0D1117] px-2 py-1 text-xs text-white">
                 <option value="active">فعّال</option><option value="locked">مقفل</option><option value="disabled">معطل</option>
               </select>
             </>}
