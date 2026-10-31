@@ -15,6 +15,9 @@ export const OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_HR_DELTA_PROJECTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
+export function getOfflineHrCompanyAccountOptionsExpiry(persistedAt: number): number {
+  return persistedAt + OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS;
+}
 let successfulWritesSincePrune = 0;
 let pruneInFlight: Promise<void> | null = null;
 
@@ -724,8 +727,11 @@ async function persistOfflineQueryWithPolicy(
     : typeof cacheKeyParts === "string" ? cacheKeyParts.split(".") : [];
   const isHrProjection = cacheKeySegments[0] === "powerhub" && cacheKeySegments[1] === "hr" &&
     ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns", "offlineCompanyAccountOptions"].includes(cacheKeySegments[2] ?? "");
-  const hrCacheTtl = cacheKeySegments[2] === "offlineCompanyAccountOptions"
-    ? OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS : OFFLINE_HR_DELTA_PROJECTION_TTL_MS;
+  const hrCacheExpiry = isHrProjection
+    ? cacheKeySegments[2] === "offlineCompanyAccountOptions"
+      ? getOfflineHrCompanyAccountOptionsExpiry(now)
+      : now + OFFLINE_HR_DELTA_PROJECTION_TTL_MS
+    : null;
   const isPurchaseDetailSnapshot = isSafePurchaseDetailSnapshot(query.queryKey);
   const isSupplierFinancialSnapshot = isSafeSupplierLedgerStatementSnapshot(query.queryKey) ||
     isSafeSupplierPayablesAgingSnapshot(query.queryKey);
@@ -741,7 +747,7 @@ async function persistOfflineQueryWithPolicy(
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
     expiresAt: isPurchaseDetailSnapshot ? now + 24 * 60 * 60 * 1000
       : isSupplierFinancialSnapshot ? now + OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS
-      : isHrProjection ? now + hrCacheTtl
+      : isHrProjection ? hrCacheExpiry
       : isExpenseFilterOptions ? now + OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS
         : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
           ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
