@@ -31,7 +31,7 @@ export async function inviteTenantAccess(input: InviteTenantAccessInput) {
   const admin = supabaseAdmin();
   const { data: existingUser, error: userLookupError } = await admin
     .from("users")
-    .select("id")
+    .select("id,account_status")
     .eq("email", email)
     .maybeSingle();
 
@@ -43,6 +43,9 @@ export async function inviteTenantAccess(input: InviteTenantAccessInput) {
       code: "NOT_FOUND",
       message: "لا يوجد حساب PowerHub مسجل بهذا البريد. أنشئ حساب الدخول أولاً، ثم امنحه الوصول إلى المساحة.",
     });
+  }
+  if (existingUser.account_status !== "active") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "حساب المستخدم موقوف أو معطل؛ أعد تفعيله قبل منحه الوصول." });
   }
 
   const { data, error } = await admin.rpc("powerhub_admin_invite_tenant_access", {
