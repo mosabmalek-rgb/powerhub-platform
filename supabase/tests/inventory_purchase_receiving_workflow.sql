@@ -932,6 +932,52 @@ begin
     if sqlerrm not like '%SITE_OUT_OF_SCOPE%' then raise; end if;
   end;
 
+  -- Same-tenant branch/object boundaries: tenant equality alone must not authorize another branch's warehouse.
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,101,1,v_supplier_id,v_warehouse_id,'INV-WRONG-BRANCH-WAREHOUSE',current_date,null,30,null,null,'purchase-workflow:wrong-branch-warehouse',
+      jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0))
+    );
+    raise exception 'PURCHASE_ACCEPTED_WAREHOUSE_FROM_OTHER_BRANCH';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_WAREHOUSE_FROM_OTHER_BRANCH' then raise; end if;
+    if sqlerrm not like '%WAREHOUSE_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,100,1,(select id from public.suppliers where tenant_id=20 and supplier_code='SUP-01' limit 1),v_warehouse_id,
+      'INV-WRONG-TENANT-SUPPLIER',current_date,null,30,null,null,'purchase-workflow:wrong-tenant-supplier',
+      jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0))
+    );
+    raise exception 'PURCHASE_ACCEPTED_SUPPLIER_FROM_OTHER_TENANT';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_SUPPLIER_FROM_OTHER_TENANT' then raise; end if;
+    if sqlerrm not like '%SUPPLIER_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,100,1,v_supplier_id,v_warehouse_id,'INV-WRONG-TENANT-ITEM',current_date,null,30,null,null,'purchase-workflow:wrong-tenant-item',
+      jsonb_build_array(jsonb_build_object(
+        'item_id',(select id from public.inventory_items where tenant_id=20 and sku='DSL-01' limit 1),
+        'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0
+      ))
+    );
+    raise exception 'PURCHASE_ACCEPTED_ITEM_FROM_OTHER_TENANT';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_ITEM_FROM_OTHER_TENANT' then raise; end if;
+    if sqlerrm not like '%ITEM_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  if exists(select 1 from public.supplier_purchases where operation_key in (
+    'purchase-workflow:wrong-branch-warehouse',
+    'purchase-workflow:wrong-tenant-supplier',
+    'purchase-workflow:wrong-tenant-item'
+  )) then
+    raise exception 'REJECTED_PURCHASE_OBJECT_SCOPE_ATTEMPT_LEFT_PURCHASE_ROWS';
+  end if;
+
   if has_function_privilege('authenticated','public.powerhub_inventory_create_purchase(bigint,bigint,bigint,bigint,bigint,text,date,date,integer,text,text,text,jsonb)','EXECUTE') then
     raise exception 'AUTHENTICATED_CAN_EXECUTE_PURCHASE_CREATE_RPC';
   end if;
