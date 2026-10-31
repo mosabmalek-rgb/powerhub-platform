@@ -57,8 +57,19 @@ export default function PlatformAccessPanel() {
 
     invite.mutate({ ...payload, clientOperationId }, {
       onSuccess: () => {
-        if (pendingInvite.current?.clientOperationId === clientOperationId) pendingInvite.current = null;
-        form.reset();
+        const currentFormData = new FormData(form);
+        const currentPayload = {
+          email: String(currentFormData.get("email")).trim().toLowerCase(),
+          platformRole: String(currentFormData.get("platformRole")) as "platform_admin" | "finance_admin" | "platform_support",
+          expiresInHours: 72,
+        };
+        if (
+          pendingInvite.current?.clientOperationId === clientOperationId &&
+          JSON.stringify(currentPayload) === payloadKey
+        ) {
+          pendingInvite.current = null;
+          form.reset();
+        }
       },
     });
   }
