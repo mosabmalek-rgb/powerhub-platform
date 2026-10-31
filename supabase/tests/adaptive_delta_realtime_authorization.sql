@@ -111,21 +111,24 @@ INSERT INTO public.users(id,auth_user_id,platform_role,account_status) VALUES
   (4,'44444444-4444-4444-8444-444444444444',NULL,'active'),
   (5,'55555555-5555-4555-8555-555555555555',NULL,'active'),
   (6,'66666666-6666-4666-8666-666666666666',NULL,'active'),
-  (7,'77777777-7777-4777-8777-777777777777','platform_admin','active');
+  (7,'77777777-7777-4777-8777-777777777777','platform_admin','active'),
+  (8,'88888888-8888-4888-8888-888888888888',NULL,'suspended');
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
   (10,1,'owner',true,'active',NULL),
   (10,2,'manager',true,'active',NULL),
   (10,3,'manager',true,'active',NULL),
   (10,4,'manager',true,'active',now()-interval '1 hour'),
   (10,5,'manager',true,'active',NULL),
-  (20,6,'manager',true,'active',NULL);
+  (20,6,'manager',true,'active',NULL),
+  (10,8,'technician',true,'active',NULL);
 INSERT INTO public.sites(id,tenant_id) VALUES (100,10),(101,10),(200,20);
 INSERT INTO public.staff_profiles(id,tenant_id,user_id,site_id,role,is_active,suspension_started_at,suspension_ends_at) VALUES
   (2,10,2,100,'technician',true,NULL,NULL),
   (3,10,3,NULL,'manager',true,NULL,NULL),
   (4,10,4,100,'accountant',true,NULL,NULL),
   (5,10,5,100,'viewer',true,now()-interval '1 hour',now()+interval '1 hour'),
-  (6,20,6,200,'technician',true,NULL,NULL);
+  (6,20,6,200,'technician',true,NULL,NULL),
+  (8,10,8,100,'technician',true,NULL,NULL);
 
 -- Existing Delta producers already advance this one cursor table. Each cursor
 -- advancement emits a site marker and an all-branches tenant marker only.
@@ -235,6 +238,13 @@ BEGIN
   END IF;
 END
 $assert_other_tenant$;
+
+SELECT set_config('test.auth_uid','88888888-8888-4888-8888-888888888888',false);
+DO $assert_inactive_account$ BEGIN
+  IF (SELECT count(*) FROM realtime.messages)<>0 THEN
+    RAISE EXCEPTION 'ADAPTIVE_DELTA_INACTIVE_ACCOUNT_NOT_REVOKED';
+  END IF;
+END $assert_inactive_account$;
 
 SELECT set_config('test.auth_uid','77777777-7777-4777-8777-777777777777',false);
 DO $assert_platform_admin$
