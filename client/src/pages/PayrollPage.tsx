@@ -15,7 +15,7 @@ import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { isFreshOnlineServerRead, resolvePayrollPayoutAccountId } from "@/lib/payroll-report-guards";
 import { clearOfflineHrProjectionCacheForSite } from "@/lib/offline-query-cache";
 import { getSupabaseSession } from "@/lib/supabase";
-import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeCreateDraft, type HrPayrollDraftPayload } from "@/lib/offline-work-queue";
+import { enqueueOfflineHrWork, listOfflineWork, subscribeOfflineWorkQueueChanges, type HrEmployeeCreateDraft, type HrEmployeeAdvanceIssueDraft, type HrPayrollDraftPayload } from "@/lib/offline-work-queue";
 
 const statusLabels: Record<string, string> = { draft: "مسودة", approved: "معتمد", paid: "مصروف", cancelled: "ملغى" };
 const money = (value: unknown) => new Intl.NumberFormat("ar-PS", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
@@ -292,9 +292,28 @@ export default function PayrollPage({ embedded = false }: { embedded?: boolean }
     }
     try {
       const existingQueue = await listOfflineWork({ userId, siteId });
-      const dependencies = existingQueue.filter((item) => item.kind === "employee_create" && item.status !== "applied")
+      const employeeCreateDependencies = existingQueue
+        .filter((item) => item.kind === "employee_create" && item.status !== "applied")
         .filter((item) => items.some((line) => line.employeeId === (item.payload as HrEmployeeCreateDraft).localEmployeeId))
         .map((item) => item.clientOperationId);
+      // Payroll recovery is calculated from the advance ledger on the server.
+      // Wait for relevant offline disbursements, otherwise payroll could be
+      // created before a queued salary advance/loan exists and under-deduct pay.
+      const advanceIssueDependencies = existingQueue
+        .filter((item) => item.kind === "employee_advance_issue" && item.status !== "applied")
+        .filter((item) => items.some((line) => line.employeeId === (item.payload as HrEmployeeAdvanceIssueDraft).employeeId))
+        .map((item) => item.clientOperationId);
+      // Repayment payloads intentionally contain no employee/advance snapshots.
+      // Conservatively sequence every unresolved repayment in this branch before
+      // payroll so a local repayment cannot be omitted from the server balance.
+      const repaymentDependencies = existingQueue
+        .filter((item) => item.kind === "employee_advance_repayment" && item.status !== "applied")
+        .map((item) => item.clientOperationId);
+      const dependencies = [...new Set([
+        ...employeeCreateDependencies,
+        ...advanceIssueDependencies,
+        ...repaymentDependencies,
+      ])];
       const queued = await enqueueOfflineHrWork({
         userId, tenantId, siteId, kind: "payroll_draft", dependsOn: dependencies,
         payload: { period, items },
