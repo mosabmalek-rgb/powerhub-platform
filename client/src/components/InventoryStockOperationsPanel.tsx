@@ -179,10 +179,6 @@ export default function InventoryStockOperationsPanel({
       setItemId(String(eligibleItems[0].id));
     } else if (!eligibleItems.length && itemId) setItemId("");
   }, [eligibleItems, itemId]);
-  useEffect(() => {
-    setOperationKey(getOrCreateOperationKey(storageKey));
-  }, [storageKey]);
-
   const stockRows = (stock.data ?? []) as StockOverviewRow[];
   const movementRows = (movements.data ?? []) as StockMovementRow[];
   const selectedStock = stockRows.find((row) => String(row.warehouse_id) === warehouseId && String(row.item_id) === itemId);
