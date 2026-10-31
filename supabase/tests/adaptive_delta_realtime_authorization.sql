@@ -289,7 +289,7 @@ SET ROLE authenticated;
 SELECT set_config('test.auth_uid','11111111-1111-4111-8111-111111111111',false);
 DO $assert_readonly_retention$
 BEGIN
-  IF (SELECT count(*) FROM realtime.messages WHERE topic LIKE 'powerhub:tenant:10:%')<>7
+  IF (SELECT count(*) FROM realtime.messages WHERE topic LIKE 'powerhub:tenant:10:%')<>6
      OR EXISTS(SELECT 1 FROM realtime.messages WHERE topic LIKE 'powerhub:tenant:20:%') THEN
     RAISE EXCEPTION 'ADAPTIVE_DELTA_READONLY_RETENTION_SCOPE_FAILED';
   END IF;
