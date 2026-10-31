@@ -80,6 +80,9 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("MAINTENANCE_REOPEN_REASON_REQUIRED");
     expect(migration).toContain("MAINTENANCE_FOLLOWUP_ALREADY_OPEN");
     expect(integration).toContain("MAINTENANCE_DUPLICATE_OPEN_FOLLOWUP_ACCEPTED");
+    expect(integration).toContain("MAINTENANCE_RECURRING_BREAKDOWN_NOT_NEW_CYCLE");
+    expect(integration).toContain("MAINTENANCE_RECURRING_BREAKDOWN_MUTATED_OR_INHERITED_HISTORY");
+    expect(integration).toContain("Recurring breakdown after completed repair");
     expect(integration).toContain("MAINTENANCE_REOPEN_WITHOUT_REASON_ACCEPTED");
     expect(integration).toContain("MAINTENANCE_REOPEN_IDEMPOTENCY_FAILED");
     expect(integration).toContain("MAINTENANCE_REOPEN_SOURCE_MUTATED");
