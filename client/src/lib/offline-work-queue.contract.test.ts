@@ -64,8 +64,10 @@ describe("offline fuel fill intent contract", () => {
     expect(submitEnd).toBeGreaterThan(submitStart);
     const submit = fuelPanel.slice(submitStart, submitEnd);
     expect(submit).toContain("if (reachability === false)");
-    expect(submit).toContain('kind: "fuel_fill", clientOperationId: fillKey, payload');
-    expect(submit).toContain('fillMutation.mutate({ siteId, ...payload, operationKey: fillKey })');
+    expect(submit).toContain('const clientOperationId = await getStableOperationKey({ userId, siteId, kind: "fuel_fill", payload })');
+    expect(submit).toContain('kind: "fuel_fill", clientOperationId, payload');
+    expect(submit).toContain('runWithStableOperationKey({ userId, siteId, kind: "fuel_fill", payload }');
+    expect(submit).toContain('fillMutation.mutateAsync({ siteId, ...payload, operationKey })');
     expect(submit).not.toContain("updateOfflineWork(");
     expect(submit).not.toContain("stockOverview.setData");
     expect(submit).not.toContain("listStockMovements.setData");
