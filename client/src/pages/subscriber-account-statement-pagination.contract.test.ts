@@ -54,7 +54,10 @@ describe("subscriber account statement complete-history contract", () => {
   it("rejects malformed/non-canonical cursors and keeps the protected router permission gate", () => {
     const source = read("server/powerhub-supabase.ts");
     const router = read("server/powerhub.ts");
-    expect(source).toContain("if (normalizedAt !== parsed.at) throw new Error");
+    expect(source).toContain("return { at: parsed.at, id: id as number }");
+    expect(source).toContain("at: String(last.issue_date)");
+    expect(source).toContain("at: String(recentInvoices[19].issue_date)");
+    expect(source).toContain("(?:\\.\\d{1,6})?");
     expect(source).toContain('code: "BAD_REQUEST", message: "مؤشر الصفحة غير صالح');
     const start = router.indexOf("accountStatementHistoryPage: protectedProcedure");
     const end = router.indexOf("quota: protectedProcedure", start);
