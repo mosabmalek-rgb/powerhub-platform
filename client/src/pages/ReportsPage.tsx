@@ -78,6 +78,16 @@ export default function ReportsPage() {
   const canCompareBranches = canUseAllBranches;
   const canManageBranding = roleQuery.data?.role === "owner";
   const baseEnabled = Boolean(branchId && isAuthenticated && startDate <= endDate);
+  const reportRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
+    { siteId: branchId ?? 0, scope },
+    {
+      enabled: Boolean(baseEnabled && (scope !== "all" || canUseAllBranches)),
+      staleTime: 0,
+      refetchInterval: 30_000,
+      refetchOnReconnect: true,
+      refetchOnWindowFocus: true,
+    },
+  );
   const branchReportQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "branch" });
   const allReportQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "all" && canUseAllBranches });
   const activeQuery = scope === "all" ? allReportQuery : branchReportQuery;
@@ -108,9 +118,57 @@ export default function ReportsPage() {
     ? comparisonActiveQuery.data as FinancialReport | undefined
     : undefined;
   const comparisonIsFetching = comparisonActiveQuery.isFetching;
+  const comparisonBranchRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
+    { siteId: alternateBranchId ?? 0, scope: "branch" },
+    { enabled: comparisonBranchEnabled, staleTime: 0, refetchInterval: 30_000, refetchOnReconnect: true, refetchOnWindowFocus: true },
+  );
+  const lastReportRevisions = useRef<Map<string, string>>(new Map());
+  const lastComparisonReportRevisions = useRef<Map<string, string>>(new Map());
   const comparisonScopeName = comparisonMode === "branch" ? sitesQuery.data?.find((site) => site.id === alternateBranchId)?.name ?? "الفرع المقارن" : `${scopeName} — ${comparisonStartDate} إلى ${comparisonEndDate}`;
   const brandingQuery = trpc.powerhub.reportBranding.get.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
   const brandingMutation = trpc.powerhub.reportBranding.update.useMutation({ onSuccess: async () => { await brandingQuery.refetch(); toast.success("تم تحديث هوية التقرير الرسمية."); }, onError: (error) => toast.error(error.message) });
+
+
+  useEffect(() => {
+    const revision = reportRevisionQuery.data?.revisions?.financialReport;
+    if (!user?.id || !branchId || !revision || !baseEnabled) return;
+    const key = [user.id, branchId, scope].join(":");
+    const previous = lastReportRevisions.current.get(key);
+    lastReportRevisions.current.delete(key);
+    lastReportRevisions.current.set(key, revision);
+    while (lastReportRevisions.current.size > 32) {
+      const oldest = lastReportRevisions.current.keys().next().value;
+      if (oldest === undefined) break;
+      lastReportRevisions.current.delete(oldest);
+    }
+    if (previous && previous !== revision) {
+      // Re-run the exact server query for the active filter set; never rebuild
+      // a financial report from partial Delta rows or a local snapshot.
+      void activeQuery.refetch();
+      if (comparisonMode === "period") void comparisonActiveQuery.refetch();
+    }
+  }, [
+    reportRevisionQuery.dataUpdatedAt, reportRevisionQuery.data?.revisions?.financialReport,
+    user?.id, branchId, scope, baseEnabled, comparisonMode,
+    activeQuery.refetch, comparisonActiveQuery.refetch,
+  ]);
+  useEffect(() => {
+    const revision = comparisonBranchRevisionQuery.data?.revisions?.financialReport;
+    if (!user?.id || !alternateBranchId || !revision || !comparisonBranchEnabled) return;
+    const key = [user.id, alternateBranchId].join(":");
+    const previous = lastComparisonReportRevisions.current.get(key);
+    lastComparisonReportRevisions.current.set(key, revision);
+    while (lastComparisonReportRevisions.current.size > 32) {
+      const oldest = lastComparisonReportRevisions.current.keys().next().value;
+      if (oldest === undefined) break;
+      lastComparisonReportRevisions.current.delete(oldest);
+    }
+    if (previous && previous !== revision) void comparisonBranchQuery.refetch();
+  }, [
+    comparisonBranchRevisionQuery.dataUpdatedAt,
+    comparisonBranchRevisionQuery.data?.revisions?.financialReport,
+    user?.id, alternateBranchId, comparisonBranchEnabled, comparisonBranchQuery.refetch,
+  ]);
 
   useEffect(() => { if (scope === "all" && !canUseAllBranches) setScope("branch"); }, [canUseAllBranches, scope]);
   useEffect(() => { if (comparisonMode === "branch" && !canCompareBranches) setComparisonMode("period"); }, [canCompareBranches, comparisonMode]);
