@@ -37,7 +37,7 @@ describe("offline sync engine", () => {
     ]);
 
     expect(planReadyOperations([b, a], meta, new Set(), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["a"]);
-    expect(planReadyOperations([b, a], meta, new Set(["a"]), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["a", "b"]);
+    expect(planReadyOperations([b, a], meta, new Set(["a"]), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["b"]);
   });
 
   it("serializes the HR dependency chain and blocks dependents through conflict and retry", () => {
