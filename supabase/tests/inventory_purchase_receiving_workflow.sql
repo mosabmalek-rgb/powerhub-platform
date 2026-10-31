@@ -200,8 +200,7 @@ create table public.tenant_reading_cycle_configurations (
   updated_at timestamptz not null default now(),
   primary key (tenant_id,site_id),
   unique (site_id)
-);
-create or replace function public.powerhub_cycle_for_reading(
+);create or replace function public.powerhub_cycle_for_reading(
   p_tenant_id bigint,
   p_site_id bigint,
   p_reading_at timestamptz
@@ -216,12 +215,16 @@ declare
   local_at timestamp;
   start_local timestamp;
   end_local timestamp;
+  next_month_local timestamp;
   last_day integer;
+  next_last_day integer;
   start_day integer;
+  next_start_day integer;
 begin
   select * into c
   from public.tenant_reading_cycle_configurations
-  where tenant_id=p_tenant_id and site_id=p_site_id;
+  where tenant_id = p_tenant_id
+    and site_id = p_site_id;
 
   if not found then
     c.cycle_type := 'MONTHLY';
@@ -232,55 +235,145 @@ begin
 
   local_at := p_reading_at at time zone c.timezone;
 
-  if c.cycle_type='WEEKLY' then
+  if c.cycle_type = 'WEEKLY' then
     -- Android Calendar: Sunday=1 ... Saturday=7.
     -- PostgreSQL dow: Sunday=0 ... Saturday=6.
     start_local := date_trunc('day', local_at)
       - make_interval(days => mod(
           extract(dow from local_at)::integer
-          - case when c.weekly_start_day=7 then 6 else c.weekly_start_day-1 end
+          - case when c.weekly_start_day = 7 then 6 else c.weekly_start_day - 1 end
           + 7,
           7
         ));
-    end_local := start_local + interval '7 days' - interval '1 millisecond';
-  elsif c.cycle_type='EVERY_10_DAYS' then
-    start_day := case when extract(day from local_at)::integer between 1 and 10 then 1
-                      when extract(day from local_at)::integer between 11 and 20 then 11
-                      else 21 end;
-    start_local := date_trunc('month',local_at) + make_interval(days => start_day-1);
-    end_local := least(
-      start_local + interval '10 days' - interval '1 millisecond',
-      (date_trunc('month',local_at)+interval '1 month'-interval '1 millisecond')
-    );
-  elsif c.cycle_type='EVERY_15_DAYS' then
-    start_day := case when extract(day from local_at)::integer <= 15 then 1 else 16 end;
-    start_local := date_trunc('month',local_at) + make_interval(days => start_day-1);
-    end_local := least(
-      start_local + interval '15 days' - interval '1 millisecond',
-      (date_trunc('month',local_at)+interval '1 month'-interval '1 millisecond')
-    );
-  else
-    start_day := case
-      when c.monthly_start_day=30 and extract(month from local_at)::integer=2 then 28
-      else least(c.monthly_start_day, extract(day from (date_trunc('month',local_at)+interval '1 month'-interval '1 day'))::integer)
-    end;
-    start_local := date_trunc('month',local_at) + make_interval(days => start_day-1);
-    if local_at < start_local then
-      start_local := date_trunc('month',local_at)-interval '1 month';
+    end_local := start_local + interval '7 days' - interval '1 microsecond';
+
+  elsif c.cycle_type = 'EVERY_10_DAYS' then
+    last_day := extract(day from (date_trunc('month', local_at) + interval '1 month' - interval '1 day'))::integer;
+    if c.monthly_start_day = 1 then
       start_day := case
-        when c.monthly_start_day=30 and extract(month from (date_trunc('month',local_at)-interval '1 day'))::integer=2 then 28
-        else least(c.monthly_start_day, extract(day from (date_trunc('month',local_at)-interval '1 day'))::integer)
+        when extract(day from local_at)::integer between 1 and 10 then 1
+        when extract(day from local_at)::integer between 11 and 20 then 11
+        else 21
       end;
-      start_local := date_trunc('month',local_at)-interval '1 month' + make_interval(days => start_day-1);
+      start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end_local := case
+        when start_day = 21 then date_trunc('month', local_at) + interval '1 month' - interval '1 microsecond'
+        else start_local + interval '10 days' - interval '1 microsecond'
+      end;
+    else
+      -- Alternate 10/20/30 anchor. Day 30 is clamped to the last day of February.
+      start_day := null;
+      start_local := null;
+      if extract(day from local_at)::integer >= 30
+        or (extract(month from local_at)::integer = 2 and extract(day from local_at)::integer >= 28) then
+        start_day := case when extract(month from local_at)::integer = 2 then 28 else 30 end;
+      elsif extract(day from local_at)::integer >= 20 then
+        start_day := 20;
+      elsif extract(day from local_at)::integer >= 10 then
+        start_day := 10;
+      else
+        next_month_local := date_trunc('month', local_at) - interval '1 month';
+        next_last_day := extract(day from (next_month_local + interval '1 month' - interval '1 day'))::integer;
+        start_local := next_month_local + make_interval(days => (case when extract(month from next_month_local)::integer = 2 then 28 else least(30, next_last_day) end) - 1);
+        start_day := null;
+      end if;
+      if start_local is null then
+        start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end if;
+      if start_day is null then
+        next_month_local := date_trunc('month', local_at) + make_interval(days => 9);
+      elsif start_day = 10 then
+        next_month_local := date_trunc('month', local_at) + interval '19 days';
+      elsif start_day = 20 then
+        start_day := case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end;
+        next_month_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      else
+        next_month_local := date_trunc('month', local_at) + interval '1 month' + interval '9 days';
+      end if;
+      end_local := next_month_local - interval '1 microsecond';
     end if;
-    end_local := date_trunc('month',start_local)+interval '1 month'-interval '1 millisecond';
+
+  elsif c.cycle_type = 'EVERY_15_DAYS' then
+    last_day := extract(day from (date_trunc('month', local_at) + interval '1 month' - interval '1 day'))::integer;
+    if c.monthly_start_day = 1 then
+      start_day := case when extract(day from local_at)::integer <= 15 then 1 else 16 end;
+      start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end_local := case
+        when start_day = 16 then date_trunc('month', local_at) + interval '1 month' - interval '1 microsecond'
+        else start_local + interval '15 days' - interval '1 microsecond'
+      end;
+    else
+      -- Alternate 15/30 anchor. Day 30 is clamped to the last day of February.
+      start_day := null;
+      start_local := null;
+      if extract(day from local_at)::integer >= 30
+        or (extract(month from local_at)::integer = 2 and extract(day from local_at)::integer >= 28) then
+        start_day := case when extract(month from local_at)::integer = 2 then 28 else 30 end;
+      elsif extract(day from local_at)::integer >= 15 then
+        start_day := 15;
+      else
+        next_month_local := date_trunc('month', local_at) - interval '1 month';
+        next_last_day := extract(day from (next_month_local + interval '1 month' - interval '1 day'))::integer;
+        start_local := next_month_local + make_interval(days => (case when extract(month from next_month_local)::integer = 2 then 28 else least(30, next_last_day) end) - 1);
+        start_day := null;
+      end if;
+      if start_local is null then
+        start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end if;
+      if start_day is null or start_day = (case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end) then
+        next_month_local := date_trunc('month', start_local) + interval '1 month' + interval '14 days';
+      else
+        start_day := case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end;
+        next_month_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end if;
+      end_local := next_month_local - interval '1 microsecond';
+    end if;
+
+  else
+    -- A configured day 30 is clamped to day 28 in February (including leap years),
+    -- preserving the existing product contract. Each cycle ends immediately before
+    -- the next month's configured/clamped start, not at the end of its start month.
+    last_day := extract(day from (
+      date_trunc('month', local_at) + interval '1 month' - interval '1 day'
+    ))::integer;
+    start_day := case
+      when c.monthly_start_day = 30 and extract(month from local_at)::integer = 2 then 28
+      else least(c.monthly_start_day, last_day)
+    end;
+    start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+
+    if local_at < start_local then
+      start_local := date_trunc('month', local_at) - interval '1 month';
+      last_day := extract(day from (
+        date_trunc('month', start_local) + interval '1 month' - interval '1 day'
+      ))::integer;
+      start_day := case
+        when c.monthly_start_day = 30 and extract(month from start_local)::integer = 2 then 28
+        else least(c.monthly_start_day, last_day)
+      end;
+      start_local := date_trunc('month', start_local) + make_interval(days => start_day - 1);
+    end if;
+
+    next_month_local := date_trunc('month', start_local) + interval '1 month';
+    next_last_day := extract(day from (
+      next_month_local + interval '1 month' - interval '1 day'
+    ))::integer;
+    next_start_day := case
+      when c.monthly_start_day = 30 and extract(month from next_month_local)::integer = 2 then 28
+      else least(c.monthly_start_day, next_last_day)
+    end;
+    end_local := next_month_local
+      + make_interval(days => next_start_day - 1)
+      - interval '1 microsecond';
   end if;
 
   cycle_start_at := start_local at time zone c.timezone;
   cycle_end_at := end_local at time zone c.timezone;
-  billing_period := to_char(local_at,'YYYY-MM');
-  cycle_key := c.cycle_type || ':' || to_char(cycle_start_at at time zone c.timezone,'YYYY-MM-DD');
-  cycle_label := c.cycle_type || ' ' || to_char(cycle_start_at at time zone c.timezone,'YYYY-MM-DD') || ' → ' || to_char(cycle_end_at at time zone c.timezone,'YYYY-MM-DD');
+  billing_period := to_char(local_at, 'YYYY-MM');
+  cycle_key := c.cycle_type || ':' || to_char(cycle_start_at at time zone c.timezone, 'YYYY-MM-DD');
+  cycle_label := c.cycle_type || ' ' ||
+    to_char(cycle_start_at at time zone c.timezone, 'YYYY-MM-DD') || ' → ' ||
+    to_char(cycle_end_at at time zone c.timezone, 'YYYY-MM-DD');
   return next;
 end;
 $function$;
@@ -289,6 +382,66 @@ $function$;
 insert into public.tenant_reading_cycle_configurations(
   tenant_id,site_id,cycle_type,weekly_start_day,monthly_start_day,timezone
 ) values (10,100,'EVERY_10_DAYS',7,1,'Asia/Gaza');
+ 
+-- Cycle boundaries must match the production resolver, including the final
+-- calendar day of 31-day months and leap Februaries.
+do $cycle_boundary_assertions$
+declare
+  v_cycle record;
+  v_expected_start timestamptz;
+  v_expected_end timestamptz;
+begin
+  v_expected_start := timestamp '2026-10-21 00:00:00' at time zone 'Asia/Gaza';
+  v_expected_end := (timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  select * into v_cycle from public.powerhub_cycle_for_reading(
+    10,100,timestamp '2026-10-31 12:00:00' at time zone 'Asia/Gaza'
+  );
+  if v_cycle.cycle_start_at<>v_expected_start or v_cycle.cycle_end_at<>v_expected_end then
+    raise exception 'CYCLE_EVERY_10_DAYS_OCTOBER_31_BOUNDARY_FAILED start=% end=% expected_start=% expected_end=%',
+      v_cycle.cycle_start_at,v_cycle.cycle_end_at,v_expected_start,v_expected_end;
+  end if;
+
+  v_expected_start := timestamp '2024-02-21 00:00:00' at time zone 'Asia/Gaza';
+  v_expected_end := (timestamp '2024-03-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  select * into v_cycle from public.powerhub_cycle_for_reading(
+    10,100,timestamp '2024-02-29 12:00:00' at time zone 'Asia/Gaza'
+  );
+  if v_cycle.cycle_start_at<>v_expected_start or v_cycle.cycle_end_at<>v_expected_end then
+    raise exception 'CYCLE_EVERY_10_DAYS_LEAP_FEBRUARY_BOUNDARY_FAILED start=% end=% expected_start=% expected_end=%',
+      v_cycle.cycle_start_at,v_cycle.cycle_end_at,v_expected_start,v_expected_end;
+  end if;
+
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='EVERY_15_DAYS'
+  where tenant_id=10 and site_id=100;
+  v_expected_start := timestamp '2026-10-16 00:00:00' at time zone 'Asia/Gaza';
+  v_expected_end := (timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  select * into v_cycle from public.powerhub_cycle_for_reading(
+    10,100,timestamp '2026-10-31 12:00:00' at time zone 'Asia/Gaza'
+  );
+  if v_cycle.cycle_start_at<>v_expected_start or v_cycle.cycle_end_at<>v_expected_end then
+    raise exception 'CYCLE_EVERY_15_DAYS_OCTOBER_31_BOUNDARY_FAILED start=% end=% expected_start=% expected_end=%',
+      v_cycle.cycle_start_at,v_cycle.cycle_end_at,v_expected_start,v_expected_end;
+  end if;
+
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='WEEKLY',weekly_start_day=7
+  where tenant_id=10 and site_id=100;
+  select * into v_cycle from public.powerhub_cycle_for_reading(
+    10,100,timestamp '2026-11-01 12:00:00' at time zone 'Asia/Gaza'
+  );
+  if v_cycle.cycle_start_at<>(timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza')
+     or v_cycle.cycle_end_at<>(timestamp '2026-11-08 00:00:00' at time zone 'Asia/Gaza')-interval '1 microsecond' then
+    raise exception 'CYCLE_WEEKLY_MICROSECOND_BOUNDARY_FAILED start=% end=%',
+      v_cycle.cycle_start_at,v_cycle.cycle_end_at;
+  end if;
+
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='EVERY_10_DAYS',weekly_start_day=7,monthly_start_day=1
+  where tenant_id=10 and site_id=100;
+end;
+$cycle_boundary_assertions$;
+
 
 \ir ../migrations/20261021085514_powerhub_staff_inventory_permissions.sql
 \ir ../migrations/20261021085524_powerhub_supplier_directory_view_permission.sql
