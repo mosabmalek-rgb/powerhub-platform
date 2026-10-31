@@ -144,7 +144,9 @@ describe("offline data and financial truth boundaries", () => {
     expect(sync).toContain("operationKey: item.clientOperationId");
     expect(sync).toContain("await runMutation(() => recordFuelFill.mutateAsync");
     expect(sync).toContain('status: "applied"');
-    expect(fuel).toContain('kind: "fuel_fill", clientOperationId: fillKey, payload');
+    expect(fuel).toContain('kind: "fuel_fill", clientOperationId, payload');
+    expect(fuel).toContain('getStableOperationKey({ userId, siteId, kind: "fuel_fill", payload })');
+    expect(fuel).toContain('runWithStableOperationKey({ userId, siteId, kind: "fuel_fill", payload }');
     expect(fuel).not.toContain("stockOverview.setData");
     expect(fuel).not.toContain("listStockMovements.setData");
     expect(contracts).toContain("offline fuel fill intent contract");
