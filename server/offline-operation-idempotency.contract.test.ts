@@ -53,4 +53,22 @@ describe("reload-safe fuel and maintenance idempotency contracts", () => {
     expect(maintenance).toContain("transition.mutateAsync");
     expect(maintenance).toContain("reopenCompleted.mutateAsync");
   });
+
+  it("uses durable cross-tab operation identity for stock movements, returns, corrections, and warehouse transfers", () => {
+    const stock = read("client/src/components/InventoryStockOperationsPanel.tsx");
+    const transfer = read("client/src/components/InventoryWarehouseTransferPanel.tsx");
+    expect(stock).toContain('kind: "inventory_stock_movement", payload');
+    expect(stock).toContain('recordMovement.mutateAsync({ ...payload, operationKey })');
+    expect(stock).toContain('kind: "inventory_issue_return", payload');
+    expect(stock).toContain('returnFromIssue.mutateAsync({ ...payload, operationKey })');
+    expect(stock).toContain('kind: "inventory_movement_correction", payload');
+    expect(stock).toContain('correctMovement.mutateAsync({ ...payload, operationKey })');
+    expect(stock).not.toContain("recordMovement.mutate({");
+    expect(stock).not.toContain("returnFromIssue.mutate({");
+    expect(stock).not.toContain("correctMovement.mutate({");
+    expect(transfer).toContain('kind: "inventory_stock_transfer", payload');
+    expect(transfer).toContain('transfer.mutateAsync({ ...payload, operationKey })');
+    expect(transfer).not.toContain("function operationKey()");
+    expect(transfer).not.toContain("transfer.mutate({");
+  });
 });
