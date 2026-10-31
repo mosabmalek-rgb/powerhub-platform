@@ -324,24 +324,24 @@ begin
     perform public.powerhub_validate_package_code(v_subscription.package_code);
     perform public.powerhub_validate_package_code(v_request.requested_package_code);
 
-    select ordinality
+    select pkg.ordinality
       into v_current_rank
     from public.platform_settings ps
-    cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality pkg
+    cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality as pkg(value, ordinality)
     where ps.setting_key='subscription_package_catalog'
       and ps.is_enabled=true
-      and lower(trim(pkg->>'code'))=lower(trim(v_subscription.package_code))
-      and coalesce((pkg->>'active')::boolean,true)=true
+      and lower(trim(pkg.value->>'code'))=lower(trim(v_subscription.package_code))
+      and coalesce((pkg.value->>'active')::boolean,true)=true
     limit 1;
 
-    select ordinality
+    select pkg.ordinality
       into v_requested_rank
     from public.platform_settings ps
-    cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality pkg
+    cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality as pkg(value, ordinality)
     where ps.setting_key='subscription_package_catalog'
       and ps.is_enabled=true
-      and lower(trim(pkg->>'code'))=lower(trim(v_request.requested_package_code))
-      and coalesce((pkg->>'active')::boolean,true)=true
+      and lower(trim(pkg.value->>'code'))=lower(trim(v_request.requested_package_code))
+      and coalesce((pkg.value->>'active')::boolean,true)=true
     limit 1;
 
     if v_requested_rank is null or v_current_rank is null or v_requested_rank<=v_current_rank then
@@ -462,22 +462,22 @@ begin
     raise exception 'SITE_NOT_FOUND' using errcode = 'P0002';
   end if;
 
-  select ordinality into v_current_rank
+  select pkg.ordinality into v_current_rank
   from public.platform_settings ps
-  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality pkg
+  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality as pkg(value, ordinality)
   where ps.setting_key='subscription_package_catalog'
     and ps.is_enabled=true
-    and lower(trim(pkg->>'code'))=lower(trim(v_subscription.package_code))
-    and coalesce((pkg->>'active')::boolean,true)=true
+    and lower(trim(pkg.value->>'code'))=lower(trim(v_subscription.package_code))
+    and coalesce((pkg.value->>'active')::boolean,true)=true
   limit 1;
 
-  select ordinality into v_requested_rank
+  select pkg.ordinality into v_requested_rank
   from public.platform_settings ps
-  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality pkg
+  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality as pkg(value, ordinality)
   where ps.setting_key='subscription_package_catalog'
     and ps.is_enabled=true
-    and lower(trim(pkg->>'code'))=lower(trim(p_package_code))
-    and coalesce((pkg->>'active')::boolean,true)=true
+    and lower(trim(pkg.value->>'code'))=lower(trim(p_package_code))
+    and coalesce((pkg.value->>'active')::boolean,true)=true
   limit 1;
 
   if v_current_rank is null then
@@ -595,24 +595,24 @@ begin
     raise exception 'SITE_NOT_FOUND' using errcode='P0002';
   end if;
 
-  select ordinality
+  select pkg.ordinality
     into v_current_rank
   from public.platform_settings ps
-  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality pkg
+  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality as pkg(value, ordinality)
   where ps.setting_key='subscription_package_catalog'
     and ps.is_enabled=true
-    and lower(trim(pkg->>'code'))=lower(trim(v_subscription.package_code))
-    and coalesce((pkg->>'active')::boolean,true)=true
+    and lower(trim(pkg.value->>'code'))=lower(trim(v_subscription.package_code))
+    and coalesce((pkg.value->>'active')::boolean,true)=true
   limit 1;
 
-  select ordinality
+  select pkg.ordinality
     into v_requested_rank
   from public.platform_settings ps
-  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality pkg
+  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality as pkg(value, ordinality)
   where ps.setting_key='subscription_package_catalog'
     and ps.is_enabled=true
-    and lower(trim(pkg->>'code'))=lower(trim(v_package_code))
-    and coalesce((pkg->>'active')::boolean,true)=true
+    and lower(trim(pkg.value->>'code'))=lower(trim(v_package_code))
+    and coalesce((pkg.value->>'active')::boolean,true)=true
   limit 1;
 
   if v_current_rank is null then
@@ -906,22 +906,22 @@ begin
     raise exception 'TENANT_PACKAGE_NOT_FOUND' using errcode='P0001';
   end if;
 
-  select ordinality into v_current_order
+  select pkg.ordinality into v_current_order
   from public.platform_settings ps
-  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality pkg
+  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality as pkg(value, ordinality)
   where ps.setting_key='subscription_package_catalog'
     and ps.is_enabled=true
-    and lower(trim(pkg->>'code'))=lower(trim(v_current_package))
-    and coalesce((pkg->>'active')::boolean,true)=true
+    and lower(trim(pkg.value->>'code'))=lower(trim(v_current_package))
+    and coalesce((pkg.value->>'active')::boolean,true)=true
   limit 1;
 
-  select ordinality into v_order
+  select pkg.ordinality into v_order
   from public.platform_settings ps
-  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality pkg
+  cross join lateral jsonb_array_elements(coalesce(ps.value->'packages','[]'::jsonb)) with ordinality as pkg(value, ordinality)
   where ps.setting_key='subscription_package_catalog'
     and ps.is_enabled=true
-    and lower(trim(pkg->>'code'))=lower(trim(v_requested_package))
-    and coalesce((pkg->>'active')::boolean,true)=true
+    and lower(trim(pkg.value->>'code'))=lower(trim(v_requested_package))
+    and coalesce((pkg.value->>'active')::boolean,true)=true
   limit 1;
 
   if v_order <= v_current_order then
