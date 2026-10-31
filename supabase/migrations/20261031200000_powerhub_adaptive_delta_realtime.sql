@@ -10,6 +10,7 @@ BEGIN
      OR to_regclass('public.tenant_members') IS NULL
      OR to_regclass('public.users') IS NULL
      OR to_regclass('public.staff_profiles') IS NULL
+     OR to_regclass('public.tenant_subscriptions') IS NULL
      OR to_regclass('realtime.messages') IS NULL
      OR to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL
      OR to_regprocedure('private.powerhub_current_user_id()') IS NULL
@@ -26,6 +27,15 @@ BEGIN
   IF has_table_privilege('anon','public.powerhub_sync_scope_state','SELECT')
      OR has_table_privilege('authenticated','public.powerhub_sync_scope_state','SELECT') THEN
     RAISE EXCEPTION 'POWERHUB_SYNC_SCOPE_STATE_MUST_REMAIN_SERVER_ONLY';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='tenant_subscriptions'
+      AND column_name IN ('status','ends_at','read_only_until')
+    GROUP BY table_schema,table_name
+    HAVING count(*)=3
+  ) THEN
+    RAISE EXCEPTION 'POWERHUB_TENANT_SUBSCRIPTION_RETENTION_SCHEMA_MISSING';
   END IF;
   IF NOT has_table_privilege('authenticated','realtime.messages','SELECT') THEN
     RAISE EXCEPTION 'POWERHUB_REALTIME_MESSAGES_SELECT_GRANT_MISSING';
@@ -129,6 +139,25 @@ BEGIN
               AND now() < selected_profile.suspension_ends_at
             )
           )
+        )
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM (
+          SELECT ts.status, ts.ends_at, ts.read_only_until
+          FROM public.tenant_subscriptions ts
+          WHERE ts.tenant_id = p_tenant_id
+          ORDER BY ts.ends_at DESC NULLS LAST
+          LIMIT 1
+        ) current_subscription
+        WHERE (
+          current_subscription.status IN ('trial','active')
+          AND current_subscription.ends_at IS NOT NULL
+          AND current_subscription.ends_at > now()
+        ) OR (
+          current_subscription.status = 'cancelled'
+          AND current_subscription.read_only_until IS NOT NULL
+          AND current_subscription.read_only_until > now()
         )
       )
   );
