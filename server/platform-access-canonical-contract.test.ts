@@ -52,7 +52,8 @@ describe("platform access Supabase canonical contract", () => {
     expect(source).toContain("globalThis.crypto.randomUUID()");
     expect(source).toContain("pendingOperation.current.clientOperationId");
     expect(source).toContain("utils.admin.platformSnapshot.invalidate()");
-    expect(source).toContain("لا يرسل هذا الإجراء رسالة بريد إلكتروني تلقائيًا");
+    expect(source).toContain("لا ينشئ حساب مصادقة ولا يرسل بريدًا إلكترونيًا");
+    expect(source).toContain("البريد مسجّلًا مسبقًا في PowerHub / Supabase Auth");
     expect(page).toContain("<TenantAccessInvitationPanel");
     expect(page).toContain('row.kind === "tenant" && row.invitationStatus === "invited"');
   });
