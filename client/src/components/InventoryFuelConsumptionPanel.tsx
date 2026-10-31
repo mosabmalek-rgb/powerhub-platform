@@ -72,11 +72,6 @@ function todayLocalDate() {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 }
-function operationKey(prefix: string) {
-  const random = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `${prefix}:${random}`;
-}
 function qty(value: number | string | null | undefined) {
   const amount = Number(value);
   return value == null || !Number.isFinite(amount) ? "—" : new Intl.NumberFormat("ar-PS", { maximumFractionDigits: 3 }).format(amount);
