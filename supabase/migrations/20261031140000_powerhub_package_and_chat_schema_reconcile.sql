@@ -977,11 +977,11 @@ begin
     raise exception 'SUBSCRIBER_LIMIT_NOT_REACHED' using errcode='P0001';
   end if;
 
-  select id,requested_package_code
+  select r.id,r.requested_package_code
     into v_existing_id,v_existing_package
-  from public.subscription_upgrade_requests
-  where tenant_id=p_tenant_id
-    and status in ('pending','reviewing')
+  from public.subscription_upgrade_requests r
+  where r.tenant_id=p_tenant_id
+    and r.status in ('pending','reviewing')
   order by created_at desc
   limit 1
   for share;
