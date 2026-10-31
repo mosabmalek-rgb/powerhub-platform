@@ -56,6 +56,7 @@ declare
   v_reopen record;
   v_reopen_replay record;
   v_reopened_order_id bigint;
+  v_recurring_order record;
   v_source_snapshot jsonb;
   v_foreign_generator_id bigint;
   v_foreign_item_id bigint;
@@ -369,6 +370,23 @@ begin
       where tenant_id=10 and site_id=100 and work_order_id=v_reopened_order_id)<>0
      or (select parts_cost from public.generator_maintenance_work_orders where id=v_reopened_order_id)<>0 then
     raise exception 'MAINTENANCE_REOPEN_DUPLICATED_PARTS_OR_COST';
+  end if;
+
+  -- A later recurrence of the same breakdown is a new auditable work-order cycle.
+  -- It must not reopen or overwrite the completed source order or inherit old parts/costs.
+  select * into v_recurring_order from public.powerhub_maintenance_create_work_order(
+    10,100,1,10000,null,'breakdown','high','Phase C test repair','Recurring breakdown after completed repair',
+    '2026-10-24T12:00:00Z',null,null,'maint-test-recurring-breakdown-c-01'
+  );
+  if v_recurring_order.replayed or v_recurring_order.work_order_id in (v_order.work_order_id,v_reopened_order_id)
+     or v_recurring_order.status<>'new' then
+    raise exception 'MAINTENANCE_RECURRING_BREAKDOWN_NOT_NEW_CYCLE';
+  end if;
+  if (select status from public.generator_maintenance_work_orders where id=v_order.work_order_id)<>'completed'
+     or (select count(*) from public.generator_maintenance_work_order_parts
+         where tenant_id=10 and site_id=100 and work_order_id=v_recurring_order.work_order_id)<>0
+     or (select parts_cost from public.generator_maintenance_work_orders where id=v_recurring_order.work_order_id)<>0 then
+    raise exception 'MAINTENANCE_RECURRING_BREAKDOWN_MUTATED_OR_INHERITED_HISTORY';
   end if;
   begin
     perform * from public.powerhub_maintenance_reopen_completed_work_order(
