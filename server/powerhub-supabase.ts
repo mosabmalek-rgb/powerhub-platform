@@ -473,11 +473,11 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       paymentHasMore: recentPayments.length > 20,
       readingHasMore: recentReadings.length > 20,
       invoiceNextCursor: recentInvoices.length > 20 && recentInvoices[19]
-        ? encodeHistoryCursor({ at: new Date(recentInvoices[19].issue_date).toISOString(), id: Number(recentInvoices[19].id) }) : null,
+        ? encodeHistoryCursor({ at: String(recentInvoices[19].issue_date), id: Number(recentInvoices[19].id) }) : null,
       paymentNextCursor: recentPayments.length > 20 && recentPayments[19]
-        ? encodeHistoryCursor({ at: new Date(recentPayments[19].paid_at).toISOString(), id: Number(recentPayments[19].id) }) : null,
+        ? encodeHistoryCursor({ at: String(recentPayments[19].paid_at), id: Number(recentPayments[19].id) }) : null,
       readingNextCursor: recentReadings.length > 20 && recentReadings[19]
-        ? encodeHistoryCursor({ at: new Date(recentReadings[19].reading_at).toISOString(), id: Number(recentReadings[19].id) }) : null,
+        ? encodeHistoryCursor({ at: String(recentReadings[19].reading_at), id: Number(recentReadings[19].id) }) : null,
       visiblePerSection: 20,
     },
     invoices: recentInvoices.slice(0, 20).map((row) => ({
