@@ -14,8 +14,8 @@ describe("reload-safe fuel and maintenance idempotency contracts", () => {
     expect(idempotency).toContain("STABLE_OPERATION_KEY_TTL_MS = 30 * 24 * 60 * 60 * 1000");
     expect(idempotency).toContain('database.transaction(STORE_NAME, "readwrite")');
     expect(idempotency).toContain('store.createIndex("byOperationKey", "operationKey"');
-    expect(idempotency).toContain("crypto.subtle.digest(\\"SHA-256\\", bytes)");
-    expect(idempotency).toContain("const key = [scope.userId, scope.siteId, scope.kind.trim(), fingerprint].join(\\":\\")");
+    expect(idempotency).toContain('crypto.subtle.digest("SHA-256", bytes)');
+    expect(idempotency).toContain('const key = [scope.userId, scope.siteId, scope.kind.trim(), fingerprint].join(":")');
     expect(idempotency).toContain("export async function runWithStableOperationKey");
     expect(idempotency).toContain("await clearStableOperationKey(operationKey).catch(() => undefined)");
     expect(idempotency).not.toContain("payload: scope.payload");
@@ -23,7 +23,7 @@ describe("reload-safe fuel and maintenance idempotency contracts", () => {
 
   it("uses persisted keys for connected and offline fuel intents and retains them until server replay succeeds", () => {
     expect(fuel).toContain('kind: "fuel_fill", payload');
-    expect(fuel).toContain('clientOperationId, payload');
+    expect(fuel).toContain("clientOperationId, payload");
     expect(fuel).toContain('kind: "fuel_reading", payload');
     expect(fuel).toContain('kind: "fuel_alert_settings", payload');
     expect(fuel).not.toContain("fillKey");
@@ -48,7 +48,7 @@ describe("reload-safe fuel and maintenance idempotency contracts", () => {
     ]) {
       expect(maintenance).toContain(kind);
     }
-    expect(maintenance).toContain("operationKey.replace(/-/g, \\"\\").slice(0, 8).toUpperCase()");
+    expect(maintenance).toContain('operationKey.replace(/-/g, "").slice(0, 8).toUpperCase()');
     expect(maintenance).not.toContain("operationKey(");
     expect(maintenance).toContain("transition.mutateAsync");
     expect(maintenance).toContain("reopenCompleted.mutateAsync");
