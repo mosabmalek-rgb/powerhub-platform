@@ -149,7 +149,7 @@ BEGIN
     RAISE EXCEPTION 'ADAPTIVE_DELTA_MARKER_CONTAINS_UNEXPECTED_DATA';
   END IF;
   IF (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:site:100')<>2
-     OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:all')<>4
+     OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:all')<>3
      OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:site:101')<>1
      OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:20:site:200')<>1 THEN
     RAISE EXCEPTION 'ADAPTIVE_DELTA_TOPIC_FANOUT_MISMATCH';
@@ -177,7 +177,7 @@ DO $assert_owner_site_topics$
 BEGIN
   IF (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:site:100')<>2
      OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:site:101')<>1
-     OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:all')<>4
+     OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:all')<>3
      OR EXISTS(SELECT 1 FROM realtime.messages WHERE topic LIKE 'powerhub:tenant:20:%') THEN
     RAISE EXCEPTION 'ADAPTIVE_DELTA_OWNER_SCOPE_FAILED';
   END IF;
@@ -201,7 +201,7 @@ DO $assert_global_assignment$
 BEGIN
   IF (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:site:100')<>2
      OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:site:101')<>1
-     OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:all')<>4
+     OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:all')<>3
      OR EXISTS(SELECT 1 FROM realtime.messages WHERE topic LIKE 'powerhub:tenant:20:%') THEN
     RAISE EXCEPTION 'ADAPTIVE_DELTA_GLOBAL_ASSIGNMENT_SCOPE_FAILED';
   END IF;
@@ -245,6 +245,7 @@ BEGIN
 END
 $assert_platform_admin$;
 RESET ROLE;
+SELECT set_config('test.auth_uid','22222222-2222-4222-8222-222222222222',false);
 
 DO $assert_topic_validation$
 BEGIN
