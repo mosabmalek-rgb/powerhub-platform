@@ -77,11 +77,12 @@ export default function ReportsPage() {
   const canUseAllBranches = accessQuery.data?.isGlobal === true && (sitesQuery.data?.length ?? 0) > 1;
   const canCompareBranches = canUseAllBranches;
   const canManageBranding = roleQuery.data?.role === "owner";
+  const canReadFinancialReport = ["owner", "manager", "accountant", "viewer"].includes(roleQuery.data?.role ?? "");
   const baseEnabled = Boolean(branchId && isAuthenticated && startDate <= endDate);
   const reportRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
     { siteId: branchId ?? 0, scope },
     {
-      enabled: Boolean(baseEnabled && (scope !== "all" || canUseAllBranches)),
+      enabled: Boolean(baseEnabled && canReadFinancialReport && (scope !== "all" || canUseAllBranches)),
       staleTime: 0,
       refetchInterval: 30_000,
       refetchOnReconnect: true,
