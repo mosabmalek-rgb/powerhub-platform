@@ -11,7 +11,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation, useRoute } from "wouter";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { ArrowRight, Download, FileBarChart2, FileSpreadsheet, Gauge, Loader2, ReceiptText, WalletCards, ExternalLink, CreditCard, GaugeCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const statusLabels: Record<string,string>={issued:"مستحقة",partially_paid:"مدفوعة جزئياً",paid:"مدفوعة بالكامل",overdue:"متأخرة",draft:"مسودة",pending_review:"بانتظار المراجعة",approved:"معتمدة",rejected:"مرفوضة"};
@@ -37,7 +37,7 @@ export default function SubscriberAccountStatementPage(){
  const invoicePage=trpc.powerhub.subscribers.accountStatementHistoryPage.useQuery({siteId,subscriberId,section:"invoices",cursor:invoiceCursor,limit:20},{enabled:Boolean(loadInvoicePage&&invoiceCursor&&statementIsAuthoritative),retry:false});
  const paymentPage=trpc.powerhub.subscribers.accountStatementHistoryPage.useQuery({siteId,subscriberId,section:"payments",cursor:paymentCursor,limit:20},{enabled:Boolean(loadPaymentPage&&paymentCursor&&statementIsAuthoritative),retry:false});
  const readingPage=trpc.powerhub.subscribers.accountStatementHistoryPage.useQuery({siteId,subscriberId,section:"readings",cursor:readingCursor,limit:20},{enabled:Boolean(loadReadingPage&&readingCursor&&statementIsAuthoritative),retry:false});
- const mergeById=<T extends {id:number}>(current:T[],incoming:T[])=>{const merged=new Map(current.map(row=>[row.id,row]));incoming.forEach(row=>merged.set(row.id,row));return Array.from(merged.values());};
+ const mergeById=<T extends {id:number},>(current:T[],incoming:T[])=>{const merged=new Map(current.map(row=>[row.id,row]));incoming.forEach(row=>merged.set(row.id,row));return Array.from(merged.values());};
  useEffect(()=>{if(!data)return;setAllInvoices(data.invoices);setAllPayments(data.payments);setAllReadings(data.readings);setInvoiceCursor(data.limits.invoiceNextCursor??undefined);setPaymentCursor(data.limits.paymentNextCursor??undefined);setReadingCursor(data.limits.readingNextCursor??undefined);},[data]);
  useEffect(()=>{if(!loadInvoicePage||invoicePage.isFetching||!invoicePage.data)return;setAllInvoices(current=>mergeById(current,invoicePage.data.items as StatementData["invoices"]));setInvoiceCursor(invoicePage.data.nextCursor??undefined);setLoadInvoicePage(false);},[loadInvoicePage,invoicePage.data,invoicePage.isFetching]);
  useEffect(()=>{if(!loadPaymentPage||paymentPage.isFetching||!paymentPage.data)return;setAllPayments(current=>mergeById(current,paymentPage.data.items as StatementData["payments"]));setPaymentCursor(paymentPage.data.nextCursor??undefined);setLoadPaymentPage(false);},[loadPaymentPage,paymentPage.data,paymentPage.isFetching]);
