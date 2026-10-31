@@ -28,7 +28,24 @@ export async function inviteTenantAccess(input: InviteTenantAccessInput) {
     expiresInHours: input.expiresInHours,
   })).digest("hex");
 
-  const { data, error } = await supabaseAdmin().rpc("powerhub_admin_invite_tenant_access", {
+  const admin = supabaseAdmin();
+  const { data: existingUser, error: userLookupError } = await admin
+    .from("users")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (userLookupError) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حساب المستخدم في PowerHub." });
+  }
+  if (!existingUser) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "لا يوجد حساب PowerHub مسجل بهذا البريد. أنشئ حساب الدخول أولاً، ثم امنحه الوصول إلى المساحة.",
+    });
+  }
+
+  const { data, error } = await admin.rpc("powerhub_admin_invite_tenant_access", {
     p_actor_user_id: input.actorUserId,
     p_tenant_id: input.tenantId,
     p_site_id: input.siteId ?? null,
