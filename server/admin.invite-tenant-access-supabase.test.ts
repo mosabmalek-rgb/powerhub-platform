@@ -1,12 +1,18 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rpc: vi.fn(),
+  lookup: vi.fn(),
   getDb: vi.fn(async () => { throw new Error("MySQL must not be called"); }),
 }));
 
-vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => ({ rpc: state.rpc }) }));
+vi.mock("./supabase-admin", () => ({
+  supabaseAdmin: () => ({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: state.lookup }) }) }),
+    rpc: state.rpc,
+  }),
+}));
 vi.mock("./db", () => ({ getDb: state.getDb }));
 
 import { inviteTenantAccess } from "./invite-tenant-access-supabase";
@@ -24,7 +30,25 @@ const baseInput = {
   clientOperationId: "c0e9a8e5-fbfb-4b4d-bacf-df191ac220d1",
 };
 
+beforeEach(() => {
+  state.lookup.mockResolvedValue({ data: { id: 91 }, error: null });
+});
+afterEach(() => vi.clearAllMocks());
+
 describe("inviteTenantAccess Supabase adapter", () => {
+  it("requires an existing PowerHub auth profile before creating the invitation", async () => {
+    state.lookup.mockResolvedValue({ data: null, error: null });
+
+    await expect(inviteTenantAccess(baseInput)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the existing account lookup cannot be completed", async () => {
+    state.lookup.mockResolvedValue({ data: null, error: { message: "profile lookup unavailable" } });
+
+    await expect(inviteTenantAccess(baseInput)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
   it("sends the normalized idempotency envelope through the server-only RPC", async () => {
     state.rpc.mockResolvedValue({
       data: [{ invitation_id: 41, email: "staff@example.test", expires_at: "2026-09-15T10:00:00.000Z", status: "invited", replayed: false }],
