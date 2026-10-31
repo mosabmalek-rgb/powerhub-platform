@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
+import { runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
@@ -41,7 +42,6 @@ const orderTypeLabels: Record<OrderType, string> = { breakdown: "عطل", preven
 const alertLabels: Record<string, string> = { due_soon: "اقترب الاستحقاق", overdue: "متأخرة", resolved: "تمت المعالجة" };
 const money = (value: unknown) => new Intl.NumberFormat("ar-PS", { style: "currency", currency: "ILS", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0));
 const openStatuses: OrderStatus[] = ["new", "scheduled", "in_progress", "waiting_for_parts"];
-const operationKey = (prefix: string) => prefix + "-" + crypto.randomUUID();
 const localDateInput = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const csvCell = (value: unknown) => {
   let s = String(value ?? "");
@@ -177,7 +177,6 @@ export default function InventoryMaintenancePanel({
 
   const create = trpc.powerhub.maintenance.createWorkOrder.useMutation({
     onSuccess: async () => { toast.success("تم إنشاء أمر الصيانة."); setTitle(""); setDescription(""); setGeneratorId(""); setPreventivePlanId(""); setPriority("normal"); setOrderType("breakdown"); await Promise.all([utils.powerhub.maintenance.listWorkOrders.invalidate(), utils.powerhub.maintenance.listPreventivePlans.invalidate()]); },
-    onError: (error) => toast.error(error.message || "تعذر إنشاء أمر الصيانة."),
   });
   const assignSupplier = trpc.powerhub.maintenance.assignSupplier.useMutation({
     onSuccess: async (_result, variables) => {
@@ -185,7 +184,6 @@ export default function InventoryMaintenancePanel({
       toast.success("تم تحديث المورد المسند إلى أمر الصيانة.");
       await utils.powerhub.maintenance.listWorkOrders.invalidate();
     },
-    onError: (error) => toast.error(error.message || "تعذر إسناد المورد إلى أمر الصيانة."),
   });
   const reopenCompleted = trpc.powerhub.maintenance.reopenCompletedWorkOrder.useMutation({
     onSuccess: async (result) => {
@@ -193,19 +191,15 @@ export default function InventoryMaintenancePanel({
       toast.success(replayed ? "تم استرجاع دورة المتابعة السابقة." : "تم إنشاء أمر متابعة جديد مرتبط بالإغلاق السابق.");
       await Promise.all([utils.powerhub.maintenance.listWorkOrders.invalidate(), utils.powerhub.maintenance.listPreventivePlans.invalidate()]);
     },
-    onError: (error) => toast.error(error.message || "تعذر إنشاء دورة متابعة للصيانة."),
   });
   const transition = trpc.powerhub.maintenance.transitionWorkOrder.useMutation({
     onSuccess: async () => { toast.success("تم تحديث حالة أمر الصيانة."); await Promise.all([utils.powerhub.maintenance.listWorkOrders.invalidate(), utils.powerhub.maintenance.listPreventivePlans.invalidate(), utils.powerhub.maintenance.listParts.invalidate()]); },
-    onError: (error) => toast.error(error.message || "تعذر تحديث حالة أمر الصيانة."),
   });
   const createPlan = trpc.powerhub.maintenance.createPreventivePlan.useMutation({
     onSuccess: async () => { toast.success("تم إنشاء خطة الصيانة الوقائية."); setPlanTitle(""); setPlanDescription(""); setIntervalDays("30"); setIntervalHours(""); setNextDueHours(""); setNextDueDate(new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)); await utils.powerhub.maintenance.listPreventivePlans.invalidate(); },
-    onError: (error) => toast.error(error.message || "تعذر إنشاء خطة الصيانة الوقائية."),
   });
   const addPart = trpc.powerhub.maintenance.addPart.useMutation({
     onSuccess: async () => { toast.success("تم صرف الصنف وربط حركته بأمر الصيانة."); setPartQuantity("1"); setPartNotes(""); await Promise.all([utils.powerhub.maintenance.listParts.invalidate(), utils.powerhub.maintenance.listWorkOrders.invalidate(), utils.powerhub.inventory.stockOverview.invalidate(), utils.powerhub.inventory.listStockMovements.invalidate()]); },
-    onError: (error) => toast.error(error.message || "تعذر صرف الصنف؛ تحقق من الرصيد والمخزن والصلاحيات."),
   });
   useEffect(() => {
     if (ordersAuthorizationDenied) return;
@@ -222,7 +216,10 @@ export default function InventoryMaintenancePanel({
     if (title.trim().length < 3) { toast.error("اكتب وصفًا مختصرًا واضحًا للعطل أو العمل."); return; }
     if (orderType === "preventive" && plansAuthorizationDenied) { toast.error("رفض الخادم الوصول إلى الخطط الوقائية؛ لم يُرسل أمر مرتبط بخطة قديمة."); return; }
     if (orderType === "preventive" && (!preventivePlanId || !safePlans.some((plan) => plan.plan_id === Number(preventivePlanId) && plan.generator_id === generator))) { toast.error("اختر خطة وقائية محمّلة ومطابقة للمولد المحدد."); return; }
-    create.mutate({ siteId, generatorId: generator, orderType, priority, title: title.trim(), description: description.trim() || undefined, preventivePlanId: orderType === "preventive" ? Number(preventivePlanId) : undefined, operationKey: operationKey("maint-create") });
+    const payload = { siteId, generatorId: generator, orderType, priority, title: title.trim(), description: description.trim() || undefined, preventivePlanId: orderType === "preventive" ? Number(preventivePlanId) : undefined };
+    void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_work_order_create", payload },
+      (operationKey) => create.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر إنشاء أمر الصيانة."));
   };
   const submitPlan = () => {
     const generator = Number(planGeneratorId), days = intervalDays.trim() ? Number(intervalDays) : undefined, hours = intervalHours.trim() ? Number(intervalHours) : undefined, dueHours = nextDueHours.trim() ? Number(nextDueHours) : undefined;
@@ -232,7 +229,21 @@ export default function InventoryMaintenancePanel({
     if ((!days || days <= 0) && (!hours || hours <= 0)) { toast.error("حدد فترة بالأيام أو بساعات التشغيل على الأقل."); return; }
     if (days && (!nextDueDate || !Number.isFinite(new Date(nextDueDate + "T12:00:00").getTime()))) { toast.error("حدد تاريخ الاستحقاق القادم."); return; }
     if (hours && (dueHours === undefined || !Number.isFinite(dueHours) || dueHours < 0)) { toast.error("حدد ساعات التشغيل عند الاستحقاق القادم."); return; }
-    createPlan.mutate({ siteId, generatorId: generator, planCode: "PM-" + generator + "-" + crypto.randomUUID().slice(0, 8).toUpperCase(), title: planTitle.trim(), description: planDescription.trim() || undefined, intervalDays: days && days > 0 ? days : undefined, intervalOperatingHours: hours && hours > 0 ? hours : undefined, nextDueAt: days && days > 0 ? new Date(nextDueDate + "T12:00:00").toISOString() : undefined, nextDueOperatingHours: hours && hours > 0 ? dueHours : undefined, dueSoonDays: 7, dueSoonHours: 10, operationKey: operationKey("maint-plan") });
+    const payload = {
+      siteId, generatorId: generator, title: planTitle.trim(), description: planDescription.trim() || undefined,
+      intervalDays: days && days > 0 ? days : undefined,
+      intervalOperatingHours: hours && hours > 0 ? hours : undefined,
+      nextDueAt: days && days > 0 ? new Date(nextDueDate + "T12:00:00").toISOString() : undefined,
+      nextDueOperatingHours: hours && hours > 0 ? dueHours : undefined,
+      dueSoonDays: 7, dueSoonHours: 10,
+    };
+    void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_preventive_plan", payload },
+      (operationKey) => createPlan.mutateAsync({
+        ...payload,
+        planCode: "PM-" + generator + "-" + operationKey.replace(/-/g, "").slice(0, 8).toUpperCase(),
+        operationKey,
+      }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر إنشاء خطة الصيانة الوقائية."));
   };
   const submitPart = () => {
     const workOrder = Number(selectedPartsOrderId), item = Number(partItemId), warehouse = Number(partWarehouseId), quantity = Number(partQuantity);
@@ -240,10 +251,12 @@ export default function InventoryMaintenancePanel({
     if (itemsAuthorizationDenied || warehousesAuthorizationDenied || !safeItems.some((row) => row.id === item) || !safeWarehouses.some((row) => row.id === warehouse)) { toast.error("تعذر التحقق من الصنف أو المخزن الحالي؛ لم تُرسل حركة صرف."); return; }
     if (!Number.isSafeInteger(item) || item <= 0 || !Number.isSafeInteger(warehouse) || warehouse <= 0) { toast.error("اختر الصنف والمخزن."); return; }
     if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000 || Math.round(quantity * 1000) !== quantity * 1000) { toast.error("أدخل كمية موجبة حتى ثلاث منازل عشرية."); return; }
-    addPart.mutate({ siteId, workOrderId: workOrder, itemId: item, warehouseId: warehouse, quantity, notes: partNotes.trim() || undefined, operationKey: operationKey("maint-part") });
+    const payload = { siteId, workOrderId: workOrder, itemId: item, warehouseId: warehouse, quantity, notes: partNotes.trim() || undefined };
+    void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_part_issue", payload },
+      (operationKey) => addPart.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر صرف قطعة الغيار."));
   };
   const doTransition = (order: NonNullable<typeof orders.data>[number], action: "start" | "wait_for_parts" | "complete" | "cancel" | "correct_completion") => {
-    const requestKey = operationKey("maint-" + action + "-" + order.work_order_id);
     if (action === "complete") {
       const summary = window.prompt("اكتب ملخص الأعمال المنفذة (مطلوب):")?.trim();
       if (!summary) { toast.error("يلزم ملخص الإغلاق."); return; }
@@ -266,7 +279,10 @@ export default function InventoryMaintenancePanel({
       }
       const downtime = window.prompt("مدة التوقف بالدقائق (اختياري):")?.trim(), downtimeMinutes = downtime ? Number(downtime) : undefined;
       if (downtime && (!Number.isSafeInteger(downtimeMinutes) || Number(downtimeMinutes) < 0 || Number(downtimeMinutes) > 525600)) { toast.error("مدة التوقف يجب أن تكون عدد دقائق صحيحًا."); return; }
-      transition.mutate({ siteId, workOrderId: order.work_order_id, action, workSummary: summary, meterHoursClose, downtimeMinutes, laborCost, externalServiceCost, operationKey: requestKey });
+      const payload = { siteId, workOrderId: order.work_order_id, action, workSummary: summary, meterHoursClose, downtimeMinutes, laborCost, externalServiceCost };
+      void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_transition_" + action, payload },
+        (operationKey) => transition.mutateAsync({ ...payload, operationKey }))
+        .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تحديث حالة أمر الصيانة."));
     } else if (action === "correct_completion") {
       const reason = window.prompt("سبب تصحيح الإغلاق (مطلوب للتدقيق):")?.trim();
       if (!reason || reason.length < 3) { toast.error("أدخل سببًا واضحًا لتصحيح الإغلاق."); return; }
@@ -283,11 +299,22 @@ export default function InventoryMaintenancePanel({
       const laborCost = laborInput.trim() ? Number(laborInput.trim()) : undefined;
       const externalServiceCost = serviceInput.trim() ? Number(serviceInput.trim()) : undefined;
       if ([laborCost, externalServiceCost].some((value) => value !== undefined && (!Number.isFinite(value) || value < 0 || value > 1_000_000_000 || Math.round(value * 100) !== value * 100))) { toast.error("التكاليف يجب أن تكون بصفر أو موجبة وبحد أقصى منزلتين عشريتين."); return; }
-      transition.mutate({ siteId, workOrderId: order.work_order_id, action, reason, workSummary: summary, downtimeMinutes, laborCost, externalServiceCost, operationKey: requestKey });
+      const payload = { siteId, workOrderId: order.work_order_id, action, reason, workSummary: summary, downtimeMinutes, laborCost, externalServiceCost };
+      void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_transition_" + action, payload },
+        (operationKey) => transition.mutateAsync({ ...payload, operationKey }))
+        .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تصحيح إغلاق أمر الصيانة."));
     } else if (action === "cancel") {
       const reason = window.prompt("سبب الإلغاء (مطلوب):")?.trim(); if (!reason || reason.length < 3) { toast.error("أدخل سببًا واضحًا للإلغاء."); return; }
-      transition.mutate({ siteId, workOrderId: order.work_order_id, action, reason, operationKey: requestKey });
-    } else transition.mutate({ siteId, workOrderId: order.work_order_id, action, operationKey: requestKey });
+      const payload = { siteId, workOrderId: order.work_order_id, action, reason };
+      void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_transition_" + action, payload },
+        (operationKey) => transition.mutateAsync({ ...payload, operationKey }))
+        .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر إلغاء أمر الصيانة."));
+    } else {
+      const payload = { siteId, workOrderId: order.work_order_id, action };
+      void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_transition_" + action, payload },
+        (operationKey) => transition.mutateAsync({ ...payload, operationKey }))
+        .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تحديث حالة أمر الصيانة."));
+    }
   };
 
   if (!canViewMaintenance) return <Card><CardContent className="p-6 text-sm text-muted-foreground">لا تملك صلاحية عرض بيانات الصيانة لهذا الفرع.</CardContent></Card>;
@@ -523,7 +550,7 @@ export default function InventoryMaintenancePanel({
     <Card><CardHeader><div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5" /> أوامر الصيانة وسجل الأعطال</CardTitle><div className="flex gap-2"><select aria-label="تصفية المولد" className="h-9 rounded-md border bg-background px-2 text-sm" value={orderGeneratorFilter} onChange={(e) => setOrderGeneratorFilter(e.target.value)}><option value="">كل المولدات</option>{safeGenerators.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select><select aria-label="تصفية حالة أمر الصيانة" className="h-9 rounded-md border bg-background px-2 text-sm" value={filter} onChange={(e) => setFilter(e.target.value as OrderStatus | "")}><option value="">كل الحالات</option>{Object.entries(statusLabels).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select><Button variant="outline" size="icon" onClick={() => orders.refetch()} aria-label="تحديث القائمة"><RefreshCw className="h-4 w-4" /></Button></div></div></CardHeader><CardContent>
       {orders.error && orders.data && !ordersAuthorizationDenied ? <p role="status" className="mb-3 text-xs text-amber-700">تعذر تحديث قائمة أوامر الصيانة؛ تُعرض آخر نسخة تم تحميلها لهذا الفرع.</p> : null}
       {ordersAuthorizationDenied ? <p role="alert" className="py-8 text-center text-destructive">رفض الخادم صلاحية الوصول إلى أوامر الصيانة؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : orders.isLoading && !orders.data ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل أوامر الصيانة…</p> : orders.error && !orders.data ? <p role="alert" className="py-8 text-center text-destructive">تعذر تحميل السجل. تحقق من الصلاحيات ومخطط قاعدة البيانات.</p> : !visibleOrders.length ? <p className="py-8 text-center text-muted-foreground">لا توجد أوامر صيانة في هذا العرض.</p> :
-      <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[1180px] text-right text-sm"><thead className="bg-muted/60"><tr>{["رقم الأمر","المولد","العطل / العمل","النوع","الأولوية","الحالة", ...(canManageMaintenance ? ["المورد الخارجي"] : []),"تاريخ البلاغ","تكلفة القطع","التكلفة الإجمالية", ...(canManageMaintenance ? ["الإجراءات"] : [])].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{visibleOrders.map((o) => <tr key={o.work_order_id} className="border-t"><td className="p-3 font-mono">{o.work_order_number}</td><td className="p-3">{o.generator_name} <span className="text-muted-foreground">#{o.generator_id}</span></td><td className="max-w-64 p-3"><div className="font-medium">{o.title}</div><div className="line-clamp-2 text-xs text-muted-foreground">{o.description || "—"}</div></td><td className="p-3">{orderTypeLabels[o.order_type] ?? o.order_type}{o.preventive_plan_id ? <div className="text-xs text-muted-foreground">خطة #{o.preventive_plan_id}</div> : null}</td><td className="p-3">{priorityLabels[o.priority] ?? o.priority}</td><td className="p-3">{statusLabels[o.status] ?? o.status}</td>{canManageMaintenance ? (<td className="p-3 min-w-[260px]"><div className="flex items-center gap-2"><select aria-label={`المورد الخارجي لأمر ${o.work_order_number}`} className="h-9 min-w-[145px] rounded-md border bg-background px-2 text-sm" value={supplierAssignmentDrafts[o.work_order_id] ?? String(o.assigned_supplier_id ?? "")} disabled={!openStatuses.includes(o.status) || assignSupplier.isPending || assignableSuppliers.isLoading || assignableSuppliers.isError} onChange={(e) => setSupplierAssignmentDrafts((drafts) => ({ ...drafts, [o.work_order_id]: e.target.value }))}><option value="">بدون مورد خارجي</option>{o.assigned_supplier_id && !safeAssignableSuppliers.some((s) => s.id === o.assigned_supplier_id) ? <option value={String(o.assigned_supplier_id)} disabled>{o.assigned_supplier_name ?? "مورد غير نشط"} (غير نشط)</option> : null}{safeAssignableSuppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.supplier_code ? ` — ${supplier.supplier_code}` : ""}</option>)}</select><Button size="sm" variant="outline" disabled={!openStatuses.includes(o.status) || suppliersAuthorizationDenied || assignSupplier.isPending || (supplierAssignmentDrafts[o.work_order_id] ?? String(o.assigned_supplier_id ?? "")) === String(o.assigned_supplier_id ?? "")} onClick={() => { const selected = supplierAssignmentDrafts[o.work_order_id] ?? String(o.assigned_supplier_id ?? ""); assignSupplier.mutate({ siteId, workOrderId: o.work_order_id, supplierId: selected ? Number(selected) : null, operationKey: operationKey("maint-supplier-" + o.work_order_id) }); }}>حفظ</Button></div>{assignableSuppliers.isError ? <p className="mt-1 text-xs text-destructive">تعذر تحميل الموردين.</p> : null}</td>) : null}<td className="p-3 whitespace-nowrap">{new Date(o.reported_at).toLocaleString("ar-PS")}</td><td className="p-3 whitespace-nowrap">{money(o.parts_cost)}</td><td className="p-3 whitespace-nowrap font-medium">{money(o.total_cost_amount)}</td>{canManageMaintenance ? (<td className="p-3"><div className="flex gap-1">{["new","scheduled","waiting_for_parts"].includes(o.status) ? <Button size="sm" variant="outline" disabled={transition.isPending} onClick={() => doTransition(o,"start")}>بدء</Button> : null}{o.status==="in_progress" ? <><Button size="sm" variant="outline" disabled={transition.isPending} onClick={() => doTransition(o,"wait_for_parts")}>انتظار قطع</Button><Button size="sm" disabled={transition.isPending} onClick={() => doTransition(o,"complete")}>إغلاق</Button></> : null}{o.status==="completed" ? <><Button size="sm" variant="outline" disabled={transition.isPending || reopenCompleted.isPending} onClick={() => doTransition(o,"correct_completion")}>تصحيح الإغلاق</Button><Button size="sm" variant="outline" disabled={transition.isPending || reopenCompleted.isPending} onClick={() => { const reason = window.prompt("سبب فتح دورة متابعة جديدة (مطلوب للتدقيق):")?.trim(); if (!reason || reason.length < 3) { toast.error("أدخل سببًا واضحًا لإعادة الفتح."); return; } reopenCompleted.mutate({ siteId, workOrderId: o.work_order_id, reason, operationKey: operationKey("maint-reopen-" + o.work_order_id) }); }}>فتح متابعة</Button></> : null}{openStatuses.includes(o.status) ? <Button size="sm" variant="ghost" disabled={transition.isPending} onClick={() => doTransition(o,"cancel")}>إلغاء</Button> : null}</div></td>) : null}</tr>)}</tbody></table></div>}
+      <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[1180px] text-right text-sm"><thead className="bg-muted/60"><tr>{["رقم الأمر","المولد","العطل / العمل","النوع","الأولوية","الحالة", ...(canManageMaintenance ? ["المورد الخارجي"] : []),"تاريخ البلاغ","تكلفة القطع","التكلفة الإجمالية", ...(canManageMaintenance ? ["الإجراءات"] : [])].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{visibleOrders.map((o) => <tr key={o.work_order_id} className="border-t"><td className="p-3 font-mono">{o.work_order_number}</td><td className="p-3">{o.generator_name} <span className="text-muted-foreground">#{o.generator_id}</span></td><td className="max-w-64 p-3"><div className="font-medium">{o.title}</div><div className="line-clamp-2 text-xs text-muted-foreground">{o.description || "—"}</div></td><td className="p-3">{orderTypeLabels[o.order_type] ?? o.order_type}{o.preventive_plan_id ? <div className="text-xs text-muted-foreground">خطة #{o.preventive_plan_id}</div> : null}</td><td className="p-3">{priorityLabels[o.priority] ?? o.priority}</td><td className="p-3">{statusLabels[o.status] ?? o.status}</td>{canManageMaintenance ? (<td className="p-3 min-w-[260px]"><div className="flex items-center gap-2"><select aria-label={`المورد الخارجي لأمر ${o.work_order_number}`} className="h-9 min-w-[145px] rounded-md border bg-background px-2 text-sm" value={supplierAssignmentDrafts[o.work_order_id] ?? String(o.assigned_supplier_id ?? "")} disabled={!openStatuses.includes(o.status) || assignSupplier.isPending || assignableSuppliers.isLoading || assignableSuppliers.isError} onChange={(e) => setSupplierAssignmentDrafts((drafts) => ({ ...drafts, [o.work_order_id]: e.target.value }))}><option value="">بدون مورد خارجي</option>{o.assigned_supplier_id && !safeAssignableSuppliers.some((s) => s.id === o.assigned_supplier_id) ? <option value={String(o.assigned_supplier_id)} disabled>{o.assigned_supplier_name ?? "مورد غير نشط"} (غير نشط)</option> : null}{safeAssignableSuppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.supplier_code ? ` — ${supplier.supplier_code}` : ""}</option>)}</select><Button size="sm" variant="outline" disabled={!openStatuses.includes(o.status) || suppliersAuthorizationDenied || assignSupplier.isPending || (supplierAssignmentDrafts[o.work_order_id] ?? String(o.assigned_supplier_id ?? "")) === String(o.assigned_supplier_id ?? "")} onClick={() => { const selected = supplierAssignmentDrafts[o.work_order_id] ?? String(o.assigned_supplier_id ?? ""); const payload = { siteId, workOrderId: o.work_order_id, supplierId: selected ? Number(selected) : null }; void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_supplier_assignment", payload }, (operationKey) => assignSupplier.mutateAsync({ ...payload, operationKey })).catch((error) => toast.error(error instanceof Error ? error.message : "تعذر إسناد المورد إلى أمر الصيانة.")); }}>حفظ</Button></div>{assignableSuppliers.isError ? <p className="mt-1 text-xs text-destructive">تعذر تحميل الموردين.</p> : null}</td>) : null}<td className="p-3 whitespace-nowrap">{new Date(o.reported_at).toLocaleString("ar-PS")}</td><td className="p-3 whitespace-nowrap">{money(o.parts_cost)}</td><td className="p-3 whitespace-nowrap font-medium">{money(o.total_cost_amount)}</td>{canManageMaintenance ? (<td className="p-3"><div className="flex gap-1">{["new","scheduled","waiting_for_parts"].includes(o.status) ? <Button size="sm" variant="outline" disabled={transition.isPending} onClick={() => doTransition(o,"start")}>بدء</Button> : null}{o.status==="in_progress" ? <><Button size="sm" variant="outline" disabled={transition.isPending} onClick={() => doTransition(o,"wait_for_parts")}>انتظار قطع</Button><Button size="sm" disabled={transition.isPending} onClick={() => doTransition(o,"complete")}>إغلاق</Button></> : null}{o.status==="completed" ? <><Button size="sm" variant="outline" disabled={transition.isPending || reopenCompleted.isPending} onClick={() => doTransition(o,"correct_completion")}>تصحيح الإغلاق</Button><Button size="sm" variant="outline" disabled={transition.isPending || reopenCompleted.isPending} onClick={() => { const reason = window.prompt("سبب فتح دورة متابعة جديدة (مطلوب للتدقيق):")?.trim(); if (!reason || reason.length < 3) { toast.error("أدخل سببًا واضحًا لإعادة الفتح."); return; } const payload = { siteId, workOrderId: o.work_order_id, reason }; void runWithStableOperationKey({ userId: Number(auth.user?.id), siteId, kind: "maintenance_reopen", payload }, (operationKey) => reopenCompleted.mutateAsync({ ...payload, operationKey })).catch((error) => toast.error(error instanceof Error ? error.message : "تعذر فتح دورة متابعة جديدة.")); }}>فتح متابعة</Button></> : null}{openStatuses.includes(o.status) ? <Button size="sm" variant="ghost" disabled={transition.isPending} onClick={() => doTransition(o,"cancel")}>إلغاء</Button> : null}</div></td>) : null}</tr>)}</tbody></table></div>}
     </CardContent></Card>
   </div>;
 }
