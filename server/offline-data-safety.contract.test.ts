@@ -165,6 +165,10 @@ describe("offline data and financial truth boundaries", () => {
     expect(payroll).toContain("resolvePayrollPayoutAccountId(accountRead.data, accountId)");
     expect(payroll).toContain("pay.mutateAsync({ siteId, payrollRunId, accountId: confirmedAccountId })");
     expect(payroll).not.toContain("onClick={() => pay.mutate({");
+    expect(payroll).toContain("const advanceIssueDependencies = existingQueue");
+    expect(payroll).toContain("const repaymentDependencies = existingQueue");
+    expect(payroll).toContain("...advanceIssueDependencies");
+    expect(payroll).toContain("...repaymentDependencies");
     expect(guards).toContain("!state.fetching");
     expect(guards).toContain("!state.error");
     expect(guardTests).toContain("does not treat cached account IDs as valid");
