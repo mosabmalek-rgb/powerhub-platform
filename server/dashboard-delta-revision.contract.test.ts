@@ -28,7 +28,7 @@ describe("dashboard Delta revision contract", () => {
     expect(router).toContain('from "./dashboard-kpi-revisions"');
     for (const key of [
       "activeSubscribers", "generatorStatus", "periodInvoiced", "periodCollected",
-      "collectionRate", "periodOverdue", "expenses", "netCash", "currentArrears",
+      "collectionRate", "periodOverdue", "expenses", "netCash", "currentArrears", "financialReport",
       "financialTrend", "companyBalances",
     ]) expect(revisions).toContain(`${key}:`);
     expect(revisions).not.toContain("operatingProfit:");
