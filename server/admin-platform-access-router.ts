@@ -24,10 +24,10 @@ export const adminRouterWithSupabasePlatformAccess = router({
     return invitePlatformAccessSupabase({ actorUserId: ctx.user.id, ...input });
   }),
   setPlatformAccountStatus: authenticatedProcedure.input(z.object({
-    userId: z.number().int().positive(), accountStatus: z.enum(["active", "locked", "disabled"]),
+    userId: z.number().int().positive(), status: z.enum(["active", "locked", "disabled"]),
   })).mutation(async ({ ctx, input }) => {
     assertPlatformOwner(ctx);
-    return setPlatformAccountStatusSupabase({ actorUserId: ctx.user.id, ...input });
+    return setPlatformAccountStatusSupabase({ actorUserId: ctx.user.id, userId: input.userId, accountStatus: input.status });
   }),
   setPlatformAccessRole: authenticatedProcedure.input(z.object({
     userId: z.number().int().positive(), platformRole: z.enum(["platform_admin", "finance_admin", "platform_support"]),
