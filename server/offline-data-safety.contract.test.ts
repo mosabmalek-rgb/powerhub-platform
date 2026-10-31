@@ -84,10 +84,10 @@ describe("offline data and financial truth boundaries", () => {
     expect(subscriberArrears).toContain('totalOpenCount ?? "غير متحقق"');
     expect(subscriberStatement).toContain("const statementIsAuthoritative=hasAuthoritativeServerRead(q)");
     expect(subscriberStatement).toContain("const data=statementIsAuthoritative?q.data:undefined");
-    expect(subscriberStatement).toContain("if(!statementIsAuthoritative||!pdfRef.current||!data)");
-    expect(subscriberStatement).toContain("if(!statementIsAuthoritative||!data)");
-    expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative} onClick={excel}");
-    expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative} onClick={pdf}");
+    expect(subscriberStatement).toContain("if(!statementIsAuthoritative||!historyComplete||!pdfRef.current||!pdfData)");
+    expect(subscriberStatement).toContain("if(!statementIsAuthoritative||!historyComplete||!pdfData)");
+    expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative||!historyComplete} onClick={excel}");
+    expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative||!historyComplete} onClick={pdf}");
     expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative||createShareLink.isPending}");
     expect(subscriberStatement).toContain("disabled={!statementIsAuthoritative||sendReminder.isPending}");
     expect(workspace).toContain("supplierLedgerIsAuthoritative");
