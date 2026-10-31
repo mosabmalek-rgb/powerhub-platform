@@ -942,7 +942,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("rejects custom-role creation without a stable operation ID before the RPC", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
-    state.rpcCalls = [];
+    state.rpcCalls.splice(0);
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.saveCustomRole({
       siteId: 10, name: "دور بلا مفتاح", permissions: ["collectPayments"],
