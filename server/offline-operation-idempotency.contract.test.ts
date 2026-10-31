@@ -71,4 +71,20 @@ describe("reload-safe fuel and maintenance idempotency contracts", () => {
     expect(transfer).not.toContain("function operationKey()");
     expect(transfer).not.toContain("transfer.mutate({");
   });
+
+  it("uses durable operation identity for purchase creation, receipts, supplier payments and returns", () => {
+    const purchases = read("client/src/components/InventoryPurchasesPanel.tsx");
+    for (const kind of [
+      "inventory_purchase_create", "inventory_purchase_receipt",
+      "inventory_supplier_payment", "inventory_supplier_return",
+    ]) {
+      expect(purchases).toContain(`kind: "${kind}", payload`);
+    }
+    expect(purchases).toContain("createPurchase.mutateAsync({ ...payload, operationKey })");
+    expect(purchases).toContain("receivePurchase.mutateAsync({ ...payload, operationKey })");
+    expect(purchases).toContain("recordSupplierPayment.mutateAsync({ ...payload, operationKey })");
+    expect(purchases).toContain("returnToSupplier.mutateAsync({ ...payload, operationKey })");
+    expect(purchases).not.toContain("getOrCreateOperationKey");
+    expect(purchases).not.toContain("sessionStorage");
+  });
 });
