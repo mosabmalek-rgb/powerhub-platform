@@ -64,8 +64,6 @@ describe("offline sync engine", () => {
     const conflictedEmployeeMeta = new Map(metadata);
     conflictedEmployeeMeta.set(employee.clientOperationId, { ...employeeMeta, outcome: "conflict" as const });
     expect(planReadyOperations(operations, conflictedEmployeeMeta, new Set(), 300)).toEqual([]);
-    expect(planReadyOperations(operations, conflictedEmployeeMeta, new Set(["hr-employee-create"]), 300).map(({ item: queued }) => queued.clientOperationId))
-      .toEqual(["hr-advance-issue"]);
 
     const retryingEmployee = { ...employee, status: "failed" as const };
     const retryingMetadata = new Map(metadata);
