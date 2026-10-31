@@ -26,6 +26,7 @@ export default defineConfig({
       "client/src/pages/PlatformAccessPanel.ui.test.tsx",
       "client/src/pages/TenantAccessInvitationPanel.ui.test.tsx",
       "client/src/pages/collection-form-reset.contract.test.ts",
+      "client/src/pages/subscriber-account-statement-pagination.contract.test.ts",
     ],
   },
 });
