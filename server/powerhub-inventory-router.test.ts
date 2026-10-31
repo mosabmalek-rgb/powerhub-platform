@@ -482,6 +482,52 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
+  it("requires supplier-payment permission for a cash refund before invoking the return RPC", async () => {
+    state.access.mockReset()
+      .mockResolvedValueOnce({ tenantId: 44 })
+      .mockRejectedValueOnce(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnToSupplier;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 941 } },
+      input: {
+        siteId: 7, purchaseId: 14, returnDate: "2026-10-21",
+        operationKey: "supplier-return:cash-refund-denied", reason: "damaged item",
+        refundAmount: 5, refundCompanyAccountId: 8,
+        lines: [{ purchaseLineId: 21, quantity: 1 }],
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenNthCalledWith(1, 941, 7, expect.any(Array), "adjustInventory");
+    expect(state.access).toHaveBeenNthCalledWith(2, 941, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cash refund when the financial permission resolves to a different tenant", async () => {
+    state.access.mockReset()
+      .mockResolvedValueOnce({ tenantId: 44 })
+      .mockResolvedValueOnce({ tenantId: 45 });
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnToSupplier;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 942 } },
+      input: {
+        siteId: 7, purchaseId: 14, returnDate: "2026-10-21",
+        operationKey: "supplier-return:cash-refund-tenant-mismatch", reason: "damaged item",
+        refundAmount: 5, refundCompanyAccountId: 8,
+        lines: [{ purchaseLineId: 21, quantity: 1 }],
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenNthCalledWith(1, 942, 7, expect.any(Array), "adjustInventory");
+    expect(state.access).toHaveBeenNthCalledWith(2, 942, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
   it("requires financial permission for cash refund and passes only the authorized tenant to the return RPC", async () => {
     state.access.mockReset().mockResolvedValue({ tenantId: 44 });
     state.rpc.mockReset().mockResolvedValue({ data: [{
