@@ -36,7 +36,9 @@ function decodeHistoryCursor(value: string | undefined): SupabaseKeysetCursor | 
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<SupabaseKeysetCursor>;
     const id = parsed.id;
     if (typeof parsed.at !== "string" || !Number.isInteger(id) || (id ?? 0) < 1 || Number.isNaN(Date.parse(parsed.at))) throw new Error("invalid");
-    return { at: new Date(parsed.at).toISOString(), id: id as number };
+    const normalizedAt = new Date(parsed.at).toISOString();
+    if (normalizedAt !== parsed.at) throw new Error("non-canonical timestamp");
+    return { at: normalizedAt, id: id as number };
   } catch {
     throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر الصفحة غير صالح؛ أعد تحميل القائمة." });
   }
@@ -410,7 +412,7 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       .order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(21),
     admin.from("meter_readings")
       .select("id, reading_at, reading_value, previous_reading_value, consumption_kwh, capture_method, status, version_no, notes")
-      .eq("tenant_id", Number(subscriber.tenant_id)).eq("subscriber_id", subscriberId)
+      .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId)
       .order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(21),
   ]);
 
@@ -524,13 +526,29 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
 
 
 export type SubscriberStatementSection = "invoices" | "payments" | "readings";
+export type SubscriberStatementInvoiceHistoryItem = {
+  id: number; invoiceNo: string; billingPeriod: string; issueDate: Date; dueDate: Date;
+  previousReading: string | null; currentReading: string | null; consumptionKwh: string;
+  totalAmount: string; paidAmount: string; balanceDue: string; status: string; readingId: number | null;
+};
+export type SubscriberStatementPaymentHistoryItem = {
+  id: number; paymentNo: string; invoiceId: number | null; invoiceNo: string | null; amount: string;
+  paymentMethod: string; transferFromAccount: string | null; transferFromType: string | null;
+  transferToAccount: string | null; transferToType: string | null; referenceNo: string | null;
+  status: string; paidAt: Date;
+};
+export type SubscriberStatementReadingHistoryItem = {
+  id: number; readingAt: Date; readingValue: string; previousReadingValue: string | null;
+  consumptionKwh: string | null; captureMethod: string; status: string; versionNo: number; notes: string | null;
+};
+export type SubscriberStatementHistoryItem = SubscriberStatementInvoiceHistoryItem | SubscriberStatementPaymentHistoryItem | SubscriberStatementReadingHistoryItem;
 
 export async function listSupabaseSubscriberAccountStatementHistoryPage(
   siteId: number,
   subscriberId: number,
   section: SubscriberStatementSection,
   input: { limit?: number; cursor?: string },
-): Promise<SupabaseHistoryPage<any>> {
+): Promise<SupabaseHistoryPage<SubscriberStatementHistoryItem>> {
   const limit = historyLimit(input.limit);
   const cursor = decodeHistoryCursor(input.cursor);
   const admin = supabaseAdmin();
@@ -608,7 +626,7 @@ export async function listSupabaseSubscriberAccountStatementHistoryPage(
 
   let readingQuery = admin.from("meter_readings")
     .select("id,reading_at,reading_value,previous_reading_value,consumption_kwh,capture_method,status,version_no,notes")
-    .eq("tenant_id", tenantId).eq("subscriber_id", subscriberId);
+    .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId);
   if (cursor) readingQuery = readingQuery.or("reading_at.lt." + cursor.at + ",and(reading_at.eq." + cursor.at + ",id.lt." + cursor.id + ")");
   const { data, error } = await readingQuery.order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة قراءات المشترك." });
