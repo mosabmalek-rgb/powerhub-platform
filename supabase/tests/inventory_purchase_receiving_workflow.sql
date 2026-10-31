@@ -3252,6 +3252,18 @@ begin
         if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
       end;
 
+      -- Operation keys are tenant-wide, including retries submitted by another actor.
+      begin
+        perform * from public.powerhub_inventory_record_stocktake_count(
+          10,100,2,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+          'stocktake-count:idempotency:line-1'
+        );
+        raise exception 'STOCKTAKE_COUNT_KEY_REPLAYED_FOR_DIFFERENT_ACTOR';
+      exception when others then
+        if sqlerrm='STOCKTAKE_COUNT_KEY_REPLAYED_FOR_DIFFERENT_ACTOR' then raise; end if;
+        if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+      end;
+
       select count(*)::integer into v_audit_count_after
       from public.audit_logs a
       where a.tenant_id=10 and a.site_id=100 and a.entity_type='inventory_stocktake_line'

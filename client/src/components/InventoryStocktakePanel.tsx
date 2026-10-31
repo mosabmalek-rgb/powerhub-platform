@@ -439,7 +439,7 @@ export default function InventoryStocktakePanel({
             <span className="text-xs text-muted-foreground">{stocktakes.length} جلسة في السجل الظاهر</span>
           </div>
           {stocktakesQuery.isLoading ? <p className="py-6 text-center text-muted-foreground"><Loader2 className="ml-2 inline h-4 w-4 animate-spin" /> جارٍ تحميل سجل الجرد…</p>
-            : stocktakesQuery.error ? <div className="rounded-md border p-4 text-sm text-destructive">تعذر تحميل جلسات الجرد. تحقق من صلاحياتك أو أعد المحاولة.</div>
+            : stocktakesQuery.error && !stocktakes.length ? <div className="rounded-md border p-4 text-sm text-destructive">تعذر تحميل جلسات الجرد. تحقق من صلاحياتك أو أعد المحاولة.</div>
             : !stocktakes.length ? <p className="rounded-md border p-5 text-center text-sm text-muted-foreground">لا توجد جلسات جرد بعد. افتح جلسة جديدة لتصوير الأرصدة قبل العد.</p>
             : <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
               {stocktakes.map((stocktake) => {
@@ -491,10 +491,12 @@ export default function InventoryStocktakePanel({
           </div>
         </CardHeader>
         <CardContent>
-          {linesQuery.isLoading ? <p className="py-6 text-center text-muted-foreground">جارٍ تحميل تفاصيل العد…</p>
-            : linesQuery.error ? <p className="py-6 text-center text-destructive">تعذر تحميل تفاصيل جلسة الجرد.</p>
+          {linesQuery.isLoading && !lines.length ? <p className="py-6 text-center text-muted-foreground">جارٍ تحميل تفاصيل العد…</p>
+            : linesQuery.error && !lines.length ? <p className="py-6 text-center text-destructive">تعذر تحميل تفاصيل جلسة الجرد.</p>
             : !lines.length ? <p className="py-6 text-center text-muted-foreground">لا توجد بنود ضمن هذه الجلسة.</p>
-            : <div className="overflow-x-auto rounded-md border">
+            : <>
+              {linesQuery.error ? <p role="status" className="mb-3 rounded-md border border-amber-500/30 p-3 text-xs text-amber-700">نعرض آخر لقطة محفوظة لبنود هذه الجلسة؛ قد تكون قديمة. العد المحلي لا يُحتسب ولا يمكن إرسال الجرد أو ترحيله قبل التحقق الخادمي.</p> : null}
+              <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[1200px] text-right text-sm">
                 <thead className="bg-muted/60"><tr>{["الصنف","الوحدة","رصيد النظام","قيمة النظام","تكلفة الوحدة","الكمية المعدودة","تكلفة الزيادة","الفرق","ملاحظات العد","إجراء"].map((title) => <th key={title} className="p-3 font-semibold">{title}</th>)}</tr></thead>
                 <tbody>{lines.map((line) => {
@@ -530,7 +532,8 @@ export default function InventoryStocktakePanel({
                   </tr>;
                 })}</tbody>
               </table>
-            </div>}
+              </div>
+            </>}
           <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
             <span>الأصناف المعدودة خادميًا: {countedCount} / {itemCount}</span>
             {selectedOfflineItemIds.size > 0 ? <span className="text-amber-700">مسودات محلية غير مؤكدة: {selectedOfflineItemIds.size}</span> : null}

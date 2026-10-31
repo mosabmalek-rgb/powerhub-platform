@@ -17,7 +17,7 @@ create table if not exists public.powerhub_inventory_stocktake_count_operations 
   result_counted_at timestamptz not null,
   created_at timestamptz not null default clock_timestamp(),
   constraint powerhub_inventory_stocktake_count_operations_scope_key
-    primary key (tenant_id,site_id,user_id,operation_key)
+    primary key (tenant_id,operation_key)
 );
 alter table public.powerhub_inventory_stocktake_count_operations owner to postgres;
 alter table public.powerhub_inventory_stocktake_count_operations enable row level security;
@@ -59,6 +59,9 @@ begin
   end if;
 
   v_request_payload:=jsonb_build_object(
+    'tenantId',p_tenant_id,
+    'siteId',p_site_id,
+    'userId',p_user_id,
     'stocktakeId',p_stocktake_id,
     'itemId',p_item_id,
     'countedQuantity',p_counted_quantity,
@@ -66,17 +69,15 @@ begin
     'countNotes',v_notes
   );
 
-  -- Serialize only the exact tenant/site/actor/key tuple. The unique constraint
-  -- remains the durable backstop if a future writer does not use this wrapper.
+  -- Serialize by tenant and operation key, matching existing inventory ledgers.
+  -- The stored request payload includes site and actor; cross-scope key reuse fails closed.
   perform pg_advisory_xact_lock(hashtextextended(
-    jsonb_build_array('inventory-stocktake-count',p_tenant_id,p_site_id,p_user_id,v_operation_key)::text,0
+    jsonb_build_array('inventory-stocktake-count',p_tenant_id,v_operation_key)::text,0
   ));
 
   select operation.* into v_existing
   from public.powerhub_inventory_stocktake_count_operations operation
   where operation.tenant_id=p_tenant_id
-    and operation.site_id=p_site_id
-    and operation.user_id=p_user_id
     and operation.operation_key=v_operation_key
   for update;
 
