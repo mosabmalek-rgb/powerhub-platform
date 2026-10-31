@@ -11,6 +11,7 @@ export type InviteTenantAccessInput = {
   siteRole?: "owner" | "manager" | "accountant" | "collector" | "technician" | "viewer";
   tokenHash: string;
   expiresAt: Date;
+  expiresInHours: number;
   clientOperationId: string;
 };
 
@@ -24,6 +25,7 @@ export async function inviteTenantAccess(input: InviteTenantAccessInput) {
     email,
     tenantRole: input.tenantRole,
     siteRole,
+    expiresInHours: input.expiresInHours,
   })).digest("hex");
 
   const { data, error } = await supabaseAdmin().rpc("powerhub_admin_invite_tenant_access", {
