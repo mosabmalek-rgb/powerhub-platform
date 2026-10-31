@@ -138,6 +138,12 @@ describe("HR offline outbox contract", () => {
     expect(attendancePage).toContain("dependsOn: pendingCreate ? [pendingCreate.clientOperationId] : []");
     expect(advancesPage).toContain("kind:\"employee_advance_issue\",dependsOn:pendingCreate?[pendingCreate.clientOperationId]:[]");
     expect(advancesPage).toContain("kind:\"employee_advance_repayment\",dependsOn:pendingIssue?[pendingIssue.clientOperationId]:[]");
+    expect(payrollPage).toContain("const advanceIssueDependencies = existingQueue");
+    expect(payrollPage).toContain("item.kind === \"employee_advance_issue\" && item.status !== \"applied\"");
+    expect(payrollPage).toContain("const repaymentDependencies = existingQueue");
+    expect(payrollPage).toContain("item.kind === \"employee_advance_repayment\" && item.status !== \"applied\"");
+    expect(payrollPage).toContain("...advanceIssueDependencies");
+    expect(payrollPage).toContain("...repaymentDependencies");
     expect(payrollPage).toContain("kind: \"payroll_draft\", dependsOn: dependencies");
   });
 
