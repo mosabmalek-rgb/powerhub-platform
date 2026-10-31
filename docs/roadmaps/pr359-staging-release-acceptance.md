@@ -11,7 +11,11 @@
 
 ## 2. Migration ordering and dependency groups
 
-Apply only after the release owner reviews the actual Staging object/ledger diff and approves a Staging-only run. Preserve chronological order within each dependency group; do not replay every migration from either environment.
+Apply only through the repository's **Supabase Versioned Migration Release** workflow: `.github/workflows/supabase-migration-release.yml`, dispatched from `main`, with `target=staging`, the exact one-file `migration_path`, and `source_pr_number=359`. It pins the open same-repository PR head, copies only that SQL file into the trusted `main` release workspace, applies the file and records the exact Git version/name in `supabase_migrations.schema_migrations` in one transaction, under a PostgreSQL advisory lock and protected Staging environment approval.
+
+**Do not use Supabase MCP `apply_migration` or broad `supabase db push --linked` for this PR.** MCP `apply_migration` generates a server-time version that cannot match the repository timestamp; a broad CLI push risks applying unrelated missing historical migrations because the two environment ledgers diverge. The versioned release workflow intentionally applies exactly one selected file per run. It fails closed if the protected Staging environment, reviewer rule, main-only deployment policy, guard token, project reference, or connection URI validation is missing or incorrect.
+
+Preserve chronological order within each dependency group. Re-check the live migration ledger before each dispatch: skip only when both version and name already match; stop on any collision or partial/mismatched record. Do not edit migration ledger rows manually.
 
 ### A. Domain Delta read models and source journals
 1. `20261027110000_powerhub_delta_invoice_history.sql`
@@ -53,7 +57,7 @@ Apply only after the release owner reviews the actual Staging object/ledger diff
 31. `20261031200000_powerhub_adaptive_delta_realtime.sql`
 32. `20261031210000_powerhub_platform_identity_rls_alignment.sql`
 
-Before each group, verify its preflight dependencies on the actual Staging schema. If an object or migration identity is already present under a different historical name/version, stop and reconcile it explicitly; do not mark a migration as applied merely to skip it.
+Before each individual workflow dispatch, verify its preflight dependencies on the actual Staging schema and confirm the PR head is still ahead of current `main` with no commits behind. The workflow also validates the PR and immutable SHA. If `main` moves or the PR becomes behind, update the PR branch, rerun all four CI gates on its new head, and retry only then. If an object or migration identity is already present under a different historical name/version, stop and reconcile it explicitly; do not mark a migration as applied merely to skip it.
 
 ## 3. Required read-only post-apply checks
 
@@ -82,7 +86,13 @@ Run only after the approved Staging migration sequence and post-apply checks are
 6. Verify dashboard KPIs and reports refresh independently by their own revision scopes and remain within the permitted site/all-branches authorization.
 7. Capture browser evidence, network requests, server authorization outcomes, and post-sync database assertions. Do not use live supplier payments, final payroll approval, SMS dispatch or production financial/stock operations.
 
-## 5. Release boundaries
+## 5. Manual workflow execution and approval
+
+For each of the 32 entries above, the release owner opens [Supabase Versioned Migration Release](https://github.com/mosabmalek-rgb/powerhub-platform/actions/workflows/supabase-migration-release.yml) on `main`, selects `target=staging`, pastes exactly one migration path, and sets `source_pr_number=359`. Each run must receive protected approval through the `supabase-staging` GitHub environment. The workflow must report the pinned PR head and exact migration version; verify the resulting version/name immediately using the Staging migration ledger before dispatching the next file. Never batch multiple SQL files into one input.
+
+The workflow fails closed unless the Staging environment has a required human reviewer, allows only the `main` branch, and has the read-only environment-guard token and Staging-specific DB/project secrets configured by a repository administrator. These settings and secret values are never inferred from source code and must not be printed in logs.
+
+## 6. Release boundaries
 
 - Keep PR #359 Draft/open while Staging schema reconciliation and browser acceptance remain incomplete.
 - Do not deploy a Preview until all requested tabs are implemented and the Staging browser gate is approved. A Preview is not a substitute for live Staging schema or browser acceptance.
