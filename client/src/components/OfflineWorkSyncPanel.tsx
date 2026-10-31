@@ -11,6 +11,7 @@ import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-
 import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { getOfflineSyncRefreshTargets } from "@/lib/offline-sync-refresh";
 import { getOfflineWorkStatusPresentation } from "@/lib/offline-work-status";
+import { clearStableOperationKey } from "@/lib/offline-operation-idempotency";
 import { syncGeneratorCreate, syncGeneratorUpdate } from "@/lib/offline-generator-sync";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -579,6 +580,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           siteId: item.siteId, ...payload, operationKey: item.clientOperationId,
         }));
         assertCurrentOperation();
+        await clearStableOperationKey(item.clientOperationId).catch(() => undefined);
         await updateOfflineWork(item.id, {
           status: "applied", error: undefined,
           appliedLabel: "تعبئة " + payload.litres + " لتر للمولد #" + payload.generatorId,
