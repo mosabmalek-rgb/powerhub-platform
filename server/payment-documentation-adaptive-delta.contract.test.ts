@@ -38,7 +38,7 @@ describe("Payment Documentation Adaptive Delta revision", () => {
     expect(migration).toContain("'payment_documentation'");
     expect(migration).toContain("powerhub_payment_documentation_revision");
     expect(migration).toContain("powerhub_sync_scope_state_broadcast_delta");
-    expect(migration).not.toMatch(/insert\\s+into\\s+public\\.powerhub_sync_changes/i);
+    expect(migration.toLowerCase()).not.toContain("insert into public.powerhub_sync_changes");
     expect(migration).not.toMatch(/row_data|receipt_image_key|payment_amount/);
   });
 });
