@@ -47,9 +47,9 @@ export function useDeltaRevisionRefresh(input: UseDeltaRevisionRefreshInput) {
   }, [revisionQuery.refetch]);
   useAdaptiveDeltaRefresh({
     scopeKey: "operational:" + scopeKey,
-    enabled: active && !isExplicitAuthorizationDenial(revisionQuery.error),
+    enabled: active,
     check: checkRevision,
-    realtimeTopic: revisionQuery.data?.realtimeTopic,
+    realtimeTopic: isExplicitAuthorizationDenial(revisionQuery.error) ? null : revisionQuery.data?.realtimeTopic,
   });
 
   useEffect(() => { onChangeRef.current = input.onChange; }, [input.onChange]);
