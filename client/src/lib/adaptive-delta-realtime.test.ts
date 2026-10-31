@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockState = vi.hoisted(() => ({
-  channel: null as any,
   broadcastHandler: null as ((message: any) => void) | null,
   statusHandler: null as ((status: string) => void) | null,
   channel: vi.fn(),
