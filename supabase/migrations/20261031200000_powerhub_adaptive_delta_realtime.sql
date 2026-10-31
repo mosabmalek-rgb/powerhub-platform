@@ -147,7 +147,189 @@ USING (
   private = true
   AND extension = 'broadcast'
   AND CASE
-    WHEN topic ~ '^powerhub:tenant:[0-9]+:site:[0-9]+$' THEN
+    WHEN topic ~ '^powerhub:tenant:[1-9][0-9]{0,18}:site:[1-9][0-9]{0,18}
+      private.powerhub_realtime_can_read_delta_topic(
+        split_part(topic, ':', 3)::bigint,
+        split_part(topic, ':', 5)::bigint,
+        false
+      )
+    WHEN topic ~ '^powerhub:tenant:[1-9][0-9]{0,18}:all
+      private.powerhub_realtime_can_read_delta_topic(
+        split_part(topic, ':', 3)::bigint,
+        NULL,
+        true
+      )
+    ELSE false
+  END
+);
+
+-- One central trigger observes the server-owned cursor table. All existing
+-- source appenders (readings, invoices, payments, expenses, inventory, fuel,
+-- maintenance, HR, etc.) already advance this journal, so no parallel event
+-- engine or per-table trigger fleet is needed.
+CREATE OR REPLACE FUNCTION private.powerhub_broadcast_delta_scope_revision()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+VOLATILE
+AS $function$
+DECLARE
+  v_payload jsonb := jsonb_build_object('version', 1);
+  v_site_topic text;
+  v_tenant_topic text;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND NEW.last_cursor IS NOT DISTINCT FROM OLD.last_cursor
+     AND NEW.retained_from_cursor IS NOT DISTINCT FROM OLD.retained_from_cursor THEN
+    RETURN NEW;
+  END IF;
+
+  v_site_topic := 'powerhub:tenant:' || NEW.tenant_id::text || ':site:' || NEW.site_id::text;
+  v_tenant_topic := 'powerhub:tenant:' || NEW.tenant_id::text || ':all';
+
+  -- The marker intentionally contains no row data or entity identifiers.
+  PERFORM realtime.send(v_payload, 'powerhub_delta_changed', v_site_topic, true);
+  PERFORM realtime.send(v_payload, 'powerhub_delta_changed', v_tenant_topic, true);
+  RETURN NEW;
+END
+$function$;
+ALTER FUNCTION private.powerhub_broadcast_delta_scope_revision() OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.powerhub_broadcast_delta_scope_revision()
+  FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS powerhub_sync_scope_state_broadcast_delta
+  ON public.powerhub_sync_scope_state;
+CREATE TRIGGER powerhub_sync_scope_state_broadcast_delta
+AFTER INSERT OR UPDATE OF last_cursor, retained_from_cursor
+ON public.powerhub_sync_scope_state
+FOR EACH ROW
+EXECUTE FUNCTION private.powerhub_broadcast_delta_scope_revision();
+
+-- The Realtime channel itself must be private. Keep the Supabase project-level
+-- "Allow public access" setting disabled before production release.
+
+      AND split_part(topic, ':', 3)::numeric <= 9223372036854775807
+      AND split_part(topic, ':', 5)::numeric <= 9223372036854775807 THEN
+      private.powerhub_realtime_can_read_delta_topic(
+        split_part(topic, ':', 3)::bigint,
+        split_part(topic, ':', 5)::bigint,
+        false
+      )
+    WHEN topic ~ '^powerhub:tenant:[0-9]+:all$' THEN
+      private.powerhub_realtime_can_read_delta_topic(
+        split_part(topic, ':', 3)::bigint,
+        NULL,
+        true
+      )
+    ELSE false
+  END
+);
+
+-- One central trigger observes the server-owned cursor table. All existing
+-- source appenders (readings, invoices, payments, expenses, inventory, fuel,
+-- maintenance, HR, etc.) already advance this journal, so no parallel event
+-- engine or per-table trigger fleet is needed.
+CREATE OR REPLACE FUNCTION private.powerhub_broadcast_delta_scope_revision()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+VOLATILE
+AS $function$
+DECLARE
+  v_payload jsonb := jsonb_build_object('version', 1);
+  v_site_topic text;
+  v_tenant_topic text;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND NEW.last_cursor IS NOT DISTINCT FROM OLD.last_cursor
+     AND NEW.retained_from_cursor IS NOT DISTINCT FROM OLD.retained_from_cursor THEN
+    RETURN NEW;
+  END IF;
+
+  v_site_topic := 'powerhub:tenant:' || NEW.tenant_id::text || ':site:' || NEW.site_id::text;
+  v_tenant_topic := 'powerhub:tenant:' || NEW.tenant_id::text || ':all';
+
+  -- The marker intentionally contains no row data or entity identifiers.
+  PERFORM realtime.send(v_payload, 'powerhub_delta_changed', v_site_topic, true);
+  PERFORM realtime.send(v_payload, 'powerhub_delta_changed', v_tenant_topic, true);
+  RETURN NEW;
+END
+$function$;
+ALTER FUNCTION private.powerhub_broadcast_delta_scope_revision() OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.powerhub_broadcast_delta_scope_revision()
+  FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS powerhub_sync_scope_state_broadcast_delta
+  ON public.powerhub_sync_scope_state;
+CREATE TRIGGER powerhub_sync_scope_state_broadcast_delta
+AFTER INSERT OR UPDATE OF last_cursor, retained_from_cursor
+ON public.powerhub_sync_scope_state
+FOR EACH ROW
+EXECUTE FUNCTION private.powerhub_broadcast_delta_scope_revision();
+
+-- The Realtime channel itself must be private. Keep the Supabase project-level
+-- "Allow public access" setting disabled before production release.
+
+      AND split_part(topic, ':', 3)::numeric <= 9223372036854775807 THEN
+      private.powerhub_realtime_can_read_delta_topic(
+        split_part(topic, ':', 3)::bigint,
+        NULL,
+        true
+      )
+    ELSE false
+  END
+);
+
+-- One central trigger observes the server-owned cursor table. All existing
+-- source appenders (readings, invoices, payments, expenses, inventory, fuel,
+-- maintenance, HR, etc.) already advance this journal, so no parallel event
+-- engine or per-table trigger fleet is needed.
+CREATE OR REPLACE FUNCTION private.powerhub_broadcast_delta_scope_revision()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+VOLATILE
+AS $function$
+DECLARE
+  v_payload jsonb := jsonb_build_object('version', 1);
+  v_site_topic text;
+  v_tenant_topic text;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND NEW.last_cursor IS NOT DISTINCT FROM OLD.last_cursor
+     AND NEW.retained_from_cursor IS NOT DISTINCT FROM OLD.retained_from_cursor THEN
+    RETURN NEW;
+  END IF;
+
+  v_site_topic := 'powerhub:tenant:' || NEW.tenant_id::text || ':site:' || NEW.site_id::text;
+  v_tenant_topic := 'powerhub:tenant:' || NEW.tenant_id::text || ':all';
+
+  -- The marker intentionally contains no row data or entity identifiers.
+  PERFORM realtime.send(v_payload, 'powerhub_delta_changed', v_site_topic, true);
+  PERFORM realtime.send(v_payload, 'powerhub_delta_changed', v_tenant_topic, true);
+  RETURN NEW;
+END
+$function$;
+ALTER FUNCTION private.powerhub_broadcast_delta_scope_revision() OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.powerhub_broadcast_delta_scope_revision()
+  FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS powerhub_sync_scope_state_broadcast_delta
+  ON public.powerhub_sync_scope_state;
+CREATE TRIGGER powerhub_sync_scope_state_broadcast_delta
+AFTER INSERT OR UPDATE OF last_cursor, retained_from_cursor
+ON public.powerhub_sync_scope_state
+FOR EACH ROW
+EXECUTE FUNCTION private.powerhub_broadcast_delta_scope_revision();
+
+-- The Realtime channel itself must be private. Keep the Supabase project-level
+-- "Allow public access" setting disabled before production release.
+
+      AND split_part(topic, ':', 3)::numeric <= 9223372036854775807
+      AND split_part(topic, ':', 5)::numeric <= 9223372036854775807 THEN
       private.powerhub_realtime_can_read_delta_topic(
         split_part(topic, ':', 3)::bigint,
         split_part(topic, ':', 5)::bigint,
