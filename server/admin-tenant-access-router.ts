@@ -30,6 +30,7 @@ export const adminTenantAccessRouter = router({
         siteRole: input.tenantRole === "owner" ? "owner" : input.siteRole,
         tokenHash,
         expiresAt,
+        expiresInHours: input.expiresInHours,
         clientOperationId: input.clientOperationId,
       });
     }),
