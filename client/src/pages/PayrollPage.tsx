@@ -246,7 +246,14 @@ export default function PayrollPage({ embedded = false }: { embedded?: boolean }
         return;
       }
 
-      if (!isHrOnline || accountRead.isError || accountRead.data === undefined) {
+      const accountReadIsAuthoritative = isFreshOnlineServerRead({
+        online: isHrOnline,
+        data: accountRead.data,
+        fetchedAfterMount: accountRead.isFetchedAfterMount,
+        fetching: accountRead.isFetching,
+        error: accountRead.isError,
+      });
+      if (!accountReadIsAuthoritative) {
         toast.error(accountRead.isError && isExplicitAuthorizationDenial(accountRead.error)
           ? "رفض الخادم صلاحية قراءة حسابات الشركة؛ أوقفنا صرف الرواتب."
           : "تعذر التحقق خادميًا من حساب الصرف؛ لم يُرسل طلب الصرف.");
