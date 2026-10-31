@@ -168,7 +168,7 @@ export function WorkspaceHome() {
     scopeKey: "dashboard:" + String(user?.id ?? "unknown") + ":" + String(siteId ?? 0) + ":" + selectedScope,
     enabled: Boolean(isAuthenticated && siteId && !dashboardScopeDenied && !user?.mustChangePassword),
     check: checkDashboardRevision,
-    realtimeTopic: dashboardRevisionQuery.data?.realtimeTopic,
+    realtimeTopic: dashboardRevisionDenied ? null : dashboardRevisionQuery.data?.realtimeTopic,
   });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 60_000 });
   const periodKpiBaseEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword);
