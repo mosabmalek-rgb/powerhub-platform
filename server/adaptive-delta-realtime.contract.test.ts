@@ -55,7 +55,8 @@ describe("Adaptive Delta Realtime contract", () => {
     expect(realtimeClient).toContain("config: { private: true }");
     expect(realtimeClient).toContain("supabase.realtime.setAuth()");
     expect(realtimeClient).toContain("event: \"powerhub_delta_changed\"");
-    expect(realtimeClient).toContain("message?.payload?.version !== 1");
+    expect(realtimeClient).toContain("payload.version !== 1");
+    expect(realtimeClient).toContain("Object.keys(payload).length !== 1");
     expect(realtimeClient).toContain("const entries = new Map<string, TopicEntry>()");
     expect(adaptiveScheduler).toContain("pollingIntervalMs: 30_000");
     expect(adaptiveScheduler).toContain("realtimeFallbackMinMs: 60_000");
