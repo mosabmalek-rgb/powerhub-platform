@@ -32,6 +32,31 @@ describe("platform access Supabase canonical contract", () => {
     expect(router).toContain("expiresInHours: input.expiresInHours");
   });
 
+  it("keeps tenant invitation permission and runtime typing explicit", () => {
+    const router = readFileSync(join(serverRoot, "admin-tenant-access-router.ts"), "utf8");
+    const composition = readFileSync(join(serverRoot, "admin-platform-setting-router.ts"), "utf8");
+    const adapter = readFileSync(join(serverRoot, "invite-tenant-access-supabase.ts"), "utf8");
+    expect(router).toContain('["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "")');
+    expect(router).toContain('ctx.user.accountStatus !== "active"');
+    expect(router).toContain("clientOperationId: z.string().uuid()");
+    expect(router).toContain("expiresInHours: z.number().int().min(1).max(168).default(72)");
+    expect(adapter).toContain("expiresInHours: input.expiresInHours");
+    expect(adapter).toContain("p_request_fingerprint: requestFingerprint");
+    expect(composition).toContain('Omit<typeof adminRouter, "inviteTenantAccess">');
+    expect(composition).toContain("inviteTenantAccess: typeof adminTenantAccessRouter.inviteTenantAccess");
+  });
+
+  it("connects tenant invitation UI with stable retry identifiers and directory invalidation", () => {
+    const source = readFileSync(join(process.cwd(), "client/src/pages/TenantAccessInvitationPanel.tsx"), "utf8");
+    const page = readFileSync(join(process.cwd(), "client/src/pages/AdminConsolePage.tsx"), "utf8");
+    expect(source).toContain("globalThis.crypto.randomUUID()");
+    expect(source).toContain("pendingOperation.current.clientOperationId");
+    expect(source).toContain("utils.admin.platformSnapshot.invalidate()");
+    expect(source).toContain("لا يرسل هذا الإجراء رسالة بريد إلكتروني تلقائيًا");
+    expect(page).toContain("<TenantAccessInvitationPanel");
+    expect(page).toContain('row.kind === "tenant" && row.invitationStatus === "invited"');
+  });
+
   it("routes platform access mutations through the canonical Supabase adapter", () => {
     const source = readFileSync(join(serverRoot, "admin-platform-access-router.ts"), "utf8");
     expect(source).toContain('from "./admin-platform-access-supabase"');
