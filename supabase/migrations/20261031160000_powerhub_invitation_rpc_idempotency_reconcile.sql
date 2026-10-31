@@ -25,6 +25,9 @@ create index if not exists access_invitations_tenant_email_status_idx
 drop function if exists public.powerhub_admin_invite_platform_access(
   bigint, text, text, text, timestamptz
 );
+drop function if exists public.powerhub_admin_invite_platform_access(
+  bigint, text, text, integer
+);
 drop function if exists public.powerhub_admin_invite_tenant_access(
   bigint, bigint, bigint, text, text, text, text, timestamptz
 );
