@@ -619,6 +619,32 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
 
+  it("forwards the authorized tenant and stable idempotency key to stocktake count", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      stocktake_id: 80, item_id: 90, system_quantity: "4.000",
+      counted_quantity: "3.000", variance_quantity: "-1.000",
+      counted_at: "2026-10-31T10:00:00.000Z", replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordStocktakeCount;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 98 } },
+      input: {
+        siteId: 7, stocktakeId: 80, itemId: 90, countedQuantity: 3,
+        countedUnitCost: 4.5, countNotes: "counted at close",
+        operationKey: "stocktake-count:stable-operation",
+      },
+    });
+    expect(result).toMatchObject({ stocktake_id: 80, item_id: 90, replayed: false });
+    expect(state.access).toHaveBeenCalledWith(98, 7, expect.any(Array), "manageStocktakes");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_record_stocktake_count", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 98, p_stocktake_id: 80, p_item_id: 90,
+      p_counted_quantity: 3, p_counted_unit_cost: 4.5, p_count_notes: "counted at close",
+      p_operation_key: "stocktake-count:stable-operation",
+    });
+  });
+
   it("blocks a fuel fill before calling the database when the actor lacks the fuel capability", async () => {
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.rpc.mockClear();
@@ -955,7 +981,7 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
     {
       procedure: "recordStocktakeCount",
       capability: "manageStocktakes",
-      input: { siteId: 7, stocktakeId: 8, itemId: 9, countedQuantity: 1.25 },
+      input: { siteId: 7, stocktakeId: 8, itemId: 9, countedQuantity: 1.25, operationKey: "auth-matrix:stocktake:count" },
     },
     {
       procedure: "submitStocktake",

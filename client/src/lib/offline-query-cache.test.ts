@@ -7,6 +7,7 @@ import {
   isOfflinePurchaseDetailQueryKeyForSite,
   isOfflineCacheableQueryKey,
   isDeltaSyncBackedQueryKey,
+  isOfflineSiteAccessQueryKeyForSite,
   isOfflineQueryRecordUsable,
   offlineQueryCacheKey,
   OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS,
@@ -14,6 +15,8 @@ import {
   OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS,
   OFFLINE_HR_DELTA_PROJECTION_TTL_MS,
   OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS,
+  OFFLINE_SITE_ACCESS_SNAPSHOT_TTL_MS,
+  OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS,
   getOfflineHrCompanyAccountOptionsExpiry,
   persistOfflineQuery,
   persistOfflineQueryForDeltaSync,
@@ -51,6 +54,56 @@ describe("offline query cache policy", () => {
     expect(isOfflineCacheableQueryKey(["powerhub", "subscribers", "list"])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.subscribers.list", { input: { siteId: 7, includeInactive: true }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.schedules.list", { input: { siteId: 0 }, type: "query" }])).toBe(false);
+  });
+
+
+  it("persists only a self-scoped permission snapshot for offline draft UI, never as a Delta authority", () => {
+    const key = ["powerhub.staff.myAccess", { input: { siteId: 7 }, type: "query" }] as const;
+    const malformed = ["powerhub.staff.myAccess", { input: { siteId: 7, userId: 99 }, type: "query" }] as const;
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    expect(isOfflineSiteAccessQueryKeyForSite(key, 7)).toBe(true);
+    expect(isOfflineSiteAccessQueryKeyForSite(key, 8)).toBe(false);
+    expect(isOfflineCacheableQueryKey(malformed)).toBe(false);
+    const safe = sanitizeOfflineQueryData(key, {
+      role: "manager", tenantId: 2, usesPermissionOverride: true,
+      permissions: ["viewStocktakes", "manageStocktakes", "manageStocktakes"],
+      email: "must-not-persist@example.test", internal: { token: "secret" },
+    });
+    expect(safe).toEqual({
+      role: "manager", tenantId: 2, usesPermissionOverride: true,
+      permissions: ["viewStocktakes", "manageStocktakes"],
+    });
+    expect(OFFLINE_SITE_ACCESS_SNAPSHOT_TTL_MS).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("hydrates exact stocktake line snapshots as non-Delta read-only input for local count drafts", () => {
+    const key = ["powerhub.inventory.listStocktakeLines", {
+      input: { siteId: 7, stocktakeId: 501 }, type: "query",
+    }] as const;
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listStocktakeLines", {
+      input: { siteId: 7, stocktakeId: 0 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.listStocktakeLines", {
+      input: { siteId: 7, stocktakeId: 501, includeActorDetails: true }, type: "query",
+    }])).toBe(false);
+    const safe = sanitizeOfflineQueryData(key, [{
+      item_id: 8, sku: "DSL-8", item_name: "Diesel", category: "fuel", base_unit: "liter",
+      system_quantity: "10.000", system_value: "30.00", system_unit_cost: "3.0000",
+      counted_quantity: null, counted_unit_cost: null, variance_quantity: null,
+      count_notes: null, counted_by_user_id: 123, counted_at: null, posted_movement_id: null,
+      secret: "must-not-persist",
+    }]) as Array<Record<string, unknown>>;
+    expect(safe[0]).toMatchObject({ item_id: 8, item_name: "Diesel", system_quantity: "10.000", system_unit_cost: "3.0000" });
+    expect(safe[0]).not.toHaveProperty("counted_by_user_id");
+    expect(safe[0]).not.toHaveProperty("secret");
+    expect(OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it("persists only safe inventory catalog lists and binds them to their Delta feeds", () => {

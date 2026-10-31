@@ -15,6 +15,10 @@ export const OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_HR_DELTA_PROJECTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
+// Self-scoped permission cache is UI guidance only; server RPCs always re-authorize.
+export const OFFLINE_SITE_ACCESS_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
+// Exact server-created stocktake-line snapshots support table resume, not posting.
+export const OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export function getOfflineHrCompanyAccountOptionsExpiry(persistedAt: number): number {
   return persistedAt + OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS;
 }
@@ -387,6 +391,34 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
+  if (segments[0] === "powerhub" && segments[1] === "staff" && segments[2] === "myAccess" &&
+      data && typeof data === "object" && !Array.isArray(data)) {
+    const access = data as Record<string, unknown>;
+    const permissions = Array.isArray(access.permissions)
+      ? [...new Set(access.permissions.filter((value): value is string =>
+          typeof value === "string" && value.length > 0 && value.length <= 120))]
+      : [];
+    const tenantId = Number(access.tenantId);
+    return {
+      role: typeof access.role === "string" ? access.role : null,
+      permissions,
+      tenantId: Number.isSafeInteger(tenantId) && tenantId > 0 ? tenantId : null,
+      usesPermissionOverride: Boolean(access.usesPermissionOverride),
+    };
+  }
+  if (segments[0] === "powerhub" && segments[1] === "inventory" && segments[2] === "listStocktakeLines" && Array.isArray(data)) {
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    return data.filter(isRow).map((row) => ({
+      item_id: row.item_id, sku: row.sku ?? null, item_name: row.item_name ?? "",
+      category: row.category ?? "other", base_unit: row.base_unit ?? "",
+      system_quantity: row.system_quantity ?? 0, system_value: row.system_value ?? 0,
+      system_unit_cost: row.system_unit_cost ?? 0, counted_quantity: row.counted_quantity ?? null,
+      counted_unit_cost: row.counted_unit_cost ?? null, variance_quantity: row.variance_quantity ?? null,
+      count_notes: row.count_notes ?? null, counted_at: row.counted_at ?? null,
+      posted_movement_id: row.posted_movement_id ?? null,
+    }));
+  }
   if (segments[0] === "powerhub" && segments[1] === "expenses" && segments[2] === "filterAccounts" && Array.isArray(data)) {
     const isRow = (value: unknown): value is Record<string, unknown> =>
       Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -737,6 +769,10 @@ async function persistOfflineQueryWithPolicy(
     isSafeSupplierPayablesAgingSnapshot(query.queryKey);
   const isExpenseFilterOptions = cacheKeySegments[0] === "powerhub" &&
     cacheKeySegments[1] === "expenses" && cacheKeySegments[2] === "filterAccounts";
+  const isOfflineSiteAccessSnapshot = cacheKeySegments[0] === "powerhub" &&
+    cacheKeySegments[1] === "staff" && cacheKeySegments[2] === "myAccess";
+  const isStocktakeLinesSnapshot = cacheKeySegments[0] === "powerhub" &&
+    cacheKeySegments[1] === "inventory" && cacheKeySegments[2] === "listStocktakeLines";
   const record: OfflineQueryRecord = {
     key: userId + ":" + serializedQueryKey,
     userId,
@@ -749,6 +785,8 @@ async function persistOfflineQueryWithPolicy(
       : isSupplierFinancialSnapshot ? now + OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS
       : isHrProjection ? hrCacheExpiry
       : isExpenseFilterOptions ? now + OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS
+      : isOfflineSiteAccessSnapshot ? now + OFFLINE_SITE_ACCESS_SNAPSHOT_TTL_MS
+      : isStocktakeLinesSnapshot ? now + OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS
         : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
           ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
   };
@@ -886,6 +924,42 @@ export async function clearOfflineFuelQueryCacheForSite(
     await deleteQueryCacheKeys(keys);
   } catch {
     // UI access-denial guards also hide the query immediately.
+  }
+}
+
+/** Match only the self-scoped site permission snapshot used by offline draft UI. */
+export function isOfflineSiteAccessQueryKeyForSite(queryKey: readonly unknown[], siteId: number): boolean {
+  if (!Number.isSafeInteger(siteId) || siteId < 1) return false;
+  const first = queryKey[0];
+  const segments = Array.isArray(first)
+    ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string" ? first.split(".") : [];
+  if (segments.length !== 3 || segments[0] !== "powerhub" ||
+      segments[1] !== "staff" || segments[2] !== "myAccess") return false;
+  const wrapper = queryKey[1];
+  if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
+  const options = wrapper as Record<string, unknown>;
+  const input = Object.prototype.hasOwnProperty.call(options, "input") ? options.input : options;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  const scoped = input as Record<string, unknown>;
+  return Object.keys(scoped).length === 1 &&
+    Object.prototype.hasOwnProperty.call(scoped, "siteId") && Number(scoped.siteId) === siteId;
+}
+
+/** Clear the cached permission projection after an authoritative 401/403 only. */
+export async function clearOfflineSiteAccessQueryCacheForSite(userId: string, siteId: number) {
+  if (!userId || !Number.isSafeInteger(siteId) || siteId < 1) return;
+  try {
+    const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
+    const keys = records.filter((record) => {
+      if (record.userId !== userId) return false;
+      try {
+        return isOfflineSiteAccessQueryKeyForSite(superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId);
+      } catch { return false; }
+    }).map((record) => record.key);
+    await deleteQueryCacheKeys(keys);
+  } catch {
+    // The UI hides denied access immediately; persisted cleanup is best effort.
   }
 }
 

@@ -201,6 +201,7 @@ const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "inventory.listWarehouses": new Set(["siteId", "includeInactive"]),
   "inventory.listItemUnits": new Set(["siteId", "itemId", "includeInactive"]),
   "inventory.listStocktakes": new Set(["siteId", "warehouseId", "limit"]),
+  "inventory.listStocktakeLines": new Set(["siteId", "stocktakeId"]),
   "inventory.listPurchaseHeaders": new Set(["siteId", "limit"]),
   "inventory.listPurchaseReceiptHeaders": new Set(["siteId", "limit"]),
   "inventory.listSupplierReturnHeaders": new Set(["siteId", "limit"]),
@@ -222,6 +223,10 @@ function isSafeInventoryOfflineList(queryKey: readonly unknown[], segments: stri
   if (procedure === "inventory.listStocktakes") {
     return input.limit === 100 && input.warehouseId === undefined &&
       Object.keys(input).every((key) => ["siteId", "warehouseId", "limit"].includes(key));
+  }
+  if (procedure === "inventory.listStocktakeLines") {
+    return Number.isSafeInteger(input.stocktakeId) && Number(input.stocktakeId) > 0 &&
+      Object.keys(input).every((key) => key === "siteId" || key === "stocktakeId");
   }
   if (procedure === "inventory.listPurchaseHeaders" ||
       procedure === "inventory.listPurchaseReceiptHeaders" ||
@@ -379,9 +384,18 @@ export function isSafePurchaseDetailSnapshot(
     Number.isSafeInteger(input.purchaseId) && Number(input.purchaseId) > 0);
 }
 
+function isSafeOfflineSiteAccessSnapshot(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3 || segments[1] !== "staff" || segments[2] !== "myAccess") return false;
+  const input = getOfflineQueryInput(queryKey);
+  return Boolean(input && Object.keys(input).length === 1 &&
+    Object.prototype.hasOwnProperty.call(input, "siteId") &&
+    Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0);
+}
+
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
+  if (isSafeOfflineSiteAccessSnapshot(queryKey, segments)) return true;
   if (isSafeHrOfflineProjection(queryKey, segments)) return true;
   // One exact purchase detail may be stored as a sanitized read-only display snapshot.
   if (isSafePurchaseDetailSnapshot(queryKey, segments)) return true;

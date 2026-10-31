@@ -4,7 +4,7 @@ import { listDeltaSyncStatuses, type DeltaSyncStatusRecord } from "@/lib/offline
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, notifyOfflineWorkQueueChanged, subscribeOfflineWorkQueueChanges, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type FuelFillDraft, type ExpenseCreateDraft } from "@/lib/offline-work-queue";
+import { isSyncMetadataCompatibleWithWorkItem, listOfflineWork, notifyOfflineWorkQueueChanged, subscribeOfflineWorkQueueChanges, requeueOfflineWorkForManualRetry, removeOfflineWork, resolveOfflineEmployeeReferences, resolveOfflineAdjustmentReferences, updateOfflineWork, type QueuedOfflineWork, type HrEmployeeCreateDraft, type HrEmployeeUpdateDraft, type HrAttendanceUpsertDraft, type HrPayrollDraftPayload, type HrEmployeeAdvanceIssueDraft, type HrEmployeeAdvanceRepaymentDraft, type FuelFillDraft, type ExpenseCreateDraft, type InventoryStocktakeCountDraft } from "@/lib/offline-work-queue";
 import { getSyncMetadata, listSyncMetadata, upsertSyncMetadata, type SyncMetadataRecord } from "@/lib/offline-sync-metadata";
 import type { SyncMetadata } from "@/lib/offline-sync-engine";
 import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-sync-executor";
@@ -29,6 +29,7 @@ const labelByKind = {
   subscriber_create: "إضافة مشترك", subscriber_update: "تعديل مشترك", generator_create: "إضافة مولد",
   generator_update: "تعديل مولد", fuel_fill: "تعبئة وقود (مسودة)", invoice_issue: "إصدار فاتورة", payment_create: "تحصيل معلق", expense_create: "مصروف معلّق",
   payment_documentation_submit: "توثيق دفع إلكتروني", payment_documentation_approve: "اعتماد توثيق دفع",
+  inventory_stocktake_count: "عدّ مخزني محلي (بانتظار تأكيد الخادم)",
   reading_create: "قراءة ميدانية معلقة", employee_create: "إضافة موظف (معلّق)", employee_update: "تعديل موظف (معلّق)",
   attendance_upsert: "تسجيل حضور (معلّق)", payroll_draft: "مسودة رواتب (معلّقة)",
   employee_advance_issue: "طلب صرف سلفة (معلّق)", employee_advance_repayment: "طلب سداد سلفة (معلّق)",
@@ -198,6 +199,7 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
   const approvePaymentDocumentation = trpc.powerhub.paymentDocumentation.approve.useMutation();
   const createReading = trpc.powerhub.readings.create.useMutation();
   const recordFuelFill = trpc.powerhub.inventory.recordFuelFill.useMutation();
+  const recordStocktakeCount = trpc.powerhub.inventory.recordStocktakeCount.useMutation();
   const replayHrOffline = trpc.powerhub.hr.replayOfflineOperation.useMutation();
   const issueEmployeeAdvance = trpc.powerhub.hr.issueEmployeeAdvance.useMutation();
   const repayEmployeeAdvance = trpc.powerhub.hr.repayEmployeeAdvance.useMutation();
@@ -582,6 +584,28 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
           appliedLabel: "تعبئة " + payload.litres + " لتر للمولد #" + payload.generatorId,
           payload: sanitizeCompletedPayload(item),
         });
+        return { outcome: result.replayed ? "already_applied" : "applied" };
+      }
+
+      if (item.kind === "inventory_stocktake_count") {
+        const payload = item.payload as InventoryStocktakeCountDraft;
+        // This persists a server-confirmed count only; it cannot submit or post a stocktake.
+        const result = await runMutation(() => recordStocktakeCount.mutateAsync({
+          siteId: item.siteId, ...payload, operationKey: item.clientOperationId,
+        }));
+        assertCurrentOperation();
+        await updateOfflineWork(item.id, {
+          status: "applied", error: undefined,
+          appliedEntityId: Number(result.stocktake_id),
+          appliedLabel: "جرد #" + result.stocktake_id + " — الصنف #" + result.item_id,
+        });
+        notifyOfflineWorkQueueChanged({ userId: item.userId, siteId: item.siteId });
+        await Promise.all([
+          utils.powerhub.inventory.listStocktakes.invalidate(),
+          utils.powerhub.inventory.listStocktakeLines.invalidate({
+            siteId: item.siteId, stocktakeId: Number(result.stocktake_id),
+          }),
+        ]);
         return { outcome: result.replayed ? "already_applied" : "applied" };
       }
       const payload = item.payload as import("@/lib/offline-work-queue").PaymentDocumentationDraft;

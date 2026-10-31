@@ -66,6 +66,7 @@ export type OfflineWorkKind =
   | "generator_create"
   | "generator_update"
   | "fuel_fill"
+  | "inventory_stocktake_count"
   | "invoice_issue"
   | "payment_create"
   | "expense_create"
@@ -286,12 +287,21 @@ export type HrEmployeeAdvanceRepaymentDraft = {
   localRepaymentId?: number;
 };
 
+export type InventoryStocktakeCountDraft = {
+  stocktakeId: number;
+  itemId: number;
+  countedQuantity: number;
+  countedUnitCost?: number;
+  countNotes?: string;
+};
+
 export type OfflineWorkPayload =
   | SubscriberCreateDraft
   | SubscriberUpdateDraft
   | GeneratorCreateDraft
   | GeneratorUpdateDraft
   | FuelFillDraft
+  | InventoryStocktakeCountDraft
   | InvoiceIssueDraft
   | PaymentDraft
   | ExpenseCreateDraft
@@ -491,6 +501,117 @@ export async function enqueueOfflineWork(input: OfflineWorkEnqueueInput) {
     transaction.onabort = () => { const error = transaction.error; database.close(); reject(error ?? new OfflineWorkQueueError("أُلغيت معاملة حفظ المسودة وحالة مزامنتها.")); };
   });
 }
+
+export function canCoalesceOfflineStocktakeCount(
+  item: QueuedOfflineWork,
+  metadata: SyncMetadataRecord | undefined,
+  scope: { userId: number; tenantId: number; siteId: number; stocktakeId: number; itemId: number },
+): boolean {
+  if (item.kind !== "inventory_stocktake_count" || item.status !== "pending") return false;
+  const payload = item.payload as InventoryStocktakeCountDraft;
+  return item.userId === scope.userId &&
+    item.tenantId === scope.tenantId &&
+    item.siteId === scope.siteId &&
+    payload.stocktakeId === scope.stocktakeId &&
+    payload.itemId === scope.itemId &&
+    isSyncMetadataCompatibleWithWorkItem(item, metadata) &&
+    metadata.outcome === "pending" &&
+    metadata.attempts === 0;
+}
+
+/**
+ * Persist one stocktake-line count intent in the canonical Outbox. A pending,
+ * never-attempted line draft is coalesced in place; an in-flight, ambiguous,
+ * conflicted or rejected prior draft blocks replacement until it is resolved.
+ */
+export async function enqueueOfflineStocktakeCount(input: {
+  userId: number;
+  tenantId: number;
+  siteId: number;
+  payload: InventoryStocktakeCountDraft;
+}): Promise<QueuedOfflineWork> {
+  const { userId, tenantId, siteId, payload } = input;
+  if (!Number.isSafeInteger(userId) || userId < 1 ||
+      !Number.isSafeInteger(tenantId) || tenantId < 1 ||
+      !Number.isSafeInteger(siteId) || siteId < 1 ||
+      !Number.isSafeInteger(payload.stocktakeId) || payload.stocktakeId < 1 ||
+      !Number.isSafeInteger(payload.itemId) || payload.itemId < 1 ||
+      !Number.isFinite(payload.countedQuantity) || payload.countedQuantity < 0 ||
+      payload.countedQuantity > 1_000_000_000 ||
+      Math.abs(payload.countedQuantity * 1000 - Math.round(payload.countedQuantity * 1000)) > 1e-7 ||
+      (payload.countedUnitCost !== undefined &&
+        (!Number.isFinite(payload.countedUnitCost) || payload.countedUnitCost < 0 ||
+          payload.countedUnitCost > 1_000_000_000 ||
+          Math.abs(payload.countedUnitCost * 10000 - Math.round(payload.countedUnitCost * 10000)) > 1e-7)) ||
+      (payload.countNotes !== undefined && payload.countNotes.trim().length > 500)) {
+    throw new OfflineWorkQueueError("بيانات العد المحلي أو نطاقه غير صالح.");
+  }
+
+  const database = await openDatabase();
+  return new Promise<QueuedOfflineWork>((resolve, reject) => {
+    const tx = database.transaction([storeName, syncMetadataStoreName], "readwrite");
+    const operations = tx.objectStore(storeName);
+    const metadataStore = tx.objectStore(syncMetadataStoreName);
+    const operationsRequest = operations.getAll();
+    const metadataRequest = metadataStore.getAll();
+    let operationRows: QueuedOfflineWork[] | undefined;
+    let metadataRows: SyncMetadataRecord[] | undefined;
+    let output: QueuedOfflineWork | undefined;
+    let failure: unknown;
+    let evaluated = false;
+
+    const evaluate = () => {
+      if (evaluated || !operationRows || !metadataRows) return;
+      evaluated = true;
+      const scope = { userId, tenantId, siteId, stocktakeId: payload.stocktakeId, itemId: payload.itemId };
+      const matching = operationRows.filter((item) => {
+        if (item.kind !== "inventory_stocktake_count" || item.status === "applied") return false;
+        const prior = item.payload as InventoryStocktakeCountDraft;
+        return item.userId === userId && item.tenantId === tenantId && item.siteId === siteId &&
+          prior.stocktakeId === payload.stocktakeId && prior.itemId === payload.itemId;
+      });
+
+      if (matching.length > 1) {
+        failure = new OfflineWorkQueueError("توجد عدة عمليات عد محلية غير محسومة لهذا الصنف؛ راجع طابور المزامنة قبل التعديل.");
+        try { tx.abort(); } catch {}
+        return;
+      }
+
+      const existing = matching[0];
+      if (existing) {
+        const metadata = metadataRows.find((row) => row.operationId === existing.clientOperationId);
+        if (!canCoalesceOfflineStocktakeCount(existing, metadata, scope)) {
+          failure = new OfflineWorkQueueError("يوجد عدّ محلي قيد الإرسال أو يحتاج إلى مراجعة؛ أكمل مزامنته أو عالج تعارضه قبل تعديل الكمية.");
+          try { tx.abort(); } catch {}
+          return;
+        }
+        output = { ...existing, payload: { ...payload }, updatedAt: Date.now() };
+        operations.put(output);
+        return;
+      }
+
+      output = createOfflineWork({
+        userId, tenantId, siteId, kind: "inventory_stocktake_count", payload: { ...payload },
+      });
+      operations.add(output);
+      metadataStore.add(createInitialSyncMetadataRecord(output));
+    };
+
+    operationsRequest.onsuccess = () => { operationRows = operationsRequest.result as QueuedOfflineWork[]; evaluate(); };
+    metadataRequest.onsuccess = () => { metadataRows = metadataRequest.result as SyncMetadataRecord[]; evaluate(); };
+    operationsRequest.onerror = () => { failure = operationsRequest.error; try { tx.abort(); } catch {} };
+    metadataRequest.onerror = () => { failure = metadataRequest.error; try { tx.abort(); } catch {} };
+    tx.oncomplete = () => {
+      database.close();
+      if (!output) { reject(failure ?? new OfflineWorkQueueError("لم تُحفظ مسودة العد المحلي.")); return; }
+      notifyOfflineWorkQueueChanged({ userId, siteId });
+      resolve(output);
+    };
+    tx.onerror = () => { const error = tx.error; database.close(); reject(failure ?? error ?? new OfflineWorkQueueError("تعذر حفظ العد المحلي في Outbox.")); };
+    tx.onabort = () => { const error = tx.error; database.close(); reject(failure ?? error ?? new OfflineWorkQueueError("أُلغيت معاملة حفظ العد المحلي.")); };
+  });
+}
+
 
 /** HR queue writes use the same operation store and dependency metadata as every other outbox item. */
 export async function enqueueOfflineHrWork(input: OfflineWorkEnqueueInput) {

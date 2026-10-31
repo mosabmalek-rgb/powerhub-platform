@@ -8,6 +8,7 @@ import InventoryReportsPanel from "@/components/InventoryReportsPanel";
 import InventorySupplierPaymentsPanel from "@/components/InventorySupplierPaymentsPanel";
 import InventorySupplierPayablesAgingPanel from "@/components/InventorySupplierPayablesAgingPanel";
 import InventoryStocktakePanel from "@/components/InventoryStocktakePanel";
+import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
 import InventoryDashboardPanel from "@/components/InventoryDashboardPanel";
 import InventoryFuelConsumptionPanel from "@/components/InventoryFuelConsumptionPanel";
 import InventoryMaintenancePanel from "@/components/InventoryMaintenancePanel";
@@ -20,7 +21,7 @@ import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
-import { clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
+import { clearOfflineSiteAccessQueryCacheForSite, clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
 import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck, LayoutDashboard, Droplet, Wrench, Bolt } from "lucide-react";
 import { toast } from "sonner";
@@ -69,36 +70,42 @@ export default function InventoryWorkspacePage() {
     enabled: Boolean(siteId && isAuthenticated),
     staleTime: 30_000,
   });
-  const canViewGenerators = ["owner", "manager", "technician", "viewer"].includes(supplierAccess.data?.role ?? "") || (supplierAccess.data?.permissions.includes("manageGenerators") ?? false);
-  const canViewSuppliers = supplierAccess.data?.permissions.includes("viewSuppliers") ?? false;
-  const canViewSupplierLedger = supplierAccess.data?.permissions.includes("viewSupplierLedger") ?? false;
-  const canViewInventory = supplierAccess.data?.permissions.includes("viewInventory") ?? false;
-  const canCreateInventoryItems = supplierAccess.data?.permissions.includes("createInventoryItems") ?? false;
-  const canEditInventoryItems = supplierAccess.data?.permissions.includes("editInventoryItems") ?? false;
-  const canDeactivateInventoryItems = supplierAccess.data?.permissions.includes("deactivateInventoryItems") ?? false;
-  const canCreateSuppliers = supplierAccess.data?.permissions.includes("createSuppliers") ?? false;
-  const canEditSuppliers = supplierAccess.data?.permissions.includes("editSuppliers") ?? false;
-  const canDeactivateSuppliers = supplierAccess.data?.permissions.includes("deactivateSuppliers") ?? false;
-  const canCreateWarehouses = supplierAccess.data?.permissions.includes("createWarehouses") ?? false;
-  const canEditWarehouses = supplierAccess.data?.permissions.includes("editWarehouses") ?? false;
-  const canDeactivateWarehouses = supplierAccess.data?.permissions.includes("deactivateWarehouses") ?? false;
-  const canViewInventoryReports = supplierAccess.data?.permissions.includes("viewInventoryReports") ?? false;
-  const canIssueInventory = supplierAccess.data?.permissions.includes("issueInventory") ?? false;
-  const canAdjustInventory = supplierAccess.data?.permissions.includes("adjustInventory") ?? false;
-  const canManageFuelAndConsumption = supplierAccess.data?.permissions.includes("manageFuelAndConsumption") ?? false;
-  const canManageMaintenance = supplierAccess.data?.permissions.includes("manageMaintenance") ?? false;
+  const supplierAccessAuthorizationDenied = isExplicitAuthorizationDenial(supplierAccess.error);
+  const effectiveSupplierAccess = supplierAccessAuthorizationDenied ? undefined : effectiveSupplierAccess;
+  useEffect(() => {
+    if (!supplierAccessAuthorizationDenied || !user?.id || !siteId) return;
+    void clearOfflineSiteAccessQueryCacheForSite(String(user.id), siteId);
+  }, [supplierAccessAuthorizationDenied, user?.id, siteId]);
+  const canViewGenerators = ["owner", "manager", "technician", "viewer"].includes(effectiveSupplierAccess?.role ?? "") || (effectiveSupplierAccess?.permissions.includes("manageGenerators") ?? false);
+  const canViewSuppliers = effectiveSupplierAccess?.permissions.includes("viewSuppliers") ?? false;
+  const canViewSupplierLedger = effectiveSupplierAccess?.permissions.includes("viewSupplierLedger") ?? false;
+  const canViewInventory = effectiveSupplierAccess?.permissions.includes("viewInventory") ?? false;
+  const canCreateInventoryItems = effectiveSupplierAccess?.permissions.includes("createInventoryItems") ?? false;
+  const canEditInventoryItems = effectiveSupplierAccess?.permissions.includes("editInventoryItems") ?? false;
+  const canDeactivateInventoryItems = effectiveSupplierAccess?.permissions.includes("deactivateInventoryItems") ?? false;
+  const canCreateSuppliers = effectiveSupplierAccess?.permissions.includes("createSuppliers") ?? false;
+  const canEditSuppliers = effectiveSupplierAccess?.permissions.includes("editSuppliers") ?? false;
+  const canDeactivateSuppliers = effectiveSupplierAccess?.permissions.includes("deactivateSuppliers") ?? false;
+  const canCreateWarehouses = effectiveSupplierAccess?.permissions.includes("createWarehouses") ?? false;
+  const canEditWarehouses = effectiveSupplierAccess?.permissions.includes("editWarehouses") ?? false;
+  const canDeactivateWarehouses = effectiveSupplierAccess?.permissions.includes("deactivateWarehouses") ?? false;
+  const canViewInventoryReports = effectiveSupplierAccess?.permissions.includes("viewInventoryReports") ?? false;
+  const canIssueInventory = effectiveSupplierAccess?.permissions.includes("issueInventory") ?? false;
+  const canAdjustInventory = effectiveSupplierAccess?.permissions.includes("adjustInventory") ?? false;
+  const canManageFuelAndConsumption = effectiveSupplierAccess?.permissions.includes("manageFuelAndConsumption") ?? false;
+  const canManageMaintenance = effectiveSupplierAccess?.permissions.includes("manageMaintenance") ?? false;
   const canViewMaintenance = canViewInventory || canManageMaintenance;
   const canViewMaintenanceReport = canViewInventoryReports;
-  const canViewStocktakes = supplierAccess.data?.permissions.includes("viewStocktakes") ?? false;
-  const canManageStocktakes = supplierAccess.data?.permissions.includes("manageStocktakes") ?? false;
-  const canApproveStocktakes = supplierAccess.data?.permissions.includes("approveStocktakes") ?? false;
+  const canViewStocktakes = effectiveSupplierAccess?.permissions.includes("viewStocktakes") ?? false;
+  const canManageStocktakes = effectiveSupplierAccess?.permissions.includes("manageStocktakes") ?? false;
+  const canApproveStocktakes = effectiveSupplierAccess?.permissions.includes("approveStocktakes") ?? false;
   const canAccessStocktakes = canViewStocktakes || canManageStocktakes || canApproveStocktakes;
-  const canViewPurchases = supplierAccess.data?.permissions.includes("viewPurchases") ?? false;
-  const canCreatePurchases = supplierAccess.data?.permissions.includes("createPurchases") ?? false;
-  const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
-  const canReceiveInventory = supplierAccess.data?.permissions.includes("receiveInventory") ?? false;
-  const canManageSupplierPayments = supplierAccess.data?.permissions.includes("manageSupplierPayments") ?? false;
-  const canReverseSupplierPayments = supplierAccess.data?.permissions.includes("reverseSupplierPayments") ?? false;
+  const canViewPurchases = effectiveSupplierAccess?.permissions.includes("viewPurchases") ?? false;
+  const canCreatePurchases = effectiveSupplierAccess?.permissions.includes("createPurchases") ?? false;
+  const canApprovePurchases = effectiveSupplierAccess?.permissions.includes("approvePurchases") ?? false;
+  const canReceiveInventory = effectiveSupplierAccess?.permissions.includes("receiveInventory") ?? false;
+  const canManageSupplierPayments = effectiveSupplierAccess?.permissions.includes("manageSupplierPayments") ?? false;
+  const canReverseSupplierPayments = effectiveSupplierAccess?.permissions.includes("reverseSupplierPayments") ?? false;
   const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;
   const canViewPurchaseFinancials = canViewPurchases || canManageSupplierPayments;
   const utils = trpc.useUtils();
@@ -510,11 +517,14 @@ export default function InventoryWorkspacePage() {
               </> : null}
               {canAccessStocktakes ? <InventoryStocktakePanel
                 siteId={siteId}
+                userId={Number(user?.id ?? 0)}
+                tenantId={Number(effectiveSupplierAccess?.tenantId ?? 0)}
                 isAuthenticated={isAuthenticated}
                 canViewStocktakes={canViewStocktakes}
                 canManageStocktakes={canManageStocktakes}
                 canApproveStocktakes={canApproveStocktakes}
               /> : null}
+              {canManageStocktakes && user?.id ? <OfflineWorkSyncPanel siteId={siteId} userId={user.id} compact /> : null}
             </TabsContent> : null}
 
             {canViewMaintenance ? <TabsContent value="maintenance" className="space-y-4"><InventoryMaintenancePanel
@@ -524,7 +534,7 @@ export default function InventoryWorkspacePage() {
                 canViewMaintenanceReport={canViewMaintenanceReport}
                 canManageMaintenance={canManageMaintenance}
                 canIssueInventory={canIssueInventory}
-                canManageExpenses={supplierAccess.data?.permissions.includes("manageExpenses") ?? false}
+                canManageExpenses={effectiveSupplierAccess?.permissions.includes("manageExpenses") ?? false}
               /></TabsContent> : null}
 
             {(canManageFuelAndConsumption || canViewInventoryReports) ? <TabsContent value="fuel" className="space-y-4">

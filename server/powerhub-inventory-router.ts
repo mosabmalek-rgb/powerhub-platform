@@ -1438,6 +1438,7 @@ export const powerhubInventoryRouter = router({
       countedUnitCost: z.number().finite().min(0).max(1_000_000_000)
         .refine((value) => Math.abs(value * 10000 - Math.round(value * 10000)) < 1e-7).optional(),
       countNotes: z.string().trim().max(500).optional(),
+      operationKey: z.string().trim().min(1).max(180),
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageStocktakes");
@@ -1445,7 +1446,7 @@ export const powerhubInventoryRouter = router({
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_stocktake_id: input.stocktakeId, p_item_id: input.itemId,
         p_counted_quantity: input.countedQuantity, p_counted_unit_cost: input.countedUnitCost ?? null,
-        p_count_notes: input.countNotes || null,
+        p_count_notes: input.countNotes || null, p_operation_key: input.operationKey,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر حفظ كمية العد الفعلية.");
       return data[0];

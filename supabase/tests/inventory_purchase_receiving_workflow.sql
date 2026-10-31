@@ -334,6 +334,7 @@ $inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022160000_powerhub_inventory_item_units.sql
 \ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql
 \ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql
+\ir ../migrations/20261031120000_powerhub_inventory_stocktake_count_idempotency.sql
 \ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql
 \ir ../migrations/20261022190000_powerhub_inventory_phase_a_fk_indexes.sql
 \ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql
@@ -3155,6 +3156,11 @@ declare
   v_opening_value numeric(14,2);
   v_posted_movement_id bigint;
   v_bad_count integer;
+  v_stocktake_line_id bigint;
+  v_audit_count_before integer;
+  v_audit_count_after integer;
+  v_count_result record;
+  v_count_replay record;
 begin
   select id into v_warehouse_id from public.inventory_warehouses
   where tenant_id=10 and site_id=100 and code='FIXED-TANK-WF-01' and is_active;
@@ -3204,9 +3210,56 @@ begin
     order by l.item_id
   loop
     if v_line.item_id=v_item_id then
-      perform * from public.powerhub_inventory_record_stocktake_count(
-        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel'
+      select l.id into v_stocktake_line_id
+      from public.inventory_stocktake_lines l
+      where l.tenant_id=10 and l.stocktake_id=v_stocktake_id and l.item_id=v_line.item_id;
+      select count(*)::integer into v_audit_count_before
+      from public.audit_logs a
+      where a.tenant_id=10 and a.site_id=100 and a.entity_type='inventory_stocktake_line'
+        and a.entity_id=v_stocktake_line_id::text and a.action='record_count';
+
+      select * into v_count_result
+      from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+        'stocktake-count:idempotency:line-1'
       );
+      if v_count_result.replayed or v_count_result.counted_quantity<>2.000 then
+        raise exception 'STOCKTAKE_COUNT_FIRST_EXECUTION_FAILED';
+      end if;
+
+      select * into v_count_replay
+      from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+        'stocktake-count:idempotency:line-1'
+      );
+      if not v_count_replay.replayed
+        or v_count_replay.stocktake_id<>v_count_result.stocktake_id
+        or v_count_replay.item_id<>v_count_result.item_id
+        or v_count_replay.counted_quantity<>v_count_result.counted_quantity
+        or v_count_replay.variance_quantity<>v_count_result.variance_quantity
+        or v_count_replay.counted_at is distinct from v_count_result.counted_at then
+        raise exception 'STOCKTAKE_COUNT_REPLAY_RESULT_MISMATCH';
+      end if;
+
+      begin
+        perform * from public.powerhub_inventory_record_stocktake_count(
+          10,100,1,v_stocktake_id,v_line.item_id,2.001,6.0000,'Physically measured diesel',
+          'stocktake-count:idempotency:line-1'
+        );
+        raise exception 'STOCKTAKE_COUNT_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+      exception when others then
+        if sqlerrm='STOCKTAKE_COUNT_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+        if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+      end;
+
+      select count(*)::integer into v_audit_count_after
+      from public.audit_logs a
+      where a.tenant_id=10 and a.site_id=100 and a.entity_type='inventory_stocktake_line'
+        and a.entity_id=v_stocktake_line_id::text and a.action='record_count';
+      if v_audit_count_after<>v_audit_count_before+1 then
+        raise exception 'STOCKTAKE_COUNT_REPLAY_DUPLICATED_AUDIT before=% after=%',
+          v_audit_count_before,v_audit_count_after;
+      end if;
     else
       perform * from public.powerhub_inventory_record_stocktake_count(
         10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
@@ -3377,6 +3430,8 @@ begin
 
   if has_function_privilege('authenticated','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or has_function_privilege('anon','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
@@ -3386,6 +3441,7 @@ begin
   end if;
   if not has_function_privilege('service_role','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
@@ -3393,7 +3449,17 @@ begin
     or not has_function_privilege('service_role','public.powerhub_inventory_list_stocktake_lines(bigint,bigint,bigint)','EXECUTE') then
     raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_STOCKTAKE_RPC';
   end if;
-  if not exists(select 1 from public.platform_role_policies where role='manager' and capability='manageStocktakes')
+  if not exists(select 1 from public.platform_role_policies where role='manager' and capability='manageStocktakes')  if not (select c.relrowsecurity from pg_class c where c.oid='public.powerhub_inventory_stocktake_count_operations'::regclass)
+    or has_table_privilege('anon','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or has_table_privilege('authenticated','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or has_table_privilege('anon','public.powerhub_inventory_stocktake_count_operations','INSERT')
+    or has_table_privilege('authenticated','public.powerhub_inventory_stocktake_count_operations','INSERT')
+    or not has_table_privilege('service_role','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or not has_table_privilege('service_role','public.powerhub_inventory_stocktake_count_operations','INSERT') then
+    raise exception 'STOCKTAKE_COUNT_OPERATION_LEDGER_ACL_FAILED';
+  end if;
+
+
     or not exists(select 1 from public.platform_role_policies where role='manager' and capability='approveStocktakes') then
     -- A dedicated manager approve grant is deliberately a valid default for this test persona.
     insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id)

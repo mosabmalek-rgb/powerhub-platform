@@ -604,7 +604,15 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("listStocktakes.useQuery");
     expect(panel).toContain("listStocktakeLines.useQuery");
     expect(panel).toContain("createStocktake.useMutation");
-    expect(panel).toContain("recordStocktakeCount.useMutation");
+    expect(panel).toContain("enqueueOfflineStocktakeCount");
+    expect(panel).toContain("hasUnconfirmedOfflineCounts");
+    expect(panel).toContain("تأكيد الخادم");
+    const outbox = read("client/src/lib/offline-work-queue.ts");
+    const syncPanel = read("client/src/components/OfflineWorkSyncPanel.tsx");
+    expect(outbox).toContain('"inventory_stocktake_count"');
+    expect(syncPanel).toContain("trpc.powerhub.inventory.recordStocktakeCount.useMutation()");
+    expect(syncPanel).toContain("operationKey: item.clientOperationId");
+    expect(workspace).toContain("<OfflineWorkSyncPanel");
     expect(panel).toContain("submitStocktake.useMutation");
     expect(panel).toContain("postStocktake.useMutation");
     expect(panel).toContain("cancelStocktake.useMutation");

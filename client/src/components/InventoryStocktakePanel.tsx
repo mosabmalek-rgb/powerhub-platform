@@ -5,11 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { enqueueOfflineStocktakeCount, listOfflineWork, subscribeOfflineWorkQueueChanges, type QueuedOfflineWork, type InventoryStocktakeCountDraft } from "@/lib/offline-work-queue";
 import { ClipboardCheck, Loader2, PackageCheck, Plus, RefreshCw, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 type Props = {
   siteId: number;
+  userId: number;
+  tenantId: number;
   isAuthenticated: boolean;
   canViewStocktakes: boolean;
   canManageStocktakes: boolean;
@@ -96,6 +99,8 @@ function money(value: number | string | null | undefined) {
 
 export default function InventoryStocktakePanel({
   siteId,
+  userId,
+  tenantId,
   isAuthenticated,
   canViewStocktakes,
   canManageStocktakes,
@@ -106,7 +111,7 @@ export default function InventoryStocktakePanel({
   const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
   const ensureServerWriteAllowed = () => {
     if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
-      toast.error("يلزم اتصال موثوق بخادم PowerHub لتنفيذ هذه العملية؛ لم تُرحّل أي حركة.");
+      toast.error("يلزم اتصال موثوق بخادم PowerHub لتنفيذ الاعتماد أو الترحيل؛ لم تُنفذ أي حركة نهائية.");
       return false;
     }
     return true;
@@ -121,8 +126,13 @@ export default function InventoryStocktakePanel({
   const [countValues, setCountValues] = useState<Record<string, string>>({});
   const [countCosts, setCountCosts] = useState<Record<string, string>>({});
   const [countNotes, setCountNotes] = useState<Record<string, string>>({});
+  const [offlineCountOperations, setOfflineCountOperations] = useState<QueuedOfflineWork[]>([]);
+  const [savingLineIds, setSavingLineIds] = useState<Record<string, boolean>>({});
+  const [loadedOfflineCountScope, setLoadedOfflineCountScope] = useState("");
 
   const enabled = Boolean(siteId && isAuthenticated && (canViewStocktakes || canManageStocktakes || canApproveStocktakes));
+  const offlineCountScopeKey = `${userId}:${tenantId}:${siteId}`;
+  const offlineCountsLoaded = loadedOfflineCountScope === offlineCountScopeKey;
   const warehouseQuery = trpc.powerhub.inventory.listStocktakeWarehouses.useQuery(
     { siteId },
     { enabled, staleTime: 30_000 },
@@ -143,6 +153,71 @@ export default function InventoryStocktakePanel({
   const varianceCount = Number(selectedStocktake?.variance_count ?? 0);
   const countedCount = Number(selectedStocktake?.counted_count ?? 0);
   const itemCount = Number(selectedStocktake?.item_count ?? 0);
+  const selectedOfflineCounts = offlineCountOperations.filter((item) =>
+    item.status !== "applied" &&
+    (item.payload as InventoryStocktakeCountDraft).stocktakeId === selectedStocktakeId
+  );
+  const selectedOfflineItemIds = new Set(
+    selectedOfflineCounts.map((item) => (item.payload as InventoryStocktakeCountDraft).itemId)
+  );
+  const hasUnconfirmedOfflineCounts = !offlineCountsLoaded || selectedOfflineCounts.length > 0;
+
+  useEffect(() => {
+    let active = true;
+    const loadOfflineCounts = async () => {
+      setLoadedOfflineCountScope("");
+      if (!userId || userId < 1 || !tenantId || tenantId < 1 || !siteId || siteId < 1) {
+        setOfflineCountOperations([]);
+        return;
+      }
+      try {
+        const rows = await listOfflineWork({ userId, siteId });
+        if (!active) return;
+        const countRows = rows.filter((item) =>
+          item.tenantId === tenantId && item.kind === "inventory_stocktake_count"
+        );
+        setOfflineCountOperations(countRows);
+        setLoadedOfflineCountScope(offlineCountScopeKey);
+        setCountValues((current) => {
+          const next = { ...current };
+          for (const item of countRows) {
+            if (item.status === "applied") continue;
+            const payload = item.payload as InventoryStocktakeCountDraft;
+            const key = `${payload.stocktakeId}:${payload.itemId}`;
+            next[key] = String(payload.countedQuantity);
+          }
+          return next;
+        });
+        setCountCosts((current) => {
+          const next = { ...current };
+          for (const item of countRows) {
+            if (item.status === "applied") continue;
+            const payload = item.payload as InventoryStocktakeCountDraft;
+            const key = `${payload.stocktakeId}:${payload.itemId}`;
+            next[key] = payload.countedUnitCost == null ? "" : String(payload.countedUnitCost);
+          }
+          return next;
+        });
+        setCountNotes((current) => {
+          const next = { ...current };
+          for (const item of countRows) {
+            if (item.status === "applied") continue;
+            const payload = item.payload as InventoryStocktakeCountDraft;
+            const key = `${payload.stocktakeId}:${payload.itemId}`;
+            next[key] = payload.countNotes ?? "";
+          }
+          return next;
+        });
+      } catch {
+        if (active) toast.error("تعذر استعادة مسودات العد المحلي من Outbox.");
+      }
+    };
+    void loadOfflineCounts();
+    const unsubscribe = userId > 0 && siteId > 0
+      ? subscribeOfflineWorkQueueChanges({ userId, siteId }, () => { void loadOfflineCounts(); })
+      : () => undefined;
+    return () => { active = false; unsubscribe(); };
+  }, [siteId, tenantId, userId, offlineCountScopeKey]);
 
   useEffect(() => {
     if (filterWarehouseId && !warehouses.some((warehouse) => String(warehouse.id) === filterWarehouseId)) {
@@ -210,19 +285,6 @@ export default function InventoryStocktakePanel({
     onError: (error) => toast.error(error.message || "تعذر فتح جلسة الجرد."),
   });
 
-  const recordCount = trpc.powerhub.inventory.recordStocktakeCount.useMutation({
-    onSuccess: async (result) => {
-      const key = `${result.stocktake_id}:${result.item_id}`;
-      setCountValues((current) => ({ ...current, [key]: String(result.counted_quantity) }));
-      toast.success("تم حفظ العد الفعلي وتسجيل أثره في التدقيق.");
-      await Promise.all([
-        utils.powerhub.inventory.listStocktakes.invalidate(),
-        utils.powerhub.inventory.listStocktakeLines.invalidate({ siteId, stocktakeId: Number(result.stocktake_id) }),
-      ]);
-    },
-    onError: (error) => toast.error(error.message || "تعذر حفظ العد الفعلي."),
-  });
-
   const submitStocktake = trpc.powerhub.inventory.submitStocktake.useMutation({
     onSuccess: async (result) => {
       toast.success(result.replayed ? "جلسة الجرد أُرسلت للاعتماد سابقًا." : "تم إرسال الجرد للاعتماد بعد التحقق من اكتمال العد وثبات الأرصدة.");
@@ -265,10 +327,14 @@ export default function InventoryStocktakePanel({
     });
   };
 
-  const saveLine = (line: (typeof lines)[number]) => {
-    if (!ensureServerWriteAllowed()) return;
-    if (!selectedStocktakeId) return;
+  const saveLine = async (line: (typeof lines)[number]) => {
+    if (!selectedStocktakeId || !selectedStocktake || selectedStocktake.status !== "counting") return;
+    if (!userId || userId < 1 || !tenantId || tenantId < 1) {
+      toast.error("تعذر تحديد هوية المستخدم والمؤسسة لحفظ العد المحلي بأمان.");
+      return;
+    }
     const key = `${selectedStocktakeId}:${line.item_id}`;
+    if (savingLineIds[key]) return;
     const rawQuantity = (countValues[key] ?? "").trim();
     const countedQuantity = Number(rawQuantity);
     if (!rawQuantity || !Number.isFinite(countedQuantity) || countedQuantity < 0
@@ -287,14 +353,26 @@ export default function InventoryStocktakePanel({
       toast.error("أدخل تكلفة وحدة لتقييم الزيادة لأن الصنف لا يملك رصيدًا سابقًا.");
       return;
     }
-    recordCount.mutate({
-      siteId,
+    const payload: InventoryStocktakeCountDraft = {
       stocktakeId: selectedStocktakeId,
       itemId: Number(line.item_id),
       countedQuantity,
       countedUnitCost,
       countNotes: (countNotes[key] ?? "").trim() || undefined,
-    });
+    };
+    setSavingLineIds((current) => ({ ...current, [key]: true }));
+    try {
+      const queued = await enqueueOfflineStocktakeCount({ userId, tenantId, siteId, payload });
+      setOfflineCountOperations((current) => [
+        ...current.filter((item) => item.clientOperationId !== queued.clientOperationId),
+        queued,
+      ]);
+      toast.success("حُفظ العد كمسودة محلية؛ لن يُحتسب ضمن اكتمال الجرد قبل تأكيد الخادم.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر حفظ العد المحلي.");
+    } finally {
+      setSavingLineIds((current) => ({ ...current, [key]: false }));
+    }
   };
 
   const requestCancel = () => {
@@ -314,7 +392,7 @@ export default function InventoryStocktakePanel({
 
   return (
     <div dir="rtl" className="space-y-4">
-      {serverWriteBlocked ? <p role="status" className="rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">الجرد المحلي للقراءة فقط حتى يعود اتصال موثوق بالخادم؛ حفظ العد أو إرساله أو ترحيله لا يتم دون الخادم.</p> : null}
+      {serverWriteBlocked ? <p role="status" className="rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">يمكن تسجيل العد كمسودة محلية دون اتصال، لكن الخادم وحده يؤكد العد ويحتسبه ضمن الاكتمال. إرسال الجرد واعتماده وترحيله تبقى عمليات خادمية فقط.</p> : null}
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -397,9 +475,11 @@ export default function InventoryStocktakePanel({
             {selectedStocktake.status === "counting" && canManageStocktakes ? <Button type="button" variant="outline" onClick={() => {
               if (!ensureServerWriteAllowed()) return;
               if (!selectedStocktakeId) return;
-              if (!selectedLinesComplete) { toast.error("احفظ عدّ كل الأصناف قبل إرسال الجرد."); return; }
+              if (!offlineCountsLoaded) { toast.error("لم تكتمل استعادة حالة Outbox لهذا الفرع؛ أُوقف الإرسال احتياطياً."); return; }
+              if (selectedOfflineCounts.length > 0) { toast.error("توجد مسودات عد محلية لم يؤكدها الخادم بعد؛ زامنها قبل إرسال الجرد."); return; }
+              if (!selectedLinesComplete) { toast.error("احفظ عدّ كل الأصناف على الخادم قبل إرسال الجرد."); return; }
               submitStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId });
-            }} disabled={serverWriteBlocked || submitStocktake.isPending || !selectedLinesComplete || countedCount !== itemCount}>
+            }} disabled={serverWriteBlocked || submitStocktake.isPending || hasUnconfirmedOfflineCounts || !selectedLinesComplete || countedCount !== itemCount}>
               {submitStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Send className="ml-2 h-4 w-4" />} إرسال للاعتماد
             </Button> : null}
             {selectedStocktake.status === "submitted" && canApproveStocktakes ? <Button type="button" onClick={() => { if (ensureServerWriteAllowed() && selectedStocktakeId) postStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId }); }} disabled={serverWriteBlocked || postStocktake.isPending}>
@@ -419,7 +499,13 @@ export default function InventoryStocktakePanel({
                 <thead className="bg-muted/60"><tr>{["الصنف","الوحدة","رصيد النظام","قيمة النظام","تكلفة الوحدة","الكمية المعدودة","تكلفة الزيادة","الفرق","ملاحظات العد","إجراء"].map((title) => <th key={title} className="p-3 font-semibold">{title}</th>)}</tr></thead>
                 <tbody>{lines.map((line) => {
                   const key = `${selectedStocktakeId}:${line.item_id}`;
-                  const countText = countValues[key] ?? (line.counted_quantity == null ? "" : String(line.counted_quantity));
+                  const localCount = [...selectedOfflineCounts].reverse().find((item) =>
+                    (item.payload as InventoryStocktakeCountDraft).itemId === Number(line.item_id)
+                  );
+                  const localPayload = localCount?.payload as InventoryStocktakeCountDraft | undefined;
+                  const countText = countValues[key] ?? (localPayload
+                    ? String(localPayload.countedQuantity)
+                    : line.counted_quantity == null ? "" : String(line.counted_quantity));
                   const countValue = countText.trim() === "" ? NaN : Number(countText);
                   const variance = Number.isFinite(countValue) ? countValue - Number(line.system_quantity) : null;
                   const canEditLine = selectedStocktake.status === "counting" && canManageStocktakes;
@@ -430,16 +516,24 @@ export default function InventoryStocktakePanel({
                     <td className="p-3 whitespace-nowrap tabular-nums">{money(line.system_value)}</td>
                     <td className="p-3 whitespace-nowrap tabular-nums">{money(line.system_unit_cost)}</td>
                     <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.001" className="min-w-[120px]" value={countText} onChange={(event) => setCountValues((current) => ({ ...current, [key]: event.target.value }))} aria-label={`الكمية المعدودة: ${line.item_name}`} /></td>
-                    <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.0001" className="min-w-[120px]" value={countCosts[key] ?? (line.counted_unit_cost == null ? "" : String(line.counted_unit_cost))} onChange={(event) => setCountCosts((current) => ({ ...current, [key]: event.target.value }))} aria-label={`تكلفة كمية الزيادة: ${line.item_name}`} placeholder={Number(line.system_quantity) > 0 ? "تلقائي من المتوسط" : "مطلوب للزيادة"} /></td>
+                    <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.0001" className="min-w-[120px]" value={countCosts[key] ?? (localPayload?.countedUnitCost == null ? (line.counted_unit_cost == null ? "" : String(line.counted_unit_cost)) : String(localPayload.countedUnitCost))} onChange={(event) => setCountCosts((current) => ({ ...current, [key]: event.target.value }))} aria-label={`تكلفة كمية الزيادة: ${line.item_name}`} placeholder={Number(line.system_quantity) > 0 ? "تلقائي من المتوسط" : "مطلوب للزيادة"} /></td>
                     <td className={`p-3 whitespace-nowrap font-semibold tabular-nums ${variance == null ? "text-muted-foreground" : variance === 0 ? "text-emerald-600" : variance < 0 ? "text-destructive" : "text-amber-600"}`}>{variance == null ? "—" : `${variance > 0 ? "+" : ""}${qty(variance)}`}</td>
-                    <td className="p-3"><Input disabled={!canEditLine} maxLength={500} className="min-w-[170px]" value={countNotes[key] ?? line.count_notes ?? ""} onChange={(event) => setCountNotes((current) => ({ ...current, [key]: event.target.value }))} placeholder="ملاحظة مختصرة" /></td>
-                    <td className="p-3">{canEditLine ? <Button type="button" size="sm" variant="outline" disabled={serverWriteBlocked || recordCount.isPending || !countText.trim()} onClick={() => saveLine(line)}>{recordCount.isPending && recordCount.variables?.itemId === Number(line.item_id) ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} حفظ العد</Button> : <span className="text-xs text-muted-foreground">{line.counted_at ? `حُفظ ${new Date(line.counted_at).toLocaleDateString("ar-PS")}` : "—"}</span>}</td>
+                    <td className="p-3"><Input disabled={!canEditLine} maxLength={500} className="min-w-[170px]" value={countNotes[key] ?? localPayload?.countNotes ?? line.count_notes ?? ""} onChange={(event) => setCountNotes((current) => ({ ...current, [key]: event.target.value }))} placeholder="ملاحظة مختصرة" /></td>
+                    <td className="p-3">{canEditLine
+                      ? <div className="space-y-1">
+                          <Button type="button" size="sm" variant="outline" disabled={Boolean(savingLineIds[key]) || !countText.trim()} onClick={() => void saveLine(line)}>
+                            {savingLineIds[key] ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} حفظ العد محليًا
+                          </Button>
+                          {localCount ? <span className="block text-xs text-amber-700">مسودة محلية — بانتظار تأكيد الخادم</span> : null}
+                        </div>
+                      : <span className="text-xs text-muted-foreground">{line.counted_at ? `تأكيد الخادم: ${new Date(line.counted_at).toLocaleDateString("ar-PS")}` : "—"}</span>}</td>
                   </tr>;
                 })}</tbody>
               </table>
             </div>}
           <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-            <span>الأصناف المعدودة: {countedCount} / {itemCount}</span>
+            <span>الأصناف المعدودة خادميًا: {countedCount} / {itemCount}</span>
+            {selectedOfflineItemIds.size > 0 ? <span className="text-amber-700">مسودات محلية غير مؤكدة: {selectedOfflineItemIds.size}</span> : null}
             <span>عدد الفروقات: {varianceCount}</span>
             <span>الكمية الصافية للفرق: {qty(selectedStocktake.variance_quantity)}</span>
           </div>
