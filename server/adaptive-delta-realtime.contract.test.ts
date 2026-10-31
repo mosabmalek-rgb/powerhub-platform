@@ -39,6 +39,10 @@ describe("Adaptive Delta Realtime contract", () => {
     expect(migration).toContain("private.powerhub_is_platform_admin()");
     expect(migration).toContain("u.account_status = 'active'");
     expect(migration).toContain("public.users");
+    expect(migration).toContain("public.tenant_subscriptions");
+    expect(migration).toContain("current_subscription.status IN ('trial','active')");
+    expect(migration).toContain("current_subscription.status = 'cancelled'");
+    expect(migration).toContain("current_subscription.read_only_until > now()");
     expect(migration).not.toContain("CREATE POLICY powerhub_delta_revision_send");
     expect(migration).not.toContain("FOR INSERT TO authenticated");
   });
