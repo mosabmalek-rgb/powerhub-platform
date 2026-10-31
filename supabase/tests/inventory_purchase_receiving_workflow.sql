@@ -496,6 +496,7 @@ $inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql
 \ir ../migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql
 \ir ../migrations/20261022220000_powerhub_fuel_report_windows.sql
+\ir ../migrations/20261031220000_powerhub_fuel_cycle_boundary_precision.sql
 \ir ../migrations/20261022221000_powerhub_fuel_alert_settings_and_evaluator.sql
 \ir ../migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql
 \ir ../migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql
@@ -4060,6 +4061,15 @@ begin
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5 then
     raise exception 'PHASE_B_CYCLE_REPORT_FAILED row=% anchor=% fill_at=% cycle_start=% cycle_end=% timezone=%',
       row_to_json(v_period_report),v_local_today-1,v_fill_time,v_cycle_debug.cycle_start_at,v_cycle_debug.cycle_end_at,'Asia/Gaza';
+  end if;
+
+  -- The exclusive next-cycle boundary must not overlap the preceding cycle.
+  select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
+    10,100,'cycle',v_local_today,null,null,10000,v_generator_tank_id
+  );
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>0 then
+    raise exception 'PHASE_B_NEXT_CYCLE_CONTAINS_PREVIOUS_CYCLE_FILL row=% anchor=%',
+      row_to_json(v_period_report),v_local_today;
   end if;
 
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
