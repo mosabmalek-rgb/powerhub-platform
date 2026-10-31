@@ -413,7 +413,7 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       .order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(21),
     admin.from("meter_readings")
       .select("id, reading_at, reading_value, previous_reading_value, consumption_kwh, capture_method, status, version_no, notes")
-      .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId)
+      .eq("tenant_id", Number(subscriber.tenant_id)).eq("subscriber_id", subscriberId)
       .order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(21),
   ]);
 
@@ -627,7 +627,7 @@ export async function listSupabaseSubscriberAccountStatementHistoryPage(
 
   let readingQuery = admin.from("meter_readings")
     .select("id,reading_at,reading_value,previous_reading_value,consumption_kwh,capture_method,status,version_no,notes")
-    .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId);
+    .eq("tenant_id", tenantId).eq("subscriber_id", subscriberId);
   if (cursor) readingQuery = readingQuery.or("reading_at.lt." + cursor.at + ",and(reading_at.eq." + cursor.at + ",id.lt." + cursor.id + ")");
   const { data, error } = await readingQuery.order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة قراءات المشترك." });
