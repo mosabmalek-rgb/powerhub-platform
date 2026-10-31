@@ -173,3 +173,20 @@ export async function clearStableOperationKey(operationKey: string): Promise<voi
     transaction.onabort = () => { const error = transaction.error; database.close(); reject(error ?? new Error("أُلغيت عملية تنظيف مفتاح العملية.")); };
   });
 }
+
+/**
+ * Execute one online mutation with a durable idempotency key.
+ * Failed/ambiguous transports retain the key; a confirmed server response
+ * clears it so a later intentional identical operation receives a new key.
+ */
+export async function runWithStableOperationKey<T>(
+  scope: StableOperationScope,
+  action: (operationKey: string) => Promise<T>,
+): Promise<T> {
+  const operationKey = await getStableOperationKey(scope);
+  const result = await action(operationKey);
+  // A cleanup failure is safe: the server idempotency key remains valid and
+  // a later identical attempt will receive a replay instead of duplicating work.
+  await clearStableOperationKey(operationKey).catch(() => undefined);
+  return result;
+}
