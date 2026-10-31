@@ -103,6 +103,28 @@ BEGIN
 END
 $upgrade_request_columns$;
 
+-- Drop legacy plan CHECKs before translating starter/enterprise values.
+-- PostgreSQL rewrites their column references during RENAME, so leaving them in
+-- place would reject the new basic/business values during the data backfill.
+DO $drop_legacy_package_checks$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid='public.subscription_upgrade_requests'::regclass
+      AND contype='c'
+      AND (
+        pg_get_constraintdef(oid) LIKE '%current_package_code%'
+        OR pg_get_constraintdef(oid) LIKE '%requested_package_code%'
+        OR pg_get_constraintdef(oid) LIKE '%current_plan%'
+        OR pg_get_constraintdef(oid) LIKE '%requested_plan%'
+      )
+  LOOP
+    EXECUTE format('ALTER TABLE public.subscription_upgrade_requests DROP CONSTRAINT %I',r.conname);
+  END LOOP;
+END
+$drop_legacy_package_checks$;
+
 UPDATE public.subscription_upgrade_requests
 SET current_package_code = CASE current_package_code
       WHEN 'starter' THEN 'basic' WHEN 'enterprise' THEN 'business' ELSE current_package_code END,
