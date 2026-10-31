@@ -37,6 +37,15 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'POWERHUB_TENANT_SUBSCRIPTION_RETENTION_SCHEMA_MISSING';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='users'
+      AND column_name IN ('role','platform_role','account_status')
+    GROUP BY table_schema,table_name
+    HAVING count(*)=3
+  ) THEN
+    RAISE EXCEPTION 'POWERHUB_PLATFORM_IDENTITY_SCHEMA_MISSING';
+  END IF;
   IF NOT has_table_privilege('authenticated','realtime.messages','SELECT') THEN
     RAISE EXCEPTION 'POWERHUB_REALTIME_MESSAGES_SELECT_GRANT_MISSING';
   END IF;
@@ -67,12 +76,25 @@ BEGIN
     RETURN false;
   END IF;
 
-  IF private.powerhub_is_platform_admin() THEN
+  v_user_id := private.powerhub_current_user_id();
+  IF v_user_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- Match server/platform-admin.ts exactly. The legacy SQL helper
+  -- private.powerhub_is_platform_admin() does not check users.role, so it is
+  -- deliberately not used as a bypass for Delta topic authorization.
+  IF EXISTS (
+    SELECT 1 FROM public.users u
+    WHERE u.id = v_user_id
+      AND u.role = 'admin'
+      AND u.platform_role IN ('platform_owner','platform_admin','finance_admin')
+      AND u.account_status = 'active'
+  ) THEN
     RETURN true;
   END IF;
 
-  v_user_id := private.powerhub_current_user_id();
-  IF v_user_id IS NULL OR NOT EXISTS (
+  IF NOT EXISTS (
     SELECT 1 FROM public.users u
     WHERE u.id = v_user_id AND u.account_status = 'active'
   ) THEN
