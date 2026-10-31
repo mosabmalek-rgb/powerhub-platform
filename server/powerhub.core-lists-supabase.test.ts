@@ -940,13 +940,23 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.staff.customRoles({ siteId: 10 })).resolves.toEqual([{ id: 122, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], isActive: true }]);
   });
 
+  it("rejects custom-role creation without a stable operation ID before the RPC", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    state.rpcCalls = [];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.saveCustomRole({
+      siteId: 10, name: "دور بلا مفتاح", permissions: ["collectPayments"],
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.rpcCalls).not.toContainEqual(expect.objectContaining({ name: "powerhub_save_custom_permission_role" }));
+  });
+
   it("يحفظ ويحذف الدور المخصص بمعاملات Supabase الذرية دون MySQL", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.staff.saveCustomRole({ siteId: 10, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"] })).resolves.toEqual({ success: true, id: 122 });
+    await expect(caller.staff.saveCustomRole({ siteId: 10, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], clientOperationId: "00000000-0000-4000-8000-000000000359" })).resolves.toEqual({ success: true, id: 122 });
     await expect(caller.staff.deleteCustomRole({ siteId: 10, roleId: 122 })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual(expect.arrayContaining([
-      { name: "powerhub_save_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: null, p_permissions: ["collectPayments"] }) },
+      { name: "powerhub_save_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: null, p_permissions: ["collectPayments"], p_client_operation_id: "00000000-0000-4000-8000-000000000359", p_request_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/) }) },
       { name: "powerhub_delete_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: 122 }) },
     ]));
   });
