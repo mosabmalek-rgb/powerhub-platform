@@ -120,9 +120,9 @@ export default function TenantAccessInvitationPanel({
             <MailPlus className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="font-bold text-white">دعوة مستخدم إلى مساحة صاحب المولد</h2>
+            <h2 className="font-bold text-white">منح وصول لمستخدم لديه حساب PowerHub</h2>
             <p className="mt-1 text-sm leading-7 text-slate-400">
-              سجّل بريد المستخدم والدور المطلوب داخل مساحة محددة. تُفعّل العضوية عند تسجيل المستخدم الدخول بالبريد الإلكتروني نفسه.
+              اربط حسابًا موجودًا بمساحة محددة. يجب أن يكون البريد مسجّلًا مسبقًا في PowerHub / Supabase Auth، وتُفعّل العضوية بعد تسجيل دخول جديد.
             </p>
           </div>
         </div>
@@ -168,7 +168,7 @@ export default function TenantAccessInvitationPanel({
         ) : null}
 
         <div className="mt-5 rounded-xl border border-amber-400/15 bg-amber-400/[.035] p-3 text-xs leading-6 text-amber-100/80">
-          لا يرسل هذا الإجراء رسالة بريد إلكتروني تلقائيًا. شارك البريد والتعليمات مع المستخدم عبر قناتك المعتمدة؛ سيُفعّل النظام الدعوة عندما يسجّل الدخول بالبريد نفسه. صلاحية الدعوة 72 ساعة.
+          هذا الإجراء لا ينشئ حساب مصادقة ولا يرسل بريدًا إلكترونيًا. يجب أن يكون للمستخدم حساب دخول موجود بالبريد نفسه؛ اطلب منه تسجيل الخروج ثم الدخول مجددًا لتطبيق العضوية. صلاحية الدعوة 72 ساعة.
         </div>
 
         <div className="mt-6">
