@@ -17,6 +17,7 @@ $function$;
 CREATE TABLE public.users (
   id bigint PRIMARY KEY,
   auth_user_id uuid NOT NULL UNIQUE,
+  role text NOT NULL DEFAULT 'user',
   platform_role text,
   account_status text NOT NULL DEFAULT 'active'
 );
@@ -111,15 +112,16 @@ REVOKE ALL ON FUNCTION realtime.send(jsonb,text,text,boolean) FROM PUBLIC,anon,a
 
 \ir ../migrations/20261031200000_powerhub_adaptive_delta_realtime.sql
 
-INSERT INTO public.users(id,auth_user_id,platform_role,account_status) VALUES
-  (1,'11111111-1111-4111-8111-111111111111',NULL,'active'),
-  (2,'22222222-2222-4222-8222-222222222222',NULL,'active'),
-  (3,'33333333-3333-4333-8333-333333333333',NULL,'active'),
-  (4,'44444444-4444-4444-8444-444444444444',NULL,'active'),
-  (5,'55555555-5555-4555-8555-555555555555',NULL,'active'),
-  (6,'66666666-6666-4666-8666-666666666666',NULL,'active'),
-  (7,'77777777-7777-4777-8777-777777777777','platform_admin','active'),
-  (8,'88888888-8888-4888-8888-888888888888',NULL,'suspended');
+INSERT INTO public.users(id,auth_user_id,role,platform_role,account_status) VALUES
+  (1,'11111111-1111-4111-8111-111111111111','user',NULL,'active'),
+  (2,'22222222-2222-4222-8222-222222222222','user',NULL,'active'),
+  (3,'33333333-3333-4333-8333-333333333333','user',NULL,'active'),
+  (4,'44444444-4444-4444-8444-444444444444','user',NULL,'active'),
+  (5,'55555555-5555-4555-8555-555555555555','user',NULL,'active'),
+  (6,'66666666-6666-4666-8666-666666666666','user',NULL,'active'),
+  (7,'77777777-7777-4777-8777-777777777777','admin','platform_admin','active'),
+  (8,'88888888-8888-4888-8888-888888888888','user',NULL,'suspended'),
+  (9,'99999999-9999-4999-8999-999999999999','user','platform_admin','active');
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
   (10,1,'owner',true,'active',NULL),
   (10,2,'manager',true,'active',NULL),
@@ -127,7 +129,8 @@ INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_st
   (10,4,'manager',true,'active',now()-interval '1 hour'),
   (10,5,'manager',true,'active',NULL),
   (20,6,'manager',true,'active',NULL),
-  (10,8,'technician',true,'active',NULL);
+  (10,8,'technician',true,'active',NULL),
+  (10,9,'manager',true,'active',NULL);
 INSERT INTO public.sites(id,tenant_id) VALUES (100,10),(101,10),(200,20);
 INSERT INTO public.tenant_subscriptions(tenant_id,status,ends_at,read_only_until) VALUES
   (10,'active',now()+interval '30 days',NULL),
@@ -138,7 +141,8 @@ INSERT INTO public.staff_profiles(id,tenant_id,user_id,site_id,role,is_active,su
   (4,10,4,100,'accountant',true,NULL,NULL),
   (5,10,5,100,'viewer',true,now()-interval '1 hour',now()+interval '1 hour'),
   (6,20,6,200,'technician',true,NULL,NULL),
-  (8,10,8,100,'technician',true,NULL,NULL);
+  (8,10,8,100,'technician',true,NULL,NULL),
+  (9,10,9,100,'manager',true,NULL,NULL);
 
 -- Existing Delta producers already advance this one cursor table. Each cursor
 -- advancement emits a site marker and an all-branches tenant marker only.
@@ -255,6 +259,21 @@ DO $assert_inactive_account$ BEGIN
     RAISE EXCEPTION 'ADAPTIVE_DELTA_INACTIVE_ACCOUNT_NOT_REVOKED';
   END IF;
 END $assert_inactive_account$;
+
+-- A stale platform_role on a non-admin identity must not take the
+-- platform-admin bypass; its active tenant/site assignment remains scoped.
+SELECT set_config('test.auth_uid','99999999-9999-4999-8999-999999999999',false);
+DO $assert_non_admin_platform_role$
+BEGIN
+  IF (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:10:site:100')<>2
+     OR EXISTS(SELECT 1 FROM realtime.messages WHERE topic IN (
+       'powerhub:tenant:10:site:101','powerhub:tenant:10:all'
+     ))
+     OR EXISTS(SELECT 1 FROM realtime.messages WHERE topic LIKE 'powerhub:tenant:20:%') THEN
+    RAISE EXCEPTION 'ADAPTIVE_DELTA_NON_ADMIN_PLATFORM_ROLE_BYPASS';
+  END IF;
+END
+$assert_non_admin_platform_role$;
 
 SELECT set_config('test.auth_uid','77777777-7777-4777-8777-777777777777',false);
 DO $assert_platform_admin$
