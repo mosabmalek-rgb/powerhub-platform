@@ -8,6 +8,7 @@ BEGIN
   IF to_regclass('public.powerhub_sync_scope_state') IS NULL
      OR to_regclass('public.sites') IS NULL
      OR to_regclass('public.tenant_members') IS NULL
+     OR to_regclass('public.users') IS NULL
      OR to_regclass('public.staff_profiles') IS NULL
      OR to_regclass('realtime.messages') IS NULL
      OR to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL
@@ -61,7 +62,10 @@ BEGIN
   END IF;
 
   v_user_id := private.powerhub_current_user_id();
-  IF v_user_id IS NULL THEN
+  IF v_user_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.users u
+    WHERE u.id = v_user_id AND u.account_status = 'active'
+  ) THEN
     RETURN false;
   END IF;
 
