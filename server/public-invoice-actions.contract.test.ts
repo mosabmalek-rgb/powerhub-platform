@@ -504,7 +504,12 @@ describe("public invoice and inquiry actions", () => {
     expect(subscriptionCard).toBeLessThan(home.indexOf("</div></DashboardLayout>;"));
 
     expect(review).toContain("staleTime:15_000");
-    expect(review).toContain("refetchInterval:shouldPollRequests?15_000:false");
+    // Payment Documentation review now observes the opaque server revision
+    // through the shared Adaptive Delta scheduler instead of polling the list.
+    expect(review).toContain("refetchInterval:false");
+    expect(review).toContain("useAdaptiveDeltaRefresh({");
+    expect(review).toContain("paymentDocumentation.revision.useQuery");
+    expect(review).not.toContain("refetchInterval:shouldPollRequests?15_000:false");
     expect(review).toContain('refetchOnMount:"always"');
     expect(review).toContain("refetchIntervalInBackground:false");
     expect(review).toContain('staleTime:0,refetchOnMount:"always"');
