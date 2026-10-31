@@ -24,6 +24,7 @@ export default defineConfig({
       "client/src/pages/QuickActionsPage.ui.test.tsx",
       "client/src/pages/WorkspaceHome.smsQuota.ui.test.tsx",
       "client/src/pages/PlatformAccessPanel.ui.test.tsx",
+      "client/src/pages/TenantAccessInvitationPanel.ui.test.tsx",
       "client/src/pages/collection-form-reset.contract.test.ts",
     ],
   },
