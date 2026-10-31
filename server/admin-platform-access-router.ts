@@ -18,6 +18,7 @@ export const adminRouterWithSupabasePlatformAccess = router({
     email: z.string().email().transform((email) => email.trim().toLowerCase()),
     platformRole: z.enum(["platform_admin", "finance_admin", "platform_support"]),
     expiresInHours: z.number().int().min(1).max(168).default(72),
+    clientOperationId: z.string().uuid(),
   })).mutation(async ({ ctx, input }) => {
     assertPlatformOwner(ctx);
     return invitePlatformAccessSupabase({ actorUserId: ctx.user.id, ...input });
