@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useAdaptiveDeltaRefresh } from "@/hooks/useAdaptiveDeltaRefresh";
 import { trpc } from "@/lib/trpc";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import {
   changedOperationalDeltaEntities,
   type OperationalDeltaRevisionEntity,
@@ -46,7 +47,7 @@ export function useDeltaRevisionRefresh(input: UseDeltaRevisionRefreshInput) {
   }, [revisionQuery.refetch]);
   useAdaptiveDeltaRefresh({
     scopeKey: "operational:" + scopeKey,
-    enabled: active,
+    enabled: active && !isExplicitAuthorizationDenial(revisionQuery.error),
     check: checkRevision,
     realtimeTopic: revisionQuery.data?.realtimeTopic,
   });
