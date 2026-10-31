@@ -608,6 +608,8 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("createStocktake.useMutation");
     expect(panel).toContain("enqueueOfflineStocktakeCount");
     expect(panel).toContain("hasUnconfirmedOfflineCounts");
+    expect(panel).toContain("dirtyCountKeysRef");
+    expect(panel).toContain("${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}");
     expect(panel).toContain("تأكيد الخادم");
     const outbox = read("client/src/lib/offline-work-queue.ts");
     const syncPanel = read("client/src/components/OfflineWorkSyncPanel.tsx");

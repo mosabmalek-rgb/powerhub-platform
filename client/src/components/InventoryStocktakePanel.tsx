@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -129,6 +129,8 @@ export default function InventoryStocktakePanel({
   const [offlineCountOperations, setOfflineCountOperations] = useState<QueuedOfflineWork[]>([]);
   const [savingLineIds, setSavingLineIds] = useState<Record<string, boolean>>({});
   const [loadedOfflineCountScope, setLoadedOfflineCountScope] = useState("");
+  const offlineCountScopeRef = useRef<string | null>(null);
+  const dirtyCountKeysRef = useRef(new Set<string>());
 
   const enabled = Boolean(siteId && isAuthenticated && (canViewStocktakes || canManageStocktakes || canApproveStocktakes));
   const offlineCountScopeKey = `${userId}:${tenantId}:${siteId}`;
@@ -153,7 +155,8 @@ export default function InventoryStocktakePanel({
   const varianceCount = Number(selectedStocktake?.variance_count ?? 0);
   const countedCount = Number(selectedStocktake?.counted_count ?? 0);
   const itemCount = Number(selectedStocktake?.item_count ?? 0);
-  const selectedOfflineCounts = offlineCountOperations.filter((item) =>
+  const scopedOfflineCountOperations = offlineCountsLoaded ? offlineCountOperations : [];
+  const selectedOfflineCounts = scopedOfflineCountOperations.filter((item) =>
     item.status !== "applied" &&
     (item.payload as InventoryStocktakeCountDraft).stocktakeId === selectedStocktakeId
   );
@@ -166,6 +169,14 @@ export default function InventoryStocktakePanel({
     let active = true;
     const loadOfflineCounts = async () => {
       setLoadedOfflineCountScope("");
+      if (offlineCountScopeRef.current !== offlineCountScopeKey) {
+        offlineCountScopeRef.current = offlineCountScopeKey;
+        dirtyCountKeysRef.current.clear();
+        setOfflineCountOperations([]);
+        setCountValues({});
+        setCountCosts({});
+        setCountNotes({});
+      }
       if (!userId || userId < 1 || !tenantId || tenantId < 1 || !siteId || siteId < 1) {
         setOfflineCountOperations([]);
         return;
@@ -181,9 +192,9 @@ export default function InventoryStocktakePanel({
         setCountValues((current) => {
           const next = { ...current };
           for (const item of countRows) {
-            if (item.status === "applied") continue;
+            if (item.status === "applied" || dirtyCountKeysRef.current.has(key)) continue;
             const payload = item.payload as InventoryStocktakeCountDraft;
-            const key = `${payload.stocktakeId}:${payload.itemId}`;
+            const key = `${userId}:${tenantId}:${siteId}:${payload.stocktakeId}:${payload.itemId}`;
             next[key] = String(payload.countedQuantity);
           }
           return next;
@@ -191,9 +202,9 @@ export default function InventoryStocktakePanel({
         setCountCosts((current) => {
           const next = { ...current };
           for (const item of countRows) {
-            if (item.status === "applied") continue;
+            if (item.status === "applied" || dirtyCountKeysRef.current.has(key)) continue;
             const payload = item.payload as InventoryStocktakeCountDraft;
-            const key = `${payload.stocktakeId}:${payload.itemId}`;
+            const key = `${userId}:${tenantId}:${siteId}:${payload.stocktakeId}:${payload.itemId}`;
             next[key] = payload.countedUnitCost == null ? "" : String(payload.countedUnitCost);
           }
           return next;
@@ -201,9 +212,9 @@ export default function InventoryStocktakePanel({
         setCountNotes((current) => {
           const next = { ...current };
           for (const item of countRows) {
-            if (item.status === "applied") continue;
+            if (item.status === "applied" || dirtyCountKeysRef.current.has(key)) continue;
             const payload = item.payload as InventoryStocktakeCountDraft;
-            const key = `${payload.stocktakeId}:${payload.itemId}`;
+            const key = `${userId}:${tenantId}:${siteId}:${payload.stocktakeId}:${payload.itemId}`;
             next[key] = payload.countNotes ?? "";
           }
           return next;
@@ -239,7 +250,7 @@ export default function InventoryStocktakePanel({
     setCountValues((current) => {
       const next = { ...current };
       for (const line of lines) {
-        const key = `${selectedStocktakeId}:${line.item_id}`;
+        const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
         if (next[key] === undefined) next[key] = line.counted_quantity == null ? "" : String(line.counted_quantity);
       }
       return next;
@@ -247,7 +258,7 @@ export default function InventoryStocktakePanel({
     setCountCosts((current) => {
       const next = { ...current };
       for (const line of lines) {
-        const key = `${selectedStocktakeId}:${line.item_id}`;
+        const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
         if (next[key] === undefined) next[key] = line.counted_unit_cost == null ? "" : String(line.counted_unit_cost);
       }
       return next;
@@ -255,7 +266,7 @@ export default function InventoryStocktakePanel({
     setCountNotes((current) => {
       const next = { ...current };
       for (const line of lines) {
-        const key = `${selectedStocktakeId}:${line.item_id}`;
+        const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
         if (next[key] === undefined) next[key] = line.count_notes ?? "";
       }
       return next;
@@ -333,7 +344,7 @@ export default function InventoryStocktakePanel({
       toast.error("تعذر تحديد هوية المستخدم والمؤسسة لحفظ العد المحلي بأمان.");
       return;
     }
-    const key = `${selectedStocktakeId}:${line.item_id}`;
+    const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
     if (savingLineIds[key]) return;
     const rawQuantity = (countValues[key] ?? "").trim();
     const countedQuantity = Number(rawQuantity);
@@ -363,6 +374,7 @@ export default function InventoryStocktakePanel({
     setSavingLineIds((current) => ({ ...current, [key]: true }));
     try {
       const queued = await enqueueOfflineStocktakeCount({ userId, tenantId, siteId, payload });
+      dirtyCountKeysRef.current.delete(key);
       setOfflineCountOperations((current) => [
         ...current.filter((item) => item.clientOperationId !== queued.clientOperationId),
         queued,
@@ -500,7 +512,7 @@ export default function InventoryStocktakePanel({
               <table className="w-full min-w-[1200px] text-right text-sm">
                 <thead className="bg-muted/60"><tr>{["الصنف","الوحدة","رصيد النظام","قيمة النظام","تكلفة الوحدة","الكمية المعدودة","تكلفة الزيادة","الفرق","ملاحظات العد","إجراء"].map((title) => <th key={title} className="p-3 font-semibold">{title}</th>)}</tr></thead>
                 <tbody>{lines.map((line) => {
-                  const key = `${selectedStocktakeId}:${line.item_id}`;
+                  const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
                   const localCount = [...selectedOfflineCounts].reverse().find((item) =>
                     (item.payload as InventoryStocktakeCountDraft).itemId === Number(line.item_id)
                   );
@@ -517,10 +529,10 @@ export default function InventoryStocktakePanel({
                     <td className="p-3 whitespace-nowrap tabular-nums">{qty(line.system_quantity)}</td>
                     <td className="p-3 whitespace-nowrap tabular-nums">{money(line.system_value)}</td>
                     <td className="p-3 whitespace-nowrap tabular-nums">{money(line.system_unit_cost)}</td>
-                    <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.001" className="min-w-[120px]" value={countText} onChange={(event) => setCountValues((current) => ({ ...current, [key]: event.target.value }))} aria-label={`الكمية المعدودة: ${line.item_name}`} /></td>
-                    <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.0001" className="min-w-[120px]" value={countCosts[key] ?? (localPayload?.countedUnitCost == null ? (line.counted_unit_cost == null ? "" : String(line.counted_unit_cost)) : String(localPayload.countedUnitCost))} onChange={(event) => setCountCosts((current) => ({ ...current, [key]: event.target.value }))} aria-label={`تكلفة كمية الزيادة: ${line.item_name}`} placeholder={Number(line.system_quantity) > 0 ? "تلقائي من المتوسط" : "مطلوب للزيادة"} /></td>
+                    <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.001" className="min-w-[120px]" value={countText} disabled={!canEditLine || Boolean(savingLineIds[key])} onChange={(event) => { dirtyCountKeysRef.current.add(key); setCountValues((current) => ({ ...current, [key]: event.target.value })); }} aria-label={`الكمية المعدودة: ${line.item_name}`} /></td>
+                    <td className="p-3"><Input disabled={!canEditLine || Boolean(savingLineIds[key])} type="number" min="0" step="0.0001" className="min-w-[120px]" value={countCosts[key] ?? (localPayload?.countedUnitCost == null ? (line.counted_unit_cost == null ? "" : String(line.counted_unit_cost)) : String(localPayload.countedUnitCost))} onChange={(event) => { dirtyCountKeysRef.current.add(key); setCountCosts((current) => ({ ...current, [key]: event.target.value })); }} aria-label={`تكلفة كمية الزيادة: ${line.item_name}`} placeholder={Number(line.system_quantity) > 0 ? "تلقائي من المتوسط" : "مطلوب للزيادة"} /></td>
                     <td className={`p-3 whitespace-nowrap font-semibold tabular-nums ${variance == null ? "text-muted-foreground" : variance === 0 ? "text-emerald-600" : variance < 0 ? "text-destructive" : "text-amber-600"}`}>{variance == null ? "—" : `${variance > 0 ? "+" : ""}${qty(variance)}`}</td>
-                    <td className="p-3"><Input disabled={!canEditLine} maxLength={500} className="min-w-[170px]" value={countNotes[key] ?? localPayload?.countNotes ?? line.count_notes ?? ""} onChange={(event) => setCountNotes((current) => ({ ...current, [key]: event.target.value }))} placeholder="ملاحظة مختصرة" /></td>
+                    <td className="p-3"><Input disabled={!canEditLine || Boolean(savingLineIds[key])} maxLength={500} className="min-w-[170px]" value={countNotes[key] ?? localPayload?.countNotes ?? line.count_notes ?? ""} onChange={(event) => { dirtyCountKeysRef.current.add(key); setCountNotes((current) => ({ ...current, [key]: event.target.value })); }} placeholder="ملاحظة مختصرة" /></td>
                     <td className="p-3">{canEditLine
                       ? <div className="space-y-1">
                           <Button type="button" size="sm" variant="outline" disabled={Boolean(savingLineIds[key]) || !countText.trim()} onClick={() => void saveLine(line)}>
