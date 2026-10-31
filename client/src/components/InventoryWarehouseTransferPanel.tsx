@@ -66,7 +66,6 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
         utils.powerhub.inventory.listStockMovements.invalidate({ siteId }),
       ]);
     },
-    onError: (error) => toast.error(error.message || "تعذر تنفيذ التحويل المخزني."),
   });
 
   const submit = (event: FormEvent) => {
