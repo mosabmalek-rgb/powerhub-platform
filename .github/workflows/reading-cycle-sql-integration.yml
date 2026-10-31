@@ -172,6 +172,14 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres payment_documentation_context_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname payment_documentation_context_test --set ON_ERROR_STOP=1 --file supabase/tests/payment_documentation_context_lines_fast_read.sql
 
+
+      - name: Verify operation-type allow-list reconciliation preserves history and rejects unknown values
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres offline_operation_type_reconcile_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_operation_type_reconcile_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_operation_type_contract_reconcile.sql
+
       - name: Verify SMS wallet admin operations in isolated PostgreSQL
         env:
           PGPASSWORD: postgres
