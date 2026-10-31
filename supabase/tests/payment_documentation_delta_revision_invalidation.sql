@@ -14,7 +14,8 @@ CREATE SCHEMA IF NOT EXISTS realtime;
 
 CREATE TABLE public.sites (
   id bigint PRIMARY KEY,
-  tenant_id bigint NOT NULL
+  tenant_id bigint NOT NULL,
+  UNIQUE(tenant_id,id)
 );
 
 CREATE TABLE public.powerhub_sync_scope_state (
@@ -47,7 +48,9 @@ CREATE TABLE public.payment_documentation_requests (
   payment_amount numeric NOT NULL,
   receipt_image_key text,
   status text NOT NULL,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT payment_documentation_site_scope_fk
+    FOREIGN KEY(tenant_id,site_id) REFERENCES public.sites(tenant_id,id) ON DELETE CASCADE
 );
 REVOKE ALL ON public.payment_documentation_requests FROM PUBLIC,anon,authenticated;
 
@@ -92,7 +95,7 @@ FOR EACH ROW EXECUTE FUNCTION private.powerhub_broadcast_delta_scope_revision();
 
 \ir ../migrations/20261101090000_powerhub_payment_documentation_revision_invalidation.sql
 
-INSERT INTO public.sites(id,tenant_id) VALUES (100,10),(101,10),(200,20);
+INSERT INTO public.sites(id,tenant_id) VALUES (100,10),(101,10),(200,20),(300,30);
 INSERT INTO public.payment_documentation_requests(id,tenant_id,site_id,payment_amount,receipt_image_key,status)
 VALUES (1,10,100,125.75,'private/receipt/secret.jpg','pending');
 
@@ -161,6 +164,25 @@ BEGIN
   END IF;
 END
 $scope_assert$;
+
+
+-- Cascading deletion can remove the parent site before the child-row trigger runs.
+-- The historical cursor must still advance without requiring the old site to exist.
+INSERT INTO public.payment_documentation_requests(id,tenant_id,site_id,payment_amount,receipt_image_key,status)
+VALUES (3,30,300,19.00,'private/receipt/cascade.jpg','pending');
+DELETE FROM public.sites WHERE tenant_id=30 AND id=300;
+
+DO $cascade_assert$
+BEGIN
+  IF EXISTS(SELECT 1 FROM public.payment_documentation_requests WHERE id=3)
+     OR (SELECT last_cursor FROM public.powerhub_sync_scope_state
+         WHERE tenant_id=30 AND site_id=300 AND entity_type='payment_documentation')<>2
+     OR (SELECT count(*) FROM realtime.messages)<>16
+     OR (SELECT count(*) FROM realtime.messages WHERE topic='powerhub:tenant:30:site:300')<>2 THEN
+    RAISE EXCEPTION 'PAYMENT_DOCUMENTATION_CASCADE_REVISION_FAILED';
+  END IF;
+END
+$cascade_assert$;
 
 DO $unknown_entity_assert$
 BEGIN

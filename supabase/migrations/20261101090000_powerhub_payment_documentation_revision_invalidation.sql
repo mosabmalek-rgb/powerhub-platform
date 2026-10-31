@@ -77,11 +77,10 @@ BEGIN
          OR OLD.site_id IS DISTINCT FROM NEW.site_id
        )
      ) THEN
-    IF OLD.tenant_id IS NULL OR OLD.site_id IS NULL
-       OR NOT EXISTS (
-         SELECT 1 FROM public.sites s
-         WHERE s.tenant_id=OLD.tenant_id AND s.id=OLD.site_id
-       ) THEN
+    -- The old site may already have been deleted by an ON DELETE CASCADE.
+    -- Positive identifiers are sufficient for advancing its historical cursor.
+    IF OLD.tenant_id IS NULL OR OLD.tenant_id < 1
+       OR OLD.site_id IS NULL OR OLD.site_id < 1 THEN
       RAISE EXCEPTION 'PAYMENT_DOCUMENTATION_REVISION_SCOPE_INVALID' USING ERRCODE='23503';
     END IF;
 
@@ -95,7 +94,8 @@ BEGIN
   END IF;
 
   IF TG_OP <> 'DELETE' THEN
-    IF NEW.tenant_id IS NULL OR NEW.site_id IS NULL
+    IF NEW.tenant_id IS NULL OR NEW.tenant_id < 1
+       OR NEW.site_id IS NULL OR NEW.site_id < 1
        OR NOT EXISTS (
          SELECT 1 FROM public.sites s
          WHERE s.tenant_id=NEW.tenant_id AND s.id=NEW.site_id
