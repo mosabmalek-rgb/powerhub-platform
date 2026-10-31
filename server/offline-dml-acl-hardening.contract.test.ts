@@ -21,11 +21,51 @@ const notificationTriggerMigrationUrl = new URL(
   "../supabase/migrations/20261024211000_powerhub_notification_trigger_rpc_hardening.sql",
   import.meta.url,
 );
+const browserDmlReconcileMigrationUrl = new URL(
+  "../supabase/migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql",
+  import.meta.url,
+);
+const browserDmlReconcileTestUrl = new URL(
+  "../supabase/tests/browser_direct_dml_acl_reconcile.sql",
+  import.meta.url,
+);
+const canonicalRlsMigrationUrl = new URL(
+  "../supabase/migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql",
+  import.meta.url,
+);
+const canonicalRlsTestUrl = new URL(
+  "../supabase/tests/canonical_tenant_rls_policy_reconcile.sql",
+  import.meta.url,
+);
+const idempotencySchemaMigrationUrl = new URL(
+  "../supabase/migrations/20261030220000_powerhub_missing_idempotency_schema_reconcile.sql",
+  import.meta.url,
+);
+const idempotencySchemaTestUrl = new URL(
+  "../supabase/tests/missing_idempotency_schema_reconcile.sql",
+  import.meta.url,
+);
+const productionTriggerMigrationUrl = new URL(
+  "../supabase/migrations/20261030230000_powerhub_missing_production_triggers_reconcile.sql",
+  import.meta.url,
+);
+const productionTriggerTestUrl = new URL(
+  "../supabase/tests/missing_production_triggers_reconcile.sql",
+  import.meta.url,
+);
 const readMigration = () => readFile(migrationUrl, "utf8");
 const readDeviceLockMigration = () => readFile(deviceLockMigrationUrl, "utf8");
 const readQuotaAclMigration = () => readFile(quotaAclMigrationUrl, "utf8");
 const readSchemaReconciliationMigration = () => readFile(schemaReconciliationMigrationUrl, "utf8");
 const readNotificationTriggerMigration = () => readFile(notificationTriggerMigrationUrl, "utf8");
+const readBrowserDmlReconcileMigration = () => readFile(browserDmlReconcileMigrationUrl, "utf8");
+const readBrowserDmlReconcileTest = () => readFile(browserDmlReconcileTestUrl, "utf8");
+const readCanonicalRlsMigration = () => readFile(canonicalRlsMigrationUrl, "utf8");
+const readCanonicalRlsTest = () => readFile(canonicalRlsTestUrl, "utf8");
+const readIdempotencySchemaMigration = () => readFile(idempotencySchemaMigrationUrl, "utf8");
+const readIdempotencySchemaTest = () => readFile(idempotencySchemaTestUrl, "utf8");
+const readProductionTriggerMigration = () => readFile(productionTriggerMigrationUrl, "utf8");
+const readProductionTriggerTest = () => readFile(productionTriggerTestUrl, "utf8");
 
 describe("offline server-write ACL hardening migration", () => {
   it("revokes direct write privileges from public browser roles on core records", async () => {
@@ -99,5 +139,128 @@ describe("offline server-write ACL hardening migration", () => {
     expect(normalizedMigration).toContain("where scheduled_at is null");
     expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_request_owner_access_recovery(bigint,bigint,text)");
     expect(normalizedMigration).toContain("drop function if exists public.powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamptz,jsonb,uuid)");
+  });
+
+  it("reconciles every staging-only browser DML grant without changing reads, RLS or service-role writes", async () => {
+    const migration = (await readBrowserDmlReconcileMigration()).toLowerCase().replace(/\s+/g, " ");
+    const integration = (await readBrowserDmlReconcileTest()).toLowerCase();
+    const expectedTables = [
+      "access_invitations", "collector_sessions", "company_account_sites", "custom_permission_roles",
+      "emergency_requests", "employee_adjustments", "employee_attendance", "employees",
+      "financial_settlements", "invoice_lines", "mobile_api_sessions", "mobile_sync_events",
+      "payroll_items", "payroll_runs", "platform_access_invitations", "platform_role_policies",
+      "platform_sms_plans", "site_portal_settings", "sms_dispatch_queue", "sms_package_requests",
+      "staff_profiles", "subscription_upgrade_requests", "tariffs", "tenant_branch_settings",
+      "tenant_messaging_configurations", "tenant_owner_profiles", "tenant_subscriptions", "tenants",
+      "tweet_sms_report_snapshots", "users",
+    ];
+    expect(migration).toContain("revoke insert, update, delete, truncate on table public.%i from public, anon, authenticated");
+    expect(migration).toContain("to_regclass(format('public.%i', v_table)) is not null");
+    for (const table of expectedTables) {
+      expect(migration).toContain("'" + table + "'");
+      expect(integration).toContain("create table public." + table);
+      expect(integration).toContain("public." + table);
+    }
+    expect(integration).toContain("re-run the forward-only reconciliation to assert idempotency");
+    expect(integration).toContain("service_role");
+    expect(integration).toContain("anon_select_removed_on_%");
+    expect(integration).toContain("authenticated_select_removed_on_%");
+    expect(integration).toContain("test_tenant_access");
+  });
+  it("restores all production-only triggers and protects their domain invariants", async () => {
+    const migration = (await readProductionTriggerMigration()).toLowerCase();
+    const integration = (await readProductionTriggerTest()).toLowerCase();
+    const triggers = [
+      "collector_sessions_set_updated_at", "custom_permission_roles_set_updated_at",
+      "employees_set_updated_at", "financial_settlements_set_updated_at",
+      "trg_powerhub_guard_locked_financial_settlement", "platform_sms_fallback_set_updated_at",
+      "platform_sms_plans_set_updated_at", "platform_tweetsms_set_updated_at",
+      "platform_tweetsms_alert_set_updated_at", "staff_profiles_set_updated_at",
+      "subscribers_set_updated_at", "trg_powerhub_sync_sms_addon_end",
+      "tenant_branch_settings_set_updated_at", "trg_powerhub_tenant_feature_control_scope",
+      "tenant_owner_profiles_set_updated_at", "tenant_subscriptions_set_updated_at",
+      "trg_powerhub_trial_duration", "tenant_tweetsms_set_updated_at",
+      "tenants_set_updated_at", "users_set_updated_at",
+    ];
+    for (const trigger of triggers) {
+      expect(migration).toContain("'" + trigger + "'");
+      expect(integration).toContain("'" + trigger + "'");
+    }
+    expect(migration).toContain("powerhub_guard_locked_financial_settlement");
+    expect(migration).toContain("powerhub_guard_tenant_feature_control_scope");
+    expect(migration).toContain("powerhub_apply_trial_duration");
+    expect(migration).toContain("powerhub_sync_sms_addon_end_to_subscription");
+    expect(integration).toContain("locked_settlement_mutation_was_allowed");
+    expect(integration).toContain("overlapping_locked_settlement_was_allowed");
+    expect(integration).toContain("non_controllable_feature_was_allowed");
+    expect(integration).toContain("trial_duration_trigger_mismatch");
+    expect(integration).toContain("sms_addon_end_not_aligned_to_subscription");
+  });
+
+  it("restores the production idempotency columns and unique replay indexes", async () => {
+    const migration = (await readIdempotencySchemaMigration()).toLowerCase();
+    const integration = (await readIdempotencySchemaTest()).toLowerCase();
+    for (const table of ["access_invitations", "custom_permission_roles", "platform_access_invitations"]) {
+      expect(migration).toContain("alter table public." + table);
+      expect(migration).toContain("add column if not exists client_operation_id text");
+      expect(migration).toContain("add column if not exists request_fingerprint text");
+      expect(integration).toContain("public." + table);
+    }
+    expect(migration).toContain("access_invitations_client_operation_id_uidx");
+    expect(migration).toContain("custom_permission_roles_operation_uidx");
+    expect(migration).toContain("platform_access_invitations_client_operation_id_uidx");
+    expect(integration).toContain("access_invitation_operation_duplicate_allowed");
+    expect(integration).toContain("custom_role_operation_duplicate_allowed");
+    expect(integration).toContain("platform_invitation_operation_duplicate_allowed");
+    expect(integration).toContain("existing_rows_changed_during_idempotency_reconcile");
+  });
+
+  it("keeps the canonical RLS integration fixture aligned with live tenant behavior", async () => {
+    const integration = (await readCanonicalRlsTest()).toLowerCase();
+    expect(integration).toContain("grant usage on schema auth to authenticated");
+    expect(integration).toContain("membership.is_active=true");
+    expect(integration).toContain("private.powerhub_current_user_id()");
+    expect(integration).toContain("platform_role in ('platform_owner','platform_admin','finance_admin')");
+    expect(integration).toContain("security definer set search_path=public");
+    expect(integration).toContain("cross_tenant_employee_insert_was_allowed");
+    expect(integration).toContain("cross_tenant_payroll_item_insert_was_allowed");
+    expect(integration).toContain("platform_admin_policy_scope_mismatch");
+    expect(integration).toContain("legacy_browser_privilege_remains");
+  });
+
+  it("reconciles canonical tenant and platform RLS boundaries without leaving permissive drift", async () => {
+    const migration = (await readCanonicalRlsMigration()).toLowerCase().replace(/\\s+/g, " ");
+    const integration = (await readCanonicalRlsTest()).toLowerCase();
+    const expectedTables = [
+      "access_invitations", "collector_sessions", "company_account_sites", "custom_permission_roles",
+      "employee_adjustments", "employee_attendance", "employees", "financial_settlements", "invoice_lines",
+      "invoices", "invoice_share_links", "messaging_schedule_runs", "mobile_api_sessions", "mobile_sync_events",
+      "notification_messages", "offline_sync_operations", "payments", "payroll_runs", "site_portal_settings",
+      "sms_package_requests", "staff_profiles", "subscribers", "subscription_upgrade_requests", "tariffs",
+      "tenant_branch_settings", "tenant_messaging_configurations", "tenant_owner_profiles", "tenant_subscriptions",
+      "tenant_invoice_message_templates", "tenant_payment_receipt_message_templates", "tenant_tweetsms_accounts",
+      "sites", "inventory_items", "inventory_stock_movements", "inventory_warehouses", "suppliers",
+      "supplier_purchases", "supplier_purchase_lines", "supplier_payments", "supplier_payment_allocations",
+      "supplier_ledger_entries", "supplier_purchase_receipts", "supplier_purchase_receipt_lines", "tenant_members",
+      "platform_access_invitations", "platform_role_policies", "platform_settings", "platform_sms_fallback_providers",
+      "platform_sms_plans", "platform_tweetsms_accounts", "platform_tweetsms_balance_alerts", "payroll_items",
+      "payroll_adjustment_allocations", "tenants", "users",
+    ];
+    expect(migration).toContain("for all to authenticated using");
+    expect(migration).toContain("private.powerhub_has_tenant_access(tenant_id)");
+    expect(migration).toContain("private.powerhub_is_platform_admin()");
+    expect(migration).toContain("auth.uid()");
+    expect(migration).toContain("drop policy %i on public.%i");
+    expect(migration).toContain("c.relrowsecurity = true");
+    expect(migration).toContain("powerhub_canonical_rls_disabled");
+    for (const table of expectedTables) {
+      expect(migration).toContain("'" + table + "'");
+      expect(integration).toContain("create table public." + table);
+    }
+    expect(integration).toContain("cross_tenant_employee_insert_was_allowed");
+    expect(integration).toContain("cross_tenant_payroll_item_insert_was_allowed");
+    expect(integration).toContain("platform_admin_policy_scope_mismatch");
+    expect(integration).toContain("set role authenticated");
+    expect(integration).toContain("reset role");
   });
 });

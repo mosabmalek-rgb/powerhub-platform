@@ -68,6 +68,41 @@ jobs:
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE invoice_sms_test"
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname invoice_sms_test --set ON_ERROR_STOP=1 --file supabase/tests/invoice_bulk_sms_safety.sql
 
+      - name: Verify invoice Delta snapshot, updates, tombstones, scope moves, and server-only ACLs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres invoice_delta_sync_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname invoice_delta_sync_test --set ON_ERROR_STOP=1 --file supabase/tests/invoice_delta_sync_history.sql
+
+      - name: Verify payment Delta snapshot, updates, tombstones, scope moves, and receipt secret filtering
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres payment_delta_sync_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname payment_delta_sync_test --set ON_ERROR_STOP=1 --file supabase/tests/payment_delta_sync_history.sql
+
+      - name: Verify expense Delta snapshots, tombstones, scope moves, and ACLs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres expense_delta_sync_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname expense_delta_sync_test --set ON_ERROR_STOP=1 --file supabase/tests/expense_delta_sync_history.sql
+
+      - name: Verify offline expense Outbox idempotency and server-only RPC grants
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres offline_expense_idempotency_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_expense_idempotency_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_expense_idempotency.sql
+
+      - name: Verify company-account Delta ledger, branch links, tombstones, and ACLs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres company_account_delta_sync_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname company_account_delta_sync_test --set ON_ERROR_STOP=1 --file supabase/tests/company_account_delta_sync_history.sql
+
       - name: Verify unified invoice-issued automation, amount formatting, and deduplication
         env:
           PGPASSWORD: postgres
@@ -137,6 +172,14 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres payment_documentation_context_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname payment_documentation_context_test --set ON_ERROR_STOP=1 --file supabase/tests/payment_documentation_context_lines_fast_read.sql
 
+
+      - name: Verify operation-type allow-list reconciliation preserves history and rejects unknown values
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres offline_operation_type_reconcile_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_operation_type_reconcile_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_operation_type_contract_reconcile.sql
+
       - name: Verify SMS wallet admin operations in isolated PostgreSQL
         env:
           PGPASSWORD: postgres
@@ -157,8 +200,17 @@ jobs:
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres inventory_purchase_receiving_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_purchase_receiving_workflow.sql
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_stocktake_count_concurrency.sql
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/migrations/20261022090000_powerhub_inventory_foreign_key_indexes.sql
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_foreign_key_indexes.sql
+
+      - name: Verify bounded inventory Delta membership on an isolated database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres inventory_bounded_delta_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_bounded_delta_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_purchase_receiving_workflow.sql
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_bounded_delta_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_delta_bounded_membership.sql
 
       - name: Verify core financial tables reject direct client mutations
         env:
@@ -167,12 +219,61 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres inventory_core_dml_acl_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_core_dml_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_core_direct_dml_acl.sql
 
+      - name: Verify staging browser-role DML drift is revoked without removing reads or service writes
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres browser_direct_dml_acl_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname browser_direct_dml_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/browser_direct_dml_acl_reconcile.sql
+
+      - name: Verify canonical tenant RLS policies match production boundaries
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres canonical_tenant_rls_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname canonical_tenant_rls_test --set ON_ERROR_STOP=1 --file supabase/tests/canonical_tenant_rls_policy_reconcile.sql
+
+      - name: Verify chat RLS support access stays within support conversations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres chat_rls_scope_reconcile_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname chat_rls_scope_reconcile_test --set ON_ERROR_STOP=1 --file supabase/tests/chat_rls_scope_reconcile.sql
+
+      - name: Verify production idempotency schema is restored without changing existing rows
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres idempotency_schema_reconcile_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname idempotency_schema_reconcile_test --set ON_ERROR_STOP=1 --file supabase/tests/missing_idempotency_schema_reconcile.sql
+
+      - name: Verify missing production triggers are restored and preserve domain invariants
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres production_trigger_reconcile_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname production_trigger_reconcile_test --set ON_ERROR_STOP=1 --file supabase/tests/missing_production_triggers_reconcile.sql
+
       - name: Verify offline sync core writes remain server-only
         env:
           PGPASSWORD: postgres
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres offline_core_write_acl_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname offline_core_write_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/offline_core_write_acl_hardening.sql
+
+      - name: Verify adaptive Delta private Realtime authorization, topic scope, and payload minimization
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres adaptive_delta_realtime_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname adaptive_delta_realtime_test --set ON_ERROR_STOP=1 --file supabase/tests/adaptive_delta_realtime_authorization.sql
+
+      - name: Verify five-package and chat schema reconciliation preserves legacy rows and RPC contracts
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres package_chat_reconcile_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname package_chat_reconcile_test --set ON_ERROR_STOP=1 --file supabase/tests/package_and_chat_schema_reconcile.sql
 
       - name: Verify staging schema and RPC reconciliation is idempotent and server-only
         env:
@@ -260,6 +361,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres maintenance_phase_c_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname maintenance_phase_c_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_maintenance_phase_c.sql
 
+      - name: Verify minimized HR Delta snapshots, tombstones, bounded membership, role ACLs, and tenant/site isolation
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres hr_delta_sync_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname hr_delta_sync_test --set ON_ERROR_STOP=1 --file supabase/tests/hr_delta_sync.sql
+
       - name: Verify employee advances, loan installments, repayment idempotency, accounting, and tenant isolation
         env:
           PGPASSWORD: postgres
@@ -280,3 +388,16 @@ jobs:
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres employee_advances_prod_compatibility_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname employee_advances_prod_compatibility_test --set ON_ERROR_STOP=1 --set PREEXIST_PAYROLL_ALLOCATIONS=1 --file supabase/tests/employee_advances_loans_integration.sql
+      - name: Verify platform and tenant invitation RPC idempotency, concurrency, scope and server-only ACLs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres invitation_rpc_idempotency_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname invitation_rpc_idempotency_test --set ON_ERROR_STOP=1 --file supabase/tests/invitation_rpc_idempotency.sql
+
+      - name: Verify custom permission role RPC signature, idempotency, fingerprint conflict and ACL reconciliation
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres custom_permission_role_rpc_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname custom_permission_role_rpc_test --set ON_ERROR_STOP=1 --file supabase/tests/custom_permission_role_rpc_idempotency_reconcile.sql

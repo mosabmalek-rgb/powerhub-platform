@@ -17,12 +17,16 @@ export default defineConfig({
     environment: "node",
     include: [
       "client/src/pages/role-guards.ui.test.tsx",
+      "client/src/pages/LoginPage.ui.test.tsx",
       "client/src/pages/BillingPage.test.tsx",
       "client/src/pages/OperationsPage.test.tsx",
       "client/src/pages/SettingsPage.test.tsx",
       "client/src/pages/QuickActionsPage.ui.test.tsx",
       "client/src/pages/WorkspaceHome.smsQuota.ui.test.tsx",
+      "client/src/pages/PlatformAccessPanel.ui.test.tsx",
+      "client/src/pages/TenantAccessInvitationPanel.ui.test.tsx",
       "client/src/pages/collection-form-reset.contract.test.ts",
+      "client/src/pages/subscriber-account-statement-pagination.contract.test.ts",
     ],
   },
 });

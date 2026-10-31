@@ -3,6 +3,24 @@
 \ir inventory_purchase_receiving_workflow.sql
 \ir ../migrations/20261023090000_powerhub_generator_maintenance.sql
 
+-- Deliberately fail only the audit write for one maintenance-part test operation.
+-- The RPC must roll back its earlier stock movement and part/header writes atomically.
+create or replace function public.fail_maintenance_part_audit_for_test()
+returns trigger language plpgsql as $trigger$
+begin
+  if new.entity_type='work_order_part'
+    and new.action='issue'
+    and new.operation_key='maint-test-part-rollback-c-01' then
+    raise exception 'FORCED_MAINTENANCE_PART_AUDIT_FAILURE' using errcode='P0001';
+  end if;
+  return new;
+end;
+$trigger$;
+drop trigger if exists fail_maintenance_part_audit_for_test on public.generator_maintenance_audit_events;
+create trigger fail_maintenance_part_audit_for_test
+  before insert on public.generator_maintenance_audit_events
+  for each row execute function public.fail_maintenance_part_audit_for_test();
+
 do $maintenance_phase_c$
 declare
   v_order record;
@@ -38,7 +56,18 @@ declare
   v_reopen record;
   v_reopen_replay record;
   v_reopened_order_id bigint;
+  v_recurring_order record;
   v_source_snapshot jsonb;
+  v_foreign_generator_id bigint;
+  v_foreign_item_id bigint;
+  v_failed_stock_key text;
+  v_failed_stock_count bigint;
+  v_failed_part_count bigint;
+  v_failed_audit_count bigint;
+  v_failed_balance numeric(14,3);
+  v_failed_parts_cost numeric(14,2);
+  v_failure_message text;
+  v_failure_triggered boolean:=false;
 begin
   -- Partial tenant/site scope must not turn into an unbounded evaluator.
   begin
@@ -81,6 +110,25 @@ begin
     now(),null,null,'maint-test-order-c-01'
   );
   if v_order.work_order_id is null or v_order.replayed then raise exception 'MAINTENANCE_CREATE_FAILED'; end if;
+
+  -- A generator belonging to another tenant must not be accepted by a tenant/site-scoped order RPC.
+  select id into v_foreign_generator_id from public.generators
+  where tenant_id=20 and site_id=200 and id=20000;
+  begin
+    perform * from public.powerhub_maintenance_create_work_order(
+      10,100,1,v_foreign_generator_id,null,'breakdown','high',
+      'Cross-tenant generator must fail','Disposable scope assertion',
+      now(),null,null,'maint-test-cross-tenant-generator-c-01'
+    );
+    raise exception 'MAINTENANCE_CROSS_TENANT_GENERATOR_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_GENERATOR_OUT_OF_SCOPE' then raise; end if;
+  end;
+  if exists(select 1 from public.generator_maintenance_work_orders
+      where tenant_id=10 and operation_key='maint-test-cross-tenant-generator-c-01') then
+    raise exception 'MAINTENANCE_CROSS_TENANT_GENERATOR_LEFT_ORDER';
+  end if;
+
   select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='PUR-WF-SUP' and is_active=true;
   if v_supplier_id is null then raise exception 'MAINTENANCE_TEST_SUPPLIER_MISSING'; end if;
   select * into v_supplier_assign from public.powerhub_maintenance_assign_supplier(
@@ -121,6 +169,75 @@ begin
     (select reported_at from public.generator_maintenance_work_orders where id=v_order.work_order_id),null,null,'maint-test-order-c-01'
   );
   if not v_replay.replayed or v_replay.work_order_id<>v_order.work_order_id then raise exception 'MAINTENANCE_CREATE_IDEMPOTENCY_FAILED'; end if;
+
+  -- Object-reference isolation: a work-order ID from a different site and an item
+  -- from another tenant must fail before a stock movement or part row is created.
+  begin
+    perform * from public.powerhub_maintenance_add_part(
+      10,101,1,v_order.work_order_id,v_item_id,1,1,'Cross-site work order probe',
+      'maint-test-cross-site-order-c-01'
+    );
+    raise exception 'MAINTENANCE_CROSS_SITE_WORK_ORDER_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_WORK_ORDER_NOT_FOUND' then raise; end if;
+  end;
+
+  select id into v_foreign_item_id from public.inventory_items
+  where tenant_id=20 and sku='DSL-01' and is_active=true;
+  begin
+    perform * from public.powerhub_maintenance_add_part(
+      10,100,1,v_order.work_order_id,v_foreign_item_id,1,1,'Cross-tenant item probe',
+      'maint-test-cross-tenant-item-c-01'
+    );
+    raise exception 'MAINTENANCE_CROSS_TENANT_ITEM_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'MAINTENANCE_PART_ITEM_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  -- Force the final audit insert to fail after the nested stock movement succeeds.
+  -- PostgreSQL must roll back every write from the RPC statement as one transaction.
+  v_failed_stock_key:='maint-part:10:'||md5('maint-test-part-rollback-c-01');
+  select coalesce(sum(case when movement_type in
+    ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+    then quantity else -quantity end),0)
+    into v_failed_balance
+  from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=1 and item_id=v_item_id;
+  select parts_cost into v_failed_parts_cost from public.generator_maintenance_work_orders
+  where tenant_id=10 and site_id=100 and id=v_order.work_order_id;
+  v_failure_triggered:=false;
+  begin
+    perform * from public.powerhub_maintenance_add_part(
+      10,100,1,v_order.work_order_id,v_item_id,1,1,'Atomic rollback probe',
+      'maint-test-part-rollback-c-01'
+    );
+    raise exception 'MAINTENANCE_PART_AUDIT_FAILURE_NOT_TRIGGERED';
+  exception when others then
+    get stacked diagnostics v_failure_message=message_text;
+    if v_failure_message='MAINTENANCE_PART_AUDIT_FAILURE_NOT_TRIGGERED' then raise; end if;
+    if v_failure_message<>'FORCED_MAINTENANCE_PART_AUDIT_FAILURE' then raise; end if;
+    v_failure_triggered:=true;
+  end;
+  if not v_failure_triggered then raise exception 'MAINTENANCE_PART_AUDIT_FAILURE_NOT_OBSERVED'; end if;
+  select coalesce(sum(case when movement_type in
+    ('opening_balance','purchase_receipt','adjustment_in','return_from_issue')
+    then quantity else -quantity end),0)
+    into v_after
+  from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and warehouse_id=1 and item_id=v_item_id;
+  select count(*) into v_failed_stock_count from public.inventory_stock_movements
+  where tenant_id=10 and site_id=100 and operation_key=v_failed_stock_key;
+  select count(*) into v_failed_part_count from public.generator_maintenance_work_order_parts
+  where tenant_id=10 and site_id=100 and operation_key='maint-test-part-rollback-c-01';
+  select count(*) into v_failed_audit_count from public.generator_maintenance_audit_events
+  where tenant_id=10 and site_id=100 and operation_key='maint-test-part-rollback-c-01';
+  if v_after<>v_failed_balance or v_failed_stock_count<>0 or
+     v_failed_part_count<>0 or v_failed_audit_count<>0 or
+     (select parts_cost from public.generator_maintenance_work_orders
+       where tenant_id=10 and site_id=100 and id=v_order.work_order_id) is distinct from v_failed_parts_cost then
+    raise exception 'MAINTENANCE_PART_AUDIT_FAILURE_NOT_ATOMIC balance_before=% balance_after=% stock=% parts=% audit=%',
+      v_failed_balance,v_after,v_failed_stock_count,v_failed_part_count,v_failed_audit_count;
+  end if;
 
   select * into v_part from public.powerhub_maintenance_add_part(
     10,100,1,v_order.work_order_id,v_item_id,1,2,'Integration test part issue','maint-test-part-c-01'
@@ -254,6 +371,7 @@ begin
      or (select parts_cost from public.generator_maintenance_work_orders where id=v_reopened_order_id)<>0 then
     raise exception 'MAINTENANCE_REOPEN_DUPLICATED_PARTS_OR_COST';
   end if;
+
   begin
     perform * from public.powerhub_maintenance_reopen_completed_work_order(
       10,100,1,v_order.work_order_id,'','maint-test-reopen-no-reason-c-01'
@@ -278,6 +396,32 @@ begin
   exception when sqlstate 'P0001' then
     if sqlerrm<>'MAINTENANCE_IDEMPOTENCY_KEY_REUSED' then raise; end if;
   end;
+  -- Close the first follow-up cycle before simulating a later recurrence.
+  -- This distinguishes a genuine recurring breakdown from a duplicate concurrent open follow-up.
+  perform * from public.powerhub_maintenance_transition_work_order(
+    10,100,1,v_reopened_order_id,'start',null,null,null,0,0,null,'maint-test-followup-start-c-01'
+  );
+  perform * from public.powerhub_maintenance_transition_work_order(
+    10,100,1,v_reopened_order_id,'complete',
+    'Follow-up repair completed',null,0,0,0,null,'maint-test-followup-complete-c-01'
+  );
+
+  -- A later recurrence of the same breakdown is a new auditable work-order cycle.
+  -- It must not reopen or overwrite the completed source order or inherit old parts/costs.
+  select * into v_recurring_order from public.powerhub_maintenance_create_work_order(
+    10,100,1,10000,null,'breakdown','high','Phase C test repair','Recurring breakdown after completed repair',
+    '2026-10-24T12:00:00Z',null,null,'maint-test-recurring-breakdown-c-01'
+  );
+  if v_recurring_order.replayed or v_recurring_order.work_order_id in (v_order.work_order_id,v_reopened_order_id)
+     or v_recurring_order.status<>'new' then
+    raise exception 'MAINTENANCE_RECURRING_BREAKDOWN_NOT_NEW_CYCLE';
+  end if;
+  if (select status from public.generator_maintenance_work_orders where id=v_order.work_order_id)<>'completed'
+     or (select count(*) from public.generator_maintenance_work_order_parts
+         where tenant_id=10 and site_id=100 and work_order_id=v_recurring_order.work_order_id)<>0
+     or (select parts_cost from public.generator_maintenance_work_orders where id=v_recurring_order.work_order_id)<>0 then
+    raise exception 'MAINTENANCE_RECURRING_BREAKDOWN_MUTATED_OR_INHERITED_HISTORY';
+  end if;
   begin
     perform * from public.powerhub_maintenance_transition_work_order(
       10,100,1,v_order.work_order_id,'correct_completion',
@@ -466,4 +610,38 @@ begin
 end;
 $maintenance_phase_c$;
 
+drop trigger if exists fail_maintenance_part_audit_for_test on public.generator_maintenance_audit_events;
+drop function if exists public.fail_maintenance_part_audit_for_test();
+
 select 'Phase C maintenance work orders, stock issue idempotency, costing, preventive alerts, audit and ACL checks passed' as result;
+
+-- This fixture tests only the operational feeds, so provide the shared journal tables
+-- without installing the core Delta migration's unrelated subscribers/sites triggers.
+create table if not exists public.powerhub_sync_scope_state (
+  tenant_id bigint not null,
+  site_id bigint not null,
+  entity_type text not null,
+  last_cursor bigint not null default 0 check (last_cursor >= 0),
+  retained_from_cursor bigint not null default 0 check (retained_from_cursor >= 0),
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,site_id,entity_type),
+  check (retained_from_cursor <= last_cursor)
+);
+create table if not exists public.powerhub_sync_changes (
+  tenant_id bigint not null,
+  site_id bigint not null,
+  entity_type text not null,
+  cursor bigint not null check (cursor > 0),
+  entity_id text not null check (length(entity_id) between 1 and 100),
+  change_type text not null check (change_type in ('upsert','delete')),
+  row_data jsonb,
+  changed_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,site_id,entity_type,cursor),
+  check ((change_type='upsert' and row_data is not null) or (change_type='delete' and row_data is null))
+);
+create index if not exists powerhub_sync_changes_entity_idx
+  on public.powerhub_sync_changes(tenant_id,site_id,entity_type,entity_id,cursor desc);
+
+\ir ../migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql
+\ir ../migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql
+\ir fuel_maintenance_delta_sync_history.sql

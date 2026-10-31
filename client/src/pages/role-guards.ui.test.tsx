@@ -53,6 +53,8 @@ const mocks = vi.hoisted(() => {
   createGeneratorMutate: vi.fn(),
   createReadingMutate: vi.fn(),
   createReadingMutateAsync: vi.fn(async () => ({ status: "approved", readingId: 900, invoiceId: 901 })),
+  saveCustomRoleMutateAsync: vi.fn(async () => ({ success: true, id: 123 })),
+  runWithStableOperationKey: vi.fn(async (_scope: unknown, action: (key: string) => Promise<unknown>) => action("00000000-0000-4000-8000-000000000359")),
   sendDeferredInvoices: vi.fn(),
   sendPendingSms: vi.fn(),
   sendBulkInvoiceSms: vi.fn(),
@@ -85,17 +87,27 @@ vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, 
 vi.mock("qrcode.react", () => ({ QRCodeCanvas: ({ value }: { value: string }) => <canvas aria-label="رمز QR للرابط" data-value={value} /> }));
 vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()], useRoute: (pattern: string) => pattern === "/payment-documentation/public/:token" && mocks.location.startsWith("/payment-documentation/public/") ? [true, { token: mocks.location.split("/").at(-1) }] : pattern === "/invoice/:token" && mocks.location.startsWith("/invoice/") ? [true, { token: mocks.location.split("/").at(-1) }] : [false, undefined] }));
 vi.mock("@/lib/offline-connectivity", () => ({ usePowerHubConnectivity: () => ({ isOnline: true, reconnectGeneration: 0 }), probePowerHubConnectivity: vi.fn().mockResolvedValue(true) }));
+vi.mock("@/lib/offline-operation-idempotency", () => ({ runWithStableOperationKey: mocks.runWithStableOperationKey }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() }, invoiceDuePolicy: { get: { invalidate: vi.fn() } } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, paymentDocumentation: { list: { invalidate: vi.fn() } }, siteBillingPolicy: { get: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() }, financialOverview: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, directoryPage: { invalidate: vi.fn(), prefetch: vi.fn().mockResolvedValue(undefined) }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
     powerhub: {
+      inventory: {
+        recordFuelFill: { useMutation: mocks.mutation },
+        recordStocktakeCount: { useMutation: mocks.mutation },
+      },
+      hr: {
+        replayOfflineOperation: { useMutation: mocks.mutation },
+        issueEmployeeAdvance: { useMutation: mocks.mutation },
+        repayEmployeeAdvance: { useMutation: mocks.mutation },
+      },
       offlineNumbering: { reserve: { useMutation: mocks.mutation } },
       sites: { list: { useQuery: () => mocks.query([mocks.site]) }, invoiceDuePolicy: { get: { useQuery: () => mocks.query({ invoiceDueHours: 336, invoiceDueDays: 14 }) }, save: { useMutation: mocks.mutation } }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
       siteBillingPolicy: { get: { useQuery: () => mocks.query({ automaticFractionDiscountEnabled: false, fractionCarryEnabled: false }) }, save: { useMutation: mocks.mutation } },
       reportBranding: { get: { useQuery: () => mocks.query({ companyName: "PowerHub", logoUrl: null }) }, update: { useMutation: mocks.mutation } },
       readingCycle: { get: { useQuery: () => mocks.query({ cycleType: "MONTHLY", weeklyStartDay: 7, monthlyStartDay: 1 }) }, currentBounds: { useQuery: () => mocks.query({ cycleKey: "2026-10", cycleLabel: "أكتوبر 2026", billingPeriod: "2026-10", startAt: "2026-10-01T00:00:00.000Z", endAt: "2026-10-31T20:59:59.999Z" }) }, boundsAt: { useQuery: () => mocks.query({ cycleKey: "2026-09", cycleLabel: "سبتمبر 2026", billingPeriod: "2026-09", startAt: "2026-09-01T00:00:00.000Z", endAt: "2026-09-30T20:59:59.999Z" }) }, save: { useMutation: mocks.mutation } },
-      staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, archived: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"] }) }, assign: { useMutation: mocks.mutation }, archive: { useMutation: mocks.mutation }, restore: { useMutation: mocks.mutation }, setActive: { useMutation: mocks.mutation }, suspend: { useMutation: mocks.mutation }, clearSuspension: { useMutation: mocks.mutation }, create: { useMutation: mocks.mutation }, activity: { useQuery: () => mocks.query([]) }, resetPassword: { useMutation: mocks.mutation }, customRoles: { useQuery: () => mocks.query([]) }, permissionChanges: { useQuery: () => mocks.query([]) }, updatePermissions: { useMutation: mocks.mutation }, saveCustomRole: { useMutation: mocks.mutation }, deleteCustomRole: { useMutation: mocks.mutation } },
+      staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, archived: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"] }) }, assign: { useMutation: mocks.mutation }, archive: { useMutation: mocks.mutation }, restore: { useMutation: mocks.mutation }, setActive: { useMutation: mocks.mutation }, suspend: { useMutation: mocks.mutation }, clearSuspension: { useMutation: mocks.mutation }, create: { useMutation: mocks.mutation }, activity: { useQuery: () => mocks.query([]) }, resetPassword: { useMutation: mocks.mutation }, customRoles: { useQuery: () => mocks.query([]) }, permissionChanges: { useQuery: () => mocks.query([]) }, updatePermissions: { useMutation: mocks.mutation }, saveCustomRole: { useMutation: () => ({ mutate: vi.fn(), mutateAsync: mocks.saveCustomRoleMutateAsync, isPending: false }) }, deleteCustomRole: { useMutation: mocks.mutation } },
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("readings.page", input, options); return mocks.query({ items: [], hasNext: false, nextCursor: null }); } }, create: { useMutation: () => ({ mutate: mocks.createReadingMutate, mutateAsync: mocks.createReadingMutateAsync, isPending: false }) }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, history: { useQuery: () => mocks.query({ items: [], total: 0, hasNext: false }) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
@@ -117,7 +129,7 @@ vi.mock("@/lib/trpc", () => ({
         bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation }
       },
       generators: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("generators.list", input, options); return mocks.query([]); } }, create: { useMutation: () => ({ mutate: mocks.createGeneratorMutate, isPending: false }) }, update: { useMutation: mocks.mutation } },
-      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("payments.page", input, options); return mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }); } }, create: { useMutation: mocks.mutation } },
+      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("payments.page", input, options); return mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }); } }, getReceiptImage: { useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue({ url: "https://example.invalid/receipt" }), isPending: false }) }, create: { useMutation: mocks.mutation } },
       companyAccounts: {
         list: {
           useQuery: () => mocks.query([{
@@ -501,6 +513,21 @@ describe("role guards in administration UI", () => {
     expect(fieldAppPermission).not.toBeChecked();
     fireEvent.click(fieldAppPermission);
     expect(fieldAppPermission).toBeChecked();
+  });
+
+  it("uses a durable stable operation key when creating a reusable custom role", async () => {
+    mocks.saveCustomRoleMutateAsync.mockClear();
+    mocks.runWithStableOperationKey.mockClear();
+    render(<FlexiblePermissionsPanel siteId={1} canManageTeam staff={[{ profile: { id: 10, role: "technician", permissions: ["recordReadings"], customRoleId: null }, user: { id: 20, name: "فني الاختبار", email: "field@powerhub.test" } }]} />);
+    fireEvent.change(screen.getByLabelText("اختيار الحساب لتعديل الصلاحيات"), { target: { value: "10" } });
+    fireEvent.change(screen.getByPlaceholderText("اسم الدور، مثال: محصل رئيسي"), { target: { value: "دور تحصيل ثابت" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كدور قابل لإعادة الاستخدام" }));
+    await waitFor(() => expect(mocks.saveCustomRoleMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: 1, name: "دور تحصيل ثابت", clientOperationId: "00000000-0000-4000-8000-000000000359",
+    })));
+    expect(mocks.runWithStableOperationKey).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 1, siteId: 1, kind: "custom_permission_role_create",
+    }), expect.any(Function));
   });
 
   it("keeps the operational reading entry view read-only for the viewer", () => {

@@ -78,9 +78,12 @@ describe("public invoice and inquiry actions", () => {
     expect(publicInvoiceApp).not.toContain('from "@/lib/route-preload"');
     expect(main).not.toContain('import App from "./App"');
     expect(main).toContain("if (isStandalonePublicInvoiceRoute()) return {};");
-    expect(main).toContain("if (!isStandalonePublicInvoiceRoute()) {");
+    // Protected routes wait for bounded local-cache hydration inside the app
+    // bootstrap gate; standalone invoice links bypass that gate immediately.
+    expect(main).toContain("if (standalonePublicInvoice) return;");
+    expect(main).toContain("Promise.race([bootstrapOfflineState(), deadline])");
+    expect(main.indexOf("Promise.race([bootstrapOfflineState(), deadline])")).toBeLessThan(main.indexOf("<AuthProvider>"));
     expect(main).toContain("renderApp();");
-    expect(main).toContain("void bootstrapOfflineState();");
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
     const transientSignOutStart = main.indexOf("// A transient SDK SIGNED_OUT");
     const transientSignOutEnd = main.indexOf("if (!nextUserId)", transientSignOutStart);
@@ -89,9 +92,14 @@ describe("public invoice and inquiry actions", () => {
     const transientSignOut = main.slice(transientSignOutStart, transientSignOutEnd);
     expect(transientSignOut).toContain("if (lease) await activateUser(lease.userId);");
     expect(transientSignOut).not.toContain("activateUser(lease?.userId ?? null)");
-    expect(main).toContain('register("/sw.js?v=7")');
+    expect(main).toContain('navigator.serviceWorker.register("/sw.js?v=8")');
     const sw = read("client/public/sw.js");
-    expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v7"');
+    expect(sw).toContain('const SHELL_CACHE = "powerhub-shell-v8"');
+    expect(sw).toContain('const ASSET_CACHE = "powerhub-assets-v7"');
+    expect(sw).not.toContain("NAVIGATION_TIMEOUT_MS");
+    expect(sw).not.toContain("fetchWithTimeout");
+    expect(sw).toContain('fetch(request, { cache: "no-store" })');
+    expect(main).toContain('navigator.serviceWorker.register("/sw.js?v=8")');
     expect(sw).toContain("isPublicInvoiceNavigation(url)");
     expect(sw.indexOf('if (request.mode === "navigate" && isPublicInvoiceNavigation(url)) return;')).toBeLessThan(sw.indexOf('if (request.mode === "navigate") {'));
     const viteConfig = read("vite.config.ts");
@@ -175,7 +183,8 @@ describe("public invoice and inquiry actions", () => {
     const operations = read("client/src/pages/OperationsPage.tsx");
     expect(operations).toContain('name="method" value={selectedCompanyAccount?.accountType ?? ""}');
     expect(operations).not.toContain('name="method" value={collectionMethod}');
-    expect(operations).toContain("onSubmit={addExpense.mutateAsync}");
+    expect(operations).toContain("onSubmit={submitExpense}");
+    expect(operations).toContain("return await addExpense.mutateAsync(completePayload)");
     expect(operations).toContain("await onSubmit({ siteId, generatorId:");
     expect(operations).toContain("form.reset();");
     expect(operations).toContain("جارٍ حفظ المصروف...");
@@ -322,8 +331,10 @@ describe("public invoice and inquiry actions", () => {
     expect(server).toContain('supabaseAdmin().rpc("powerhub_cycle_for_reading"');
     expect(server).toContain("paymentDocumentationGazaDateBoundary");
     expect(server).toContain('if (input.status !== "all") query = query.eq("status", input.status)');
-    expect(review).toContain('if (period === "current_cycle") return false');
-    expect(review).toContain("لا يمكن التحقق من مطابقة لقطة الطلبات لدورة القراءة الحالية دون اتصال");
+    // Dynamic current-cycle boundaries are server-owned; offline snapshots are not displayed for that scope.
+    expect(review).toContain('period==="current_cycle")return;');
+    expect(review).toContain("لا نعرض لقطة «هذه الدورة»");
+    expect(review).toContain("تعتمد على حدود دورة القراءة الحالية من الخادم");
   });
 
   it("filters collections by canonical cycle, receiver account type/account, and exports readable destination columns", () => {
@@ -485,7 +496,8 @@ describe("public invoice and inquiry actions", () => {
     const review = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
     const paymentPage = read("client/src/pages/PaymentDocumentationPage.tsx");
 
-    expect(main).toContain("staleTime: 30_000");
+    expect(main).toContain("staleTime: (query) => getOfflineQueryStaleTime(query.queryKey)");
+    expect(main).toContain("refetchOnReconnect: (query) => !isDeltaSyncBackedQueryKey(query.queryKey)");
     const subscriptionCard = home.indexOf("<SubscriptionRenewalDashboardCard");
     const branchPerformance = home.indexOf("{selectedScope === \"all\" && <BranchPerformanceCard");
     expect(subscriptionCard).toBeGreaterThan(branchPerformance);
@@ -497,10 +509,10 @@ describe("public invoice and inquiry actions", () => {
     expect(review).toContain("refetchIntervalInBackground:false");
     expect(review).toContain('staleTime:0,refetchOnMount:"always"');
     const mobileSync = read("client/src/pages/MobileSyncPage.tsx");
-    expect(mobileSync).toContain('staleTime: 15_000, refetchOnMount: "always", refetchInterval: 15_000, refetchIntervalInBackground: false');
-    expect(mobileSync).toContain("events.isFetching && events.data");
-    expect(mobileSync).toContain("readings.isFetching && readings.data");
-    expect(home).toContain("(sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword");
+    expect(mobileSync).toContain('staleTime: 15_000, refetchOnMount: "always", refetchInterval: serverQueriesEnabled ? 15_000 : false, refetchIntervalInBackground: false, refetchOnReconnect: true');
+    expect(mobileSync).toContain("events.isFetching && eventsData");
+    expect(mobileSync).toContain("readings.isFetching && readingsData");
+    expect(home).toContain("enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !dashboardScopeDenied && !user?.mustChangePassword)");
     expect(review).toContain("requests.isLoading&&isOnline");
     expect(review).toContain("requests.isFetching && requests.data");
     expect(review).toContain("payments.page.invalidate");
@@ -517,12 +529,24 @@ describe("public invoice and inquiry actions", () => {
     expect(authState).toContain("if (explicitLogoutRequested && !nextUserId) return true");
     expect(authState).toContain("return identityChanged && nextUserId !== null");
     const workspace = read("client/src/pages/Home.tsx");
-    expect(workspace).toContain("if (!loading && !isAuthenticated && !error)");
+    const login = read("client/src/pages/LoginPage.tsx");
+    const authRouting = read("client/src/lib/auth-routing.ts");
+    expect(workspace).toContain("shouldRedirectToLoginWhenNoSession({");
+    expect(workspace).toContain("shouldShowSessionRecovery({");
+    expect(workspace).not.toContain("if (!loading && !isAuthenticated && !error)");
+    expect(authRouting).toContain("!state.hasSession");
+    expect(authRouting).toContain("!state.hasError");
+    expect(authRouting).toContain("!state.hasUser");
+    expect(login).toContain("shouldRedirectToWorkspaceAfterAuthentication({");
+    expect(login).not.toContain("if (hasSupabaseSession || (!authLoading && isAuthenticated))");
     expect(workspace).toContain("if (error && !user)");
     expect(workspace).toContain("تعذر استعادة جلسة الدخول");
     const routeGate = read("client/src/components/RouteAccessGate.tsx");
+    expect(routeGate).toContain("shouldRedirectToLoginWhenNoSession({");
+    expect(routeGate).toContain("shouldShowSessionRecovery({");
     expect(routeGate).toContain("!loading && Boolean(error) && !user");
     expect(workspace).toContain("إعادة المحاولة واستعادة البيانات");
+
   });
 
   it("surfaces billing adjustments on payment documentation and keeps status reads lightweight", () => {

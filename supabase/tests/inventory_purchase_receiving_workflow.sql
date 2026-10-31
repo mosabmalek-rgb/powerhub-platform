@@ -314,9 +314,27 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
 \ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
 \ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
+\ir ../migrations/20261030150000_powerhub_inventory_trigger_acl_hardening.sql
+
+do $inventory_trigger_acl_assertions$
+begin
+  if has_function_privilege('anon','public.powerhub_inventory_validate_location_item()','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_inventory_validate_location_item()','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_inventory_validate_location_item()','EXECUTE')
+  then raise exception 'INVENTORY_LOCATION_TRIGGER_FUNCTION_ACL_FAILED'; end if;
+  if not exists (
+    select 1 from pg_trigger t
+    where t.tgrelid='public.inventory_stock_movements'::regclass
+      and t.tgname='inventory_stock_movements_location_item_guard'
+      and not t.tgisinternal
+      and t.tgfoid='public.powerhub_inventory_validate_location_item()'::regprocedure
+  ) then raise exception 'INVENTORY_LOCATION_TRIGGER_DETACHED'; end if;
+end
+$inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022160000_powerhub_inventory_item_units.sql
 \ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql
 \ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql
+\ir ../migrations/20261031120000_powerhub_inventory_stocktake_count_idempotency.sql
 \ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql
 \ir ../migrations/20261022190000_powerhub_inventory_phase_a_fk_indexes.sql
 \ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql
@@ -330,6 +348,21 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql
 \ir ../migrations/20261023130000_powerhub_inventory_phase_d_schema_cache_reload.sql
 \ir ../migrations/20261023183000_powerhub_supplier_types_and_purchase_payment_mode.sql
+
+-- Minimal cursor metadata table for the revision-only supplier-ledger integration.
+create table public.powerhub_sync_scope_state (
+  tenant_id bigint not null, site_id bigint not null,
+  entity_type text not null check (entity_type in ('sites','subscribers','generators','readings','tariffs')),
+  last_cursor bigint not null default 0 check (last_cursor>=0),
+  retained_from_cursor bigint not null default 0 check (retained_from_cursor>=0),
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,site_id,entity_type),
+  check (retained_from_cursor<=last_cursor)
+);
+alter table public.powerhub_sync_scope_state enable row level security;
+revoke all on table public.powerhub_sync_scope_state from public,anon,authenticated;
+grant all on table public.powerhub_sync_scope_state to service_role;
+\ir ../migrations/20261030100000_powerhub_supplier_ledger_revision.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -899,6 +932,52 @@ begin
     if sqlerrm='CROSS_TENANT_PURCHASE_WAS_ACCEPTED' then raise; end if;
     if sqlerrm not like '%SITE_OUT_OF_SCOPE%' then raise; end if;
   end;
+
+  -- Same-tenant branch/object boundaries: tenant equality alone must not authorize another branch's warehouse.
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,101,1,v_supplier_id,v_warehouse_id,'INV-WRONG-BRANCH-WAREHOUSE',current_date,null,30,null,null,'purchase-workflow:wrong-branch-warehouse',
+      jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0))
+    );
+    raise exception 'PURCHASE_ACCEPTED_WAREHOUSE_FROM_OTHER_BRANCH';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_WAREHOUSE_FROM_OTHER_BRANCH' then raise; end if;
+    if sqlerrm not like '%WAREHOUSE_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,100,1,(select id from public.suppliers where tenant_id=20 and supplier_code='SUP-01' limit 1),v_warehouse_id,
+      'INV-WRONG-TENANT-SUPPLIER',current_date,null,30,null,null,'purchase-workflow:wrong-tenant-supplier',
+      jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0))
+    );
+    raise exception 'PURCHASE_ACCEPTED_SUPPLIER_FROM_OTHER_TENANT';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_SUPPLIER_FROM_OTHER_TENANT' then raise; end if;
+    if sqlerrm not like '%SUPPLIER_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,100,1,v_supplier_id,v_warehouse_id,'INV-WRONG-TENANT-ITEM',current_date,null,30,null,null,'purchase-workflow:wrong-tenant-item',
+      jsonb_build_array(jsonb_build_object(
+        'item_id',(select id from public.inventory_items where tenant_id=20 and sku='DSL-01' limit 1),
+        'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0
+      ))
+    );
+    raise exception 'PURCHASE_ACCEPTED_ITEM_FROM_OTHER_TENANT';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_ITEM_FROM_OTHER_TENANT' then raise; end if;
+    if sqlerrm not like '%ITEM_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  if exists(select 1 from public.supplier_purchases where operation_key in (
+    'purchase-workflow:wrong-branch-warehouse',
+    'purchase-workflow:wrong-tenant-supplier',
+    'purchase-workflow:wrong-tenant-item'
+  )) then
+    raise exception 'REJECTED_PURCHASE_OBJECT_SCOPE_ATTEMPT_LEFT_PURCHASE_ROWS';
+  end if;
 
   if has_function_privilege('authenticated','public.powerhub_inventory_create_purchase(bigint,bigint,bigint,bigint,bigint,text,date,date,integer,text,text,text,jsonb)','EXECUTE') then
     raise exception 'AUTHENTICATED_CAN_EXECUTE_PURCHASE_CREATE_RPC';
@@ -3077,6 +3156,11 @@ declare
   v_opening_value numeric(14,2);
   v_posted_movement_id bigint;
   v_bad_count integer;
+  v_stocktake_line_id bigint;
+  v_audit_count_before integer;
+  v_audit_count_after integer;
+  v_count_result record;
+  v_count_replay record;
 begin
   select id into v_warehouse_id from public.inventory_warehouses
   where tenant_id=10 and site_id=100 and code='FIXED-TANK-WF-01' and is_active;
@@ -3126,9 +3210,68 @@ begin
     order by l.item_id
   loop
     if v_line.item_id=v_item_id then
-      perform * from public.powerhub_inventory_record_stocktake_count(
-        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel'
+      select l.id into v_stocktake_line_id
+      from public.inventory_stocktake_lines l
+      where l.tenant_id=10 and l.stocktake_id=v_stocktake_id and l.item_id=v_line.item_id;
+      select count(*)::integer into v_audit_count_before
+      from public.audit_logs a
+      where a.tenant_id=10 and a.site_id=100 and a.entity_type='inventory_stocktake_line'
+        and a.entity_id=v_stocktake_line_id::text and a.action='record_count';
+
+      select * into v_count_result
+      from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+        'stocktake-count:idempotency:line-1'
       );
+      if v_count_result.replayed or v_count_result.counted_quantity<>2.000 then
+        raise exception 'STOCKTAKE_COUNT_FIRST_EXECUTION_FAILED';
+      end if;
+
+      select * into v_count_replay
+      from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+        'stocktake-count:idempotency:line-1'
+      );
+      if not v_count_replay.replayed
+        or v_count_replay.stocktake_id<>v_count_result.stocktake_id
+        or v_count_replay.item_id<>v_count_result.item_id
+        or v_count_replay.counted_quantity<>v_count_result.counted_quantity
+        or v_count_replay.variance_quantity<>v_count_result.variance_quantity
+        or v_count_replay.counted_at is distinct from v_count_result.counted_at then
+        raise exception 'STOCKTAKE_COUNT_REPLAY_RESULT_MISMATCH';
+      end if;
+
+      begin
+        perform * from public.powerhub_inventory_record_stocktake_count(
+          10,100,1,v_stocktake_id,v_line.item_id,2.001,6.0000,'Physically measured diesel',
+          'stocktake-count:idempotency:line-1'
+        );
+        raise exception 'STOCKTAKE_COUNT_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+      exception when others then
+        if sqlerrm='STOCKTAKE_COUNT_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+        if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+      end;
+
+      -- Operation keys are tenant-wide, including retries submitted by another actor.
+      begin
+        perform * from public.powerhub_inventory_record_stocktake_count(
+          10,100,2,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+          'stocktake-count:idempotency:line-1'
+        );
+        raise exception 'STOCKTAKE_COUNT_KEY_REPLAYED_FOR_DIFFERENT_ACTOR';
+      exception when others then
+        if sqlerrm='STOCKTAKE_COUNT_KEY_REPLAYED_FOR_DIFFERENT_ACTOR' then raise; end if;
+        if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+      end;
+
+      select count(*)::integer into v_audit_count_after
+      from public.audit_logs a
+      where a.tenant_id=10 and a.site_id=100 and a.entity_type='inventory_stocktake_line'
+        and a.entity_id=v_stocktake_line_id::text and a.action='record_count';
+      if v_audit_count_after<>v_audit_count_before+1 then
+        raise exception 'STOCKTAKE_COUNT_REPLAY_DUPLICATED_AUDIT before=% after=%',
+          v_audit_count_before,v_audit_count_after;
+      end if;
     else
       perform * from public.powerhub_inventory_record_stocktake_count(
         10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
@@ -3299,6 +3442,8 @@ begin
 
   if has_function_privilege('authenticated','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or has_function_privilege('anon','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
@@ -3308,6 +3453,7 @@ begin
   end if;
   if not has_function_privilege('service_role','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
@@ -3321,6 +3467,16 @@ begin
     insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id)
     values('manager','manageStocktakes',true,1),('manager','approveStocktakes',true,1)
     on conflict(role,capability) do update set is_allowed=excluded.is_allowed;
+  end if;
+
+  if not (select c.relrowsecurity from pg_class c where c.oid='public.powerhub_inventory_stocktake_count_operations'::regclass)
+    or has_table_privilege('anon','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or has_table_privilege('authenticated','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or has_table_privilege('anon','public.powerhub_inventory_stocktake_count_operations','INSERT')
+    or has_table_privilege('authenticated','public.powerhub_inventory_stocktake_count_operations','INSERT')
+    or not has_table_privilege('service_role','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or not has_table_privilege('service_role','public.powerhub_inventory_stocktake_count_operations','INSERT') then
+    raise exception 'STOCKTAKE_COUNT_OPERATION_LEDGER_ACL_FAILED';
   end if;
   if not exists(select 1 from public.staff_profile_capability_overrides where tenant_id=10
     and profile_id=101 and capability='manageStocktakes') then
@@ -3567,7 +3723,9 @@ declare
   v_low_dispatches integer;
   v_rate_dispatches integer;
   v_alert_notifications integer;
-  v_local_today date := (now() at time zone 'Asia/Gaza')::date;
+  -- Anchor the fixture date to the same instant used by v_end_time so a run
+  -- crossing Gaza midnight cannot classify the ending readings as historical.
+  v_local_today date := ((now() - interval '1 minute') at time zone 'Asia/Gaza')::date;
   v_opening_time timestamptz := ((v_local_today-2)::timestamp + interval '20 hours') at time zone 'Asia/Gaza';
   v_fill_time timestamptz := ((v_local_today-1)::timestamp + interval '23 hours 30 minutes') at time zone 'Asia/Gaza';
   -- Keep all later correction timestamps safely before wall-clock maintenance close-out tests.
@@ -4056,6 +4214,42 @@ begin
   end;
 end;
 $phase_d_financial_details_assertions$;
+
+do $supplier_ledger_revision_assertions$
+declare
+  v_supplier_id bigint; v_entry_id bigint; v_cursor bigint; v_after bigint;
+begin
+  select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='PUR-WF-SUP';
+  if v_supplier_id is null then raise exception 'SUPPLIER_LEDGER_REVISION_FIXTURE_MISSING'; end if;
+  select coalesce(last_cursor,0) into v_cursor from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+
+  insert into public.supplier_ledger_entries(
+    tenant_id,site_id,supplier_id,entry_type,debit_amount,credit_amount,
+    entry_key,reference_no,description,occurred_at,created_by_user_id
+  ) values (10,100,v_supplier_id,'adjustment',1,0,'supplier-ledger-revision:insert-test',
+    'REV-INSERT','Revision cursor insert test',now(),1) returning id into v_entry_id;
+  select last_cursor into v_after from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_after<>coalesce(v_cursor,0)+1 then raise exception 'SUPPLIER_LEDGER_INSERT_REVISION_FAILED'; end if;
+
+  update public.supplier_ledger_entries set debit_amount=2,reference_no='REV-UPDATE'
+  where tenant_id=10 and site_id=100 and id=v_entry_id;
+  select last_cursor into v_cursor from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_cursor<>v_after+1 then raise exception 'SUPPLIER_LEDGER_UPDATE_REVISION_FAILED'; end if;
+
+  delete from public.supplier_ledger_entries where tenant_id=10 and id=v_entry_id;
+  select last_cursor into v_after from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_after<>v_cursor+1 then raise exception 'SUPPLIER_LEDGER_DELETE_REVISION_FAILED'; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_bump_supplier_ledger_revision(bigint,bigint,bigint)','EXECUTE')
+    then raise exception 'AUTHENTICATED_CAN_EXECUTE_SUPPLIER_LEDGER_REVISION_FUNCTION'; end if;
+  if not has_function_privilege('service_role','public.powerhub_bump_supplier_ledger_revision(bigint,bigint,bigint)','EXECUTE')
+    then raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_SUPPLIER_LEDGER_REVISION_FUNCTION'; end if;
+end;
+$supplier_ledger_revision_assertions$;
 
 select 'inventory purchasing, supplier ledger, fuel fill/reading, measured consumption and stock operations PostgreSQL integration passed' as result;
 

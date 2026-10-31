@@ -11,18 +11,25 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { useDashboardKpiPeriod } from "@/hooks/useDashboardKpiPeriod";
+import { useAdaptiveDeltaRefresh } from "@/hooks/useAdaptiveDeltaRefresh";
 import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter";
 import { trpc } from "@/lib/trpc";
 import { describeAuthFailure } from "@/lib/auth-diagnostics";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineDashboardSnapshotCacheForSite } from "@/lib/offline-query-cache";
 import { resetSupabaseSessionReadBackoff } from "@/lib/supabase";
 import { authenticatedHomePath } from "@/lib/role-routing";
+import {
+  shouldRedirectToLoginWhenNoSession,
+  shouldShowSessionRecovery,
+} from "@/lib/auth-routing";
 import { useLocation } from "wouter";
 import {
   ArrowUpLeft, BellRing, CalendarDays, ChevronLeft, CircleAlert,
   CircleDollarSign, Clock3, FilePlus2, FileText, MessageSquareText, ReceiptText,
   UsersRound, WalletCards, Zap,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import MarketingLandingPage from "./MarketingLandingPage";
 
@@ -91,32 +98,42 @@ function CompanyBalancesDashboardCard({ accounts, loading, error = false, onOpen
 
 export function WorkspaceHome() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, loading, user, error, refresh } = useAuth();
+  const {
+    isAuthenticated,
+    loading,
+    user,
+    error,
+    refresh,
+    hasSession,
+    powerHubReachable,
+  } = useAuth();
   const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword, staleTime: 30_000 });
+  const sitesAccessDenied = isExplicitAuthorizationDenial(sitesQuery.error);
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [scope, setScope] = useState<"branch" | "all">("branch");
-  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
-  const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
+  const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
+  const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const packageCatalogQuery = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
   const packageCodes = (packageCatalogQuery.data?.packages ?? []).filter((pkg: any) => pkg.active !== false).map((pkg: any) => String(pkg.code));
-  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
+  const dashboardScopeDenied = sitesAccessDenied || isExplicitAuthorizationDenial(accessQuery.error);
   // The API intentionally restricts the financial overview to these roles. Do not
   // fire a known-forbidden query for technicians/collectors and misreport that as
   // a dashboard data-loading failure.
-  const canViewFinancialOverview = Boolean(
+  const canViewFinancialOverview = !dashboardScopeDenied && Boolean(
     accessQuery.data && ["owner", "manager", "accountant", "viewer"].includes(accessQuery.data.role),
   );
-  const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
-  const smsCreditPackagesQuery = trpc.powerhub.messaging.smsCreditPackages.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), staleTime: 60_000 });
-  const branchPolicyQuery = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
-  const subaccountQuotaQuery = trpc.powerhub.staff.allowedSubaccountRoles.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
-  const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword), refetchInterval: 15000 });
+  const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
+  const smsCreditPackagesQuery = trpc.powerhub.messaging.smsCreditPackages.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 60_000 });
+  const branchPolicyQuery = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
+  const subaccountQuotaQuery = trpc.powerhub.staff.allowedSubaccountRoles.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
+  const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword), refetchInterval: 15000 });
   const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { await Promise.all([smsPackageRequestQuery.refetch(), smsQuotaQuery.refetch()]); toast.success("تم إرسال طلب الحزمة للمراجعة."); }, onError: (error) => toast.error(error.message) });
   // Most owners have a single branch; skip the cross-branch permission query unless it can affect the UI.
-  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !user?.mustChangePassword), staleTime: 30_000 });
+  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const ownerRenewalQuery = trpc.powerhub.subscription.ownerRenewalStatus.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), refetchInterval: 5 * 60 * 1000 });
-  const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !user?.mustChangePassword) });
+  const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
 
   const quotaQueries = [
     { label: "المشتركون", query: subscriberQuotaQuery },
@@ -132,30 +149,153 @@ export function WorkspaceHome() {
   const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (sitesQuery.data?.length ?? 0) > 1);
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
-  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !user?.mustChangePassword), staleTime: 30_000 });
-  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 60_000 });
-  const periodMetricsQuery = trpc.powerhub.dashboard.periodMetrics.useQuery({
-    siteId: siteId ?? 0,
-    scope: selectedScope,
-    startDate: dashboardPeriod.startDate,
-    endDate: dashboardPeriod.endDate,
-    includeDetails: false,
-  }, {
-    enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword && dashboardPeriod.isReady),
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
+  const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 30_000 });
+  const dashboardRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope },
+    {
+      enabled: Boolean(isAuthenticated && siteId && !dashboardScopeDenied && !user?.mustChangePassword),
+      staleTime: 0,
+      refetchInterval: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    },
+  );
+  const dashboardRevisionDenied = dashboardScopeDenied || isExplicitAuthorizationDenial(dashboardRevisionQuery.error);
+  const checkDashboardRevision = useCallback(async () => {
+    await dashboardRevisionQuery.refetch();
+  }, [dashboardRevisionQuery.refetch]);
+  useAdaptiveDeltaRefresh({
+    scopeKey: "dashboard:" + String(user?.id ?? "unknown") + ":" + String(siteId ?? 0) + ":" + selectedScope,
+    enabled: Boolean(isAuthenticated && siteId && !dashboardScopeDenied && !user?.mustChangePassword),
+    check: checkDashboardRevision,
+    realtimeTopic: dashboardRevisionDenied ? null : dashboardRevisionQuery.data?.realtimeTopic,
   });
+  const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: selectedScope, includeDetails: false }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 60_000 });
+  const periodKpiBaseEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword);
+  const periodKpiEnabled = periodKpiBaseEnabled && dashboardPeriod.isReady;
+  const periodInvoicedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "periodInvoiced",
+    startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
+  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const periodCollectedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "periodCollected",
+    startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
+  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const collectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
+    startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
+  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const periodOverdueKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "periodOverdue",
+    startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate,
+  }, { enabled: periodKpiEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const dashboardClock = new Date();
+  const dashboardToday = dashboardClock.toISOString().slice(0, 10);
+  const dashboardMonthStart = new Date(Date.UTC(dashboardClock.getUTCFullYear(), dashboardClock.getUTCMonth(), 1)).toISOString().slice(0, 10);
+  const dashboardMonthEnd = new Date(Date.UTC(dashboardClock.getUTCFullYear(), dashboardClock.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+  const todayInvoicedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "periodInvoiced",
+    startDate: dashboardToday, endDate: dashboardToday,
+    boundaryMode: "utc",
+  }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const todayCollectedKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "periodCollected",
+    startDate: dashboardToday, endDate: dashboardToday,
+    boundaryMode: "utc",
+  }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const todayCollectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
+    startDate: dashboardToday, endDate: dashboardToday,
+    boundaryMode: "utc",
+  }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const monthCollectionRateKpiQuery = trpc.powerhub.dashboard.periodKpi.useQuery({
+    siteId: siteId ?? 0, scope: selectedScope, metric: "collectionRate",
+    startDate: dashboardMonthStart, endDate: dashboardMonthEnd,
+    boundaryMode: "utc",
+  }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
+  const activeSubscribersKpiQuery = trpc.powerhub.dashboard.activeSubscribersKpi.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope },
+    { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 30_000 },
+  );
+  const financialKpiEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword);
+  const expensesKpiQuery = trpc.powerhub.dashboard.financialKpi.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope, metric: "expenses" },
+    { enabled: financialKpiEnabled, staleTime: 30_000 },
+  );
+  const netCashKpiQuery = trpc.powerhub.dashboard.financialKpi.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope, metric: "netCash" },
+    { enabled: financialKpiEnabled, staleTime: 30_000 },
+  );
+  const currentArrearsKpiQuery = trpc.powerhub.dashboard.financialKpi.useQuery(
+    { siteId: siteId ?? 0, scope: selectedScope, metric: "currentArrears" },
+    { enabled: financialKpiEnabled, staleTime: 30_000 },
+  );
+  const financialKpiQueries = [expensesKpiQuery, netCashKpiQuery, currentArrearsKpiQuery] as const;
+  const financialKpiError = financialKpiQueries.some((query) => query.isError);
+  const selectedPeriodKpiQueries = [
+    periodInvoicedKpiQuery, periodCollectedKpiQuery, collectionRateKpiQuery, periodOverdueKpiQuery,
+  ] as const;
+  const periodKpiQueries = [
+    ...selectedPeriodKpiQueries,
+    todayInvoicedKpiQuery, todayCollectedKpiQuery, todayCollectionRateKpiQuery, monthCollectionRateKpiQuery,
+  ] as const;
+  const periodKpiError = selectedPeriodKpiQueries.some((query) => query.isError);
+  const todayKpiError = [todayInvoicedKpiQuery, todayCollectedKpiQuery, todayCollectionRateKpiQuery].some((query) => query.isError);
+  const monthKpiError = monthCollectionRateKpiQuery.isError;
+
+  useEffect(() => {
+    if (!user?.id || !siteId) return;
+    const allDashboardProcedures = [
+      "summary", "allBranchesSummary", "financialOverview", "periodMetrics",
+      "activeSubscribersKpi", "periodKpi", "financialKpi", "deltaRevision",
+    ];
+    const denied = new Set<string>();
+    if (isExplicitAuthorizationDenial(accessQuery.error) ||
+        isExplicitAuthorizationDenial(dashboardRevisionQuery.error) ||
+        isExplicitAuthorizationDenial(sitesQuery.error)) {
+      allDashboardProcedures.forEach((procedure) => denied.add(procedure));
+    } else {
+      if (isExplicitAuthorizationDenial(summaryQuery.error)) denied.add("summary");
+      if (isExplicitAuthorizationDenial(allBranchesSummaryQuery.error)) denied.add("allBranchesSummary");
+      if (isExplicitAuthorizationDenial(financialOverviewQuery.error)) denied.add("financialOverview");
+      if (isExplicitAuthorizationDenial(activeSubscribersKpiQuery.error)) denied.add("activeSubscribersKpi");
+      if ([
+        periodInvoicedKpiQuery, periodCollectedKpiQuery, collectionRateKpiQuery,
+        periodOverdueKpiQuery, todayInvoicedKpiQuery, todayCollectedKpiQuery,
+        todayCollectionRateKpiQuery, monthCollectionRateKpiQuery,
+      ].some((query) => isExplicitAuthorizationDenial(query.error))) denied.add("periodKpi");
+      if (financialKpiQueries.some((query) => isExplicitAuthorizationDenial(query.error))) denied.add("financialKpi");
+    }
+    if (denied.size) {
+      void clearOfflineDashboardSnapshotCacheForSite(String(user.id), siteId, [...denied]);
+    }
+  }, [
+    user?.id, siteId, sitesQuery.error, accessQuery.error, dashboardRevisionQuery.error,
+    summaryQuery.error, allBranchesSummaryQuery.error, financialOverviewQuery.error,
+    activeSubscribersKpiQuery.error, periodInvoicedKpiQuery.error, periodCollectedKpiQuery.error,
+    collectionRateKpiQuery.error, periodOverdueKpiQuery.error, todayInvoicedKpiQuery.error,
+    todayCollectedKpiQuery.error, todayCollectionRateKpiQuery.error, monthCollectionRateKpiQuery.error,
+    expensesKpiQuery.error, netCashKpiQuery.error, currentArrearsKpiQuery.error,
+  ]);
+
   const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const requestAddon = trpc.powerhub.subscription.requestAddon.useMutation({ onSuccess: async (result) => { await addonRequestsQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب إضافة قيد المتابعة بالفعل." : "تم إرسال طلب الإضافة إلى إدارة PowerHub."); }, onError: (error) => toast.error(error.message) });
-  const overview = financialOverviewQuery.data;
+  // A persisted financial snapshot is display-only and must never substitute for a verified role.
+  const overview = canViewFinancialOverview && !dashboardRevisionDenied &&
+    !isExplicitAuthorizationDenial(financialOverviewQuery.error) ? financialOverviewQuery.data : undefined;
   const dashboardDataError = sitesQuery.isError || accessQuery.isError ||
-    (canViewFinancialOverview && financialOverviewQuery.isError) ||
+    (canViewFinancialOverview && (financialOverviewQuery.isError || financialKpiError || todayKpiError || monthKpiError)) ||
     (selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError);
   const dashboardDataFailures: string[] = [];
   if (sitesQuery.isError) dashboardDataFailures.push(`الفروع: ${sitesQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (accessQuery.isError) dashboardDataFailures.push(`صلاحيات الفرع: ${accessQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (canViewFinancialOverview && financialOverviewQuery.isError) dashboardDataFailures.push(`الملخص المالي: ${financialOverviewQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && expensesKpiQuery.isError) dashboardDataFailures.push(`المصروفات: ${expensesKpiQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && netCashKpiQuery.isError) dashboardDataFailures.push(`صافي النقد: ${netCashKpiQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && currentArrearsKpiQuery.isError) dashboardDataFailures.push(`الذمم الحالية: ${currentArrearsKpiQuery.error?.message ?? "تعذر تحديد السبب"}`);
+  if (canViewFinancialOverview && todayKpiError) dashboardDataFailures.push("تعذر تحميل بعض مؤشرات نتيجة اليوم.");
+  if (canViewFinancialOverview && monthKpiError) dashboardDataFailures.push("تعذر تحميل نسبة تحصيل الشهر.");
   if (selectedScope === "all" && allBranchesSummaryQuery.isError) dashboardDataFailures.push(`ملخص جميع الفروع: ${allBranchesSummaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
   if (selectedScope !== "all" && summaryQuery.isError) dashboardDataFailures.push(`مؤشرات الفرع: ${summaryQuery.error?.message ?? "تعذر تحديد السبب"}`);
   const retryDashboardData = () => {
@@ -163,33 +303,67 @@ export function WorkspaceHome() {
     void accessQuery.refetch();
     if (canViewFinancialOverview) {
       void financialOverviewQuery.refetch();
+      void Promise.all(financialKpiQueries.filter((query) => query.isError).map((query) => query.refetch()));
       dashboardPeriod.retry();
-      void periodMetricsQuery.refetch();
+      void Promise.all(periodKpiQueries.filter((query) => query.isError).map((query) => query.refetch()));
     }
     if (selectedScope === "all") void allBranchesSummaryQuery.refetch();
     else void summaryQuery.refetch();
   };
   const metricNumber = (value: unknown, fractionDigits = 0) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
-    : !canViewFinancialOverview || financialOverviewQuery.isError ? "—" : number(value, fractionDigits);
+    : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(financialOverviewQuery.error) ||
+      (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : number(value, fractionDigits);
   const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
     ? "…"
-    : !canViewFinancialOverview || financialOverviewQuery.isError ? "—" : ratio(value);
-  const periodMetricsMatch = Boolean(
-    periodMetricsQuery.data &&
-    periodMetricsQuery.data.range.startDate === dashboardPeriod.startDate &&
-    periodMetricsQuery.data.range.endDate === dashboardPeriod.endDate &&
-    periodMetricsQuery.data.scope === selectedScope
-  );
-  const periodMetricsLoading = dashboardPeriod.isLoading || !dashboardPeriod.isReady || periodMetricsQuery.isLoading || !periodMetricsMatch;
-  const periodMetricNumber = (value: unknown, fractionDigits = 2) => dashboardPeriod.isError || periodMetricsQuery.isError
-    ? "—"
-    : periodMetricsLoading ? "…" : number(value, fractionDigits);
-  const periodMetricRatio = (value: unknown) => dashboardPeriod.isError || periodMetricsQuery.isError
-    ? "—"
-    : periodMetricsLoading ? "…" : ratio(value);
+    : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(financialOverviewQuery.error) ||
+      (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
+  const financialKpiNumber = (value: unknown, query: { isLoading: boolean; isError: boolean; data: unknown; error: unknown }, fractionDigits = 2) =>
+    accessQuery.isLoading || query.isLoading ? "…" :
+      !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
+      (query.isError && !query.data) ? "—" : number(value, fractionDigits);
+  const activeSubscriberMetric = accessQuery.isLoading || activeSubscribersKpiQuery.isLoading
+    ? "…"
+    : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(activeSubscribersKpiQuery.error) ||
+      (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)
+      ? "—" : number(activeSubscribersKpiQuery.data?.value ?? 0);
+  const periodKpiNumber = (query: {
+    data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
+    isError: boolean;
+    isLoading: boolean;
+    error: unknown;
+  }, fractionDigits = 2, expectedRange?: { startDate: string; endDate: string }) => {
+    const range = expectedRange ?? { startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate };
+    const needsSelectedPeriod = expectedRange === undefined;
+    return !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
+      (needsSelectedPeriod && dashboardPeriod.isError) || (query.isError && !query.data)
+      ? "—"
+      : (needsSelectedPeriod && (dashboardPeriod.isLoading || !dashboardPeriod.isReady)) || query.isLoading || !query.data ||
+        query.data.range.startDate !== range.startDate ||
+        query.data.range.endDate !== range.endDate ||
+        query.data.scope !== selectedScope
+        ? "…" : number(query.data.value, fractionDigits);
+  };
+  const periodKpiRatio = (query: {
+    data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
+    isError: boolean;
+    isLoading: boolean;
+    error: unknown;
+  }, expectedRange?: { startDate: string; endDate: string }) => {
+    const range = expectedRange ?? { startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate };
+    const needsSelectedPeriod = expectedRange === undefined;
+    return !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
+      (needsSelectedPeriod && dashboardPeriod.isError) || (query.isError && !query.data)
+      ? "—"
+      : (needsSelectedPeriod && (dashboardPeriod.isLoading || !dashboardPeriod.isReady)) || query.isLoading || !query.data ||
+        query.data.range.startDate !== range.startDate ||
+        query.data.range.endDate !== range.endDate ||
+        query.data.scope !== selectedScope
+        ? "…" : ratio(query.data.value);
+  };
+
   const openPeriodArrears = () => {
-    if (!siteId || !dashboardPeriod.isReady || !dashboardPeriod.startDate || !dashboardPeriod.endDate) return;
+    if (!canViewFinancialOverview || !siteId || !dashboardPeriod.isReady || !dashboardPeriod.startDate || !dashboardPeriod.endDate) return;
     const params = new URLSearchParams({
       siteId: String(siteId),
       debtorScope: selectedScope,
@@ -201,22 +375,127 @@ export function WorkspaceHome() {
     });
     setLocation(`/subscribers?${params.toString()}#subscriber-arrears`);
   };
-  const activeSubscribers = overview?.branchSummaries.reduce((sum: number, branch: { activeSubscribers: number }) => sum + branch.activeSubscribers, 0) ?? 0;
-  const operationalSummary = selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
+  const activeSubscribers = activeSubscribersKpiQuery.data?.value ?? 0;
+  const operationalSummaryDenied = dashboardScopeDenied || (selectedScope === "all"
+    ? isExplicitAuthorizationDenial(allBranchesSummaryQuery.error)
+    : isExplicitAuthorizationDenial(summaryQuery.error));
+  const operationalSummary = operationalSummaryDenied
+    ? undefined
+    : selectedScope === "all" ? allBranchesSummaryQuery.data : summaryQuery.data;
+  const generatorsUnavailable = selectedScope === "all"
+    ? operationalSummaryDenied || (allBranchesSummaryQuery.isError && !allBranchesSummaryQuery.data)
+    : operationalSummaryDenied || (summaryQuery.isError && !summaryQuery.data);
+  const lastDashboardRevisions = useRef<Map<string, Record<string, string>>>(new Map());
+
+  useEffect(() => {
+    const revisions = dashboardRevisionQuery.data?.revisions;
+    if (!siteId || !revisions || typeof revisions !== "object") return;
+    const key = [user?.id ?? "unknown", siteId, selectedScope].join(":");
+    const previousRevisions = lastDashboardRevisions.current.get(key);
+    // Keep independent baselines for branch and all-branch scopes. Switching
+    // away from a scope must not discard its last fingerprint; otherwise a
+    // cached KPI can survive a scope round-trip after its server data changed.
+    lastDashboardRevisions.current.delete(key);
+    lastDashboardRevisions.current.set(key, revisions);
+    while (lastDashboardRevisions.current.size > 32) {
+      const oldestKey = lastDashboardRevisions.current.keys().next().value;
+      if (oldestKey === undefined) break;
+      lastDashboardRevisions.current.delete(oldestKey);
+    }
+    if (!previousRevisions) return;
+
+    const changed = new Set(Object.keys(revisions).filter((metric) =>
+      typeof revisions[metric as keyof typeof revisions] === "string" &&
+      revisions[metric as keyof typeof revisions] !== previousRevisions[metric],
+    ));
+    if (changed.size === 0) return;
+
+    // Each changed KPI refreshes only its owning server snapshot. Values are
+    // never recomposed from partial Delta rows on the client.
+    if (changed.has("generatorStatus")) {
+      void (selectedScope === "all" ? allBranchesSummaryQuery.refetch() : summaryQuery.refetch());
+    }
+    if (canViewFinancialOverview) {
+      if (changed.has("currentArrears")) void currentArrearsKpiQuery.refetch();
+      if (changed.has("expenses")) void expensesKpiQuery.refetch();
+      if (changed.has("netCash")) void netCashKpiQuery.refetch();
+      // The aggregate financialOverview is a supporting chart/debtor snapshot,
+      // not a KPI owner. Its dedicated revision is intentionally separate.
+      if (changed.has("financialTrend")) void financialOverviewQuery.refetch();
+    }
+    if (changed.has("companyBalances")) {
+      // The company-account list has its own server permission gate and revision;
+      // do not couple its freshness to the financial-overview role gate.
+      void companyAccountsQuery.refetch();
+    }
+    if (changed.has("activeSubscribers")) {
+      void activeSubscribersKpiQuery.refetch();
+    }
+    if (canViewFinancialOverview) {
+      if (dashboardPeriod.isReady) {
+        if (changed.has("periodInvoiced")) void periodInvoicedKpiQuery.refetch();
+        if (changed.has("periodCollected")) void periodCollectedKpiQuery.refetch();
+        if (changed.has("collectionRate")) void collectionRateKpiQuery.refetch();
+        if (changed.has("periodOverdue")) void periodOverdueKpiQuery.refetch();
+      }
+      if (changed.has("periodInvoiced")) void todayInvoicedKpiQuery.refetch();
+      if (changed.has("periodCollected")) void todayCollectedKpiQuery.refetch();
+      if (changed.has("collectionRate")) void Promise.all([todayCollectionRateKpiQuery.refetch(), monthCollectionRateKpiQuery.refetch()]);
+    }
+  }, [
+    dashboardRevisionQuery.data?.revisions,
+    siteId,
+    selectedScope,
+    user?.id,
+    canViewFinancialOverview,
+    dashboardPeriod.isReady,
+    summaryQuery.refetch,
+    allBranchesSummaryQuery.refetch,
+    financialOverviewQuery.refetch,
+    expensesKpiQuery.refetch,
+    netCashKpiQuery.refetch,
+    currentArrearsKpiQuery.refetch,
+    companyAccountsQuery.refetch,
+    activeSubscribersKpiQuery.refetch,
+    periodInvoicedKpiQuery.refetch,
+    periodCollectedKpiQuery.refetch,
+    collectionRateKpiQuery.refetch,
+    periodOverdueKpiQuery.refetch,
+    todayInvoicedKpiQuery.refetch,
+    todayCollectedKpiQuery.refetch,
+    todayCollectionRateKpiQuery.refetch,
+    monthCollectionRateKpiQuery.refetch,
+  ]);
 
   useEffect(() => {
     // A failed profile check is recoverable, not proof that the user signed out.
     // Keep the user here so they can retry the session before leaving the workspace.
-    if (!loading && !isAuthenticated && !error) { setLocation("/login"); return; }
+    if (shouldRedirectToLoginWhenNoSession({
+      loading,
+      isAuthenticated,
+      hasSession,
+      hasError: Boolean(error),
+      hasUser: Boolean(user),
+    })) {
+      setLocation("/login");
+      return;
+    }
     if (!loading && isAuthenticated && user?.mustChangePassword) { setLocation("/profile"); return; }
     if (!loading && isAuthenticated && user?.role === "admin") window.location.assign(authenticatedHomePath(user));
-  }, [isAuthenticated, loading, error, setLocation, user]);
+  }, [isAuthenticated, loading, error, hasSession, setLocation, user]);
 
   useEffect(() => { if (scope === "all" && !canUseAllBranches) setScope("branch"); }, [canUseAllBranches, scope]);
 
 
   if (loading) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ التحقق من جلسة الدخول…</h1><p className="mt-2 text-sm text-slate-400">لن نعيد توجيهك قبل اكتمال التحقق.</p></div></main>;
-  if (error && !user) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">تعذر استعادة جلسة الدخول</h1><p className="mt-2 text-sm leading-7 text-slate-400">لم ننهِ جلستك تلقائيًا. قد يكون الاتصال أو تحديث الرمز قد تعثر مؤقتًا؛ أعد المحاولة لاستعادة بيانات مساحة العمل.</p><p role="status" aria-live="polite" className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-6 text-slate-300">{describeAuthFailure(error)}</p><Button type="button" onClick={() => { resetSupabaseSessionReadBackoff(); void refresh(); }} className="mt-5 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إعادة المحاولة واستعادة البيانات</Button><Button type="button" variant="outline" onClick={() => setLocation("/login")} className="mr-2 mt-5 border-white/15 text-white">فتح تسجيل الدخول</Button></div></main>;
+  if (error && !user) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">تعذر استعادة جلسة الدخول</h1><p className="mt-2 text-sm leading-7 text-slate-400">لم ننهِ جلستك تلقائيًا. قد يكون الاتصال أو تحديث الرمز قد تعثر مؤقتًا؛ أعد المحاولة لاستعادة بيانات مساحة العمل.</p><p role="status" aria-live="polite" className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-6 text-slate-300">{describeAuthFailure(error)}</p><Button type="button" onClick={() => { resetSupabaseSessionReadBackoff(); void refresh(); }} className="mt-5 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إعادة المحاولة واستعادة البيانات</Button><Button type="button" variant="outline" onClick={() => setLocation("/login?forceLogin=1")} className="mr-2 mt-5 border-white/15 text-white">فتح تسجيل الدخول</Button></div></main>;
+  if (shouldShowSessionRecovery({
+    loading,
+    isAuthenticated,
+    hasSession,
+    hasError: Boolean(error),
+    hasUser: Boolean(user),
+  })) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">لم يكتمل التحقق من الجلسة</h1><p className="mt-2 text-sm leading-7 text-slate-400">وجدنا حالة جلسة محفوظة، لكن لم نثبت بعد أن الخادم يستطيع التحقق منها. سنبقيك هنا بدل التنقل المتكرر بين تسجيل الدخول والمساحة، ولن نحذف بياناتك المحلية.</p><p role="status" aria-live="polite" className="mt-3 text-xs leading-6 text-slate-300">{powerHubReachable ? "الخادم قابل للوصول؛ أعد محاولة التحقق من الجلسة." : "تعذر الوصول إلى خادم PowerHub حاليًا. هذا لا يثبت أن الإنترنت منقطع عن جهازك."}</p><div className="mt-6 flex flex-wrap justify-center gap-3"><Button type="button" onClick={() => { resetSupabaseSessionReadBackoff(); void refresh(); }} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">إعادة المحاولة واستعادة البيانات</Button><Button type="button" variant="outline" onClick={() => setLocation("/login?forceLogin=1")} className="border-white/15 text-white">فتح تسجيل الدخول</Button></div></div></main>;
   if (!isAuthenticated) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى تسجيل الدخول…</h1></div></main>;
   if (user?.mustChangePassword || user?.role === "admin") return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ فتح المساحة المصرح بها…</h1></div></main>;
 
@@ -228,6 +507,7 @@ export function WorkspaceHome() {
 
 
     {dashboardDataError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06] shadow-panel"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بعض بيانات لوحة التحكم</h2><p className="mt-1 text-sm leading-6 text-slate-400">قد تكون بعض المؤشرات غير مكتملة. الشرطة (—) تعني أن البيانات غير متاحة، ولا تعني أن القيمة صفر.</p><ul className="mt-2 space-y-1 text-xs leading-5 text-amber-100/90">{dashboardDataFailures.map((failure) => <li key={failure}>{failure}</li>)}</ul></div><Button type="button" variant="outline" onClick={retryDashboardData} className="shrink-0 border-amber-300/30 text-amber-100 hover:bg-amber-300/10">إعادة تحميل المؤشرات</Button></CardContent></Card> : null}
+    {dashboardRevisionQuery.isError && (summaryQuery.data || allBranchesSummaryQuery.data || financialOverviewQuery.data || expensesKpiQuery.data || netCashKpiQuery.data || currentArrearsKpiQuery.data || periodInvoicedKpiQuery.data || periodCollectedKpiQuery.data || collectionRateKpiQuery.data || periodOverdueKpiQuery.data || activeSubscribersKpiQuery.data) ? <Card role="status" className="border-amber-300/25 bg-amber-300/[.045] shadow-panel"><CardContent className="p-4 text-sm leading-6 text-amber-100">تعذر التحقق من حداثة لقطة لوحة التحكم. نعرض آخر مؤشرات محفوظة لهذا المستخدم والفرع، ولا نعتبرها بيانات مؤكدة حديثة حتى ينجح الاتصال بالخادم.</CardContent></Card> : null}
 
     <DashboardKpiPeriodFilter
       value={dashboardPeriod.preset}
@@ -237,23 +517,23 @@ export function WorkspaceHome() {
       onStartDateChange={dashboardPeriod.setStartDate}
       onEndDateChange={dashboardPeriod.setEndDate}
       disabled={dashboardPeriod.isLoading}
-      error={dashboardPeriod.isError || periodMetricsQuery.isError}
-      onRetry={() => { dashboardPeriod.retry(); void periodMetricsQuery.refetch(); }}
+      error={dashboardPeriod.isError || periodKpiError}
+      onRetry={() => { dashboardPeriod.retry(); void Promise.all(periodKpiQueries.map((query) => query.refetch())); }}
     />
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      <MetricCard label="فوترة الفترة" value={periodMetricNumber(periodMetricsQuery.data?.summary.invoiced)} unit="ش" periodLabel={dashboardPeriod.label} description={periodMetricsQuery.isError ? "تعذر تحميل فوترة الفترة المحددة." : `إجمالي الفواتير الصادرة من ${dashboardPeriod.startDate} إلى ${dashboardPeriod.endDate}.`} icon={ReceiptText} accent="gold" />
-      <MetricCard label="تحصيل الفترة" value={periodMetricNumber(periodMetricsQuery.data?.summary.collected)} unit="ش" periodLabel={dashboardPeriod.label} description={periodMetricsQuery.isError ? "تعذر تحميل تحصيل الفترة المحددة." : "الدفعات المكتملة بتاريخ التحصيل ضمن الفترة المحددة."} icon={CircleDollarSign} accent="emerald" />
-      <MetricCard label="نسبة التحصيل" value={periodMetricRatio(periodMetricsQuery.data?.summary.collectionRate)} unit="" periodLabel={dashboardPeriod.label} description="التحصيل المكتمل مقارنة بإجمالي الفوترة في الفترة نفسها." icon={ArrowUpLeft} accent="blue" />
+      <MetricCard label="فوترة الفترة" value={periodKpiNumber(periodInvoicedKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodInvoicedKpiQuery.isError ? "تعذر تحميل فوترة الفترة المحددة." : `إجمالي الفواتير الصادرة من ${dashboardPeriod.startDate} إلى ${dashboardPeriod.endDate}.`} icon={ReceiptText} accent="gold" />
+      <MetricCard label="تحصيل الفترة" value={periodKpiNumber(periodCollectedKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodCollectedKpiQuery.isError ? "تعذر تحميل تحصيل الفترة المحددة." : "الدفعات المكتملة بتاريخ التحصيل ضمن الفترة المحددة."} icon={CircleDollarSign} accent="emerald" />
+      <MetricCard label="نسبة التحصيل" value={periodKpiRatio(collectionRateKpiQuery)} unit="" periodLabel={dashboardPeriod.label} description="التحصيل المكتمل مقارنة بإجمالي الفوترة في الفترة نفسها." icon={ArrowUpLeft} accent="blue" />
       <div role="button" tabIndex={!siteId || !dashboardPeriod.isReady ? -1 : 0} aria-label="فتح المتأخرات في تبويب المشتركين للفترة المحددة" aria-disabled={!siteId || !dashboardPeriod.isReady} onClick={openPeriodArrears} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openPeriodArrears(); } }} className="block w-full min-w-0 cursor-pointer rounded-2xl text-right outline-none transition focus-visible:ring-2 focus-visible:ring-[#F5B800] aria-disabled:cursor-wait aria-disabled:opacity-70">
-        <MetricCard label="المتأخرات" value={periodMetricNumber(periodMetricsQuery.data?.summary.overdue)} unit="ش" periodLabel={dashboardPeriod.label} description={periodMetricsQuery.isError ? "تعذر تحميل المتأخرات للفترة المحددة." : `${number(periodMetricsQuery.data?.summary.overdueSubscriberCount)} مشتركاً بفواتير متأخرة صادرة ضمن الفترة. اضغط لعرض التفاصيل.`} icon={CircleAlert} accent="rose" />
+        <MetricCard label="المتأخرات" value={periodKpiNumber(periodOverdueKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodOverdueKpiQuery.isError ? "تعذر تحميل المتأخرات للفترة المحددة." : `${number(periodOverdueKpiQuery.data?.auxiliaryCount)} مشتركاً بفواتير متأخرة صادرة ضمن الفترة. اضغط لعرض التفاصيل.`} icon={CircleAlert} accent="rose" />
       </div>
-      <MetricCard label="المشتركون النشطون" value={metricNumber(activeSubscribers)} unit="مشترك" periodLabel="العدد الحالي" description={financialOverviewQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
+      <MetricCard label="المشتركون النشطون" value={activeSubscriberMetric} unit="مشترك" periodLabel="العدد الحالي" description={activeSubscribersKpiQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
     </section>
 
     <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />
 
-    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={financialOverviewQuery.isError} generatorsUnavailable={selectedScope === "all" ? allBranchesSummaryQuery.isError : summaryQuery.isError} loading={financialOverviewQuery.isLoading || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading : summaryQuery.isLoading)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
+    <OperationalStatusDashboardCard subscribers={activeSubscribers} generators={operationalSummary?.generators} subscribersUnavailable={!canViewFinancialOverview || (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)} generatorsUnavailable={generatorsUnavailable} loading={(financialOverviewQuery.isLoading && !financialOverviewQuery.data) || (activeSubscribersKpiQuery.isLoading && !activeSubscribersKpiQuery.data) || (selectedScope === "all" ? allBranchesSummaryQuery.isLoading && !allBranchesSummaryQuery.data : summaryQuery.isLoading && !summaryQuery.data)} scopeLabel={selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"} />
 
     {failedQuotaLabels.length > 0 ? <QuotaLoadErrorCard labels={failedQuotaLabels} onRetry={retryFailedQuotaQueries} /> : null}
     {accessQuery.data?.role === "owner" && !smsQuotaQuery.isError ? <SmsQuotaDashboardCard quota={smsQuotaQuery.data} loading={smsQuotaQuery.isLoading} packages={smsCreditPackagesQuery.data ?? []} packageRequest={smsPackageRequestQuery.data} packageRequestLoading={smsPackageRequestQuery.isLoading} packageRequestError={smsPackageRequestQuery.isError} requestingPackage={requestSmsPackage.isPending} onRetryPackageRequest={() => smsPackageRequestQuery.refetch()} onRequestPackage={(packageId, note) => requestSmsPackage.mutate({ siteId: siteId!, packageId, note })} onOpen={() => setLocation("/notifications")} /> : null}
@@ -263,8 +543,8 @@ export function WorkspaceHome() {
     <CompanyBalancesDashboardCard accounts={companyAccountsQuery.data ?? []} loading={companyAccountsQuery.isLoading} error={companyAccountsQuery.isError} onRetry={() => companyAccountsQuery.refetch()} onOpen={() => setLocation("/company-accounts")} />
 
     <section className="grid gap-6 xl:grid-cols-[1.35fr_.85fr]">
-      <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-col gap-3 border-b border-white/8 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><h2 className="font-bold text-white">نبض التحصيل</h2><p className="mt-1 text-sm text-slate-400">قراءة سريعة لنتيجة اليوم ووضع الشهر المالي.</p></div><Badge className="w-fit border-[#F5B800]/20 bg-[#F5B800]/10 text-[#F5B800] hover:bg-[#F5B800]/10">{selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"}</Badge></div><div className="grid gap-4 p-5 sm:grid-cols-2"><div className="rounded-2xl border border-sky-400/15 bg-sky-400/[.045] p-5"><div className="flex items-center gap-2 text-sm font-bold text-sky-200"><CalendarDays className="h-4 w-4" />نتيجة اليوم</div><p className="mt-5 font-display text-3xl font-extrabold text-white">{metricNumber(overview?.today.collected, 2)}</p><p className="mt-1 text-xs text-slate-400">تحصيل اليوم من فوترة {metricNumber(overview?.today.invoiced, 2)}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-sky-950/80"><div className="h-full rounded-full bg-sky-400 transition-[width] duration-300" style={{ width: `${Math.min(100, Number(overview?.today.collectionRate ?? 0))}%` }} /></div><p className="mt-2 text-xs font-bold text-sky-200">نسبة تحصيل اليوم: {metricRatio(overview?.today.collectionRate)}</p></div><div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[.045] p-5"><div className="flex items-center gap-2 text-sm font-bold text-emerald-200"><CircleDollarSign className="h-4 w-4" />صافي النقد الشهري</div><p className="mt-5 font-display text-3xl font-extrabold text-white">{metricNumber(overview?.month.netCash, 2)}</p><p className="mt-1 text-xs text-slate-400">التحصيل {metricNumber(overview?.month.collected, 2)} − المصروفات {metricNumber(overview?.month.expenses, 2)}</p><div className="mt-5 flex items-center justify-between rounded-xl border border-white/8 bg-[#0D1117]/35 px-3 py-2 text-xs"><span className="text-slate-400">نسبة تحصيل الشهر</span><strong className="text-emerald-300">{metricRatio(overview?.month.collectionRate)}</strong></div></div></div></CardContent></Card>
-      <Card className="border-rose-400/20 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex items-center justify-between border-b border-white/8 px-5 py-5"><div><h2 className="font-bold text-white">تحتاج متابعة الآن</h2><p className="mt-1 text-sm text-slate-400">أولوية التحصيل والذمم المفتوحة.</p></div><Clock3 className="h-5 w-5 text-rose-300" /></div><div className="divide-y divide-white/8"><StateLine label="رصيد متأخر" value={metricNumber(overview?.outstanding.overdue, 2)} hint="فواتير تجاوزت تاريخ الاستحقاق." tone="bg-rose-400" /><StateLine label="دفعات جزئية" value={metricNumber(overview?.outstanding.partialInvoices)} hint="فواتير تحتاج متابعة الرصيد المتبقي." tone="bg-amber-400" /><StateLine label="حسابات مفتوحة" value={metricNumber(overview?.outstanding.accountCount)} hint="مشتركون لديهم رصيد قائم." tone="bg-sky-400" /></div></CardContent></Card>
+      <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-col gap-3 border-b border-white/8 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><h2 className="font-bold text-white">نبض التحصيل</h2><p className="mt-1 text-sm text-slate-400">قراءة سريعة لنتيجة اليوم ووضع الشهر المالي.</p></div><Badge className="w-fit border-[#F5B800]/20 bg-[#F5B800]/10 text-[#F5B800] hover:bg-[#F5B800]/10">{selectedScope === "all" ? "جميع الأفرع" : "الفرع المحدد"}</Badge></div><div className="grid gap-4 p-5 sm:grid-cols-2"><div className="rounded-2xl border border-sky-400/15 bg-sky-400/[.045] p-5"><div className="flex items-center gap-2 text-sm font-bold text-sky-200"><CalendarDays className="h-4 w-4" />نتيجة اليوم</div><p className="mt-5 font-display text-3xl font-extrabold text-white">{periodKpiNumber(todayCollectedKpiQuery, 2, { startDate: dashboardToday, endDate: dashboardToday })}</p><p className="mt-1 text-xs text-slate-400">تحصيل اليوم من فوترة {periodKpiNumber(todayInvoicedKpiQuery, 2, { startDate: dashboardToday, endDate: dashboardToday })}</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-sky-950/80"><div className="h-full rounded-full bg-sky-400 transition-[width] duration-300" style={{ width: `${Math.min(100, Number(todayCollectionRateKpiQuery.data?.value ?? 0))}%` }} /></div><p className="mt-2 text-xs font-bold text-sky-200">نسبة تحصيل اليوم: {periodKpiRatio(todayCollectionRateKpiQuery, { startDate: dashboardToday, endDate: dashboardToday })}</p></div><div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[.045] p-5"><div className="flex items-center gap-2 text-sm font-bold text-emerald-200"><CircleDollarSign className="h-4 w-4" />صافي النقد الشهري</div><p className="mt-5 font-display text-3xl font-extrabold text-white">{financialKpiNumber(netCashKpiQuery.data?.netCash, netCashKpiQuery, 2)}</p><p className="mt-1 text-xs text-slate-400">التحصيل {financialKpiNumber(netCashKpiQuery.data?.collected, netCashKpiQuery, 2)} − المصروفات {financialKpiNumber(expensesKpiQuery.data?.expenses, expensesKpiQuery, 2)}</p><div className="mt-5 flex items-center justify-between rounded-xl border border-white/8 bg-[#0D1117]/35 px-3 py-2 text-xs"><span className="text-slate-400">نسبة تحصيل الشهر</span><strong className="text-emerald-300">{periodKpiRatio(monthCollectionRateKpiQuery, { startDate: dashboardMonthStart, endDate: dashboardMonthEnd })}</strong></div></div></div></CardContent></Card>
+      <Card className="border-rose-400/20 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex items-center justify-between border-b border-white/8 px-5 py-5"><div><h2 className="font-bold text-white">تحتاج متابعة الآن</h2><p className="mt-1 text-sm text-slate-400">أولوية التحصيل والذمم المفتوحة.</p></div><Clock3 className="h-5 w-5 text-rose-300" /></div><div className="divide-y divide-white/8"><StateLine label="رصيد متأخر" value={financialKpiNumber(currentArrearsKpiQuery.data?.overdue, currentArrearsKpiQuery, 2)} hint="فواتير تجاوزت تاريخ الاستحقاق." tone="bg-rose-400" /><StateLine label="دفعات جزئية" value={financialKpiNumber(currentArrearsKpiQuery.data?.partialInvoices, currentArrearsKpiQuery, 0)} hint="فواتير تحتاج متابعة الرصيد المتبقي." tone="bg-amber-400" /><StateLine label="حسابات مفتوحة" value={financialKpiNumber(currentArrearsKpiQuery.data?.accountCount, currentArrearsKpiQuery, 0)} hint="مشتركون لديهم رصيد قائم." tone="bg-sky-400" /></div></CardContent></Card>
     </section>
 
     <section className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">

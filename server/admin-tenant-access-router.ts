@@ -13,6 +13,7 @@ export const adminTenantAccessRouter = router({
       tenantRole: z.enum(["owner", "admin", "member"]),
       siteRole: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]).optional(),
       expiresInHours: z.number().int().min(1).max(168).default(72),
+      clientOperationId: z.string().uuid(),
     }))
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "") || ctx.user.accountStatus !== "active") {
@@ -29,6 +30,8 @@ export const adminTenantAccessRouter = router({
         siteRole: input.tenantRole === "owner" ? "owner" : input.siteRole,
         tokenHash,
         expiresAt,
+        expiresInHours: input.expiresInHours,
+        clientOperationId: input.clientOperationId,
       });
     }),
 });

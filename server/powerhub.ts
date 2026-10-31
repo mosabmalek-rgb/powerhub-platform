@@ -9,6 +9,8 @@ import { calculateCompanyAccountBalance } from "./company-account-utils";
 import { calculateInvoiceAmounts, generateInvoiceShareToken, hashInvoiceShareToken, nextInvoiceNo } from "./powerhub-utils";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { buildDashboardPeriodMetrics } from "./dashboard-period-metrics";
+import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
+import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
 import { decimalAmountToMinorUnits, formatPolicyAwareMessageAmount, minorUnitsToAmountString } from "./decimal-money";
@@ -26,7 +28,7 @@ import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { powerhubInventoryRouter } from "./powerhub-inventory-router";
 import { powerhubMaintenanceRouter } from "./powerhub-maintenance-router";
 import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberAccountStatementHistoryPage, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 
@@ -514,11 +516,193 @@ async function sendPendingInvoiceSmsRuntime(
   return result;
 }
 
+async function requireDeltaStocktakeReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const allowed = access.permissions.includes("viewStocktakes") ||
+    access.permissions.includes("manageStocktakes") ||
+    access.permissions.includes("approveStocktakes");
+  if (!allowed) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض جلسات الجرد." });
+  }
+  return access;
+}
+
+async function requireDeltaPurchaseHeaderReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const allowed = access.permissions.includes("viewPurchases") ||
+    access.permissions.includes("manageSupplierPayments") ||
+    access.permissions.includes("receiveInventory") ||
+    access.permissions.includes("adjustInventory");
+  if (!allowed) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض عناوين المشتريات التشغيلية." });
+  }
+  return access;
+}
+
+async function requireDeltaOperationalReadAccess(
+  userId: number, siteId: number,
+  entityType: "fuel_readings" | "maintenance_preventive_plans",
+) {
+  if (entityType === "fuel_readings") {
+    const access = await resolveSupabaseSiteAccess(userId, siteId);
+    if (!access.permissions.includes("manageFuelAndConsumption") &&
+        !access.permissions.includes("viewInventoryReports")) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجلات الوقود." });
+    }
+    return access;
+  }
+  try {
+    return await requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician", "accountant", "viewer"], "viewInventory");
+  } catch (error) {
+    // Match maintenance.listPreventivePlans: some custom permission sets grant
+    // manageMaintenance without the general inventory-view capability.
+    if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician"], "manageMaintenance");
+  }
+}
+
+async function requireDeltaPurchaseDetailRevisionReadAccess(userId: number, siteId: number) {
+  // This helper gates opaque revision hashes only, not any Delta snapshot/pull rows.
+  // Match the read scope used by getPurchase without exposing row-level access.
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const allowed = access.permissions.some((permission) =>
+    ["viewPurchases", "manageSupplierPayments", "receiveInventory", "adjustInventory"].includes(permission),
+  );
+  if (!allowed) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تفاصيل فاتورة المشتريات." });
+  }
+  return access;
+}
+
+async function requireDeltaSupplierLedgerRevisionReadAccess(userId: number, siteId: number) {
+  return requireSupabaseSiteRole(
+    userId, siteId, ["owner", "manager", "accountant", "collector", "viewer"], "viewSupplierLedger",
+  );
+}
+
+async function requireDeltaPurchaseChildHistoryReadAccess(
+  userId: number, siteId: number,
+  entityType: "inventory_purchase_receipt_headers" | "inventory_supplier_return_headers",
+) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const canReadReceipts = access.permissions.includes("viewPurchases") ||
+    access.permissions.includes("receiveInventory") || access.permissions.includes("adjustInventory");
+  const canReadReturns = access.permissions.includes("viewPurchases") ||
+    access.permissions.includes("manageSupplierPayments") || access.permissions.includes("adjustInventory");
+  if (!(entityType === "inventory_purchase_receipt_headers" ? canReadReceipts : canReadReturns)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجل الاستلام والمرتجعات." });
+  }
+  return access;
+}
+
+const deltaEntityTypeSchema = z.union([
+  z.enum(["sites", "subscribers", "generators", "readings", "tariffs", "invoices", "payments", "expenses", "company_accounts", "company_accounts_all", "inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers", "fuel_readings", "maintenance_preventive_plans", "fuel_events", "maintenance_work_orders", "hr_employee_directory", "hr_attendance", "hr_employee_advances", "hr_payroll_runs"]),
+  z.string().regex(/^maintenance_work_order_parts:[1-9][0-9]{0,15}$/),
+]);
+
+async function requireDeltaHrReadAccess(
+  userId: number, siteId: number,
+  entityType: "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs",
+) {
+  if (entityType === "hr_employee_directory") {
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "accountant"], "managePayroll");
+  }
+  if (entityType === "hr_attendance") {
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant"], "managePayroll");
+  }
+  if (entityType === "hr_employee_advances") {
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant"], "manageExpenses");
+  }
+  return requireSupabaseSiteRole(userId, siteId, ["owner", "accountant"], "managePayroll");
+}
+
+async function requireDeltaFuelMaintenanceReadAccess(
+  userId: number, siteId: number, entityType: string,
+) {
+  if (entityType === "fuel_events") {
+    const access = await resolveSupabaseSiteAccess(userId, siteId);
+    if (!access.permissions.includes("manageFuelAndConsumption") &&
+        !access.permissions.includes("viewInventoryReports")) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجل تعبئة الوقود." });
+    }
+    return access;
+  }
+  try {
+    return await requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"], "viewInventory");
+  } catch (error) {
+    if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
+    return requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician"], "manageMaintenance");
+  }
+}
+
 export const powerhubRouter = router({
   deltaSync: router({
+    revisions: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      entityTypes: z.array(z.enum([
+        "fuel_events", "fuel_readings", "maintenance_preventive_plans", "maintenance_work_orders",
+        "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers",
+        "supplier_ledger",
+      ])).min(1).max(8).refine((values) => new Set(values).size === values.length, {
+        message: "يجب أن تكون أنواع Delta المطلوبة فريدة.",
+      }),
+    })).query(async ({ ctx, input }) => {
+      // Expose opaque revisions only. Each feed is authorized before its cursor
+      // metadata is read, and every read remains inside the selected tenant/site.
+      const accesses = await Promise.all(input.entityTypes.map((entityType) => {
+        // Report-only users may observe the maintenance revision, but this does
+        // not grant them access to the detailed work-order Delta snapshot/pull.
+        if (entityType === "maintenance_work_orders") {
+          return requireSupabaseSiteRole(
+            ctx.user.id, input.siteId,
+            ["owner", "manager", "technician", "accountant", "viewer"],
+            "viewInventoryReports",
+          );
+        }
+        if (entityType === "supplier_ledger") {
+          return requireDeltaSupplierLedgerRevisionReadAccess(ctx.user.id, input.siteId);
+        }
+        if (
+          entityType === "inventory_purchase_headers" ||
+          entityType === "inventory_purchase_receipt_headers" ||
+          entityType === "inventory_supplier_return_headers"
+        ) {
+          return requireDeltaPurchaseDetailRevisionReadAccess(ctx.user.id, input.siteId);
+        }
+        return entityType === "fuel_events"
+          ? requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, entityType)
+          : requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, entityType);
+      }));
+      const tenantId = accesses[0]?.tenantId;
+      if (!tenantId || accesses.some((access) => access.tenantId !== tenantId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "نطاق مزامنة المؤشرات غير متطابق." });
+      }
+
+      const { data, error } = await supabaseAdmin().from("powerhub_sync_scope_state")
+        .select("entity_type,last_cursor,retained_from_cursor")
+        .eq("tenant_id", tenantId)
+        .eq("site_id", input.siteId)
+        .in("entity_type", input.entityTypes);
+      if (error) {
+        console.error("[PowerHub] deltaSync.revisions failed", { code: error.code, message: error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تحديث سجلات التشغيل." });
+      }
+
+      const rows = data ?? [];
+      const revisions: Record<string, string> = {};
+      for (const entityType of input.entityTypes) {
+        const row = rows.find((candidate) => candidate.entity_type === entityType);
+        const cursor = String(row?.last_cursor ?? "0");
+        const retained = String(row?.retained_from_cursor ?? "0");
+        revisions[entityType] = createHash("sha256")
+          .update(entityType + ":" + cursor + ":" + retained)
+          .digest("hex");
+      }
+      return { siteId: input.siteId, revisions, realtimeTopic: `powerhub:tenant:${tenantId}:site:${input.siteId}`, observedAt: new Date().toISOString() };
+    }),
     pull: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"]),
+      entityType: deltaEntityTypeSchema,
       afterCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable(),
       throughCursor: z.string().regex(/^(0|[1-9][0-9]*)$/).nullable().optional(),
       pageSize: z.number().int().min(1).max(500).default(200),
@@ -531,22 +715,58 @@ export const powerhubRouter = router({
         generators: ["owner", "manager", "technician", "viewer"],
         readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         tariffs: ["owner", "manager", "accountant", "viewer"],
+        invoices: ["owner", "manager", "accountant", "collector", "viewer"],
+        payments: ["owner", "manager", "accountant", "collector", "viewer"],
+        expenses: ["owner", "manager", "accountant", "viewer"],
+        company_accounts: ["owner", "manager", "accountant"],
+        company_accounts_all: ["owner", "manager", "accountant"],
+        inventory_items: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_item_units: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        suppliers: ["owner", "manager", "accountant", "collector", "viewer"],
+        inventory_warehouses: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_stocktakes: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_purchase_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_purchase_receipt_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_supplier_return_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        fuel_readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        maintenance_preventive_plans: ["owner", "manager", "accountant", "technician", "viewer"],
       } as const;
-      const access = await requireSupabaseSiteRole(
-        ctx.user.id,
-        input.siteId,
-        [...readRolesByEntity[input.entityType]],
-      );
+      const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
+        : new Set(["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"]).has(input.entityType) ? "viewInventory" : undefined;
+      const isHrDeltaEntity = input.entityType === "hr_employee_directory" || input.entityType === "hr_attendance" ||
+        input.entityType === "hr_employee_advances" || input.entityType === "hr_payroll_runs";
+      const isFuelMaintenanceEntity = input.entityType === "fuel_events" ||
+        input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
+      const access = isHrDeltaEntity
+        ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs")
+        : isFuelMaintenanceEntity
+          ? await requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, input.entityType)
+          : input.entityType === "company_accounts_all"
+          ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
+          : input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans"
+            ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType as "fuel_readings" | "maintenance_preventive_plans")
+            : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
+              ? await requireDeltaPurchaseChildHistoryReadAccess(ctx.user.id, input.siteId, input.entityType)
+              : input.entityType === "inventory_purchase_headers"
+                ? await requireDeltaPurchaseHeaderReadAccess(ctx.user.id, input.siteId)
+                : input.entityType === "inventory_stocktakes"
+                  ? await requireDeltaStocktakeReadAccess(ctx.user.id, input.siteId)
+                  : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType as keyof typeof readRolesByEntity]], inventoryCapability);
       const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
       const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
-      const { data, error } = await supabaseAdmin().rpc("powerhub_pull_sync_delta", {
-        p_tenant_id: access.tenantId,
-        p_site_id: input.siteId,
-        p_entity_type: input.entityType,
-        p_after_cursor: afterCursor,
-        p_through_cursor: throughCursor,
-        p_page_size: input.pageSize,
-      });
+      const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"].includes(input.entityType);
+      const operationalDeltaEntity = input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans";
+      const fuelMaintenanceDeltaEntity = input.entityType === "fuel_events" ||
+        input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
+      const { data, error } = await supabaseAdmin().rpc(
+        isHrDeltaEntity ? "powerhub_pull_hr_sync_delta"
+          : fuelMaintenanceDeltaEntity ? "powerhub_pull_fuel_maintenance_sync_delta"
+            : operationalDeltaEntity ? "powerhub_pull_operational_sync_delta"
+              : inventoryCatalogEntity ? "powerhub_pull_inventory_sync_delta" : "powerhub_pull_sync_delta",
+        { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
+          p_after_cursor: afterCursor, p_through_cursor: throughCursor, p_page_size: input.pageSize },
+      );
       if (error) {
         if (error.message.includes("POWERHUB_SYNC_CURSOR_INVALID") || error.message.includes("POWERHUB_SYNC_TARGET_CURSOR_INVALID")) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر المزامنة غير صالح؛ أعد تحميل لقطة البيانات." });
@@ -573,7 +793,7 @@ export const powerhubRouter = router({
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
-      entityType: z.enum(["sites", "subscribers", "generators", "readings", "tariffs"]),
+      entityType: deltaEntityTypeSchema,
     })).query(async ({ ctx, input }) => {
       const readRolesByEntity = {
         sites: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
@@ -581,11 +801,55 @@ export const powerhubRouter = router({
         generators: ["owner", "manager", "technician", "viewer"],
         readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
         tariffs: ["owner", "manager", "accountant", "viewer"],
+        invoices: ["owner", "manager", "accountant", "collector", "viewer"],
+        payments: ["owner", "manager", "accountant", "collector", "viewer"],
+        expenses: ["owner", "manager", "accountant", "viewer"],
+        company_accounts: ["owner", "manager", "accountant"],
+        company_accounts_all: ["owner", "manager", "accountant"],
+        inventory_items: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_item_units: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        suppliers: ["owner", "manager", "accountant", "collector", "viewer"],
+        inventory_warehouses: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_stock_movements: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_stocktakes: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_purchase_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_purchase_receipt_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        inventory_supplier_return_headers: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        fuel_readings: ["owner", "manager", "accountant", "collector", "technician", "viewer"],
+        maintenance_preventive_plans: ["owner", "manager", "accountant", "technician", "viewer"],
       } as const;
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType]]);
-      const { data, error } = await supabaseAdmin().rpc("powerhub_get_sync_snapshot", {
-        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType,
-      });
+      const inventoryCapability = input.entityType === "suppliers" ? "viewSuppliers"
+        : ["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"].includes(input.entityType) ? "viewInventory" : undefined;
+      const isHrDeltaEntity = input.entityType === "hr_employee_directory" || input.entityType === "hr_attendance" ||
+        input.entityType === "hr_employee_advances" || input.entityType === "hr_payroll_runs";
+      const isFuelMaintenanceEntity = input.entityType === "fuel_events" ||
+        input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
+      const access = isHrDeltaEntity
+        ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs")
+        : isFuelMaintenanceEntity
+          ? await requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, input.entityType)
+          : input.entityType === "company_accounts_all"
+          ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
+          : input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans"
+            ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType as "fuel_readings" | "maintenance_preventive_plans")
+            : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
+              ? await requireDeltaPurchaseChildHistoryReadAccess(ctx.user.id, input.siteId, input.entityType)
+              : input.entityType === "inventory_purchase_headers"
+                ? await requireDeltaPurchaseHeaderReadAccess(ctx.user.id, input.siteId)
+                : input.entityType === "inventory_stocktakes"
+                  ? await requireDeltaStocktakeReadAccess(ctx.user.id, input.siteId)
+                  : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType as keyof typeof readRolesByEntity]], inventoryCapability);
+      const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"].includes(input.entityType);
+      const operationalDeltaEntity = input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans";
+      const fuelMaintenanceDeltaEntity = input.entityType === "fuel_events" ||
+        input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
+      const { data, error } = await supabaseAdmin().rpc(
+        isHrDeltaEntity ? "powerhub_get_hr_sync_snapshot"
+          : fuelMaintenanceDeltaEntity ? "powerhub_get_fuel_maintenance_sync_snapshot"
+            : operationalDeltaEntity ? "powerhub_get_operational_sync_snapshot"
+              : inventoryCatalogEntity ? "powerhub_get_inventory_sync_snapshot" : "powerhub_get_sync_snapshot",
+        { p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: input.entityType },
+      );
       if (error) {
         if (error.message.includes("SITE_OUT_OF_SCOPE")) {
           throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الوصول إلى هذا الفرع." });
@@ -1250,15 +1514,23 @@ export const powerhubRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الأدوار المخصصة من Supabase." });
       return (data ?? []).map((role) => ({ id: Number(role.id), name: role.name, description: role.description, permissions: role.permissions, isActive: role.is_active }));
     }),
-    saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
+    saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), clientOperationId: z.string().uuid().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) }).refine((value) => value.id !== undefined || Boolean(value.clientOperationId), { message: "يلزم معرف عملية ثابت لإنشاء دور مخصص.", path: ["clientOperationId"] })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const { data, error } = await supabaseAdmin().rpc("powerhub_save_custom_permission_role", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_role_id: input.id ?? null,
         p_name: input.name, p_description: input.description ?? null, p_permissions: input.permissions,
+        p_client_operation_id: input.clientOperationId ?? null,
+        p_request_fingerprint: createHash("sha256").update(JSON.stringify({
+          tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id,
+          roleId: input.id ?? null, name: input.name, description: input.description ?? null,
+          permissions: input.permissions,
+        })).digest("hex"),
       });
       if (error) {
         if (error.message.includes("CUSTOM_ROLE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
         if (error.message.includes("ROLE_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة الأدوار المخصصة." });
+        if (error.message.includes("OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تعارضت إعادة محاولة حفظ الدور مع طلب سابق؛ حدّث القائمة قبل المحاولة مجددًا." });
+        if (error.message.includes("INVALID_OPERATION_ID")) throw new TRPCError({ code: "BAD_REQUEST", message: "يلزم معرف عملية ثابت لإنشاء دور مخصص." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ الدور المخصص في Supabase." });
       }
       return { success: true, id: Number(data?.[0]?.role_id ?? input.id ?? 0) };
@@ -1957,6 +2229,16 @@ export const powerhubRouter = router({
     })).query(async ({ ctx, input }) => {
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       return getSupabaseSubscriberAccountStatement(input.siteId, input.subscriberId);
+    }),
+    accountStatementHistoryPage: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      subscriberId: z.number().int().positive(),
+      section: z.enum(["invoices", "payments", "readings"]),
+      cursor: z.string().trim().min(1).max(512).optional(),
+      limit: z.number().int().min(1).max(100).default(20),
+    })).query(async ({ ctx, input }) => {
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return listSupabaseSubscriberAccountStatementHistoryPage(input.siteId, input.subscriberId, input.section, input);
     }),
     quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
@@ -2669,6 +2951,15 @@ export const powerhubRouter = router({
       await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       return listSupabasePaymentPage(input.siteId, input);
     }),
+    getReceiptImage: protectedProcedure.input(siteScoped.extend({ paymentId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "collectPayments");
+      const { data: payment, error } = await supabaseAdmin().from("payments").select("id, receipt_image_key")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.paymentId).maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صورة إيصال الدفع." });
+      if (!payment?.receipt_image_key) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد صورة إيصال مرفقة بهذه الدفعة." });
+      try { return { url: (await storageGet(payment.receipt_image_key)).url }; }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "تعذر إنشاء رابط آمن لصورة الإيصال." }); }
+    }),
     create: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(), subscriberId: z.number().int().positive(), invoiceId: z.number().int().positive().optional(),
       paymentNo: z.string().min(3).max(60), amount: z.number().positive().refine(hasAtMostTwoDecimalPlaces, "مبلغ التحصيل يجب ألا يتجاوز منزلتين عشريتين."), paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).default("cash"), companyAccountId: z.number().int().positive(), transferFromAccount: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "رقم الحساب المحوِّل يجب أن يكون رقم جوال صحيحاً.").optional(), transferFromType: z.enum(["jawwal_pay", "palpay", "bank_of_palestine"]).optional(), referenceNo: z.string().max(120).optional(), receiptImageData: z.string().max(9_500_000).optional(), receiptImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(), clientOperationId: z.string().uuid().optional(), manualDiscountAmount: z.number().min(0).max(100000000).refine(hasAtMostTwoDecimalPlaces, "مبلغ الخصم يجب ألا يتجاوز منزلتين عشريتين.").default(0), manualDiscountReason: z.string().trim().max(300).optional(),
@@ -3304,9 +3595,10 @@ export const powerhubRouter = router({
       description: z.string().min(2).max(255),
       amount: z.number().positive(),
       referenceNo: z.string().max(120).optional(),
+      clientOperationId: z.string().uuid().optional(),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageExpenses");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_create_expense_with_account", {
+      const rpcArgs = {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
         p_user_id: ctx.user.id,
@@ -3316,15 +3608,22 @@ export const powerhubRouter = router({
         p_description: input.description,
         p_amount: input.amount,
         p_reference_no: input.referenceNo ?? null,
-      });
+      };
+      const { data, error } = input.clientOperationId
+        ? await supabaseAdmin().rpc("powerhub_create_expense_with_account_idempotent", {
+            ...rpcArgs, p_client_operation_id: input.clientOperationId,
+          })
+        : await supabaseAdmin().rpc("powerhub_create_expense_with_account", rpcArgs);
       if (!error && data?.[0]) {
         return {
           id: Number((data[0] as { expense_id: number | string }).expense_id),
           transactionId: Number((data[0] as { transaction_id: number | string }).transaction_id),
+          ...(input.clientOperationId ? { replayed: Boolean((data[0] as { replayed?: boolean }).replayed) } : {}),
         };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (error?.code === "PGRST202" || /powerhub_create_expense_with_account.*schema cache|schema cache.*powerhub_create_expense_with_account/i.test(errorText)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "دالة تسجيل المصروفات غير متاحة في مخطط Supabase. تم تحديث إعدادات قاعدة البيانات؛ حدّث الصفحة وأعد المحاولة." });
+      if (errorText.includes("IDEMPOTENCY_KEY_REUSED")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مستخدم سابقًا لبيانات مصروف مختلفة؛ أُوقفت إعادة الإرسال للحماية من التكرار." });
       if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة غير متاحة ضمن مساحة العمل الحالية." });
       if (errorText.includes("GENERATOR_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
       if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الصرف غير موجود أو غير نشط." });
@@ -3408,6 +3707,256 @@ export const powerhubRouter = router({
         energyKwh: invoiceTotals.energy,
         failedNotifications: notificationRows.filter((row) => row.status === "failed").length,
       };
+    }),
+    // Lightweight revision fingerprint for dashboard snapshots. This exposes no
+    // row data; it lets clients know when server-authoritative aggregates need
+    // refetching after an operational Delta feed advances.
+    // Each KPI has its own scoped dependency fingerprint. This returns no rows or
+    // aggregate values; the UI refreshes the server-owned aggregate that supplies a changed KPI.
+    deltaRevision: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+    })).query(async ({ ctx, input }) => {
+      const access = input.scope === "all"
+        ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"])
+        : await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
+      const entityTypes = DASHBOARD_KPI_REVISION_ENTITIES;
+      let query = supabaseAdmin().from("powerhub_sync_scope_state")
+        .select("site_id,entity_type,last_cursor")
+        .eq("tenant_id", access.tenantId)
+        .in("entity_type", entityTypes)
+        .order("site_id", { ascending: true })
+        .order("entity_type", { ascending: true });
+      if (input.scope === "branch") query = query.eq("site_id", input.siteId);
+      const { data, error } = await query;
+      if (error) {
+        console.error("[PowerHub] dashboard.deltaRevision failed", { code: error.code, message: error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تحديث مؤشرات لوحة التحكم." });
+      }
+      const revisions = buildDashboardKpiRevisions(data ?? []);
+      // Keep a combined fingerprint for old diagnostic consumers; KPI refreshes
+      // use the independent scoped revisions above.
+      const revision = createHash("sha256").update(JSON.stringify(revisions)).digest("hex");
+      return { revision, revisions, realtimeTopic: input.scope === "all" ? `powerhub:tenant:${access.tenantId}:all` : `powerhub:tenant:${access.tenantId}:site:${input.siteId}`, observedAt: new Date().toISOString(), scope: input.scope, siteId: input.siteId };
+    }),
+    activeSubscribersKpi: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+    })).query(async ({ ctx, input }) => {
+      let tenantId: number;
+      let siteIds: number[];
+      if (input.scope === "branch") {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        siteIds = [input.siteId];
+      } else {
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id")
+          .eq("tenant_id", tenantId)
+          .neq("status", "archived");
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد الأفرع لمؤشر المشتركين النشطين." });
+        siteIds = (data ?? []).map((row) => Number(row.id)).filter((id) => Number.isSafeInteger(id) && id > 0);
+      }
+      if (!siteIds.length) return { metric: "activeSubscribers" as const, value: 0, scope: input.scope, siteId: input.siteId };
+      const { count, error } = await supabaseAdmin().from("subscribers")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .in("site_id", siteIds)
+        .eq("service_status", "active");
+      if (error) {
+        console.error("[PowerHub] dashboard.activeSubscribersKpi failed", { code: error.code, message: error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل عدد المشتركين النشطين." });
+      }
+      return { metric: "activeSubscribers" as const, value: count ?? 0, scope: input.scope, siteId: input.siteId };
+    }),
+    // Each period KPI has its own tRPC cache key and small response. Invoice-only
+    // metrics do not read payments, and the collection-only metric does not read invoices.
+    periodKpi: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+      metric: z.enum(["periodInvoiced", "periodCollected", "collectionRate", "periodOverdue"]),
+      startDate: paymentDocumentationDateKeySchema,
+      endDate: paymentDocumentationDateKeySchema,
+      boundaryMode: z.enum(["gaza", "utc"]).default("gaza"),
+    }).refine((input) => input.startDate <= input.endDate, {
+      message: "يجب أن يكون تاريخ بداية الفترة قبل تاريخ نهايتها أو مساوياً لها.",
+    })).query(async ({ ctx, input }) => {
+      let tenantId: number;
+      let siteRows: Array<{ id: number; name: string }>;
+      if (input.scope === "branch") {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .eq("id", input.siteId)
+          .neq("status", "archived")
+          .limit(1);
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الفرع لمؤشر الفترة." });
+        siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
+      } else {
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id, name")
+          .eq("tenant_id", tenantId)
+          .neq("status", "archived")
+          .order("created_at", { ascending: true });
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الأفرع لمؤشر الفترة." });
+        siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
+      }
+
+      const siteIds = siteRows.map((site) => site.id);
+      const start = input.boundaryMode === "utc"
+        ? new Date(`${input.startDate}T00:00:00.000Z`)
+        : paymentDocumentationGazaDateBoundary(input.startDate);
+      const nextDate = paymentDocumentationNextDateKey(input.endDate);
+      const endExclusive = input.boundaryMode === "utc"
+        ? new Date(`${nextDate}T00:00:00.000Z`)
+        : paymentDocumentationGazaDateBoundary(nextDate);
+      const needsInvoices = input.metric !== "periodCollected";
+      const needsPayments = input.metric === "periodCollected" || input.metric === "collectionRate";
+      const [invoiceRows, paymentRows] = siteIds.length ? await Promise.all([
+        needsInvoices
+          ? listSupabaseReportInvoices({ tenantId, siteIds, start, endExclusive, summaryOnly: true })
+          : Promise.resolve([]),
+        needsPayments
+          ? listSupabaseReportPayments({ tenantId, siteIds, start, endExclusive, summaryOnly: true })
+          : Promise.resolve([]),
+      ]) : [[], []];
+
+      const branchNameById = new Map(siteRows.map((site) => [site.id, site.name]));
+      const invoices = invoiceRows
+        .filter((invoice) => invoice.status !== "cancelled" && invoice.status !== "draft")
+        .map((invoice) => ({
+          id: invoice.id,
+          siteId: invoice.siteId,
+          siteName: branchNameById.get(invoice.siteId) ?? "فرع غير محدد",
+          subscriberId: invoice.subscriberId,
+          subscriberName: "",
+          subscriberNo: "",
+          invoiceNo: invoice.invoiceNo,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          totalAmount: invoice.totalAmount,
+          paidAmount: invoice.paidAmount,
+          balanceDue: invoice.balanceDue,
+          status: invoice.status,
+        }));
+      const metrics = buildDashboardPeriodMetrics({
+        scope: input.scope,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        invoices,
+        payments: paymentRows.map(({ payment }) => ({ status: payment.status, amount: payment.amount })),
+        includeDetails: false,
+      });
+      const value = input.metric === "periodInvoiced"
+        ? metrics.summary.invoiced
+        : input.metric === "periodCollected"
+          ? metrics.summary.collected
+          : input.metric === "collectionRate"
+            ? metrics.summary.collectionRate
+            : metrics.summary.overdue;
+      return {
+        metric: input.metric,
+        value,
+        auxiliaryCount: input.metric === "periodOverdue" ? metrics.summary.overdueSubscriberCount : null,
+        range: metrics.range,
+        scope: metrics.scope,
+        siteId: input.siteId,
+      };
+    }),
+    financialKpi: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      scope: z.enum(["branch", "all"]).default("branch"),
+      metric: z.enum(["expenses", "netCash", "currentArrears"]),
+    })).query(async ({ ctx, input }) => {
+      let tenantId: number;
+      let siteIds: number[];
+      if (input.scope === "branch") {
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        siteIds = [input.siteId];
+      } else {
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        tenantId = access.tenantId;
+        const { data, error } = await supabaseAdmin().from("sites")
+          .select("id")
+          .eq("tenant_id", tenantId)
+          .neq("status", "archived");
+        if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديد الأفرع للمؤشر المالي." });
+        siteIds = (data ?? []).map((row) => Number(row.id)).filter((id) => Number.isSafeInteger(id) && id > 0);
+      }
+
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+      const admin = supabaseAdmin();
+      let expenseRows: Array<{ amount: number | string }> = [];
+      let paymentRows: Array<{ amount: number | string; status: string }> = [];
+      let arrearsRows: Array<{
+        site_id: number | string;
+        subscriber_id: number | string;
+        due_date: string;
+        balance_due: number | string;
+        status: string;
+      }> = [];
+
+      if (siteIds.length && (input.metric === "expenses" || input.metric === "netCash")) {
+        expenseRows = await readSupabaseReportPages((from, to) =>
+          admin.from("expenses")
+            .select("amount")
+            .eq("tenant_id", tenantId)
+            .in("site_id", siteIds)
+            .gte("occurred_at", monthStart.toISOString())
+            .lt("occurred_at", nextMonthStart.toISOString())
+            .order("id", { ascending: true })
+            .range(from, to),
+        "تعذر تحميل مصروفات الشهر لمؤشر لوحة التحكم.");
+      }
+      if (siteIds.length && input.metric === "netCash") {
+        paymentRows = await readSupabaseReportPages((from, to) =>
+          admin.from("payments")
+            .select("amount, status")
+            .eq("tenant_id", tenantId)
+            .in("site_id", siteIds)
+            .gte("paid_at", monthStart.toISOString())
+            .lt("paid_at", nextMonthStart.toISOString())
+            .eq("status", "completed")
+            .order("id", { ascending: true })
+            .range(from, to),
+        "تعذر تحميل تحصيلات الشهر لصافي النقد.");
+      }
+      if (siteIds.length && input.metric === "currentArrears") {
+        arrearsRows = await readSupabaseReportPages((from, to) =>
+          admin.from("invoices")
+            .select("site_id, subscriber_id, due_date, balance_due, status")
+            .eq("tenant_id", tenantId)
+            .in("site_id", siteIds)
+            .not("status", "in", "(cancelled,draft)")
+            .gt("balance_due", 0)
+            .order("id", { ascending: true })
+            .range(from, to),
+        "تعذر تحميل الذمم الحالية لمؤشر لوحة التحكم.");
+      }
+
+      const result = buildDashboardFinancialKpi({
+        metric: input.metric as DashboardFinancialKpiMetric,
+        expenses: expenseRows,
+        payments: paymentRows,
+        arrears: arrearsRows.map((row) => ({
+          siteId: row.site_id,
+          subscriberId: row.subscriber_id,
+          dueDate: row.due_date,
+          balanceDue: row.balance_due,
+          status: row.status,
+        })),
+        now,
+      });
+      return { ...result, scope: input.scope, siteId: input.siteId, observedAt: now.toISOString() };
     }),
     financialOverview: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
@@ -4199,6 +4748,161 @@ export const powerhubRouter = router({
     }),
   }),
   hr: router({
+    replayOfflineOperation: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      operationKey: z.string().uuid(),
+      operationType: z.enum(["employee_create", "employee_update", "attendance_upsert", "payroll_draft"]),
+      payload: z.record(z.string(), z.unknown()),
+    })).mutation(async ({ ctx, input }) => {
+      let access: Awaited<ReturnType<typeof requireSupabaseSiteRole>>;
+      let payload: Record<string, unknown>;
+      try {
+        if (input.operationType === "employee_create") {
+          access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+          payload = z.object({
+            fullName: z.string().trim().min(2).max(180),
+            identityNo: z.string().max(80).nullable().optional(),
+            phone: z.string().max(40).nullable().optional(),
+            jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]),
+            employmentStatus: z.enum(["active", "suspended", "ended"]).default("active"),
+            contractType: z.enum(["daily", "monthly", "collection_percentage"]),
+            baseWage: z.number().min(0).max(100000000),
+            hireDate: z.string().nullable().optional(),
+            notes: z.string().max(2000).nullable().optional(),
+            linkedUserId: z.number().int().positive().nullable().optional(),
+          }).strict().parse(input.payload);
+        } else if (input.operationType === "employee_update") {
+          access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+          payload = z.object({
+            employeeId: z.number().int().positive(),
+            expectedVersion: z.number().int().positive(),
+            patch: z.object({
+              fullName: z.string().trim().min(2).max(180).optional(),
+              identityNo: z.string().max(80).nullable().optional(),
+              phone: z.string().max(40).nullable().optional(),
+              jobTitle: z.enum(["accountant", "collector", "technician", "worker", "supervisor", "other"]).optional(),
+              employmentStatus: z.enum(["active", "suspended", "ended"]).optional(),
+              contractType: z.enum(["daily", "monthly", "collection_percentage"]).optional(),
+              baseWage: z.number().min(0).max(100000000).optional(),
+              hireDate: z.string().nullable().optional(),
+              notes: z.string().max(2000).nullable().optional(),
+            }).strict().refine((patch) => Object.keys(patch).length > 0, "لا توجد حقول لتعديلها."),
+          }).strict().parse(input.payload);
+        } else if (input.operationType === "attendance_upsert") {
+          access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+          payload = z.object({
+            employeeId: z.number().int().positive(),
+            workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+            expectedVersion: z.number().int().positive().nullable(),
+            regularHours: z.number().min(0).max(24),
+            overtimeHours: z.number().min(0).max(24),
+            absentDays: z.number().min(0).max(1),
+            notes: z.string().max(500).nullable().optional(),
+          }).strict().parse(input.payload);
+        } else {
+          access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+          payload = z.object({
+            period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+            items: z.array(z.object({
+              employeeId: z.number().int().positive(),
+              extraAmount: z.number().min(0).max(100000000),
+              advanceDeduction: z.number().min(0).max(100000000),
+              otherDeduction: z.number().min(0).max(100000000),
+              notes: z.string().max(500).optional(),
+            }).strict()).min(1).max(500),
+          }).strict().parse(input.payload);
+        }
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        if (error instanceof z.ZodError) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات عملية الموارد البشرية دون اتصال غير صالحة." });
+        throw error;
+      }
+
+      const { data, error } = await supabaseAdmin().rpc("powerhub_hr_replay_offline_operation", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_operation_key: input.operationKey, p_operation_type: input.operationType, p_payload: payload,
+      });
+      const result = (data as Array<{
+        entity_id: number | string | null; total_net: number | string | null;
+        entity_updated_at: string | null; entity_version: number | string | null; replayed: boolean;
+      }> | null)?.[0];
+      if (!error && result) return {
+        entityId: result.entity_id === null ? null : Number(result.entity_id),
+        totalNet: result.total_net === null ? null : Number(result.total_net),
+        updatedAt: result.entity_updated_at ? new Date(result.entity_updated_at) : null,
+        versionNo: result.entity_version === null ? null : Number(result.entity_version),
+        replayed: Boolean(result.replayed),
+      };
+
+      const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
+      if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "الفرع غير تابع لمساحة الشركة." });
+      if (errorText.includes("EMPLOYEE_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيّرت بيانات الموظف على الخادم؛ أعد تحميل النسخة الحالية وراجع التعديل قبل الإرسال." });
+      if (errorText.includes("ATTENDANCE_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيّر سجل الحضور على الخادم؛ يلزم مراجعته قبل إعادة الإرسال." });
+      if (errorText.includes("IDEMPOTENCY_KEY_REUSED")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مستخدم لبيانات مختلفة؛ أُوقفت إعادة الإرسال لحماية السجل." });
+      if (errorText.includes("EMPLOYEE_OUT_OF_SCOPE") || errorText.includes("EMPLOYEE_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "الموظف غير موجود أو غير نشط ضمن الفرع." });
+      if (errorText.includes("LINKED_USER_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "حساب الدخول المحدد ليس ضمن مساحة الشركة." });
+      if (errorText.includes("INVALID_EMPLOYEE_INPUT") || errorText.includes("INVALID_EMPLOYEE_PATCH") ||
+          errorText.includes("INVALID_ATTENDANCE_INPUT") || errorText.includes("INVALID_HR_OFFLINE_OPERATION") ||
+          errorText.includes("INVALID_HR_OFFLINE_ATTENDANCE") || errorText.includes("INVALID_HR_OFFLINE_EMPLOYEE_UPDATE") ||
+          errorText.includes("INVALID_PAYROLL_DRAFT_INPUT") || errorText.includes("DUPLICATE_PAYROLL_EMPLOYEE") ||
+          errorText.includes("NEGATIVE_PAYROLL_NET")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات العملية غير مقبولة من الخادم؛ راجع القيم قبل إعادة المحاولة." });
+      }
+      if (errorText.includes("PAYROLL_PERIOD_ALREADY_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "يوجد كشف رواتب لهذه الفترة بالفعل؛ راجعه قبل إنشاء كشف آخر." });
+      if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تثبيت مسودة الرواتب." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر مزامنة عملية الموارد البشرية. بقيت المسودة المحلية محفوظة للمراجعة." });
+    }),
+    offlineDirectory: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+      const { data, error } = await supabaseAdmin().from("employees")
+        .select("id, tenant_id, site_id, full_name, job_title, employment_status, contract_type, created_at, hr_sync_version")
+        .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`)
+        .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(500);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دليل الموظفين الآمن." });
+      return (data ?? []).map((employee) => ({
+        id: Number(employee.id), tenantId: Number(employee.tenant_id),
+        siteId: employee.site_id === null ? null : Number(employee.site_id),
+        fullName: employee.full_name, jobTitle: employee.job_title,
+        employmentStatus: employee.employment_status, contractType: employee.contract_type,
+        createdAt: new Date(employee.created_at), versionNo: Number(employee.hr_sync_version),
+      }));
+    }),
+    offlineAttendance: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "managePayroll");
+      const { data, error } = await supabaseAdmin().from("employee_attendance")
+        .select("id, tenant_id, employee_id, site_id, work_date, regular_hours, overtime_hours, absent_days, created_at, updated_at, hr_sync_version")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .order("work_date", { ascending: false }).order("id", { ascending: false }).limit(1000);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الحضور الآمن." });
+      const employeeIds = Array.from(new Set((data ?? []).map((row) => Number(row.employee_id))));
+      const { data: people, error: peopleError } = employeeIds.length
+        ? await supabaseAdmin().from("employees").select("id, tenant_id, site_id, full_name, job_title, employment_status")
+            .eq("tenant_id", access.tenantId).in("id", employeeIds).or(`site_id.eq.${input.siteId},site_id.is.null`)
+        : { data: [], error: null };
+      if (peopleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء موظفي سجل الحضور." });
+      const peopleById = new Map((people ?? []).map((employee) => [Number(employee.id), employee]));
+      return (data ?? []).flatMap((attendance) => {
+        const employee = peopleById.get(Number(attendance.employee_id));
+        if (!employee) return [];
+        return [{
+          id: Number(attendance.id), tenantId: Number(attendance.tenant_id), siteId: Number(attendance.site_id),
+          attendance: {
+            id: Number(attendance.id), tenantId: Number(attendance.tenant_id),
+            employeeId: Number(attendance.employee_id), siteId: Number(attendance.site_id),
+            workDate: new Date(`${attendance.work_date}T00:00:00.000Z`),
+            regularHours: String(attendance.regular_hours), overtimeHours: String(attendance.overtime_hours),
+            absentDays: String(attendance.absent_days), notes: null, createdByUserId: null,
+            createdAt: new Date(attendance.created_at), updatedAt: new Date(attendance.updated_at), versionNo: Number(attendance.hr_sync_version),
+          },
+          employee: {
+            id: Number(employee.id), tenantId: Number(employee.tenant_id),
+            siteId: employee.site_id === null ? null : Number(employee.site_id),
+            fullName: employee.full_name, jobTitle: employee.job_title,
+            employmentStatus: employee.employment_status,
+          },
+        }];
+      });
+    }),
     listAttendance: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), fromDate: z.string().optional(), toDate: z.string().optional(), employeeId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "managePayroll");
       let query = supabaseAdmin().from("employee_attendance").select("id, tenant_id, employee_id, site_id, work_date, regular_hours, overtime_hours, absent_days, notes, created_by_user_id, created_at, updated_at").eq("tenant_id", access.tenantId).eq("site_id", input.siteId);
@@ -4322,6 +5026,82 @@ export const powerhubRouter = router({
       if (errorText.includes("USE_EMPLOYEE_ADVANCE_RPC")) throw new TRPCError({ code: "BAD_REQUEST", message: "استخدم شاشة السلف والديون لتسجيل صرف السلفة بشكل صحيح." });
       if (errorText.includes("INVALID_EMPLOYEE_ADJUSTMENT_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات السلفة أو الخصم غير صحيحة." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ السلفة أو الخصم في Supabase." });
+    }),
+    offlineCompanyAccountOptions: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      const [accountsResult, linksResult] = await Promise.all([
+        supabaseAdmin().from("company_accounts")
+          .select("id,name,account_type,is_active")
+          .eq("tenant_id", access.tenantId).eq("is_active", true).order("id", { ascending: true }),
+        supabaseAdmin().from("company_account_sites")
+          .select("account_id,site_id")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId),
+      ]);
+      if (accountsResult.error || linksResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل خيارات حسابات الصرف الآمنة." });
+      }
+      const linkedIds = new Set((linksResult.data ?? []).map((link) => Number(link.account_id)));
+      // Minimized UI-only options: no balance, transaction history, phone, references or account movements.
+      return (accountsResult.data ?? []).filter((account) => linkedIds.has(Number(account.id))).map((account) => ({
+        id: Number(account.id),
+        name: account.name,
+        accountType: account.account_type,
+        isActive: Boolean(account.is_active),
+      }));
+    }),
+    offlineEmployeeAdvances: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      const { data, error } = await supabaseAdmin().from("employee_adjustments")
+        .select("id,tenant_id,employee_id,site_id,adjustment_type,advance_kind,monthly_deduction,amount,remaining_amount,status,created_at,updated_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("adjustment_type", "advance")
+        .order("created_at", { ascending: false }).limit(500);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص السلف الآمن." });
+      const employeeIds = Array.from(new Set((data ?? []).map((row) => Number(row.employee_id))));
+      const adjustmentIds = Array.from(new Set((data ?? []).map((row) => Number(row.id))));
+      const [peopleResult, repaymentResult] = await Promise.all([
+        employeeIds.length ? supabaseAdmin().from("employees")
+          .select("id,tenant_id,site_id,full_name,job_title,employment_status")
+          .eq("tenant_id", access.tenantId).in("id", employeeIds)
+          .or(`site_id.eq.${input.siteId},site_id.is.null`) : Promise.resolve({ data: [], error: null }),
+        adjustmentIds.length ? supabaseAdmin().from("employee_adjustment_repayments")
+          .select("id,tenant_id,adjustment_id,repayment_method,amount,company_account_id,payroll_run_id,payment_date,reference_no,created_at")
+          .eq("tenant_id", access.tenantId).in("adjustment_id", adjustmentIds)
+          .order("payment_date", { ascending: false }).limit(2000) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (peopleResult.error || repaymentResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص السلف أو السداد." });
+      const people = new Map((peopleResult.data ?? []).map((row) => [Number(row.id), row]));
+      const repayments = new Map<number, Array<Record<string, unknown>>>();
+      for (const payment of repaymentResult.data ?? []) {
+        const key = Number(payment.adjustment_id);
+        const rows = repayments.get(key) ?? [];
+        rows.push({
+          id: Number(payment.id), amount: String(payment.amount), repaymentMethod: payment.repayment_method,
+          companyAccountId: payment.company_account_id === null ? null : Number(payment.company_account_id),
+          accountTransactionId: null, payrollRunId: payment.payroll_run_id === null ? null : Number(payment.payroll_run_id),
+          paymentDate: payment.payment_date, referenceNo: null, notes: null, createdByUserId: null,
+          createdAt: new Date(payment.created_at),
+        });
+        repayments.set(key, rows);
+      }
+      return (data ?? []).flatMap((row) => {
+        const person = people.get(Number(row.employee_id));
+        if (!person) return [];
+        return [{
+          adjustment: {
+            id: Number(row.id), tenantId: Number(row.tenant_id), employeeId: Number(row.employee_id),
+            siteId: Number(row.site_id), adjustmentType: "advance", advanceKind: row.advance_kind,
+            monthlyDeduction: row.monthly_deduction === null ? null : String(row.monthly_deduction),
+            amount: String(row.amount), remainingAmount: String(row.remaining_amount), reason: null,
+            status: row.status, createdByUserId: null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+          },
+          employee: {
+            id: Number(person.id), tenantId: Number(person.tenant_id),
+            siteId: person.site_id === null ? null : Number(person.site_id), fullName: person.full_name,
+            jobTitle: person.job_title, employmentStatus: person.employment_status,
+          },
+          repayments: repayments.get(Number(row.id)) ?? [],
+        }];
+      });
     }),
     listEmployeeAdvances: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
@@ -4462,6 +5242,20 @@ export const powerhubRouter = router({
         const employee = peopleById.get(Number(item.employee_id));
         return employee ? [{ item: { id: Number(item.id), payrollRunId: Number(item.payroll_run_id), employeeId: Number(item.employee_id), baseAmount: String(item.base_amount), extraAmount: String(item.extra_amount), advanceDeduction: String(item.advance_deduction), otherDeduction: String(item.other_deduction), netAmount: String(item.net_amount), notes: item.notes }, employee: { id: Number(employee.id), fullName: employee.full_name, jobTitle: employee.job_title } }] : [];
       }).sort((left, right) => left.employee.fullName.localeCompare(right.employee.fullName, "ar"));
+    }),
+    offlinePayrollRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");
+      const { data, error } = await supabaseAdmin().from("payroll_runs")
+        .select("id,tenant_id,site_id,period,status,total_gross,total_deductions,total_net,paid_at,created_at,updated_at")
+        .eq("tenant_id", access.tenantId).or(`site_id.eq.${input.siteId},site_id.is.null`)
+        .order("period", { ascending: false }).limit(120);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص كشوف الرواتب الآمن." });
+      return (data ?? []).map((row) => ({
+        id: Number(row.id), tenantId: Number(row.tenant_id), siteId: row.site_id === null ? null : Number(row.site_id),
+        period: row.period, status: row.status, totalGross: String(row.total_gross),
+        totalDeductions: String(row.total_deductions), totalNet: String(row.total_net),
+        paidAt: row.paid_at ? new Date(row.paid_at) : null, createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at),
+      }));
     }),
     listPayrollRuns: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "accountant"], "managePayroll");

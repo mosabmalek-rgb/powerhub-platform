@@ -22,7 +22,9 @@ describe("escapeHtml", () => {
     const reports = readFileSync(resolve(process.cwd(), "client/src/pages/ReportsPage.tsx"), "utf8");
 
     expect(payroll).toContain("escapeHtml(run.period)");
-    expect(payroll).toContain("escapeHtml(selectedRun?.period ?? period)");
+    expect(payroll).toContain("const selectedPeriod = source.mode === \"details\" ? source.selectedRun.period : period");
+    expect(payroll).toContain("escapeHtml(selectedPeriod)");
+    expect(payroll).toContain("getVerifiedPayrollExportSource");
     expect(operations).toContain('escapeHtml(paymentPeriod === "today" ? "اليوم"');
     expect(operations).toContain("escapeHtml(siteName)");
     expect(operations).toContain("escapeHtml(cell)");

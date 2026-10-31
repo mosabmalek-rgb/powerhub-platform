@@ -3,6 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { toast } from "sonner";
 import { Boxes, ClipboardList, Loader2, Pencil, RefreshCw, Save, TrendingDown, X } from "lucide-react";
 
@@ -86,20 +89,6 @@ function newOperationKey() {
     : String(Date.now()) + "-" + Math.random().toString(36).slice(2);
   return "stock-movement:" + token;
 }
-function getOrCreateOperationKey(storageKey: string) {
-  if (typeof window === "undefined") return newOperationKey();
-  try {
-    const existing = window.sessionStorage.getItem(storageKey);
-    if (existing) return existing;
-    const created = newOperationKey();
-    window.sessionStorage.setItem(storageKey, created);
-    return created;
-  } catch { return newOperationKey(); }
-}
-function clearOperationKey(storageKey: string) {
-  if (typeof window === "undefined") return;
-  try { window.sessionStorage.removeItem(storageKey); } catch { /* optional browser storage */ }
-}
 function fmtQty(value: unknown) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number.toLocaleString("ar-PS", { maximumFractionDigits: 3 }) : "—";
@@ -118,7 +107,16 @@ export default function InventoryStockOperationsPanel({
   canViewInventoryReports,
 }: Props) {
   const utils = trpc.useUtils();
-  const storageKey = "powerhub:inventory:" + siteId + ":stock-movement";
+  const { user } = useAuth();
+  const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
+  const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
+  const ensureServerWriteAllowed = () => {
+    if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
+      toast.error("يلزم اتصال موثوق بخادم PowerHub لتنفيذ هذه العملية؛ لم تُرحّل أي حركة.");
+      return false;
+    }
+    return true;
+  };
   const allowedTypes = useMemo<MovementType[]>(() => [
     ...(canIssueInventory ? ["issue" as const] : []),
     ...(canAdjustInventory ? ["opening_balance" as const, "adjustment_in" as const, "adjustment_out" as const] : []),
@@ -133,7 +131,6 @@ export default function InventoryStockOperationsPanel({
   const [unitCost, setUnitCost] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
   const [notes, setNotes] = useState("");
-  const [operationKey, setOperationKey] = useState(() => getOrCreateOperationKey(storageKey));
   const [stockSearch, setStockSearch] = useState("");
   const [returningMovement, setReturningMovement] = useState<StockMovementRow | null>(null);
   const [returnQuantity, setReturnQuantity] = useState("");
@@ -182,10 +179,6 @@ export default function InventoryStockOperationsPanel({
       setItemId(String(eligibleItems[0].id));
     } else if (!eligibleItems.length && itemId) setItemId("");
   }, [eligibleItems, itemId]);
-  useEffect(() => {
-    setOperationKey(getOrCreateOperationKey(storageKey));
-  }, [storageKey]);
-
   const stockRows = (stock.data ?? []) as StockOverviewRow[];
   const movementRows = (movements.data ?? []) as StockMovementRow[];
   const selectedStock = stockRows.find((row) => String(row.warehouse_id) === warehouseId && String(row.item_id) === itemId);
@@ -206,17 +199,12 @@ export default function InventoryStockOperationsPanel({
     onSuccess: async (result) => {
       toast.success(result.replayed ? "تم التحقق من الحركة السابقة دون تكرار الكمية." :
         "تم تسجيل الحركة: " + (movementLabels[result.movement_type as MovementType] ?? result.movement_type));
-      clearOperationKey(storageKey);
-      const nextKey = newOperationKey();
-      setOperationKey(nextKey);
-      try { window.sessionStorage.setItem(storageKey, nextKey); } catch { /* optional browser storage */ }
       setQuantity("");
       setUnitCost("");
       setReferenceNo("");
       setNotes("");
       await refreshStock();
     },
-    onError: (error) => toast.error(error.message || "تعذر تسجيل حركة المخزون."),
   });
 
   const returnFromIssue = trpc.powerhub.inventory.returnFromIssue.useMutation({
@@ -231,7 +219,6 @@ export default function InventoryStockOperationsPanel({
       setReturnOperationKey("");
       await refreshStock();
     },
-    onError: (error) => toast.error(error.message || "تعذر إرجاع الصرف إلى المخزون."),
   });
 
   const beginReturnFromIssue = (movement: StockMovementRow) => {
@@ -246,6 +233,7 @@ export default function InventoryStockOperationsPanel({
 
   const submitReturnFromIssue = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!returningMovement || !returnOperationKey) return;
     const quantity = Number(returnQuantity);
     const returnable = Number(returningMovement.returnable_quantity ?? 0);
@@ -254,11 +242,16 @@ export default function InventoryStockOperationsPanel({
       toast.error("أدخل كمية صحيحة لا تتجاوز المتبقي القابل للإرجاع: " + fmtQty(returnable)); return;
     }
     if (returnReason.trim().length < 3) { toast.error("أدخل سببًا واضحًا للإرجاع."); return; }
-    returnFromIssue.mutate({
+    const userId = Number(user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) { toast.error("تعذر تحديد مستخدم الجلسة؛ لم يُرسل المرتجع."); return; }
+    const payload = {
       siteId, sourceIssueMovementId: returningMovement.movement_id, quantity,
       reason: returnReason.trim(), referenceNo: returnReferenceNo.trim() || undefined,
-      notes: returnNotes.trim() || undefined, operationKey: returnOperationKey,
-    });
+      notes: returnNotes.trim() || undefined,
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "inventory_issue_return", payload },
+      (operationKey) => returnFromIssue.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر إرجاع الصرف إلى المخزون."));
   };
 
   const correctMovement = trpc.powerhub.inventory.correctStockMovement.useMutation({
@@ -270,7 +263,6 @@ export default function InventoryStockOperationsPanel({
       setEditOperationKey("");
       await refreshStock();
     },
-    onError: (error) => toast.error(error.message || "تعذر تصحيح حركة المخزون."),
   });
 
   const beginEditMovement = (movement: StockMovementRow) => {
@@ -286,6 +278,7 @@ export default function InventoryStockOperationsPanel({
 
   const submitMovementCorrection = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!editingMovement || !editOperationKey) return;
     const amount = Number(editQuantity);
     const cost = editUnitCost.trim() ? Number(editUnitCost) : undefined;
@@ -297,17 +290,22 @@ export default function InventoryStockOperationsPanel({
       toast.error("أدخل تكلفة وحدة صحيحة حتى أربع منازل عشرية."); return;
     }
     if (editReason.trim().length < 3) { toast.error("أدخل سببًا واضحًا للتعديل."); return; }
-    correctMovement.mutate({
+    const userId = Number(user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) { toast.error("تعذر تحديد مستخدم الجلسة؛ لم يُرسل التصحيح."); return; }
+    const payload = {
       siteId, movementId: editingMovement.movement_id, quantity: amount,
       unitCost: editingMovement.movement_type === "adjustment_in" ? cost : undefined,
       referenceNo: editReferenceNo.trim() || undefined,
-      notes: editNotes.trim() || undefined,
-      reason: editReason.trim(), operationKey: editOperationKey,
-    });
+      notes: editNotes.trim() || undefined, reason: editReason.trim(),
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "inventory_movement_correction", payload },
+      (operationKey) => correctMovement.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تصحيح حركة المخزون."));
   };
 
   const submitMovement = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     const amount = Number(quantity);
     const cost = unitCost.trim() ? Number(unitCost) : undefined;
     if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 1000 - Math.round(amount * 1000)) > 1e-7) {
@@ -331,18 +329,22 @@ export default function InventoryStockOperationsPanel({
     if (!warehouseId || !itemId) { toast.error("اختر المخزن والصنف."); return; }
     if (movementType === "fuel_consumption" && !generatorId) { toast.error("اختر المولد المرتبط باستهلاك الوقود."); return; }
 
-    recordMovement.mutate({
+    const userId = Number(user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) { toast.error("تعذر تحديد مستخدم الجلسة؛ لم تُرسل الحركة."); return; }
+    const payload = {
       siteId, warehouseId: Number(warehouseId), itemId: Number(itemId), movementType,
       quantity: amount, unitCost: cost,
       generatorId: generatorId ? Number(generatorId) : undefined,
-      referenceNo: referenceNo.trim() || undefined,
-      notes: notes.trim() || undefined,
-      operationKey,
-    });
+      referenceNo: referenceNo.trim() || undefined, notes: notes.trim() || undefined,
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "inventory_stock_movement", payload },
+      (operationKey) => recordMovement.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل حركة المخزون."));
   };
 
   return (
     <div className="space-y-4">
+      {serverWriteBlocked ? <p role="status" className="rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">يُسمح باستعراض اللقطات المحلية، لكن حركات الصرف والتسوية والتصحيح والإرجاع تتطلب اتصالًا موثوقًا بالخادم.</p> : null}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
           <div>
@@ -431,7 +433,7 @@ export default function InventoryStockOperationsPanel({
               <Input maxLength={2000} value={notes} onChange={(event) => setNotes(event.target.value)} required={["opening_balance", "adjustment_in", "adjustment_out"].includes(movementType)} placeholder={movementType === "fuel_consumption" ? "مثال: تعبئة مولد الفرع" : movementType === "issue" ? "سبب الصرف أو أمر العمل" : "سبب الجرد والتسوية"} />
             </label>
             <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">{movementDescriptions[movementType]}</div>
-            <div><Button type="submit" disabled={recordMovement.isPending || warehouses.isLoading || items.isLoading || !warehouseId || !itemId}>
+            <div><Button type="submit" disabled={serverWriteBlocked || recordMovement.isPending || warehouses.isLoading || items.isLoading || !warehouseId || !itemId}>
               {recordMovement.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} تسجيل الحركة
             </Button></div>
           </form>
@@ -478,7 +480,7 @@ export default function InventoryStockOperationsPanel({
             <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
               لا يمكن تعديل حركة سبقها صرف أو حركة أحدث للصنف نفسه، أو حركة مرتبطة بفاتورة مشتريات أو مرتجع مورد أو فترة مالية مقفلة.
             </div>
-            <div><Button type="submit" disabled={correctMovement.isPending || !editOperationKey}>
+            <div><Button type="submit" disabled={serverWriteBlocked || correctMovement.isPending || !editOperationKey}>
               {correctMovement.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} حفظ التصحيح
             </Button></div>
           </form>
@@ -510,7 +512,7 @@ export default function InventoryStockOperationsPanel({
             <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
               تُحسب تكلفة المرتجع من تكلفة الصرف الأصلي وتُوزّع فروق التقريب تراكميًا. لا يمكن تجاوز الكمية المصروفة أو إرجاع الكمية نفسها مرتين.
             </div>
-            <div><Button type="submit" disabled={returnFromIssue.isPending || !returnOperationKey}>
+            <div><Button type="submit" disabled={serverWriteBlocked || returnFromIssue.isPending || !returnOperationKey}>
               {returnFromIssue.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} تأكيد الإرجاع
             </Button></div>
           </form>

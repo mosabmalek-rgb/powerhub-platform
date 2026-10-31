@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { TRPCError } from "@trpc/server";
 
 const state = vi.hoisted(() => ({
@@ -16,6 +18,10 @@ vi.mock("./supabase-admin", () => ({
 }));
 
 const deniedCases = [
+  { procedure: "listGenerators", capability: "viewInventory", input: { siteId: 7 } },
+  { procedure: "listWorkOrders", capability: "viewInventory", input: { siteId: 7 } },
+  { procedure: "listPreventivePlans", capability: "viewInventory", input: { siteId: 7 } },
+  { procedure: "listParts", capability: "viewInventory", input: { siteId: 7, workOrderId: 8 } },
   { procedure: "listAssignableSuppliers", capability: "manageMaintenance", input: { siteId: 7 } },
   { procedure: "reportByGenerator", capability: "viewInventoryReports", input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23" } },
   { procedure: "assignSupplier", capability: "manageMaintenance", input: { siteId: 7, workOrderId: 8, supplierId: 12, operationKey: "maint:assign:01" } },
@@ -46,6 +52,50 @@ describe("PowerHub maintenance router capability denials", () => {
       expect(state.rpc).not.toHaveBeenCalled();
     },
   );
+
+  it("denies every maintenance read route before querying when neither inventory view nor maintenance access is granted", async () => {
+    const readCases = [
+      { procedure: "listGenerators", input: { siteId: 7 } },
+      { procedure: "listWorkOrders", input: { siteId: 7 } },
+      { procedure: "listPreventivePlans", input: { siteId: 7 } },
+      { procedure: "listParts", input: { siteId: 7, workOrderId: 8 } },
+    ] as const;
+
+    for (const { procedure, input } of readCases) {
+      state.from.mockClear();
+      state.rpc.mockClear();
+      state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+
+      const { powerhubMaintenanceRouter } = await import("./powerhub-maintenance-router");
+      const route = (powerhubMaintenanceRouter as any)._def.record[procedure];
+
+      await expect(route._def.resolver({ ctx: { user: { id: 701 } }, input }))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(state.access).toHaveBeenNthCalledWith(1, 701, input.siteId, expect.any(Array), "viewInventory");
+      expect(state.access).toHaveBeenNthCalledWith(2, 701, input.siteId, expect.any(Array), "manageMaintenance");
+      expect(state.from).not.toHaveBeenCalled();
+      expect(state.rpc).not.toHaveBeenCalled();
+    }
+  });
+
+  it("tracks every maintenance mutation in the primary capability-denial matrix", () => {
+    const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.ts"), "utf8");
+    const declarations = [...routerSource.matchAll(/^  ([A-Za-z_][A-Za-z0-9_]*): authenticatedProcedure/gm)];
+    const mutationProcedures = declarations.filter((declaration, index) => {
+      const end = declarations[index + 1]?.index ?? routerSource.length;
+      return routerSource.slice(declaration.index, end).includes(".mutation(");
+    }).map((declaration) => declaration[1]).sort();
+    const deniedMutationProcedures = deniedCases
+      .filter((entry) => mutationProcedures.includes(entry.procedure))
+      .map((entry) => entry.procedure)
+      .sort();
+
+    expect(new Set(deniedMutationProcedures).size).toBe(deniedMutationProcedures.length);
+    expect(deniedMutationProcedures).toEqual(mutationProcedures);
+    expect(deniedCases.some((entry) => entry.procedure === "addPart" && entry.capability === "manageMaintenance")).toBe(true);
+    expect(deniedCases.some((entry) => entry.procedure === "transitionWorkOrder" && entry.capability === "manageMaintenance")).toBe(true);
+  });
 
   it("requires issueInventory in addition to manageMaintenance before adding a part", async () => {
     state.from.mockClear();
@@ -91,5 +141,16 @@ describe("PowerHub maintenance router capability denials", () => {
       expect(state.rpc).not.toHaveBeenCalled();
       expect(state.from).not.toHaveBeenCalled();
     },
-  );
+  ); 
+  it("tracks the secondary permissions that gate stock issue and maintenance cost posting", () => {
+    const testSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.test.ts"), "utf8");
+    const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.ts"), "utf8");
+    expect(routerSource).toContain('!access.permissions.includes("issueInventory")');
+    expect(routerSource).toContain('!access.permissions.includes("manageExpenses")');
+    expect(testSource).toContain("requires issueInventory in addition to manageMaintenance before adding a part");
+    expect(testSource).toContain("denies $action cost changes without manageExpenses");
+    expect(testSource).toContain('{ action: "complete", laborCost: 75 }');
+    expect(testSource).toContain('{ action: "correct_completion", externalServiceCost: 25 }');
+  });
+
 });

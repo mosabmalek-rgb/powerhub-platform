@@ -13,6 +13,7 @@ import OwnerSubscriptionRegistration from "./OwnerSubscriptionRegistration";
 import PlatformTweetSmsReport from "./PlatformTweetSmsReport";
 import GeneratorOperationsInspector from "./GeneratorOperationsInspector";
 import PlatformAccessPanel from "./PlatformAccessPanel";
+import TenantAccessInvitationPanel from "./TenantAccessInvitationPanel";
 import SupportCenterPage from "./SupportCenterPage";
 import { Building2, CalendarClock, CheckCircle2, CircleDollarSign, FileDown, FileSpreadsheet, FileText, Loader2, MessageSquareText, Plus, RefreshCw, ShieldAlert, UsersRound, KeyRound, Copy } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -104,7 +105,7 @@ export default function AdminConsolePage() {
     {tab === "generators" && <><GeneratorDirectorySearch rows={snapshot.data?.generators?.directory ?? []} /><GeneratorsCenter data={snapshot.data?.generators} pending={setGeneratorStatus.isPending || approvePendingGenerator.isPending} onStatus={setGeneratorStatus.mutate} onApprove={approvePendingGenerator.mutate} /><GeneratorOperationsInspector rows={snapshot.data?.generators?.directory ?? []} /></>}
     {tab === "ownerSubscription" && <OwnerSubscriptionRegistration rows={owners.data ?? []} pending={createOwnerSubscription.isPending} onCreate={createOwnerSubscription.mutateAsync} creationAvailable={true} onGoToFinance={() => setTab("finance")} />}
     {tab === "subscriptionRequests" && <SubscriptionUpgradeRequestsPanel />}
-    {tab === "users" && <><HideUnusedSubscriberOverview /><UsersCenter userSummary={snapshot.data?.users} pending={setTenantMembershipStatus.isPending || setPlatformAccountStatus.isPending} onTenantStatus={setTenantMembershipStatus.mutate} onPlatformStatus={setPlatformAccountStatus.mutate} canManagePlatformAccounts={isPlatformOwner} canResetPasswords={isPlatformAdmin} /><OwnerLifecyclePanel /></>}
+    {tab === "users" && <><HideUnusedSubscriberOverview /><TenantAccessInvitationPanel tenants={owners.data ?? []} tenantsLoading={owners.isLoading} tenantsError={owners.isError} invitations={((snapshot.data?.users?.directory ?? []).filter((row: any) => row?.kind === "tenant" && row.invitationStatus === "invited") as any[])} /><UsersCenter userSummary={snapshot.data?.users} pending={setTenantMembershipStatus.isPending || setPlatformAccountStatus.isPending} onTenantStatus={setTenantMembershipStatus.mutate} onPlatformStatus={setPlatformAccountStatus.mutate} canManagePlatformAccounts={isPlatformOwner} canResetPasswords={isPlatformAdmin} /><OwnerLifecyclePanel /></>}
     {tab === "supportChat" && <SupportCenterPage embedded />}
     {tab === "finance" && <FinanceCenter data={snapshot.data?.finance} rows={owners.data ?? []} plans={smsPlans.data ?? []} packages={packageCatalog.data?.packages ?? []} pending={updateSubscription.isPending || renewSubscription.isPending} onUpdate={updateSubscription.mutate} onRenew={renewSubscription.mutateAsync} />}
     {tab === "reports" && <><AdminReportsExports rows={reportRows} /><ReportsTab rows={reportRows} onDownload={downloadCsv} data={snapshot.data?.reports} generators={snapshot.data?.generators} /></>}

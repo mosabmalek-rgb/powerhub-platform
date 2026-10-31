@@ -14,6 +14,48 @@ const storeName = "snapshots";
 export const OFFLINE_REPORT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_REPORT_SNAPSHOTS = 50;
 
+/**
+ * Persist only the approved aggregate report projection. Per-subscriber debt,
+ * invoice/payment details and named collector rows must remain server-only.
+ */
+export function createOfflineReportSnapshotPayload(report: unknown): unknown {
+  if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+  const source = report as Record<string, unknown>;
+  const safe: Record<string, unknown> = {};
+  for (const key of ["range", "summary", "scope", "branchSummaries"] as const) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) safe[key] = source[key];
+  }
+  return safe;
+}
+
+
+export type ReportSnapshotScope = Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">;
+
+/**
+ * Returns a persisted report only for the exact active identity and filter scope.
+ * Financial report snapshots must not bleed between users, branches, periods or
+ * report scopes when filters change before IndexedDB finishes loading.
+ */
+export function getUsableReportSnapshot(
+  snapshot: CachedReportSnapshot | null | undefined,
+  input: ReportSnapshotScope,
+  options: { authorizationDenied?: boolean; accessAllowed?: boolean; now?: number } = {},
+): CachedReportSnapshot | undefined {
+  const now = options.now ?? Date.now();
+  if (options.authorizationDenied || options.accessAllowed === false || !snapshot) return undefined;
+  if (snapshot.key !== cacheKey(input) ||
+      snapshot.userId !== input.userId ||
+      snapshot.siteId !== input.siteId ||
+      snapshot.scope !== input.scope ||
+      snapshot.startDate !== input.startDate ||
+      snapshot.endDate !== input.endDate) return undefined;
+  if (!Number.isFinite(snapshot.savedAt) || snapshot.savedAt > now ||
+      now - snapshot.savedAt >= OFFLINE_REPORT_CACHE_TTL_MS) return undefined;
+  // Re-sanitize here as a second boundary: callers must never receive a legacy
+  // snapshot containing debtor, collector, invoice, or payment detail fields.
+  return { ...snapshot, report: createOfflineReportSnapshotPayload(snapshot.report) };
+}
+
 function cacheKey(input: Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">) {
   return [input.userId, input.siteId, input.scope, input.startDate, input.endDate].join(":");
 }
@@ -32,16 +74,39 @@ async function request<T>(mode: IDBTransactionMode, callback: (store: IDBObjectS
   const database = await openDatabase();
   return new Promise<T>((resolve, reject) => {
     const transaction = database.transaction(storeName, mode);
-    const operation = callback(transaction.objectStore(storeName));
-    operation.onsuccess = () => resolve(operation.result);
-    operation.onerror = () => reject(operation.error ?? new Error("تعذر تحديث لقطة التقرير المحلية."));
-    transaction.oncomplete = () => database.close();
-    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error("تعذر حفظ لقطة التقرير المحلية.")); };
+    let result!: T;
+    let settled = false;
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      database.close();
+      reject(error);
+    };
+    let operation: IDBRequest<T>;
+    try {
+      operation = callback(transaction.objectStore(storeName));
+    } catch (error) {
+      try { transaction.abort(); } catch { /* the transaction may already be inactive */ }
+      fail(error instanceof Error ? error : new Error("تعذر تحديث لقطة التقرير المحلية."));
+      return;
+    }
+    operation.onsuccess = () => { result = operation.result; };
+    operation.onerror = () => {
+      fail(operation.error ?? new Error("تعذر تحديث لقطة التقرير المحلية."));
+    };
+    transaction.oncomplete = () => {
+      if (settled) return;
+      settled = true;
+      database.close();
+      resolve(result);
+    };
+    transaction.onerror = () => fail(transaction.error ?? new Error("تعذر حفظ لقطة التقرير المحلية."));
+    transaction.onabort = () => fail(transaction.error ?? new Error("تم إلغاء معاملة لقطة التقرير المحلية."));
   });
 }
 
 export async function saveReportSnapshot(input: Omit<CachedReportSnapshot, "key" | "savedAt">) {
-  const snapshot: CachedReportSnapshot = { ...input, key: cacheKey(input), savedAt: Date.now() };
+  const snapshot: CachedReportSnapshot = { ...input, report: createOfflineReportSnapshotPayload(input.report), key: cacheKey(input), savedAt: Date.now() };
   await request("readwrite", (store) => store.put(snapshot));
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
@@ -66,9 +131,18 @@ export async function saveReportSnapshot(input: Omit<CachedReportSnapshot, "key"
 export async function loadReportSnapshot(input: Pick<CachedReportSnapshot, "userId" | "siteId" | "scope" | "startDate" | "endDate">) {
   const snapshot = await request<CachedReportSnapshot | undefined>("readonly", (store) => store.get(cacheKey(input)));
   if (!snapshot) return undefined;
-  if (!Number.isFinite(snapshot.savedAt) || Date.now() - snapshot.savedAt >= OFFLINE_REPORT_CACHE_TTL_MS) {
+  if (!Number.isFinite(snapshot.savedAt) || snapshot.savedAt > Date.now() ||
+      Date.now() - snapshot.savedAt >= OFFLINE_REPORT_CACHE_TTL_MS) {
     await request("readwrite", (store) => store.delete(snapshot.key));
     return undefined;
   }
-  return snapshot;
+  // Sanitize legacy snapshots written before aggregate-only persistence was enforced.
+  const safeSnapshot: CachedReportSnapshot = {
+    ...snapshot,
+    report: createOfflineReportSnapshotPayload(snapshot.report),
+  };
+  if (JSON.stringify(safeSnapshot.report) !== JSON.stringify(snapshot.report)) {
+    await request("readwrite", (store) => store.put(safeSnapshot));
+  }
+  return safeSnapshot;
 }

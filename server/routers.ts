@@ -9,6 +9,7 @@ import { powerhubDashboardRouter } from "./powerhub-dashboard";
 import { adminRouterWithSupabasePlatformSetting } from "./admin-platform-setting-router";
 import { adminRolePolicyRouter } from "./admin-role-policy-router";
 import { supabaseAdmin } from "./supabase-admin";
+import { claimPowerHubDevice } from "./auth-device-claim";
 import { supportRouter } from "./support-router";
 import { aiSupportRouter } from "./ai-support-router";
 import { platformAnnouncementsRouter } from "./platform-announcements-router";
@@ -39,14 +40,13 @@ export const appRouter = router({
     claimDevice: publicProcedure.input(z.object({ deviceId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
       if (ctx.authError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الدخول مؤقتًا. أعد المحاولة." });
       if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "يجب تسجيل الدخول أولاً." });
-      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
-        p_user_id: ctx.user.openId,
-        p_device_id: input.deviceId,
-        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      await claimPowerHubDevice({
+        operation: "auth.claimDevice",
+        userId: ctx.user.openId,
+        deviceId: input.deviceId,
+        rpcErrorMessage: "تعذر تثبيت جهاز الدخول.",
+        timeoutMessage: "انتهت مهلة تثبيت جهاز الدخول. أعد المحاولة.",
       });
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تثبيت جهاز الدخول." });
-      const row = Array.isArray(data) ? data[0] : null;
-      if (!row?.allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
       return { allowed: true } as const;
     }),
     releaseDevice: authenticatedProcedure.mutation(async ({ ctx }) => {
@@ -67,16 +67,13 @@ export const appRouter = router({
       if (typeof deviceId !== "string" || !z.string().uuid().safeParse(deviceId).success) {
         throw new TRPCError({ code: "FORBIDDEN", message: "تعذر التحقق من جهاز الدخول." });
       }
-      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
-        p_user_id: ctx.user.openId,
-        p_device_id: deviceId,
-        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      await claimPowerHubDevice({
+        operation: "auth.me",
+        userId: ctx.user.openId,
+        deviceId,
+        rpcErrorMessage: "تعذر التحقق من جلسة الجهاز.",
+        timeoutMessage: "انتهت مهلة التحقق من جلسة الجهاز. أعد المحاولة.",
       });
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
-      const row = Array.isArray(data) ? data[0] : null;
-      if (!row?.allowed) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
-      }
       return ctx.user;
     }),
     logout: publicProcedure.mutation(({ ctx }) => {

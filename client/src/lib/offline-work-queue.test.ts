@@ -1,8 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { canRequeueFailedOfflineWork, canRequeueOfflineWorkForManualRecovery, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
+import { canCoalesceOfflineStocktakeCount, canRequeueFailedOfflineWork, canRequeueOfflineWorkForManualRecovery, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft, type ExpenseCreateDraft, type InventoryStocktakeCountDraft } from "./offline-work-queue";
 import { SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
 
 describe("طابور المسودات دون اتصال", () => {
+
+  it("keeps stocktake counts as scoped pending Outbox intents and coalesces only before dispatch", () => {
+    const payload: InventoryStocktakeCountDraft = {
+      stocktakeId: 501, itemId: 601, countedQuantity: 12.5, countedUnitCost: 3.25, countNotes: "shelf A",
+    };
+    const item = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "inventory_stocktake_count", payload,
+      clientOperationId: "stocktake-count:offline-1",
+    });
+    const metadata = createInitialSyncMetadataRecord(item);
+    const scope = { userId: 7, tenantId: 2, siteId: 3, stocktakeId: 501, itemId: 601 };
+    expect(item).toMatchObject({ status: "pending", kind: "inventory_stocktake_count", clientOperationId: "stocktake-count:offline-1" });
+    expect(canCoalesceOfflineStocktakeCount(item, metadata, scope)).toBe(true);
+    expect(canCoalesceOfflineStocktakeCount({ ...item, status: "failed" }, metadata, scope)).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, { ...metadata, outcome: "syncing" }, scope)).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, { ...metadata, attempts: 1 }, scope)).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, metadata, { ...scope, tenantId: 99 })).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, metadata, { ...scope, siteId: 8 })).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, { ...metadata, userId: 8 }, scope)).toBe(false);
+  });
   it("ينشئ معرف عملية ثابتاً داخل السجل ومعرفاً مختلفاً لكل مسودة", () => {
     const base = { userId: 7, siteId: 3, kind: "subscriber_create" as const, payload: { fullName: "أحمد علي", phone: "+970599000000", subscriptionType: "residential" as const } };
     const first = createOfflineWork(base);
@@ -98,5 +118,24 @@ describe("طابور المسودات دون اتصال", () => {
     const draft = createOfflineWork({ userId: 22, siteId: 8, kind: "generator_update", payload });
     expect(draft.payload).toEqual(payload);
     expect(draft.status).toBe("pending");
+  });
+});
+
+
+describe("expense Outbox intent", () => {
+  it("stores a pending expense request with a stable idempotency key and no local posting claim", () => {
+    const payload: ExpenseCreateDraft = {
+      companyAccountId: 4, category: "fuel", description: "شراء ديزل", amount: 125,
+      referenceNo: "LOCAL-REF",
+    };
+    const item = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "expense_create",
+      clientOperationId: "8b9fda8e-7d36-4f3b-9d95-3f3a0e30f5f0", payload,
+    });
+    expect(item).toMatchObject({
+      status: "pending", kind: "expense_create", clientOperationId: "8b9fda8e-7d36-4f3b-9d95-3f3a0e30f5f0",
+      payload: { companyAccountId: 4, amount: 125, description: "شراء ديزل" },
+    });
+    expect(item).not.toHaveProperty("appliedEntityId");
   });
 });

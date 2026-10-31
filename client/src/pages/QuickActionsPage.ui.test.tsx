@@ -16,6 +16,10 @@ const state = vi.hoisted(() => ({
   sitesError: false,
   accessError: false,
   preferencesError: false,
+  preservePreferencesOnError: false,
+  accessDenied: false,
+  isOnline: true,
+  isChecking: false,
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 9, role: "user" } }) }));
@@ -23,17 +27,18 @@ vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { child
 vi.mock("@/hooks/useBranchFilter", () => ({ useBranchFilter: () => ({ branchId: 1, setBranchId: vi.fn() }) }));
 vi.mock("wouter", () => ({ useLocation: () => ["/quick-actions", state.setLocation] }));
 vi.mock("sonner", () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/offline-connectivity", () => ({ usePowerHubConnectivity: () => ({ isOnline: state.isOnline, isChecking: state.isChecking, reconnectGeneration: 0 }) }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
-      sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: state.sitesError, refetch: state.refetchSites }) } },
-      staff: { myAccess: { useQuery: () => ({ data: state.access, isLoading: false, isError: state.accessError, refetch: state.refetchAccess }) } },
-      quickActions: { preferences: { useQuery: () => ({ data: { actionIds: state.preferences }, isLoading: false, isError: state.preferencesError, refetch: state.refetchPreferences }) }, savePreferences: { useMutation: () => ({ mutate: state.savePreferences, isPending: false }) } },
+      sites: { list: { useQuery: () => ({ data: state.sitesError ? undefined : [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: state.sitesError, error: state.sitesError ? new Error("فشل النقل") : undefined, refetch: state.refetchSites }) } },
+      staff: { myAccess: { useQuery: () => ({ data: state.accessError || state.accessDenied ? undefined : state.access, isLoading: false, isError: state.accessError || state.accessDenied, error: state.accessDenied ? { data: { code: "FORBIDDEN" } } : state.accessError ? new Error("فشل النقل") : undefined, refetch: state.refetchAccess }) } },
+      quickActions: { preferences: { useQuery: () => ({ data: state.preferencesError && !state.preservePreferencesOnError ? undefined : { actionIds: state.preferences }, isLoading: false, isError: state.preferencesError, error: state.preferencesError ? new Error("فشل النقل") : undefined, refetch: state.refetchPreferences }) }, savePreferences: { useMutation: () => ({ mutate: state.savePreferences, isPending: false }) } },
     },
   },
 }));
 
-afterEach(() => { state.access = { role: "owner", permissions: [] }; state.preferences = []; state.sitesError = false; state.accessError = false; state.preferencesError = false; state.setLocation.mockReset(); state.savePreferences.mockReset(); state.refetchPreferences.mockReset(); state.refetchSites.mockReset(); state.refetchAccess.mockReset(); document.body.innerHTML = ""; });
+afterEach(() => { state.access = { role: "owner", permissions: [] }; state.preferences = []; state.sitesError = false; state.accessError = false; state.preferencesError = false; state.preservePreferencesOnError = false; state.accessDenied = false; state.isOnline = true; state.isChecking = false; state.setLocation.mockReset(); state.savePreferences.mockReset(); state.refetchPreferences.mockReset(); state.refetchSites.mockReset(); state.refetchAccess.mockReset(); document.body.innerHTML = ""; });
 
 describe("شاشة الإجراءات السريعة", () => {
   it("تجمع الإجراءات التشغيلية الرئيسية وتفتح التحصيل ضمن المسار الصحيح", () => {
@@ -172,5 +177,39 @@ describe("شاشة الإجراءات السريعة", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة تسجيل مصروف" }));
     fireEvent.click(screen.getByRole("button", { name: "حفظ اختصاراتي" }));
     expect(state.savePreferences).toHaveBeenCalledWith({ siteId: 1, actionIds: ["collect_payment", "add_subscriber", "record_expense"] });
+  });
+
+  it("shows only safe recovery links when opened offline without a permission snapshot", () => {
+    state.isOnline = false;
+    state.isChecking = false;
+    state.accessError = true;
+    state.preferencesError = true;
+    render(<QuickActionsPage />);
+    expect(screen.getByRole("heading", { name: "مسارات آمنة أثناء انقطاع الاتصال" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "مركز المسودات دون اتصال" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "العودة إلى لوحة التحكم" })).toBeInTheDocument();
+    expect(screen.queryByText("إضافة مشترك", { exact: true })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "مركز المسودات دون اتصال" }));
+    expect(state.setLocation).toHaveBeenLastCalledWith("/offline-sync");
+  });
+
+  it("preserves an already-loaded session snapshot during transient failure but disables offline edits", () => {
+    state.isOnline = false;
+    state.preferencesError = true;
+    state.preservePreferencesOnError = true;
+    state.preferences = ["collect_payment"];
+    render(<QuickActionsPage />);
+    expect(screen.getByRole("status")).toHaveTextContent("سبق تحميلها في هذه الجلسة");
+    expect(screen.getByText("تحصيل دين")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تخصيص اختصاراتي" })).toBeDisabled();
+  });
+
+  it("does not fall back to safe recovery after an explicit server denial", () => {
+    state.isOnline = false;
+    state.accessDenied = true;
+    render(<QuickActionsPage />);
+    expect(screen.getByRole("alert")).toHaveTextContent("رفض الخادم الوصول إلى هذا الفرع");
+    expect(screen.queryByRole("heading", { name: "مسارات آمنة أثناء انقطاع الاتصال" })).not.toBeInTheDocument();
+    expect(screen.queryByText("إضافة مشترك", { exact: true })).not.toBeInTheDocument();
   });
 });

@@ -5,16 +5,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 
 type Props = { siteId: number; isAuthenticated: boolean; canAdjustInventory: boolean };
-function operationKey() {
-  const id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2);
-  return "stock-transfer:" + id;
-}
 
 export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticated, canAdjustInventory }: Props) {
+  const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
+  const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
+  const ensureServerWriteAllowed = () => {
+    if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
+      toast.error("يلزم اتصال موثوق بخادم PowerHub؛ لم يُرحّل أي تحويل مخزني.");
+      return false;
+    }
+    return true;
+  };
   const utils = trpc.useUtils();
+  const { user } = useAuth();
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery(
     { siteId }, { enabled: Boolean(siteId && isAuthenticated), staleTime: 30_000 },
   );
@@ -27,7 +35,7 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
   const [quantity, setQuantity] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
   const [notes, setNotes] = useState("");
-  const [key, setKey] = useState(operationKey);
+
   useEffect(() => {
     if (!items.data?.some((item) => String(item.id) === itemId) && items.data?.[0]) setItemId(String(items.data[0].id));
   }, [items.data, itemId]);
@@ -52,17 +60,17 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
         ? "تم التحقق من التحويل السابق دون تكرار الحركة."
         : "تم التحويل بنجاح؛ رقم العملية " + result.transfer_id + "، والتكلفة " +
           Number(result.total_cost_amount ?? 0).toLocaleString("ar-PS", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ".");
-      setQuantity(""); setReferenceNo(""); setNotes(""); setKey(operationKey());
+      setQuantity(""); setReferenceNo(""); setNotes("");
       await Promise.all([
         utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
         utils.powerhub.inventory.listStockMovements.invalidate({ siteId }),
       ]);
     },
-    onError: (error) => toast.error(error.message || "تعذر تنفيذ التحويل المخزني."),
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!itemId || !sourceWarehouseId || !destinationWarehouseId || sourceWarehouseId === destinationWarehouseId) {
       toast.error("اختر الصنف ومخزنين مختلفين."); return;
     }
@@ -70,11 +78,19 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || Math.abs(parsedQuantity * 1000 - Math.round(parsedQuantity * 1000)) > 1e-7) {
       toast.error("أدخل كمية موجبة لا تتجاوز ثلاث منازل عشرية."); return;
     }
-    transfer.mutate({
+    const userId = Number(user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      toast.error("تعذر تحديد مستخدم الجلسة؛ لم يُرسل التحويل المخزني.");
+      return;
+    }
+    const payload = {
       siteId, itemId: Number(itemId), sourceWarehouseId: Number(sourceWarehouseId),
-      destinationWarehouseId: Number(destinationWarehouseId), quantity: parsedQuantity, operationKey: key,
+      destinationWarehouseId: Number(destinationWarehouseId), quantity: parsedQuantity,
       referenceNo: referenceNo.trim() || undefined, notes: notes.trim() || undefined,
-    });
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "inventory_stock_transfer", payload },
+      (operationKey) => transfer.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تنفيذ التحويل المخزني."));
   };
 
   return <Card>
@@ -85,6 +101,7 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
       </div>
     </CardHeader>
     <CardContent>
+      {serverWriteBlocked ? <p role="status" className="mb-3 rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">التحويل بين المخازن يتطلب اتصالًا موثوقًا؛ اللقطات المحلية لا تُرحّل كميات أو تكلفة.</p> : null}
       {!canAdjustInventory ? <p className="text-sm text-muted-foreground">تحتاج إلى صلاحية تسوية المخزون لتنفيذ التحويل.</p>
         : <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={submit}>
           <label className="grid gap-1.5 text-sm">الصنف *
@@ -117,7 +134,7 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
           <div className="md:col-span-2 xl:col-span-3 rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
             تُحتسب التكلفة من قيمة المخزون المصدر، وتُسجّل الحركتان معًا أو لا تُسجّل أي منهما. لا يمكن التحويل عند نقص الرصيد أو إغلاق الفترة المالية.
           </div>
-          <div><Button type="submit" disabled={transfer.isPending || warehouses.isLoading || items.isLoading || !itemId ||
+          <div><Button type="submit" disabled={serverWriteBlocked || transfer.isPending || warehouses.isLoading || items.isLoading || !itemId ||
             !sourceWarehouseId || !destinationWarehouseId || sourceWarehouseId === destinationWarehouseId}>
             {transfer.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ArrowLeftRight className="ml-2 h-4 w-4" />}
             تأكيد التحويل

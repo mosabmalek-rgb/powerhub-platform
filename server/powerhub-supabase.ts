@@ -36,7 +36,10 @@ function decodeHistoryCursor(value: string | undefined): SupabaseKeysetCursor | 
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<SupabaseKeysetCursor>;
     const id = parsed.id;
     if (typeof parsed.at !== "string" || !Number.isInteger(id) || (id ?? 0) < 1 || Number.isNaN(Date.parse(parsed.at))) throw new Error("invalid");
-    return { at: new Date(parsed.at).toISOString(), id: id as number };
+    if (parsed.at.length > 40 || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(parsed.at)) {
+      throw new Error("invalid timestamp format");
+    }
+    return { at: parsed.at, id: id as number };
   } catch {
     throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر الصفحة غير صالح؛ أعد تحميل القائمة." });
   }
@@ -469,6 +472,12 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       invoiceHasMore: recentInvoices.length > 20,
       paymentHasMore: recentPayments.length > 20,
       readingHasMore: recentReadings.length > 20,
+      invoiceNextCursor: recentInvoices.length > 20 && recentInvoices[19]
+        ? encodeHistoryCursor({ at: String(recentInvoices[19].issue_date), id: Number(recentInvoices[19].id) }) : null,
+      paymentNextCursor: recentPayments.length > 20 && recentPayments[19]
+        ? encodeHistoryCursor({ at: String(recentPayments[19].paid_at), id: Number(recentPayments[19].id) }) : null,
+      readingNextCursor: recentReadings.length > 20 && recentReadings[19]
+        ? encodeHistoryCursor({ at: String(recentReadings[19].reading_at), id: Number(recentReadings[19].id) }) : null,
       visiblePerSection: 20,
     },
     invoices: recentInvoices.slice(0, 20).map((row) => ({
@@ -515,6 +524,130 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
   };
 }
 
+
+
+export type SubscriberStatementSection = "invoices" | "payments" | "readings";
+export type SubscriberStatementInvoiceHistoryItem = {
+  id: number; invoiceNo: string; billingPeriod: string; issueDate: Date; dueDate: Date;
+  previousReading: string | null; currentReading: string | null; consumptionKwh: string;
+  totalAmount: string; paidAmount: string; balanceDue: string; status: string; readingId: number | null;
+};
+export type SubscriberStatementPaymentHistoryItem = {
+  id: number; paymentNo: string; invoiceId: number | null; invoiceNo: string | null; amount: string;
+  paymentMethod: string; transferFromAccount: string | null; transferFromType: string | null;
+  transferToAccount: string | null; transferToType: string | null; referenceNo: string | null;
+  status: string; paidAt: Date;
+};
+export type SubscriberStatementReadingHistoryItem = {
+  id: number; readingAt: Date; readingValue: string; previousReadingValue: string | null;
+  consumptionKwh: string | null; captureMethod: string; status: string; versionNo: number; notes: string | null;
+};
+export type SubscriberStatementHistoryItem = SubscriberStatementInvoiceHistoryItem | SubscriberStatementPaymentHistoryItem | SubscriberStatementReadingHistoryItem;
+
+export async function listSupabaseSubscriberAccountStatementHistoryPage(
+  siteId: number,
+  subscriberId: number,
+  section: SubscriberStatementSection,
+  input: { limit?: number; cursor?: string },
+): Promise<SupabaseHistoryPage<SubscriberStatementHistoryItem>> {
+  const limit = historyLimit(input.limit);
+  const cursor = decodeHistoryCursor(input.cursor);
+  const admin = supabaseAdmin();
+  const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
+    .select("id,tenant_id,site_id")
+    .eq("id", subscriberId).eq("site_id", siteId).maybeSingle();
+  if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق كشف الحساب." });
+  if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن الفرع المحدد." });
+  const tenantId = Number(subscriber.tenant_id);
+
+  if (section === "invoices") {
+    let query = admin.from("invoices")
+      .select("id,invoice_no,billing_period,issue_date,due_date,previous_reading,current_reading,consumption_kwh,total_amount,paid_amount,balance_due,status,reading_id")
+      .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId)
+      .neq("status", "cancelled");
+    if (cursor) query = query.or("issue_date.lt." + cursor.at + ",and(issue_date.eq." + cursor.at + ",id.lt." + cursor.id + ")");
+    const { data, error } = await query.order("issue_date", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة فواتير المشترك." });
+    const rows = data ?? [];
+    const pageRows = rows.slice(0, limit);
+    const items = pageRows.map((row) => ({
+      id: Number(row.id),
+      invoiceNo: row.invoice_no,
+      billingPeriod: row.billing_period,
+      issueDate: new Date(row.issue_date),
+      dueDate: new Date(row.due_date),
+      previousReading: row.previous_reading === null ? null : String(row.previous_reading),
+      currentReading: row.current_reading === null ? null : String(row.current_reading),
+      consumptionKwh: String(row.consumption_kwh),
+      totalAmount: String(row.total_amount),
+      paidAmount: String(row.paid_amount),
+      balanceDue: String(row.balance_due),
+      status: row.status,
+      readingId: row.reading_id === null ? null : Number(row.reading_id),
+    }));
+    const last = pageRows.at(-1);
+    const hasNext = rows.length > limit;
+    return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.issue_date), id: Number(last.id) }) : null };
+  }
+
+  if (section === "payments") {
+    let query = admin.from("payments")
+      .select("id,payment_no,invoice_id,amount,payment_method,transfer_from_account,transfer_from_type,transfer_to_account,transfer_to_type,reference_no,status,paid_at")
+      .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId).eq("status", "completed");
+    if (cursor) query = query.or("paid_at.lt." + cursor.at + ",and(paid_at.eq." + cursor.at + ",id.lt." + cursor.id + ")");
+    const { data, error } = await query.order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة دفعات المشترك." });
+    const rows = data ?? [];
+    const pageRows = rows.slice(0, limit);
+    const invoiceIds = Array.from(new Set(pageRows.flatMap((row) => row.invoice_id === null ? [] : [Number(row.invoice_id)])));
+    const { data: invoices, error: invoiceError } = invoiceIds.length
+      ? await admin.from("invoices").select("id,invoice_no").eq("tenant_id", tenantId).eq("site_id", siteId).in("id", invoiceIds)
+      : { data: [], error: null };
+    if (invoiceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مراجع فواتير الدفعات." });
+    const invoiceNoById = new Map((invoices ?? []).map((row) => [Number(row.id), row.invoice_no]));
+    const items = pageRows.map((row) => ({
+      id: Number(row.id),
+      paymentNo: row.payment_no,
+      invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
+      invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null,
+      amount: String(row.amount),
+      paymentMethod: row.payment_method,
+      transferFromAccount: row.transfer_from_account,
+      transferFromType: row.transfer_from_type,
+      transferToAccount: row.transfer_to_account,
+      transferToType: row.transfer_to_type,
+      referenceNo: row.reference_no,
+      status: row.status,
+      paidAt: new Date(row.paid_at),
+    }));
+    const last = pageRows.at(-1);
+    const hasNext = rows.length > limit;
+    return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.paid_at), id: Number(last.id) }) : null };
+  }
+
+  let readingQuery = admin.from("meter_readings")
+    .select("id,reading_at,reading_value,previous_reading_value,consumption_kwh,capture_method,status,version_no,notes")
+    .eq("tenant_id", tenantId).eq("subscriber_id", subscriberId);
+  if (cursor) readingQuery = readingQuery.or("reading_at.lt." + cursor.at + ",and(reading_at.eq." + cursor.at + ",id.lt." + cursor.id + ")");
+  const { data, error } = await readingQuery.order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة قراءات المشترك." });
+  const rows = data ?? [];
+  const pageRows = rows.slice(0, limit);
+  const items = pageRows.map((row) => ({
+    id: Number(row.id),
+    readingAt: new Date(row.reading_at),
+    readingValue: String(row.reading_value),
+    previousReadingValue: row.previous_reading_value === null ? null : String(row.previous_reading_value),
+    consumptionKwh: row.consumption_kwh === null ? null : String(row.consumption_kwh),
+    captureMethod: row.capture_method,
+    status: row.status,
+    versionNo: Number(row.version_no),
+    notes: row.notes,
+  }));
+  const last = pageRows.at(-1);
+  const hasNext = rows.length > limit;
+  return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.reading_at), id: Number(last.id) }) : null };
+}
 
 export async function listSupabaseTariffs(siteId: number) {
   const { data, error } = await supabaseAdmin().from("tariffs")
@@ -715,9 +848,9 @@ export async function listSupabasePayments(siteId: number) {
       id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
       paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method,
       transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type,
-      referenceNo: row.reference_no, receiptImageKey: row.receipt_image_key, receiptImageHash: row.receipt_image_hash, status: row.status,
+      referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), status: row.status,
       collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id),
-      paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: row.receipt_image_key ? (await storageGet(row.receipt_image_key)).url : null,
+      paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: null,
     };
     return [{ payment, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null }];
   }))).flat();
@@ -747,10 +880,10 @@ export async function listSupabasePaymentPage(siteId: number, input: { limit?: n
   const items = await Promise.all(pageRows.map(async (row: any) => {
     const subscriber = subscriberById.get(Number(row.subscriber_id));
     if (!subscriber) return null;
-    return { payment: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method, transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type, referenceNo: row.reference_no, receiptImageKey: row.receipt_image_key, receiptImageHash: row.receipt_image_hash, status: row.status, collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id), paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: row.receipt_image_key ? (await storageGet(row.receipt_image_key)).url : null }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null };
+    return { payment: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method, transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type, referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), status: row.status, collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id), paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: null }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null };
   })).then((values) => values.filter(Boolean));
   const last = pageRows.at(-1) as any;
-  return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: new Date(last.paid_at).toISOString(), id: Number(last.id) }) : null };
+  return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: String(last.paid_at), id: Number(last.id) }) : null };
 }
 
 export async function listSupabaseExpenses(siteId: number) {

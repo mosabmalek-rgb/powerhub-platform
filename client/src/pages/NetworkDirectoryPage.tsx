@@ -13,6 +13,7 @@ import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter"
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { trpc } from "@/lib/trpc";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search";
 import { enqueueOfflineSubscriberCreateWithNumber, enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { getPowerHubDeviceId } from "@/lib/offline-auth";
@@ -118,6 +119,9 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     staleTime: 60 * 60 * 1000,
     gcTime: 2 * 60 * 60 * 1000,
     placeholderData: (previousData) => previousData,
+    // Show the persisted page immediately; always refresh it in the background
+    // after connectivity returns, even when its one-hour in-memory window remains fresh.
+    refetchOnReconnect: "always",
     refetchOnWindowFocus: false,
   });
   // Render page 1 as soon as it arrives; warm all remaining pages in the background in batches of 3.
@@ -462,7 +466,14 @@ function SubscriberDebtorWorkspace({
   });
   const exportReportRef = useRef<HTMLDivElement>(null);
   const didAutoFocus = useRef(false);
-  const rows = filterAndSortDebtors(periodMetricsQuery.data?.outstandingInvoices ?? [], query, status, sort);
+  // Detailed arrears are financial records, not an offline truth. React Query
+  // may retain previous data after a failed refetch, so require a successful
+  // fetch for this exact scope/range in the current mounted view.
+  const periodMetricsIsAuthoritative = hasAuthoritativeServerRead(periodMetricsQuery);
+  const rows = filterAndSortDebtors(
+    periodMetricsIsAuthoritative ? periodMetricsQuery.data?.outstandingInvoices ?? [] : [],
+    query, status, sort,
+  );
   const statusLabel = (row: any) => row.isOverdue && row.partialInvoices
     ? "متأخر · دفعة جزئية"
     : row.partialInvoices
@@ -476,12 +487,12 @@ function SubscriberDebtorWorkspace({
   const formatDate = (value: unknown) => value ? new Date(String(value)).toLocaleDateString("ar-PS", { timeZone: "Asia/Gaza" }) : "—";
 
   useEffect(() => {
-    if (!autoFocus || didAutoFocus.current || !period.isReady || (!periodMetricsQuery.data && !periodMetricsQuery.isError)) return;
+    if (!autoFocus || didAutoFocus.current || !period.isReady || (!periodMetricsIsAuthoritative && !periodMetricsQuery.isError)) return;
     didAutoFocus.current = true;
     window.requestAnimationFrame(() => {
       document.getElementById("subscriber-arrears")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, [autoFocus, period.isReady, periodMetricsQuery.data, periodMetricsQuery.isError]);
+  }, [autoFocus, period.isReady, periodMetricsIsAuthoritative, periodMetricsQuery.isError]);
 
   const exportRows = rows.map((row: any) => ({
     branch: row.siteName ?? "—",
@@ -502,7 +513,7 @@ function SubscriberDebtorWorkspace({
     : [row.subscriber, row.subscriberNo, row.invoiceNo, row.issueDate, row.outstanding, row.dueDate, row.status];
 
   const downloadExcel = async () => {
-    if (!periodMetricsQuery.data || !exportRows.length) return toast.error("لا توجد نتائج مطابقة لتصديرها.");
+    if (!periodMetricsIsAuthoritative || !periodMetricsQuery.data || !exportRows.length) return toast.error("تصدير المتأخرات يتطلب قراءة خادمية ناجحة وحديثة لنفس الفرع والفترة.");
     try {
       const { default: ExcelJS } = await loadExcelJS();
       const workbook = new ExcelJS.Workbook();
@@ -543,7 +554,7 @@ function SubscriberDebtorWorkspace({
   };
 
   const downloadPdf = async () => {
-    if (!periodMetricsQuery.data || !exportRows.length || !exportReportRef.current) return toast.error("لا توجد نتائج مطابقة لتصديرها.");
+    if (!periodMetricsIsAuthoritative || !periodMetricsQuery.data || !exportRows.length || !exportReportRef.current) return toast.error("تصدير المتأخرات يتطلب قراءة خادمية ناجحة وحديثة لنفس الفرع والفترة.");
     try {
       await downloadReportHtmlAsPdf(exportReportRef.current, `متأخرات-${period.startDate}-إلى-${period.endDate}.pdf`, {
         landscape: true,
@@ -556,7 +567,7 @@ function SubscriberDebtorWorkspace({
   };
 
   const focusHeader = initialScope === "all" ? "بحث ومتابعة متأخرات جميع الأفرع" : "بحث ومتابعة المتأخرات";
-  const totalOpenCount = periodMetricsQuery.data?.outstandingInvoices?.length ?? 0;
+  const totalOpenCount = periodMetricsIsAuthoritative ? periodMetricsQuery.data?.outstandingInvoices?.length ?? 0 : null;
   const columnWidths = initialScope === "all"
     ? ["10%", "20%", "9%", "9%", "10%", "11%", "10%", "11%", "10%"]
     : ["20%", "10%", "10%", "12%", "13%", "13%", "12%", "10%"];
@@ -573,7 +584,7 @@ function SubscriberDebtorWorkspace({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" onClick={() => void downloadPdf()} disabled={!periodMetricsQuery.data || rows.length === 0} className="border-rose-400/30 text-rose-200 hover:bg-rose-400/10">
+              <Button type="button" variant="outline" onClick={() => void downloadPdf()} disabled={!periodMetricsIsAuthoritative || !periodMetricsQuery.data || rows.length === 0} className="border-rose-400/30 text-rose-200 hover:bg-rose-400/10">
                 <FileText className="ml-2 h-4 w-4" /> PDF
               </Button>
               <Button type="button" variant="outline" onClick={() => void downloadExcel()} disabled={!periodMetricsQuery.data || rows.length === 0} className="border-emerald-400/30 text-emerald-200 hover:bg-emerald-400/10">
@@ -618,7 +629,7 @@ function SubscriberDebtorWorkspace({
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
             <span>{periodMetricsQuery.isLoading || !period.isReady ? "جارٍ تحميل النتائج…" : periodMetricsQuery.isError ? "تعذر تحميل فواتير الفترة؛ أعد المحاولة." : `${rows.length} فاتورة تطابق الفلتر الحالي`}</span>
-            <span>إجمالي الفواتير ذات الرصيد في الفترة: {totalOpenCount}</span>
+            <span>إجمالي الفواتير ذات الرصيد في الفترة: {totalOpenCount ?? "غير متحقق"}</span>
           </div>
           <div className="mt-4">
             {periodMetricsQuery.isError ? (
@@ -682,7 +693,7 @@ function SubscriberDebtorWorkspace({
               </>
             ) : (
               <p className="px-4 py-8 text-center text-sm text-slate-500">
-                {periodMetricsQuery.isLoading || !period.isReady ? "جارٍ تحميل بيانات الفترة…" : query.trim() || status !== "all" ? "لا توجد فواتير تطابق البحث أو الحالة المحددة في الفترة الحالية." : "لا توجد فواتير بأرصدة مفتوحة ضمن الفترة المحددة."}
+                {periodMetricsQuery.isLoading || !period.isReady || !periodMetricsIsAuthoritative ? "جارٍ التحقق من بيانات الذمم من الخادم…" : query.trim() || status !== "all" ? "لا توجد فواتير تطابق البحث أو الحالة المحددة في الفترة الحالية." : "لا توجد فواتير بأرصدة مفتوحة ضمن الفترة المحددة."}
               </p>
             )}
           </div>

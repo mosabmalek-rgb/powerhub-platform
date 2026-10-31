@@ -43,6 +43,71 @@ describe("executeReadyOperations", () => {
     expect(results.map((result) => result.outcome)).toEqual(["applied", "applied", "applied"]);
   });
 
+  it("restores HR dependency progress after reload and never replays the completed employee", async () => {
+    // Rebuild the in-memory plan from the durable operation and metadata rows
+    // as a new tab/page would after reopening the application.
+    const employee = { ...item("hr-employee", 1), kind: "employee_create" } as unknown as QueuedOfflineWork;
+    const advance = { ...item("hr-advance", 2), kind: "employee_advance_issue" } as unknown as QueuedOfflineWork;
+    const repayment = { ...item("hr-repayment", 3), kind: "employee_advance_repayment" } as unknown as QueuedOfflineWork;
+    const metadata = new Map([
+      [employee.clientOperationId, {
+        ...createSyncMetadata(employee, 0), outcome: "applied" as const,
+        nextAttemptAt: Number.POSITIVE_INFINITY, dependsOn: [],
+      }],
+      [advance.clientOperationId, {
+        ...createSyncMetadata(advance, 0), outcome: "pending" as const,
+        dependsOn: [employee.clientOperationId],
+      }],
+      [repayment.clientOperationId, {
+        ...createSyncMetadata(repayment, 0), outcome: "pending" as const,
+        dependsOn: [advance.clientOperationId],
+      }],
+    ]);
+    const calls: string[] = [];
+
+    const results = await executeReadyOperations({
+      items: [repayment, advance, employee],
+      metadataByOperationId: metadata,
+      transport: async (operation) => {
+        calls.push(operation.clientOperationId);
+        return { outcome: "applied" };
+      },
+      now: 100,
+    });
+
+    expect(calls).toEqual(["hr-advance", "hr-repayment"]);
+    expect(results.map((result) => [result.item.clientOperationId, result.outcome])).toEqual([
+      ["hr-employee", "applied"],
+      ["hr-advance", "applied"],
+      ["hr-repayment", "applied"],
+    ]);
+  });
+
+  it("keeps a repayment blocked after an advance conflict restored from durable metadata", async () => {
+    const advance = { ...item("hr-advance-conflict", 1), kind: "employee_advance_issue" } as unknown as QueuedOfflineWork;
+    const repayment = { ...item("hr-repayment-blocked", 2), kind: "employee_advance_repayment" } as unknown as QueuedOfflineWork;
+    const metadata = new Map([
+      [advance.clientOperationId, {
+        ...createSyncMetadata(advance, 0), outcome: "conflict" as const,
+        nextAttemptAt: Number.POSITIVE_INFINITY, dependsOn: [],
+      }],
+      [repayment.clientOperationId, {
+        ...createSyncMetadata(repayment, 0), outcome: "pending" as const,
+        dependsOn: [advance.clientOperationId],
+      }],
+    ]);
+    const transport = vi.fn(async () => ({ outcome: "applied" as const }));
+
+    const results = await executeReadyOperations({
+      items: [repayment, advance], metadataByOperationId: metadata, transport, now: 100,
+    });
+
+    expect(results.map((result) => [result.item.clientOperationId, result.outcome])).toEqual([
+      ["hr-advance-conflict", "conflict"],
+    ]);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
   it("does not submit an already completed operation", async () => {
     const a = item("a", 1);
     const transport = vi.fn(async () => ({ outcome: "applied" as const }));
@@ -238,6 +303,41 @@ describe("executeReadyOperations", () => {
     expect(replayed.item.clientOperationId).toBe(queued.clientOperationId);
     expect(retryTransport).toHaveBeenCalledTimes(1);
     expect(committedOperationIds.size).toBe(1);
+  });
+
+  it("stops the executor after a late server response crosses an identity boundary", async () => {
+    const first = item("first", 1);
+    const second = item("second", 2);
+    let current = true;
+    let resolveFirst!: (value: { outcome: "applied" }) => void;
+    const pendingFirst = new Promise<{ outcome: "applied" }>((resolve) => { resolveFirst = resolve; });
+    const calls: string[] = [];
+
+    const run = executeReadyOperations({
+      items: [first, second],
+      metadataByOperationId: new Map([
+        [first.clientOperationId, createSyncMetadata(first, 0)],
+        [second.clientOperationId, createSyncMetadata(second, 0)],
+      ]),
+      transport: async (operation) => {
+        calls.push(operation.clientOperationId);
+        return operation.clientOperationId === first.clientOperationId
+          ? pendingFirst
+          : { outcome: "applied" as const };
+      },
+      isCurrent: () => current,
+      now: 100,
+    });
+
+    await Promise.resolve();
+    expect(calls).toEqual(["first"]);
+    current = false;
+    resolveFirst({ outcome: "applied" });
+
+    await expect(run).rejects.toMatchObject({
+      name: "PowerHubOfflineSyncRunSupersededError",
+    });
+    expect(calls).toEqual(["first"]);
   });
 
   it("maps transport error codes through the central classifier", async () => {

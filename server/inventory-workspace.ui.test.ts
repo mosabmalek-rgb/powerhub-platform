@@ -37,7 +37,9 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain("const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;");
     expect(page).toContain('permissions.includes("manageFuelAndConsumption")');
     expect(page).toContain("overflow-x-auto");
-    expect(page).toContain('supplierAccess.data?.permissions.includes("viewSuppliers")');
+    expect(page).toContain('effectiveSupplierAccess?.permissions.includes("viewSuppliers")');
+    expect(page).toContain("trpc.powerhub.inventory.stocktakeOfflineAccess.useQuery");
+    expect(page).toContain("effectiveStocktakeAccess?.canManageStocktakes");
     expect(page).toContain("canViewSuppliers ? <TabsTrigger value=\"suppliers\"");
     expect(page).toContain("useBranchFilter(sites.data)");
     expect(page).toContain("التشغيل والمشتريات");
@@ -413,6 +415,44 @@ describe("inventory workspace UI contract", () => {
   
 
 
+  it("wires supplier financial offline snapshots to opaque revisions and explicit permission denial cleanup", () => {
+    const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const aging = read("client/src/components/InventorySupplierPayablesAgingPanel.tsx");
+    const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
+    const policy = read("client/src/lib/offline-query-policy.ts");
+    const cache = read("client/src/lib/offline-query-cache.ts");
+    const revisions = read("server/powerhub.ts");
+    const migration = read("supabase/migrations/20261030100000_powerhub_supplier_ledger_revision.sql");
+    expect(workspace).toContain('entityTypes: ["supplier_ledger"]');
+    expect(workspace).toContain("supplierLedgerIsOfflineSnapshot");
+    expect(workspace).toContain("clearOfflineSupplierFinancialQueryCacheForSite");
+    expect(aging).toContain('entityTypes: ["supplier_ledger"]');
+    expect(aging).toContain("isOfflineSnapshot");
+    expect(aging).toContain("clearOfflineSupplierFinancialQueryCacheForSite");
+    expect(dashboard).toContain('entityTypes: ["supplier_ledger"]');
+    expect(dashboard).toContain("payablesAreOfflineSnapshot");
+    expect(policy).toContain("isSafeSupplierLedgerStatementSnapshot");
+    expect(policy).toContain("isSafeSupplierPayablesAgingSnapshot");
+    expect(cache).toContain("OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS");
+    expect(cache).toContain("isOfflineSupplierFinancialQueryKeyForSite");
+    expect(revisions).toContain("requireDeltaSupplierLedgerRevisionReadAccess");
+    expect(migration).toContain("'supplier_ledger'");
+    expect(migration).toContain("supplier_payment_allocations");
+    expect(migration).toContain("supplier_purchase_returns");
+    expect(migration).not.toContain("insert into public.powerhub_sync_changes");
+    for (const migrationPath of [
+      "supabase/migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql",
+      "supabase/migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql",
+      "supabase/migrations/20261029150000_powerhub_hr_delta_sync.sql",
+    ]) {
+      const laterMigration = read(migrationPath);
+      const scopeStateBlock = laterMigration.slice(0, laterMigration.indexOf("alter table public.powerhub_sync_changes"));
+      expect(scopeStateBlock).toContain("'supplier_ledger'");
+      const changeBlock = laterMigration.slice(laterMigration.indexOf("alter table public.powerhub_sync_changes"));
+      expect(changeBlock).not.toContain("'supplier_ledger'");
+    }
+  });
+
   it("wires standalone supplier payment batching, opening payable balances, aging, history and safe reversal", () => {
     const workspace = read("client/src/pages/InventoryWorkspacePage.tsx");
     const payments = read("client/src/components/InventorySupplierPaymentsPanel.tsx");
@@ -566,7 +606,17 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("listStocktakes.useQuery");
     expect(panel).toContain("listStocktakeLines.useQuery");
     expect(panel).toContain("createStocktake.useMutation");
-    expect(panel).toContain("recordStocktakeCount.useMutation");
+    expect(panel).toContain("enqueueOfflineStocktakeCount");
+    expect(panel).toContain("hasUnconfirmedOfflineCounts");
+    expect(panel).toContain("dirtyCountKeysRef");
+    expect(panel).toContain("${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}");
+    expect(panel).toContain("تأكيد الخادم");
+    const outbox = read("client/src/lib/offline-work-queue.ts");
+    const syncPanel = read("client/src/components/OfflineWorkSyncPanel.tsx");
+    expect(outbox).toContain('"inventory_stocktake_count"');
+    expect(syncPanel).toContain("trpc.powerhub.inventory.recordStocktakeCount.useMutation()");
+    expect(syncPanel).toContain("operationKey: item.clientOperationId");
+    expect(workspace).toContain("<OfflineWorkSyncPanel");
     expect(panel).toContain("submitStocktake.useMutation");
     expect(panel).toContain("postStocktake.useMutation");
     expect(panel).toContain("cancelStocktake.useMutation");
@@ -644,4 +694,129 @@ describe("inventory workspace UI contract", () => {
     expect(integration).toContain("PHASE_B_FUEL_READING_RPC_ACL_FAILED");
   });
 
+
+  it("queues offline fuel fills as intent and keeps stock posting server-owned", () => {
+    const fuelPanel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
+    const queue = read("client/src/lib/offline-work-queue.ts");
+    const sync = read("client/src/components/OfflineWorkSyncPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    expect(queue).toContain('"fuel_fill"');
+    expect(fuelPanel).toContain('kind: "fuel_fill"');
+    expect(fuelPanel).toContain("notifyOfflineWorkQueueChanged");
+    expect(fuelPanel).toContain("لم يُرحّل المخزون أو رصيد الخزان بعد");
+    expect(sync).toContain("trpc.powerhub.inventory.recordFuelFill.useMutation()");
+    expect(sync).toContain("operationKey: item.clientOperationId");
+    const start = router.indexOf("recordFuelFill: protectedProcedure");
+    const end = router.indexOf("recordFuelReading: protectedProcedure", start);
+    const procedure = router.slice(start, end);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(procedure).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageFuelAndConsumption")');
+    expect(procedure).toContain("powerhub_inventory_record_fuel_fill");
+    for (const finalAction of ["recordStockMovement", "postStocktake", "receivePurchase", "returnToSupplier"]) {
+      expect(queue).not.toContain('"'+finalAction+'"');
+    }
+  });
+
+  it("blocks final stock and supplier financial writes while server reachability is unknown or offline", () => {
+    const files = [
+      "client/src/components/InventoryStockOperationsPanel.tsx",
+      "client/src/components/InventoryStocktakePanel.tsx",
+      "client/src/components/InventoryWarehouseTransferPanel.tsx",
+      "client/src/components/InventoryPurchasesPanel.tsx",
+      "client/src/components/InventorySupplierPaymentsPanel.tsx",
+    ];
+    for (const file of files) {
+      const source = read(file);
+      expect(source).toContain("usePowerHubConnectivity");
+      expect(source).toContain("getPowerHubConnectivitySnapshot() !== true");
+      expect(source).toContain("ensureServerWriteAllowed");
+      expect(source).toContain("serverWriteBlocked");
+    }
+    const stock = read(files[0]);
+    const stocktake = read(files[1]);
+    const transfer = read(files[2]);
+    const purchases = read(files[3]);
+    const supplierPayments = read(files[4]);
+    expect(stock).toContain("if (!ensureServerWriteAllowed()) return;");
+    expect(stocktake).toContain("if (!ensureServerWriteAllowed()) return;");
+    expect(transfer).toContain("trpc.powerhub.inventory.transferStock.useMutation");
+    expect(transfer).toContain("if (!ensureServerWriteAllowed()) return;");
+    expect(purchases).toContain("if (!ensureServerWriteAllowed()) return;");
+    expect(supplierPayments).toContain("if (!ensureServerWriteAllowed()) return;");
+    // Local snapshots are display-only; terminal stock/financial posting has no Outbox kind.
+    const queue = read("client/src/lib/offline-work-queue.ts");
+    for (const finalAction of ["recordStockMovement", "transferStock", "postStocktake", "confirmPurchase", "receivePurchase", "returnToSupplier", "recordSupplierPayment"]) {
+      expect(queue).not.toContain(String.fromCharCode(34) + finalAction + String.fromCharCode(34));
+    }
+  });
+
+  it("hydrates safe purchase detail offline and keeps final stock/financial writes server-only", () => {
+    const panel = read("client/src/components/InventoryPurchasesPanel.tsx");
+    const policy = read("client/src/lib/offline-query-policy.ts");
+    const cache = read("client/src/lib/offline-query-cache.ts");
+    const revisions = read("server/powerhub.ts");
+    const queue = read("client/src/lib/offline-work-queue.ts");
+
+    expect(policy).toContain("isSafePurchaseDetailSnapshot");
+    expect(cache).toContain("offlineSnapshot: true");
+    expect(cache).toContain("payments: []");
+    expect(cache).toContain("clearOfflinePurchaseDetailQueryCacheForSite");
+    expect(panel).toContain("trpc.powerhub.inventory.getPurchase.useQuery");
+    expect(panel).toContain("detailsIsOfflineSnapshot");
+    expect(panel).toContain("useDeltaRevisionRefresh");
+    expect(panel).toContain("PURCHASE_DETAIL_REVISION_ENTITIES");
+    expect(panel).toContain("clearOfflinePurchaseDetailQueryCacheForSite");
+    expect(panel).toContain("detailsIsAuthoritative && canAdjustInventory");
+    expect(panel).toContain('detailsIsAuthoritative && ["confirmed", "partially_received"].includes(details.data.purchase.status) && canReceiveInventory');
+    expect(panel).toContain("detailsIsAuthoritative && canManageSupplierPayments");
+    expect(panel).toContain('detailsIsAuthoritative && ["draft", "confirmed"].includes(details.data.purchase.status) && canApprovePurchases');
+    expect(panel).toContain("detailsAuthorizationDenied");
+    for (const entity of ["inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"]) {
+      expect(revisions).toContain(entity);
+    }
+    expect(revisions).toContain("requireDeltaPurchaseDetailRevisionReadAccess");
+    for (const finalAction of ["confirmPurchase", "receivePurchase", "returnToSupplier", "recordSupplierPayment", "reverseSupplierPayment"]) {
+      expect(queue).not.toContain('"'+finalAction+'"');
+    }
+  });
+
+  it("preserves an exact-scope fuel report snapshot when live refresh fails", () => {
+    const panel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
+    const cache = read("client/src/lib/offline-operational-report-cache.ts");
+    expect(panel).toContain("loadOperationalReportSnapshot(fuelReportCacheInput");
+    expect(panel).toContain("const hasAvailableFuelReport = !reportAuthorizationDenied && (reportIsAuthoritative || cachedFuelReportForCurrentScope !== null);");
+    expect(panel).toContain("const reportIsAuthoritative = !reportAuthorizationDenied && hasAuthoritativeServerRead(report)");
+    expect(panel).toContain("isExplicitAuthorizationDenial(options.error)");
+    expect(panel).toContain("isExplicitAuthorizationDenial(report.error)");
+    expect(panel).toContain("eventsAuthorizationDenied || recentEventsAuthorizationDenied ? []");
+    expect(panel).toContain("!hasFilteredEventQuery ? recentEvents.data ?? [] : []");
+    expect(panel).toContain("if (eventsChanged && hasFilteredEventQuery) void events.refetch()");
+    expect(panel).toContain("clearOfflineFuelQueryCacheForSite");
+    expect(panel).toContain("useDeltaRevisionRefresh");
+    expect(panel).toContain("const reportRows = (reportAuthorizationDenied ? [] : reportIsAuthoritative");
+    expect(panel).toContain(": cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];");
+    expect(panel).toContain("لا توجد لقطة محلية مطابقة لفلاتر التعبئة الحالية");
+    expect(panel).toContain("optionsAuthorizationDenied ? <p role=\"alert\"");
+    expect(panel).toContain("alertSettingsAuthorizationDenied ? <p role=\"alert\"");
+    expect(panel).toContain("alertDispatchesAuthorizationDenied ? <p role=\"alert\"");
+    expect(panel).toContain("reportAuthorizationDenied ? <p role=\"alert\"");
+    expect(panel).toContain("if (optionsAuthorizationDenied) { toast.error(\"رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل عملية التعبئة.\"); return; }");
+    expect(panel).toContain("if (optionsAuthorizationDenied || alertSettingsAuthorizationDenied)");
+    expect(panel).toContain("optionsAuthorizationDenied || alertSettingsAuthorizationDenied || !activeAlertGeneratorId");
+    expect(panel).toContain("report.error && !hasAvailableFuelReport");
+    expect(panel).toContain("reportRows.map((row)");
+    expect(panel).toContain("events.error && events.data !== undefined");
+    expect(panel).toContain("readings.error && readings.data !== undefined");
+    expect(panel).toContain("const recentReadings = trpc.powerhub.inventory.listFuelReadings.useQuery(");
+    expect(panel).toContain("readingsAuthorizationDenied || recentReadingsAuthorizationDenied ? []");
+    expect(panel).toContain("!hasFilteredReadingQuery ? recentReadings.data ?? [] : []");
+    expect(panel).toContain("const usingRecentOfflineReadings = !hasFilteredReadingQuery &&");
+    expect(panel).toContain("if (readingsChanged && hasFilteredReadingQuery) void readings.refetch()");
+    expect(panel).toContain("لا توجد لقطة محلية مطابقة لفلتر المولد الحالي");
+    expect(panel).toContain("هذه لقطة تجميعية وليست إعادة احتساب حيّة");
+    expect(cache).toContain("snapshot.key !== makeKey(input)");
+    expect(cache).toContain("now - snapshot.savedAt >= OFFLINE_OPERATIONAL_REPORT_TTL_MS");
+    expect(cache).toContain("options.accessAllowed === false");
+  });
 });

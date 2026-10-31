@@ -1,4 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,6 +40,8 @@ type AgingResult = {
     total_outstanding: number | string;
   };
   rows: AgingRow[];
+  offlineSnapshot?: boolean;
+  complete?: boolean;
 };
 
 function amount(value: number | string | null | undefined) {
@@ -51,6 +58,7 @@ export default function InventorySupplierPayablesAgingPanel({
   isAuthenticated: boolean;
   canViewSupplierLedger: boolean;
 }) {
+  const auth = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [asOfDate, setAsOfDate] = useState(() => {
     const now = new Date();
@@ -60,12 +68,33 @@ export default function InventorySupplierPayablesAgingPanel({
     { siteId, asOfDate },
     { enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger), staleTime: 15_000 },
   );
+  const authorizationDenied = isExplicitAuthorizationDenial(query.error);
+  useDeltaRevisionRefresh({
+    siteId, userId: auth.user?.id, entityTypes: ["supplier_ledger"],
+    enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger),
+    onChange: (changed) => {
+      if (changed.includes("supplier_ledger")) void query.refetch();
+    },
+  });
+  useEffect(() => {
+    if (authorizationDenied && auth.user?.id) {
+      void clearOfflineSupplierFinancialQueryCacheForSite(String(auth.user.id), siteId);
+    }
+  }, [authorizationDenied, auth.user?.id, siteId]);
+  const result = query.data as unknown as AgingResult | undefined;
+  const totals = result?.totals;
+  const hasServerValidatedResult = Boolean(
+    result && hasAuthoritativeServerRead(query) &&
+    !authorizationDenied && !result.offlineSnapshot && result.complete !== false,
+  );
+  const isOfflineSnapshot = Boolean(result?.offlineSnapshot);
+  const requiresRevalidation = Boolean(result && !hasServerValidatedResult);
   const branding = trpc.powerhub.reportBranding.get.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger), staleTime: 60_000 },
   );
   const exportExcel = async () => {
-    if (!result) { toast.error("حمّل تقرير أعمار الذمم بنجاح قبل التصدير."); return; }
+    if (!hasServerValidatedResult || authorizationDenied || !result) { toast.error("تصدير أعمار الذمم يتطلب قراءة خادمية ناجحة ومكتملة لنفس تاريخ الاحتساب؛ اللقطة المحلية للعرض فقط."); return; }
     try {
       const { default: ExcelJS } = await loadExcelJS();
       const workbook = new ExcelJS.Workbook();
@@ -113,7 +142,7 @@ export default function InventorySupplierPayablesAgingPanel({
     }
   };
   const exportPdf = async () => {
-    if (!result) { toast.error("حمّل تقرير أعمار الذمم بنجاح قبل التصدير."); return; }
+    if (!hasServerValidatedResult || authorizationDenied || !result) { toast.error("تصدير أعمار الذمم يتطلب قراءة خادمية ناجحة ومكتملة لنفس تاريخ الاحتساب؛ اللقطة المحلية للعرض فقط."); return; }
     if (result.rows.length > 5_000) { toast.error("تقرير الذمم يتجاوز 5,000 بند. استخدم Excel أو ضيّق نطاق التقرير."); return; }
     let root: HTMLDivElement | undefined;
     try {
@@ -144,9 +173,6 @@ export default function InventorySupplierPayablesAgingPanel({
       root?.remove();
     }
   };
-  const result = query.data as unknown as AgingResult | undefined;
-  const totals = result?.totals;
-
   if (!canViewSupplierLedger) return null;
 
   return (
@@ -167,14 +193,16 @@ export default function InventorySupplierPayablesAgingPanel({
             {expanded ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
             {expanded ? "إخفاء التفاصيل" : "عرض التفاصيل"}
           </Button>
-          <Button type="button" variant="outline" disabled={!result || query.isFetching} onClick={() => void exportExcel()}><Download className="ml-2 h-4 w-4" />Excel</Button>
-          <Button type="button" variant="outline" disabled={!result || query.isFetching} onClick={() => void exportPdf()}><Download className="ml-2 h-4 w-4" />PDF عربي</Button>
+          <Button type="button" variant="outline" disabled={!hasServerValidatedResult || authorizationDenied || !result || query.isFetching} onClick={() => void exportExcel()}><Download className="ml-2 h-4 w-4" />Excel</Button>
+          <Button type="button" variant="outline" disabled={!hasServerValidatedResult || authorizationDenied || !result || query.isFetching} onClick={() => void exportPdf()}><Download className="ml-2 h-4 w-4" />PDF عربي</Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {query.isLoading && !result ? <p className="py-5 text-center text-muted-foreground"><Loader2 className="ml-2 inline h-4 w-4 animate-spin" /> جارٍ تحميل أعمار الديون…</p>
-          : query.error ? <div className="space-y-3 py-4 text-center"><p className="text-destructive">تعذر تحميل تقرير الذمم. لم نعرض أرقامًا تقديرية.</p><Button type="button" variant="outline" onClick={() => void query.refetch()}>إعادة المحاولة</Button></div>
+          : authorizationDenied ? <div role="alert" className="py-4 text-center text-destructive">رفض الخادم صلاحية عرض ذمم الموردين؛ أُخفيت اللقطة المحلية وحُذفت من كاش هذا الفرع.</div>
+          : query.error && !result ? <div className="space-y-3 py-4 text-center"><p className="text-destructive">تعذر تحميل تقرير الذمم. لم نعرض أرقامًا تقديرية.</p><Button type="button" variant="outline" onClick={() => void query.refetch()}>إعادة المحاولة</Button></div>
           : result ? <>
+            {requiresRevalidation ? <p role="status" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{isOfflineSnapshot ? `هذا التقرير من آخر نسخة محلية محفوظة حتى ${result.as_of_date}.` : `هذه آخر نتيجة متاحة حتى ${result.as_of_date} ولم يكتمل التحقق الخادمي الحالي.`} الأرصدة والشرائح ليست حقيقة مالية معتمدة حتى تنجح إعادة القراءة من الخادم؛ التصدير الرسمي معطل.</p> : null}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {[
                 ["غير مستحقة", totals?.not_due],

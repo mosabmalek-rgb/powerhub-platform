@@ -40,11 +40,16 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
   });
 
   it("binds the first four dashboard cards to the selected range and hands the same range to arrears", () => {
-    expect(home).toContain("periodMetricsQuery.data?.summary.invoiced");
+    expect(home).toContain('metric: "periodInvoiced"');
+    expect(home).toContain('metric: "periodCollected"');
+    expect(home).toContain('metric: "collectionRate"');
+    expect(home).toContain('metric: "periodOverdue"');
+    expect(home).toContain("enabled: periodKpiEnabled");
     expect(home).toContain("includeDetails: false");
-    expect(home).toContain("periodMetricsQuery.data?.summary.collected");
-    expect(home).toContain("periodMetricsQuery.data?.summary.collectionRate");
-    expect(home).toContain("periodMetricsQuery.data?.summary.overdue");
+    expect(home).toContain("value={periodKpiNumber(periodInvoicedKpiQuery)}");
+    expect(home).toContain("value={periodKpiNumber(periodCollectedKpiQuery)}");
+    expect(home).toContain("value={periodKpiRatio(collectionRateKpiQuery)}");
+    expect(home).toContain("value={periodKpiNumber(periodOverdueKpiQuery)}");
     expect(home).toContain('debtorPeriod: dashboardPeriod.preset');
     expect(home).toContain('debtorStatus: "overdue"');
     expect(home).toContain('debtorFocus: "1"');

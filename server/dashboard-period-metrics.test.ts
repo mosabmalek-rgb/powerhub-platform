@@ -56,4 +56,24 @@ describe("buildDashboardPeriodMetrics", () => {
     expect(result.outstandingInvoices).toEqual([]);
   });
 
+
+  it("sums period money values exactly without floating-point drift", () => {
+    const result = buildDashboardPeriodMetrics({
+      scope: "branch",
+      startDate: "2026-10-01",
+      endDate: "2026-10-31",
+      invoices: [
+        { id: 1, siteId: 10, siteName: "الرئيسي", subscriberId: 1, subscriberName: "أ", subscriberNo: "1", invoiceNo: "I-1", issueDate: new Date("2026-10-01T08:00:00.000Z"), dueDate: new Date("2026-10-30T00:00:00.000Z"), totalAmount: "0.10", paidAmount: "0", balanceDue: "0.10", status: "issued" },
+        { id: 2, siteId: 10, siteName: "الرئيسي", subscriberId: 2, subscriberName: "ب", subscriberNo: "2", invoiceNo: "I-2", issueDate: new Date("2026-10-02T08:00:00.000Z"), dueDate: new Date("2026-10-30T00:00:00.000Z"), totalAmount: "0.20", paidAmount: "0", balanceDue: "0.20", status: "issued" },
+      ],
+      payments: [{ status: "completed", amount: "0.10" }, { status: "completed", amount: "0.20" }],
+      now: new Date("2026-10-31T12:00:00.000Z"),
+      includeDetails: false,
+    });
+    expect(result.summary).toMatchObject({
+      invoiced: 0.3, collected: 0.3, collectionRate: 100,
+      outstanding: 0.3, overdue: 0.3, overdueInvoiceCount: 2, overdueSubscriberCount: 2,
+    });
+  });
+
 });
