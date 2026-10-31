@@ -93,7 +93,7 @@ describe("Tenant access invitation panel", () => {
       expiresInHours: 72,
     });
     expect(firstPayload.clientOperationId).toBe("11111111-1111-4111-8111-111111111111");
-    expect(email.value).toBe("  STAFF@Example.Test ");
+    expect(email.value).toBe("STAFF@Example.Test");
 
     submitInvite();
     const retryPayload = mocks.mutate.mock.calls[1][0];
