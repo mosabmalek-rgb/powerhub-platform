@@ -1514,15 +1514,23 @@ export const powerhubRouter = router({
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الأدوار المخصصة من Supabase." });
       return (data ?? []).map((role) => ({ id: Number(role.id), name: role.name, description: role.description, permissions: role.permissions, isActive: role.is_active }));
     }),
-    saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
+    saveCustomRole: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), id: z.number().int().positive().optional(), clientOperationId: z.string().uuid().optional(), name: z.string().trim().min(2).max(120), description: z.string().trim().max(255).optional(), permissions: z.array(z.enum(["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"])).min(1) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const { data, error } = await supabaseAdmin().rpc("powerhub_save_custom_permission_role", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id, p_role_id: input.id ?? null,
         p_name: input.name, p_description: input.description ?? null, p_permissions: input.permissions,
+        p_client_operation_id: input.clientOperationId ?? null,
+        p_request_fingerprint: createHash("sha256").update(JSON.stringify({
+          tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id,
+          roleId: input.id ?? null, name: input.name, description: input.description ?? null,
+          permissions: input.permissions,
+        })).digest("hex"),
       });
       if (error) {
         if (error.message.includes("CUSTOM_ROLE_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "الدور المخصص غير موجود ضمن مساحة المستأجر." });
         if (error.message.includes("ROLE_MANAGEMENT_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة الأدوار المخصصة." });
+        if (error.message.includes("OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تعارضت إعادة محاولة حفظ الدور مع طلب سابق؛ حدّث القائمة قبل المحاولة مجددًا." });
+        if (error.message.includes("INVALID_OPERATION_ID")) throw new TRPCError({ code: "BAD_REQUEST", message: "يلزم معرف عملية ثابت لإنشاء دور مخصص." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ الدور المخصص في Supabase." });
       }
       return { success: true, id: Number(data?.[0]?.role_id ?? input.id ?? 0) };
