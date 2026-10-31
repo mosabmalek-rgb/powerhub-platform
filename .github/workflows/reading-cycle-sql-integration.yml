@@ -268,6 +268,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres adaptive_delta_realtime_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname adaptive_delta_realtime_test --set ON_ERROR_STOP=1 --file supabase/tests/adaptive_delta_realtime_authorization.sql
 
+      - name: Verify Payment Documentation revision-only Delta invalidation, topic scope, and payload minimization
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres payment_documentation_revision_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname payment_documentation_revision_test --set ON_ERROR_STOP=1 --file supabase/tests/payment_documentation_delta_revision_invalidation.sql
+
       - name: Verify platform identity helpers enforce exact tenant RLS administrator boundaries
         env:
           PGPASSWORD: postgres

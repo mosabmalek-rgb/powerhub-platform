@@ -6,7 +6,7 @@
 
 - The PR source, disposable PostgreSQL migrations/assertions, TypeScript, Vitest, production build, Security and Supabase Admin Guard have passed together on a single reviewed head before this checklist was added. Re-run all four required workflows on the new final SHA after this documentation change.
 - The PostgreSQL integration suite proves the SQL invariants in isolated databases. It does not prove that the migrations have been applied to a live Staging project or that the browser UI passes end-to-end acceptance.
-- The read-only Staging audit found **33 PR migrations absent** from the Staging migration ledger. The ledger history differs between Production and Staging; raw ledger row counts or version-name matches are not a replay plan.
+- The read-only Staging audit found **34 PR migrations absent** from the Staging migration ledger. The ledger history differs between Production and Staging; raw ledger row counts or version-name matches are not a replay plan.
 - No migration from this PR has been applied to Staging or Production. No Preview has been deployed, and no live stock, HR, payment, SMS, or financial mutation was used for validation.
 
 ## 2. Migration ordering and dependency groups
@@ -57,6 +57,7 @@ Preserve chronological order within each dependency group. Re-check the live mig
 31. `20261031200000_powerhub_adaptive_delta_realtime.sql`
 32. `20261031210000_powerhub_platform_identity_rls_alignment.sql`
 33. `20261031220000_powerhub_fuel_cycle_boundary_precision.sql`
+34. `20261101090000_powerhub_payment_documentation_revision_invalidation.sql`
 
 Before each individual workflow dispatch, verify its preflight dependencies on the actual Staging schema and confirm the PR head is still ahead of current `main` with no commits behind. The workflow also validates the PR and immutable SHA. If `main` moves or the PR becomes behind, update the PR branch, rerun all four CI gates on its new head, and retry only then. If an object or migration identity is already present under a different historical name/version, stop and reconcile it explicitly; do not mark a migration as applied merely to skip it.
 
@@ -89,7 +90,7 @@ Run only after the approved Staging migration sequence and post-apply checks are
 
 ## 5. Manual workflow execution and approval
 
-For each of the 33 entries above, the release owner opens [Supabase Versioned Migration Release](https://github.com/mosabmalek-rgb/powerhub-platform/actions/workflows/supabase-migration-release.yml) on `main`, selects `target=staging`, pastes exactly one migration path, and sets `source_pr_number=359`. Each run must receive protected approval through the `supabase-staging` GitHub environment. The workflow must report the pinned PR head and exact migration version; verify the resulting version/name immediately using the Staging migration ledger before dispatching the next file. Never batch multiple SQL files into one input.
+For each of the 34 entries above, the release owner opens [Supabase Versioned Migration Release](https://github.com/mosabmalek-rgb/powerhub-platform/actions/workflows/supabase-migration-release.yml) on `main`, selects `target=staging`, pastes exactly one migration path, and sets `source_pr_number=359`. Each run must receive protected approval through the `supabase-staging` GitHub environment. The workflow must report the pinned PR head and exact migration version; verify the resulting version/name immediately using the Staging migration ledger before dispatching the next file. Never batch multiple SQL files into one input.
 
 The workflow fails closed unless the Staging environment has a required human reviewer, allows only the `main` branch, and has the read-only environment-guard token and Staging-specific DB/project secrets configured by a repository administrator. These settings and secret values are never inferred from source code and must not be printed in logs.
 
@@ -107,3 +108,12 @@ The workflow fails closed unless the Staging environment has a required human re
 - The original fuel report period wrapper advanced the inclusive cycle end by 1 millisecond. Since the cycle resolver ends at microsecond precision, this overlapped the following cycle by 999 microseconds. New forward migration `20261031220000_powerhub_fuel_cycle_boundary_precision.sql` changes the exclusive end to exactly +1 microsecond while preserving the existing function signature, owner, grants and SECURITY DEFINER behavior.
 - PostgreSQL coverage now includes October 31 in a 31-day month, February 29 in a leap year, 15-day and weekly boundaries, inclusion of the final-day fuel fill, and exclusion of that fill from the next cycle.
 - This new migration is part of the Staging release list and requires the same one-file versioned release workflow and approval. No live database has been changed by this fix.
+
+
+## Payment Documentation Delta invalidation — 2026-11-01
+
+- Payment-documentation review requests advance a dedicated `payment_documentation` revision-only scope in `powerhub_sync_scope_state`.
+- The scope stores only an opaque cursor. No request rows, receipt references, amounts, subscriber data, or other sensitive fields are appended to `powerhub_sync_changes`.
+- The existing central private Realtime broadcaster emits the version-1 invalidation marker for the affected site and tenant-all scope; the protected revision endpoint verifies the current site permission and feature entitlement before returning the cursor and topic.
+- The review page uses the shared Adaptive Delta scheduler and refetches the authorized list only when the revision changes. Its former 15-second list poller is removed.
+- Forward migration `20261101090000_powerhub_payment_documentation_revision_invalidation.sql` is entry 34 in the one-file Staging release sequence. It has not been applied to Staging or Production.

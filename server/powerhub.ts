@@ -3313,6 +3313,27 @@ export const powerhubRouter = router({
         };
       });
     }),
+    // Opaque, revision-only cursor. Payment-documentation payloads remain server-only;
+    // the trigger advances this scope without appending request rows to the Delta journal.
+    revision: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
+      await requirePaymentDocumentationFeature(access.tenantId);
+      const { data, error } = await supabaseAdmin().from("powerhub_sync_scope_state")
+        .select("last_cursor")
+        .eq("tenant_id", access.tenantId)
+        .eq("site_id", input.siteId)
+        .eq("entity_type", "payment_documentation")
+        .maybeSingle();
+      if (error) {
+        console.error("[PowerHub] paymentDocumentation.revision failed", { code: error.code, message: error.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تحديث طلبات توثيق الدفع." });
+      }
+      return {
+        revision: String(data?.last_cursor ?? 0),
+        realtimeTopic: `powerhub:tenant:${access.tenantId}:site:${input.siteId}`,
+        observedAt: new Date().toISOString(),
+      };
+    }),
     availableAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"], "collectPayments");
       await requirePaymentDocumentationFeature(access.tenantId);

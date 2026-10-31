@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { useAdaptiveDeltaRefresh } from "@/hooks/useAdaptiveDeltaRefresh";
 import { trpc } from "@/lib/trpc";
 import { enqueueOfflineWork, listOfflineWork, notifyOfflineWorkQueueChanged, type PaymentDocumentationApprovalDraft } from "@/lib/offline-work-queue";
 import { clearPaymentDocumentationApprovalSnapshots, listPaymentDocumentationApprovalSnapshots, paymentDocumentationApprovalSnapshotScope, removePaymentDocumentationApprovalSnapshot, savePaymentDocumentationApprovalSnapshots, type OfflinePaymentDocumentationApprovalSnapshot } from "@/lib/offline-payment-documentation-approvals";
@@ -15,7 +16,7 @@ import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { can } from "@shared/powerhub-rbac";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 function dateKeyInGaza(value: Date | string = new Date()) {
@@ -73,12 +74,51 @@ export default function PaymentDocumentationReviewPage() {
     fromDate: period === "date_range" ? fromDate : undefined,
     toDate: period === "date_range" ? toDate : undefined,
   });
-  // Pending documentation is operationally time-sensitive. Poll only while this page is
-  // mounted and connected; hidden/background tabs do not keep issuing requests.
-  const shouldPollRequests = canReachServer && (status === "pending" || status === "all");
-  const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && canReachServer && dateFiltersReady),retry:false,staleTime:15_000,refetchOnMount:"always",refetchInterval:shouldPollRequests?15_000:false,refetchIntervalInBackground:false});
+  const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && canReachServer && dateFiltersReady),retry:false,staleTime:15_000,refetchOnMount:"always",refetchInterval:false,refetchIntervalInBackground:false});
+  const approvalRevisionQuery = trpc.powerhub.paymentDocumentation.revision.useQuery(
+    { siteId: siteId ?? 0 },
+    {
+      enabled: Boolean(siteId && canApprove && canReachServer && dateFiltersReady),
+      retry: false,
+      staleTime: 0,
+      refetchInterval: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    },
+  );
+  const approvalRevisionDenied = approvalRevisionQuery.isError && isExplicitAuthorizationDenial(approvalRevisionQuery.error);
   const requestsDenied = requests.isError && isExplicitAuthorizationDenial(requests.error);
-  const authorizationDenied = accessDenied || requestsDenied;
+  const authorizationDenied = accessDenied || requestsDenied || approvalRevisionDenied;
+  const checkApprovalRevision = useCallback(async () => {
+    const result = await approvalRevisionQuery.refetch();
+    if (result.isError) throw result.error;
+  }, [approvalRevisionQuery.refetch]);
+  useAdaptiveDeltaRefresh({
+    scopeKey: "payment-documentation:" + String(user?.id ?? "unknown") + ":" + String(siteId ?? 0),
+    enabled: Boolean(siteId && canApprove && canReachServer && dateFiltersReady && !authorizationDenied),
+    check: checkApprovalRevision,
+    realtimeTopic: approvalRevisionDenied ? null : approvalRevisionQuery.data?.realtimeTopic,
+  });
+  const lastPaymentDocumentationRevisions = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const revision = approvalRevisionQuery.data?.revision;
+    if (!siteId || !user?.id || typeof revision !== "string") return;
+    const key = `${user.id}:${siteId}`;
+    const previous = lastPaymentDocumentationRevisions.current.get(key);
+    lastPaymentDocumentationRevisions.current.delete(key);
+    lastPaymentDocumentationRevisions.current.set(key, revision);
+    while (lastPaymentDocumentationRevisions.current.size > 32) {
+      const oldestKey = lastPaymentDocumentationRevisions.current.keys().next().value;
+      if (oldestKey === undefined) break;
+      lastPaymentDocumentationRevisions.current.delete(oldestKey);
+    }
+    if (previous !== undefined && previous !== revision && canReachServer && canApprove && dateFiltersReady && !authorizationDenied) {
+      void requests.refetch();
+    }
+  }, [
+    approvalRevisionQuery.data?.revision, siteId, user?.id, canReachServer,
+    canApprove, dateFiltersReady, authorizationDenied, requests.refetch,
+  ]);
   const loadOfflineRows=useCallback(async()=>{
     // Clear any prior identity, branch, or filter scope before the async IndexedDB read.
     setOfflineRows([]);
