@@ -83,6 +83,15 @@ begin
     raise exception 'INVALID_EXPIRY';
   end if;
 
+  -- Acquire idempotency locks before row locks so concurrent retries
+  -- serialize on the operation key rather than on the actor row.
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('platform-access-invite:' || trim(p_client_operation_id), 0)
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('platform-access-invite-email:' || v_email, 0)
+  );
+
   select u.platform_role, u.account_status
     into v_actor_role, v_account_status
   from public.users u
@@ -94,13 +103,6 @@ begin
      or v_account_status is distinct from 'active' then
     raise exception 'PLATFORM_OWNER_REQUIRED';
   end if;
-
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('platform-access-invite:' || trim(p_client_operation_id), 0)
-  );
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('platform-access-invite-email:' || v_email, 0)
-  );
 
   select i.*
     into v_existing
@@ -135,7 +137,8 @@ begin
   end if;
 
   update public.platform_access_invitations i
-    set status = 'expired'
+    set status = 'expired',
+        updated_at = now()
   where lower(i.email) = v_email
     and i.status = 'invited'
     and i.expires_at <= now();
@@ -242,19 +245,6 @@ begin
     raise exception 'INVALID_EXPIRY';
   end if;
 
-  select u.id
-    into v_actor_id
-  from public.users u
-  where u.id = p_actor_user_id
-    and u.role = 'admin'
-    and u.account_status = 'active'
-    and u.platform_role in ('platform_owner', 'platform_admin')
-  for update;
-
-  if not found then
-    raise exception 'PLATFORM_ADMIN_REQUIRED';
-  end if;
-
   if p_site_id is not null and not exists (
     select 1
     from public.sites s
@@ -276,6 +266,21 @@ begin
       'tenant-access-invite-email:' || p_tenant_id::text || ':' || v_email, 0
     )
   );
+
+  -- As with platform invitations, take the per-operation lock before locking
+  -- the actor row to make concurrent identical retries converge deterministically.
+  select u.id
+    into v_actor_id
+  from public.users u
+  where u.id = p_actor_user_id
+    and u.role = 'admin'
+    and u.account_status = 'active'
+    and u.platform_role in ('platform_owner', 'platform_admin')
+  for update;
+
+  if not found then
+    raise exception 'PLATFORM_ADMIN_REQUIRED';
+  end if;
 
   select i.*
     into v_existing
@@ -301,7 +306,8 @@ begin
   end if;
 
   update public.access_invitations i
-    set status = 'expired'
+    set status = 'expired',
+        updated_at = now()
   where i.tenant_id = p_tenant_id
     and lower(i.email) = v_email
     and i.status = 'invited'
