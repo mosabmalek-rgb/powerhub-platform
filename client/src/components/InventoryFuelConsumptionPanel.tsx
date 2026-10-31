@@ -8,6 +8,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { enqueueOfflineWork, notifyOfflineWorkQueueChanged, type FuelFillDraft } from "@/lib/offline-work-queue";
+import { getStableOperationKey, runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { clearOfflineFuelQueryCacheForSite } from "@/lib/offline-query-cache";
@@ -116,7 +117,6 @@ export default function InventoryFuelConsumptionPanel({
   const [fillOperatingHours, setFillOperatingHours] = useState("");
   const [fillReference, setFillReference] = useState("");
   const [fillNotes, setFillNotes] = useState("");
-  const [fillKey, setFillKey] = useState(() => operationKey("fuel-fill"));
 
   const [readingGeneratorId, setReadingGeneratorId] = useState("");
   const [readingType, setReadingType] = useState<"tank_level" | "operating_hours">("tank_level");
@@ -127,7 +127,6 @@ export default function InventoryFuelConsumptionPanel({
   const [readingNotes, setReadingNotes] = useState("");
   const [correctsReadingId, setCorrectsReadingId] = useState("");
   const [correctionReason, setCorrectionReason] = useState("");
-  const [readingKey, setReadingKey] = useState(() => operationKey("fuel-reading"));
 
   const [fromDate, setFromDate] = useState(() => today);
   const [toDate, setToDate] = useState(() => today);
@@ -143,7 +142,6 @@ export default function InventoryFuelConsumptionPanel({
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [alertGeneratorId, setAlertGeneratorId] = useState("");
   const [alertTankId, setAlertTankId] = useState("");
-  const [alertSettingKey, setAlertSettingKey] = useState(() => operationKey("fuel-alert-settings"));
 
   const options = trpc.powerhub.inventory.fuelWorkspaceOptions.useQuery(
     { siteId },
@@ -343,7 +341,7 @@ export default function InventoryFuelConsumptionPanel({
     onSuccess: async (result) => {
       toast.success(result.replayed ? "تم تأكيد التعبئة السابقة دون تكرار حركة المخزون." : `تم تسجيل التعبئة ${qty(result.litres)} لتر وترحيلها إلى خزان المولد.`);
       setLitres(""); setLevelBefore(""); setLevelAfter(""); setFillOperatingHours(""); setFillReference(""); setFillNotes("");
-      setFillAt(nowLocalDateTime()); setFillKey(operationKey("fuel-fill"));
+      setFillAt(nowLocalDateTime());
       await Promise.all([
         utils.powerhub.inventory.listFuelEvents.invalidate(),
         utils.powerhub.inventory.listFuelReadings.invalidate(),
@@ -361,7 +359,7 @@ export default function InventoryFuelConsumptionPanel({
     onSuccess: async (result) => {
       toast.success(result.replayed ? "هذه القراءة مسجلة مسبقًا." : "تم حفظ القراءة كسجل تاريخي؛ لا تُعدّل القراءات السابقة.");
       setReadingValue(""); setReadingReference(""); setReadingNotes(""); setCorrectsReadingId(""); setCorrectionReason("");
-      setReadingAt(nowLocalDateTime()); setReadingKey(operationKey("fuel-reading"));
+      setReadingAt(nowLocalDateTime());
       await Promise.all([
         utils.powerhub.inventory.listFuelReadings.invalidate(),
         utils.powerhub.inventory.fuelConsumptionReport.invalidate(),
@@ -375,7 +373,7 @@ export default function InventoryFuelConsumptionPanel({
   const alertSettingsMutation = trpc.powerhub.inventory.upsertFuelAlertSettings.useMutation({
     onSuccess: async (result) => {
       toast.success(result.replayed ? "تم تأكيد إعدادات التنبيه السابقة دون إنشاء نسخة." : "تم حفظ إعدادات تنبيهات الوقود وتدقيق العملية.");
-      setAlertSettingKey(operationKey("fuel-alert-settings"));
+
       await Promise.all([
         utils.powerhub.inventory.listFuelAlertSettings.invalidate(),
         utils.powerhub.inventory.listFuelAlertDispatches.invalidate(),
@@ -384,7 +382,7 @@ export default function InventoryFuelConsumptionPanel({
     onError: (error) => toast.error(error.message || "تعذر حفظ إعدادات تنبيهات الوقود."),
   });
 
-  const submitFill = (event: FormEvent) => {
+  const submitFill = async (event: FormEvent) => {
     event.preventDefault();
     if (!canManageFuelAndConsumption) { toast.error("لا تملك صلاحية تسجيل تعبئة الوقود."); return; }
     if (optionsAuthorizationDenied) { toast.error("رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل عملية التعبئة."); return; }
@@ -425,19 +423,31 @@ export default function InventoryFuelConsumptionPanel({
         toast.error("تعذر تحديد مستخدم الجلسة لحفظ المسودة محليًا؛ لم تُحفظ العملية.");
         return;
       }
+      const clientOperationId = await getStableOperationKey({ userId, siteId, kind: "fuel_fill", payload }).catch((error) => {
+        toast.error(error instanceof Error ? error.message : "تعذر تجهيز معرف تعبئة الوقود؛ لم تُحفظ العملية.");
+        return null;
+      });
+      if (!clientOperationId) return;
       setSavingFillDraft(true);
-      void enqueueOfflineWork({ userId, siteId, kind: "fuel_fill", clientOperationId: fillKey, payload })
+      void enqueueOfflineWork({ userId, siteId, kind: "fuel_fill", clientOperationId, payload })
         .then(() => {
           notifyOfflineWorkQueueChanged({ userId, siteId });
           toast.success("حُفظت تعبئة الوقود محليًا كمسودة. لم يُرحّل المخزون أو رصيد الخزان بعد.");
           setLitres(""); setLevelBefore(""); setLevelAfter(""); setFillOperatingHours(""); setFillReference(""); setFillNotes("");
-          setFillAt(nowLocalDateTime()); setFillKey(operationKey("fuel-fill"));
+          setFillAt(nowLocalDateTime());
         })
         .catch(() => toast.error("تعذر حفظ مسودة الوقود مع بيانات المزامنة؛ بقي النموذج دون تغيير."))
         .finally(() => setSavingFillDraft(false));
       return;
     }
-    fillMutation.mutate({ siteId, ...payload, operationKey: fillKey });
+    const userId = Number(auth.user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      toast.error("تعذر تحديد مستخدم الجلسة لإنشاء معرف تعبئة ثابت؛ لم تُرسل العملية.");
+      return;
+    }
+    void runWithStableOperationKey({ userId, siteId, kind: "fuel_fill", payload },
+      (operationKey) => fillMutation.mutateAsync({ siteId, ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل تعبئة الوقود."));
   };
 
   const submitReading = (event: FormEvent) => {
@@ -450,14 +460,22 @@ export default function InventoryFuelConsumptionPanel({
     }
     if (readingType === "tank_level" && !readingTankId) { toast.error("اختر خزانًا مرتبطًا بالمولد."); return; }
     if (correctsReadingId.trim() && !correctionReason.trim()) { toast.error("أدخل سببًا موثقًا لتصحيح القراءة."); return; }
-    readingMutation.mutate({
+    const userId = Number(auth.user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      toast.error("تعذر تحديد مستخدم الجلسة لإنشاء معرف قراءة ثابت؛ لم تُرسل العملية.");
+      return;
+    }
+    const payload = {
       siteId, generatorId: Number(activeReadingGeneratorId), readingType,
       tankWarehouseId: readingType === "tank_level" ? Number(readingTankId) : null,
       readingValue: parsedValue, recordedAt: new Date(readingAt).toISOString(),
       referenceNo: readingReference.trim() || undefined, notes: readingNotes.trim() || undefined,
       correctsReadingId: correctsReadingId.trim() ? Number(correctsReadingId) : null,
-      correctionReason: correctionReason.trim() || undefined, operationKey: readingKey,
-    });
+      correctionReason: correctionReason.trim() || undefined,
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "fuel_reading", payload },
+      (operationKey) => readingMutation.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل قراءة الوقود."));
   };
 
   const eventRows = (
@@ -622,7 +640,7 @@ export default function InventoryFuelConsumptionPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         {alertSettingsAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية الوصول إلى إعدادات تنبيهات الوقود؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : alertSettings.error && alertSettings.data !== undefined ? <p role="status" className="text-xs text-amber-700">تعذر تحديث إعدادات التنبيهات؛ تُعرض آخر نسخة ناجحة لهذه الجلسة.</p> : alertSettings.error ? <p role="alert" className="text-sm text-destructive">تعذر تحميل إعدادات التنبيهات ولا توجد نسخة متاحة.</p> : null}
-        <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={(event) => {
+        <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={async (event) => {
           event.preventDefault();
           if (optionsAuthorizationDenied || alertSettingsAuthorizationDenied) { toast.error("رفض الخادم صلاحية الوصول إلى خيارات الوقود أو إعدادات التنبيه؛ لم يُرسل التغيير."); return; }
           const low = alertLowThreshold.trim() ? Number(alertLowThreshold) : null;
@@ -639,11 +657,19 @@ export default function InventoryFuelConsumptionPanel({
           if (!activeAlertGeneratorId || !alertTankId) {
             toast.error("اختر المولد وخزان الوقود المرتبط به."); return;
           }
-          alertSettingsMutation.mutate({
+          const userId = Number(auth.user?.id);
+          if (!Number.isSafeInteger(userId) || userId < 1) {
+            toast.error("تعذر تحديد مستخدم الجلسة لإنشاء معرف إعدادات ثابت؛ لم يُرسل التغيير.");
+            return;
+          }
+          const payload = {
             siteId, generatorId: Number(activeAlertGeneratorId), tankWarehouseId: Number(alertTankId),
             lowLevelThresholdLiters: low, abnormalLitresPerHourThreshold: rate,
-            minimumHoursDelta: hours, isEnabled: alertsEnabled, operationKey: alertSettingKey,
-          });
+            minimumHoursDelta: hours, isEnabled: alertsEnabled,
+          };
+          void runWithStableOperationKey({ userId, siteId, kind: "fuel_alert_settings", payload },
+            (operationKey) => alertSettingsMutation.mutateAsync({ ...payload, operationKey }))
+            .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر حفظ إعدادات التنبيه."));
         }}>
           <label className="grid gap-1.5 text-sm">المولد
             <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={activeAlertGeneratorId} onChange={(e) => setAlertGeneratorId(e.target.value)}>
