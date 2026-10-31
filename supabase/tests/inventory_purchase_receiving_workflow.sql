@@ -3716,6 +3716,7 @@ declare
   v_report record;
   v_prior_day_report record;
   v_period_report record;
+  v_cycle_debug record;
   v_alert_setting record;
   v_alert_replay record;
   v_alert_eval record;
@@ -3897,11 +3898,15 @@ begin
     raise exception 'PHASE_B_CUSTOM_REPORT_RECONCILIATION_FAILED row=%',row_to_json(v_period_report);
   end if;
 
+  select * into v_cycle_debug from public.powerhub_cycle_for_reading(
+    10,100,(v_local_today-1)::timestamp at time zone 'Asia/Gaza'
+  );
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'cycle',v_local_today-1,null,null,10000,v_generator_tank_id
   );
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5 then
-    raise exception 'PHASE_B_CYCLE_REPORT_FAILED row=%',row_to_json(v_period_report);
+    raise exception 'PHASE_B_CYCLE_REPORT_FAILED row=% anchor=% fill_at=% cycle_start=% cycle_end=% timezone=%',
+      row_to_json(v_period_report),v_local_today-1,v_fill_time,v_cycle_debug.cycle_start_at,v_cycle_debug.cycle_end_at,'Asia/Gaza';
   end if;
 
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
