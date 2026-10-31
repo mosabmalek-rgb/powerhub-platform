@@ -61,6 +61,7 @@ describe("Adaptive Delta Realtime contract", () => {
     expect(adaptiveScheduler).toContain("pollingIntervalMs: 30_000");
     expect(adaptiveScheduler).toContain("realtimeFallbackMinMs: 60_000");
     expect(adaptiveScheduler).toContain("realtimeFallbackMaxMs: 120_000");
-    expect(adaptiveScheduler).toContain("Realtime provides low-latency invalidation");
+    expect(adaptiveScheduler).toContain("let delayMs = this.options.pollingIntervalMs");
+    expect(adaptiveScheduler).not.toContain('state.realtimeStatus === "connected" && state.failures === 0');
   });
 });
