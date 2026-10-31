@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useAdaptiveDeltaRefresh } from "@/hooks/useAdaptiveDeltaRefresh";
 import { trpc } from "@/lib/trpc";
 import {
   changedOperationalDeltaEntities,
@@ -35,10 +36,19 @@ export function useDeltaRevisionRefresh(input: UseDeltaRevisionRefreshInput) {
       enabled: active,
       staleTime: 0,
       refetchOnMount: "always",
-      refetchInterval: 20_000,
-      refetchIntervalInBackground: false,
+      refetchInterval: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
     },
   );
+  const checkRevision = useCallback(async () => {
+    await revisionQuery.refetch();
+  }, [revisionQuery.refetch]);
+  useAdaptiveDeltaRefresh({
+    scopeKey: "operational:" + scopeKey,
+    enabled: active,
+    check: checkRevision,
+  });
 
   useEffect(() => { onChangeRef.current = input.onChange; }, [input.onChange]);
 
