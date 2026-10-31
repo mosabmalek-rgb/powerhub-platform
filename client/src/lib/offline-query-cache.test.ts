@@ -14,6 +14,7 @@ import {
   OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS,
   OFFLINE_HR_DELTA_PROJECTION_TTL_MS,
   OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS,
+  getOfflineHrCompanyAccountOptionsExpiry,
   persistOfflineQuery,
   persistOfflineQueryForDeltaSync,
   sanitizeOfflineQueryData,
@@ -1114,9 +1115,26 @@ describe("HR local-first cache boundaries", () => {
 
 
 describe("dynamic subscriber directory and minimized expense selector cache", () => {
-  it("retains Delta-backed HR projections for seven days but limits non-Delta account options to 24 hours", () => {
+  it("expires non-Delta HR company-account options exactly 24 hours after persistence", () => {
     expect(OFFLINE_HR_DELTA_PROJECTION_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
     expect(OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS).toBe(24 * 60 * 60 * 1000);
+
+    const persistedAt = Date.parse("2026-10-30T12:00:00.000Z");
+    const key = ["powerhub.hr.offlineCompanyAccountOptions", {
+      input: { siteId: 7 }, type: "query",
+    }] as const;
+    const expiresAt = getOfflineHrCompanyAccountOptionsExpiry(persistedAt);
+    const persistedRecord = {
+      userId: "hr-user-7",
+      serializedQueryKey: offlineQueryCacheKey(key),
+      expiresAt,
+    };
+
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(expiresAt).toBe(persistedAt + 24 * 60 * 60 * 1000);
+    expect(isOfflineQueryRecordUsable(persistedRecord, "hr-user-7", expiresAt - 1)).toBe(true);
+    expect(isOfflineQueryRecordUsable(persistedRecord, "hr-user-7", expiresAt)).toBe(false);
+    expect(isOfflineQueryRecordUsable(persistedRecord, "another-user", expiresAt - 1)).toBe(false);
   });
 
   it("persists bounded unfiltered, search and subscription-type directory pages through subscriber Delta", () => {
