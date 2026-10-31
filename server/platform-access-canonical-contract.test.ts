@@ -10,11 +10,14 @@ describe("platform access Supabase canonical contract", () => {
     expect(existsSync(join(serverRoot, "platform-invitation-supabase.ts"))).toBe(false);
   });
 
-  it("keeps the canonical invitation RPC on the 5-argument contract", () => {
+  it("keeps the canonical platform invitation RPC on the 7-argument idempotent contract", () => {
     const source = readFileSync(join(serverRoot, "admin-platform-access-supabase.ts"), "utf8");
     expect(source).toContain('rpc("powerhub_admin_invite_platform_access"');
     expect(source).toContain("p_token_hash: tokenHash");
     expect(source).toContain("p_expires_at: expiresAt");
+    expect(source).toContain("p_client_operation_id: input.clientOperationId");
+    expect(source).toContain("p_request_fingerprint: requestFingerprint");
+    expect(source).toContain("replayed: row.replayed === true");
     expect(source).not.toContain("p_expires_in_hours");
   });
 
