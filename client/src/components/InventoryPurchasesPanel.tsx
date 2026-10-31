@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflinePurchaseDetailQueryCacheForSite } from "@/lib/offline-query-cache";
 import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
@@ -68,24 +69,6 @@ function todayForInput() {
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 }
 
-function getOrCreateOperationKey(storageKey: string, prefix: string) {
-  if (typeof window === "undefined") return operationKey(prefix);
-  try {
-    const existing = window.sessionStorage.getItem(storageKey);
-    if (existing) return existing;
-    const created = operationKey(prefix);
-    window.sessionStorage.setItem(storageKey, created);
-    return created;
-  } catch {
-    return operationKey(prefix);
-  }
-}
-
-function clearOperationKey(storageKey: string) {
-  if (typeof window === "undefined") return;
-  try { window.sessionStorage.removeItem(storageKey); } catch { /* storage may be blocked */ }
-}
-
 function emptyLine(firstItem?: { id: number; base_unit: string }): DraftLine {
   return {
     key: operationKey("purchase-line"),
@@ -132,8 +115,6 @@ export default function InventoryPurchasesPanel({
   const [paymentTermsDays, setPaymentTermsDays] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
   const [purchaseNotes, setPurchaseNotes] = useState("");
-  const createOperationStorageKey = `powerhub:inventory:${siteId}:purchase-create`;
-  const [createOperationKey, setCreateOperationKey] = useState(() => getOrCreateOperationKey(createOperationStorageKey, "purchase-create"));
   const [draftLines, setDraftLines] = useState<DraftLine[]>([emptyLine()]);
   const [receiptDate, setReceiptDate] = useState(todayForInput);
   const [receiptNotes, setReceiptNotes] = useState("");
@@ -329,8 +310,6 @@ export default function InventoryPurchasesPanel({
       setPurchaseNotes("");
       setDraftLines([emptyLine(options.data?.items[0])]);
       setPaymentMode("deferred");
-      clearOperationKey(createOperationStorageKey);
-      setCreateOperationKey(getOrCreateOperationKey(createOperationStorageKey, "purchase-create"));
       if (!settlement || settlement.mode !== "immediate") {
         toast.success(`تم إنشاء مسودة المشتريات ${result.purchase_number}.`);
         await refreshPurchaseData(purchaseId);
@@ -359,12 +338,15 @@ export default function InventoryPurchasesPanel({
           return;
         }
         const amount = Math.round(Number(result.total_amount) * 100) / 100;
-        await recordSupplierPayment.mutateAsync({
+        const paymentPayload = {
           siteId, purchaseId, companyAccountId: settlement.companyAccountId, amount,
           paymentDate: settlement.paymentDate, referenceNo: settlement.referenceNo,
           notes: settlement.notes || "سداد فوري من نموذج المشتريات",
-          operationKey: getOrCreateOperationKey(`powerhub:inventory:${siteId}:purchase:${purchaseId}:payment`, "supplier-payment"),
-        });
+        };
+        const userId = Number(auth.user?.id);
+        if (!Number.isSafeInteger(userId) || userId < 1) throw new Error("تعذر تحديد مستخدم الجلسة؛ لم يُرسل سداد المورد.");
+        await runWithStableOperationKey({ userId, siteId, kind: "inventory_supplier_payment", payload: paymentPayload },
+          (operationKey) => recordSupplierPayment.mutateAsync({ ...paymentPayload, operationKey }));
         immediateSettlementRef.current = false;
         toast.success(`تم إنشاء الفاتورة ${result.purchase_number} واعتمادها وسداد كامل قيمتها ${formatAmount(amount)}.`);
         await Promise.all([refreshPurchaseData(purchaseId), utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId })]);
@@ -374,7 +356,6 @@ export default function InventoryPurchasesPanel({
         await refreshPurchaseData(purchaseId);
       }
     },
-    onError: (error) => { pendingSettlementRef.current = null; toast.error(error.message || "تعذر إنشاء فاتورة المشتريات."); },
   });
 
   const confirmPurchase = trpc.powerhub.inventory.confirmPurchase.useMutation({
@@ -390,10 +371,8 @@ export default function InventoryPurchasesPanel({
       toast.success(result.replayed ? "تم التحقق من عملية الاستلام السابقة دون تكرار الحركة." : `تم تسجيل الاستلام ${result.receipt_number}.`);
       setReceiptNotes("");
       setReceiptDate(todayForInput());
-      clearOperationKey(`powerhub:inventory:${siteId}:purchase:${Number(result.purchase_id)}:receipt`);
       await refreshPurchaseData(Number(result.purchase_id));
     },
-    onError: (error) => toast.error(error.message || "تعذر تسجيل الاستلام."),
   });
 
 
@@ -416,7 +395,6 @@ export default function InventoryPurchasesPanel({
       setReturnRefundAmount("0");
       setReturnRefundAccountId("");
       setReturnDate(todayForInput());
-      clearOperationKey(`powerhub:inventory:${siteId}:purchase:${Number(result.purchase_id)}:return`);
       await Promise.all([
         refreshPurchaseData(Number(result.purchase_id)),
         utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
@@ -424,7 +402,6 @@ export default function InventoryPurchasesPanel({
         utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
       ]);
     },
-    onError: (error) => toast.error(error.message || "تعذر تسجيل مرتجع المورد."),
   });
 
   const reverseSupplierPayment = trpc.powerhub.inventory.reverseSupplierPayment.useMutation({
@@ -449,13 +426,11 @@ export default function InventoryPurchasesPanel({
       setPaymentNotes("");
       setPaymentDate(todayForInput());
       setPaymentAmount("");
-      clearOperationKey(`powerhub:inventory:${siteId}:purchase:${Number(result.purchase_id)}:payment`);
       await Promise.all([
         refreshPurchaseData(Number(result.purchase_id)),
         utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
       ]);
     },
-    onError: (error) => { if (!immediateSettlementRef.current) toast.error(error.message || "تعذر تسجيل دفعة المورد."); },
   });
 
   const onCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -503,20 +478,23 @@ export default function InventoryPurchasesPanel({
       if (!account || amount <= 0 || amount > Number(account.balance)) { toast.error("اختر حساب شركة نشطًا يكفي رصيده لسداد إجمالي الفاتورة."); return; }
       pendingSettlementRef.current = { mode: "immediate", companyAccountId: Number(account.id), paymentDate: paymentDate || invoiceDate || todayForInput(), referenceNo: paymentReferenceNo.trim() || undefined, notes: paymentNotes.trim() || purchaseNotes.trim() || undefined };
     } else pendingSettlementRef.current = { mode: "deferred", companyAccountId: 0, paymentDate: paymentDate || todayForInput() };
-    createPurchase.mutate({
-      siteId,
-      supplierId: Number(supplierId),
-      warehouseId: Number(warehouseId),
+    const userId = Number(auth.user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      pendingSettlementRef.current = null;
+      toast.error("تعذر تحديد مستخدم الجلسة؛ لم تُرسل فاتورة المشتريات.");
+      return;
+    }
+    const payload = {
+      siteId, supplierId: Number(supplierId), warehouseId: Number(warehouseId),
       supplierInvoiceNo: supplierInvoiceNo.trim() || undefined,
       invoiceDate: invoiceDate || undefined,
       dueDate: paymentMode === "immediate" ? (invoiceDate || todayForInput()) : (dueDate || undefined),
-      paymentTermsDays: paymentMode === "immediate" ? 0 : terms,
-      paymentMode,
-      referenceNo: referenceNo.trim() || undefined,
-      notes: purchaseNotes.trim() || undefined,
-      operationKey: createOperationKey,
-      lines,
-    });
+      paymentTermsDays: paymentMode === "immediate" ? 0 : terms, paymentMode,
+      referenceNo: referenceNo.trim() || undefined, notes: purchaseNotes.trim() || undefined, lines,
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "inventory_purchase_create", payload },
+      (operationKey) => createPurchase.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => { pendingSettlementRef.current = null; toast.error(error instanceof Error ? error.message : "تعذر إنشاء فاتورة المشتريات."); });
   };
 
   const onSupplierPaymentSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -546,17 +524,16 @@ export default function InventoryPurchasesPanel({
       toast.error("رصيد الحساب المحدد لا يكفي لهذه الدفعة.");
       return;
     }
-    const storageKey = `powerhub:inventory:${siteId}:purchase:${selectedPurchaseId}:payment`;
-    recordSupplierPayment.mutate({
-      siteId,
-      purchaseId: selectedPurchaseId,
-      companyAccountId: Number(companyAccountId),
-      amount,
-      paymentDate: paymentDate || undefined,
-      referenceNo: paymentReferenceNo.trim() || undefined,
+    const userId = Number(auth.user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) { toast.error("تعذر تحديد مستخدم الجلسة؛ لم تُرسل دفعة المورد."); return; }
+    const payload = {
+      siteId, purchaseId: selectedPurchaseId, companyAccountId: Number(companyAccountId), amount,
+      paymentDate: paymentDate || undefined, referenceNo: paymentReferenceNo.trim() || undefined,
       notes: paymentNotes.trim() || undefined,
-      operationKey: getOrCreateOperationKey(storageKey, "supplier-payment"),
-    });
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "inventory_supplier_payment", payload },
+      (operationKey) => recordSupplierPayment.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل دفعة المورد."));
   };
 
   const onReturnSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -591,18 +568,16 @@ export default function InventoryPurchasesPanel({
       toast.error("اختر حساب الشركة الذي سيستقبل المبلغ المسترد.");
       return;
     }
-    const storageKey = `powerhub:inventory:${siteId}:purchase:${selectedPurchaseId}:return`;
-    returnToSupplier.mutate({
-      siteId,
-      purchaseId: selectedPurchaseId,
-      returnDate: returnDate || undefined,
-      operationKey: getOrCreateOperationKey(storageKey, "supplier-return"),
-      reason: returnReason.trim(),
-      notes: returnNotes.trim() || undefined,
-      refundAmount,
-      refundCompanyAccountId: refundAmount > 0 ? Number(returnRefundAccountId) : undefined,
-      lines,
-    });
+    const userId = Number(auth.user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) { toast.error("تعذر تحديد مستخدم الجلسة؛ لم يُرسل مرتجع المورد."); return; }
+    const payload = {
+      siteId, purchaseId: selectedPurchaseId, returnDate: returnDate || undefined,
+      reason: returnReason.trim(), notes: returnNotes.trim() || undefined, refundAmount,
+      refundCompanyAccountId: refundAmount > 0 ? Number(returnRefundAccountId) : undefined, lines,
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "inventory_supplier_return", payload },
+      (operationKey) => returnToSupplier.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل مرتجع المورد."));
   };
 
   const onReceiveSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -628,16 +603,15 @@ export default function InventoryPurchasesPanel({
       toast.error("إحدى الكميات أكبر من المتبقي؛ حدّث التفاصيل وراجع الأرقام.");
       return;
     }
-    const receiptStorageKey = `powerhub:inventory:${siteId}:purchase:${selectedPurchaseId}:receipt`;
-    const receiptKey = getOrCreateOperationKey(receiptStorageKey, "purchase-receipt");
-    receivePurchase.mutate({
-      siteId,
-      purchaseId: selectedPurchaseId,
-      receiptDate: receiptDate || undefined,
-      operationKey: receiptKey,
-      notes: receiptNotes.trim() || undefined,
-      lines,
-    });
+    const userId = Number(auth.user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) { toast.error("تعذر تحديد مستخدم الجلسة؛ لم يُرسل الاستلام."); return; }
+    const payload = {
+      siteId, purchaseId: selectedPurchaseId, receiptDate: receiptDate || undefined,
+      notes: receiptNotes.trim() || undefined, lines,
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "inventory_purchase_receipt", payload },
+      (operationKey) => receivePurchase.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل الاستلام."));
   };
 
   if (!canViewPurchases) {
