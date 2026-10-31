@@ -20,6 +20,42 @@ vi.mock("./supabase-admin", () => ({
 }));
 
 describe("PowerHub inventory catalog and supplier API", () => {
+  it("returns only the three tenant-scoped stocktake UI capabilities for offline draft hints", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "manager", permissions: ["manageStocktakes"],
+      usesPermissionOverride: true,
+    });
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.stocktakeOfflineAccess;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 77 } },
+      input: { siteId: 7 },
+    });
+    expect(result).toEqual({
+      tenantId: 44,
+      canViewStocktakes: false,
+      canManageStocktakes: true,
+      canApproveStocktakes: false,
+    });
+    expect(state.siteAccess).toHaveBeenCalledWith(77, 7);
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("denies the offline stocktake capability projection when no stocktake capability is granted", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "viewer", permissions: [],
+      usesPermissionOverride: false,
+    });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.stocktakeOfflineAccess;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 77 } },
+      input: { siteId: 7 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
   it("checks the individual inventory-management capability before inserting a catalog item", async () => {
     state.from.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));

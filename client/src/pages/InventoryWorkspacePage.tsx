@@ -21,7 +21,7 @@ import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
-import { clearOfflineSiteAccessQueryCacheForSite, clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
+import { clearOfflineStocktakeAccessQueryCacheForSite, clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
 import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck, LayoutDashboard, Droplet, Wrench, Bolt } from "lucide-react";
 import { toast } from "sonner";
@@ -72,10 +72,16 @@ export default function InventoryWorkspacePage() {
   });
   const supplierAccessAuthorizationDenied = isExplicitAuthorizationDenial(supplierAccess.error);
   const effectiveSupplierAccess = supplierAccessAuthorizationDenied ? undefined : supplierAccess.data;
+  const stocktakeAccess = trpc.powerhub.inventory.stocktakeOfflineAccess.useQuery({ siteId }, {
+    enabled: Boolean(siteId && isAuthenticated),
+    staleTime: 30_000,
+  });
+  const stocktakeAccessAuthorizationDenied = isExplicitAuthorizationDenial(stocktakeAccess.error);
+  const effectiveStocktakeAccess = stocktakeAccessAuthorizationDenied ? undefined : stocktakeAccess.data;
   useEffect(() => {
-    if (!supplierAccessAuthorizationDenied || !user?.id || !siteId) return;
-    void clearOfflineSiteAccessQueryCacheForSite(String(user.id), siteId);
-  }, [supplierAccessAuthorizationDenied, user?.id, siteId]);
+    if (!stocktakeAccessAuthorizationDenied || !user?.id || !siteId) return;
+    void clearOfflineStocktakeAccessQueryCacheForSite(String(user.id), siteId);
+  }, [stocktakeAccessAuthorizationDenied, user?.id, siteId]);
   const canViewGenerators = ["owner", "manager", "technician", "viewer"].includes(effectiveSupplierAccess?.role ?? "") || (effectiveSupplierAccess?.permissions.includes("manageGenerators") ?? false);
   const canViewSuppliers = effectiveSupplierAccess?.permissions.includes("viewSuppliers") ?? false;
   const canViewSupplierLedger = effectiveSupplierAccess?.permissions.includes("viewSupplierLedger") ?? false;
@@ -96,9 +102,9 @@ export default function InventoryWorkspacePage() {
   const canManageMaintenance = effectiveSupplierAccess?.permissions.includes("manageMaintenance") ?? false;
   const canViewMaintenance = canViewInventory || canManageMaintenance;
   const canViewMaintenanceReport = canViewInventoryReports;
-  const canViewStocktakes = effectiveSupplierAccess?.permissions.includes("viewStocktakes") ?? false;
-  const canManageStocktakes = effectiveSupplierAccess?.permissions.includes("manageStocktakes") ?? false;
-  const canApproveStocktakes = effectiveSupplierAccess?.permissions.includes("approveStocktakes") ?? false;
+  const canViewStocktakes = effectiveStocktakeAccess?.canViewStocktakes ?? false;
+  const canManageStocktakes = effectiveStocktakeAccess?.canManageStocktakes ?? false;
+  const canApproveStocktakes = effectiveStocktakeAccess?.canApproveStocktakes ?? false;
   const canAccessStocktakes = canViewStocktakes || canManageStocktakes || canApproveStocktakes;
   const canViewPurchases = effectiveSupplierAccess?.permissions.includes("viewPurchases") ?? false;
   const canCreatePurchases = effectiveSupplierAccess?.permissions.includes("createPurchases") ?? false;
@@ -518,7 +524,7 @@ export default function InventoryWorkspacePage() {
               {canAccessStocktakes ? <InventoryStocktakePanel
                 siteId={siteId}
                 userId={Number(user?.id ?? 0)}
-                tenantId={Number(effectiveSupplierAccess?.tenantId ?? 0)}
+                tenantId={Number(effectiveStocktakeAccess?.tenantId ?? 0)}
                 isAuthenticated={isAuthenticated}
                 canViewStocktakes={canViewStocktakes}
                 canManageStocktakes={canManageStocktakes}

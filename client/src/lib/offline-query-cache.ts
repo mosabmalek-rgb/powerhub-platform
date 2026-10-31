@@ -15,8 +15,8 @@ export const OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_HR_DELTA_PROJECTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
-// Self-scoped permission cache is UI guidance only; server RPCs always re-authorize.
-export const OFFLINE_SITE_ACCESS_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
+// Minimal stocktake capability hints support offline drafts only; server RPCs re-authorize.
+export const OFFLINE_STOCKTAKE_ACCESS_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 // Exact server-created stocktake-line snapshots support table resume, not posting.
 export const OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export function getOfflineHrCompanyAccountOptionsExpiry(persistedAt: number): number {
@@ -391,19 +391,15 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
-  if (segments[0] === "powerhub" && segments[1] === "staff" && segments[2] === "myAccess" &&
+  if (segments[0] === "powerhub" && segments[1] === "inventory" && segments[2] === "stocktakeOfflineAccess" &&
       data && typeof data === "object" && !Array.isArray(data)) {
     const access = data as Record<string, unknown>;
-    const permissions = Array.isArray(access.permissions)
-      ? [...new Set(access.permissions.filter((value): value is string =>
-          typeof value === "string" && value.length > 0 && value.length <= 120))]
-      : [];
     const tenantId = Number(access.tenantId);
     return {
-      role: typeof access.role === "string" ? access.role : null,
-      permissions,
       tenantId: Number.isSafeInteger(tenantId) && tenantId > 0 ? tenantId : null,
-      usesPermissionOverride: Boolean(access.usesPermissionOverride),
+      canViewStocktakes: access.canViewStocktakes === true,
+      canManageStocktakes: access.canManageStocktakes === true,
+      canApproveStocktakes: access.canApproveStocktakes === true,
     };
   }
   if (segments[0] === "powerhub" && segments[1] === "inventory" && segments[2] === "listStocktakeLines" && Array.isArray(data)) {
@@ -769,8 +765,8 @@ async function persistOfflineQueryWithPolicy(
     isSafeSupplierPayablesAgingSnapshot(query.queryKey);
   const isExpenseFilterOptions = cacheKeySegments[0] === "powerhub" &&
     cacheKeySegments[1] === "expenses" && cacheKeySegments[2] === "filterAccounts";
-  const isOfflineSiteAccessSnapshot = cacheKeySegments[0] === "powerhub" &&
-    cacheKeySegments[1] === "staff" && cacheKeySegments[2] === "myAccess";
+  const isOfflineStocktakeAccessSnapshot = cacheKeySegments[0] === "powerhub" &&
+    cacheKeySegments[1] === "inventory" && cacheKeySegments[2] === "stocktakeOfflineAccess";
   const isStocktakeLinesSnapshot = cacheKeySegments[0] === "powerhub" &&
     cacheKeySegments[1] === "inventory" && cacheKeySegments[2] === "listStocktakeLines";
   const record: OfflineQueryRecord = {
@@ -785,7 +781,7 @@ async function persistOfflineQueryWithPolicy(
       : isSupplierFinancialSnapshot ? now + OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS
       : isHrProjection ? hrCacheExpiry
       : isExpenseFilterOptions ? now + OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS
-      : isOfflineSiteAccessSnapshot ? now + OFFLINE_SITE_ACCESS_SNAPSHOT_TTL_MS
+      : isOfflineStocktakeAccessSnapshot ? now + OFFLINE_STOCKTAKE_ACCESS_SNAPSHOT_TTL_MS
       : isStocktakeLinesSnapshot ? now + OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS
         : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
           ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,
@@ -927,15 +923,15 @@ export async function clearOfflineFuelQueryCacheForSite(
   }
 }
 
-/** Match only the self-scoped site permission snapshot used by offline draft UI. */
-export function isOfflineSiteAccessQueryKeyForSite(queryKey: readonly unknown[], siteId: number): boolean {
+/** Match the exact stocktake capability projection for a single site. */
+export function isOfflineStocktakeAccessQueryKeyForSite(queryKey: readonly unknown[], siteId: number): boolean {
   if (!Number.isSafeInteger(siteId) || siteId < 1) return false;
   const first = queryKey[0];
   const segments = Array.isArray(first)
     ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
   if (segments.length !== 3 || segments[0] !== "powerhub" ||
-      segments[1] !== "staff" || segments[2] !== "myAccess") return false;
+      segments[1] !== "inventory" || segments[2] !== "stocktakeOfflineAccess") return false;
   const wrapper = queryKey[1];
   if (!wrapper || typeof wrapper !== "object" || Array.isArray(wrapper)) return false;
   const options = wrapper as Record<string, unknown>;
@@ -946,15 +942,15 @@ export function isOfflineSiteAccessQueryKeyForSite(queryKey: readonly unknown[],
     Object.prototype.hasOwnProperty.call(scoped, "siteId") && Number(scoped.siteId) === siteId;
 }
 
-/** Clear the cached permission projection after an authoritative 401/403 only. */
-export async function clearOfflineSiteAccessQueryCacheForSite(userId: string, siteId: number) {
+/** Clear the cached stocktake capability projection after an authoritative 401/403 only. */
+export async function clearOfflineStocktakeAccessQueryCacheForSite(userId: string, siteId: number) {
   if (!userId || !Number.isSafeInteger(siteId) || siteId < 1) return;
   try {
     const records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
     const keys = records.filter((record) => {
       if (record.userId !== userId) return false;
       try {
-        return isOfflineSiteAccessQueryKeyForSite(superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId);
+        return isOfflineStocktakeAccessQueryKeyForSite(superjson.parse<readonly unknown[]>(record.serializedQueryKey), siteId);
       } catch { return false; }
     }).map((record) => record.key);
     await deleteQueryCacheKeys(keys);

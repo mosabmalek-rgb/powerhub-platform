@@ -7,7 +7,7 @@ import {
   isOfflinePurchaseDetailQueryKeyForSite,
   isOfflineCacheableQueryKey,
   isDeltaSyncBackedQueryKey,
-  isOfflineSiteAccessQueryKeyForSite,
+  isOfflineStocktakeAccessQueryKeyForSite,
   isOfflineQueryRecordUsable,
   offlineQueryCacheKey,
   OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS,
@@ -15,7 +15,7 @@ import {
   OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS,
   OFFLINE_HR_DELTA_PROJECTION_TTL_MS,
   OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS,
-  OFFLINE_SITE_ACCESS_SNAPSHOT_TTL_MS,
+  OFFLINE_STOCKTAKE_ACCESS_SNAPSHOT_TTL_MS,
   OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS,
   getOfflineHrCompanyAccountOptionsExpiry,
   persistOfflineQuery,
@@ -57,26 +57,29 @@ describe("offline query cache policy", () => {
   });
 
 
-  it("persists only a self-scoped permission snapshot for offline draft UI, never as a Delta authority", () => {
-    const key = ["powerhub.staff.myAccess", { input: { siteId: 7 }, type: "query" }] as const;
-    const malformed = ["powerhub.staff.myAccess", { input: { siteId: 7, userId: 99 }, type: "query" }] as const;
+  it("keeps generic staff permission snapshots uncached and persists only stocktake capability hints", () => {
+    const generic = ["powerhub.staff.myAccess", { input: { siteId: 7 }, type: "query" }] as const;
+    const key = ["powerhub.inventory.stocktakeOfflineAccess", { input: { siteId: 7 }, type: "query" }] as const;
+    const malformed = ["powerhub.inventory.stocktakeOfflineAccess", {
+      input: { siteId: 7, userId: 99 }, type: "query",
+    }] as const;
+    expect(isOfflineCacheableQueryKey(generic)).toBe(false);
+    expect(isDeltaSyncBackedQueryKey(generic)).toBe(false);
     expect(isOfflineCacheableQueryKey(key)).toBe(true);
     expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
     expect(getOfflineQueryDeltaEntity(key)).toBeNull();
     expect(getOfflineQueryStaleTime(key)).toBe(30_000);
-    expect(isOfflineSiteAccessQueryKeyForSite(key, 7)).toBe(true);
-    expect(isOfflineSiteAccessQueryKeyForSite(key, 8)).toBe(false);
+    expect(isOfflineStocktakeAccessQueryKeyForSite(key, 7)).toBe(true);
+    expect(isOfflineStocktakeAccessQueryKeyForSite(key, 8)).toBe(false);
     expect(isOfflineCacheableQueryKey(malformed)).toBe(false);
     const safe = sanitizeOfflineQueryData(key, {
-      role: "manager", tenantId: 2, usesPermissionOverride: true,
-      permissions: ["viewStocktakes", "manageStocktakes", "manageStocktakes"],
-      email: "must-not-persist@example.test", internal: { token: "secret" },
+      tenantId: 2, canViewStocktakes: false, canManageStocktakes: true,
+      canApproveStocktakes: false, permissions: ["managePayroll"], email: "never-persist@example.test",
     });
     expect(safe).toEqual({
-      role: "manager", tenantId: 2, usesPermissionOverride: true,
-      permissions: ["viewStocktakes", "manageStocktakes"],
+      tenantId: 2, canViewStocktakes: false, canManageStocktakes: true, canApproveStocktakes: false,
     });
-    expect(OFFLINE_SITE_ACCESS_SNAPSHOT_TTL_MS).toBe(24 * 60 * 60 * 1000);
+    expect(OFFLINE_STOCKTAKE_ACCESS_SNAPSHOT_TTL_MS).toBe(24 * 60 * 60 * 1000);
   });
 
   it("hydrates exact stocktake line snapshots as non-Delta read-only input for local count drafts", () => {

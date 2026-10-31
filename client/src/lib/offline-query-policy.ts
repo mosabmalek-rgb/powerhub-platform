@@ -384,8 +384,8 @@ export function isSafePurchaseDetailSnapshot(
     Number.isSafeInteger(input.purchaseId) && Number(input.purchaseId) > 0);
 }
 
-function isSafeOfflineSiteAccessSnapshot(queryKey: readonly unknown[], segments: string[]) {
-  if (segments.length !== 3 || segments[1] !== "staff" || segments[2] !== "myAccess") return false;
+function isSafeOfflineStocktakeAccessSnapshot(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3 || segments[1] !== "inventory" || segments[2] !== "stocktakeOfflineAccess") return false;
   const input = getOfflineQueryInput(queryKey);
   return Boolean(input && Object.keys(input).length === 1 &&
     Object.prototype.hasOwnProperty.call(input, "siteId") &&
@@ -395,7 +395,7 @@ function isSafeOfflineSiteAccessSnapshot(queryKey: readonly unknown[], segments:
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
-  if (isSafeOfflineSiteAccessSnapshot(queryKey, segments)) return true;
+  if (isSafeOfflineStocktakeAccessSnapshot(queryKey, segments)) return true;
   if (isSafeHrOfflineProjection(queryKey, segments)) return true;
   // One exact purchase detail may be stored as a sanitized read-only display snapshot.
   if (isSafePurchaseDetailSnapshot(queryKey, segments)) return true;

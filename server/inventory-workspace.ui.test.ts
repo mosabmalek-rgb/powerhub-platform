@@ -37,7 +37,9 @@ describe("inventory workspace UI contract", () => {
     expect(page).toContain("const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;");
     expect(page).toContain('permissions.includes("manageFuelAndConsumption")');
     expect(page).toContain("overflow-x-auto");
-    expect(page).toContain('supplierAccess.data?.permissions.includes("viewSuppliers")');
+    expect(page).toContain('effectiveSupplierAccess?.permissions.includes("viewSuppliers")');
+    expect(page).toContain("trpc.powerhub.inventory.stocktakeOfflineAccess.useQuery");
+    expect(page).toContain("effectiveStocktakeAccess?.canManageStocktakes");
     expect(page).toContain("canViewSuppliers ? <TabsTrigger value=\"suppliers\"");
     expect(page).toContain("useBranchFilter(sites.data)");
     expect(page).toContain("التشغيل والمشتريات");

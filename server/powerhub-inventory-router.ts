@@ -1367,6 +1367,18 @@ export const powerhubInventoryRouter = router({
 
 
 
+  stocktakeOfflineAccess: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStocktakeReadAccess(ctx.user.id, input.siteId);
+      return {
+        tenantId: access.tenantId,
+        canViewStocktakes: access.permissions.includes("viewStocktakes"),
+        canManageStocktakes: access.permissions.includes("manageStocktakes"),
+        canApproveStocktakes: access.permissions.includes("approveStocktakes"),
+      };
+    }),
+
   listStocktakeWarehouses: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
