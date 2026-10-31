@@ -91,6 +91,9 @@ describe("adaptive Delta private Realtime channel", () => {
 
     mockState.broadcastHandler?.({ payload: { version: 2 } });
     mockState.broadcastHandler?.({ payload: { version: 1, row_data: { amount: 99 } } });
+    expect(first.onInvalidate).not.toHaveBeenCalled();
+    expect(second.onInvalidate).not.toHaveBeenCalled();
+    mockState.broadcastHandler?.({ payload: { version: 1 } });
     expect(first.onInvalidate).toHaveBeenCalledTimes(1);
     expect(second.onInvalidate).toHaveBeenCalledTimes(1);
 
