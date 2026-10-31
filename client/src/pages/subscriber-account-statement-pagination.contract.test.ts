@@ -48,6 +48,14 @@ describe("subscriber account statement complete-history contract", () => {
     expect(implementation).toContain('.order("issue_date", { ascending: false }).order("id", { ascending: false }).limit(limit + 1)');
     expect(implementation).toContain('.order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1)');
     expect(implementation).toContain('.order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1)');
+    const readingQueryStart = implementation.indexOf("let readingQuery = admin.from(\"meter_readings\")");
+    const readingQueryEnd = implementation.indexOf("const { data, error } = await readingQuery", readingQueryStart);
+    expect(readingQueryStart).toBeGreaterThanOrEqual(0);
+    expect(readingQueryEnd).toBeGreaterThan(readingQueryStart);
+    const readingQuery = implementation.slice(readingQueryStart, readingQueryEnd);
+    expect(readingQuery).toContain('.eq("tenant_id", tenantId).eq("subscriber_id", subscriberId)');
+    expect(readingQuery).not.toContain('.eq("site_id"');
+    expect(implementation).toContain('.eq("id", subscriberId).eq("site_id", siteId)');
     expect(implementation).toContain("id.lt.");
   });
 
