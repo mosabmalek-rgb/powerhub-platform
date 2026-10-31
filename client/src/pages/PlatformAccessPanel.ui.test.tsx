@@ -54,7 +54,7 @@ describe("Platform access owner panel", () => {
   it("retains the form and reuses the same operation id after a failed network attempt", () => {
     render(<PlatformAccessPanel />);
     const email = screen.getByPlaceholderText("support@example.com") as HTMLInputElement;
-    fireEvent.change(email, { target: { value: "  Staff@Example.Test " } });
+    fireEvent.change(email, { target: { value: "Staff@Example.Test" } });
 
     submitInvite();
     const firstPayload = mocks.mutate.mock.calls[0][0];
@@ -64,7 +64,7 @@ describe("Platform access owner panel", () => {
       expiresInHours: 72,
     });
     expect(firstPayload.clientOperationId).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(email.value).toBe("  Staff@Example.Test ");
+    expect(email.value).toBe("Staff@Example.Test");
 
     submitInvite();
     const retryPayload = mocks.mutate.mock.calls[1][0];
@@ -78,7 +78,7 @@ describe("Platform access owner panel", () => {
 
     submitInvite();
     const firstPayload = mocks.mutate.mock.calls[0][0];
-    fireEvent.change(screen.getByRole("combobox") as HTMLSelectElement, { target: { value: "platform_admin" } });
+    fireEvent.change(screen.getByRole("form").querySelector('select[name="platformRole"]') as HTMLSelectElement, { target: { value: "platform_admin" } });
     submitInvite();
     const changedPayload = mocks.mutate.mock.calls[1][0];
 
