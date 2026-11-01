@@ -282,6 +282,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres platform_identity_rls_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname platform_identity_rls_test --set ON_ERROR_STOP=1 --file supabase/tests/platform_identity_rls_scope_alignment.sql
 
+      - name: Verify approved Staging first platform-admin bootstrap is identity-bound, audited, and idempotent
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres staging_first_platform_admin_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname staging_first_platform_admin_test --set ON_ERROR_STOP=1 --file supabase/tests/staging_first_platform_admin_bootstrap.sql
+
       - name: Verify five-package and chat schema reconciliation preserves legacy rows and RPC contracts
         env:
           PGPASSWORD: postgres
