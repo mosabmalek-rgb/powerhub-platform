@@ -17,15 +17,45 @@ export const supportRouter = router({
   archiveConversationForSelf: protectedProcedure
     .input(z.object({ conversationId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      const { data: participant, error: participantError } = await supabaseAdmin()
+      const admin = supabaseAdmin();
+      const { data: participant, error: participantError } = await admin
         .from("chat_participants")
-        .select("id")
+        .select("id,tenant_id")
         .eq("conversation_id", input.conversationId)
         .eq("user_id", ctx.user.id)
         .is("left_at", null)
         .maybeSingle();
       if (participantError || !participant) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك حذف هذه المحادثة من قائمتك." });
-      const { error } = await supabaseAdmin().from("chat_participants").update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", participant.id).eq("user_id", ctx.user.id);
+
+      const { data: conversation, error: conversationError } = await admin
+        .from("chat_conversations")
+        .select("id,tenant_id,conversation_type")
+        .eq("id", input.conversationId)
+        .eq("tenant_id", participant.tenant_id)
+        .maybeSingle();
+      if (conversationError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نوع المحادثة." });
+      if (!conversation) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك الوصول إلى هذه المحادثة." });
+
+      const featureKey = conversation.conversation_type === "support"
+        ? "support_chat"
+        : conversation.conversation_type === "assistant"
+          ? "powerhub_ai_assistant"
+          : null;
+      if (!featureKey) throw new TRPCError({ code: "FORBIDDEN", message: "نوع المحادثة غير مدعوم." });
+
+      const { data: featurePolicy, error: featurePolicyError } = await admin.rpc(
+        "powerhub_resolve_tenant_feature_policy",
+        { p_tenant_id: participant.tenant_id, p_feature_key: featureKey },
+      );
+      if (featurePolicyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صلاحية الميزة." });
+      if (featurePolicy?.[0]?.enabled !== true) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "هذه الميزة غير متاحة لهذا الاشتراك حاليًا." });
+      }
+
+      const { error } = await admin.from("chat_participants")
+        .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", participant.id)
+        .eq("user_id", ctx.user.id);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حذف المحادثة من قائمتك." });
       return { success: true };
     }),
