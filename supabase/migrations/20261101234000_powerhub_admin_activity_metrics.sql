@@ -57,7 +57,7 @@ BEGIN
     p_result_count, p_generator_result_count, p_subscriber_result_count,
     p_owner_result_count, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp()
   )
-  ON CONFLICT (metric_day, actor_user_id) DO UPDATE SET
+  ON CONFLICT (metric_day) DO UPDATE SET
     search_count = private.platform_admin_search_metrics_daily.search_count + 1,
     no_result_search_count = private.platform_admin_search_metrics_daily.no_result_search_count
       + CASE WHEN EXCLUDED.no_result_search_count = 1 THEN 1 ELSE 0 END,
@@ -151,7 +151,7 @@ $function$;
 
 ALTER FUNCTION public.powerhub_admin_record_search_metric(integer, integer, integer, integer) OWNER TO postgres;
 ALTER FUNCTION public.powerhub_admin_get_activity_metrics() OWNER TO postgres;
-REVOKE ALL ON FUNCTION public.powerhub_admin_record_search_metric(bigint, integer, integer, integer, integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.powerhub_admin_record_search_metric(integer, integer, integer, integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.powerhub_admin_get_activity_metrics() FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.powerhub_admin_record_search_metric(bigint, integer, integer, integer, integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.powerhub_admin_record_search_metric(integer, integer, integer, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.powerhub_admin_get_activity_metrics() TO service_role;
