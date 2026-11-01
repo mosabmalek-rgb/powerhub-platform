@@ -429,3 +429,10 @@ jobs:
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres custom_permission_role_rpc_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname custom_permission_role_rpc_test --set ON_ERROR_STOP=1 --file supabase/tests/custom_permission_role_rpc_idempotency_reconcile.sql
+
+      - name: Verify PowerHub chat AI runtime claims, kill switch, realtime scope, and server-only ACLs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_chat_ai_runtime_security_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_chat_ai_runtime_security_test --set ON_ERROR_STOP=1 --file supabase/tests/powerhub_chat_ai_runtime_security_reconciliation.sql
