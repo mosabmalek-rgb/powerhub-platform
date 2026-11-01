@@ -98,7 +98,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_reject_payment_documentation(
   p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_request_id bigint,p_rejection_reason text
 ) RETURNS void LANGUAGE plpgsql AS $function$ BEGIN RETURN; END; $function$;
 
-\ir ../migrations/20261031131000_powerhub_payment_documentation_public_rpc_reconcile.sql
+\ir ../migrations/20261101083834_powerhub_payment_documentation_public_rpc_reconcile.sql
 
 insert into public.sites(id,tenant_id,status) values (10,1,'active');
 insert into public.subscribers(id,tenant_id,site_id,full_name,subscriber_no)

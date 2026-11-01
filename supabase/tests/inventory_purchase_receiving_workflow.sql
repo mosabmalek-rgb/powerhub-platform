@@ -467,7 +467,7 @@ $cycle_boundary_assertions$;
 \ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
 \ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
 \ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
-\ir ../migrations/20261030150000_powerhub_inventory_trigger_acl_hardening.sql
+\ir ../migrations/20261101083316_powerhub_inventory_trigger_acl_hardening.sql
 
 do $inventory_trigger_acl_assertions$
 begin
@@ -487,7 +487,7 @@ $inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022160000_powerhub_inventory_item_units.sql
 \ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql
 \ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql
-\ir ../migrations/20261031120000_powerhub_inventory_stocktake_count_idempotency.sql
+\ir ../migrations/20261101083720_powerhub_inventory_stocktake_count_idempotency.sql
 \ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql
 \ir ../migrations/20261022190000_powerhub_inventory_phase_a_fk_indexes.sql
 \ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql
@@ -496,7 +496,7 @@ $inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql
 \ir ../migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql
 \ir ../migrations/20261022220000_powerhub_fuel_report_windows.sql
-\ir ../migrations/20261031220000_powerhub_fuel_cycle_boundary_precision.sql
+\ir ../migrations/20261101084225_powerhub_fuel_cycle_boundary_precision.sql
 \ir ../migrations/20261022221000_powerhub_fuel_alert_settings_and_evaluator.sql
 \ir ../migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql
 \ir ../migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql
@@ -516,7 +516,7 @@ create table public.powerhub_sync_scope_state (
 alter table public.powerhub_sync_scope_state enable row level security;
 revoke all on table public.powerhub_sync_scope_state from public,anon,authenticated;
 grant all on table public.powerhub_sync_scope_state to service_role;
-\ir ../migrations/20261030100000_powerhub_supplier_ledger_revision.sql
+\ir ../migrations/20261101083224_powerhub_supplier_ledger_revision.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),

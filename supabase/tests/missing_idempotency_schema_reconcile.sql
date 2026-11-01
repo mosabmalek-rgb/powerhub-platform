@@ -16,8 +16,8 @@ INSERT INTO public.access_invitations VALUES (1,10,'tenant@example.test','invite
 INSERT INTO public.custom_permission_roles VALUES (1,10,100,'المحاسب');
 INSERT INTO public.platform_access_invitations VALUES (1,'admin@example.test','invited','platform-token');
 
-\ir ../migrations/20261030220000_powerhub_missing_idempotency_schema_reconcile.sql
-\ir ../migrations/20261030220000_powerhub_missing_idempotency_schema_reconcile.sql
+\ir ../migrations/20261101083518_powerhub_missing_idempotency_schema_reconcile.sql
+\ir ../migrations/20261101083518_powerhub_missing_idempotency_schema_reconcile.sql
 
 DO $assert_schema$
 DECLARE

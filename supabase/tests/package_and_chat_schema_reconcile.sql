@@ -77,8 +77,8 @@ VALUES
  ('owner_limit_overrides',true,'{"overrides":{}}'::jsonb);
 INSERT INTO public.subscribers(id,tenant_id) VALUES (1,1);
 
-\ir ../migrations/20261031140000_powerhub_package_and_chat_schema_reconcile.sql
-\ir ../migrations/20261031140000_powerhub_package_and_chat_schema_reconcile.sql
+\ir ../migrations/20261101083937_powerhub_package_and_chat_schema_reconcile.sql
+\ir ../migrations/20261101083937_powerhub_package_and_chat_schema_reconcile.sql
 
 DO $assert_schema_and_acl$
 DECLARE v_result record; v_count integer;

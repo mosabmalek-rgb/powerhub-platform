@@ -110,7 +110,7 @@ $function$;
 ALTER FUNCTION realtime.send(jsonb,text,text,boolean) OWNER TO postgres;
 REVOKE ALL ON FUNCTION realtime.send(jsonb,text,text,boolean) FROM PUBLIC,anon,authenticated;
 
-\ir ../migrations/20261031200000_powerhub_adaptive_delta_realtime.sql
+\ir ../migrations/20261101084130_powerhub_adaptive_delta_realtime.sql
 
 INSERT INTO public.users(id,auth_user_id,role,platform_role,account_status) VALUES
   (1,'11111111-1111-4111-8111-111111111111','user',NULL,'active'),

@@ -642,6 +642,6 @@ create table if not exists public.powerhub_sync_changes (
 create index if not exists powerhub_sync_changes_entity_idx
   on public.powerhub_sync_changes(tenant_id,site_id,entity_type,entity_id,cursor desc);
 
-\ir ../migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql
-\ir ../migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql
+\ir ../migrations/20261101082920_powerhub_delta_fuel_maintenance_read_models.sql
+\ir ../migrations/20261101083020_powerhub_delta_fuel_events_maintenance_orders_parts.sql
 \ir fuel_maintenance_delta_sync_history.sql

@@ -85,7 +85,7 @@ insert into public.tenants(id, name) values (1, 'Tenant One'), (2, 'Tenant Two')
 insert into public.sites(id, tenant_id, name) values (10, 1, 'Site One'), (20, 2, 'Site Two');
 
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
-\ir ../migrations/20261027110000_powerhub_delta_invoice_history.sql
+\ir ../migrations/20261101082439_powerhub_delta_invoice_history.sql
 
 do $test$
 declare

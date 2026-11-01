@@ -60,8 +60,8 @@ insert into public.invoices(id,tenant_id,site_id,subscriber_id,invoice_no,issue_
 values (501,1,10,101,'INV-TEST-501',date '2026-10-27',100,0,100,'issued');
 
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
-\ir ../migrations/20261027110000_powerhub_delta_invoice_history.sql
-\ir ../migrations/20261027130000_powerhub_delta_payment_history.sql
+\ir ../migrations/20261101082439_powerhub_delta_invoice_history.sql
+\ir ../migrations/20261101082546_powerhub_delta_payment_history.sql
 
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;

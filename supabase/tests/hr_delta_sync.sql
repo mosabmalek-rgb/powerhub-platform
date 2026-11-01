@@ -66,8 +66,8 @@ create function private.powerhub_is_platform_admin() returns boolean
 language sql stable security definer set search_path=pg_catalog,public,private as $body$ select false $body$;
 insert into public.tenants values(10),(20);
 insert into public.sites values(100,10),(200,10),(300,20);
-\ir ../migrations/20261029150000_powerhub_hr_delta_sync.sql
-\ir ../migrations/20261030110000_powerhub_hr_financial_delta_sync.sql
+\ir ../migrations/20261101083059_powerhub_hr_delta_sync.sql
+\ir ../migrations/20261101083251_powerhub_hr_financial_delta_sync.sql
 
 insert into public.employees(tenant_id,site_id,full_name,identity_no,phone,job_title,employment_status,contract_type,base_wage,notes)
 values (10,null,'Shared employee','SECRET-ID','SECRET-PHONE','worker','active','monthly',9999,'SECRET-NOTE'),

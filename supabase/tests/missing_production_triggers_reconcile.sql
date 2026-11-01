@@ -43,8 +43,8 @@ ALTER TABLE public.tenant_subscriptions
   ADD COLUMN ends_at timestamptz, ADD COLUMN trial_duration_days integer, ADD COLUMN auto_renew boolean;
 
 
-\ir ../migrations/20261030230000_powerhub_missing_production_triggers_reconcile.sql
-\ir ../migrations/20261030230000_powerhub_missing_production_triggers_reconcile.sql
+\ir ../migrations/20261101083548_powerhub_missing_production_triggers_reconcile.sql
+\ir ../migrations/20261101083548_powerhub_missing_production_triggers_reconcile.sql
 
 DO $assert_triggers$
 DECLARE

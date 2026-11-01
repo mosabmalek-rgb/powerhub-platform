@@ -132,7 +132,7 @@ CREATE POLICY fixture_private_admin_scope_select ON public.fixture_private_admin
 FOR SELECT TO authenticated
 USING (tenant_id=ANY(powerhub_private.current_tenant_ids()) OR private.powerhub_is_platform_admin());
 
-\ir ../migrations/20261031210000_powerhub_platform_identity_rls_alignment.sql
+\ir ../migrations/20261101084156_powerhub_platform_identity_rls_alignment.sql
 
 DO $assert_helper_contract$
 BEGIN

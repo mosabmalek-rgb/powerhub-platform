@@ -93,7 +93,7 @@ AFTER INSERT OR UPDATE OF last_cursor,retained_from_cursor
 ON public.powerhub_sync_scope_state
 FOR EACH ROW EXECUTE FUNCTION private.powerhub_broadcast_delta_scope_revision();
 
-\ir ../migrations/20261101090000_powerhub_payment_documentation_revision_invalidation.sql
+\ir ../migrations/20261101084256_powerhub_payment_documentation_revision_invalidation.sql
 
 INSERT INTO public.sites(id,tenant_id) VALUES (100,10),(101,10),(200,20),(300,30);
 INSERT INTO public.payment_documentation_requests(id,tenant_id,site_id,payment_amount,receipt_image_key,status)

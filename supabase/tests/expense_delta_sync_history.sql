@@ -67,9 +67,9 @@ create table public.expenses (
  created_at timestamptz not null default now()
 );
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
-\ir ../migrations/20261027110000_powerhub_delta_invoice_history.sql
-\ir ../migrations/20261027130000_powerhub_delta_payment_history.sql
-\ir ../migrations/20261027140000_powerhub_delta_expense_history.sql
+\ir ../migrations/20261101082439_powerhub_delta_invoice_history.sql
+\ir ../migrations/20261101082546_powerhub_delta_payment_history.sql
+\ir ../migrations/20261101082610_powerhub_delta_expense_history.sql
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
 begin

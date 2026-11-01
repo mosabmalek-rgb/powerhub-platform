@@ -280,8 +280,8 @@ REVOKE ALL ON FUNCTION private.powerhub_current_user_id(), private.powerhub_has_
 GRANT USAGE ON SCHEMA private TO authenticated;
 GRANT EXECUTE ON FUNCTION private.powerhub_current_user_id(), private.powerhub_has_tenant_access(bigint), private.powerhub_is_platform_admin() TO authenticated;
 
-\ir ../migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql
-\ir ../migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql
+\ir ../migrations/20261101083447_powerhub_canonical_tenant_rls_policy_reconcile.sql
+\ir ../migrations/20261101083447_powerhub_canonical_tenant_rls_policy_reconcile.sql
 
 INSERT INTO public.tenants(id) VALUES (1), (2);
 INSERT INTO public.employees(id,tenant_id) VALUES (1,1), (2,2);

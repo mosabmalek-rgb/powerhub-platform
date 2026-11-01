@@ -9,7 +9,7 @@ CREATE TABLE public.offline_sync_operations (
 INSERT INTO public.offline_sync_operations(operation_type)
 VALUES ('payment_create');
 
-\ir ../migrations/20261031132000_powerhub_offline_operation_type_contract_reconcile.sql
+\ir ../migrations/20261101083858_powerhub_offline_operation_type_contract_reconcile.sql
 
 DO $assert_contract$
 DECLARE
@@ -64,7 +64,7 @@ END
 $assert_contract$;
 
 -- A second application must be idempotent and preserve all accepted history.
-\ir ../migrations/20261031132000_powerhub_offline_operation_type_contract_reconcile.sql
+\ir ../migrations/20261101083858_powerhub_offline_operation_type_contract_reconcile.sql
 DO $assert_repeat$
 BEGIN
   IF (SELECT count(*) FROM public.offline_sync_operations) <> 22 THEN

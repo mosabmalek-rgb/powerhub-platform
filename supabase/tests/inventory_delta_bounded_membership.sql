@@ -23,11 +23,11 @@ alter table public.powerhub_sync_changes enable row level security;
 revoke all on table public.powerhub_sync_changes from public,anon,authenticated;
 grant all on table public.powerhub_sync_changes to service_role;
 
-\ir ../migrations/20261029000000_powerhub_delta_inventory_catalog.sql
-\ir ../migrations/20261029100000_powerhub_delta_inventory_stocktakes.sql
-\ir ../migrations/20261029110000_powerhub_delta_purchase_headers.sql
-\ir ../migrations/20261029120000_powerhub_delta_receipt_return_headers.sql
-\ir ../migrations/20261030180000_powerhub_inventory_delta_bounded_membership_reconcile.sql
+\ir ../migrations/20261101082724_powerhub_delta_inventory_catalog.sql
+\ir ../migrations/20261101082751_powerhub_delta_inventory_stocktakes.sql
+\ir ../migrations/20261101082818_powerhub_delta_purchase_headers.sql
+\ir ../migrations/20261101082850_powerhub_delta_receipt_return_headers.sql
+\ir ../migrations/20261101083336_powerhub_inventory_delta_bounded_membership_reconcile.sql
 
 -- The purchase workflow fixture already installs supplier-ledger revision triggers.
 -- Keep that independent cursor type accepted while the isolated test exercises the

@@ -41,7 +41,7 @@ end $$;
 revoke all on function public.powerhub_create_expense_with_account(bigint,bigint,bigint,bigint,bigint,text,text,numeric,text) from public,anon,authenticated;
 grant execute on function public.powerhub_create_expense_with_account(bigint,bigint,bigint,bigint,bigint,text,text,numeric,text) to service_role;
 
-\ir ../migrations/20261029192000_powerhub_offline_expense_idempotency.sql
+\ir ../migrations/20261101083158_powerhub_offline_expense_idempotency.sql
 
 do $$
 declare

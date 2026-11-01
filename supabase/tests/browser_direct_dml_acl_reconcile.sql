@@ -136,10 +136,10 @@ GRANT ALL PRIVILEGES ON TABLE
   public.users
 TO PUBLIC, anon, authenticated, service_role;
 
-\ir ../migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql
+\ir ../migrations/20261101083404_powerhub_browser_direct_dml_acl_reconcile.sql
 
 -- Re-run the forward-only reconciliation to assert idempotency.
-\ir ../migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql
+\ir ../migrations/20261101083404_powerhub_browser_direct_dml_acl_reconcile.sql
 
 DO $assert_acl$
 DECLARE
@@ -215,7 +215,7 @@ DROP TABLE public.emergency_requests;
 DROP TABLE public.sms_dispatch_queue;
 DROP TABLE public.tweet_sms_report_snapshots;
 
-\ir ../migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql
+\ir ../migrations/20261101083404_powerhub_browser_direct_dml_acl_reconcile.sql
 
 DO $assert_optional_tables$
 BEGIN

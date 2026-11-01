@@ -36,8 +36,8 @@ INSERT INTO public.custom_permission_roles(
 ) VALUES (900,10,'Legacy preserved','pre-existing role','["collectPayments"]'::jsonb,1);
 
 -- Reconcile the old Staging overload to the exact Production contract.
-\ir ../migrations/20261031170000_powerhub_custom_permission_role_rpc_idempotency_reconcile.sql
-\ir ../migrations/20261031170000_powerhub_custom_permission_role_rpc_idempotency_reconcile.sql
+\ir ../migrations/20261101084033_powerhub_custom_permission_role_rpc_idempotency_reconcile.sql
+\ir ../migrations/20261101084033_powerhub_custom_permission_role_rpc_idempotency_reconcile.sql
 
 DO $signature_and_acl$
 DECLARE

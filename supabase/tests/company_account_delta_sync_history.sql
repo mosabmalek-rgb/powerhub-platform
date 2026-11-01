@@ -104,10 +104,10 @@ create table public.inventory_warehouses (
  generator_id bigint, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
-\ir ../migrations/20261027110000_powerhub_delta_invoice_history.sql
-\ir ../migrations/20261027130000_powerhub_delta_payment_history.sql
-\ir ../migrations/20261027140000_powerhub_delta_expense_history.sql
-\ir ../migrations/20261027150000_powerhub_delta_company_account_history.sql
+\ir ../migrations/20261101082439_powerhub_delta_invoice_history.sql
+\ir ../migrations/20261101082546_powerhub_delta_payment_history.sql
+\ir ../migrations/20261101082610_powerhub_delta_expense_history.sql
+\ir ../migrations/20261101082641_powerhub_delta_company_account_history.sql
 create table public.inventory_stock_movements (
  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
  generator_id bigint, movement_type text not null, quantity numeric(14,3) not null, unit_cost numeric(14,4) not null default 0,
@@ -131,7 +131,7 @@ grant execute on function public.powerhub_inventory_reject_stock_movement_mutati
 create trigger inventory_stock_movement_append_only before update or delete on public.inventory_stock_movements
 for each row execute function public.powerhub_inventory_reject_stock_movement_mutation();
 
-\ir ../migrations/20261029000000_powerhub_delta_inventory_catalog.sql
+\ir ../migrations/20261101082724_powerhub_delta_inventory_catalog.sql
 create table public.inventory_stocktakes (
   id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null,
   stocktake_number text, status text not null, reason text not null, notes text,
@@ -146,7 +146,7 @@ create table public.inventory_stocktake_lines (
   system_unit_cost numeric(14,4) not null default 0, counted_quantity numeric(14,3), counted_unit_cost numeric(14,4),
   variance_quantity numeric(14,3), count_notes text, updated_at timestamptz not null default now()
 );
-\ir ../migrations/20261029100000_powerhub_delta_inventory_stocktakes.sql
+\ir ../migrations/20261101082751_powerhub_delta_inventory_stocktakes.sql
 create table public.supplier_purchases (
   id bigint primary key, tenant_id bigint not null, site_id bigint not null, supplier_id bigint not null,
   warehouse_id bigint not null, purchase_number text not null, supplier_invoice_no text, invoice_date date not null,
@@ -167,7 +167,7 @@ create table public.supplier_purchase_lines (
   line_total numeric(14,2) not null default 0, received_quantity numeric(14,3) not null default 0,
   notes text, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
-\ir ../migrations/20261029110000_powerhub_delta_purchase_headers.sql
+\ir ../migrations/20261101082818_powerhub_delta_purchase_headers.sql
 create table public.supplier_purchase_receipts (
   id bigint primary key, tenant_id bigint not null, site_id bigint not null, purchase_id bigint not null,
   receipt_number text not null, receipt_date date not null default current_date,
@@ -194,7 +194,7 @@ create table public.supplier_purchase_return_lines (
   base_quantity numeric(14,3) not null, supplier_credit_amount numeric(14,2) not null default 0,
   inventory_unit_cost numeric(14,4) not null, stock_cost_amount numeric(14,2) not null, created_at timestamptz not null default now()
 );
-\ir ../migrations/20261029120000_powerhub_delta_receipt_return_headers.sql
+\ir ../migrations/20261101082850_powerhub_delta_receipt_return_headers.sql
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
 begin

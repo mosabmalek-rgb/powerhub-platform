@@ -110,9 +110,9 @@ insert into public.access_invitations(
   tenant_id,site_id,email,tenant_role,site_role,token_hash,status,invited_by_user_id,expires_at
 ) values (20,30,'legacy-tenant@example.test','member','viewer','legacy-tenant-token','invited',1,now()+interval '2 days');
 
-\ir ../migrations/20261031160000_powerhub_invitation_rpc_idempotency_reconcile.sql
+\ir ../migrations/20261101084006_powerhub_invitation_rpc_idempotency_reconcile.sql
 -- Reapplying the forward migration must be safe and preserve the historical rows.
-\ir ../migrations/20261031160000_powerhub_invitation_rpc_idempotency_reconcile.sql
+\ir ../migrations/20261101084006_powerhub_invitation_rpc_idempotency_reconcile.sql
 
 do $platform_invitation_contract$
 declare
