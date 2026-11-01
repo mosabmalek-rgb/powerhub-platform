@@ -99,7 +99,7 @@ BEGIN
 END
 $fixtures$;
 
-\ir ../migrations/20261102010000_powerhub_chat_rpc_wrapper_security_reconciliation.sql
+\ir ../migrations/20261101225044_powerhub_chat_rpc_wrapper_security_reconciliation.sql
 
 DO $assert_acl$
 DECLARE
