@@ -75,7 +75,7 @@ describe("Payment receipt PDF generation", () => {
 
     expect(receipt).toContain('document.createElement("div")');
     expect(receipt).toContain("document.body.appendChild(receiptRoot)");
-    expect(receipt).toContain("document.fonts.ready");
+    expect(receipt).toContain("document.fonts?.ready");
     expect(receipt).toContain("image.decode()");
     expect(receipt).toContain("downloadReportHtmlAsPdf(");
     expect(receipt).toContain('companyName || ("مولدات " + siteName)');
