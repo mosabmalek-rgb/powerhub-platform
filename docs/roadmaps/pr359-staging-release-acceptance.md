@@ -131,3 +131,14 @@ The workflow fails closed unless the Staging environment has a required human re
 - The existing central private Realtime broadcaster emits the version-1 invalidation marker for the affected site and tenant-all scope; the protected revision endpoint verifies the current site permission and feature entitlement before returning the cursor and topic.
 - The review page uses the shared Adaptive Delta scheduler and refetches the authorized list only when the revision changes. Its former 15-second list poller is removed.
 - Forward migration `20261101090000_powerhub_payment_documentation_revision_invalidation.sql` is entry 34 in the one-file Staging release sequence. It has not been applied to Staging or Production.
+
+
+
+### Server-side Preview Supabase isolation guard — 2026-11-01
+
+- The privileged server client now resolves its project from server-only `SUPABASE_URL` first. Local development can still fall back to `VITE_SUPABASE_URL`.
+- When `VERCEL_ENV=preview`, both `SUPABASE_URL` and `VITE_SUPABASE_URL` are required explicitly. Their origins must match; missing or mismatched values fail closed instead of silently sending service-role requests to the browser-configured project.
+- Added contract tests for the current unsafe case (Preview with Production `VITE_SUPABASE_URL` and no server URL), cross-project mismatch, matching Staging, local-development fallback, and malformed URLs. The optional Auth admin integration test now uses the same URL resolver.
+- This code guard does **not** configure Vercel secrets and does not make the existing branch deployment safe by itself. Branch Preview variables must still be set by the project owner to Staging values, including the Staging service-role key. Do not deploy or run browser acceptance until those values are configured and verified. No Vercel environment variable or Supabase secret was changed by this commit.
+- CI and PostgreSQL must pass again on the new commit SHA; browser acceptance remains open.
+
