@@ -1,5 +1,13 @@
 \set ON_ERROR_STOP on
 
+DO $fixture_roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
+  END IF;
+END
+$fixture_roles$;
+
 CREATE SCHEMA auth;
 CREATE TABLE auth.users (
   id uuid PRIMARY KEY,
@@ -44,14 +52,27 @@ VALUES
   ('8a594902-3521-4276-9bed-f6f53c8ee838','Support E2E Operator','support.e2e@powerhub-staging.example.com','user','platform_admin','active',false),
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','Tenant User','tenant.user@example.test','user',NULL,'active',false);
 
--- Simulate a different project containing a different email for the same UUID:
--- the migration must skip it without changing the app profile or creating audit.
+\ir ../migrations/20261101100000_powerhub_staging_first_platform_admin_bootstrap.sql
+
+-- Only service_role may execute the bootstrap operation.
+DO $acl_assertions$
+BEGIN
+  IF has_function_privilege('anon','public.powerhub_staging_bootstrap_first_platform_admin()','EXECUTE')
+     OR has_function_privilege('authenticated','public.powerhub_staging_bootstrap_first_platform_admin()','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.powerhub_staging_bootstrap_first_platform_admin()','EXECUTE') THEN
+    RAISE EXCEPTION 'BOOTSTRAP_RPC_ACL_FAILED';
+  END IF;
+END
+$acl_assertions$;
+
+-- A same-UUID/different-project email is a no-op.
 BEGIN;
 UPDATE auth.users
    SET email = 'support.e2e@powerhub-production.example.com'
  WHERE id = '8a594902-3521-4276-9bed-f6f53c8ee838';
-\ir ../migrations/20261101100000_powerhub_staging_first_platform_admin_bootstrap.sql
-
+SET ROLE service_role;
+SELECT public.powerhub_staging_bootstrap_first_platform_admin() AS expected_noop;
+RESET ROLE;
 DO $production_noop$
 BEGIN
   IF (SELECT role FROM public.users WHERE auth_user_id = '8a594902-3521-4276-9bed-f6f53c8ee838') <> 'user' THEN
@@ -65,7 +86,9 @@ $production_noop$;
 ROLLBACK;
 
 -- Exact approved Staging identity: promote only role, preserve account state.
-\ir ../migrations/20261101100000_powerhub_staging_first_platform_admin_bootstrap.sql
+SET ROLE service_role;
+SELECT public.powerhub_staging_bootstrap_first_platform_admin() AS expected_bootstrap;
+RESET ROLE;
 
 DO $bootstrap_assertions$
 DECLARE
@@ -107,8 +130,10 @@ BEGIN
 END
 $bootstrap_assertions$;
 
--- Replaying the one-time migration must not emit another event.
-\ir ../migrations/20261101100000_powerhub_staging_first_platform_admin_bootstrap.sql
+-- Replaying the one-time operation must not emit another event.
+SET ROLE service_role;
+SELECT public.powerhub_staging_bootstrap_first_platform_admin() AS expected_replay;
+RESET ROLE;
 
 DO $idempotency_assertions$
 BEGIN

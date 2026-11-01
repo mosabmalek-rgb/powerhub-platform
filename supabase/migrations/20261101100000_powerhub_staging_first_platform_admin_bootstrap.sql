@@ -1,34 +1,36 @@
--- One-time, identity-bound bootstrap for the explicitly approved Staging test operator.
+-- One-time, identity-bound bootstrap RPC for the explicitly approved Staging test operator.
 -- The exact Auth UUID and Staging-only email make this a no-op in Production,
 -- where read-only verification on 2026-11-01 found no matching Auth identity.
--- Never generalize this migration into a reusable role-grant function.
+-- This migration defines a server-only operation; it does not promote anyone
+-- merely by being applied. Invoke the RPC only after the protected Staging release.
 
-DO $staging_first_platform_admin$
+CREATE OR REPLACE FUNCTION public.powerhub_staging_bootstrap_first_platform_admin()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $function$
 DECLARE
-  v_expected_auth_user_id constant uuid := '8a594902-3521-4276-9bed-f6f53c8ee838';
-  v_expected_email constant text := 'support.e2e@powerhub-staging.example.com';
-  v_expected_name constant text := 'Support E2E Operator';
+  v_expected_auth_user_id CONSTANT uuid := '8a594902-3521-4276-9bed-f6f53c8ee838';
+  v_expected_email CONSTANT text := 'support.e2e@powerhub-staging.example.com';
+  v_expected_name CONSTANT text := 'Support E2E Operator';
   v_auth_user auth.users%rowtype;
   v_target public.users%rowtype;
   v_target_count integer;
   v_other_active_admin_count integer;
   v_updated_rows integer;
 BEGIN
-  -- Fail closed unless this exact, confirmed Staging Auth identity exists.
+  -- Serialize the one-time bootstrap across retries and concurrent callers.
+  PERFORM pg_advisory_xact_lock(hashtextextended('powerhub-staging-first-platform-admin-bootstrap', 0));
+
   SELECT *
     INTO v_auth_user
     FROM auth.users
-   WHERE id = v_expected_auth_user_id;
+   WHERE id = v_expected_auth_user_id
+   FOR UPDATE;
 
-  IF NOT FOUND THEN
-    RAISE NOTICE 'Staging bootstrap skipped: approved Auth identity is absent.';
-    RETURN;
-  END IF;
-
-  -- The email check makes an accidental copy into another project a no-op.
-  IF lower(coalesce(v_auth_user.email, '')) <> v_expected_email THEN
-    RAISE NOTICE 'Staging bootstrap skipped: Auth identity email does not match the Staging fixture.';
-    RETURN;
+  IF NOT FOUND OR lower(coalesce(v_auth_user.email, '')) <> v_expected_email THEN
+    RETURN 'skipped_non_staging_identity';
   END IF;
 
   IF v_auth_user.email_confirmed_at IS NULL
@@ -42,10 +44,8 @@ BEGIN
    WHERE auth_user_id = v_expected_auth_user_id;
 
   IF v_target_count = 0 THEN
-    RAISE NOTICE 'Staging bootstrap skipped: application profile is absent.';
-    RETURN;
+    RETURN 'skipped_missing_application_profile';
   END IF;
-
   IF v_target_count <> 1 THEN
     RAISE EXCEPTION 'STAGING_BOOTSTRAP_AUTH_PROFILE_NOT_UNIQUE';
   END IF;
@@ -61,17 +61,12 @@ BEGIN
     RAISE EXCEPTION 'STAGING_BOOTSTRAP_PROFILE_IDENTITY_MISMATCH';
   END IF;
 
-  -- Replays after a successful application are harmless and do not create
-  -- duplicate audit entries or modify the already-established account.
   IF v_target.role = 'admin'
      AND v_target.platform_role = 'platform_admin'
      AND v_target.account_status = 'active' THEN
-    RAISE NOTICE 'Staging bootstrap already completed; no change made.';
-    RETURN;
+    RETURN 'already_bootstrapped';
   END IF;
 
-  -- Only the observed mismatch is eligible: tenant-level user + platform_admin
-  -- label + active account. Every other state must be reviewed manually.
   IF v_target.role IS DISTINCT FROM 'user'
      OR v_target.platform_role IS DISTINCT FROM 'platform_admin'
      OR v_target.account_status IS DISTINCT FROM 'active' THEN
@@ -106,25 +101,16 @@ BEGIN
     RAISE EXCEPTION 'STAGING_BOOTSTRAP_UPDATE_DID_NOT_AFFECT_EXACTLY_ONE_PROFILE';
   END IF;
 
-  -- This is a system/release bootstrap, not a fabricated user-initiated action.
-  -- created_by_user_id therefore remains NULL; the affected user is explicit.
+  -- System-origin event: no fictitious human actor is recorded.
   INSERT INTO public.platform_security_events (
-    event_type,
-    severity,
-    status,
-    title,
-    details,
-    metadata,
-    related_user_id,
-    created_by_user_id,
-    created_at,
-    updated_at
+    event_type, severity, status, title, details, metadata,
+    related_user_id, created_by_user_id, created_at, updated_at
   ) VALUES (
     'security_change',
     'warning',
     'success',
     'تهيئة أول حساب إدارة منصة في Staging',
-    'تم تحويل الدور التطبيقي للحساب الاختباري المعتمد من user إلى admin مع الإبقاء على platform_admin والحالة النشطة. لم تتغير بيانات المصادقة أو كلمة المرور أو العضويات.',
+    'تم تفعيل حساب الإدارة الاختباري المعتمد عبر إجراء تهيئة خادمي لمرة واحدة. لم تتغير بيانات المصادقة أو كلمة المرور أو العضويات.',
     jsonb_build_object(
       'event', 'staging_first_platform_admin_bootstrap',
       'environment', 'staging',
@@ -144,5 +130,10 @@ BEGIN
     now(),
     now()
   );
-END
-$staging_first_platform_admin$;
+
+  RETURN 'bootstrapped';
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.powerhub_staging_bootstrap_first_platform_admin() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.powerhub_staging_bootstrap_first_platform_admin() TO service_role;
