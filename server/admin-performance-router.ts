@@ -57,7 +57,6 @@ const activityMetricsSchema = z.object({
     searchesLast30Days: z.number().int().nonnegative(),
     noResultSearchesLast30Days: z.number().int().nonnegative(),
     noResultRatePercentLast30Days: z.number().finite().min(0).max(100).nullable(),
-    searchersLast30Days: z.number().int().nonnegative(),
     generatorResultHitsLast30Days: z.number().int().nonnegative(),
     subscriberResultHitsLast30Days: z.number().int().nonnegative(),
     ownerResultHitsLast30Days: z.number().int().nonnegative(),
