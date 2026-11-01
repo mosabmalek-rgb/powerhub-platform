@@ -37,6 +37,23 @@ const metrics = {
   }],
 };
 
+const activityMetrics = {
+  generatedAt: "2026-11-02T10:00:00.000Z",
+  paymentDocumentation: {
+    totalRequests: 12, pendingRequests: 3, approvedRequests: 7, rejectedRequests: 2,
+    requestsLast7Days: 5, requestsLast30Days: 12, approvedAmountAllTime: 750.5,
+    approvedAmountLast30Days: 500.25, decidedRequests: 9, approvalRatePercent: 77.78,
+    latestSubmittedAt: "2026-11-02T09:00:00.000Z",
+  },
+  search: {
+    searchesAllTime: 200, searchesLast7Days: 50, searchesLast30Days: 150,
+    noResultSearchesLast30Days: 15, noResultRatePercentLast30Days: 10,
+    searchersLast30Days: 4, generatorResultHitsLast30Days: 30,
+    subscriberResultHitsLast30Days: 90, ownerResultHitsLast30Days: 20,
+    trackingStartedAt: "2026-11-01", lastSearchAt: "2026-11-02T09:59:00.000Z",
+  },
+};
+
 afterEach(() => vi.clearAllMocks());
 
 describe("platform performance metrics authorization and contract", () => {
@@ -84,5 +101,41 @@ describe("platform performance metrics authorization and contract", () => {
     });
     await expect(caller.performanceMetrics()).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
     await expect(caller.performanceMetrics()).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+});
+
+describe("platform payment and search activity metrics", () => {
+  it("returns aggregate payment and privacy-preserving search metrics to platform admins", async () => {
+    state.rpc.mockResolvedValue({ data: activityMetrics, error: null });
+    const caller = adminPerformanceRouter.createCaller({
+      user: baseUser,
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.activityMetrics()).resolves.toEqual(activityMetrics);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_get_activity_metrics");
+  });
+
+  it("denies activity metrics to tenant users before calling the RPC", async () => {
+    const caller = adminPerformanceRouter.createCaller({
+      user: { ...baseUser, role: "user", platformRole: null },
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.activityMetrics()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when activity metrics do not match the schema", async () => {
+    state.rpc.mockResolvedValue({
+      data: { ...activityMetrics, search: { ...activityMetrics.search, noResultRatePercentLast30Days: 101 } },
+      error: null,
+    });
+    const caller = adminPerformanceRouter.createCaller({
+      user: baseUser,
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.activityMetrics()).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
   });
 });
