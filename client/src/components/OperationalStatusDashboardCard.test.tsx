@@ -16,7 +16,7 @@ describe("OperationalStatusDashboardCard", () => {
 
   it("يعرض الشرطة بدل الصفر عند غياب لقطة المشتركين", () => {
     render(<OperationalStatusDashboardCard subscribers={0} subscribersUnavailable />);
-    expect(screen.getByText("مشتركون نشطون").parentElement?.parentElement).toHaveTextContent("—");
+    expect(screen.getAllByText("مشتركون نشطون")[0].parentElement?.parentElement).toHaveTextContent("—");
   });
 
   it("يعرض هيكل تحميل واضحاً أثناء انتظار البيانات", () => {
