@@ -115,7 +115,7 @@ BEGIN
       'event', 'staging_first_platform_admin_bootstrap',
       'environment', 'staging',
       'authorization', 'approved_staging_bootstrap_operation',
-      'migrationVersion', '20261101100000',
+      'migrationVersion', '20261101101932',
       'targetAuthUserId', v_expected_auth_user_id,
       'previousRole', 'user',
       'resultingRole', 'admin',

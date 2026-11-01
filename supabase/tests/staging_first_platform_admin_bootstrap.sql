@@ -54,7 +54,7 @@ VALUES
   ('8a594902-3521-4276-9bed-f6f53c8ee838','Support E2E Operator','support.e2e@powerhub-staging.example.com','user','platform_admin','active',false),
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','Tenant User','tenant.user@example.test','user',NULL,'active',false);
 
-\ir ../migrations/20261101100000_powerhub_staging_first_platform_admin_bootstrap.sql
+\ir ../migrations/20261101101932_powerhub_staging_first_platform_admin_bootstrap.sql
 
 -- Only service_role may execute the bootstrap operation.
 DO $acl_assertions$
