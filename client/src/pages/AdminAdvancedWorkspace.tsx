@@ -22,7 +22,24 @@ function Metric({ label, value, suffix = "", icon: Icon, tone = "gold" }: { labe
 const DASHBOARD_REFRESH_MS = 30_000;
 
 function AdminActivityMetricsPanel() {
-  const metrics = trpc.admin.activityMetrics.useQuery(undefined, {
+  const today = new Date();
+  const toLocalDate = (value: Date) => {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const shiftDate = (value: Date, days: number) => {
+    const next = new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    next.setDate(next.getDate() + days);
+    return next;
+  };
+  const [periodMode, setPeriodMode] = useState<"7d" | "30d" | "90d" | "all" | "custom">("30d");
+  const [customFromDate, setCustomFromDate] = useState(toLocalDate(shiftDate(today, -29)));
+  const [customToDate, setCustomToDate] = useState(toLocalDate(today));
+  const [appliedPeriod, setAppliedPeriod] = useState({ fromDate: toLocalDate(shiftDate(today, -29)), toDate: toLocalDate(today) });
+  const [dateError, setDateError] = useState("");
+  const metrics = trpc.admin.activityMetrics.useQuery(appliedPeriod, {
     refetchInterval: DASHBOARD_REFRESH_MS,
     refetchIntervalInBackground: false,
     staleTime: 10_000,
@@ -32,54 +49,98 @@ function AdminActivityMetricsPanel() {
   const search = data?.search;
   const dateLabel = (value: string | null | undefined) => value
     ? new Date(value).toLocaleDateString("ar-PS", { timeZone: "Asia/Gaza" })
-    : "لم تُسجل عمليات بحث بعد";
+    : "لا توجد بيانات ضمن الفترة";
   const percentLabel = (value: number | null | undefined) => value === null || value === undefined
     ? "لا توجد بيانات كافية"
     : `${format(value)}٪`;
+  const applyPreset = (mode: "7d" | "30d" | "90d" | "all") => {
+    setPeriodMode(mode);
+    setDateError("");
+    if (mode === "all") {
+      setAppliedPeriod({ fromDate: null, toDate: null });
+      return;
+    }
+    const days = mode === "7d" ? 7 : mode === "30d" ? 30 : 90;
+    setAppliedPeriod({ fromDate: toLocalDate(shiftDate(today, -(days - 1))), toDate: toLocalDate(today) });
+  };
+  const applyCustomPeriod = () => {
+    if (!customFromDate || !customToDate) {
+      setDateError("حدد تاريخ البداية والنهاية.");
+      return;
+    }
+    if (customToDate < customFromDate) {
+      setDateError("تاريخ النهاية يجب ألا يسبق تاريخ البداية.");
+      return;
+    }
+    const from = Date.parse(`${customFromDate}T00:00:00.000Z`);
+    const to = Date.parse(`${customToDate}T00:00:00.000Z`);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to - from > 3650 * 86_400_000) {
+      setDateError("النطاق الزمني يجب أن يكون صحيحًا وألا يتجاوز عشر سنوات.");
+      return;
+    }
+    setDateError("");
+    setPeriodMode("custom");
+    setAppliedPeriod({ fromDate: customFromDate, toDate: customToDate });
+  };
+  const activePeriodLabel = appliedPeriod.fromDate && appliedPeriod.toDate
+    ? `من ${appliedPeriod.fromDate} إلى ${appliedPeriod.toDate}`
+    : "كل الفترات";
 
   if (metrics.isLoading) return <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5 text-sm text-slate-400">جارٍ تحميل إحصاءات البحث وتوثيق الدفع…</CardContent></Card>;
-  if (metrics.isError) return <Card role="alert" className="border-rose-400/25 bg-rose-400/[.04]"><CardContent className="p-5"><h3 className="font-bold text-rose-200">تعذر تحميل إحصاءات البحث وتوثيق الدفع</h3><p className="mt-2 text-sm text-slate-400">{metrics.error.message}</p></CardContent></Card>;
+  if (metrics.isError) return <Card role="alert" className="border-rose-400/25 bg-rose-400/[.04]"><CardContent className="p-5"><h3 className="font-bold text-rose-200">تعذر تحميل إحصاءات البحث وتوثيق الدفع</h3><p className="mt-2 text-sm text-slate-400">{metrics.error.message}</p><Button type="button" variant="outline" size="sm" className="mt-3 border-white/10 text-slate-200" onClick={() => void metrics.refetch()}>إعادة المحاولة</Button></CardContent></Card>;
 
   return <section className="space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-2">
       <div><h2 className="text-lg font-extrabold text-white">إحصاءات البحث وتوثيق الدفع</h2><p className="mt-1 text-xs text-slate-500">بيانات تشغيلية مجمعة، دون حفظ عبارات البحث أو بيانات المشتركين في سجل الإحصاءات.</p></div>
       <Button type="button" variant="outline" size="sm" onClick={() => void metrics.refetch()} disabled={metrics.isFetching} className="border-white/10 text-slate-200">{metrics.isFetching ? "جارٍ التحديث…" : "تحديث الإحصاءات"}</Button>
     </div>
+    <Card className="border-white/8 bg-[#111823]"><CardContent className="space-y-3 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold text-white">الفترة الزمنية للإحصاءات</h3><p className="mt-1 text-xs text-slate-500">يُطبّق النطاق نفسه على إحصاءات البحث وطلبات توثيق الدفع.</p></div><Badge className="bg-[#F5B800]/10 text-[#F5B800]">{activePeriodLabel}</Badge></div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant={periodMode === "7d" ? "default" : "outline"} onClick={() => applyPreset("7d")}>آخر 7 أيام</Button>
+        <Button type="button" size="sm" variant={periodMode === "30d" ? "default" : "outline"} onClick={() => applyPreset("30d")}>آخر 30 يومًا</Button>
+        <Button type="button" size="sm" variant={periodMode === "90d" ? "default" : "outline"} onClick={() => applyPreset("90d")}>آخر 90 يومًا</Button>
+        <Button type="button" size="sm" variant={periodMode === "all" ? "default" : "outline"} onClick={() => applyPreset("all")}>كل الفترات</Button>
+        <Button type="button" size="sm" variant={periodMode === "custom" ? "default" : "outline"} onClick={() => setPeriodMode("custom")}>فترة مخصصة</Button>
+      </div>
+      {periodMode === "custom" && <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <label className="space-y-1 text-xs text-slate-400">من تاريخ<Input type="date" value={customFromDate} max={customToDate || undefined} onChange={(event) => setCustomFromDate(event.target.value)} className={inputClass} /></label>
+        <label className="space-y-1 text-xs text-slate-400">إلى تاريخ<Input type="date" value={customToDate} min={customFromDate || undefined} onChange={(event) => setCustomToDate(event.target.value)} className={inputClass} /></label>
+        <Button type="button" onClick={applyCustomPeriod} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تطبيق الفترة</Button>
+      </div>}
+      {dateError && <p role="alert" className="text-xs text-rose-300">{dateError}</p>}
+    </CardContent></Card>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <Metric label="طلبات توثيق الدفع" value={payment?.totalRequests} icon={WalletCards} />
+      <Metric label="طلبات توثيق الدفع ضمن الفترة" value={payment?.totalRequests} icon={WalletCards} />
       <Metric label="طلبات قيد التحقق" value={payment?.pendingRequests} icon={AlertTriangle} tone={payment?.pendingRequests ? "red" : "green"} />
       <Metric label="طلبات معتمدة" value={payment?.approvedRequests} icon={CircleDollarSign} tone="green" />
       <Metric label="طلبات مرفوضة" value={payment?.rejectedRequests} icon={AlertTriangle} tone={payment?.rejectedRequests ? "red" : "green"} />
-      <Metric label="طلبات التوثيق آخر 7 أيام" value={payment?.requestsLast7Days} icon={BarChart3} />
-      <Metric label="المبالغ المعتمدة آخر 30 يومًا" value={payment ? format(payment.approvedAmountLast30Days) : undefined} suffix="" icon={WalletCards} tone="green" />
+      <Metric label="المبالغ المعتمدة ضمن الفترة" value={payment ? format(payment.approvedAmountInPeriod) : undefined} suffix="" icon={WalletCards} tone="green" />
       <Metric label="نسبة الاعتماد من الطلبات المحسومة" value={payment ? percentLabel(payment.approvalRatePercent) : undefined} icon={BarChart3} />
-      <Metric label="عمليات البحث آخر 30 يومًا" value={search?.searchesLast30Days} icon={Search} />
+      <Metric label="عمليات البحث ضمن الفترة" value={search?.searchesInPeriod} icon={Search} />
+      <Metric label="عمليات البحث دون نتائج" value={search?.noResultSearchesInPeriod} icon={Search} />
     </div>
     <div className="grid gap-4 xl:grid-cols-2">
       <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
         <h3 className="font-bold text-white">تفاصيل توثيق الدفع</h3>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">طلبات آخر 30 يومًا</p><p className="mt-1 text-xl font-bold text-white">{format(payment?.requestsLast30Days)}</p></div>
-          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">إجمالي المبالغ المعتمدة</p><p className="mt-1 text-xl font-bold text-white">{format(payment?.approvedAmountAllTime)}</p></div>
           <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">طلبات محسومة</p><p className="mt-1 text-xl font-bold text-white">{format(payment?.decidedRequests)}</p></div>
-          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">آخر طلب</p><p className="mt-1 text-sm font-bold text-white">{payment?.latestSubmittedAt ? new Date(payment.latestSubmittedAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">آخر طلب ضمن الفترة</p><p className="mt-1 text-sm font-bold text-white">{payment?.latestSubmittedAt ? new Date(payment.latestSubmittedAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</p></div>
         </div>
-        <p className="mt-3 text-xs leading-5 text-slate-500">قيمة المبالغ تشمل الطلبات المعتمدة فقط، ولا تُعامل الطلبات المعلقة أو المرفوضة كتحصيل مالي.</p>
+        <p className="mt-3 text-xs leading-5 text-slate-500">تعتمد حالات الطلبات والمبالغ على تاريخ تقديم الطلب ضمن الفترة المختارة؛ المبالغ المعتمدة تخص الطلبات المعتمدة من هذه المجموعة فقط.</p>
       </CardContent></Card>
       <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
         <h3 className="font-bold text-white">تفاصيل البحث المركزي</h3>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">إجمالي البحث منذ بدء القياس</p><p className="mt-1 text-xl font-bold text-white">{format(search?.searchesAllTime)}</p></div>
-          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">عمليات البحث آخر 7 أيام</p><p className="mt-1 text-xl font-bold text-white">{format(search?.searchesLast7Days)}</p></div>
-          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">عمليات دون نتائج آخر 30 يومًا</p><p className="mt-1 text-xl font-bold text-white">{format(search?.noResultSearchesLast30Days)}</p></div>
-          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">معدل البحث دون نتائج</p><p className="mt-1 text-xl font-bold text-white">{percentLabel(search?.noResultRatePercentLast30Days)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">معدل البحث دون نتائج</p><p className="mt-1 text-xl font-bold text-white">{percentLabel(search?.noResultRatePercentInPeriod)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">آخر عملية بحث</p><p className="mt-1 text-sm font-bold text-white">{search?.lastSearchAt ? new Date(search.lastSearchAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</p></div>
         </div>
         <div className="mt-4 space-y-2 text-xs text-slate-400">
-          <div className="flex justify-between gap-3"><span>نتائج المولدات</span><strong className="text-white">{format(search?.generatorResultHitsLast30Days)}</strong></div>
-          <div className="flex justify-between gap-3"><span>نتائج المشتركين</span><strong className="text-white">{format(search?.subscriberResultHitsLast30Days)}</strong></div>
-          <div className="flex justify-between gap-3"><span>نتائج أصحاب المولدات</span><strong className="text-white">{format(search?.ownerResultHitsLast30Days)}</strong></div>
+          <div className="flex justify-between gap-3"><span>نتائج المولدات</span><strong className="text-white">{format(search?.generatorResultHitsInPeriod)}</strong></div>
+          <div className="flex justify-between gap-3"><span>نتائج المشتركين</span><strong className="text-white">{format(search?.subscriberResultHitsInPeriod)}</strong></div>
+          <div className="flex justify-between gap-3"><span>نتائج أصحاب المولدات</span><strong className="text-white">{format(search?.ownerResultHitsInPeriod)}</strong></div>
         </div>
-        <p className="mt-3 text-xs leading-5 text-slate-500">تاريخ بدء جمع الإحصاءات: {dateLabel(search?.trackingStartedAt)}؛ لا توجد بيانات تاريخية قبل تفعيل القياس. تُسجّل الأعداد والفئات فقط دون عبارة البحث أو تفاصيل النتائج.</p>
+        <p className="mt-3 text-xs leading-5 text-slate-500">أعداد النتائج والفئات تخص عمليات البحث الواقعة ضمن الفترة المحددة، دون عبارة البحث أو تفاصيل النتائج.</p>
       </CardContent></Card>
     </div>
   </section>;
