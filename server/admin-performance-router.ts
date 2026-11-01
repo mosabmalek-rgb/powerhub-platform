@@ -35,6 +35,37 @@ const performanceMetricsSchema = z.object({
   })).max(10),
 });
 
+
+const activityMetricsSchema = z.object({
+  generatedAt: z.string().min(1),
+  paymentDocumentation: z.object({
+    totalRequests: z.number().int().nonnegative(),
+    pendingRequests: z.number().int().nonnegative(),
+    approvedRequests: z.number().int().nonnegative(),
+    rejectedRequests: z.number().int().nonnegative(),
+    requestsLast7Days: z.number().int().nonnegative(),
+    requestsLast30Days: z.number().int().nonnegative(),
+    approvedAmountAllTime: z.number().finite().nonnegative(),
+    approvedAmountLast30Days: z.number().finite().nonnegative(),
+    decidedRequests: z.number().int().nonnegative(),
+    approvalRatePercent: z.number().finite().min(0).max(100).nullable(),
+    latestSubmittedAt: z.string().nullable(),
+  }),
+  search: z.object({
+    searchesAllTime: z.number().int().nonnegative(),
+    searchesLast7Days: z.number().int().nonnegative(),
+    searchesLast30Days: z.number().int().nonnegative(),
+    noResultSearchesLast30Days: z.number().int().nonnegative(),
+    noResultRatePercentLast30Days: z.number().finite().min(0).max(100).nullable(),
+    searchersLast30Days: z.number().int().nonnegative(),
+    generatorResultHitsLast30Days: z.number().int().nonnegative(),
+    subscriberResultHitsLast30Days: z.number().int().nonnegative(),
+    ownerResultHitsLast30Days: z.number().int().nonnegative(),
+    trackingStartedAt: z.string().nullable(),
+    lastSearchAt: z.string().nullable(),
+  }),
+});
+
 const platformAdminPerformanceProcedure = authenticatedProcedure.use(({ ctx, next }) => {
   if (
     ctx.user.role !== "admin" ||
@@ -69,6 +100,23 @@ export const adminPerformanceRouter = router({
       });
     }
 
+    return parsed.data;
+  }),
+  activityMetrics: platformAdminPerformanceProcedure.query(async () => {
+    const { data, error } = await supabaseAdmin().rpc("powerhub_admin_get_activity_metrics");
+    if (error) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "تعذر تحميل إحصاءات البحث وتوثيق الدفع. تحقق من ترحيل إحصاءات النشاط.",
+      });
+    }
+    const parsed = activityMetricsSchema.safeParse(data);
+    if (!parsed.success) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "أعاد مصدر إحصاءات النشاط بيانات غير مطابقة للعقد المتوقع.",
+      });
+    }
     return parsed.data;
   }),
 });
