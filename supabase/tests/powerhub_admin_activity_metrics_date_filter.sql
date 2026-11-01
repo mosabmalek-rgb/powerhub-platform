@@ -25,7 +25,7 @@ INSERT INTO public.payment_documentation_requests (status, submitted_at, payment
   ('approved', now() - interval '15 days', 40.00, now() - interval '14 days'),
   ('pending', now() - interval '40 days', 20.00, NULL);
 
-\ir ../migrations/20261102002000_powerhub_admin_activity_metrics_date_filter.sql
+\ir ../migrations/20261101235452_powerhub_admin_activity_metrics_date_filter.sql
 
 DO $acl$
 BEGIN
