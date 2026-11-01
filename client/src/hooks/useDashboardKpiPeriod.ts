@@ -36,6 +36,28 @@ export function isValidDashboardDateInput(value: string): boolean {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+/**
+ * A cached, validated range is sufficient for displaying a KPI snapshot offline.
+ * Network errors are reported separately and must not invalidate local boundaries.
+ */
+export function isDashboardKpiPeriodRangeReady(input: {
+  siteId?: number | null;
+  preset: DashboardKpiPeriodPreset;
+  startDate: string;
+  endDate: string;
+  hasCurrentBounds: boolean;
+  hasPreviousBounds: boolean;
+}): boolean {
+  if (!Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1 ||
+      !isValidDashboardDateInput(input.startDate) ||
+      !isValidDashboardDateInput(input.endDate) ||
+      input.startDate > input.endDate) return false;
+
+  if (input.preset === "current_cycle") return input.hasCurrentBounds;
+  if (input.preset === "previous_cycle") return input.hasCurrentBounds && input.hasPreviousBounds;
+  return true;
+}
+
 function previousMonthRange(now = new Date()) {
   const today = gazaDateKey(now);
   const [year, month] = today.split("-").map(Number);
@@ -108,16 +130,14 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
         ? lastMonth
         : { startDate: customStartDate, endDate: customEndDate };
 
-  const datesValid = isValidDashboardDateInput(effectiveRange.startDate) &&
-    isValidDashboardDateInput(effectiveRange.endDate) &&
-    effectiveRange.startDate <= effectiveRange.endDate;
-  const rangeReady = preset === "current_cycle"
-    ? Boolean(currentCycleRange?.startDate && currentCycleRange.endDate)
-    : preset === "previous_cycle"
-      ? Boolean(currentCycleRange?.startDate && currentCycleRange.endDate && previousCycleRange?.startDate && previousCycleRange.endDate)
-      : preset === "last_month"
-        ? datesValid
-        : datesValid;
+  const rangeReady = isDashboardKpiPeriodRangeReady({
+    siteId,
+    preset,
+    startDate: effectiveRange.startDate,
+    endDate: effectiveRange.endDate,
+    hasCurrentBounds: Boolean(currentCycleRange?.startDate && currentCycleRange.endDate),
+    hasPreviousBounds: Boolean(previousCycleRange?.startDate && previousCycleRange.endDate),
+  });
   const isLoading = Boolean(siteId && (
     (preset === "current_cycle" && currentBoundsQuery.isLoading) ||
     (preset === "previous_cycle" && (currentBoundsQuery.isLoading || (Boolean(currentBoundsQuery.data?.startAt) && previousBoundsQuery.isLoading)))
@@ -143,7 +163,7 @@ export function useDashboardKpiPeriod(siteId?: number | null, initial?: Dashboar
     endDate: effectiveRange.endDate,
     setStartDate: setCustomStartDate,
     setEndDate: setCustomEndDate,
-    isReady: Boolean(siteId && datesValid && rangeReady && !isError),
+    isReady: rangeReady,
     isLoading,
     isError,
     retry,

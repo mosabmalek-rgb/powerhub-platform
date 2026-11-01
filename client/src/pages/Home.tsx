@@ -378,8 +378,7 @@ export function WorkspaceHome() {
   }, fractionDigits = 2, expectedRange?: { startDate: string; endDate: string }) => {
     const range = expectedRange ?? { startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate };
     const needsSelectedPeriod = expectedRange === undefined;
-    if (!canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
-        (needsSelectedPeriod && dashboardPeriod.isError)) return "—";
+    if (!canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error)) return "—";
     if (!query.data) return query.isLoading && powerHubReachable ? "…" : "—";
     if ((query.isLoading && powerHubReachable) || (needsSelectedPeriod && (dashboardPeriod.isLoading || !dashboardPeriod.isReady))) return "…";
     if (
@@ -397,8 +396,7 @@ export function WorkspaceHome() {
   }, expectedRange?: { startDate: string; endDate: string }) => {
     const range = expectedRange ?? { startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate };
     const needsSelectedPeriod = expectedRange === undefined;
-    if (!canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
-        (needsSelectedPeriod && dashboardPeriod.isError)) return "—";
+    if (!canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error)) return "—";
     if (!query.data) return query.isLoading && powerHubReachable ? "…" : "—";
     if ((query.isLoading && powerHubReachable) || (needsSelectedPeriod && (dashboardPeriod.isLoading || !dashboardPeriod.isReady))) return "…";
     if (
