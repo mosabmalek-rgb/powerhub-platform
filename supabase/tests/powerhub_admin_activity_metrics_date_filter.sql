@@ -45,6 +45,7 @@ DECLARE
   v_today date := (pg_catalog.clock_timestamp() AT TIME ZONE 'Asia/Gaza')::date;
   v_seven jsonb;
   v_thirty jsonb;
+  v_ninety jsonb;
   v_today_only jsonb;
   v_all jsonb;
   v_expected_payment record;
@@ -85,6 +86,15 @@ BEGIN
           AND submitted_at < (v_today + 1)::timestamp AT TIME ZONE 'Asia/Gaza')
      OR (v_thirty->'search'->>'searchesInPeriod')::bigint <> 3 THEN
     RAISE EXCEPTION 'THIRTY_DAY_FILTER_MISMATCH: %', v_thirty;
+  END IF;
+
+  v_ninety := public.powerhub_admin_get_activity_metrics(v_today - 89, v_today);
+  IF (v_ninety->'paymentDocumentation'->>'totalRequests')::bigint <>
+       (SELECT count(*) FROM public.payment_documentation_requests
+        WHERE submitted_at >= (v_today - 89)::timestamp AT TIME ZONE 'Asia/Gaza'
+          AND submitted_at < (v_today + 1)::timestamp AT TIME ZONE 'Asia/Gaza')
+     OR (v_ninety->'search'->>'searchesInPeriod')::bigint <> 3 THEN
+    RAISE EXCEPTION 'NINETY_DAY_FILTER_MISMATCH: %', v_ninety;
   END IF;
 
   v_today_only := public.powerhub_admin_get_activity_metrics(v_today, v_today);
