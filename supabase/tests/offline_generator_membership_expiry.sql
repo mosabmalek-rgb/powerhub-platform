@@ -19,7 +19,8 @@ CREATE TABLE public.users (
   id bigint PRIMARY KEY,
   auth_user_id uuid NOT NULL UNIQUE,
   account_status text NOT NULL,
-  role text NOT NULL
+  role text NOT NULL,
+  platform_role text
 );
 CREATE TABLE public.sites (
   id bigint PRIMARY KEY,
@@ -78,9 +79,11 @@ CREATE TABLE public.offline_sync_operations (
   UNIQUE (user_id, client_operation_id)
 );
 
-INSERT INTO public.users(id,auth_user_id,account_status,role) VALUES
-  (1,'10000000-0000-4000-8000-000000000001','active','member'),
-  (2,'20000000-0000-4000-8000-000000000002','active','member');
+INSERT INTO public.users(id,auth_user_id,account_status,role,platform_role) VALUES
+  (1,'10000000-0000-4000-8000-000000000001','active','member',NULL),
+  (2,'20000000-0000-4000-8000-000000000002','active','admin','platform_admin'),
+  (3,'30000000-0000-4000-8000-000000000003','active','admin','platform_support'),
+  (4,'40000000-0000-4000-8000-000000000004','active','admin','platform_admin');
 INSERT INTO public.sites(id,tenant_id,status) VALUES (10,10,'active'),(20,20,'active');
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
   (10,1,'owner',true,'active',now()-interval '1 minute'),
@@ -184,6 +187,46 @@ END
 $assert_expired_membership_denied$;
 RESET ROLE;
 
+SELECT set_config('request.jwt.claim.sub','30000000-0000-4000-8000-000000000003',false);
+SET ROLE authenticated;
+DO $assert_platform_roles_require_tenant_membership$
+DECLARE
+  v_actor uuid;
+  v_denied boolean;
+  v_operation text;
+BEGIN
+  -- platform_support and platform_admin are not tenant roles. Neither receives
+  -- tenant mutation access from public.users.role='admin' alone.
+  FOREACH v_actor IN ARRAY ARRAY[
+    '30000000-0000-4000-8000-000000000003'::uuid,
+    '40000000-0000-4000-8000-000000000004'::uuid
+  ] LOOP
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    v_operation := 'platform-no-membership-create-' || replace(v_actor::text,'-','');
+    v_denied := false;
+    BEGIN
+      PERFORM * FROM public.powerhub_sync_generator_create(
+        20,'GEN-PLATFORM-NO-MEMBERSHIP','Must be denied','SER-PLATFORM',100,'diesel',v_operation
+      );
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM = 'GENERATOR_MANAGEMENT_FORBIDDEN' THEN v_denied := true; ELSE RAISE; END IF;
+    END;
+    IF NOT v_denied THEN RAISE EXCEPTION 'PLATFORM_ROLE_BYPASSED_TENANT_MEMBERSHIP_ON_CREATE: %',v_actor; END IF;
+    v_operation := 'platform-no-membership-update-' || replace(v_actor::text,'-','');
+    v_denied := false;
+    BEGIN
+      PERFORM * FROM public.powerhub_sync_generator_update(
+        20,202,'Must be denied',100,25,1,'active',
+        '2026-01-01T00:00:00Z'::timestamptz,v_operation
+      );
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM = 'GENERATOR_MANAGEMENT_FORBIDDEN' THEN v_denied := true; ELSE RAISE; END IF;
+    END;
+    IF NOT v_denied THEN RAISE EXCEPTION 'PLATFORM_ROLE_BYPASSED_TENANT_MEMBERSHIP_ON_UPDATE: %',v_actor; END IF;
+  END LOOP;
+END
+$assert_platform_roles_require_tenant_membership$;
+RESET ROLE;
 -- Inspect side effects as the migration/test owner. The authenticated browser
 -- role intentionally has no direct SELECT access to these operational tables.
 DO $assert_expired_membership_no_side_effects$
@@ -192,13 +235,17 @@ BEGIN
      OR EXISTS (SELECT 1 FROM public.offline_sync_operations WHERE user_id=1 AND client_operation_id='expired-create-op') THEN
     RAISE EXCEPTION 'EXPIRED_OWNER_CREATE_LEFT_OPERATIONAL_SIDE_EFFECTS';
   END IF;
+  IF EXISTS (SELECT 1 FROM public.generators WHERE site_id=20 AND code='GEN-PLATFORM-NO-MEMBERSHIP')
+     OR EXISTS (SELECT 1 FROM public.offline_sync_operations WHERE user_id IN (3,4) AND client_operation_id LIKE 'platform-no-membership-%') THEN
+    RAISE EXCEPTION 'PLATFORM_ROLE_WITHOUT_TENANT_MEMBERSHIP_LEFT_SIDE_EFFECTS';
+  END IF;
   IF EXISTS (SELECT 1 FROM public.generators WHERE id=101 AND (name <> 'Expired owner fixture' OR fuel_level_liters IS NOT NULL OR operating_hours IS NOT NULL)) THEN
     RAISE EXCEPTION 'EXPIRED_OWNER_UPDATE_LEFT_OPERATIONAL_SIDE_EFFECTS';
   END IF;
 END
 $assert_expired_membership_no_side_effects$;
 
--- Positive controls: an unexpired owner can still create and update offline.
+-- Positive control: an admin with an active owner membership can mutate within that tenant.
 SELECT set_config('request.jwt.claim.sub','20000000-0000-4000-8000-000000000002',false);
 SET ROLE authenticated;
 DO $assert_active_membership_allowed$
@@ -226,4 +273,4 @@ END
 $assert_active_membership_allowed$;
 RESET ROLE;
 
-SELECT 'expired owner membership denied for both offline generator RPCs; active owner controls passed; ACL preserved' AS result;
+SELECT 'expired membership and platform-only roles denied; tenant owner membership accepted for admin identity; ACL preserved' AS result;
