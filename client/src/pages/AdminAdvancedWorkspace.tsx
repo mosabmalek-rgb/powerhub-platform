@@ -575,3 +575,98 @@ export function PlatformRolePoliciesPanel() {
     </>}
   </CardContent></Card>;
 }
+
+
+export function PlatformPerformancePanel() {
+  const metrics = trpc.admin.performanceMetrics.useQuery(undefined, {
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    staleTime: 15_000,
+  });
+
+  const data = metrics.data;
+  const bytes = (value: number) => {
+    if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
+    if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(2)} MiB`;
+    if (value >= 1024) return `${(value / 1024).toFixed(2)} KiB`;
+    return `${format(value)} B`;
+  };
+
+  return <section className="space-y-5" aria-label="قياسات أداء المنصة">
+    <Card className="border-white/8 bg-[#111823] shadow-panel">
+      <CardContent className="flex flex-col justify-between gap-3 p-5 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-lg font-extrabold text-white">الأداء والبنية التحتية</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-400">قراءات مباشرة من إحصاءات PostgreSQL، تتحدث كل 30 ثانية أثناء فتح هذا التبويب.</p>
+          {data?.generatedAt && <p className="mt-1 text-xs text-slate-500">آخر قياس: {new Date(data.generatedAt).toLocaleString("ar-PS")}</p>}
+        </div>
+        <Button type="button" variant="outline" className="border-white/10 text-white" onClick={() => void metrics.refetch()} disabled={metrics.isFetching}>
+          {metrics.isFetching ? "جارٍ التحديث…" : "تحديث القياسات"}
+        </Button>
+      </CardContent>
+    </Card>
+
+    {metrics.isError && <Card role="alert" className="border-rose-400/30 bg-rose-400/[.05]"><CardContent className="p-4">
+      <p className="font-bold text-rose-200">تعذر تحميل قياسات الأداء</p>
+      <p className="mt-1 text-sm text-slate-400">{metrics.error.message}</p>
+    </CardContent></Card>}
+    {metrics.isLoading && <Card className="border-white/8 bg-[#111823]"><CardContent className="p-6 text-sm text-slate-400">جارٍ قراءة مؤشرات قاعدة البيانات…</CardContent></Card>}
+
+    {data && <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="حجم قاعدة البيانات" value={data.database.sizeMiB.toFixed(2)} suffix=" MiB" icon={Database} />
+        <Metric label="الاتصالات النشطة" value={data.connections.active} suffix={` / ${format(data.connections.maxConnections)}`} icon={Radio} />
+        <Metric label="Cache Hit" value={data.cacheHitRatioPercent === null ? "—" : data.cacheHitRatioPercent.toFixed(2)} suffix={data.cacheHitRatioPercent === null ? "" : "%"} icon={BarChart3} />
+        <Metric label="Deadlocks" value={data.transactions.deadlocks} icon={AlertTriangle} tone={data.transactions.deadlocks ? "red" : "green"} />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+          <h3 className="font-bold text-white">اتصالات قاعدة البيانات</h3>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">كل اتصالات العملاء</p><p className="mt-1 text-xl font-bold text-white">{format(data.connections.clientBackends)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">نشطة</p><p className="mt-1 text-xl font-bold text-white">{format(data.connections.active)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Idle in transaction</p><p className="mt-1 text-xl font-bold text-white">{format(data.connections.idleInTransaction)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">الحد الأقصى للإعداد</p><p className="mt-1 text-xl font-bold text-white">{format(data.connections.maxConnections)}</p></div>
+          </div>
+        </CardContent></Card>
+        <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+          <h3 className="font-bold text-white">عدادات PostgreSQL التراكمية</h3>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Commits</p><p className="mt-1 text-xl font-bold text-white">{format(data.transactions.commits)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Rollbacks</p><p className="mt-1 text-xl font-bold text-white">{format(data.transactions.rollbacks)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Temporary files</p><p className="mt-1 text-xl font-bold text-white">{format(data.transactions.tempFiles)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Temporary bytes (تراكمي)</p><p className="mt-1 text-xl font-bold text-white">{bytes(data.transactions.tempBytes)}</p></div>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">هذه العدادات منذ آخر إعادة ضبط لإحصاءات PostgreSQL وليست قياسات لحظية لاستهلاك القرص المؤقت.</p>
+          <p className="mt-1 text-xs text-slate-500">بداية الإحصاءات: {data.transactions.statsResetAt ? new Date(data.transactions.statsResetAt).toLocaleString("ar-PS") : "غير متاحة"}</p>
+        </CardContent></Card>
+      </div>
+
+      <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-bold text-white">أكبر 10 جداول حسب الحجم</h3>
+          <span className="text-xs text-slate-500">الحجم يشمل البيانات والفهارس وTOAST</span>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[620px] text-right text-sm">
+            <thead><tr className="border-b border-white/10 text-xs text-slate-500"><th className="p-3">الجدول</th><th className="p-3">الحجم الكلي</th><th className="p-3">الفهارس</th><th className="p-3">صفوف حية (تقديري)</th><th className="p-3">صفوف ميتة (تقديري)</th></tr></thead>
+            <tbody>{data.topTables.map((table) => <tr key={`${table.schemaName}.${table.tableName}`} className="border-b border-white/5 last:border-0">
+              <td className="p-3 font-medium text-white" dir="ltr">{table.schemaName}.{table.tableName}</td>
+              <td className="p-3 text-slate-300">{bytes(table.totalBytes)}</td>
+              <td className="p-3 text-slate-300">{bytes(table.indexBytes)}</td>
+              <td className="p-3 text-slate-300">{format(table.liveRowsEstimate)}</td>
+              <td className="p-3 text-slate-300">{format(table.deadRowsEstimate)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </CardContent></Card>
+    </>}
+
+    <Card className="border-amber-300/20 bg-amber-300/[.035]"><CardContent className="p-5">
+      <h3 className="font-bold text-amber-100">قياسات الاستضافة</h3>
+      <p className="mt-2 text-sm leading-6 text-slate-400">CPU والذاكرة ومدة تنفيذ Serverless Functions وطلبات Vercel لا تُعرض هنا بعد؛ تكامل Vercel الحالي لا يوفّر مصدرًا موثوقًا لهذه القيم ضمن الخطة والإعدادات المتاحة. لن نعرض أرقامًا تقديرية على أنها قياسات فعلية.</p>
+      <p className="mt-2 text-xs text-slate-500">يمكن إضافة هذه المؤشرات عند تفعيل مصدر Observability/API مناسب والتحقق من نطاق بياناته.</p>
+    </CardContent></Card>
+  </section>;
+}
