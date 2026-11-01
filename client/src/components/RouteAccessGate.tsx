@@ -6,9 +6,9 @@ import {
   shouldShowSessionRecovery,
 } from "@/lib/auth-routing";
 import { useEffect } from "react";
-import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { useLocation } from "wouter";
 
 type RouteAccessGateProps = {
   children: React.ReactNode;
@@ -33,21 +33,6 @@ export function RouteAccessGate({ children, platformAdminOnly = false, supportOn
   const isPlatformAdmin = user?.role === "admin" && ["platform_owner", "platform_admin"].includes(user.platformRole ?? "");
   const isPlatformSupport = user?.role === "admin" && user.platformRole === "platform_support";
   const isFinanceAdmin = user?.role === "admin" && user.platformRole === "finance_admin";
-  const featureSites = trpc.powerhub.sites.list.useQuery(undefined, {
-    enabled: Boolean(featureKey && user && user.role !== "admin"),
-    refetchOnMount: "always",
-    refetchOnReconnect: true,
-    refetchOnWindowFocus: true,
-  });
-  const { branchId: selectedBranchId } = useBranchFilter(featureSites.data);
-  const featureSiteId = featureSites.data?.find((site) => site.id === selectedBranchId)?.id ?? featureSites.data?.[0]?.id ?? 0;
-  const featureAccess = trpc.powerhub.staff.myFeatureAccess.useQuery({ siteId: featureSiteId }, {
-    enabled: Boolean(featureKey && user && user.role !== "admin" && featureSiteId > 0),
-    refetchOnMount: "always",
-    refetchOnReconnect: true,
-    refetchOnWindowFocus: true,
-  });
-  const featureCheckRequired = Boolean(featureKey && user && user.role !== "admin");
   const authCheckFailed = !loading && Boolean(error) && !user;
   const shouldRedirectToLogin = shouldRedirectToLoginWhenNoSession({
     loading,
@@ -90,6 +75,49 @@ export function RouteAccessGate({ children, platformAdminOnly = false, supportOn
   }
   if (featureCheckRequired && featureKey && featureAccess.data?.[featureKey] !== true) {
     return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">الميزة غير متاحة لهذا الاشتراك</h1><p className="mt-2 text-sm leading-7 text-slate-400">تم إيقاف الوصول إلى هذه الميزة وفق إعدادات المنصة أو الباقة أو التحكم الخاص بمساحة العمل.</p><button type="button" onClick={() => setLocation("/workspace")} className="mt-5 rounded-xl border border-white/15 px-5 py-3 text-sm font-bold text-slate-200">العودة إلى لوحة العمل</button></div></main>;
+  }
+
+  if (featureKey && user && user.role !== "admin") {
+    return <TenantFeatureAccessGate featureKey={featureKey}>{children}</TenantFeatureAccessGate>;
+  }
+  return <>{children}</>;
+}
+
+function TenantFeatureAccessGate({
+  featureKey,
+  children,
+}: {
+  featureKey: "support_chat" | "powerhub_ai_assistant";
+  children: React.ReactNode;
+}) {
+  const featureSites = trpc.powerhub.sites.list.useQuery(undefined, {
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
+  });
+  const { branchId: selectedBranchId } = useBranchFilter(featureSites.data);
+  const featureSiteId =
+    featureSites.data?.find((site) => site.id === selectedBranchId)?.id ??
+    featureSites.data?.[0]?.id ??
+    0;
+  const featureAccess = trpc.powerhub.staff.myFeatureAccess.useQuery(
+    { siteId: featureSiteId },
+    {
+      enabled: featureSiteId > 0,
+      refetchOnMount: "always",
+      refetchOnReconnect: true,
+      refetchOnWindowFocus: true,
+    },
+  );
+
+  if (featureSites.isLoading || (featureSiteId > 0 && featureAccess.isLoading)) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ التحقق من إتاحة الميزة…</h1></div></main>;
+  }
+  if (featureSites.isError || featureAccess.isError || !featureSiteId || !featureAccess.data) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">تعذر التحقق من إتاحة الميزة</h1><p className="mt-2 text-sm leading-7 text-slate-400">لم نتمكن من التحقق من سياسة الاشتراك من الخادم. لن نفتح هذه الصفحة اعتمادًا على بيانات مخزنة قديمة.</p><button type="button" onClick={() => { void featureSites.refetch(); if (featureSiteId) void featureAccess.refetch(); }} className="mt-5 rounded-xl bg-[#F5B800] px-5 py-3 text-sm font-extrabold text-[#0D1117]">إعادة التحقق</button></div></main>;
+  }
+  if (featureAccess.data[featureKey] !== true) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">الميزة غير متاحة لهذا الاشتراك</h1><p className="mt-2 text-sm leading-7 text-slate-400">تم إيقاف الوصول إلى هذه الميزة وفق إعدادات المنصة أو الباقة أو التحكم الخاص بمساحة العمل.</p><button type="button" onClick={() => window.location.assign("/workspace")} className="mt-5 rounded-xl border border-white/15 px-5 py-3 text-sm font-bold text-slate-200">العودة إلى لوحة العمل</button></div></main>;
   }
   return <>{children}</>;
 }
