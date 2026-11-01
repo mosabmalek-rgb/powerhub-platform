@@ -14,6 +14,12 @@ describe("OperationalStatusDashboardCard", () => {
     expect(screen.getByText("توجد صيانة")).toBeInTheDocument();
   });
 
+  it("يعرض الشرطة بدل الصفر عند غياب لقطة المشتركين", () => {
+    render(<OperationalStatusDashboardCard subscribers={0} subscribersUnavailable />);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+
   it("يعرض هيكل تحميل واضحاً أثناء انتظار البيانات", () => {
     render(<OperationalStatusDashboardCard subscribers={0} loading />);
     expect(screen.getByLabelText("ملخص الحالة التشغيلية")).toBeInTheDocument();
