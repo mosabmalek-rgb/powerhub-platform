@@ -19,8 +19,6 @@ CREATE TABLE IF NOT EXISTS private.platform_admin_search_metrics_daily (
 ALTER TABLE private.platform_admin_search_metrics_daily ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.platform_admin_search_metrics_daily FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE private.platform_admin_search_metrics_daily FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
-GRANT USAGE ON SCHEMA private TO postgres;
 
 CREATE OR REPLACE FUNCTION public.powerhub_admin_record_search_metric(
   p_result_count integer,
@@ -94,7 +92,7 @@ BEGIN
     count(*) FILTER (WHERE submitted_at >= v_now - interval '7 days')::bigint AS requests_last_7_days,
     count(*) FILTER (WHERE submitted_at >= v_now - interval '30 days')::bigint AS requests_last_30_days,
     coalesce(sum(payment_amount) FILTER (WHERE status = 'approved'), 0)::double precision AS approved_amount_all_time,
-    coalesce(sum(payment_amount) FILTER (WHERE status = 'approved' AND submitted_at >= v_now - interval '30 days'), 0)::double precision AS approved_amount_last_30_days,
+    coalesce(sum(payment_amount) FILTER (WHERE status = 'approved' AND reviewed_at >= v_now - interval '30 days'), 0)::double precision AS approved_amount_last_30_days,
     max(submitted_at) AS latest_submitted_at
   INTO v_payment
   FROM public.payment_documentation_requests;
