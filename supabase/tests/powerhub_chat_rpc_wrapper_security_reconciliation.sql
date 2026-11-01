@@ -54,7 +54,12 @@ BEGIN
     );
   END LOOP;
 
-  EXECUTE 'CREATE FUNCTION private.chat_assert_support_admin() RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path TO '''' AS $function$ SELECT current_user::text $function
+  EXECUTE $ddl$CREATE FUNCTION private.chat_assert_support_admin()
+    RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path TO ''
+    AS $function$ SELECT current_user::text $function$$ddl$;
+  EXECUTE $ddl$CREATE FUNCTION private.chat_current_user_id()
+    RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path TO ''
+    AS $function$ SELECT current_user::text $function$$ddl$;
 
   FOR v IN
     SELECT * FROM (VALUES
