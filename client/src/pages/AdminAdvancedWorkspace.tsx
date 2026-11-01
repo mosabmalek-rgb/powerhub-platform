@@ -106,7 +106,7 @@ function AdminActivityMetricsPanel() {
         <Button type="button" size="sm" variant={periodMode === "30d" ? "default" : "outline"} onClick={() => applyPreset("30d")}>آخر 30 يومًا</Button>
         <Button type="button" size="sm" variant={periodMode === "90d" ? "default" : "outline"} onClick={() => applyPreset("90d")}>آخر 90 يومًا</Button>
         <Button type="button" size="sm" variant={periodMode === "all" ? "default" : "outline"} onClick={() => applyPreset("all")}>كل الفترات</Button>
-        <Button type="button" size="sm" variant={periodMode === "custom" ? "default" : "outline"} onClick={() => setPeriodMode("custom")}>فترة مخصصة</Button>
+        <Button type="button" size="sm" variant={periodMode === "custom" ? "default" : "outline"} onClick={() => { setCustomFromDate(appliedPeriod.fromDate ?? defaultFromDate); setCustomToDate(appliedPeriod.toDate ?? todayDate); setPeriodMode("custom"); }}>فترة مخصصة</Button>
       </div>
       {periodMode === "custom" && <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
         <label className="space-y-1 text-xs text-slate-400">من تاريخ<Input type="date" value={customFromDate} max={customToDate || undefined} onChange={(event) => setCustomFromDate(event.target.value)} className={inputClass} /></label>
