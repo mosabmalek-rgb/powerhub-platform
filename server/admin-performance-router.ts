@@ -36,30 +36,47 @@ const performanceMetricsSchema = z.object({
 });
 
 
+const activityMetricsDateSchema = z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).refine((value) => {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}, "Invalid calendar date");
+
+const activityMetricsInputSchema = z.object({
+  fromDate: activityMetricsDateSchema.nullable(),
+  toDate: activityMetricsDateSchema.nullable(),
+}).superRefine((value, context) => {
+  if ((value.fromDate === null) !== (value.toDate === null)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Both date boundaries must be supplied together." });
+    return;
+  }
+  if (value.fromDate && value.toDate) {
+    const from = Date.parse(`${value.fromDate}T00:00:00.000Z`);
+    const to = Date.parse(`${value.toDate}T00:00:00.000Z`);
+    if (to < from) context.addIssue({ code: z.ZodIssueCode.custom, message: "End date must not precede start date." });
+    if (to - from > 3650 * 86_400_000) context.addIssue({ code: z.ZodIssueCode.custom, message: "Date range cannot exceed ten years." });
+  }
+});
+
 const activityMetricsSchema = z.object({
   generatedAt: z.string().min(1),
+  period: z.object({ fromDate: z.string().nullable(), toDate: z.string().nullable() }),
   paymentDocumentation: z.object({
     totalRequests: z.number().int().nonnegative(),
     pendingRequests: z.number().int().nonnegative(),
     approvedRequests: z.number().int().nonnegative(),
     rejectedRequests: z.number().int().nonnegative(),
-    requestsLast7Days: z.number().int().nonnegative(),
-    requestsLast30Days: z.number().int().nonnegative(),
-    approvedAmountAllTime: z.number().finite().nonnegative(),
-    approvedAmountLast30Days: z.number().finite().nonnegative(),
+    approvedAmountInPeriod: z.number().finite().nonnegative(),
     decidedRequests: z.number().int().nonnegative(),
     approvalRatePercent: z.number().finite().min(0).max(100).nullable(),
     latestSubmittedAt: z.string().nullable(),
   }),
   search: z.object({
-    searchesAllTime: z.number().int().nonnegative(),
-    searchesLast7Days: z.number().int().nonnegative(),
-    searchesLast30Days: z.number().int().nonnegative(),
-    noResultSearchesLast30Days: z.number().int().nonnegative(),
-    noResultRatePercentLast30Days: z.number().finite().min(0).max(100).nullable(),
-    generatorResultHitsLast30Days: z.number().int().nonnegative(),
-    subscriberResultHitsLast30Days: z.number().int().nonnegative(),
-    ownerResultHitsLast30Days: z.number().int().nonnegative(),
+    searchesInPeriod: z.number().int().nonnegative(),
+    noResultSearchesInPeriod: z.number().int().nonnegative(),
+    noResultRatePercentInPeriod: z.number().finite().min(0).max(100).nullable(),
+    generatorResultHitsInPeriod: z.number().int().nonnegative(),
+    subscriberResultHitsInPeriod: z.number().int().nonnegative(),
+    ownerResultHitsInPeriod: z.number().int().nonnegative(),
     trackingStartedAt: z.string().nullable(),
     lastSearchAt: z.string().nullable(),
   }),
@@ -101,8 +118,11 @@ export const adminPerformanceRouter = router({
 
     return parsed.data;
   }),
-  activityMetrics: platformAdminPerformanceProcedure.query(async () => {
-    const { data, error } = await supabaseAdmin().rpc("powerhub_admin_get_activity_metrics");
+  activityMetrics: platformAdminPerformanceProcedure.input(activityMetricsInputSchema).query(async ({ input }) => {
+    const { data, error } = await supabaseAdmin().rpc("powerhub_admin_get_activity_metrics", {
+      p_from_date: input.fromDate,
+      p_to_date: input.toDate,
+    });
     if (error) {
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
