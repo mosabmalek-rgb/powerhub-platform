@@ -431,7 +431,6 @@ export const adminRouterWithSupabaseReadContracts = router({
     // the query string, subscriber phone, result labels, or identifiers.
     try {
       await admin.rpc("powerhub_admin_record_search_metric", {
-        p_actor_user_id: ctx.user.id,
         p_result_count: results.length,
         p_generator_result_count: results.filter((row) => row.kind === "generator").length,
         p_subscriber_result_count: results.filter((row) => row.kind === "subscriber").length,
