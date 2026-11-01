@@ -16,7 +16,7 @@ const complaintStatus: Record<string, string> = { open: "مفتوحة", assigned
 
 function Metric({ label, value, suffix = "", icon: Icon, tone = "gold" }: { label: string; value: unknown; suffix?: string; icon: typeof Building2; tone?: "gold" | "green" | "red" }) {
   const color = tone === "green" ? "text-emerald-400" : tone === "red" ? "text-rose-400" : "text-[#F5B800]";
-  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><Icon className={`h-5 w-5 ${color}`} /><p className="mt-5 text-sm text-slate-400">{label}</p><p className="mt-2 text-3xl font-extrabold text-white">{format(value)}{suffix}</p></CardContent></Card>;
+  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><Icon className={`h-5 w-5 ${color}`} /><p className="mt-5 text-sm text-slate-400">{label}</p><p className="mt-2 text-3xl font-extrabold text-white">{typeof value === "number" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) ? format(value) : String(value ?? "—")}{suffix}</p></CardContent></Card>;
 }
 
 const DASHBOARD_REFRESH_MS = 30_000;
