@@ -22,22 +22,27 @@ function Metric({ label, value, suffix = "", icon: Icon, tone = "gold" }: { labe
 const DASHBOARD_REFRESH_MS = 30_000;
 
 function AdminActivityMetricsPanel() {
-  const today = new Date();
-  const toLocalDate = (value: Date) => {
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, "0");
-    const day = String(value.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
+  const toGazaDate = (value: Date) => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Gaza",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(value);
+    const part = (type: "year" | "month" | "day") => parts.find((item) => item.type === type)?.value ?? "";
+    return `${part("year")}-${part("month")}-${part("day")}`;
   };
-  const shiftDate = (value: Date, days: number) => {
-    const next = new Date(value.getFullYear(), value.getMonth(), value.getDate());
-    next.setDate(next.getDate() + days);
-    return next;
+  const shiftDate = (dateValue: string, days: number) => {
+    const [year, month, day] = dateValue.split("-").map(Number);
+    const shifted = new Date(Date.UTC(year, month - 1, day + days));
+    return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
   };
+  const todayDate = toGazaDate(new Date());
+  const defaultFromDate = shiftDate(todayDate, -29);
   const [periodMode, setPeriodMode] = useState<"7d" | "30d" | "90d" | "all" | "custom">("30d");
-  const [customFromDate, setCustomFromDate] = useState(toLocalDate(shiftDate(today, -29)));
-  const [customToDate, setCustomToDate] = useState(toLocalDate(today));
-  const [appliedPeriod, setAppliedPeriod] = useState({ fromDate: toLocalDate(shiftDate(today, -29)), toDate: toLocalDate(today) });
+  const [customFromDate, setCustomFromDate] = useState(defaultFromDate);
+  const [customToDate, setCustomToDate] = useState(todayDate);
+  const [appliedPeriod, setAppliedPeriod] = useState({ fromDate: defaultFromDate, toDate: todayDate });
   const [dateError, setDateError] = useState("");
   const metrics = trpc.admin.activityMetrics.useQuery(appliedPeriod, {
     refetchInterval: DASHBOARD_REFRESH_MS,
@@ -61,7 +66,7 @@ function AdminActivityMetricsPanel() {
       return;
     }
     const days = mode === "7d" ? 7 : mode === "30d" ? 30 : 90;
-    setAppliedPeriod({ fromDate: toLocalDate(shiftDate(today, -(days - 1))), toDate: toLocalDate(today) });
+    setAppliedPeriod({ fromDate: shiftDate(todayDate, -(days - 1)), toDate: todayDate });
   };
   const applyCustomPeriod = () => {
     if (!customFromDate || !customToDate) {
