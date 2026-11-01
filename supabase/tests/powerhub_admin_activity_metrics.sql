@@ -26,7 +26,7 @@ INSERT INTO public.payment_documentation_requests (status, submitted_at, payment
 
 DO $acl$
 BEGIN
-  IF has_function_privilege('anon','public.powerhub_admin_record_search_metric(bigint,integer,integer,integer,integer)','EXECUTE')
+  IF has_function_privilege('anon','public.powerhub_admin_record_search_metric(integer,integer,integer,integer)','EXECUTE')
      OR has_function_privilege('authenticated','public.powerhub_admin_record_search_metric(bigint,integer,integer,integer,integer)','EXECUTE')
      OR NOT has_function_privilege('service_role','public.powerhub_admin_record_search_metric(bigint,integer,integer,integer,integer)','EXECUTE')
      OR has_function_privilege('anon','public.powerhub_admin_get_activity_metrics()','EXECUTE')
@@ -46,9 +46,9 @@ $acl$;
 SET ROLE service_role;
 SELECT set_config('request.jwt.claim.role','service_role',false);
 
-SELECT public.powerhub_admin_record_search_metric(7, 3, 1, 1, 1);
-SELECT public.powerhub_admin_record_search_metric(7, 0, 0, 0, 0);
-SELECT public.powerhub_admin_record_search_metric(8, 1, 0, 1, 0);
+SELECT public.powerhub_admin_record_search_metric(3, 1, 1, 1);
+SELECT public.powerhub_admin_record_search_metric(0, 0, 0, 0);
+SELECT public.powerhub_admin_record_search_metric(1, 0, 1, 0);
 
 DO $metrics$
 DECLARE
@@ -68,7 +68,6 @@ BEGIN
   IF (v->'search'->>'searchesAllTime')::bigint <> 3
      OR (v->'search'->>'searchesLast7Days')::bigint <> 3
      OR (v->'search'->>'noResultSearchesLast30Days')::bigint <> 1
-     OR (v->'search'->>'searchersLast30Days')::bigint <> 2
      OR (v->'search'->>'generatorResultHitsLast30Days')::bigint <> 1
      OR (v->'search'->>'subscriberResultHitsLast30Days')::bigint <> 2
      OR (v->'search'->>'ownerResultHitsLast30Days')::bigint <> 1
@@ -80,12 +79,12 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'private'
       AND table_name = 'platform_admin_search_metrics_daily'
-      AND column_name IN ('query', 'search_query', 'phone', 'subscriber_name', 'search_term')
+      AND column_name IN ('query', 'search_query', 'phone', 'subscriber_name', 'search_term', 'actor_user_id')
   ) THEN
     RAISE EXCEPTION 'SEARCH_RAW_QUERY_OR_PII_COLUMN_PRESENT';
   END IF;
 
-  IF (SELECT count(*) FROM private.platform_admin_search_metrics_daily) <> 2 THEN
+  IF (SELECT count(*) FROM private.platform_admin_search_metrics_daily) <> 1 THEN
     RAISE EXCEPTION 'SEARCH_DAILY_AGGREGATION_NOT_COALESCED';
   END IF;
 END
