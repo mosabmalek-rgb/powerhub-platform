@@ -3888,6 +3888,16 @@ declare
   v_replay_count integer;
   v_transfer_count integer;
 begin
+  -- Make the previous-day fill and current-day report belong to adjacent cycles,
+  -- regardless of the weekday/month day on which CI happens to run.
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='WEEKLY',
+      weekly_start_day=(extract(dow from v_local_today)::integer + 1)
+  where tenant_id=10 and site_id=100;
+  if not found then
+    raise exception 'PHASE_B_CYCLE_BOUNDARY_FIXTURE_CONFIG_MISSING';
+  end if;
+
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
   values (10,'DSL-PHASE-B','Diesel Phase B fixture','fuel','liter',0,1)
   returning id into v_fuel_item_id;
@@ -4071,6 +4081,11 @@ begin
     raise exception 'PHASE_B_NEXT_CYCLE_CONTAINS_PREVIOUS_CYCLE_FILL row=% anchor=%',
       row_to_json(v_period_report),v_local_today;
   end if;
+
+  -- Restore the 10-day cycle fixture used by the independent boundary assertions.
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='EVERY_10_DAYS',weekly_start_day=7,monthly_start_day=1
+  where tenant_id=10 and site_id=100;
 
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'month',v_local_today-1,null,null,10000,v_generator_tank_id
