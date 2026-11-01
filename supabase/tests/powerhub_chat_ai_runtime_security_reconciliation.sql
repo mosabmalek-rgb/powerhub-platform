@@ -83,7 +83,7 @@ CREATE TABLE realtime.messages(
 );
 ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ON realtime.messages TO authenticated;
-GRANT SELECT ON public.chat_inbox_notifications TO authenticated;
+GRANT SELECT ON public.chat_inbox_notifications,public.chat_conversations TO authenticated;
 
 CREATE OR REPLACE FUNCTION powerhub_private.current_user_id()
 RETURNS bigint
