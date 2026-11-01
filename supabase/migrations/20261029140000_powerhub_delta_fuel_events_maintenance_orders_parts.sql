@@ -1,4 +1,5 @@
 -- Scoped Delta feeds for fuel-fill events, maintenance work orders, and per-order parts.
+-- Operational projections exclude monetary cost fields; costing remains server-authoritative.
 -- Work-order parts use a work-order-partitioned entity type so one order's full parts
 -- list does not compete with every other order in a site-wide retention window.
 -- Report aggregates remain in the separately filtered, permission-checked report cache.
@@ -78,8 +79,7 @@ as $$
     'assigned_to_user_id',w.assigned_to_user_id,'assigned_supplier_id',w.assigned_supplier_id,
     'assigned_supplier_name',s.name,'assigned_supplier_code',s.supplier_code,
     'operating_hours_at_open',w.operating_hours_at_open,'operating_hours_at_close',w.operating_hours_at_close,
-    'downtime_minutes',w.downtime_minutes,'labor_cost',w.labor_cost,
-    'external_service_cost',w.external_service_cost,'parts_cost',w.parts_cost,'total_cost_amount',w.total_cost_amount,
+    'downtime_minutes',w.downtime_minutes,
     'created_by_user_id',null
   )
   from public.generator_maintenance_work_orders w
@@ -103,7 +103,7 @@ as $$
     'work_order_id',p.work_order_id,'generator_id',p.generator_id,
     'item_id',p.item_id,'item_name',i.name,'category',i.category,
     'warehouse_id',p.warehouse_id,'warehouse_name',w.name,
-    'quantity',p.quantity,'unit_cost',p.unit_cost,'total_cost_amount',p.total_cost_amount,
+    'quantity',p.quantity,
     'stock_movement_id',p.stock_movement_id,'issued_at',p.issued_at,'notes',null
   )
   from public.generator_maintenance_work_order_parts p
