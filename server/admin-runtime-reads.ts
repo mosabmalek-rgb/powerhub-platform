@@ -442,13 +442,6 @@ export const adminRouterWithSupabaseReadContracts = router({
 
     return results;
   }),
-  adminActivityMetrics: platformAdminProcedure.query(async () => {
-    const { data, error } = await supabaseAdmin().rpc("powerhub_admin_get_activity_metrics");
-    if (error || !data || typeof data !== "object") {
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إحصاءات البحث وتوثيق الدفع." });
-    }
-    return data as Record<string, unknown>;
-  }),
   operationalMonitoring: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();
     const tenantsResult = await admin.from("tenants").select("id,name").limit(500);
