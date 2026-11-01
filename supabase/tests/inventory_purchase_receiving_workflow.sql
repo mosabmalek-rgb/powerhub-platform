@@ -4090,10 +4090,18 @@ begin
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'month',v_local_today-1,null,null,10000,v_generator_tank_id
   );
+  -- Monthly reporting carries the last valid pre-period tank reading as its
+  -- opening baseline, so this fixture has enough readings for a measured result.
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
-     or v_period_report.actual_consumption_liters is not null
-     or v_period_report.measurement_status<>'insufficient_level_readings' then
-    raise exception 'PHASE_B_MONTH_REPORT_MISSING_MEASUREMENT_STATUS row=%',row_to_json(v_period_report);
+     or v_period_report.recorded_consumption_liters<>3
+     or v_period_report.opening_level_liters<>10
+     or v_period_report.ending_level_liters<>12
+     or v_period_report.actual_consumption_liters<>3
+     or v_period_report.opening_operating_hours<>100
+     or v_period_report.ending_operating_hours<>103
+     or v_period_report.operating_hours_delta<>3
+     or v_period_report.measurement_status<>'measured' then
+    raise exception 'PHASE_B_MONTH_REPORT_RECONCILIATION_FAILED row=%',row_to_json(v_period_report);
   end if;
 
   select count(*)::integer into v_rate_dispatches from public.powerhub_fuel_alert_dispatches
