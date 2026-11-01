@@ -48,7 +48,7 @@ const activityMetrics = {
   search: {
     searchesAllTime: 200, searchesLast7Days: 50, searchesLast30Days: 150,
     noResultSearchesLast30Days: 15, noResultRatePercentLast30Days: 10,
-    searchersLast30Days: 4, generatorResultHitsLast30Days: 30,
+    generatorResultHitsLast30Days: 30,
     subscriberResultHitsLast30Days: 90, ownerResultHitsLast30Days: 20,
     trackingStartedAt: "2026-11-01", lastSearchAt: "2026-11-02T09:59:00.000Z",
   },
