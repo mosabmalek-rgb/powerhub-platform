@@ -11,8 +11,8 @@ const state = vi.hoisted(() => ({
   loading: false,
   setLocation: vi.fn(),
   branchId: 1,
-  sitesQuery: { data: [{ id: 1 }], isLoading: false, isError: false, refetch: vi.fn() },
-  featureAccessQuery: { data: { support_chat: true, powerhub_ai_assistant: true }, isLoading: false, isError: false, refetch: vi.fn() },
+  sitesQuery: { data: [{ id: 1 }] as { id: number }[] | undefined, isLoading: false, isError: false, refetch: vi.fn() },
+  featureAccessQuery: { data: { support_chat: true, powerhub_ai_assistant: true } as Record<string, boolean> | undefined, isLoading: false, isError: false, refetch: vi.fn() },
   sitesUseQuery: vi.fn(),
   featureAccessUseQuery: vi.fn(),
 }));
