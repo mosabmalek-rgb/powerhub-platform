@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const migration = readFileSync(join(here, "..", "supabase", "migrations", "20261029192000_powerhub_offline_expense_idempotency.sql"), "utf8");
+const migration = readFileSync(join(here, "..", "supabase", "migrations", "20261101083158_powerhub_offline_expense_idempotency.sql"), "utf8");
 const router = readFileSync(join(here, "powerhub.ts"), "utf8");
 const queue = readFileSync(join(here, "..", "client", "src", "lib", "offline-work-queue.ts"), "utf8");
 const replayPanel = readFileSync(join(here, "..", "client", "src", "components", "OfflineWorkSyncPanel.tsx"), "utf8");

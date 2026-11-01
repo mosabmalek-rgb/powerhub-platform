@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261031200000_powerhub_adaptive_delta_realtime.sql"), "utf8");
+const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261101084130_powerhub_adaptive_delta_realtime.sql"), "utf8");
 const router = readFileSync(resolve(process.cwd(), "server/powerhub.ts"), "utf8");
 const realtimeClient = readFileSync(resolve(process.cwd(), "client/src/lib/adaptive-delta-realtime.ts"), "utf8");
 const adaptiveScheduler = readFileSync(resolve(process.cwd(), "client/src/lib/adaptive-delta-refresh.ts"), "utf8");

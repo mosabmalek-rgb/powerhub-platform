@@ -422,7 +422,7 @@ describe("inventory workspace UI contract", () => {
     const policy = read("client/src/lib/offline-query-policy.ts");
     const cache = read("client/src/lib/offline-query-cache.ts");
     const revisions = read("server/powerhub.ts");
-    const migration = read("supabase/migrations/20261030100000_powerhub_supplier_ledger_revision.sql");
+    const migration = read("supabase/migrations/20261101083224_powerhub_supplier_ledger_revision.sql");
     expect(workspace).toContain('entityTypes: ["supplier_ledger"]');
     expect(workspace).toContain("supplierLedgerIsOfflineSnapshot");
     expect(workspace).toContain("clearOfflineSupplierFinancialQueryCacheForSite");
@@ -441,9 +441,9 @@ describe("inventory workspace UI contract", () => {
     expect(migration).toContain("supplier_purchase_returns");
     expect(migration).not.toContain("insert into public.powerhub_sync_changes");
     for (const migrationPath of [
-      "supabase/migrations/20261029130000_powerhub_delta_fuel_maintenance_read_models.sql",
-      "supabase/migrations/20261029140000_powerhub_delta_fuel_events_maintenance_orders_parts.sql",
-      "supabase/migrations/20261029150000_powerhub_hr_delta_sync.sql",
+      "supabase/migrations/20261101082920_powerhub_delta_fuel_maintenance_read_models.sql",
+      "supabase/migrations/20261101083020_powerhub_delta_fuel_events_maintenance_orders_parts.sql",
+      "supabase/migrations/20261101083059_powerhub_hr_delta_sync.sql",
     ]) {
       const laterMigration = read(migrationPath);
       const scopeStateBlock = laterMigration.slice(0, laterMigration.indexOf("alter table public.powerhub_sync_changes"));

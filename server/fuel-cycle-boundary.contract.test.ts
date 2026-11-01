@@ -12,7 +12,7 @@ const fuelReportMigration = readFileSync(
   "utf8",
 );
 const boundaryMigration = readFileSync(
-  resolve(root, "supabase/migrations/20261031220000_powerhub_fuel_cycle_boundary_precision.sql"),
+  resolve(root, "supabase/migrations/20261101084225_powerhub_fuel_cycle_boundary_precision.sql"),
   "utf8",
 );
 const workflowTest = readFileSync(
@@ -52,6 +52,6 @@ describe("Fuel cycle report boundary contract", () => {
     expect(workflowTest).toContain("CYCLE_EVERY_15_DAYS_OCTOBER_31_BOUNDARY_FAILED");
     expect(workflowTest).toContain("CYCLE_WEEKLY_MICROSECOND_BOUNDARY_FAILED");
     expect(workflowTest).toContain("PHASE_B_NEXT_CYCLE_CONTAINS_PREVIOUS_CYCLE_FILL");
-    expect(workflowTest).toContain("20261031220000_powerhub_fuel_cycle_boundary_precision.sql");
+    expect(workflowTest).toContain("20261101084225_powerhub_fuel_cycle_boundary_precision.sql");
   });
 });

@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const read = (file: string) => readFileSync(resolve(process.cwd(), file), "utf8");
 const page = read("client/src/pages/PaymentDocumentationReviewPage.tsx");
 const router = read("server/powerhub.ts");
-const migration = read("supabase/migrations/20261101090000_powerhub_payment_documentation_revision_invalidation.sql");
+const migration = read("supabase/migrations/20261101084256_powerhub_payment_documentation_revision_invalidation.sql");
 
 describe("Payment Documentation Adaptive Delta revision", () => {
   it("exposes only an authorized opaque cursor and a server-derived site topic", () => {

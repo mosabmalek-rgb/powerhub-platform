@@ -22,7 +22,7 @@ const notificationTriggerMigrationUrl = new URL(
   import.meta.url,
 );
 const browserDmlReconcileMigrationUrl = new URL(
-  "../supabase/migrations/20261030200000_powerhub_browser_direct_dml_acl_reconcile.sql",
+  "../supabase/migrations/20261101083404_powerhub_browser_direct_dml_acl_reconcile.sql",
   import.meta.url,
 );
 const browserDmlReconcileTestUrl = new URL(
@@ -30,7 +30,7 @@ const browserDmlReconcileTestUrl = new URL(
   import.meta.url,
 );
 const canonicalRlsMigrationUrl = new URL(
-  "../supabase/migrations/20261030210000_powerhub_canonical_tenant_rls_policy_reconcile.sql",
+  "../supabase/migrations/20261101083447_powerhub_canonical_tenant_rls_policy_reconcile.sql",
   import.meta.url,
 );
 const canonicalRlsTestUrl = new URL(
@@ -38,7 +38,7 @@ const canonicalRlsTestUrl = new URL(
   import.meta.url,
 );
 const idempotencySchemaMigrationUrl = new URL(
-  "../supabase/migrations/20261030220000_powerhub_missing_idempotency_schema_reconcile.sql",
+  "../supabase/migrations/20261101083518_powerhub_missing_idempotency_schema_reconcile.sql",
   import.meta.url,
 );
 const idempotencySchemaTestUrl = new URL(
@@ -46,7 +46,7 @@ const idempotencySchemaTestUrl = new URL(
   import.meta.url,
 );
 const productionTriggerMigrationUrl = new URL(
-  "../supabase/migrations/20261030230000_powerhub_missing_production_triggers_reconcile.sql",
+  "../supabase/migrations/20261101083548_powerhub_missing_production_triggers_reconcile.sql",
   import.meta.url,
 );
 const productionTriggerTestUrl = new URL(
