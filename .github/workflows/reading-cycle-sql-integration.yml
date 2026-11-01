@@ -289,6 +289,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres staging_first_platform_admin_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname staging_first_platform_admin_test --set ON_ERROR_STOP=1 --file supabase/tests/staging_first_platform_admin_bootstrap.sql
 
+      - name: Verify approved Staging platform-admin transfer preserves tenant membership, Auth credentials, and audit boundaries
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres staging_platform_admin_transfer_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname staging_platform_admin_transfer_test --set ON_ERROR_STOP=1 --file supabase/tests/staging_platform_admin_transfer.sql
+
       - name: Verify five-package and chat schema reconciliation preserves legacy rows and RPC contracts
         env:
           PGPASSWORD: postgres
