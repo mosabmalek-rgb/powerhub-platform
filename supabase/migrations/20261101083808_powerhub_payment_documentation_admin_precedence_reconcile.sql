@@ -3,6 +3,26 @@
 -- controls last written by an owner toggle and is idempotent; function bodies
 -- and server-only ACLs converge to the tested admin-authoritative contract.
 
+-- Normalize Staging's equivalent unique constraint name to the Production contract.
+-- Reuses the existing unique index; no entitlement rows or uniqueness semantics change.
+do $constraint_name$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.tenant_feature_entitlements'::regclass
+      and conname = 'tenant_feature_entitlements_tenant_id_feature_key_key'
+  ) and exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.tenant_feature_entitlements'::regclass
+      and conname = 'tenant_feature_entitlements_tenant_feature_key'
+  ) then
+    alter table public.tenant_feature_entitlements
+      rename constraint tenant_feature_entitlements_tenant_feature_key
+      to tenant_feature_entitlements_tenant_id_feature_key_key;
+  end if;
+end;
+$constraint_name$;
+
 -- Keep platform-admin feature availability separate from the generator owner's preference.
 -- Historically the owner toggle also rewrote tenant_feature_controls.status, which could
 -- erase an explicit admin disable. Restore admin state from its audit snapshot where the
@@ -219,7 +239,7 @@ begin
     v_tenant_id, 'payment_documentation', p_is_enabled, p_user_id,
     case when p_is_enabled then v_now else null end, v_now, v_now
   )
-  on conflict (tenant_id, feature_key)
+  on conflict on constraint tenant_feature_entitlements_tenant_id_feature_key_key
   do update set
     is_enabled = excluded.is_enabled,
     activated_by_user_id = excluded.activated_by_user_id,
