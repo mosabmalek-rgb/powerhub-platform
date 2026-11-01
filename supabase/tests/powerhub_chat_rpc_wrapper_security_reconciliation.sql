@@ -174,7 +174,7 @@ BEGIN
       ('chat_mark_notification_read','SELECT public.chat_mark_notification_read(1)'),
       ('chat_mark_read','SELECT public.chat_mark_read(100)'),
       ('chat_mark_read_up_to','SELECT public.chat_mark_read_up_to(1,100)'),
-      ('chat_rate_support','SELECT public.chat_rate_support(1,5,NULL)'),
+      ('chat_rate_support','SELECT public.chat_rate_support(1::bigint,5::smallint,NULL::text)'),
       ('chat_receipts_for_message','SELECT public.chat_receipts_for_message(100)'),
       ('chat_release_support','SELECT public.chat_release_support(1)'),
       ('chat_reopen_support_conversation','SELECT public.chat_reopen_support_conversation(1)'),
