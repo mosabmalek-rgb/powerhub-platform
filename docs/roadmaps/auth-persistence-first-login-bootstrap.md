@@ -742,3 +742,11 @@ type AuthDeviceContext = {
 - تحققنا بعد التطبيق من دالتي إنشاء وتحديث المولدات: التوقيعات و`SECURITY DEFINER` و`search_path=public, pg_temp` وACL بقيت كما هي (`anon` غير مسموح، و`authenticated` و`service_role` مسموحان). أزيل تجاوز تحويل مدير المنصة إلى مالك مستأجر ضمن الدالتين.
 - ملف migration في الفرع واختبار PostgreSQL جرى توحيدهما مع رقم الإصدار الفعلي `20261101113014`. اجتياز CI السابق على رأس الكود `28e3df7c...` لا يحل محل إعادة CI بعد هذا التعديل.
 - Production لم يتغير ولم يتضمن سجلّه الإصدار `20261101113014`. لا Preview أو قبول متصفح حتى التحقق من `SUPABASE_SERVICE_ROLE_KEY` كسر Staging.
+
+## الوضع الحي الحالي بعد تطبيق Migration ونجاح CI — 2026-11-01
+
+- رأس PR #359 `e17eaf778c8f821c1e48871fee597a478d6f2cb0` اجتاز جميع البوابات الأربع: PowerHub CI `41302400432`، PostgreSQL Integration `41302400480`، Supabase Admin Guard `41302400381`، وPowerHub Security `41302400455`. CodeQL وDependency Review متخطيان.
+- Migration `20261101113014 / powerhub_generator_sync_require_tenant_membership` مطبق على Staging فقط؛ سجل Staging 311. Production بقي 486 ولا يحتوي الترحيل.
+- حساب `powerhub.e2e.test@gmail.com` نشط بدور `admin/platform_admin` وعضوية owner نشطة في tenant 1.
+- لا تزال Preview مؤجلة: `SUPABASE_SERVICE_ROLE_KEY` حساس ويعيد Vercel API له `decrypted=false` دون قيمة، لذلك لا يمكن تأكيد ارتباطه بـStaging.
+- اختبارات المتصفح الحقيقية (login/auth.me/reload/reopen/multi-tab/offline/online/Delta/Outbox/refresh-storm) لم تنفذ بعد. PR #359 يبقى Draft وغير مدمج.

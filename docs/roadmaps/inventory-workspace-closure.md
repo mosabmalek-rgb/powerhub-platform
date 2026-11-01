@@ -371,3 +371,10 @@ Status: implementation merged in PR #320 and included in Phase D reporting in PR
 - Production ledger بقي 486 سجلاً ولا يحتوي الإصدار `20261101113014`؛ لم يجرِ أي اتصال كتابة أو ترحيل إلى Production.
 - تمت مواءمة ملف migration داخل PR ورابط `\\ir` في الاختبار مع رقم الإصدار المُنشأ بواسطة Supabase. يجب إعادة CI على SHA الناتج عن هذه المواءمة.
 - Preview/browser acceptance لم يُنفذ؛ سر Vercel الخاص بـservice role ما زال غير قابل للتحقق من API. لا تنشر Preview حتى إثبات أن السر يعود إلى Staging.
+
+### الحالة الحالية — بوابات CI وStaging migration — 2026-11-01
+
+- الرأس `e17eaf778c8f821c1e48871fee597a478d6f2cb0` اجتاز البوابات الأربع: PowerHub CI `41302400432`, PostgreSQL Integration `41302400480`, Supabase Admin Guard `41302400381`, PowerHub Security `41302400455`. CodeQL وDependency Review skipped.
+- ترحيل `20261101113014_powerhub_generator_sync_require_tenant_membership` مطبق على Staging؛ سجلها 311. Production ledger بقي 486 ولا يتضمنه.
+- دالّتا مزامنة المولدات بقيت signatures/SECURITY DEFINER/search_path/ACL كما هي، وأزيل تجاوز منح مدير المنصة ملكية مستأجر تلقائيًا.
+- قبول Preview والمتصفح لم يُنفذ؛ متغير خدمة Vercel حساس وغير قابل للفك عبر API (`decrypted=false`). يجب التحقق من ارتباطه بـStaging قبل المعاينة.
