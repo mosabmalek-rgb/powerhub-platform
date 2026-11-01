@@ -52,6 +52,7 @@ vi.mock("@/lib/trpc", () => ({
       ownerQuotaUsageReport: { useQuery: () => ({ data: [], isLoading: false }) },
       advancedDashboard: { useQuery: () => ({ data: { kpis: { activeGenerators: 2, subscribers: 150, dailyConsumption: 50, monthlyConsumption: 1000, monthlyCollections: 4000, openComplaints: 1, generatorsToReview: 0, collectionRate: state.collectionRate }, monthlyGrowth: [{ month: "2026-08", count: 150 }], consumptionByRegion: [{ region: "بغداد", consumptionKwh: 1000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", code: "GEN-T-01", tenantName: "مساحة مولد الاختبار", amount: 4000 }], latestGenerators: [], recentComplaints: [], expiringSubscriptions: [] } }) },
       globalSearch: { useQuery: () => ({ data: [] }) },
+      performanceMetrics: { useQuery: () => ({ data: { generatedAt: new Date().toISOString(), database: { name: "powerhub", sizeBytes: 1048576, sizeMiB: 1 }, connections: { clientBackends: 2, active: 1, idleInTransaction: 0, maxConnections: 60 }, cacheHitRatioPercent: 99.5, transactions: { commits: 100, rollbacks: 1, deadlocks: 0, tempFiles: 0, tempBytes: 0, statsResetAt: null }, topTables: [] }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
       activityMetrics: { useQuery: () => ({ data: { generatedAt: new Date().toISOString(), paymentDocumentation: { totalRequests: 4, pendingRequests: 1, approvedRequests: 2, rejectedRequests: 1, requestsLast7Days: 3, requestsLast30Days: 4, approvedAmountAllTime: 100, approvedAmountLast30Days: 75, decidedRequests: 3, approvalRatePercent: 66.67, latestSubmittedAt: new Date().toISOString() }, search: { searchesAllTime: 0, searchesLast7Days: 0, searchesLast30Days: 0, noResultSearchesLast30Days: 0, noResultRatePercentLast30Days: null, generatorResultHitsLast30Days: 0, subscriberResultHitsLast30Days: 0, ownerResultHitsLast30Days: 0, trackingStartedAt: null, lastSearchAt: null } }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
       listComplaints: { useQuery: () => ({ data: [{ id: 4, title: "شكوى اختبار", description: "تفاصيل الشكوى", priority: "high", status: "open", response: null, openedAt: new Date(), resolvedAt: null, tenantId: 1, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", subscriberName: "مشترك تجريبي", assignedUserId: null, assignedUserName: null }] }) },
       updateComplaint: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
@@ -167,6 +168,9 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("سجل الإشعارات")).toBeInTheDocument();
     fireEvent.click(sidebarNav("الأمان والسجلات"));
     expect(screen.getByText("أحداث الأمان والنسخ الاحتياطي")).toBeInTheDocument();
+    fireEvent.click(sidebarNav("الأداء والبنية التحتية"));
+    expect(screen.getByText("حجم قاعدة البيانات")).toBeInTheDocument();
+    expect(screen.getByText("قياسات الاستضافة")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إعدادات المنصة"));
     expect(screen.getByText("وضع صيانة المنصة")).toBeInTheDocument();
   }, 15_000);
