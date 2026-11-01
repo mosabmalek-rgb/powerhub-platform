@@ -46,7 +46,7 @@ BEGIN
     RAISE EXCEPTION 'INVALID_SEARCH_METRICS';
   END IF;
 
-  INSERT INTO private.platform_admin_search_metrics_daily (
+  INSERT INTO private.platform_admin_search_metrics_daily AS metrics (
     metric_day, search_count, no_result_search_count,
     result_count, generator_result_count, subscriber_result_count,
     owner_result_count, first_searched_at, last_searched_at
@@ -56,13 +56,13 @@ BEGIN
     p_owner_result_count, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp()
   )
   ON CONFLICT (metric_day) DO UPDATE SET
-    search_count = private.platform_admin_search_metrics_daily.search_count + 1,
-    no_result_search_count = private.platform_admin_search_metrics_daily.no_result_search_count
+    search_count = metrics.search_count + 1,
+    no_result_search_count = metrics.no_result_search_count
       + CASE WHEN EXCLUDED.no_result_search_count = 1 THEN 1 ELSE 0 END,
-    result_count = private.platform_admin_search_metrics_daily.result_count + EXCLUDED.result_count,
-    generator_result_count = private.platform_admin_search_metrics_daily.generator_result_count + EXCLUDED.generator_result_count,
-    subscriber_result_count = private.platform_admin_search_metrics_daily.subscriber_result_count + EXCLUDED.subscriber_result_count,
-    owner_result_count = private.platform_admin_search_metrics_daily.owner_result_count + EXCLUDED.owner_result_count,
+    result_count = metrics.result_count + EXCLUDED.result_count,
+    generator_result_count = metrics.generator_result_count + EXCLUDED.generator_result_count,
+    subscriber_result_count = metrics.subscriber_result_count + EXCLUDED.subscriber_result_count,
+    owner_result_count = metrics.owner_result_count + EXCLUDED.owner_result_count,
     last_searched_at = EXCLUDED.last_searched_at;
 END;
 $function$;
