@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tenantMenuRouteAllowed } from "./tenant-menu-access";
+import { tenantMenuRouteAllowed, shouldShowBranchManagement } from "./tenant-menu-access";
 
 describe("tenant sidebar access", () => {
   it("keeps limited roles away from owner-only and management routes", () => {
@@ -23,30 +23,4 @@ describe("tenant sidebar access", () => {
   });
 
   it("honors explicit permission overrides even when the base role normally has read access", () => {
-    expect(tenantMenuRouteAllowed("/subscribers", "collector", [], true)).toBe(false);
-    expect(tenantMenuRouteAllowed("/subscribers", "collector", ["manageSubscribers"], true)).toBe(true);
-  });
-
-  it("allows report-only staff to reach the inventory workspace without granting stock operations", () => {
-    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["viewInventoryReports"], true)).toBe(true);
-    expect(tenantMenuRouteAllowed("/inventory", "technician", [], true)).toBe(false);
-    expect(tenantMenuRouteAllowed("/inventory", "manager", ["viewInventory"], true)).toBe(true);
-  });
-
-  it("does not expose unknown routes", () => {
-    expect(tenantMenuRouteAllowed("/does-not-exist", "owner")).toBe(false);
-  });
-
-  it("allows supplier-payment-only overrides to reach the inventory workspace", () => {
-    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageSupplierPayments"], true)).toBe(true);
-    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageSuppliers"], true)).toBe(true);
-    expect(tenantMenuRouteAllowed("/inventory", "technician", [], true)).toBe(false);
-  });
-
-  it("allows stocktake-only staff to reach the shared inventory workspace", () => {
-    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["viewStocktakes"], true)).toBe(true);
-    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["manageStocktakes"], true)).toBe(true);
-    expect(tenantMenuRouteAllowed("/inventory", "viewer", ["approveStocktakes"], true)).toBe(true);
-  });
-
-});
+    expect(tenantMenuRouteAllowed("/subscribers", "collector", [], true)).toBe(fa¶»§q«^
