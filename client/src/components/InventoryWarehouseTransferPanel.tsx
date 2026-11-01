@@ -3,15 +3,32 @@ import { ArrowLeftRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 
-type Props = { siteId: number; isAuthenticated: boolean; canAdjustInventory: boolean };
+type Props = {
+  siteId: number;
+  isAuthenticated: boolean;
+  canAdjustInventory: boolean;
+  dialogOpen?: boolean;
+  onDialogOpenChange?: (open: boolean) => void;
+  showTrigger?: boolean;
+};
 
-export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticated, canAdjustInventory }: Props) {
+export default function InventoryWarehouseTransferPanel({
+  siteId, isAuthenticated, canAdjustInventory,
+  dialogOpen, onDialogOpenChange, showTrigger = true,
+}: Props) {
+  const [internalDialogOpen, setInternalDialogOpen] = useState(false);
+  const isDialogOpen = dialogOpen ?? internalDialogOpen;
+  const setIsDialogOpen = (open: boolean) => {
+    if (onDialogOpenChange) onDialogOpenChange(open);
+    else setInternalDialogOpen(open);
+  };
   const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
   const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
   const ensureServerWriteAllowed = () => {
@@ -59,7 +76,7 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
       toast.success(result.replayed
         ? "تم التحقق من التحويل السابق دون تكرار الحركة."
         : "تم التحويل بنجاح؛ رقم العملية " + result.transfer_id + "، والتكلفة " +
-          Number(result.total_cost_amount ?? 0).toLocaleString("ar-PS", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ".");
+          Number(result.total_cost_amount ?? 0).toLocaleString("ar-PS", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ".");
       setQuantity(""); setReferenceNo(""); setNotes("");
       await Promise.all([
         utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
@@ -93,7 +110,12 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
       .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تنفيذ التحويل المخزني."));
   };
 
-  return <Card>
+  return <div>
+    {showTrigger ? <Button type="button" size="sm" variant="outline" onClick={() => setIsDialogOpen(true)}><ArrowLeftRight className="ml-2 h-4 w-4" /> تحويل بين المخازن</Button> : null}
+    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto sm:max-w-4xl">
+        <DialogTitle>تحويل بين المخازن</DialogTitle>
+    <Card>
     <CardHeader className="flex flex-row items-center gap-3 space-y-0">
       <ArrowLeftRight className="h-5 w-5" />
       <div><CardTitle>تحويل بين المخازن</CardTitle>
@@ -141,5 +163,8 @@ export default function InventoryWarehouseTransferPanel({ siteId, isAuthenticate
           </Button></div>
         </form>}
     </CardContent>
-  </Card>;
+    </Card>
+      </DialogContent>
+    </Dialog>
+  </div>;
 }

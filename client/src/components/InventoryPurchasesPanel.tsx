@@ -85,7 +85,7 @@ function emptyLine(firstItem?: { id: number; base_unit: string }): DraftLine {
 
 function formatAmount(value: number | string | null | undefined) {
   const amount = Number(value ?? 0);
-  return `₪${new Intl.NumberFormat("ar-PS", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0)}`;
+  return `₪${new Intl.NumberFormat("ar-PS", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0)}`;
 }
 
 function updateLine(lines: DraftLine[], key: string, patch: Partial<DraftLine>) {

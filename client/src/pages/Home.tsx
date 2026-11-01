@@ -17,6 +17,8 @@ import { trpc } from "@/lib/trpc";
 import { describeAuthFailure } from "@/lib/auth-diagnostics";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { clearOfflineDashboardSnapshotCacheForSite } from "@/lib/offline-query-cache";
+import { readCachedTenantAccess, writeCachedTenantAccess } from "@/lib/tenant-access-cache";
+import { readCachedWorkspaceSites, writeCachedWorkspaceSites } from "@/lib/workspace-sites-cache";
 import { resetSupabaseSessionReadBackoff } from "@/lib/supabase";
 import { authenticatedHomePath } from "@/lib/role-routing";
 import {
@@ -29,7 +31,7 @@ import {
   CircleDollarSign, Clock3, FilePlus2, FileText, MessageSquareText, ReceiptText,
   UsersRound, WalletCards, Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import MarketingLandingPage from "./MarketingLandingPage";
 
@@ -107,15 +109,53 @@ export function WorkspaceHome() {
     hasSession,
     powerHubReachable,
   } = useAuth();
-  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated && !user?.mustChangePassword, staleTime: 30_000 });
+  const cachedWorkspaceSites = useMemo(
+    () => readCachedWorkspaceSites(user?.id),
+    [user?.id],
+  );
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, {
+    enabled: isAuthenticated && !user?.mustChangePassword,
+    initialData: cachedWorkspaceSites ?? undefined,
+    staleTime: 30_000,
+    // This snapshot only restores the site/query scope; server data remains authoritative.
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
+  });
+  useEffect(() => {
+    if (!user?.id || !sitesQuery.data || sitesQuery.isError ||
+        isExplicitAuthorizationDenial(sitesQuery.error)) return;
+    writeCachedWorkspaceSites(user.id, sitesQuery.data);
+  }, [sitesQuery.data, sitesQuery.error, sitesQuery.isError, user?.id]);
   const sitesAccessDenied = isExplicitAuthorizationDenial(sitesQuery.error);
-  const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
+  const accessibleSiteSnapshot = sitesAccessDenied ? undefined : sitesQuery.data;
+  const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(accessibleSiteSnapshot);
   const [scope, setScope] = useState<"branch" | "all">("branch");
   const summaryQuery = trpc.powerhub.dashboard.summary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const packageCatalogQuery = trpc.powerhub.publicPackageCatalog.useQuery(undefined, { staleTime: 60_000 });
   const packageCodes = (packageCatalogQuery.data?.packages ?? []).filter((pkg: any) => pkg.active !== false).map((pkg: any) => String(pkg.code));
-  const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword), staleTime: 30_000 });
+  const cachedTenantAccess = useMemo(
+    () => readCachedTenantAccess(user?.id, siteId ?? 0),
+    [user?.id, siteId],
+  );
+  const accessQuery = trpc.powerhub.staff.myAccess.useQuery(
+    { siteId: siteId ?? 0 },
+    {
+      enabled: Boolean(isAuthenticated && siteId && !sitesAccessDenied && !user?.mustChangePassword),
+      initialData: cachedTenantAccess ?? undefined,
+      staleTime: 30_000,
+      // Cached access is a UI bootstrap only; always revalidate membership and role.
+      refetchOnMount: "always",
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+    },
+  );
+  useEffect(() => {
+    if (!accessQuery.data || !siteId || accessQuery.isError || sitesAccessDenied ||
+        isExplicitAuthorizationDenial(accessQuery.error)) return;
+    writeCachedTenantAccess(user?.id, siteId, accessQuery.data);
+  }, [accessQuery.data, accessQuery.error, accessQuery.isError, siteId, sitesAccessDenied, user?.id]);
   const dashboardScopeDenied = sitesAccessDenied || isExplicitAuthorizationDenial(accessQuery.error);
   // The API intentionally restricts the financial overview to these roles. Do not
   // fire a known-forbidden query for technicians/collectors and misreport that as
@@ -130,7 +170,7 @@ export function WorkspaceHome() {
   const smsPackageRequestQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword), refetchInterval: 15000 });
   const requestSmsPackage = trpc.powerhub.messaging.requestSmsPackage.useMutation({ onSuccess: async () => { await Promise.all([smsPackageRequestQuery.refetch(), smsQuotaQuery.refetch()]); toast.success("تم إرسال طلب الحزمة للمراجعة."); }, onError: (error) => toast.error(error.message) });
   // Most owners have a single branch; skip the cross-branch permission query unless it can affect the UI.
-  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 30_000 });
+  const allBranchAccessQuery = trpc.powerhub.staff.allBranchAccess.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && (accessibleSiteSnapshot?.length ?? 0) > 1 && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 30_000 });
   const upgradeRequestQuery = trpc.powerhub.subscription.currentUpgradeRequest.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword) });
   const ownerRenewalQuery = trpc.powerhub.subscription.ownerRenewalStatus.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), refetchInterval: 5 * 60 * 1000 });
   const addonRequestsQuery = trpc.powerhub.subscription.currentAddonRequests.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
@@ -146,7 +186,7 @@ export function WorkspaceHome() {
     await Promise.all(quotaQueries.filter(({ query }) => query.isError).map(({ query }) => query.refetch()));
   };
 
-  const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (sitesQuery.data?.length ?? 0) > 1);
+  const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (accessibleSiteSnapshot?.length ?? 0) > 1);
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
   const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 30_000 });
@@ -310,23 +350,26 @@ export function WorkspaceHome() {
     if (selectedScope === "all") void allBranchesSummaryQuery.refetch();
     else void summaryQuery.refetch();
   };
-  const metricNumber = (value: unknown, fractionDigits = 0) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
+  const metricNumber = (value: unknown, fractionDigits = 0) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading && powerHubReachable)
     ? "…"
     : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(financialOverviewQuery.error) ||
-      (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : number(value, fractionDigits);
-  const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading)
+      (financialOverviewQuery.isError && !financialOverviewQuery.data) || value === null || value === undefined
+      ? "—" : number(value, fractionDigits);
+  const metricRatio = (value: unknown) => accessQuery.isLoading || (canViewFinancialOverview && financialOverviewQuery.isLoading && powerHubReachable)
     ? "…"
     : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(financialOverviewQuery.error) ||
-      (financialOverviewQuery.isError && !financialOverviewQuery.data) ? "—" : ratio(value);
+      (financialOverviewQuery.isError && !financialOverviewQuery.data) || value === null || value === undefined
+      ? "—" : ratio(value);
   const financialKpiNumber = (value: unknown, query: { isLoading: boolean; isError: boolean; data: unknown; error: unknown }, fractionDigits = 2) =>
-    accessQuery.isLoading || query.isLoading ? "…" :
+    accessQuery.isLoading || (query.isLoading && powerHubReachable) ? "…" :
       !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
-      (query.isError && !query.data) ? "—" : number(value, fractionDigits);
-  const activeSubscriberMetric = accessQuery.isLoading || activeSubscribersKpiQuery.isLoading
+      !query.data || value === null || value === undefined ? "—" : number(value, fractionDigits);
+  const activeSubscriberMetric = accessQuery.isLoading || (activeSubscribersKpiQuery.isLoading && powerHubReachable)
     ? "…"
     : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(activeSubscribersKpiQuery.error) ||
-      (activeSubscribersKpiQuery.isError && !activeSubscribersKpiQuery.data)
-      ? "—" : number(activeSubscribersKpiQuery.data?.value ?? 0);
+      !activeSubscribersKpiQuery.data || activeSubscribersKpiQuery.data.value === null ||
+      activeSubscribersKpiQuery.data.value === undefined
+      ? "—" : number(activeSubscribersKpiQuery.data.value);
   const periodKpiNumber = (query: {
     data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
     isError: boolean;
@@ -335,14 +378,16 @@ export function WorkspaceHome() {
   }, fractionDigits = 2, expectedRange?: { startDate: string; endDate: string }) => {
     const range = expectedRange ?? { startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate };
     const needsSelectedPeriod = expectedRange === undefined;
-    return !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
-      (needsSelectedPeriod && dashboardPeriod.isError) || (query.isError && !query.data)
-      ? "—"
-      : (needsSelectedPeriod && (dashboardPeriod.isLoading || !dashboardPeriod.isReady)) || query.isLoading || !query.data ||
-        query.data.range.startDate !== range.startDate ||
-        query.data.range.endDate !== range.endDate ||
-        query.data.scope !== selectedScope
-        ? "…" : number(query.data.value, fractionDigits);
+    if (!canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
+        (needsSelectedPeriod && dashboardPeriod.isError)) return "—";
+    if (!query.data) return query.isLoading && powerHubReachable ? "…" : "—";
+    if ((query.isLoading && powerHubReachable) || (needsSelectedPeriod && (dashboardPeriod.isLoading || !dashboardPeriod.isReady))) return "…";
+    if (
+      query.data.range.startDate !== range.startDate ||
+      query.data.range.endDate !== range.endDate ||
+      query.data.scope !== selectedScope
+    ) return "—";
+    return query.data.value === null || query.data.value === undefined ? "—" : number(query.data.value, fractionDigits);
   };
   const periodKpiRatio = (query: {
     data: { value: number; range: { startDate: string; endDate: string }; scope: "branch" | "all" } | undefined;
@@ -352,14 +397,31 @@ export function WorkspaceHome() {
   }, expectedRange?: { startDate: string; endDate: string }) => {
     const range = expectedRange ?? { startDate: dashboardPeriod.startDate, endDate: dashboardPeriod.endDate };
     const needsSelectedPeriod = expectedRange === undefined;
-    return !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
-      (needsSelectedPeriod && dashboardPeriod.isError) || (query.isError && !query.data)
-      ? "—"
-      : (needsSelectedPeriod && (dashboardPeriod.isLoading || !dashboardPeriod.isReady)) || query.isLoading || !query.data ||
-        query.data.range.startDate !== range.startDate ||
-        query.data.range.endDate !== range.endDate ||
-        query.data.scope !== selectedScope
-        ? "…" : ratio(query.data.value);
+    if (!canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(query.error) ||
+        (needsSelectedPeriod && dashboardPeriod.isError)) return "—";
+    if (!query.data) return query.isLoading && powerHubReachable ? "…" : "—";
+    if ((query.isLoading && powerHubReachable) || (needsSelectedPeriod && (dashboardPeriod.isLoading || !dashboardPeriod.isReady))) return "…";
+    if (
+      query.data.range.startDate !== range.startDate ||
+      query.data.range.endDate !== range.endDate ||
+      query.data.scope !== selectedScope
+    ) return "—";
+    return query.data.value === null || query.data.value === undefined ? "—" : ratio(query.data.value);
+  };
+
+  const dashboardKpiDescription = (
+    query: { data: unknown; dataUpdatedAt: number; isError: boolean },
+    liveDescription: string,
+  ) => {
+    if (!query.data) {
+      return query.isError
+        ? "تعذر تحميل هذا المؤشر ولا توجد لقطة محلية سابقة محفوظة."
+        : "لا توجد لقطة محلية سابقة لهذا المؤشر؛ ستظهر قيمته بعد أول تحميل ناجح.";
+    }
+    const savedAt = query.dataUpdatedAt > 0
+      ? " آخر تحديث محفوظ: " + new Date(query.dataUpdatedAt).toLocaleString("ar-PS") + "."
+      : "";
+    return liveDescription + (query.isError || !powerHubReachable ? savedAt || " تُعرض آخر لقطة محفوظة حتى نجاح الاتصال." : savedAt);
   };
 
   const openPeriodArrears = () => {
@@ -502,7 +564,7 @@ export function WorkspaceHome() {
   return <DashboardLayout><div className="space-y-6 pb-12">
     <header className="flex flex-col gap-5 rounded-[24px] border border-white/8 bg-[#111823]/75 p-5 shadow-panel backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-6">
       <div className="flex items-start gap-4"><div className="mt-0.5 lg:hidden"><PowerHubLogo compact /></div><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Zap className="h-4 w-4 fill-current" />مركز الأداء المالي</div><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">الفوترة والتحصيل تحت السيطرة</h1><p className="mt-2 text-sm text-slate-400">تابع المستحقات والتحصيل والمتأخرات وحالة الفروع من شاشة واحدة.</p></div></div>
-      <div className="flex flex-wrap items-center gap-2">{isAuthenticated && sitesQuery.data?.length ? <select aria-label="اختيار الفرع أو الملخص المجمع" value={selectedScope === "all" ? "all" : String(siteId ?? "")} onChange={(event) => { const value = event.target.value; if (value === "all") setScope("all"); else { setScope("branch"); setSiteId(Number(value)); } }} className="h-10 max-w-56 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{canUseAllBranches && <option className="bg-[#111823]" value="all">جميع الأفرع (ملخص مجمّع)</option>}{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <span className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300"><CalendarDays className="ml-2 h-4 w-4" />اليوم</span>}<Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-200 hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={() => setLocation("/quick-actions")}><Zap className="ml-2 h-4 w-4" />الإجراءات السريعة</Button></div>
+      <div className="flex flex-wrap items-center gap-2">{isAuthenticated && accessibleSiteSnapshot?.length ? <select aria-label="اختيار الفرع أو الملخص المجمع" value={selectedScope === "all" ? "all" : String(siteId ?? "")} onChange={(event) => { const value = event.target.value; if (value === "all") setScope("all"); else { setScope("branch"); setSiteId(Number(value)); } }} className="h-10 max-w-56 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{canUseAllBranches && <option className="bg-[#111823]" value="all">جميع الأفرع (ملخص مجمّع)</option>}{accessibleSiteSnapshot.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <span className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300"><CalendarDays className="ml-2 h-4 w-4" />اليوم</span>}<Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-200 hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={() => setLocation("/quick-actions")}><Zap className="ml-2 h-4 w-4" />الإجراءات السريعة</Button></div>
     </header>
 
 
@@ -522,13 +584,13 @@ export function WorkspaceHome() {
     />
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      <MetricCard label="فوترة الفترة" value={periodKpiNumber(periodInvoicedKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodInvoicedKpiQuery.isError ? "تعذر تحميل فوترة الفترة المحددة." : `إجمالي الفواتير الصادرة من ${dashboardPeriod.startDate} إلى ${dashboardPeriod.endDate}.`} icon={ReceiptText} accent="gold" />
-      <MetricCard label="تحصيل الفترة" value={periodKpiNumber(periodCollectedKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodCollectedKpiQuery.isError ? "تعذر تحميل تحصيل الفترة المحددة." : "الدفعات المكتملة بتاريخ التحصيل ضمن الفترة المحددة."} icon={CircleDollarSign} accent="emerald" />
-      <MetricCard label="نسبة التحصيل" value={periodKpiRatio(collectionRateKpiQuery)} unit="" periodLabel={dashboardPeriod.label} description="التحصيل المكتمل مقارنة بإجمالي الفوترة في الفترة نفسها." icon={ArrowUpLeft} accent="blue" />
+      <MetricCard label="فوترة الفترة" value={periodKpiNumber(periodInvoicedKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={dashboardKpiDescription(periodInvoicedKpiQuery, "إجمالي الفواتير الصادرة من " + dashboardPeriod.startDate + " إلى " + dashboardPeriod.endDate + ".")} icon={ReceiptText} accent="gold" />
+      <MetricCard label="تحصيل الفترة" value={periodKpiNumber(periodCollectedKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={dashboardKpiDescription(periodCollectedKpiQuery, "الدفعات المكتملة بتاريخ التحصيل ضمن الفترة المحددة.")} icon={CircleDollarSign} accent="emerald" />
+      <MetricCard label="نسبة التحصيل" value={periodKpiRatio(collectionRateKpiQuery)} unit="" periodLabel={dashboardPeriod.label} description={dashboardKpiDescription(collectionRateKpiQuery, "التحصيل المكتمل مقارنة بإجمالي الفوترة في الفترة نفسها.")} icon={ArrowUpLeft} accent="blue" />
       <div role="button" tabIndex={!siteId || !dashboardPeriod.isReady ? -1 : 0} aria-label="فتح المتأخرات في تبويب المشتركين للفترة المحددة" aria-disabled={!siteId || !dashboardPeriod.isReady} onClick={openPeriodArrears} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openPeriodArrears(); } }} className="block w-full min-w-0 cursor-pointer rounded-2xl text-right outline-none transition focus-visible:ring-2 focus-visible:ring-[#F5B800] aria-disabled:cursor-wait aria-disabled:opacity-70">
-        <MetricCard label="المتأخرات" value={periodKpiNumber(periodOverdueKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={periodOverdueKpiQuery.isError ? "تعذر تحميل المتأخرات للفترة المحددة." : `${number(periodOverdueKpiQuery.data?.auxiliaryCount)} مشتركاً بفواتير متأخرة صادرة ضمن الفترة. اضغط لعرض التفاصيل.`} icon={CircleAlert} accent="rose" />
+        <MetricCard label="المتأخرات" value={periodKpiNumber(periodOverdueKpiQuery)} unit="ش" periodLabel={dashboardPeriod.label} description={dashboardKpiDescription(periodOverdueKpiQuery, String(periodOverdueKpiQuery.data?.auxiliaryCount ?? "—") + " مشتركاً بفواتير متأخرة صادرة ضمن الفترة. اضغط لعرض التفاصيل.")} icon={CircleAlert} accent="rose" />
       </div>
-      <MetricCard label="المشتركون النشطون" value={activeSubscriberMetric} unit="مشترك" periodLabel="العدد الحالي" description={activeSubscribersKpiQuery.isError ? "تعذر تحميل عدد المشتركين." : selectedScope === "all" ? `عبر ${overview?.branchSummaries.length ?? 0} أفرع.` : "ضمن الفرع المحدد."} icon={UsersRound} accent="blue" />
+      <MetricCard label="المشتركون النشطون" value={activeSubscriberMetric} unit="مشترك" periodLabel="العدد الحالي" description={dashboardKpiDescription(activeSubscribersKpiQuery, selectedScope === "all" ? "عبر " + String(overview?.branchSummaries.length ?? "—") + " أفرع." : "ضمن الفرع المحدد.")} icon={UsersRound} accent="blue" />
     </section>
 
     <FinancialTrendSection data={overview?.trend ?? []} loading={financialOverviewQuery.isLoading} />

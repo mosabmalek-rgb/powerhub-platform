@@ -21,6 +21,22 @@ describe("offline data and financial truth boundaries", () => {
     expect(fuel).toContain('if (readingsChanged && hasFilteredReadingQuery) void readings.refetch()');
   });
 
+  it("restores current billing-cycle filters from a bounded snapshot after transient offline errors", () => {
+    const policy = read("client/src/lib/offline-query-policy.ts");
+    const cache = read("client/src/lib/offline-query-cache.ts");
+    const operations = read("client/src/pages/OperationsPage.tsx");
+    expect(policy).toContain("isSafeReadingCycleBoundsSnapshot");
+    expect(policy).toContain('segments[2] !== "currentBounds"');
+    expect(cache).toContain("OFFLINE_READING_CYCLE_BOUNDS_TTL_MS = 24 * 60 * 60 * 1000");
+    expect(cache).toContain("cycleKey: typeof bounds.cycleKey");
+    expect(cache).toContain("cycleLabel: typeof bounds.cycleLabel");
+    expect(cache).toContain("startAt,");
+    expect(cache).toContain("endAt,");
+    expect(operations).toContain("isUsableReadingCycleBounds(cycleBoundsQuery.data, isExplicitAuthorizationDenial(cycleBoundsQuery.error))");
+    expect(operations).toContain("cycleBoundsIsFallback");
+    expect(operations).toContain("آخر حدود دورة محفوظة محليًا");
+  });
+
   it("stores calculated fuel and maintenance reports as exact-filter snapshots, not Delta row feeds", () => {
     const cache = read("client/src/lib/offline-operational-report-cache.ts");
     const fuel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");

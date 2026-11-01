@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { isUsableReadingCycleBounds } from "@/lib/reading-cycle-bounds";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
@@ -416,7 +418,8 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
   const monthEndKey = new Date(Date.UTC(todayYear, todayMonth, 0)).toISOString().slice(0, 10);
   const effectivePaymentStart = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.startAt) : paymentPeriod === "month_end" ? monthEndStart : paymentStartDate;
   const effectivePaymentEnd = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.endAt) : paymentPeriod === "month_end" ? monthEndKey : paymentEndDate;
-  const cycleFilterReady = paymentPeriod !== "current_cycle" || Boolean(cycleBoundsQuery.data && !cycleBoundsQuery.isError);
+  const cycleFilterReady = paymentPeriod !== "current_cycle" ||
+    isUsableReadingCycleBounds(cycleBoundsQuery.data, isExplicitAuthorizationDenial(cycleBoundsQuery.error));
   const initialSubscriberId = Number(new URLSearchParams(window.location.search).get("subscriberId") ?? 0);
   const [selectedSubscriberId, setSelectedSubscriberId] = useState<number>(initialSubscriberId);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
@@ -741,7 +744,9 @@ function useExpenseHistoryFilters(siteId: number, canManageExpenses: boolean, ma
   const startDate = period === "today" ? currentDate : period === "cycle" ? cycleStart : period === "monthEnd" ? firstOfMonth : period === "custom" ? customStart : undefined;
   const endDate = period === "today" ? currentDate : period === "cycle" ? cycleEnd : period === "monthEnd" ? lastOfMonth : period === "custom" ? customEnd : undefined;
   const customRangeValid = period !== "custom" || Boolean(customStart && customEnd && customStart <= customEnd);
-  const cycleRangeReady = period !== "cycle" || Boolean(cycleBoundsQuery.data && cycleStart && cycleEnd && cycleStart <= cycleEnd && !cycleBoundsQuery.isError);
+  const cycleRangeReady = period !== "cycle" ||
+    (Boolean(cycleStart && cycleEnd && cycleStart <= cycleEnd) &&
+      isUsableReadingCycleBounds(cycleBoundsQuery.data, isExplicitAuthorizationDenial(cycleBoundsQuery.error)));
   const filtersReady = customRangeValid && cycleRangeReady;
   const expenseQueryInput = {
     siteId,
@@ -755,7 +760,11 @@ function useExpenseHistoryFilters(siteId: number, canManageExpenses: boolean, ma
     accounts, accountsLoading: !canManageExpenses && readOnlyAccountsQuery.isLoading,
     accountsError: !canManageExpenses && readOnlyAccountsQuery.isError,
     refetchAccounts: readOnlyAccountsQuery.refetch,
-    cycleBoundsQuery, cycleRangeReady, customRangeValid, filtersReady, expensesQuery,
+    cycleBoundsQuery, cycleRangeReady,
+    cycleBoundsSavedAt: cycleBoundsQuery.dataUpdatedAt,
+    cycleBoundsIsFallback: Boolean(cycleBoundsQuery.isError && cycleRangeReady && cycleBoundsQuery.data &&
+      !isExplicitAuthorizationDenial(cycleBoundsQuery.error)),
+    customRangeValid, filtersReady, expensesQuery,
   };
 }
 
@@ -783,6 +792,9 @@ function ExpenseHistoryPanel({ history, canCorrect = true }: { history: ReturnTy
       <Field label="إلى تاريخ"><input aria-label="نهاية فترة المصروفات" type="date" value={history.customEnd} min={history.customStart || undefined} onChange={(event) => history.setCustomEnd(event.target.value)} className={inputClass} /></Field>
     </div> : null}
     {history.period === "custom" && !history.customRangeValid ? <p className="mb-3 text-sm text-amber-300">حدد تاريخ البداية والنهاية بصورة صحيحة لعرض المصروفات.</p> : null}
+    {history.period === "cycle" && history.cycleBoundsIsFallback ? <p className="mb-3 text-xs text-amber-200">
+      تُستخدم آخر حدود دورة محفوظة محليًا بتاريخ {history.cycleBoundsSavedAt ? new Date(history.cycleBoundsSavedAt).toLocaleString("ar-PS") : "غير معروف"}؛ سيُعاد التحقق منها عند عودة الاتصال.
+    </p> : null}
     {history.accountsError ? <div className="mb-3 rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحميل خيارات حساب الصرف. <Button size="sm" variant="outline" onClick={() => void history.refetchAccounts()}>إعادة المحاولة</Button></div> : null}
     {history.period === "cycle" && !history.cycleRangeReady && history.cycleBoundsQuery.isLoading ? <div className="mb-3 text-sm text-slate-400">جارٍ تحديد حدود دورة الفوترة...</div> : null}
     {history.period === "cycle" && !history.cycleRangeReady && !history.cycleBoundsQuery.isLoading ? <div className="mb-3 rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحديد حدود دورة الفوترة. <Button size="sm" variant="outline" onClick={() => void history.cycleBoundsQuery.refetch()}>إعادة المحاولة</Button></div> : null}

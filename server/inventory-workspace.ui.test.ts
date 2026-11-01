@@ -781,6 +781,33 @@ describe("inventory workspace UI contract", () => {
     }
   });
 
+  it("opens stock, transfer, fuel, and maintenance actions in accessible dialogs", () => {
+    const page = read("client/src/pages/InventoryWorkspacePage.tsx");
+    const stock = read("client/src/components/InventoryStockOperationsPanel.tsx");
+    const transfer = read("client/src/components/InventoryWarehouseTransferPanel.tsx");
+    const fuel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
+    const maintenance = read("client/src/components/InventoryMaintenancePanel.tsx");
+    expect(page).toContain("warehouseTransferDialogOpen");
+    expect(page).toContain("stockMovementDialogOpen");
+    expect(page).toContain("تحويل بين المخازن");
+    expect(page).toContain("تسجيل حركة مخزنية");
+    expect(page).toContain("showTrigger={false}");
+    expect(page).toContain("showMovementTrigger={false}");
+    expect(transfer).toContain("<Dialog open={isDialogOpen}");
+    expect(transfer).toContain("runWithStableOperationKey");
+    expect(stock).toContain("<Dialog open={isMovementDialogOpen}");
+    expect(stock).toContain('kind: "inventory_stock_movement"');
+    expect(stock).toContain("filterInventoryStockRows");
+    expect(stock).toContain("filterInventoryMovementRows");
+    expect(fuel).toContain('activeFuelDialog === "fill"');
+    expect(fuel).toContain('activeFuelDialog === "reading"');
+    expect(fuel).toContain('activeFuelDialog === "alerts"');
+    expect(maintenance).toContain('activeMaintenanceDialog === "workOrder"');
+    expect(maintenance).toContain('activeMaintenanceDialog === "plan"');
+    expect(maintenance).toContain('activeMaintenanceDialog === "parts"');
+    expect(maintenance).toContain("runWithStableOperationKey");
+  });
+
   it("preserves an exact-scope fuel report snapshot when live refresh fails", () => {
     const panel = read("client/src/components/InventoryFuelConsumptionPanel.tsx");
     const cache = read("client/src/lib/offline-operational-report-cache.ts");

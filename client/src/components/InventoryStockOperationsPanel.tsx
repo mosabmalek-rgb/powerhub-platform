@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
+import { filterInventoryMovementRows, filterInventoryStockRows } from "@/lib/inventory-warehouse-filter";
 import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { toast } from "sonner";
 import { Boxes, ClipboardList, Loader2, Pencil, RefreshCw, Save, TrendingDown, X } from "lucide-react";
@@ -17,6 +19,9 @@ type Props = {
   canAdjustInventory: boolean;
   canManageFuelAndConsumption: boolean;
   canViewInventoryReports: boolean;
+  movementDialogOpen?: boolean;
+  onMovementDialogOpenChange?: (open: boolean) => void;
+  showMovementTrigger?: boolean;
 };
 
 type StockOverviewRow = {
@@ -94,8 +99,11 @@ function fmtQty(value: unknown) {
   return Number.isFinite(number) ? number.toLocaleString("ar-PS", { maximumFractionDigits: 3 }) : "—";
 }
 function fmtMoney(value: unknown) {
-  const number = Number(value ?? 0);
-  return Number.isFinite(number) ? number.toLocaleString("ar-PS", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+  // Missing cost fields are intentionally omitted from the offline stock snapshot;
+  // never render an omitted value as a real zero balance.
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString("ar-PS", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : "—";
 }
 
 export default function InventoryStockOperationsPanel({
@@ -105,6 +113,9 @@ export default function InventoryStockOperationsPanel({
   canAdjustInventory,
   canManageFuelAndConsumption,
   canViewInventoryReports,
+  movementDialogOpen,
+  onMovementDialogOpenChange,
+  showMovementTrigger = true,
 }: Props) {
   const utils = trpc.useUtils();
   const { user } = useAuth();
@@ -132,6 +143,13 @@ export default function InventoryStockOperationsPanel({
   const [referenceNo, setReferenceNo] = useState("");
   const [notes, setNotes] = useState("");
   const [stockSearch, setStockSearch] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("all");
+  const [internalMovementDialogOpen, setInternalMovementDialogOpen] = useState(false);
+  const isMovementDialogOpen = movementDialogOpen ?? internalMovementDialogOpen;
+  const setIsMovementDialogOpen = (open: boolean) => {
+    if (onMovementDialogOpenChange) onMovementDialogOpenChange(open);
+    else setInternalMovementDialogOpen(open);
+  };
   const [returningMovement, setReturningMovement] = useState<StockMovementRow | null>(null);
   const [returnQuantity, setReturnQuantity] = useState("");
   const [returnReason, setReturnReason] = useState("");
@@ -183,11 +201,8 @@ export default function InventoryStockOperationsPanel({
   const movementRows = (movements.data ?? []) as StockMovementRow[];
   const selectedStock = stockRows.find((row) => String(row.warehouse_id) === warehouseId && String(row.item_id) === itemId);
   const currentQuantity = Number(selectedStock?.on_hand_quantity ?? 0);
-  const visibleStock = stockRows.filter((row) => {
-    if (!stockSearch.trim()) return true;
-    const query = stockSearch.trim().toLocaleLowerCase();
-    return (String(row.item_name ?? "") + " " + String(row.sku ?? "") + " " + String(row.warehouse_name ?? "")).toLocaleLowerCase().includes(query);
-  });
+  const visibleStock = filterInventoryStockRows(stockRows, warehouseFilter, stockSearch);
+  const visibleMovementRows = filterInventoryMovementRows(movementRows, warehouseFilter);
 
   const refreshStock = async () => {
     await Promise.all([
@@ -356,7 +371,13 @@ export default function InventoryStockOperationsPanel({
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input value={stockSearch} onChange={(event) => setStockSearch(event.target.value)} placeholder="ابحث باسم الصنف أو الرمز أو المخزن…" />
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(180px,240px)]">
+            <Input value={stockSearch} onChange={(event) => setStockSearch(event.target.value)} placeholder="ابحث باسم الصنف أو الرمز أو المخزن…" />
+            <select aria-label="تصفية المخزن" className={selectClass} value={warehouseFilter} onChange={(event) => setWarehouseFilter(event.target.value)}>
+              <option value="all">جميع المخازن</option>
+              {(warehouses.data ?? []).map((warehouse) => <option key={warehouse.id} value={String(warehouse.id)}>{warehouse.name} ({warehouse.code})</option>)}
+            </select>
+          </div>
           {stock.isLoading ? <p className="py-6 text-center text-muted-foreground">جارٍ تحميل الأرصدة…</p>
             : stock.error ? <p className="py-6 text-center text-destructive">تعذر تحميل الأرصدة: {stock.error.message}</p>
               : !visibleStock.length ? <p className="py-6 text-center text-muted-foreground">لا توجد أرصدة أو أصناف تحت حد إعادة الطلب لهذا الفرع.</p>
@@ -372,7 +393,7 @@ export default function InventoryStockOperationsPanel({
                         <td className="p-3 tabular-nums">{fmtQty(row.on_hand_quantity)} {units[row.base_unit] ?? row.base_unit}</td>
                         <td className="p-3 tabular-nums">{fmtQty(row.reorder_point)}</td>
                         <td className="p-3">{row.below_reorder_point ? <span className="text-amber-700 dark:text-amber-300">يحتاج إعادة طلب</span> : "متوفر"}</td>
-                        {canViewInventoryReports ? <td className="p-3 tabular-nums">{fmtMoney(row.stock_value)}</td> : null}
+                        {canViewInventoryReports ? <td className="p-3 tabular-nums">{row.stock_value === null || row.stock_value === undefined ? "—" : fmtMoney(row.stock_value)}</td> : null}
                       </tr>
                     ))}</tbody>
                   </table>
@@ -381,7 +402,14 @@ export default function InventoryStockOperationsPanel({
         </CardContent>
       </Card>
 
-      {allowedTypes.length ? <Card>
+      {allowedTypes.length ? <div>
+        {showMovementTrigger ? <div className="mb-2 flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => setIsMovementDialogOpen(true)}><TrendingDown className="ml-2 h-4 w-4" /> تسجيل حركة مخزنية</Button>
+        </div> : null}
+        <Dialog open={isMovementDialogOpen} onOpenChange={setIsMovementDialogOpen}>
+          <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto sm:max-w-5xl">
+            <DialogTitle>تسجيل حركة مخزنية</DialogTitle>
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><TrendingDown className="h-5 w-5" /> تسجيل حركة مخزنية</CardTitle>
           <p className="text-sm text-muted-foreground">تُراجع الصلاحية والكمية والتكرار داخل معاملة قاعدة البيانات قبل تثبيت الحركة.</p>
@@ -438,7 +466,10 @@ export default function InventoryStockOperationsPanel({
             </Button></div>
           </form>
         </CardContent>
-      </Card> : null}
+      </Card>
+          </DialogContent>
+        </Dialog>
+      </div> : null}
 
       {!allowedTypes.length ? <Card><CardContent className="p-4 text-sm text-muted-foreground">
         لديك صلاحية الاطلاع فقط. لإجراء الصرف أو التسويات أو استهلاك الوقود اطلب الصلاحية المناسبة من صاحب المولد.
@@ -524,13 +555,13 @@ export default function InventoryStockOperationsPanel({
         <CardContent>
           {movements.isLoading ? <p className="py-6 text-center text-muted-foreground">جارٍ تحميل سجل الحركات…</p>
             : movements.error ? <p className="py-6 text-center text-destructive">تعذر تحميل سجل الحركات.</p>
-              : !movements.data?.length ? <p className="py-6 text-center text-muted-foreground">لا توجد حركات حتى الآن.</p>
+              : !visibleMovementRows.length ? <p className="py-6 text-center text-muted-foreground">لا توجد حركات لهذا المخزن ضمن السجل المحمّل.</p>
                 : <div className="overflow-x-auto rounded-md border">
                   <table className="w-full min-w-[760px] text-right text-sm">
                     <thead className="bg-muted/60"><tr>
                       {["التاريخ","الحركة","الصنف","المخزن","الكمية","المولد","المرجع",...(canViewInventoryReports ? ["التكلفة"] : []),...(canAdjustInventory ? ["إجراء"] : [])].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}
                     </tr></thead>
-                    <tbody>{movementRows.map((movement) => (
+                    <tbody>{visibleMovementRows.map((movement) => (
                       <tr key={movement.movement_id} className="border-t">
                         <td className="p-3 whitespace-nowrap">{new Date(movement.occurred_at).toLocaleString("ar-PS")}</td>
                         <td className="p-3">{movementLabels[movement.movement_type as MovementType] ?? movement.movement_type}</td>

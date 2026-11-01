@@ -9,6 +9,7 @@ import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { CalendarClock, ClipboardList, Download, FileSpreadsheet, FileText, Loader2, PackagePlus, RefreshCw, Wrench } from "lucide-react";
@@ -80,6 +81,7 @@ export default function InventoryMaintenancePanel({
   const [reportFromDate, setReportFromDate] = useState(() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; });
   const [reportToDate, setReportToDate] = useState(() => localDateInput(new Date()));
   const [reportExporting, setReportExporting] = useState(false);
+  const [activeMaintenanceDialog, setActiveMaintenanceDialog] = useState<"workOrder" | "plan" | "parts" | null>(null);
 
   const generators = trpc.powerhub.maintenance.listGenerators.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance), staleTime: 30_000 });
   const orders = trpc.powerhub.maintenance.listWorkOrders.useQuery({ siteId, limit: 200 }, { enabled: Boolean(siteId && isAuthenticated && canViewMaintenance) });
@@ -468,7 +470,14 @@ export default function InventoryMaintenancePanel({
     {suppliersAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى الموردين القابلين للإسناد؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : null}
     {itemsAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى أصناف المخزون؛ أُخفيت الخيارات المحلية لهذا الطلب.</p> : null}
     {warehousesAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى المخازن؛ أُخفيت الخيارات المحلية لهذا الطلب.</p> : null}
-    {canManageMaintenance ? (
+    {canManageMaintenance ? <div className="flex flex-wrap gap-2">
+      <Button type="button" size="sm" variant="outline" onClick={() => setActiveMaintenanceDialog("workOrder")}><Wrench className="ml-2 h-4 w-4" /> تسجيل عطل أو أمر صيانة</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setActiveMaintenanceDialog("plan")}><CalendarClock className="ml-2 h-4 w-4" /> إنشاء خطة وقائية</Button>
+      {canIssueInventory ? <Button type="button" size="sm" variant="outline" onClick={() => setActiveMaintenanceDialog("parts")}><PackagePlus className="ml-2 h-4 w-4" /> صرف قطع غيار</Button> : null}
+    </div> : null}
+    <Dialog open={activeMaintenanceDialog === "workOrder"} onOpenChange={(open) => setActiveMaintenanceDialog(open ? "workOrder" : null)}>
+      <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto sm:max-w-4xl">
+        <DialogTitle>تسجيل عطل أو أمر صيانة</DialogTitle>
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><Wrench className="h-5 w-5" /> تسجيل عطل أو أمر صيانة</CardTitle></CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-2">
         <label className="space-y-1 text-sm"><span>المولد</span><select className="h-10 w-full rounded-md border bg-background px-3" value={generatorId} onChange={(e) => { setGeneratorId(e.target.value); setPreventivePlanId(""); }}><option value="">اختر المولد</option>{safeGenerators.map((g) => <option key={g.id} value={g.id}>{g.name} — {g.code}</option>)}</select></label>
@@ -480,10 +489,13 @@ export default function InventoryMaintenancePanel({
         <div className="md:col-span-2"><Button onClick={submit} disabled={create.isPending || !safeGenerators.length}>{create.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Wrench className="ml-2 h-4 w-4" />} إنشاء أمر الصيانة</Button></div>
       </CardContent>
     </Card>
-    ) : null}
+      </DialogContent>
+    </Dialog>
 
-    <Card><CardHeader><CardTitle className="flex items-center gap-2"><CalendarClock className="h-5 w-5" /> خطط الصيانة الوقائية والاستحقاقات</CardTitle></CardHeader>
-      <CardContent className="space-y-4">{canManageMaintenance ? (
+    <Dialog open={activeMaintenanceDialog === "plan"} onOpenChange={(open) => setActiveMaintenanceDialog(open ? "plan" : null)}>
+      <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto sm:max-w-4xl">
+        <DialogTitle>إنشاء خطة صيانة وقائية</DialogTitle>
+        <Card><CardContent className="pt-6">
       <div className="grid gap-3 md:grid-cols-2">
         <label className="space-y-1 text-sm"><span>المولد</span><select className="h-10 w-full rounded-md border bg-background px-3" value={planGeneratorId} onChange={(e) => setPlanGeneratorId(e.target.value)}><option value="">اختر المولد للخطة</option>{safeGenerators.map((g) => <option key={g.id} value={g.id}>{g.name} — {g.code}</option>)}</select></label>
         <label className="space-y-1 text-sm"><span>اسم الخطة</span><Input value={planTitle} onChange={(e) => setPlanTitle(e.target.value)} maxLength={180} placeholder="تغيير الزيت والفلاتر" /></label>
@@ -494,13 +506,23 @@ export default function InventoryMaintenancePanel({
         <label className="space-y-1 text-sm md:col-span-2"><span>تفاصيل الخطة</span><textarea className="min-h-16 w-full rounded-md border bg-background p-3" value={planDescription} onChange={(e) => setPlanDescription(e.target.value)} maxLength={5000} /></label>
         <div className="md:col-span-2"><Button onClick={submitPlan} disabled={createPlan.isPending || !safeGenerators.length}>{createPlan.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <CalendarClock className="ml-2 h-4 w-4" />} حفظ الخطة</Button> <Button variant="outline" className="mr-2" onClick={() => evaluateDue.mutate({ siteId })} disabled={evaluateDue.isPending}><RefreshCw className="ml-2 h-4 w-4" /> تحديث الاستحقاقات</Button></div>
       </div>
-      ) : null}
+
+        </CardContent></Card>
+      </DialogContent>
+    </Dialog>
+
+    <Card><CardHeader><CardTitle className="flex items-center gap-2"><CalendarClock className="h-5 w-5" /> خطط الصيانة الوقائية والاستحقاقات</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+
       {plansAuthorizationDenied ? <p role="alert" className="text-xs text-destructive">رفض الخادم صلاحية الوصول إلى الخطط الوقائية؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : plans.error && plans.data && !plansAuthorizationDenied ? <p role="status" className="text-xs text-amber-700">تعذر تحديث الخطط الوقائية؛ تُعرض آخر نسخة تم تحميلها.</p> : plans.error ? <p role="alert" className="text-xs text-destructive">تعذر تحميل الخطط الوقائية ولا توجد نسخة متاحة في هذه الجلسة.</p> : null}
       <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-right text-sm"><thead className="bg-muted/60"><tr>{["المولد","الخطة","الفترة","تاريخ الاستحقاق","ساعات التشغيل","الحالة"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{visiblePlans.map((p) => <tr key={p.plan_id} className="border-t"><td className="p-3">{p.generator_name}</td><td className="p-3">{p.title}<div className="text-xs text-muted-foreground">{p.plan_code}</div></td><td className="p-3">{[p.interval_days ? String(p.interval_days) + " يوم" : null, p.interval_operating_hours ? String(p.interval_operating_hours) + " ساعة تشغيل" : null].filter(Boolean).join(" / ") || "—"}</td><td className="p-3">{p.next_due_at ? new Date(p.next_due_at).toLocaleDateString("ar-PS") : "—"}</td><td className="p-3">{p.next_due_operating_hours ?? "—"}</td><td className="p-3">{p.alert_type ? <span className={p.alert_type === "overdue" ? "text-destructive font-medium" : "text-amber-700"}>{alertLabels[p.alert_type] ?? p.alert_type}</span> : "ضمن الموعد"}</td></tr>)}</tbody></table></div>
       </CardContent>
     </Card>
 
-    {canManageMaintenance && canIssueInventory ? <Card><CardHeader><CardTitle className="flex items-center gap-2"><PackagePlus className="h-5 w-5" /> صرف قطع الغيار والزيوت والفلاتر</CardTitle></CardHeader><CardContent className="space-y-4">
+    {canManageMaintenance && canIssueInventory ? <Dialog open={activeMaintenanceDialog === "parts"} onOpenChange={(open) => setActiveMaintenanceDialog(open ? "parts" : null)}>
+      <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto sm:max-w-4xl">
+        <DialogTitle>صرف قطع الغيار والزيوت والفلاتر</DialogTitle>
+      <Card><CardHeader><CardTitle className="flex items-center gap-2"><PackagePlus className="h-5 w-5" /> صرف قطع الغيار والزيوت والفلاتر</CardTitle></CardHeader><CardContent className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <label className="space-y-1 text-sm"><span>أمر الصيانة المفتوح</span><select className="h-10 w-full rounded-md border bg-background px-3" value={selectedPartsOrderId} onChange={(e) => setSelectedPartsOrderId(e.target.value)}><option value="">اختر الأمر</option>{openOrders.map((o) => <option key={o.work_order_id} value={o.work_order_id}>{o.work_order_number} — {o.generator_name} — {o.title}</option>)}</select></label>
         <label className="space-y-1 text-sm"><span>الصنف</span><select className="h-10 w-full rounded-md border bg-background px-3" value={partItemId} onChange={(e) => setPartItemId(e.target.value)}><option value="">اختر صنفًا</option>{itemsForMaintenance.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.base_unit}) — {i.sku || i.category}</option>)}</select></label>
@@ -511,7 +533,9 @@ export default function InventoryMaintenancePanel({
       </div>
       {parts.error && parts.data && !partsAuthorizationDenied ? <p role="status" className="text-xs text-amber-700">تعذر تحديث سجل الصرف؛ تُعرض آخر القطع التي تم تحميلها لهذا الأمر.</p> : null}
       {ordersAuthorizationDenied || partsAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية الوصول إلى أمر الصيانة أو قطع هذا الأمر؛ أُخفيت البيانات المحلية.</p> : parts.isLoading && !parts.data ? <p className="text-sm text-muted-foreground">جارٍ تحميل تفاصيل الصرف…</p> : parts.error && !parts.data ? <p role="alert" className="text-sm text-destructive">تعذر تحميل سجل الصرف ولا توجد نسخة متاحة في هذه الجلسة.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[650px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","المخزن","الكمية","تكلفة الوحدة","الإجمالي","وقت الصرف"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{safeParts.map((p) => <tr key={p.part_id} className="border-t"><td className="p-3">{p.item_name}</td><td className="p-3">{p.warehouse_name}</td><td className="p-3">{p.quantity}</td><td className="p-3">{money(p.unit_cost)}</td><td className="p-3">{money(p.total_cost_amount)}</td><td className="p-3">{new Date(p.issued_at).toLocaleString("ar-PS")}</td></tr>)}{!safeParts.length ? <tr><td className="p-4 text-center text-muted-foreground" colSpan={6}>لا توجد قطع مصروفة لهذا الأمر.</td></tr> : null}</tbody></table></div>}
-    </CardContent></Card> : null}
+    </CardContent></Card>
+      </DialogContent>
+    </Dialog> : null}
 
     {canViewMaintenanceReport ? (
     <Card>

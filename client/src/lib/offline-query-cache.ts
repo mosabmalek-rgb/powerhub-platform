@@ -17,6 +17,8 @@ export const OFFLINE_HR_DELTA_PROJECTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS = 24 * 60 * 60 * 1000;
 // Minimal stocktake capability hints support offline drafts only; server RPCs re-authorize.
 export const OFFLINE_STOCKTAKE_ACCESS_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
+// Cycle boundaries are date-filter metadata, not financial authority; expire them daily.
+export const OFFLINE_READING_CYCLE_BOUNDS_TTL_MS = 24 * 60 * 60 * 1000;
 // Exact server-created stocktake-line snapshots support table resume, not posting.
 export const OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export function getOfflineHrCompanyAccountOptionsExpiry(persistedAt: number): number {
@@ -391,6 +393,51 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   }
   const segments = Array.isArray(first) ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
+  if (segments[0] === "powerhub" && segments[1] === "readingCycle" && segments[2] === "currentBounds" &&
+      data && typeof data === "object" && !Array.isArray(data)) {
+    const bounds = data as Record<string, unknown>;
+    const startAt = typeof bounds.startAt === "string" ? bounds.startAt : "";
+    const endAt = typeof bounds.endAt === "string" ? bounds.endAt : "";
+    const startMs = Date.parse(startAt);
+    const endMs = Date.parse(endAt);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs >= endMs) return null;
+    // Keep only the fields needed to rebuild the exact date filter after reload.
+    return {
+      cycleKey: typeof bounds.cycleKey === "string" ? bounds.cycleKey : "",
+      cycleLabel: typeof bounds.cycleLabel === "string" ? bounds.cycleLabel : "",
+      billingPeriod: typeof bounds.billingPeriod === "string" ? bounds.billingPeriod : "",
+      startAt,
+      endAt,
+    };
+  }
+  if (segments[0] === "powerhub" && segments[1] === "inventory" && segments[2] === "stockOverview" && Array.isArray(data)) {
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    // Aggregate stock is display-only. Deliberately omit tenant/site identifiers,
+    // notes, cost/valuation fields, and any write/permission metadata.
+    return data.filter(isRow).slice(0, 1000).map((row) => ({
+      warehouse_id: row.warehouse_id,
+      warehouse_code: row.warehouse_code ?? null,
+      warehouse_name: row.warehouse_name ?? "",
+      item_id: row.item_id,
+      sku: row.sku ?? null,
+      item_name: row.item_name ?? "",
+      category: row.category ?? "other",
+      base_unit: row.base_unit ?? "",
+      reorder_point: row.reorder_point ?? 0,
+      on_hand_quantity: row.on_hand_quantity ?? 0,
+      below_reorder_point: row.below_reorder_point === true,
+    }));
+  }
+  if (segments[0] === "powerhub" && segments[1] === "maintenance" && segments[2] === "listGenerators" && Array.isArray(data)) {
+    const isRow = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value && typeof value === "object" && !Array.isArray(value));
+    return data.filter(isRow).slice(0, 100).flatMap((row) => {
+      const id = Number(row.id);
+      if (!Number.isSafeInteger(id) || id < 1 || typeof row.name !== "string" || !row.name.trim()) return [];
+      return [{ id, name: row.name, code: typeof row.code === "string" ? row.code : null }];
+    });
+  }
   if (segments[0] === "powerhub" && segments[1] === "inventory" && segments[2] === "stocktakeOfflineAccess" &&
       data && typeof data === "object" && !Array.isArray(data)) {
     const access = data as Record<string, unknown>;
@@ -767,6 +814,8 @@ async function persistOfflineQueryWithPolicy(
     cacheKeySegments[1] === "expenses" && cacheKeySegments[2] === "filterAccounts";
   const isOfflineStocktakeAccessSnapshot = cacheKeySegments[0] === "powerhub" &&
     cacheKeySegments[1] === "inventory" && cacheKeySegments[2] === "stocktakeOfflineAccess";
+  const isReadingCycleBoundsSnapshot = cacheKeySegments[0] === "powerhub" &&
+    cacheKeySegments[1] === "readingCycle" && cacheKeySegments[2] === "currentBounds";
   const isStocktakeLinesSnapshot = cacheKeySegments[0] === "powerhub" &&
     cacheKeySegments[1] === "inventory" && cacheKeySegments[2] === "listStocktakeLines";
   const record: OfflineQueryRecord = {
@@ -782,6 +831,7 @@ async function persistOfflineQueryWithPolicy(
       : isHrProjection ? hrCacheExpiry
       : isExpenseFilterOptions ? now + OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS
       : isOfflineStocktakeAccessSnapshot ? now + OFFLINE_STOCKTAKE_ACCESS_SNAPSHOT_TTL_MS
+      : isReadingCycleBoundsSnapshot ? now + OFFLINE_READING_CYCLE_BOUNDS_TTL_MS
       : isStocktakeLinesSnapshot ? now + OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS
         : (isOfflineDashboardSnapshotQueryKey(query.queryKey) || isOfflineDashboardRevisionQueryKey(query.queryKey))
           ? now + OFFLINE_DASHBOARD_SNAPSHOT_TTL_MS : null,

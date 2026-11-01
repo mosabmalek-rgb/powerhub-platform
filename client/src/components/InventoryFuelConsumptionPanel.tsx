@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -14,7 +15,7 @@ import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { clearOfflineFuelQueryCacheForSite } from "@/lib/offline-query-cache";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
-import { Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
+import { BellRing, Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 
 const FUEL_REVISION_ENTITIES = ["fuel_events", "fuel_readings"] as const satisfies readonly OperationalDeltaRevisionEntity[];
@@ -100,6 +101,7 @@ export default function InventoryFuelConsumptionPanel({
   const auth = useAuth();
   const { isOnline: isPowerHubOnline, isChecking: isConnectivityChecking } = usePowerHubConnectivity();
   const [savingFillDraft, setSavingFillDraft] = useState(false);
+  const [activeFuelDialog, setActiveFuelDialog] = useState<"fill" | "reading" | "alerts" | null>(null);
   const today = useMemo(() => todayLocalDate(), []);
   const [generatorId, setGeneratorId] = useState("");
   const [fuelItemId, setFuelItemId] = useState("");
@@ -508,7 +510,15 @@ export default function InventoryFuelConsumptionPanel({
 
   return <div className="space-y-4">
     {optionsAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى خيارات الوقود لهذا الفرع؛ أُخفيت الخيارات المحلية حتى لا تُستخدم بيانات قديمة.</p> : null}
+    {canManageFuelAndConsumption ? <div className="flex flex-wrap gap-2">
+      <Button type="button" size="sm" variant="outline" onClick={() => setActiveFuelDialog("fill")}><Droplet className="ml-2 h-4 w-4" /> تعبئة وقود</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setActiveFuelDialog("reading")}><Gauge className="ml-2 h-4 w-4" /> تسجيل قراءة مؤرخة</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setActiveFuelDialog("alerts")}><BellRing className="ml-2 h-4 w-4" /> إعدادات تنبيهات الوقود</Button>
+    </div> : null}
     {canManageFuelAndConsumption ? <>
+      <Dialog open={activeFuelDialog === "fill"} onOpenChange={(open) => setActiveFuelDialog(open ? "fill" : null)}>
+        <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto sm:max-w-5xl">
+          <DialogTitle>تسجيل تعبئة وقود</DialogTitle>
       <Card>
         <CardHeader className="flex flex-row items-center gap-3 space-y-0">
           <Droplet className="h-5 w-5" />
@@ -574,7 +584,12 @@ export default function InventoryFuelConsumptionPanel({
           </form>
         </CardContent>
       </Card>
+        </DialogContent>
+      </Dialog>
 
+      <Dialog open={activeFuelDialog === "reading"} onOpenChange={(open) => setActiveFuelDialog(open ? "reading" : null)}>
+        <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto sm:max-w-5xl">
+          <DialogTitle>تسجيل قراءة مؤرخة</DialogTitle>
       <Card>
         <CardHeader className="flex flex-row items-center gap-3 space-y-0">
           <Gauge className="h-5 w-5" />
@@ -626,9 +641,14 @@ export default function InventoryFuelConsumptionPanel({
           </form>
         </CardContent>
       </Card>
+        </DialogContent>
+      </Dialog>
     </> : null}
 
-    {canManageFuelAndConsumption ? <Card>
+    {canManageFuelAndConsumption ? <Dialog open={activeFuelDialog === "alerts"} onOpenChange={(open) => setActiveFuelDialog(open ? "alerts" : null)}>
+      <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto sm:max-w-5xl">
+        <DialogTitle>إعدادات تنبيهات الوقود</DialogTitle>
+      <Card>
       <CardHeader>
         <CardTitle>إعدادات تنبيهات الوقود</CardTitle>
         <p className="text-sm text-muted-foreground">يُرسل تنبيه داخل المنصة عند نزول المستوى عن الحد أو تجاوز معدل الاستهلاك المقاس. لا يُحتسب المعدل عند نقص القراءات أو تعارض التسوية.</p>
@@ -715,7 +735,9 @@ export default function InventoryFuelConsumptionPanel({
           </table>
         </div>
       </CardContent>
-    </Card> : null}
+      </Card>
+      </DialogContent>
+    </Dialog> : null}
 
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">

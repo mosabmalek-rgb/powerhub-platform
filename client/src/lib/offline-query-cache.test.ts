@@ -17,6 +17,7 @@ import {
   OFFLINE_HR_COMPANY_ACCOUNT_OPTIONS_TTL_MS,
   OFFLINE_STOCKTAKE_ACCESS_SNAPSHOT_TTL_MS,
   OFFLINE_STOCKTAKE_LINES_SNAPSHOT_TTL_MS,
+  OFFLINE_READING_CYCLE_BOUNDS_TTL_MS,
   getOfflineHrCompanyAccountOptionsExpiry,
   persistOfflineQuery,
   persistOfflineQueryForDeltaSync,
@@ -1224,5 +1225,239 @@ describe("dynamic subscriber directory and minimized expense selector cache", ()
       { id: 2, name: "Main", accountType: "cash", balance: "500.00", openingBalance: "450.00" },
     ]);
     expect(safe).toEqual([{ id: 2, name: "Main", accountType: "cash" }]);
+  });
+});
+
+
+describe("safe offline operational snapshots", () => {
+  it("persists a site-only stock overview as a sanitized non-Delta display snapshot", () => {
+    const key = ["powerhub.inventory.stockOverview", {
+      input: { siteId: 7 }, type: "query",
+    }] as const;
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.stockOverview", {
+      input: { siteId: 7, warehouseId: 9 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.inventory.stockOverview", {
+      input: { siteId: 0 }, type: "query",
+    }])).toBe(false);
+
+    const rows = sanitizeOfflineQueryData(key, [{
+      tenant_id: 4, site_id: 7, warehouse_id: 9, warehouse_code: "WH-9",
+      warehouse_name: "Main", item_id: 12, sku: "DSL", item_name: "Diesel",
+      category: "fuel", base_unit: "liter", reorder_point: 15,
+      on_hand_quantity: 41, below_reorder_point: false,
+      stock_value: "999.99", average_unit_cost: "12.50", unit_cost: "12.50",
+      notes: "private note", private_notes: "private", canAdjust: true,
+    }]) as Record<string, unknown>[];
+    expect(rows).toEqual([{
+      warehouse_id: 9, warehouse_code: "WH-9", warehouse_name: "Main",
+      item_id: 12, sku: "DSL", item_name: "Diesel", category: "fuel",
+      base_unit: "liter", reorder_point: 15, on_hand_quantity: 41,
+      below_reorder_point: false,
+    }]);
+    expect(rows[0]).not.toHaveProperty("tenant_id");
+    expect(rows[0]).not.toHaveProperty("site_id");
+    expect(rows[0]).not.toHaveProperty("stock_value");
+    expect(rows[0]).not.toHaveProperty("average_unit_cost");
+    expect(rows[0]).not.toHaveProperty("private_notes");
+    expect(rows[0]).not.toHaveProperty("canAdjust");
+  });
+
+  it("persists only minimal maintenance generator selectors without creating a Delta feed", () => {
+    const key = ["powerhub.maintenance.listGenerators", {
+      input: { siteId: 7 }, type: "query",
+    }] as const;
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    expect(isOfflineCacheableQueryKey(["powerhub.maintenance.listGenerators", {
+      input: { siteId: 7, tenantId: 4 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.maintenance.listGenerators", {
+      input: { siteId: 0 }, type: "query",
+    }])).toBe(false);
+
+    const rows = sanitizeOfflineQueryData(key, [
+      { id: 1, name: "Generator A", code: "G-A", tenant_id: 4, site_id: 7, private_notes: "x", cost: 50 },
+      { id: 0, name: "Invalid", code: "BAD" },
+      { id: 2, name: "", code: "EMPTY" },
+    ]);
+    expect(rows).toEqual([{ id: 1, name: "Generator A", code: "G-A" }]);
+  });
+
+});
+
+describe("operational tab reload query contracts", () => {
+  const siteId = 7;
+  const trpcKey = (router: string, procedure: string, input: Record<string, unknown>) => [
+    ["powerhub", router, procedure],
+    { input: { siteId, ...input }, type: "query" },
+  ] as const;
+
+  it("hydrates the exact invoice, collection, reading, and expense pages used by OperationsPage", () => {
+    const pages = [
+      [trpcKey("invoices", "page", { limit: 100 }), "invoices"],
+      [trpcKey("payments", "page", { limit: 100 }), "payments"],
+      [trpcKey("readings", "page", { limit: 100 }), "readings"],
+      [trpcKey("expenses", "page", { limit: 100 }), "expenses"],
+    ] as const;
+
+    for (const [key, entity] of pages) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(true);
+      expect(getOfflineQueryDeltaEntity(key)).toBe(entity);
+      expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
+    }
+  });
+
+  it("rejects cross-site and widened financial page query inputs", () => {
+    expect(isOfflineCacheableQueryKey([
+      ["powerhub", "invoices", "page"],
+      { input: { siteId: 0, limit: 100 }, type: "query" },
+    ])).toBe(false);
+    expect(isOfflineCacheableQueryKey([
+      ["powerhub", "payments", "page"],
+      { input: { siteId, limit: 100, includeReceiptImages: true }, type: "query" },
+    ])).toBe(false);
+    expect(isOfflineCacheableQueryKey([
+      ["powerhub", "expenses", "page"],
+      { input: { siteId, limit: 100, startDate: "2026-11-02" }, type: "query" },
+    ])).toBe(false);
+  });
+
+  it("hydrates the exact purchase, receiving, and supplier-return header queries as bounded Delta feeds", () => {
+    const headers = [
+      [trpcKey("inventory", "listPurchaseHeaders", { limit: 100 }), "inventory_purchase_headers"],
+      [trpcKey("inventory", "listPurchaseReceiptHeaders", { limit: 100 }), "inventory_purchase_receipt_headers"],
+      [trpcKey("inventory", "listSupplierReturnHeaders", { limit: 100 }), "inventory_supplier_return_headers"],
+    ] as const;
+    for (const [key, entity] of headers) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(true);
+      expect(getOfflineQueryDeltaEntity(key)).toBe(entity);
+      expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
+    }
+  });
+
+  it("does not accidentally persist full purchase search/detail lists or payment option balances", () => {
+    expect(isOfflineCacheableQueryKey(trpcKey("inventory", "listPurchases", { search: "INV" }))).toBe(false);
+    expect(isOfflineCacheableQueryKey(trpcKey("inventory", "listPurchaseOptions", {}))).toBe(false);
+    expect(isOfflineCacheableQueryKey(trpcKey("inventory", "listSupplierPaymentOptions", {}))).toBe(false);
+  });
+});
+
+describe("operational tab reload query contracts", () => {
+  const siteId = 7;
+  const trpcKey = (router: string, procedure: string, input: Record<string, unknown>) => [
+    ["powerhub", router, procedure],
+    { input: { siteId, ...input }, type: "query" },
+  ] as const;
+
+  it("persists the exact invoice, collection, reading, and expense pages used by OperationsPage", () => {
+    const pages = [
+      [trpcKey("invoices", "page", { limit: 100 }), "invoices"],
+      [trpcKey("payments", "page", { limit: 100 }), "payments"],
+      [trpcKey("readings", "page", { limit: 100 }), "readings"],
+      [trpcKey("expenses", "page", { limit: 100 }), "expenses"],
+    ] as const;
+    for (const [key, entity] of pages) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(true);
+      expect(getOfflineQueryDeltaEntity(key)).toBe(entity);
+      expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
+    }
+  });
+
+  it("rejects cross-site and widened financial page query inputs", () => {
+    expect(isOfflineCacheableQueryKey([
+      ["powerhub", "invoices", "page"],
+      { input: { siteId: 0, limit: 100 }, type: "query" },
+    ])).toBe(false);
+    expect(isOfflineCacheableQueryKey([
+      ["powerhub", "payments", "page"],
+      { input: { siteId, limit: 100, includeReceiptImages: true }, type: "query" },
+    ])).toBe(false);
+    expect(isOfflineCacheableQueryKey([
+      ["powerhub", "expenses", "page"],
+      { input: { siteId, limit: 100, startDate: "2026-11-02" }, type: "query" },
+    ])).toBe(false);
+  });
+
+  it("persists purchase, receiving, and supplier-return header queries as bounded Delta feeds", () => {
+    const headers = [
+      [trpcKey("inventory", "listPurchaseHeaders", { limit: 100 }), "inventory_purchase_headers"],
+      [trpcKey("inventory", "listPurchaseReceiptHeaders", { limit: 100 }), "inventory_purchase_receipt_headers"],
+      [trpcKey("inventory", "listSupplierReturnHeaders", { limit: 100 }), "inventory_supplier_return_headers"],
+    ] as const;
+    for (const [key, entity] of headers) {
+      expect(isOfflineCacheableQueryKey(key)).toBe(true);
+      expect(isDeltaSyncBackedQueryKey(key)).toBe(true);
+      expect(getOfflineQueryDeltaEntity(key)).toBe(entity);
+      expect(getOfflineQueryStaleTime(key)).toBe(Number.POSITIVE_INFINITY);
+    }
+  });
+
+  it("does not persist full purchase search lists or payment-option balance projections", () => {
+    expect(isOfflineCacheableQueryKey(trpcKey("inventory", "listPurchases", { search: "INV" }))).toBe(false);
+    expect(isOfflineCacheableQueryKey(trpcKey("inventory", "listPurchaseOptions", {}))).toBe(false);
+    expect(isOfflineCacheableQueryKey(trpcKey("inventory", "listSupplierPaymentOptions", {}))).toBe(false);
+  });
+});
+
+
+describe("reading-cycle bounds offline snapshot contract", () => {
+  const currentBoundsKey = (input: Record<string, unknown> = { siteId: 7 }) => [
+    ["powerhub", "readingCycle", "currentBounds"],
+    { input, type: "query" },
+  ] as const;
+
+  it("allows only exact site-scoped current bounds as a non-Delta daily snapshot", () => {
+    const key = currentBoundsKey();
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryDeltaEntity(key)).toBeNull();
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    expect(OFFLINE_READING_CYCLE_BOUNDS_TTL_MS).toBe(24 * 60 * 60 * 1000);
+    expect(isOfflineCacheableQueryKey(currentBoundsKey({ siteId: 0 }))).toBe(false);
+    expect(isOfflineCacheableQueryKey(currentBoundsKey({ siteId: 7, tenantId: 2 }))).toBe(false);
+    expect(isOfflineCacheableQueryKey([
+      ["powerhub", "readingCycle", "boundsAt"],
+      { input: { siteId: 7, referenceAt: "2026-11-01T10:00:00.000Z" }, type: "query" },
+    ])).toBe(false);
+  });
+
+  it("sanitizes saved bounds to the five date-filter fields and rejects invalid ranges", () => {
+    const key = currentBoundsKey();
+    const safe = sanitizeOfflineQueryData(key, {
+      cycleKey: "2026-10",
+      cycleLabel: "دورة أكتوبر",
+      billingPeriod: "2026-10",
+      startAt: "2026-10-01T00:00:00.000Z",
+      endAt: "2026-11-01T00:00:00.000Z",
+      tenantId: 3,
+      siteId: 7,
+      canApprove: true,
+      private_notes: "never persist",
+    });
+    expect(safe).toEqual({
+      cycleKey: "2026-10",
+      cycleLabel: "دورة أكتوبر",
+      billingPeriod: "2026-10",
+      startAt: "2026-10-01T00:00:00.000Z",
+      endAt: "2026-11-01T00:00:00.000Z",
+    });
+    expect(sanitizeOfflineQueryData(key, {
+      startAt: "2026-11-01T00:00:00.000Z",
+      endAt: "2026-10-01T00:00:00.000Z",
+    })).toBeNull();
+    expect(sanitizeOfflineQueryData(key, {
+      startAt: "not-a-date",
+      endAt: "2026-11-01T00:00:00.000Z",
+    })).toBeNull();
   });
 });

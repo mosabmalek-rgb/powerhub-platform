@@ -55,11 +55,13 @@ const unitLabels: Record<string, string> = {
 
 function formatSupplierLedgerAmount(value: unknown) {
   const amount = Number(value ?? 0);
-  return "₪" + new Intl.NumberFormat("ar-PS", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0);
+  return "₪" + new Intl.NumberFormat("ar-PS", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0);
 }
 
 export default function InventoryWorkspacePage() {
   const { isAuthenticated, user } = useAuth();
+  const [warehouseTransferDialogOpen, setWarehouseTransferDialogOpen] = useState(false);
+  const [stockMovementDialogOpen, setStockMovementDialogOpen] = useState(false);
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const { branchId: selectedSiteId } = useBranchFilter(sites.data);
   const siteId = selectedSiteId && sites.data?.some((site) => site.id === selectedSiteId)
@@ -507,10 +509,17 @@ export default function InventoryWorkspacePage() {
 
             {canViewInventory || canAccessStocktakes ? <TabsContent value="stock" className="space-y-4">
               {canViewInventory ? <>
+                {(canAdjustInventory || canIssueInventory || canManageFuelAndConsumption) ? <div className="flex flex-wrap gap-2">
+                  {canAdjustInventory ? <Button type="button" size="sm" variant="outline" onClick={() => setWarehouseTransferDialogOpen(true)}>تحويل بين المخازن</Button> : null}
+                  {(canAdjustInventory || canIssueInventory || canManageFuelAndConsumption) ? <Button type="button" size="sm" variant="outline" onClick={() => setStockMovementDialogOpen(true)}>تسجيل حركة مخزنية</Button> : null}
+                </div> : null}
                 <InventoryWarehouseTransferPanel
                   siteId={siteId}
                   isAuthenticated={isAuthenticated}
                   canAdjustInventory={canAdjustInventory}
+                  dialogOpen={warehouseTransferDialogOpen}
+                  onDialogOpenChange={setWarehouseTransferDialogOpen}
+                  showTrigger={false}
                 />
                 <InventoryStockOperationsPanel
                   siteId={siteId}
@@ -519,6 +528,9 @@ export default function InventoryWorkspacePage() {
                   canAdjustInventory={canAdjustInventory}
                   canManageFuelAndConsumption={canManageFuelAndConsumption}
                   canViewInventoryReports={canViewInventoryReports}
+                  movementDialogOpen={stockMovementDialogOpen}
+                  onMovementDialogOpenChange={setStockMovementDialogOpen}
+                  showMovementTrigger={false}
                 />
               </> : null}
               {canAccessStocktakes ? <InventoryStocktakePanel

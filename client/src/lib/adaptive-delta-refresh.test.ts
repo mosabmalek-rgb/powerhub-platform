@@ -97,6 +97,27 @@ describe("AdaptiveDeltaRefreshManager", () => {
     release();
   });
 
+  it("handles 50 independent visible clients with one scheduled revision check each", async () => {
+    vi.useFakeTimers();
+    const clients = Array.from({ length: 50 }, (_, index) => {
+      const client = harness();
+      const check = vi.fn();
+      const stop = client.manager.register("client:" + index + ":dashboard", check);
+      return { ...client, check, stop };
+    });
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(clients.every(({ check }) => check.mock.calls.length === 0)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(clients.every(({ check }) => check.mock.calls.length === 1)).toBe(true);
+    expect(clients.reduce((total, client) => total + client.check.mock.calls.length, 0)).toBe(50);
+
+    clients.forEach(({ stop }) => stop());
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(clients.every(({ check }) => check.mock.calls.length === 1)).toBe(true);
+  });
+
   it("uses a single 60-120 second fallback timer after Realtime disconnects", async () => {
     vi.useFakeTimers();
     const { manager } = harness();

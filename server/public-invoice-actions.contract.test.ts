@@ -517,7 +517,8 @@ describe("public invoice and inquiry actions", () => {
     expect(mobileSync).toContain('staleTime: 15_000, refetchOnMount: "always", refetchInterval: serverQueriesEnabled ? 15_000 : false, refetchIntervalInBackground: false, refetchOnReconnect: true');
     expect(mobileSync).toContain("events.isFetching && eventsData");
     expect(mobileSync).toContain("readings.isFetching && readingsData");
-    expect(home).toContain("enabled: Boolean(isAuthenticated && siteId && (sitesQuery.data?.length ?? 0) > 1 && !dashboardScopeDenied && !user?.mustChangePassword)");
+    expect(home).toContain("const accessibleSiteSnapshot = sitesAccessDenied ? undefined : sitesQuery.data");
+    expect(home).toContain("enabled: Boolean(isAuthenticated && siteId && (accessibleSiteSnapshot?.length ?? 0) > 1 && !dashboardScopeDenied && !user?.mustChangePassword)");
     expect(review).toContain("requests.isLoading&&isOnline");
     expect(review).toContain("requests.isFetching && requests.data");
     expect(review).toContain("payments.page.invalidate");

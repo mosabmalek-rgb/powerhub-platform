@@ -128,6 +128,7 @@ function isSafeDashboardSnapshot(queryKey: readonly unknown[], segments: string[
 const OPERATIONAL_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "inventory.listFuelReadings": new Set(["siteId", "generatorId", "limit"]),
   "inventory.listFuelEvents": new Set(["siteId", "fromDate", "toDate", "generatorId", "limit"]),
+  "maintenance.listGenerators": new Set(["siteId"]),
   "maintenance.listPreventivePlans": new Set(["siteId", "generatorId"]),
   "maintenance.listWorkOrders": new Set(["siteId", "generatorId", "status", "limit"]),
   "maintenance.listParts": new Set(["siteId", "workOrderId"]),
@@ -196,6 +197,8 @@ export function isSafeFilteredOperationalSnapshot(
 
 const INVENTORY_OFFLINE_LIST_INPUT_KEYS: Record<string, ReadonlySet<string>> = {
   "inventory.fuelWorkspaceOptions": new Set(["siteId"]),
+  // Aggregate display snapshot only; never a Delta feed or financial authority.
+  "inventory.stockOverview": new Set(["siteId"]),
   "inventory.listItems": new Set(["siteId", "search", "includeInactive"]),
   "inventory.listSuppliers": new Set(["siteId", "search", "includeInactive"]),
   "inventory.listWarehouses": new Set(["siteId", "includeInactive"]),
@@ -384,6 +387,16 @@ export function isSafePurchaseDetailSnapshot(
     Number.isSafeInteger(input.purchaseId) && Number(input.purchaseId) > 0);
 }
 
+function isSafeReadingCycleBoundsSnapshot(queryKey: readonly unknown[], segments: string[]) {
+  if (segments.length !== 3 || segments[1] !== "readingCycle" || segments[2] !== "currentBounds") return false;
+  const input = getOfflineQueryInput(queryKey);
+  return Boolean(input &&
+    Object.keys(input).length === 1 &&
+    Object.prototype.hasOwnProperty.call(input, "siteId") &&
+    Number.isSafeInteger(input.siteId) &&
+    Number(input.siteId) > 0);
+}
+
 function isSafeOfflineStocktakeAccessSnapshot(queryKey: readonly unknown[], segments: string[]) {
   if (segments.length !== 3 || segments[1] !== "inventory" || segments[2] !== "stocktakeOfflineAccess") return false;
   const input = getOfflineQueryInput(queryKey);
@@ -396,6 +409,8 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
   if (isSafeOfflineStocktakeAccessSnapshot(queryKey, segments)) return true;
+  // Read-only site-scoped billing-cycle bounds are needed to restore offline date filters.
+  if (isSafeReadingCycleBoundsSnapshot(queryKey, segments)) return true;
   if (isSafeHrOfflineProjection(queryKey, segments)) return true;
   // One exact purchase detail may be stored as a sanitized read-only display snapshot.
   if (isSafePurchaseDetailSnapshot(queryKey, segments)) return true;
@@ -464,7 +479,7 @@ export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
     return isSafeSubscriberDirectoryPage(queryKey);
   }
 
-  if (isSafeOperationalOfflineList(queryKey, segments)) return true;
+  if (isSafeOperationalOfflineList(queryKey, segments) && segments[2] !== "listGenerators") return true;
 
   if (segments[1] === "inventory") {
     return ["listItems", "listItemUnits", "listSuppliers", "listWarehouses"].includes(segments[2] ?? "") ||
