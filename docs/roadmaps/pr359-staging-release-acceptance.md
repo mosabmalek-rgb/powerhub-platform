@@ -185,3 +185,15 @@ The workflow fails closed unless the Staging environment has a required human re
 - Staging migration ledger: 309 rows, exact entry `20261101101932 / powerhub_staging_first_platform_admin_bootstrap`. Production remains 486 rows with no corresponding migration.
 - Temporary password issuance and first successful sign-in are still outstanding. Do not claim the account is ready for browser login until a secure Auth Admin password update and sign-in verification have completed.
 - CI for the source reconciliation commit was still running at the time this note was added; verify all four required workflows on the new final PR head before considering this documentation/source update fully gated.
+
+
+## نقل صلاحية مدير المنصة إلى حساب E2E المعروف — 2026-11-01
+
+- **موافقة المستخدم:** اعتمد المستخدم نقل الصلاحية من Support E2E Operator إلى powerhub.e2e.test@gmail.com، وليس إنشاء مدير ثانٍ.
+- **ترحيل Staging:** سجل Supabase migration ledger الإصدار 20261101104729 / powerhub_staging_platform_admin_transfer_to_known_e2e_account. الترحيل عرّف إجراءً ثابت الهوية للحسابين، يتحقق من Auth المؤكد وغير المحظور، تطابق الاسم والبريد، الحالة والدورين السابقين، وجود مدير منصة نشط واحد، وعدم وجود عضويات مستأجر على حساب المصدر. ينفذ ترقية الهدف وتخفيض المصدر داخل المعاملة نفسها ويسجل حدثًا نظاميًا واحدًا.
+- **النتيجة الحية التي تحققت منها بعد التنفيذ:** الحساب powerhub.e2e.test@gmail.com (public.users id 4) أصبح role=admin, platform_role=platform_admin, account_status=active. حساب Support (id 259) عاد إلى role=user, platform_role=NULL, وبقي نشطًا. عدد مديري المنصة النشطين يساوي واحدًا.
+- **الحفاظ على البيانات:** عضوية المستأجر الواحدة للحساب الهدف بقيت كما هي؛ حساب Support لم تكن له عضويات مستأجر. لم تتغير كلمات المرور أو بيانات Auth أو أعلام تغيير كلمة المرور. سجل platform_security_events يحمل staging_platform_admin_transfer ويشير إلى الحسابين، مع created_by_user_id=NULL وعدم تغيير بيانات المصادقة أو كلمات المرور أو العضويات.
+- **إغلاق الإجراء:** الترحيل يسحب EXECUTE من PUBLIC, anon, authenticated, وservice_role بعد التنفيذ. تحقق مستقل أكد أن الصلاحية لا تزال غير متاحة لأي من هذه الأدوار.
+- **مصدر الكود والاختبار:** أضيف supabase/migrations/20261101104729_powerhub_staging_platform_admin_transfer_to_known_e2e_account.sql وsupabase/tests/staging_platform_admin_transfer.sql، وربط اختبار PostgreSQL في .github/workflows/reading-cycle-sql-integration.yml. الاختبار المعزول يتحقق من الدورين، عدد المديرين، عضوية المستأجر، عدم تغير password hashes وAuth identities، وسجل التدقيق وسحب الصلاحيات.
+- **حدود القبول:** لا يعني نجاح النقل أن تسجيل الدخول بالحساب الجديد قد اختُبر. يلزم اختبار دخول حقيقي في بيئة Preview معزولة عن Production Supabase بعد التحقق من إعدادات البيئة الأربع (VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY). لا تُنشأ Preview قبل عزلها. لا Production migration أو merge أو نشر إنتاجي ضمن هذا الإجراء.
+- **CI:** يجب أن تنجح البوابات الأربع على SHA واحد بعد إضافة الترحيل والاختبار وسطر workflow والتوثيق. CodeQL وDependency Review إذا كانا skipped لا يعدان نجاحًا.
