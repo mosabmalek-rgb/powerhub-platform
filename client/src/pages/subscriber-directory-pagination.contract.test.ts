@@ -10,6 +10,8 @@ describe("subscriber directory pagination and type support", () => {
     expect(page).toContain("const SUBSCRIBER_PAGE_SIZE = 20");
     expect(page).toContain("page: subscriberPage, pageSize: SUBSCRIBER_PAGE_SIZE");
     expect(page).toContain("subscribersQuery.data?.items ?? []");
+    expect(page).toContain('refetchOnReconnect: "always"');
+    expect(page).toContain("staleTime: 60 * 60 * 1000");
     expect(page).toContain('aria-label="فلتر نوع المشترك"');
     expect(page).toContain('value="institution">مؤسسات</option>');
     expect(page).toContain('value="mosque">مساجد</option>');

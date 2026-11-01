@@ -2,6 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { supabaseAdmin } from "../supabase-admin";
+import { claimPowerHubDevice } from "../auth-device-claim";
 import { requirePlatformCapability } from "../platform-capability";
 import { isActivePlatformAdmin, isActivePlatformIdentity, isActivePlatformSupport } from "../platform-admin";
 import type { TrpcContext } from "./context";
@@ -38,18 +39,13 @@ async function enforceSingleDeviceSession(ctx: TrpcContext) {
   const claimKey = `${ctx.user!.openId}:${deviceId}`;
   let claim = requestClaims.get(claimKey);
   if (!claim) {
-    claim = (async () => {
-      const { data, error } = await supabaseAdmin().rpc("powerhub_claim_user_device", {
-        p_user_id: ctx.user!.openId,
-        p_device_id: deviceId,
-        p_lease_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-      });
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من جلسة الجهاز." });
-      const row = Array.isArray(data) ? data[0] : null;
-      if (!row?.allowed) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب مستخدم حاليًا على جهاز آخر. سجّل الخروج من الجهاز الآخر ثم حاول مرة أخرى." });
-      }
-    })();
+    claim = claimPowerHubDevice({
+      operation: "authenticatedProcedure.deviceClaim",
+      userId: ctx.user!.openId,
+      deviceId,
+      rpcErrorMessage: "تعذر التحقق من جلسة الجهاز.",
+      timeoutMessage: "انتهت مهلة التحقق من جلسة الجهاز. أعد المحاولة.",
+    });
     // Keep both success and failure for this request only so a batch cannot fan out
     // repeated device RPCs or produce inconsistent decisions within the same request.
     requestClaims.set(claimKey, claim);

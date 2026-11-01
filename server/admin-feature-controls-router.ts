@@ -19,7 +19,7 @@ const addonFeatureMap: Record<string, string> = { subscriber_management: "subscr
 
 async function tenantFeatureSnapshot(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult, paymentDocumentationAccessResult, quotaResults] = await Promise.all([
+  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult, paymentDocumentationAccessResult, supportChatPolicyResult, aiAssistantPolicyResult, quotaResults] = await Promise.all([
     admin.from("tenants").select("id,name,status,slug,created_at").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
     admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
@@ -30,6 +30,8 @@ async function tenantFeatureSnapshot(tenantId: number) {
     admin.from("package_feature_policies").select("package_code,feature_key,policy,default_limit,limit_mode").order("feature_key"),
     admin.from("tenant_addon_requests").select("id,addon_code,quantity,status,billing_mode,source,starts_at,ends_at,duration_days").eq("tenant_id",tenantId).eq("status","approved").order("ends_at",{ascending:true}).limit(200),
     admin.rpc("powerhub_payment_documentation_access",{p_tenant_id:tenantId}),
+    admin.rpc("powerhub_resolve_tenant_feature_policy",{p_tenant_id:tenantId,p_feature_key:"support_chat"}),
+    admin.rpc("powerhub_resolve_tenant_feature_policy",{p_tenant_id:tenantId,p_feature_key:"powerhub_ai_assistant"}),
     Promise.all([
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"subscribers"}),
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"platformUser"}),
@@ -38,7 +40,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"sms"}),
     ]),
   ]);
-  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error,paymentDocumentationAccessResult.error, ...quotaResults.map((result:any)=>result.error)].filter(Boolean);
+  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error,paymentDocumentationAccessResult.error,supportChatPolicyResult.error,aiAssistantPolicyResult.error, ...quotaResults.map((result:any)=>result.error)].filter(Boolean);
   if (errors.length) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مصفوفة ميزات صاحب المولد."});
   const subscription = subscriptionResult.data;
   const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.package_code);
@@ -58,6 +60,8 @@ async function tenantFeatureSnapshot(tenantId: number) {
     packagePolicies: packagePolicies.map((row:any)=>({featureKey:row.feature_key,policy:row.policy,defaultLimit:row.default_limit == null ? null : Number(row.default_limit),limitMode:row.limit_mode})),
     effectiveFeatureStates: {
       payment_documentation: Boolean(paymentDocumentationAccessResult.data?.[0]?.allowed),
+      support_chat: supportChatPolicyResult.data?.[0]?.enabled === true,
+      powerhub_ai_assistant: aiAssistantPolicyResult.data?.[0]?.enabled === true,
     },
     effectiveQuotas: {
       subscriber_management: Number(Array.isArray(quotaResults[0].data) ? quotaResults[0].data[0] : quotaResults[0].data ?? 0),
@@ -141,6 +145,7 @@ export const adminFeatureControlsRouter = router({
   tenantFeatureSnapshot: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive()})).query(async ({input}) => tenantFeatureSnapshot(input.tenantId)),
 
   grantTenantAddon: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),featureKey:featureKeySchema,quantity:z.number().int().positive().max(100000000),billingMode:addonBillingModeSchema,note:z.string().trim().max(2000).optional(),requestKey:z.string().uuid()})).mutation(async ({ctx,input}) => {
+    if(input.featureKey === "sms") throw new TRPCError({code:"PRECONDITION_FAILED",message:"إضافة سعة SMS من الميزات والحدود متوقفة؛ تُدار أرصدة الرسائل حصريًا من محافظ وحزم SMS."});
     const {data,error}=await supabaseAdmin().rpc("powerhub_admin_grant_tenant_addon",{p_actor_user_id:ctx.user.id,p_tenant_id:input.tenantId,p_feature_key:input.featureKey,p_quantity:input.quantity,p_billing_mode:input.billingMode,p_note:input.note ?? null,p_request_key:input.requestKey});
     if(error){const message=String(error.message ?? "");if(message.includes("FEATURE_NOT_ADDON_MANAGEABLE")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"هذه الميزة لا تملك سعة قابلة للإضافة. استخدم التفعيل/التعطيل فقط."});if(message.includes("FEATURE_NOT_AVAILABLE_IN_PACKAGE")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"هذه الميزة غير متاحة في الباقة الحالية."});if(message.includes("SUBSCRIPTION_REQUIRED")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا يوجد اشتراك فعال يمكن ربط الإضافة به."});if(message.includes("INVALID_ADDON_QUANTITY")||message.includes("SUBSCRIBER_ADDON_QUANTITY_MULTIPLE_REQUIRED")) throw new TRPCError({code:"BAD_REQUEST",message:"كمية الإضافة غير صالحة. إضافة المشتركين يجب أن تكون بمضاعفات 50."});throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر إضافة السعة إلى الاشتراك."});}
     const row=data?.[0];

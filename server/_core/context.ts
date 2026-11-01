@@ -41,10 +41,10 @@ export async function createContext(
       if (!rejectedCredential) {
         authError = error instanceof Error ? error : new Error("Supabase authentication failed");
         const details = error && typeof error === "object"
-          ? error as { name?: unknown; code?: unknown; status?: unknown }
+          ? error as { name?: unknown; code?: unknown; status?: unknown; authStage?: unknown }
           : {};
         console.warn("[PowerHub auth context failure]", {
-          stage: "authenticateSupabaseRequest",
+          stage: typeof details.authStage === "string" ? details.authStage : "authenticateSupabaseRequest",
           errorName: typeof details.name === "string" ? details.name : authError.name,
           errorCode: typeof details.code === "string" ? details.code : undefined,
           status: typeof details.status === "number" ? details.status : undefined,

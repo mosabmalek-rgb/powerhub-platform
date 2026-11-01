@@ -293,6 +293,17 @@ export const aiSupportRouter = router({
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من هوية الحساب بأمان." });
     }
 
+    const { data: featurePolicy, error: featurePolicyError } = await admin.rpc(
+      "powerhub_resolve_tenant_feature_policy",
+      { p_tenant_id: input.tenantId, p_feature_key: "powerhub_ai_assistant" },
+    );
+    if (featurePolicyError) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من أهلية مساعد PowerHub." });
+    }
+    if (featurePolicy?.[0]?.enabled !== true) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "مساعد PowerHub غير متاح لهذا الاشتراك حاليًا." });
+    }
+
     const { data: membership, error: membershipError } = await admin
       .from("tenant_members")
       .select("tenant_id")

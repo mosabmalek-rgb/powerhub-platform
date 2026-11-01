@@ -1,14 +1,17 @@
 import { trpc } from "@/lib/trpc";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
-import { httpBatchLink } from "@trpc/client";
+import { getOfflineQueryStaleTime, isDeltaSyncBackedQueryKey } from "./lib/offline-query-policy";
+import { isNonAuthoritativeInitialNullSessionEvent } from "./lib/offline-auth-state";
+import { httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import superjson from "superjson";
 const App = lazy(() => import("./App"));
 import "./index.css";
 
 const AuthProvider = lazy(() => import("@/_core/hooks/useAuth").then((module) => ({ default: module.AuthProvider })));
 const OfflineDeltaSyncRuntime = lazy(() => import("./components/OfflineDeltaSyncRuntime").then((module) => ({ default: module.OfflineDeltaSyncRuntime })));
+const OfflineDeviceBootstrapRuntime = lazy(() => import("./components/OfflineDeviceBootstrapRuntime").then((module) => ({ default: module.OfflineDeviceBootstrapRuntime })));
 
 function isStandalonePublicInvoiceRoute(): boolean {
   return typeof window !== "undefined" && /^\/invoice\/[^/]+\/?$/.test(window.location.pathname);
@@ -20,8 +23,10 @@ const queryClient = new QueryClient({
       networkMode: "offlineFirst",
       // Keep recently used tab data warm in memory to avoid a refetch on every route switch.
       // Mutations must invalidate the affected keys; sensitive access checks can opt out per query.
-      staleTime: 30_000,
-      refetchOnReconnect: true,
+      // Delta-backed queries are reconciled by the shared Delta runtime, not by re-fetching full pages.
+      staleTime: (query) => getOfflineQueryStaleTime(query.queryKey),
+      refetchOnReconnect: (query) => !isDeltaSyncBackedQueryKey(query.queryKey),
+      refetchOnWindowFocus: (query) => !isDeltaSyncBackedQueryKey(query.queryKey),
     },
   },
 });
@@ -63,54 +68,146 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+async function resolvePowerHubTRPCHeaders() {
+  if (isStandalonePublicInvoiceRoute()) return {};
+  const [{ getSupabaseAccessToken, getSupabaseSessionDiagnostics }, { getPowerHubDeviceId }, { getPowerHubConnectivitySnapshot, getPowerHubClockDiagnostics, POWERHUB_DEVICE_CLOCK_SKEW_USER_MESSAGE }] = await Promise.all([
+    import("./lib/supabase"),
+    import("./lib/offline-auth"),
+    import("./lib/offline-connectivity"),
+  ]);
+  const clock = getPowerHubClockDiagnostics();
+  if (clock.clockCheckPending) {
+    const error = new Error("PowerHub is verifying the device clock against a fresh server-time sample. Retry when the check completes.");
+    error.name = "PowerHubDeviceClockVerificationPendingError";
+    throw error;
+  }
+  if (clock.skewDetected) {
+    const error = new Error(POWERHUB_DEVICE_CLOCK_SKEW_USER_MESSAGE);
+    error.name = "PowerHubDeviceClockSkewError";
+    Object.assign(error, { deviceClockSkewMs: clock.localMinusServerMs, deviceClockSkewThresholdMs: clock.thresholdMs });
+    throw error;
+  }
+  if (getPowerHubConnectivitySnapshot() === false) {
+    const error = new Error("The PowerHub origin is repeatedly unreachable.");
+    error.name = "PowerHubConnectivityUnresolvedError";
+    throw error;
+  }
+  let deviceId: string;
+  try {
+    deviceId = await getPowerHubDeviceId();
+  } catch {
+    const error = new Error("PowerHub could not resolve the current device identity.");
+    error.name = "PowerHubDeviceIdentityUnavailableError";
+    throw error;
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
+    const error = new Error("PowerHub produced an invalid device identity.");
+    error.name = "PowerHubDeviceIdentityUnavailableError";
+    throw error;
+  }
+  let token: string | null;
+  const tokenResolutionStartedAt = performance.now();
+  try {
+    token = await getSupabaseAccessToken();
+  } catch (cause) {
+    const diagnostics = getSupabaseSessionDiagnostics();
+    const safeDiagnostics = {
+      sessionInitialized: diagnostics.sessionInitialized,
+      hasCurrentSession: diagnostics.hasCurrentSession,
+      hasAccessToken: diagnostics.hasAccessToken,
+      tokenExpirySource: diagnostics.tokenExpirySource,
+      tokenUsable: diagnostics.tokenUsable,
+      readInFlight: diagnostics.readInFlight,
+      readBackoffActive: diagnostics.readBackoffActive,
+      lastReadErrorName: diagnostics.lastReadErrorName,
+      refreshInFlight: diagnostics.refreshInFlight,
+      tokenResolution: diagnostics.tokenResolution,
+      authStateRevision: diagnostics.authStateRevision,
+    };
+    console.warn("[PowerHub client auth bootstrap failure]", {
+      stage: "access-token-resolution",
+      elapsedMs: Math.round(performance.now() - tokenResolutionStartedAt),
+      errorName: cause instanceof Error ? cause.name : "UnknownError",
+      ...safeDiagnostics,
+    });
+    const error = new Error("PowerHub could not finish Supabase access-token resolution.");
+    error.name = cause instanceof Error ? cause.name : "PowerHubSessionTokenUnavailableError";
+    Object.assign(error, { cause, tokenResolution: safeDiagnostics });
+    throw error;
+  }
+  if (!token) {
+    const diagnostics = getSupabaseSessionDiagnostics();
+    const error = new Error("PowerHub could not obtain a usable Supabase access token.");
+    error.name = "PowerHubSessionTokenUnavailableError";
+    Object.assign(error, {
+      authStage: !diagnostics.hasCurrentSession ? "session_absent"
+        : !diagnostics.hasAccessToken ? "access_token_absent"
+          : !diagnostics.tokenUsable ? "access_token_expired_or_unreadable"
+            : "session_unresolved",
+      sessionInitialized: diagnostics.sessionInitialized,
+      tokenExpirySource: diagnostics.tokenExpirySource,
+      tokenExpiresAt: diagnostics.tokenExpiresAt,
+      tokenUsable: diagnostics.tokenUsable,
+      readInFlight: diagnostics.readInFlight,
+      readBackoffActive: diagnostics.readBackoffActive,
+      lastReadErrorName: diagnostics.lastReadErrorName,
+      refreshInFlight: diagnostics.refreshInFlight,
+      tokenResolution: diagnostics.tokenResolution,
+      authStateRevision: diagnostics.authStateRevision,
+    });
+    throw error;
+  }
+  return {
+    Authorization: `Bearer ${token}`,
+    "x-powerhub-device-id": deviceId,
+  };
+}
+
+async function powerHubTRPCFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const isAuthMe = requestUrl.includes("/api/trpc/auth.me");
+  const startedAt = performance.now();
+  try {
+    const response = await globalThis.fetch(input, { ...(init ?? {}), credentials: "include" });
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    if (isAuthMe && (!response.ok || elapsedMs >= 1_000)) {
+      console.warn("[PowerHub auth.me transport]", {
+        stage: "http-response",
+        status: response.status,
+        elapsedMs,
+      });
+    }
+    return response;
+  } catch (cause) {
+    if (isAuthMe) {
+      console.warn("[PowerHub auth.me transport]", {
+        stage: "network-failure",
+        elapsedMs: Math.round(performance.now() - startedAt),
+        errorName: cause instanceof Error ? cause.name : "UnknownError",
+      });
+    }
+    throw cause;
+  }
+}
+
 const trpcClient = trpc.createClient({
   links: [
-    httpBatchLink({
-      url: "/api/trpc",
-      transformer: superjson,
-      async headers() {
-        // A public invoice lookup is authenticated by its unguessable share
-        // token in PostgreSQL. Avoid unrelated session and device-ID reads for
-        // this route; all protected pages keep their normal headers.
-        if (isStandalonePublicInvoiceRoute()) return {};
-        const [{ getSupabaseAccessToken }, { getPowerHubDeviceId }] = await Promise.all([
-          import("./lib/supabase"),
-          import("./lib/offline-auth"),
-        ]);
-        const token = await getSupabaseAccessToken();
-        if (!token) {
-          // Do not send an anonymous request when the browser cannot provide a
-          // usable Supabase access token. Give the recovery UI a safe stage code.
-          const error = new Error("PowerHub could not obtain a usable Supabase access token.");
-          error.name = "PowerHubSessionTokenUnavailableError";
-          throw error;
-        }
-
-        let deviceId: string;
-        try {
-          deviceId = await getPowerHubDeviceId();
-        } catch {
-          const error = new Error("PowerHub could not resolve the current device identity.");
-          error.name = "PowerHubDeviceIdentityUnavailableError";
-          throw error;
-        }
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
-          const error = new Error("PowerHub produced an invalid device identity.");
-          error.name = "PowerHubDeviceIdentityUnavailableError";
-          throw error;
-        }
-
-        return {
-          Authorization: `Bearer ${token}`,
-          "x-powerhub-device-id": deviceId,
-        };
-      },
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
-      },
+    splitLink({
+      // auth.me is the bootstrap gate: never let an unrelated data query in the
+      // initial batch delay session validation.
+      condition: (op) => op.path === "auth.me",
+      true: httpLink({
+        url: "/api/trpc",
+        transformer: superjson,
+        headers: resolvePowerHubTRPCHeaders,
+        fetch: powerHubTRPCFetch,
+      }),
+      false: httpBatchLink({
+        url: "/api/trpc",
+        transformer: superjson,
+        headers: resolvePowerHubTRPCHeaders,
+        fetch: powerHubTRPCFetch,
+      }),
     }),
   ],
 });
@@ -123,16 +220,18 @@ async function bootstrapOfflineState() {
   try {
     // Storage hydration is deliberately non-blocking: the authenticated shell
     // and its live queries must render even if IndexedDB/Supabase initialization stalls.
-    const [supabaseModule, offlineAuth, offlineCache, authState] = await Promise.all([
+    const [supabaseModule, offlineAuth, offlineCache, authState, connectivity] = await Promise.all([
       import("./lib/supabase"),
       import("./lib/offline-auth"),
       import("./lib/offline-query-cache"),
       import("./lib/offline-auth-state"),
+      import("./lib/offline-connectivity"),
     ]);
     const { getSupabaseSession, subscribeSupabaseAuthState } = supabaseModule;
     const { getValidOfflineAuthLease } = offlineAuth;
     const { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } = offlineCache;
     const { isOfflineCacheWriteCurrent } = authState;
+    const { probePowerHubConnectivity } = connectivity;
 
     const activateUser = async (nextUserId: string | null) => {
       if (nextUserId === activeOfflineUserId) return;
@@ -211,6 +310,9 @@ async function bootstrapOfflineState() {
 
     let authEventRevision = 0;
     subscribeSupabaseAuthState((event, session) => {
+      // INITIAL_SESSION(null) is not authoritative. Do not let it invalidate
+      // the independent getSession() bootstrap revision below.
+      if (isNonAuthoritativeInitialNullSessionEvent(event, session)) return;
       authEventRevision += 1;
       const eventRevision = authEventRevision;
       const previousUserId = activeOfflineUserId;
@@ -271,10 +373,31 @@ async function bootstrapOfflineState() {
       void activateUser(nextUserId);
     });
 
-    // Subscribe before the initial read; a newer auth event always wins over
-    // a delayed snapshot that might otherwise restore the wrong account.
+    // Subscribe before both reads so a newer auth event always wins. Race the
+    // bounded SDK session read with origin reachability: an offline browser
+    // should hydrate its lease/cache without waiting for session recovery.
     const initialRevision = authEventRevision;
-    const session = await getSupabaseSession();
+    const sessionRead = getSupabaseSession();
+    const reachabilityRead = probePowerHubConnectivity();
+    const firstResult = await Promise.race([
+      sessionRead.then((session) => ({ kind: "session" as const, session })),
+      reachabilityRead.then((reachable) => ({ kind: "reachability" as const, reachable })),
+    ]);
+
+    if (firstResult.kind === "reachability" && !firstResult.reachable) {
+      const offlineLease = await getValidOfflineAuthLease();
+      if (initialRevision !== authEventRevision) return;
+      await activateUser(offlineLease?.userId ?? null);
+      // If an online session resolves later, reconcile it only if no newer auth
+      // event has superseded this startup snapshot.
+      void sessionRead.then((session) => {
+        if (!session?.user.id || authEventRevision !== initialRevision) return;
+        void activateUser(session.user.id);
+      }).catch(() => undefined);
+      return;
+    }
+
+    const session = firstResult.kind === "session" ? firstResult.session : await sessionRead;
     if (initialRevision !== authEventRevision) return;
     if (session?.user.id) {
       await activateUser(session.user.id);
@@ -287,34 +410,60 @@ async function bootstrapOfflineState() {
     console.warn("[PowerHub] Offline cache bootstrap skipped", error);
   }
 }
-function renderApp() {
-  const app = isStandalonePublicInvoiceRoute()
-    ? <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-400">جارٍ تحميل الفاتورة…</div>}><App /></Suspense>
-    : <Suspense fallback={<div className="grid min-h-screen place-items-center">جارٍ تهيئة الجلسة…</div>}><AuthProvider><Suspense fallback={null}><OfflineDeltaSyncRuntime /></Suspense><App /></AuthProvider></Suspense>;
+const OFFLINE_BOOTSTRAP_DEADLINE_MS = 6_000;
 
+function AppBootstrapGate() {
+  const standalonePublicInvoice = isStandalonePublicInvoiceRoute();
+  const [localBootstrapReady, setLocalBootstrapReady] = useState(standalonePublicInvoice);
+
+  useEffect(() => {
+    if (standalonePublicInvoice) return;
+    let active = true;
+    let timeoutId: number | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timeoutId = window.setTimeout(resolve, OFFLINE_BOOTSTRAP_DEADLINE_MS);
+    });
+
+    void Promise.race([bootstrapOfflineState(), deadline]).finally(() => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      if (active) setLocalBootstrapReady(true);
+    });
+
+    return () => {
+      active = false;
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [standalonePublicInvoice]);
+
+  if (!localBootstrapReady) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl" role="status" aria-live="polite">
+      <div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><p className="mt-3 text-sm text-slate-300">جارٍ استعادة جلسة العمل والبيانات المحفوظة…</p></div>
+    </main>;
+  }
+
+  return standalonePublicInvoice
+    ? <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-400">جارٍ تحميل الفاتورة…</div>}><App /></Suspense>
+    : <Suspense fallback={<div className="grid min-h-screen place-items-center">جارٍ تهيئة الجلسة…</div>}><AuthProvider><Suspense fallback={null}><OfflineDeltaSyncRuntime /><OfflineDeviceBootstrapRuntime /></Suspense><App /></AuthProvider></Suspense>;
+}
+
+function renderApp() {
   createRoot(document.getElementById("root")!).render(
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        {app}
+        <AppBootstrapGate />
       </QueryClientProvider>
     </trpc.Provider>
   );
 }
 
-// Render public invoice links immediately. Offline/auth cache bootstrap is
-// unrelated to this public route and can wait several seconds on slow IndexedDB
-// or Supabase session reads. Protected app routes preserve the existing order.
-// Render immediately; cache/session hydration is an enhancement and must not
-// hold the whole app behind a slow IndexedDB lock or Supabase session read.
+// Public invoice links remain immediate. Protected application routes restore
+// the local cache before mounting route-level queries, with a bounded fallback.
 renderApp();
-if (!isStandalonePublicInvoiceRoute()) {
-  void bootstrapOfflineState();
-}
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     // Versioned URL forces an immediate Service Worker update after changing
     // cache semantics, even when a legacy worker had cached /sw.js itself.
-    void navigator.serviceWorker.register("/sw.js?v=7").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
+    void navigator.serviceWorker.register("/sw.js?v=8").catch((error) => console.warn("[PowerHub] Service Worker registration failed", error));
   });
 }

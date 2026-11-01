@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { TRPCError } from "@trpc/server";
 
 const state = vi.hoisted(() => ({
@@ -18,6 +20,42 @@ vi.mock("./supabase-admin", () => ({
 }));
 
 describe("PowerHub inventory catalog and supplier API", () => {
+  it("returns only the three tenant-scoped stocktake UI capabilities for offline draft hints", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "manager", permissions: ["manageStocktakes"],
+      usesPermissionOverride: true,
+    });
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.stocktakeOfflineAccess;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 77 } },
+      input: { siteId: 7 },
+    });
+    expect(result).toEqual({
+      tenantId: 44,
+      canViewStocktakes: false,
+      canManageStocktakes: true,
+      canApproveStocktakes: false,
+    });
+    expect(state.siteAccess).toHaveBeenCalledWith(77, 7);
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("denies the offline stocktake capability projection when no stocktake capability is granted", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "viewer", permissions: [],
+      usesPermissionOverride: false,
+    });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.stocktakeOfflineAccess;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 77 } },
+      input: { siteId: 7 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
   it("checks the individual inventory-management capability before inserting a catalog item", async () => {
     state.from.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
@@ -444,6 +482,52 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
+  it("requires supplier-payment permission for a cash refund before invoking the return RPC", async () => {
+    state.access.mockReset()
+      .mockResolvedValueOnce({ tenantId: 44 })
+      .mockRejectedValueOnce(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnToSupplier;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 941 } },
+      input: {
+        siteId: 7, purchaseId: 14, returnDate: "2026-10-21",
+        operationKey: "supplier-return:cash-refund-denied", reason: "damaged item",
+        refundAmount: 5, refundCompanyAccountId: 8,
+        lines: [{ purchaseLineId: 21, quantity: 1 }],
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenNthCalledWith(1, 941, 7, expect.any(Array), "adjustInventory");
+    expect(state.access).toHaveBeenNthCalledWith(2, 941, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cash refund when the financial permission resolves to a different tenant", async () => {
+    state.access.mockReset()
+      .mockResolvedValueOnce({ tenantId: 44 })
+      .mockResolvedValueOnce({ tenantId: 45 });
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnToSupplier;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 942 } },
+      input: {
+        siteId: 7, purchaseId: 14, returnDate: "2026-10-21",
+        operationKey: "supplier-return:cash-refund-tenant-mismatch", reason: "damaged item",
+        refundAmount: 5, refundCompanyAccountId: 8,
+        lines: [{ purchaseLineId: 21, quantity: 1 }],
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenNthCalledWith(1, 942, 7, expect.any(Array), "adjustInventory");
+    expect(state.access).toHaveBeenNthCalledWith(2, 942, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
   it("requires financial permission for cash refund and passes only the authorized tenant to the return RPC", async () => {
     state.access.mockReset().mockResolvedValue({ tenantId: 44 });
     state.rpc.mockReset().mockResolvedValue({ data: [{
@@ -616,6 +700,32 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
 
+
+  it("forwards the authorized tenant and stable idempotency key to stocktake count", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      stocktake_id: 80, item_id: 90, system_quantity: "4.000",
+      counted_quantity: "3.000", variance_quantity: "-1.000",
+      counted_at: "2026-10-31T10:00:00.000Z", replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordStocktakeCount;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 98 } },
+      input: {
+        siteId: 7, stocktakeId: 80, itemId: 90, countedQuantity: 3,
+        countedUnitCost: 4.5, countNotes: "counted at close",
+        operationKey: "stocktake-count:stable-operation",
+      },
+    });
+    expect(result).toMatchObject({ stocktake_id: 80, item_id: 90, replayed: false });
+    expect(state.access).toHaveBeenCalledWith(98, 7, expect.any(Array), "manageStocktakes");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_record_stocktake_count", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 98, p_stocktake_id: 80, p_item_id: 90,
+      p_counted_quantity: 3, p_counted_unit_cost: 4.5, p_count_notes: "counted at close",
+      p_operation_key: "stocktake-count:stable-operation",
+    });
+  });
 
   it("blocks a fuel fill before calling the database when the actor lacks the fuel capability", async () => {
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
@@ -953,7 +1063,7 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
     {
       procedure: "recordStocktakeCount",
       capability: "manageStocktakes",
-      input: { siteId: 7, stocktakeId: 8, itemId: 9, countedQuantity: 1.25 },
+      input: { siteId: 7, stocktakeId: 8, itemId: 9, countedQuantity: 1.25, operationKey: "auth-matrix:stocktake:count" },
     },
     {
       procedure: "submitStocktake",
@@ -1014,4 +1124,47 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
       expect(state.rpc).not.toHaveBeenCalled();
     },
   );
+
+  it("tracks every protected inventory mutation in the capability-denial tests", () => {
+    const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
+    const testSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.test.ts"), "utf8");
+    const declarations = [...routerSource.matchAll(/^ {2}([A-Za-z_][A-Za-z0-9_]*): protectedProcedure/gm)];
+    const mutationProcedures = declarations.filter((declaration, index) => {
+      const end = declarations[index + 1]?.index ?? routerSource.length;
+      return routerSource.slice(declaration.index, end).includes(".mutation(");
+    }).map((declaration) => declaration[1]);
+
+    // These procedures have dedicated denial tests above the table-driven matrix.
+    const individualDenialProcedures = [
+      "recordStockMovement", "returnFromIssue", "correctStockMovement", "createItem",
+      "createSupplier", "createPurchase", "cancelPurchase", "reverseSupplierPayment",
+      "confirmPurchase", "recordSupplierPayment", "returnToSupplier", "transferStock",
+      "receivePurchase", "upsertFuelAlertSettings", "recordFuelFill", "recordFuelReading",
+    ] as const;
+    const matrixProcedures = cases.map((entry) => entry.procedure);
+    const matrixStart = testSource.indexOf('describe("PowerHub inventory mutation capability-denial matrix"');
+    expect(matrixStart).toBeGreaterThan(-1);
+
+    for (const procedure of individualDenialProcedures) {
+      const token = `_def.record.${procedure}`;
+      let cursor = testSource.indexOf(token);
+      let hasDenialAssertion = false;
+      while (cursor >= 0 && cursor < matrixStart) {
+        const testStart = testSource.lastIndexOf('  it("', cursor);
+        const nextTest = testSource.indexOf('  it("', cursor + token.length);
+        const testBlock = testSource.slice(testStart >= 0 ? testStart : 0, nextTest >= 0 ? nextTest : matrixStart);
+        if (testBlock.includes('rejects.toMatchObject({ code: "FORBIDDEN" })') &&
+            testBlock.includes("not.toHaveBeenCalled()")) {
+          hasDenialAssertion = true;
+          break;
+        }
+        cursor = testSource.indexOf(token, cursor + token.length);
+      }
+      expect(hasDenialAssertion, `Missing direct denial assertion for ${procedure}`).toBe(true);
+    }
+
+    const coveredProcedures = [...matrixProcedures, ...individualDenialProcedures];
+    expect(new Set(coveredProcedures).size).toBe(coveredProcedures.length);
+    expect([...coveredProcedures].sort()).toEqual([...mutationProcedures].sort());
+  });
 });

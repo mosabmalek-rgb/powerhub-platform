@@ -170,7 +170,8 @@ const setTenantFeatureEntitlementProcedure = authenticatedProcedure
     return { success: true, tenantId: Number(row?.tenant_id), featureKey: row?.feature_key, isEnabled: Boolean(row?.is_enabled), policy: row?.policy ?? "not_included" };
   });
 
-type PlatformSettingAdminRouter = typeof adminRouter & {
+type PlatformSettingAdminRouter = Omit<typeof adminRouter, "inviteTenantAccess"> & {
+  inviteTenantAccess: typeof adminTenantAccessRouter.inviteTenantAccess;
   resetUserPassword: typeof resetUserPasswordProcedure;
   sendOwnerUsageAlert: typeof sendOwnerUsageAlertProcedure;
   listTenantFeatureEntitlements: typeof listTenantFeatureEntitlementsProcedure;

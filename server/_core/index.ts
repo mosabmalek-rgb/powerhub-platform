@@ -110,12 +110,12 @@ export function createPowerHubApp() {
     }
     if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
-      const { cleanupPaymentDocumentationReceiptImages } = await import("../payment-documentation-retention");
-      const result = await cleanupPaymentDocumentationReceiptImages();
+      const { cleanupExpiredStorageImages } = await import("../storage-image-retention");
+      const result = await cleanupExpiredStorageImages();
       return res.status(200).json({ ok: true, ...result });
     } catch (error) {
-      console.error("[payment-documentation-retention] cleanup failed", error);
-      return res.status(500).json({ ok: false, error: "payment_documentation_retention_failed" });
+      console.error("[storage-image-retention] cleanup failed", error);
+      return res.status(500).json({ ok: false, error: "storage_image_retention_failed" });
     }
   });
   app.all("/api/scheduled/*", (_req, res) => res.status(410).json({

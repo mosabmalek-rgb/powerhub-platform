@@ -23,6 +23,9 @@ import {
 import { useIsMobile } from "@/hooks/useMobile";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { getPowerHubConnectivitySnapshot } from "@/lib/offline-connectivity";
+import { shouldRetryTenantAccessRecovery } from "@/lib/tenant-access-retry";
 import {
   BellRing, Bolt, BriefcaseBusiness, ClipboardCheck, ChartNoAxesCombined, Fuel, Gauge, Boxes,
   LayoutDashboard, LogOut, PanelLeft, ReceiptText, Sun, Moon, CircleCheck, X, MessageSquareText,
@@ -32,7 +35,9 @@ import { CSSProperties, startTransition, useEffect, useMemo, useRef, useState } 
 import { useLocation } from "wouter";
 import { preloadRoute, preloadWorkspaceRoutes } from "@/lib/route-preload";
 import type { PowerCapability, PowerRole } from "@shared/powerhub-rbac";
-import { tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
+import { tenantMenuRouteAllowed, shouldShowBranchManagement } from "@/lib/tenant-menu-access";
+import { readCachedTenantAccess, writeCachedTenantAccess } from "@/lib/tenant-access-cache";
+import { readCachedWorkspaceSites, writeCachedWorkspaceSites } from "@/lib/workspace-sites-cache";
 import { PowerHubLogo } from "./PowerHubLogo";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { toast } from "sonner";
@@ -123,120 +128,6 @@ const LEGACY_SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 238;
 const MIN_WIDTH = 170;
 const MAX_WIDTH = 408;
-const TENANT_ACCESS_CACHE_PREFIX = "powerhub.tenant-access.v1";
-
-type TenantAccessSnapshot = {
-  role: PowerRole;
-  permissions: PowerCapability[];
-  tenantId: number;
-  usesPermissionOverride: boolean;
-};
-
-type WorkspaceSiteSnapshot = {
-  id: number;
-  tenantId: number;
-  tenantName: string;
-  name: string;
-  code: string;
-  city: string | null;
-  address: string | null;
-  status: "active" | "inactive" | "archived";
-  anomalyAlertPercent: number;
-  invoiceDueDays: number;
-  invoiceDueHours: number;
-  createdAt: Date;
-};
-
-const WORKSPACE_SITES_CACHE_PREFIX = "powerhub.workspace-sites.v1";
-
-function readCachedWorkspaceSites(userId: number | undefined): WorkspaceSiteSnapshot[] | null {
-  if (!userId || typeof window === "undefined") return null;
-  try {
-    const raw = window.sessionStorage.getItem(`${WORKSPACE_SITES_CACHE_PREFIX}:${userId}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Array<Partial<Omit<WorkspaceSiteSnapshot, "createdAt">> & { createdAt?: string }>;
-    if (!Array.isArray(parsed)) return null;
-    const sites = parsed.flatMap((site) => {
-      if (
-        typeof site.id !== "number" ||
-        typeof site.tenantId !== "number" ||
-        typeof site.tenantName !== "string" ||
-        typeof site.name !== "string" ||
-        typeof site.code !== "string" ||
-        !["active", "inactive", "archived"].includes(String(site.status)) ||
-        typeof site.anomalyAlertPercent !== "number" ||
-        typeof site.invoiceDueDays !== "number" ||
-        typeof site.createdAt !== "string"
-      ) return [];
-      const createdAt = new Date(site.createdAt);
-      if (Number.isNaN(createdAt.getTime())) return [];
-      return [{
-        id: site.id,
-        tenantId: site.tenantId,
-        tenantName: site.tenantName,
-        name: site.name,
-        code: site.code,
-        city: site.city ?? null,
-        address: site.address ?? null,
-        status: site.status as WorkspaceSiteSnapshot["status"],
-        anomalyAlertPercent: site.anomalyAlertPercent,
-        invoiceDueDays: site.invoiceDueDays,
-        invoiceDueHours: typeof site.invoiceDueHours === "number" ? site.invoiceDueHours : site.invoiceDueDays * 24,
-        createdAt,
-      }];
-    });
-    return sites.length ? sites : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedWorkspaceSites(userId: number | undefined, sites: WorkspaceSiteSnapshot[] | undefined) {
-  if (!userId || !sites?.length || typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(
-      `${WORKSPACE_SITES_CACHE_PREFIX}:${userId}`,
-      JSON.stringify(sites),
-    );
-  } catch {
-    // Ignore unavailable browser storage.
-  }
-}
-
-function readCachedTenantAccess(userId: number | undefined, siteId: number) {
-  if (!userId || !siteId || typeof window === "undefined") return null;
-  try {
-    const raw = window.sessionStorage.getItem(`${TENANT_ACCESS_CACHE_PREFIX}:${userId}:${siteId}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<TenantAccessSnapshot>;
-    if (
-      (parsed.role === "owner" ||
-        parsed.role === "manager" ||
-        parsed.role === "accountant" ||
-        parsed.role === "collector" ||
-        parsed.role === "technician" ||
-        parsed.role === "viewer") &&
-      Array.isArray(parsed.permissions) &&
-      typeof parsed.tenantId === "number" &&
-      typeof parsed.usesPermissionOverride === "boolean"
-    ) {
-      return parsed as TenantAccessSnapshot;
-    }
-  } catch {
-    // Ignore malformed or unavailable browser storage.
-  }
-  return null;
-}
-
-function writeCachedTenantAccess(userId: number | undefined, siteId: number, access: TenantAccessSnapshot) {
-  if (!userId || !siteId || typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(`${TENANT_ACCESS_CACHE_PREFIX}:${userId}:${siteId}`, JSON.stringify(access));
-  } catch {
-    // Ignore unavailable browser storage.
-  }
-}
-
 export default function DashboardLayout({
   children,
 }: {
@@ -302,16 +193,24 @@ function DashboardLayoutContent({
   const workspaceSites = trpc.powerhub.sites.list.useQuery(undefined, {
     enabled: Boolean(user && user.role !== "admin"),
     initialData: cachedWorkspaceSites ?? undefined,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
   });
-  const tenantDisplayName = workspaceSites.data?.[0]?.tenantName ?? null;
+  const workspaceSitesDenied = isExplicitAuthorizationDenial(workspaceSites.error);
+  // A definitive 401/403 suppresses the visual bootstrap just like protected
+  // query rows; transient/offline failures may still use the exact user cache.
+  const activeWorkspaceSites = workspaceSitesDenied ? undefined : workspaceSites.data;
+  const tenantDisplayName = activeWorkspaceSites?.[0]?.tenantName ?? null;
 
   useEffect(() => {
-    if (!user || user.role === "admin" || !workspaceSites.data) return;
+    if (!user || user.role === "admin" || !workspaceSites.data ||
+        workspaceSites.isError || workspaceSitesDenied) return;
     writeCachedWorkspaceSites(user.id, workspaceSites.data);
-  }, [user, workspaceSites.data]);
-  const primarySiteId = workspaceSites.data?.[0]?.id ?? 0;
-  const { branchId: activeSiteId } = useBranchFilter(workspaceSites.data);
-  const resolvedActiveSiteId = activeSiteId && workspaceSites.data?.some((site) => site.id === activeSiteId)
+  }, [user, workspaceSites.data, workspaceSites.error, workspaceSites.isError, workspaceSitesDenied]);
+  const primarySiteId = activeWorkspaceSites?.[0]?.id ?? 0;
+  const { branchId: activeSiteId } = useBranchFilter(activeWorkspaceSites);
+  const resolvedActiveSiteId = activeSiteId && activeWorkspaceSites?.some((site) => site.id === activeSiteId)
     ? activeSiteId
     : primarySiteId;
 
@@ -328,6 +227,13 @@ function DashboardLayoutContent({
     initialData: cachedActiveAccess ?? undefined,
     // The cached value is only a visual bootstrap. The live response remains the
     // authority and is always fetched on mount/focus/reconnect.
+    refetchInterval: 15000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+  const tenantFeatureAccess = trpc.powerhub.staff.myFeatureAccess.useQuery({ siteId: resolvedActiveSiteId ?? 0 }, {
+    enabled: Boolean(resolvedActiveSiteId && user?.role !== "admin"),
     refetchInterval: 15000,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
@@ -359,30 +265,43 @@ function DashboardLayoutContent({
     preloadWorkspaceRoutes();
   }, [user?.role, hasActiveTenantAccess]);
   useEffect(() => {
-    if (!resolvedActiveSiteId || user?.role === "admin" || hasActiveTenantAccess) return;
+    if (
+      !resolvedActiveSiteId ||
+      user?.role === "admin" ||
+      hasActiveTenantAccess ||
+      !shouldRetryTenantAccessRecovery(
+        activeAccess.isError,
+        activeAccessErrorCode,
+        getPowerHubConnectivitySnapshot(),
+      )
+    ) return;
 
-    // When the last access check failed because the subscription was expired,
-    // retry explicitly until the renewed subscription becomes visible. This
-    // avoids depending solely on React Query's interval scheduling for an
-    // errored query and stops immediately after access is restored.
+    // Retry only a confirmed subscription/access denial while the PowerHub
+    // origin is reachable. A network outage must never create a 5-second loop.
     const retryId = window.setInterval(() => {
-      void activeAccess.refetch();
+      if (getPowerHubConnectivitySnapshot() === true) void activeAccess.refetch();
     }, 5000);
 
     return () => window.clearInterval(retryId);
-  }, [resolvedActiveSiteId, user?.role, hasActiveTenantAccess, activeAccess.refetch]);
+  }, [resolvedActiveSiteId, user?.role, hasActiveTenantAccess, activeAccess.isError, activeAccessErrorCode, activeAccess.refetch]);
   const smsAccess = trpc.powerhub.staff.myAccess.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const smsApprovalQuery = trpc.powerhub.messaging.currentSmsPackageRequest.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && smsAccess.data?.role === "owner"), refetchInterval: 15000 });
   const [dismissedSmsApprovalId, setDismissedSmsApprovalId] = useState<string | null>(() => localStorage.getItem("powerhub.sms-approval-notice-dismissed"));
   const branchPolicy = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
   const paymentDocumentationAccess = trpc.powerhub.paymentDocumentation.access.useQuery({ siteId: primarySiteId }, { enabled: Boolean(primarySiteId && user?.role !== "admin") });
-  const operationalGroups = menuGroups.map((group) => group.label === "التشغيل" ? { ...group, items: group.items.filter((item) => item.path !== "/branches" || branchPolicy.data?.isEnabled !== false) } : group);
+  const operationalGroups = menuGroups.map((group) => group.label === "التشغيل" ? {
+    ...group,
+    items: group.items.filter((item) => item.path !== "/branches" ||
+      shouldShowBranchManagement(branchPolicy.data, displayUser.role)),
+  } : group);
   const canSeePlatformAdmin = displayUser.role === "admin" && ["platform_owner", "platform_admin"].includes(displayUser.platformRole ?? "");
   const visibleMenuGroups = canSeePlatformAdmin ? [...operationalGroups, platformAdminGroup] : operationalGroups;
   const permissionAwareGroups = visibleMenuGroups.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
       if (displayUser.role === "admin") return true;
+      if (item.path === "/support-chat") return !tenantFeatureAccess.isError && tenantFeatureAccess.data?.support_chat === true;
+      if (item.path === "/ai-support") return !tenantFeatureAccess.isError && tenantFeatureAccess.data?.powerhub_ai_assistant === true;
       if (item.path === "/payment-documentation") return Boolean(paymentDocumentationAccess.data?.allowed);
       if (!hasActiveTenantAccess) {
         // Keep navigation discoverable during a transient access-check outage.

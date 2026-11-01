@@ -79,3 +79,15 @@ export function tenantMenuRouteAllowed(
   if (rule.capability) return can(role, rule.capability, permissions);
   return Boolean(role);
 }
+
+/** Branch navigation is a feature/limit decision, not a count-of-existing-sites decision. */
+export function shouldShowBranchManagement(
+  policy: { isEnabled?: boolean; maxBranches?: number | null } | null | undefined,
+  platformRole?: string | null,
+): boolean {
+  if (platformRole === "admin") return true;
+  return policy?.isEnabled === true &&
+    typeof policy.maxBranches === "number" &&
+    Number.isFinite(policy.maxBranches) &&
+    policy.maxBranches > 1;
+}

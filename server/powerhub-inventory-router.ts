@@ -22,6 +22,28 @@ type InventoryStockOverviewRow = {
   below_reorder_point: boolean;
 };
 
+type InventoryStocktakeRow = {
+  stocktake_id: number;
+  stocktake_number: string;
+  warehouse_id: number;
+  warehouse_name: string;
+  location_type: string;
+  status: string;
+  reason: string;
+  notes: string | null;
+  snapshot_at: string;
+  created_at: string;
+  created_by_user_id: number | null;
+  submitted_at: string | null;
+  submitted_by_user_id: number | null;
+  posted_at: string | null;
+  posted_by_user_id: number | null;
+  item_count: number;
+  counted_count: number;
+  variance_count: number;
+  variance_quantity: number | string;
+};
+
 type InventoryStockMovementRow = {
   movement_id: number;
   warehouse_id: number;
@@ -273,6 +295,22 @@ async function requirePurchaseReadAccess(userId: number, siteId: number) {
     throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض المشتريات أو تنفيذ استلام أو مرتجع مخزني." });
   }
   return { ...access, canViewFinancials, canManageSupplierPayments };
+}
+
+async function requirePurchaseReceiptHistoryReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const allowed = access.permissions.includes("viewPurchases") ||
+    access.permissions.includes("receiveInventory") || access.permissions.includes("adjustInventory");
+  if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجل الاستلام." });
+  return access;
+}
+
+async function requireSupplierReturnHistoryReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteAccess(userId, siteId);
+  const allowed = access.permissions.includes("viewPurchases") ||
+    access.permissions.includes("manageSupplierPayments") || access.permissions.includes("adjustInventory");
+  if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجل مرتجعات المورد." });
+  return access;
 }
 
 async function requireStockReadAccess(userId: number, siteId: number) {
@@ -968,6 +1006,128 @@ export const powerhubInventoryRouter = router({
       }));
     }),
 
+  listPurchaseHeaders: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      limit: z.number().int().min(1).max(200).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requirePurchaseReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().from("supplier_purchases")
+        .select("id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,invoice_date,status,created_at,updated_at,confirmed_at,received_at,cancelled_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .in("status", ["confirmed", "partially_received", "received"])
+        .order("invoice_date", { ascending: false }).order("id", { ascending: false }).limit(input.limit);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل عناوين المشتريات التشغيلية." });
+      const purchases = (data ?? []) as Array<Record<string, unknown>>;
+      if (!purchases.length) return [];
+      const supplierIds = [...new Set(purchases.map((row) => Number(row.supplier_id)))];
+      const warehouseIds = [...new Set(purchases.map((row) => Number(row.warehouse_id)))];
+      const [suppliersResult, warehousesResult] = await Promise.all([
+        supabaseAdmin().from("suppliers").select("id,name,supplier_code")
+          .eq("tenant_id", access.tenantId).in("id", supplierIds),
+        supabaseAdmin().from("inventory_warehouses").select("id,name")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("id", warehouseIds),
+      ]);
+      if (suppliersResult.error || warehousesResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء الموردين والمخازن." });
+      }
+      const supplierById = new Map((suppliersResult.data ?? []).map((row) => [Number(row.id), row]));
+      const warehouseById = new Map((warehousesResult.data ?? []).map((row) => [Number(row.id), row]));
+      return purchases.map((row) => {
+        const id = Number(row.id);
+        const supplierId = Number(row.supplier_id);
+        const warehouseId = Number(row.warehouse_id);
+        const supplier = supplierById.get(supplierId);
+        const warehouse = warehouseById.get(warehouseId);
+        return {
+          id, purchase_id: id,
+          tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId,
+          supplier_id: supplierId, supplierId,
+          supplier_name: supplier?.name ?? "مورد غير متاح",
+          supplierName: supplier?.name ?? "مورد غير متاح",
+          supplier_code: supplier?.supplier_code ?? null,
+          supplierCode: supplier?.supplier_code ?? null,
+          warehouse_id: warehouseId, warehouseId,
+          warehouse_name: warehouse?.name ?? "مخزن غير متاح",
+          warehouseName: warehouse?.name ?? "مخزن غير متاح",
+          purchase_number: String(row.purchase_number ?? ""),
+          invoice_date: String(row.invoice_date ?? ""),
+          status: String(row.status ?? ""),
+          created_at: String(row.created_at ?? ""),
+          updated_at: String(row.updated_at ?? ""),
+          confirmed_at: typeof row.confirmed_at === "string" ? row.confirmed_at : null,
+          received_at: typeof row.received_at === "string" ? row.received_at : null,
+          cancelled_at: typeof row.cancelled_at === "string" ? row.cancelled_at : null,
+        };
+      });
+    }),
+
+  listPurchaseReceiptHeaders: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(100) }))
+    .query(async ({ ctx, input }) => {
+      const access = await requirePurchaseReceiptHistoryReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_inventory_sync_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: "inventory_purchase_receipt_headers",
+      });
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الاستلام التشغيلي." });
+      }
+      const snapshot = data as unknown as { rows?: unknown[] };
+      const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+      return rows.slice(0, input.limit).flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const row = item as Record<string, unknown>;
+        const id = Number(row.receipt_id ?? row.id);
+        const purchaseId = Number(row.purchase_id), supplierId = Number(row.supplier_id), warehouseId = Number(row.warehouse_id);
+        const supplierName = String(row.supplier_name ?? ""), warehouseName = String(row.warehouse_name ?? "");
+        return [{
+          id, receipt_id: id, tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId, purchase_id: purchaseId, purchaseId,
+          purchase_number: String(row.purchase_number ?? ""), receipt_number: String(row.receipt_number ?? ""),
+          receipt_date: String(row.receipt_date ?? ""), status: String(row.status ?? ""),
+          supplier_id: supplierId, supplierId, supplier_name: supplierName, supplierName,
+          supplier_code: (row.supplier_code ?? null) as string | null,
+          warehouse_id: warehouseId, warehouseId, warehouse_name: warehouseName, warehouseName,
+          received_at: (row.received_at ?? null) as string | null, created_at: String(row.created_at ?? ""),
+          line_count: Number(row.line_count ?? 0), received_quantity: String(row.received_quantity ?? "0.000"),
+        }];
+      });
+    }),
+
+  listSupplierReturnHeaders: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(100) }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupplierReturnHistoryReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_inventory_sync_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: "inventory_supplier_return_headers",
+      });
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل مرتجعات المورد التشغيلي." });
+      }
+      const snapshot = data as unknown as { rows?: unknown[] };
+      const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+      return rows.slice(0, input.limit).flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const row = item as Record<string, unknown>;
+        const id = Number(row.return_id ?? row.id);
+        const purchaseId = Number(row.purchase_id), supplierId = Number(row.supplier_id), warehouseId = Number(row.warehouse_id);
+        const supplierName = String(row.supplier_name ?? ""), warehouseName = String(row.warehouse_name ?? "");
+        return [{
+          id, return_id: id, tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId, purchase_id: purchaseId, purchaseId,
+          purchase_number: String(row.purchase_number ?? ""), return_number: String(row.return_number ?? ""),
+          return_date: String(row.return_date ?? ""), status: String(row.status ?? ""),
+          supplier_id: supplierId, supplierId, supplier_name: supplierName, supplierName,
+          supplier_code: (row.supplier_code ?? null) as string | null,
+          warehouse_id: warehouseId, warehouseId, warehouse_name: warehouseName, warehouseName,
+          returned_at: (row.returned_at ?? null) as string | null, created_at: String(row.created_at ?? ""),
+          line_count: Number(row.line_count ?? 0), returned_quantity: String(row.returned_quantity ?? "0.000"),
+        }];
+      });
+    }),
+
   getPurchase: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), purchaseId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
@@ -1207,6 +1367,18 @@ export const powerhubInventoryRouter = router({
 
 
 
+  stocktakeOfflineAccess: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStocktakeReadAccess(ctx.user.id, input.siteId);
+      return {
+        tenantId: access.tenantId,
+        canViewStocktakes: access.permissions.includes("viewStocktakes"),
+        canManageStocktakes: access.permissions.includes("manageStocktakes"),
+        canApproveStocktakes: access.permissions.includes("approveStocktakes"),
+      };
+    }),
+
   listStocktakeWarehouses: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
@@ -1232,7 +1404,13 @@ export const powerhubInventoryRouter = router({
         p_warehouse_id: input.warehouseId ?? null, p_limit: input.limit,
       });
       if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل سجل جلسات الجرد.");
-      return data ?? [];
+      const stocktakes = (data ?? []) as InventoryStocktakeRow[];
+      return stocktakes.map((row) => ({
+        ...row,
+        id: Number(row.stocktake_id),
+        tenantId: access.tenantId,
+        siteId: input.siteId,
+      }));
     }),
 
   listStocktakeLines: protectedProcedure
@@ -1272,6 +1450,7 @@ export const powerhubInventoryRouter = router({
       countedUnitCost: z.number().finite().min(0).max(1_000_000_000)
         .refine((value) => Math.abs(value * 10000 - Math.round(value * 10000)) < 1e-7).optional(),
       countNotes: z.string().trim().max(500).optional(),
+      operationKey: z.string().trim().min(1).max(180),
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageStocktakes");
@@ -1279,7 +1458,7 @@ export const powerhubInventoryRouter = router({
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_stocktake_id: input.stocktakeId, p_item_id: input.itemId,
         p_counted_quantity: input.countedQuantity, p_counted_unit_cost: input.countedUnitCost ?? null,
-        p_count_notes: input.countNotes || null,
+        p_count_notes: input.countNotes || null, p_operation_key: input.operationKey,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر حفظ كمية العد الفعلية.");
       return data[0];

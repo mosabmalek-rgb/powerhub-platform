@@ -22,7 +22,9 @@ describe("escapeHtml", () => {
     const reports = readFileSync(resolve(process.cwd(), "client/src/pages/ReportsPage.tsx"), "utf8");
 
     expect(payroll).toContain("escapeHtml(run.period)");
-    expect(payroll).toContain("escapeHtml(selectedRun?.period ?? period)");
+    expect(payroll).toContain("const selectedPeriod = source.mode === \"details\" ? source.selectedRun.period : period");
+    expect(payroll).toContain("escapeHtml(selectedPeriod)");
+    expect(payroll).toContain("getVerifiedPayrollExportSource");
     expect(operations).toContain('escapeHtml(paymentPeriod === "today" ? "اليوم"');
     expect(operations).toContain("escapeHtml(siteName)");
     expect(operations).toContain("escapeHtml(cell)");
@@ -58,5 +60,27 @@ describe("PDF table layout", () => {
     expect(source).toContain('table.style.borderCollapse = "collapse"');
     expect(source).toContain("element.cloneNode(true)");
     expect(source).toContain("host.remove()");
+  });
+});
+
+
+describe("Payment receipt PDF generation", () => {
+  it("creates the receipt in an offscreen DOM and downloads it without opening a popup or print dialog", () => {
+    const operations = readFileSync(resolve(process.cwd(), "client/src/pages/OperationsPage.tsx"), "utf8");
+    const start = operations.indexOf("function downloadPaymentReceiptPdf(");
+    const end = operations.indexOf("\nfunction ReadOnlyCard()", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const receipt = operations.slice(start, end);
+
+    expect(receipt).toContain('document.createElement("div")');
+    expect(receipt).toContain("document.body.appendChild(receiptRoot)");
+    expect(receipt).toContain("document.fonts?.ready");
+    expect(receipt).toContain("image.decode()");
+    expect(receipt).toContain("downloadReportHtmlAsPdf(");
+    expect(receipt).toContain('companyName || ("مولدات " + siteName)');
+    expect(receipt).toContain('alt="شعار الاشتراك"');
+    expect(receipt).not.toContain("window.open");
+    expect(receipt).not.toContain("window.print");
   });
 });

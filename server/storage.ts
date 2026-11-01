@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "./supabase-admin";
 
-const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "powerhub-private";
+export const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "powerhub-private";
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
 function normalizeKey(relKey: string): string {

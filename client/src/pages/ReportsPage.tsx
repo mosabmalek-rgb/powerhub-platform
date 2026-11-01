@@ -6,14 +6,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { useAdaptiveDeltaRefresh } from "@/hooks/useAdaptiveDeltaRefresh";
 import { trpc } from "@/lib/trpc";
 import { listOfflineWork, type QueuedOfflineWork } from "@/lib/offline-work-queue";
 import { REPORT_METRICS, REPORT_PAYMENT_METHOD_LABELS, REPORT_PAYMENT_METHOD_OPTIONS, formatReportDate, formatReportPeriod } from "@/lib/report-design-system";
-import { loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
+import { createOfflineReportSnapshotPayload, getUsableReportSnapshot, loadReportSnapshot, saveReportSnapshot, type CachedReportSnapshot } from "@/lib/offline-report-cache";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -40,7 +43,7 @@ const reportSectionLabels: Record<ReportSection, string> = { summary: "المل�
 function financialRows(report: FinancialReport, scopeName: string, sections: ReportSection[] = ["summary", "branches", "collectors", "payments"]) {
   const branchRows = report.branchSummaries ?? [];
   const paymentRows = (report.paymentDetails ?? []).map((payment) => [payment.paymentNo, payment.amount, payment.paymentMethod, payment.transferFromAccount ?? "—", payment.transferFromType ?? "—", payment.transferToAccount ?? "—", payment.transferToType ?? "—"]);
-  return [["تقرير PowerHub المالي", ""], ["النطاق", scopeName], ["بداية الفترة", report.range.startDate], ["نهاية الفترة", report.range.endDate], ...(sections.includes("summary") ? [[], ["المؤشر", "القيمة"], ["إجمالي الفوترة", report.summary.invoiced], ["إجمالي التحصيل", report.summary.collected], ["الأرصدة المستحقة", report.summary.outstanding], ["الاستهلاك kWh", report.summary.energyKwh], ["المصروفات", report.summary.expenseTotal], ["صافي التدفق التشغيلي", report.summary.operatingProfit]] : []), ...(sections.includes("branches") && branchRows.length ? [[], ["تفصيل الأفرع", "الفوترة", "التحصيل", "الأرصدة المستحقة", "المصروفات", "صافي التدفق التشغيلي"], ...branchRows.map((branch) => [branch.branchName, branch.invoiced, branch.collected, branch.outstanding, branch.expenseTotal, branch.operatingProfit])] : []), ...(sections.includes("collectors") ? [[], ["المحصل", "عدد الدفعات", "قيمة التحصيل"], ...report.collectors.map((row) => [row.name, row.count, row.amount])] : []), ...(sections.includes("payments") && paymentRows.length ? [[], ["رقم الإيصال", "المبلغ", "الطريقة", "الحساب المحوِّل", "نوعه", "الحساب المستقبِل", "نوعه"], ...paymentRows] : [])];
+  return [["تقرير PowerHub المالي", ""], ["النطاق", scopeName], ["بداية الفترة", report.range.startDate], ["نهاية الفترة", report.range.endDate], ...(sections.includes("summary") ? [[], ["المؤشر", "القيمة"], ["إجمالي الفوترة", report.summary.invoiced], ["إجمالي التحصيل", report.summary.collected], ["الأرصدة المستحقة", report.summary.outstanding], ["الاستهلاك kWh", report.summary.energyKwh], ["المصروفات", report.summary.expenseTotal], ["صافي التدفق التشغيلي", report.summary.operatingProfit]] : []), ...(sections.includes("branches") && branchRows.length ? [[], ["تفصيل الأفرع", "الفوترة", "التحصيل", "الأرصدة المستحقة", "المصروفات", "صافي التدفق التشغيلي"], ...branchRows.map((branch) => [branch.branchName, branch.invoiced, branch.collected, branch.outstanding, branch.expenseTotal, branch.operatingProfit])] : []), ...(sections.includes("collectors") ? [[], ["المحصل", "عدد الدفعات", "قيمة التحصيل"], ...(report.collectors ?? []).map((row) => [row.name, row.count, row.amount])] : []), ...(sections.includes("payments") && paymentRows.length ? [[], ["رقم الإيصال", "المبلغ", "الطريقة", "الحساب المحوِّل", "نوعه", "الحساب المستقبِل", "نوعه"], ...paymentRows] : [])];
 }
 
 function triggerDownload(blob: Blob, filename: string) {
@@ -76,13 +79,35 @@ export default function ReportsPage() {
   const canUseAllBranches = accessQuery.data?.isGlobal === true && (sitesQuery.data?.length ?? 0) > 1;
   const canCompareBranches = canUseAllBranches;
   const canManageBranding = roleQuery.data?.role === "owner";
+  const canReadFinancialReport = ["owner", "manager", "accountant", "viewer"].includes(roleQuery.data?.role ?? "");
   const baseEnabled = Boolean(branchId && isAuthenticated && startDate <= endDate);
   const branchReportQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "branch" });
   const allReportQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "all" && canUseAllBranches });
   const activeQuery = scope === "all" ? allReportQuery : branchReportQuery;
-  const liveReport = activeQuery.data as FinancialReport | undefined;
-  const report = liveReport ?? cachedSnapshot?.report as FinancialReport | undefined;
-  const usingCachedReport = !liveReport && Boolean(cachedSnapshot);
+  const reportAccessDenied = [activeQuery.error?.data?.code, roleQuery.error?.data?.code, accessQuery.error?.data?.code]
+    .some((code) => code === "FORBIDDEN" || code === "UNAUTHORIZED");
+  const reportRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
+    { siteId: branchId ?? 0, scope },
+    {
+      enabled: Boolean(baseEnabled && canReadFinancialReport && !reportAccessDenied && (scope !== "all" || canUseAllBranches)),
+      staleTime: 0,
+      refetchInterval: false,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    },
+  );
+  // React Query can retain previous data after a failed refetch. Only a
+  // successful, current-scope read may refresh the local financial snapshot.
+  const liveReport = !reportAccessDenied && hasAuthoritativeServerRead(activeQuery)
+    ? activeQuery.data as FinancialReport | undefined
+    : undefined;
+  const snapshotScope = user?.id && branchId ? { userId: user.id, siteId: branchId, scope, startDate, endDate } as const : null;
+  const cachedSnapshotForCurrentScope = snapshotScope ? getUsableReportSnapshot(cachedSnapshot, snapshotScope, {
+    authorizationDenied: reportAccessDenied,
+    accessAllowed: Boolean(user?.id && branchId && (scope !== "all" || canUseAllBranches)),
+  }) : undefined;
+  const report = reportAccessDenied ? undefined : liveReport ?? cachedSnapshotForCurrentScope?.report as FinancialReport | undefined;
+  const usingCachedReport = !liveReport && Boolean(cachedSnapshotForCurrentScope);
   const scopeName = scope === "all" ? `جميع الأفرع (${report?.scope?.branchCount ?? sitesQuery.data?.length ?? 0})` : sitesQuery.data?.find((site) => site.id === branchId)?.name ?? "الفرع المحدد";
   const alternateBranchId = comparisonSiteId ?? (sitesQuery.data ?? []).find((site) => site.id !== branchId)?.id ?? null;
   const comparisonPeriodEnabled = baseEnabled && comparisonMode === "period" && comparisonStartDate <= comparisonEndDate;
@@ -90,11 +115,82 @@ export default function ReportsPage() {
   const comparisonPeriodBranchQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate: comparisonStartDate, endDate: comparisonEndDate }, { enabled: comparisonPeriodEnabled && scope === "branch" });
   const comparisonPeriodAllQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate: comparisonStartDate, endDate: comparisonEndDate }, { enabled: comparisonPeriodEnabled && scope === "all" && canUseAllBranches });
   const comparisonBranchQuery = trpc.powerhub.reports.range.useQuery({ siteId: alternateBranchId ?? 0, startDate, endDate }, { enabled: comparisonBranchEnabled });
-  const comparisonReport = (comparisonMode === "branch" ? comparisonBranchQuery.data : scope === "all" ? comparisonPeriodAllQuery.data : comparisonPeriodBranchQuery.data) as FinancialReport | undefined;
-  const comparisonIsFetching = comparisonMode === "branch" ? comparisonBranchQuery.isFetching : scope === "all" ? comparisonPeriodAllQuery.isFetching : comparisonPeriodBranchQuery.isFetching;
+  const comparisonActiveQuery = comparisonMode === "branch" ? comparisonBranchQuery
+    : scope === "all" ? comparisonPeriodAllQuery : comparisonPeriodBranchQuery;
+  const comparisonReport = hasAuthoritativeServerRead(comparisonActiveQuery)
+    ? comparisonActiveQuery.data as FinancialReport | undefined
+    : undefined;
+  const comparisonIsFetching = comparisonActiveQuery.isFetching;
+  const comparisonBranchRevisionEnabled = comparisonBranchEnabled && canReadFinancialReport;
+  const comparisonBranchRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
+    { siteId: alternateBranchId ?? 0, scope: "branch" },
+    { enabled: comparisonBranchRevisionEnabled, staleTime: 0, refetchInterval: false, refetchOnReconnect: false, refetchOnWindowFocus: false },
+  );
+  const lastReportRevisions = useRef<Map<string, string>>(new Map());
+  const lastComparisonReportRevisions = useRef<Map<string, string>>(new Map());
+  const checkFinancialReportRevision = useCallback(async () => {
+    await reportRevisionQuery.refetch();
+  }, [reportRevisionQuery.refetch]);
+  useAdaptiveDeltaRefresh({
+    scopeKey: "financial-report:" + String(user?.id ?? "unknown") + ":" + String(branchId ?? 0) + ":" + scope,
+    enabled: Boolean(baseEnabled && canReadFinancialReport && !reportAccessDenied && (scope !== "all" || canUseAllBranches)),
+    check: checkFinancialReportRevision,
+    realtimeTopic: isExplicitAuthorizationDenial(reportRevisionQuery.error) ? null : reportRevisionQuery.data?.realtimeTopic,
+  });
+  const checkComparisonBranchRevision = useCallback(async () => {
+    await comparisonBranchRevisionQuery.refetch();
+  }, [comparisonBranchRevisionQuery.refetch]);
+  useAdaptiveDeltaRefresh({
+    scopeKey: "financial-report-comparison:" + String(user?.id ?? "unknown") + ":" + String(alternateBranchId ?? 0),
+    enabled: comparisonBranchRevisionEnabled,
+    check: checkComparisonBranchRevision,
+    realtimeTopic: isExplicitAuthorizationDenial(comparisonBranchRevisionQuery.error) ? null : comparisonBranchRevisionQuery.data?.realtimeTopic,
+  });
   const comparisonScopeName = comparisonMode === "branch" ? sitesQuery.data?.find((site) => site.id === alternateBranchId)?.name ?? "الفرع المقارن" : `${scopeName} — ${comparisonStartDate} إلى ${comparisonEndDate}`;
   const brandingQuery = trpc.powerhub.reportBranding.get.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
   const brandingMutation = trpc.powerhub.reportBranding.update.useMutation({ onSuccess: async () => { await brandingQuery.refetch(); toast.success("تم تحديث هوية التقرير الرسمية."); }, onError: (error) => toast.error(error.message) });
+
+
+  useEffect(() => {
+    const revision = reportRevisionQuery.data?.revisions?.financialReport;
+    if (!user?.id || !branchId || !revision || !baseEnabled) return;
+    const key = [user.id, branchId, scope].join(":");
+    const previous = lastReportRevisions.current.get(key);
+    lastReportRevisions.current.delete(key);
+    lastReportRevisions.current.set(key, revision);
+    while (lastReportRevisions.current.size > 32) {
+      const oldest = lastReportRevisions.current.keys().next().value;
+      if (oldest === undefined) break;
+      lastReportRevisions.current.delete(oldest);
+    }
+    if (previous && previous !== revision) {
+      // Re-run the exact server query for the active filter set; never rebuild
+      // a financial report from partial Delta rows or a local snapshot.
+      void activeQuery.refetch();
+      if (comparisonMode === "period") void comparisonActiveQuery.refetch();
+    }
+  }, [
+    reportRevisionQuery.dataUpdatedAt, reportRevisionQuery.data?.revisions?.financialReport,
+    user?.id, branchId, scope, baseEnabled, comparisonMode,
+    activeQuery.refetch, comparisonActiveQuery.refetch,
+  ]);
+  useEffect(() => {
+    const revision = comparisonBranchRevisionQuery.data?.revisions?.financialReport;
+    if (!user?.id || !alternateBranchId || !revision || !comparisonBranchRevisionEnabled) return;
+    const key = [user.id, alternateBranchId].join(":");
+    const previous = lastComparisonReportRevisions.current.get(key);
+    lastComparisonReportRevisions.current.set(key, revision);
+    while (lastComparisonReportRevisions.current.size > 32) {
+      const oldest = lastComparisonReportRevisions.current.keys().next().value;
+      if (oldest === undefined) break;
+      lastComparisonReportRevisions.current.delete(oldest);
+    }
+    if (previous && previous !== revision) void comparisonBranchQuery.refetch();
+  }, [
+    comparisonBranchRevisionQuery.dataUpdatedAt,
+    comparisonBranchRevisionQuery.data?.revisions?.financialReport,
+    user?.id, alternateBranchId, comparisonBranchRevisionEnabled, comparisonBranchQuery.refetch,
+  ]);
 
   useEffect(() => { if (scope === "all" && !canUseAllBranches) setScope("branch"); }, [canUseAllBranches, scope]);
   useEffect(() => { if (comparisonMode === "branch" && !canCompareBranches) setComparisonMode("period"); }, [canCompareBranches, comparisonMode]);
@@ -108,7 +204,7 @@ export default function ReportsPage() {
   useEffect(() => {
     if (!user?.id || !branchId) return;
     const input = { userId: user.id, siteId: branchId, scope, startDate, endDate } as const;
-    if (liveReport) { void saveReportSnapshot({ ...input, report: liveReport }).then(setCachedSnapshot).catch(() => undefined); }
+    if (liveReport) { void saveReportSnapshot({ ...input, report: createOfflineReportSnapshotPayload(liveReport) }).then(setCachedSnapshot).catch(() => undefined); }
     else { void loadReportSnapshot(input).then((snapshot) => setCachedSnapshot(snapshot ?? null)).catch(() => setCachedSnapshot(null)); }
     void listOfflineWork({ userId: user.id, siteId: branchId }).then((items) => setPendingPaymentDrafts(items.filter((item) => item.kind === "payment_create" && item.status !== "applied"))).catch(() => setPendingPaymentDrafts([]));
   }, [branchId, endDate, liveReport, scope, startDate, user?.id]);
@@ -116,10 +212,10 @@ export default function ReportsPage() {
   const clearReportFilters = () => { setScope("branch"); setStartDate(currentMonthStart); setEndDate(currentDate); setReportPaymentProvider("all"); setReportKind("monthly"); };
   const reportFilterLabel = reportPaymentProvider === "all" ? "كل طرق الدفع" : (paymentProviderLabels[reportPaymentProvider] ?? reportPaymentProvider);
   const filteredExportReport = report ? { ...report, paymentDetails: (report.paymentDetails ?? []).filter((payment) => reportPaymentProvider === "all" || payment.paymentMethod === reportPaymentProvider) } : null;
-  const printReport = () => { if (!pdfRef.current) return; const printWindow = window.open("", "_blank", "width=1000,height=800"); if (!printWindow) return toast.error("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مجدداً."); printWindow.document.write(`<html dir="rtl"><head><title>تقرير PowerHub</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#0D1117}img{max-width:100px}table{border-collapse:collapse;width:100%}td,th{padding:8px;border:1px solid #ddd} @media print{button{display:none}}</style></head><body></body></html>`); printWindow.document.close(); printWindow.document.body.appendChild(pdfRef.current.cloneNode(true)); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); };
-  const downloadCsv = () => { if (!liveReport) return toast.error("التصدير الرسمي يتطلب اتصالاً وتقريراً حديثاً من الخادم."); const rows = financialRows(filteredExportReport ?? liveReport, scopeName, selectedReportSections); rows.splice(1, 0, ["طريقة الدفع", reportFilterLabel]); const csv = "\uFEFF" + rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), `powerhub-financial-${scope === "all" ? "all-branches" : `branch-${branchId}`}-${startDate}_to_${endDate}-${reportPaymentProvider}.csv`); toast.success("تم تصدير التقرير المالي المفلتر بصيغة CSV."); };
-  const downloadExcel = async () => { if (!liveReport) return toast.error("التصدير الرسمي يتطلب اتصالاً وتقريراً حديثاً من الخادم."); try { const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook(); workbook.creator = "PowerHub"; workbook.created = new Date(); const sheet = workbook.addWorksheet("التقرير المالي", { views: [{ rightToLeft: true }] }); sheet.addRow(["معايير التصفية", `الفترة: ${formatReportPeriod(startDate, endDate)} | طريقة الدفع: ${reportFilterLabel}`]); financialRows(filteredExportReport ?? liveReport, scopeName, selectedReportSections).forEach((row) => sheet.addRow(row)); sheet.columns = [{ width: 30 }, { width: 22 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }]; [1, 6].forEach((rowNumber) => { const row = sheet.getRow(rowNumber); row.font = { bold: true, color: { argb: "FFFFFFFF" } }; row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; row.height = 24; }); for (let index = 1; index <= sheet.rowCount; index += 1) sheet.getRow(index).alignment = { vertical: "middle", horizontal: "right" }; const buffer = await workbook.xlsx.writeBuffer(); triggerDownload(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `powerhub-financial-${scope === "all" ? "all-branches" : `branch-${branchId}`}-${startDate}_to_${endDate}.xlsx`); toast.success("تم تجهيز تقرير Excel المالي."); } catch { toast.error("تعذر تجهيز ملف Excel. حاول مرة أخرى."); } };
-  const downloadPdf = async () => { if (!pdfRef.current || !liveReport) return toast.error("تصدير PDF الرسمي يتطلب اتصالاً وتقريراً حديثاً من الخادم."); try { await downloadReportHtmlAsPdf(pdfRef.current, "تقرير-مالي-" + startDate + ".pdf", { title: "تقرير مالي رسمي من PowerHub" }); toast.success("تم تصدير التقرير بصيغة PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
+  const printReport = () => { if (!liveReport || usingCachedReport || reportAccessDenied || !pdfRef.current) { toast.error("لا يمكن طباعة لقطة مالية محلية كتقرير رسمي؛ يلزم تحقق خادمي ناجح وحديث."); return; } const printWindow = window.open("", "_blank", "width=1000,height=800"); if (!printWindow) return toast.error("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مجدداً."); printWindow.document.write(`<html dir="rtl"><head><title>تقرير PowerHub</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#0D1117}img{max-width:100px}table{border-collapse:collapse;width:100%}td,th{padding:8px;border:1px solid #ddd} @media print{button{display:none}}</style></head><body></body></html>`); printWindow.document.close(); printWindow.document.body.appendChild(pdfRef.current.cloneNode(true)); printWindow.focus(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); };
+  const downloadCsv = () => { if (!liveReport || usingCachedReport || reportAccessDenied) return toast.error("التصدير الرسمي يتطلب تحققًا خادميًا ناجحًا وحديثًا لنفس الفلاتر."); const rows = financialRows(filteredExportReport ?? liveReport, scopeName, selectedReportSections); rows.splice(1, 0, ["طريقة الدفع", reportFilterLabel]); const csv = "\uFEFF" + rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n"); triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), `powerhub-financial-${scope === "all" ? "all-branches" : `branch-${branchId}`}-${startDate}_to_${endDate}-${reportPaymentProvider}.csv`); toast.success("تم تصدير التقرير المالي المفلتر بصيغة CSV."); };
+  const downloadExcel = async () => { if (!liveReport || usingCachedReport || reportAccessDenied) return toast.error("التصدير الرسمي يتطلب تحققًا خادميًا ناجحًا وحديثًا لنفس الفلاتر."); try { const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook(); workbook.creator = "PowerHub"; workbook.created = new Date(); const sheet = workbook.addWorksheet("التقرير المالي", { views: [{ rightToLeft: true }] }); sheet.addRow(["معايير التصفية", `الفترة: ${formatReportPeriod(startDate, endDate)} | طريقة الدفع: ${reportFilterLabel}`]); financialRows(filteredExportReport ?? liveReport, scopeName, selectedReportSections).forEach((row) => sheet.addRow(row)); sheet.columns = [{ width: 30 }, { width: 22 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 18 }]; [1, 6].forEach((rowNumber) => { const row = sheet.getRow(rowNumber); row.font = { bold: true, color: { argb: "FFFFFFFF" } }; row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; row.height = 24; }); for (let index = 1; index <= sheet.rowCount; index += 1) sheet.getRow(index).alignment = { vertical: "middle", horizontal: "right" }; const buffer = await workbook.xlsx.writeBuffer(); triggerDownload(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `powerhub-financial-${scope === "all" ? "all-branches" : `branch-${branchId}`}-${startDate}_to_${endDate}.xlsx`); toast.success("تم تجهيز تقرير Excel المالي."); } catch { toast.error("تعذر تجهيز ملف Excel. حاول مرة أخرى."); } };
+  const downloadPdf = async () => { if (!pdfRef.current || !liveReport || usingCachedReport || reportAccessDenied) return toast.error("تصدير PDF الرسمي يتطلب تحققًا خادميًا ناجحًا وحديثًا لنفس الفلاتر."); try { await downloadReportHtmlAsPdf(pdfRef.current, "تقرير-مالي-" + startDate + ".pdf", { title: "تقرير مالي رسمي من PowerHub" }); toast.success("تم تصدير التقرير بصيغة PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
   const saveCompanyName = () => { if (!branchId || !companyNameDraft.trim()) return toast.error("أدخل اسم الشركة أولاً."); brandingMutation.mutate({ siteId: branchId, companyName: companyNameDraft.trim() }); };
   const selectLogo = async (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return; if (!(["image/png", "image/jpeg", "image/webp"] as string[]).includes(file.type)) return toast.error("استخدم شعار PNG أو JPG أو WebP فقط."); if (file.size > 3 * 1024 * 1024) return toast.error("يجب ألا يتجاوز حجم الشعار 3 ميغابايت."); try { const logoData = await readBase64(file); brandingMutation.mutate({ siteId: branchId!, companyName: companyNameDraft.trim() || undefined, logoData, logoMime: file.type as "image/png" | "image/jpeg" | "image/webp" }); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر تجهيز الشعار."); } };
 
@@ -176,7 +272,7 @@ function ReportPreviewDialog({ open, report, scopeName, companyName, logoUrl, pa
       <div className="flex items-start justify-between border-b-4 border-[#F5B800] pb-4">{logoUrl ? <img src={logoUrl} alt="شعار الشركة" className="h-16 w-16 object-contain" /> : <div className="grid h-16 w-16 place-items-center rounded-lg bg-[#0D1117] font-bold text-[#F5B800]">PowerHub</div>}<div><p className="text-xs font-bold text-[#A17400]">{companyName}</p><h2 className="mt-1 text-2xl font-extrabold">تقرير مالي</h2><p className="mt-1 text-xs text-[#647080]">{scopeName} · {formatReportPeriod(startDate, endDate)} · {paymentProvider}</p></div></div>
       {sections.includes("summary") && <section className="mt-5"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{reportMetrics.slice(0, 4).map((metric) => <div className="rounded-lg border border-[#E4E7EB] p-3" key={metric.key}><p className="text-xs text-[#647080]">{metric.label}</p><p className="mt-1 font-bold">{number(report.summary[metric.key])}</p></div>)}</div></section>}
       {sections.includes("branches") && (report.branchSummaries ?? []).length > 0 && <section className="mt-6"><h3 className="font-extrabold">تفصيل الأفرع</h3><div className="mt-3 overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b border-[#E4E7EB]"><th className="p-2">الفرع</th><th className="p-2">الفوترة</th><th className="p-2">التحصيل</th><th className="p-2">الأرصدة المستحقة</th><th className="p-2">المصروفات</th><th className="p-2">صافي التدفق التشغيلي</th></tr></thead><tbody>{(report.branchSummaries ?? []).map((branch) => <tr className="border-b border-[#E4E7EB]" key={branch.siteId}><td className="p-2 font-bold">{branch.branchName}</td><td className="p-2">{number(branch.invoiced)}</td><td className="p-2">{number(branch.collected)}</td><td className="p-2">{number(branch.outstanding)}</td><td className="p-2">{number(branch.expenseTotal)}</td><td className="p-2">{number(branch.operatingProfit)}</td></tr>)}</tbody></table></div></section>}
-      {sections.includes("collectors") && <section className="mt-6"><h3 className="font-extrabold">أداء المحصلين</h3>{report.collectors.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b border-[#E4E7EB]"><th className="p-2">المحصل</th><th className="p-2">عدد العمليات</th><th className="p-2">قيمة التحصيل</th></tr></thead><tbody>{report.collectors.map((collector) => <tr className="border-b border-[#E4E7EB]" key={collector.name}><td className="p-2 font-bold">{collector.name}</td><td className="p-2">{number(collector.count, 0)}</td><td className="p-2">{number(collector.amount)}</td></tr>)}</tbody></table></div> : <p className="mt-2 text-sm text-[#647080]">لا توجد تحصيلات مكتملة ضمن الفترة.</p>}</section>}
+      {sections.includes("collectors") && <section className="mt-6"><h3 className="font-extrabold">أداء المحصلين</h3>{(report.collectors ?? []).length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b border-[#E4E7EB]"><th className="p-2">المحصل</th><th className="p-2">عدد العمليات</th><th className="p-2">قيمة التحصيل</th></tr></thead><tbody>{(report.collectors ?? []).map((collector) => <tr className="border-b border-[#E4E7EB]" key={collector.name}><td className="p-2 font-bold">{collector.name}</td><td className="p-2">{number(collector.count, 0)}</td><td className="p-2">{number(collector.amount)}</td></tr>)}</tbody></table></div> : <p className="mt-2 text-sm text-[#647080]">لا توجد تحصيلات مكتملة ضمن الفترة.</p>}</section>}
       {sections.includes("payments") && <section className="mt-6"><h3 className="font-extrabold">تفاصيل الدفعات والتحويلات</h3>{payments.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b border-[#E4E7EB]"><th className="p-2">الإيصال</th><th className="p-2">المبلغ</th><th className="p-2">طريقة الدفع</th><th className="p-2">الحساب المحوِّل</th><th className="p-2">الحساب المستقبِل</th><th className="p-2">التاريخ</th></tr></thead><tbody>{payments.map((payment) => <tr className="border-b border-[#E4E7EB]" key={payment.paymentNo}><td className="p-2 font-bold">{payment.paymentNo}</td><td className="p-2">{number(payment.amount)}</td><td className="p-2">{paymentProviderLabels[payment.paymentMethod] ?? payment.paymentMethod}</td><td className="p-2">{payment.transferFromAccount ?? "—"}</td><td className="p-2">{payment.transferToAccount ?? "—"}</td><td className="p-2">{formatReportDate(payment.paidAt)}</td></tr>)}</tbody></table></div> : <p className="mt-2 text-sm text-[#647080]">لا توجد دفعات مكتملة ضمن الفلاتر الحالية.</p>}</section>}
     </div>
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3"><p className="mb-2 text-sm font-bold">الحقول الظاهرة في التقرير</p><div className="flex flex-wrap gap-3">{(Object.keys(reportSectionLabels) as ReportSection[]).map((section) => <label className="flex items-center gap-2 text-sm" key={section}><input type="checkbox" checked={sections.includes(section)} onChange={() => onToggleSection(section)} />{reportSectionLabels[section]}</label>)}</div></div>
@@ -193,7 +289,7 @@ function OfficialPdfReport({ reportRef, report, scopeName, companyName, logoUrl,
     <section className="mt-7 grid grid-cols-2 gap-4 rounded-xl bg-[#F5F6F8] p-5 text-sm"><p><strong>نطاق التقرير:</strong> {scopeName}</p><p><strong>الفترة:</strong> {formatReportPeriod(report.range.startDate, report.range.endDate)}</p><p><strong>طريقة الدفع:</strong> {paymentProvider}</p><p><strong>تاريخ الإصدار:</strong> {formatReportDate(new Date())}</p><p><strong>حالة الوثيقة:</strong> صادر إلكترونيًا</p></section>
     {sections.includes("summary") && <section className="mt-7"><h2 className="border-r-4 border-[#F5B800] pr-3 text-lg font-extrabold">الملخص المالي</h2><div className="mt-4 grid grid-cols-2 gap-3">{reportMetrics.map((metric) => <div key={metric.key} className="rounded-lg border border-[#E4E7EB] p-4"><p className="text-xs text-[#647080]">{metric.label}</p><p className="mt-2 text-xl font-extrabold">{number(report.summary[metric.key])}</p></div>)}</div></section>}
     {sections.includes("branches") && branchSummaries.length > 0 && <section className="mt-7"><h2 className="text-lg font-extrabold">تفصيل الأفرع</h2><table className="mt-4 w-full border-collapse text-xs"><thead><tr>{["الفرع","الفوترة","التحصيل","الأرصدة المستحقة","المصروفات","صافي التدفق التشغيلي"].map((label) => <th key={label} className="border border-[#D9DDE3] bg-[#0D1117] p-2 text-white">{label}</th>)}</tr></thead><tbody>{branchSummaries.map((branch) => <tr key={branch.siteId}>{[branch.branchName, number(branch.invoiced), number(branch.collected), number(branch.outstanding), number(branch.expenseTotal), number(branch.operatingProfit)].map((value, index) => <td key={index} className="border border-[#D9DDE3] p-2">{value}</td>)}</tr>)}</tbody></table></section>}
-    {sections.includes("collectors") && <section className="mt-7"><h2 className="text-lg font-extrabold">أداء المحصلين</h2><table className="mt-4 w-full border-collapse text-sm"><thead><tr>{["المحصل","عدد العمليات","قيمة التحصيل"].map((label) => <th key={label} className="border border-[#D9DDE3] bg-[#0D1117] p-2 text-white">{label}</th>)}</tr></thead><tbody>{report.collectors.length ? report.collectors.map((collector) => <tr key={collector.name}><td className="border border-[#D9DDE3] p-2">{collector.name}</td><td className="border border-[#D9DDE3] p-2">{number(collector.count, 0)}</td><td className="border border-[#D9DDE3] p-2">{number(collector.amount)}</td></tr>) : <tr><td colSpan={3} className="border border-[#D9DDE3] p-3 text-center text-[#647080]">لا توجد تحصيلات مكتملة ضمن الفترة.</td></tr>}</tbody></table></section>}
+    {sections.includes("collectors") && <section className="mt-7"><h2 className="text-lg font-extrabold">أداء المحصلين</h2><table className="mt-4 w-full border-collapse text-sm"><thead><tr>{["المحصل","عدد العمليات","قيمة التحصيل"].map((label) => <th key={label} className="border border-[#D9DDE3] bg-[#0D1117] p-2 text-white">{label}</th>)}</tr></thead><tbody>{(report.collectors ?? []).length ? (report.collectors ?? []).map((collector) => <tr key={collector.name}><td className="border border-[#D9DDE3] p-2">{collector.name}</td><td className="border border-[#D9DDE3] p-2">{number(collector.count, 0)}</td><td className="border border-[#D9DDE3] p-2">{number(collector.amount)}</td></tr>) : <tr><td colSpan={3} className="border border-[#D9DDE3] p-3 text-center text-[#647080]">لا توجد تحصيلات مكتملة ضمن الفترة.</td></tr>}</tbody></table></section>}
     {sections.includes("payments") && <section className="mt-7"><h2 className="text-lg font-extrabold">تفاصيل الدفعات والتحويلات</h2><table className="mt-4 w-full border-collapse text-[10px]"><thead><tr>{["الإيصال","المبلغ","طريقة الدفع","الحساب المحوِّل","الحساب المستقبِل","التاريخ"].map((label) => <th key={label} className="border border-[#D9DDE3] bg-[#0D1117] p-2 text-white">{label}</th>)}</tr></thead><tbody>{paymentDetails.length ? paymentDetails.map((payment) => <tr key={payment.paymentNo}><td className="border border-[#D9DDE3] p-2">{payment.paymentNo}</td><td className="border border-[#D9DDE3] p-2">{number(payment.amount)}</td><td className="border border-[#D9DDE3] p-2">{paymentProviderLabels[payment.paymentMethod] ?? payment.paymentMethod}</td><td className="border border-[#D9DDE3] p-2">{payment.transferFromAccount ?? "—"}</td><td className="border border-[#D9DDE3] p-2">{payment.transferToAccount ?? "—"}</td><td className="border border-[#D9DDE3] p-2">{formatReportDate(payment.paidAt)}</td></tr>) : <tr><td colSpan={6} className="border border-[#D9DDE3] p-3 text-center text-[#647080]">لا توجد دفعات مكتملة ضمن الفلاتر الحالية.</td></tr>}</tbody></table></section>}
     {comparison ? <section className="mt-7 border-t border-[#E4E7EB] pt-5"><h2 className="text-lg font-extrabold">ملخص المقارنة</h2><p className="mt-2 text-sm text-[#647080]">خط الأساس: {comparison.label}</p><div className="mt-3 grid grid-cols-2 gap-3 text-sm">{reportMetrics.slice(0, 4).map((metric) => { const change = difference(report.summary[metric.key], comparison.summary[metric.key]); return <p key={metric.key}><strong>{metric.label}:</strong> {number(change.amount)} {change.percent === null ? "(جديد)" : "(" + number(change.percent, 1) + "%)"}</p>; })}</div></section> : null}
     <footer className="mt-10 border-t border-[#E4E7EB] pt-4 text-center text-xs text-[#647080]">هذا التقرير صادر من نظام PowerHub ويعرض بيانات النطاق المحدد فقط.</footer>

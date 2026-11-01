@@ -10,7 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { isUsableReadingCycleBounds } from "@/lib/reading-cycle-bounds";
 import { enqueueOfflineWork } from "@/lib/offline-work-queue";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { cn } from "@/lib/utils";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
@@ -73,12 +76,71 @@ const paymentMethodLabel = REPORT_PAYMENT_METHOD_LABELS;
 
 function formatDate(value: unknown) { return value ? formatReportDate(value as string | number | Date) : "—"; }
 function escapeReceiptHtml(value: unknown) { return String(value ?? "—").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
-function printPartialPaymentReceipt({ payment, invoice, subscriber, siteName }: { payment: any; invoice: any; subscriber: any; siteName: string }) {
-  const popup = window.open("", "powerhub-payment-receipt", "width=760,height=860");
-  if (!popup) { toast.error("تعذر فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم أعد المحاولة."); return; }
+function downloadPaymentReceiptPdf({ payment, invoice, subscriber, siteName, logoUrl, companyName }: { payment: any; invoice: any; subscriber: any; siteName: string; logoUrl?: string | null; companyName?: string | null }) {
+  const receiptRoot = document.createElement("div");
+  receiptRoot.className = "powerhub-payment-receipt-root";
+  receiptRoot.dir = "rtl";
+  receiptRoot.style.cssText = "position:fixed;left:-30000px;top:0;width:794px;pointer-events:none;z-index:-1;background:#fff;overflow:visible";
   const total = Number(invoice.totalAmount); const paid = Number(invoice.paidAmount); const balance = Number(invoice.balanceDue); const paymentAmount = Number(payment.amount);
-  popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>إيصال ${escapeReceiptHtml(payment.paymentNo)}</title><style>@page{size:A4;margin:15mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;color:#0D1117;margin:0;background:#f5f6f8}.receipt{max-width:720px;margin:0 auto;background:#fff;border:1px solid #e6e9ee;border-radius:18px;overflow:hidden}.head{background:#0D1117;color:#fff;padding:28px 32px;display:flex;justify-content:space-between;gap:24px}.brand{color:#F5B800;font-weight:800;font-size:22px}.eyebrow{color:#F5B800;font-size:12px;font-weight:700;letter-spacing:.04em}.head h1{font-size:24px;margin:8px 0 0}.body{padding:30px 32px}.notice{margin-bottom:22px;border:1px solid #f5b800;background:#fff8df;color:#735400;border-radius:12px;padding:14px 16px;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.item{border:1px solid #edf0f4;border-radius:12px;padding:12px}.label{display:block;color:#657080;font-size:12px;margin-bottom:6px}.value{font-weight:700}.amounts{margin-top:22px;border-radius:14px;background:#0D1117;color:#fff;padding:18px}.amounts div{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.12)}.amounts div:last-child{border:0;color:#F5B800;font-size:18px;font-weight:800}.footer{margin-top:28px;padding-top:16px;border-top:1px dashed #cfd5dd;color:#657080;font-size:12px;text-align:center}@media print{body{background:#fff}.receipt{border:0}}</style></head><body><main class="receipt"><header class="head"><div><div class="eyebrow">POWERHUB — إدارة الطاقة بذكاء</div><h1>إيصال تحصيل — دفعة جزئية</h1></div><div class="brand">PowerHub</div></header><section class="body"><div class="notice">تم استلام دفعة جزئية، وما زال الرصيد الموضح أدناه مستحقاً على الفاتورة.</div><div class="grid"><div class="item"><span class="label">المحطة</span><span class="value">${escapeReceiptHtml(siteName)}</span></div><div class="item"><span class="label">رقم الإيصال</span><span class="value" dir="ltr">${escapeReceiptHtml(payment.paymentNo)}</span></div><div class="item"><span class="label">المشترك</span><span class="value">${escapeReceiptHtml(subscriber.fullName)}</span></div><div class="item"><span class="label">رقم الفاتورة</span><span class="value" dir="ltr">${escapeReceiptHtml(invoice.invoiceNo)}</span></div><div class="item"><span class="label">طريقة الدفع</span><span class="value">${escapeReceiptHtml(paymentMethodLabel[payment.paymentMethod] ?? payment.paymentMethod)}</span></div><div class="item"><span class="label">تاريخ التحصيل</span><span class="value">${escapeReceiptHtml(formatDate(payment.paidAt))}</span></div></div><div class="amounts"><div><span>إجمالي الفاتورة</span><strong>${formatValue(total, 2)}</strong></div><div><span>الدفعة المستلمة الآن</span><strong>${formatValue(paymentAmount, 2)}</strong></div><div><span>إجمالي المدفوع</span><strong>${formatValue(paid, 2)}</strong></div><div><span>الرصيد المتبقي</span><strong>${formatValue(balance, 2)}</strong></div></div><p class="footer">هذا الإيصال صادر من PowerHub. احتفظ به كمرجع لعملية التحصيل.</p></section></main><script>window.onload=()=>window.print()<\/script></body></html>`);
-  popup.document.close();
+  receiptRoot.innerHTML = [
+    "<style>",
+    ".powerhub-payment-receipt-root .receipt{width:100%;max-width:720px;margin:0 auto;background:#fff;border:1px solid #e6e9ee;border-radius:18px;overflow:hidden;font-family:Tajawal,Tahoma,Arial,sans-serif;color:#0D1117;line-height:1.6}",
+    ".powerhub-payment-receipt-root .head{background:#0D1117;color:#fff;padding:28px 32px;display:flex;justify-content:space-between;align-items:center;gap:24px}",
+    ".powerhub-payment-receipt-root .brand{color:#F5B800;font-weight:800;font-size:22px}",
+    ".powerhub-payment-receipt-root .eyebrow{color:#F5B800;font-size:12px;font-weight:700;letter-spacing:.04em}",
+    ".powerhub-payment-receipt-root .head h1{font-size:24px;margin:8px 0 0}",
+    ".powerhub-payment-receipt-root .body{padding:30px 32px}",
+    ".powerhub-payment-receipt-root .notice{margin-bottom:22px;border:1px solid #f5b800;background:#fff8df;color:#735400;border-radius:12px;padding:14px 16px;font-weight:700}",
+    ".powerhub-payment-receipt-root .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}",
+    ".powerhub-payment-receipt-root .item{border:1px solid #edf0f4;border-radius:12px;padding:12px}",
+    ".powerhub-payment-receipt-root .label{display:block;color:#657080;font-size:12px;margin-bottom:6px}",
+    ".powerhub-payment-receipt-root .value{font-weight:700}",
+    ".powerhub-payment-receipt-root .amounts{margin-top:22px;border-radius:14px;background:#0D1117;color:#fff;padding:18px}",
+    ".powerhub-payment-receipt-root .amounts div{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.12)}",
+    ".powerhub-payment-receipt-root .amounts div:last-child{border:0;color:#F5B800;font-size:18px;font-weight:800}",
+    ".powerhub-payment-receipt-root .footer{margin-top:28px;padding-top:16px;border-top:1px dashed #cfd5dd;color:#657080;font-size:12px;text-align:center}",
+    "</style>",
+    '<main class="receipt">',
+    '<header class="head"><div><div class="eyebrow">POWERHUB — إدارة الطاقة بذكاء</div><h1>إيصال تحصيل</h1></div>',
+    '<div style="display:flex;align-items:center;gap:12px"><div class="brand">' + escapeReceiptHtml(companyName || ("مولدات " + siteName)) + "</div>",
+    logoUrl ? '<img alt="شعار الاشتراك" src="' + escapeReceiptHtml(logoUrl) + '" style="max-width:120px;max-height:64px;object-fit:contain">' : "",
+    "</div></header>",
+    '<section class="body">',
+    '<div class="notice">' + (invoice.status === "partially_paid" ? "تم استلام دفعة جزئية، وما زال الرصيد الموضح أدناه مستحقاً على الفاتورة." : "تم تسجيل الدفعة بنجاح، وتفاصيلها موضحة أدناه.") + "</div>",
+    '<div class="grid">',
+    '<div class="item"><span class="label">المحطة</span><span class="value">' + escapeReceiptHtml(siteName) + "</span></div>",
+    '<div class="item"><span class="label">رقم الإيصال</span><span class="value" dir="ltr">' + escapeReceiptHtml(payment.paymentNo) + "</span></div>",
+    '<div class="item"><span class="label">المشترك</span><span class="value">' + escapeReceiptHtml(subscriber.fullName) + "</span></div>",
+    '<div class="item"><span class="label">رقم الفاتورة</span><span class="value" dir="ltr">' + escapeReceiptHtml(invoice.invoiceNo) + "</span></div>",
+    '<div class="item"><span class="label">طريقة الدفع</span><span class="value">' + escapeReceiptHtml(paymentMethodLabel[payment.paymentMethod] ?? payment.paymentMethod) + "</span></div>",
+    '<div class="item"><span class="label">تاريخ التحصيل</span><span class="value">' + escapeReceiptHtml(formatDate(payment.paidAt)) + "</span></div>",
+    "</div>",
+    '<div class="amounts">',
+    "<div><span>إجمالي الفاتورة</span><strong>" + formatValue(total, 2) + "</strong></div>",
+    "<div><span>الدفعة المستلمة الآن</span><strong>" + formatValue(paymentAmount, 2) + "</strong></div>",
+    "<div><span>إجمالي المدفوع</span><strong>" + formatValue(paid, 2) + "</strong></div>",
+    "<div><span>الرصيد المتبقي</span><strong>" + formatValue(balance, 2) + "</strong></div>",
+    "</div>",
+    '<p class="footer">هذا الإيصال صادر من PowerHub. احتفظ به كمرجع لعملية التحصيل.</p>',
+    "</section></main>"
+  ].join("");
+  document.body.appendChild(receiptRoot);
+
+  void (async () => {
+    try {
+      if (document.fonts?.ready) await document.fonts.ready;
+      await Promise.all(Array.from(receiptRoot.querySelectorAll("img")).map((image) => image.decode().catch(() => undefined)));
+      await downloadReportHtmlAsPdf(
+        receiptRoot,
+        "payment-receipt-" + String(payment.paymentNo || payment.id).replace(/[^a-zA-Z0-9-_]/g, "-") + ".pdf",
+        { title: "إيصال تحصيل " + payment.paymentNo },
+      );
+    } catch {
+      toast.error("تعذر إنشاء ملف PDF. حاول مجددًا.");
+    } finally {
+      receiptRoot.remove();
+    }
+  })();
 }
 
 function ReadOnlyCard() {
@@ -87,6 +149,7 @@ function ReadOnlyCard() {
 
 export default function OperationsPage({ section }: { section: Section }) {
   const { user, loading, isAuthenticated } = useAuth();
+  const { isOnline } = usePowerHubConnectivity();
   const meta = moduleMeta[section];
   const Icon = meta.icon;
   const utils = trpc.useUtils();
@@ -205,7 +268,7 @@ export default function OperationsPage({ section }: { section: Section }) {
     ]);
   }, onError: (error) => toast.error(error.message) });
   const addExpense = trpc.powerhub.expenses.create.useMutation({ onSuccess: () => {
-    toast.success("تم تسجيل المصروف.");
+    toast.success("تم تسجيل المصروف على الخادم.");
     refreshOperational(
       [
         () => utils.powerhub.expenses.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
@@ -215,10 +278,59 @@ export default function OperationsPage({ section }: { section: Section }) {
       ],
       [() => utils.powerhub.audit.list.invalidate({ siteId: siteId ?? 0 })],
     );
-  }, onError: (e) => toast.error(e.message) });
+  }, onError: (e) => {
+    const message = e instanceof Error ? e.message : String(e ?? "");
+    const networkFailure = e instanceof TypeError ||
+      /failed to fetch|networkerror|network request failed|load failed|fetch failed|connection (?:lost|reset|refused)|timeout/i.test(message);
+    if (!networkFailure) toast.error(message || "تعذر تسجيل المصروف.");
+  } });
 
   const siteOptions = sitesQuery.data ?? [];
   const activeSite = useMemo(() => siteOptions.find((site) => site.id === siteId), [siteId, siteOptions]);
+  const submitExpense = async (payload: {
+    siteId: number; generatorId?: number; companyAccountId: number;
+    category: "fuel" | "maintenance" | "payroll" | "parts" | "transport" | "other";
+    description: string; amount: number; referenceNo?: string;
+  }) => {
+    const clientOperationId = crypto.randomUUID();
+    const completePayload = { ...payload, clientOperationId };
+    const queueDraft = async () => {
+      if (!user?.id) throw new Error("تعذر تحديد المستخدم الحالي لحفظ مسودة المصروف.");
+      await enqueueOfflineWork({
+        userId: user.id,
+        ...(Number.isSafeInteger(Number(activeSite?.tenantId)) && Number(activeSite?.tenantId) > 0
+          ? { tenantId: Number(activeSite?.tenantId) } : {}),
+        siteId: payload.siteId,
+        kind: "expense_create",
+        clientOperationId,
+        payload: {
+          generatorId: payload.generatorId,
+          companyAccountId: payload.companyAccountId,
+          category: payload.category,
+          description: payload.description,
+          amount: payload.amount,
+          referenceNo: payload.referenceNo,
+        },
+      });
+      return { queued: true as const };
+    };
+    if (!isOnline) {
+      await queueDraft();
+      toast.warning("حُفظ المصروف كمسودة محلية؛ لم يتغير رصيد الحساب ولم يُرحّل المصروف. سيُعاد التحقق والترحيل عبر الخادم عند الاتصال.");
+      return;
+    }
+    try {
+      return await addExpense.mutateAsync(completePayload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? "");
+      const networkFailure = error instanceof TypeError ||
+        /failed to fetch|networkerror|network request failed|load failed|fetch failed|connection (?:lost|reset|refused)|timeout/i.test(message);
+      if (!networkFailure) throw error;
+      await queueDraft();
+      toast.warning("نتيجة الاتصال غير مؤكدة؛ حُفظت المسودة بمفتاح العملية نفسه لمنع تكرار المصروف عند إعادة الإرسال.");
+      return { queued: true as const };
+    }
+  };
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
 
@@ -285,7 +397,7 @@ export default function OperationsPage({ section }: { section: Section }) {
       return queued;
     }
   };
-  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /><CollectorSessionsPanel siteId={siteId!} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={addExpense.mutateAsync} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
+  return <DashboardLayout><div className="space-y-6 pb-12">{header}{section === "subscribers" && <SubscribersOverview data={subscribersQuery.data ?? []} canManage={canManageSubscribers} />}{section === "generators" && <GeneratorsModule siteId={siteId!} data={generatorsQuery.data ?? []} pending={addGenerator.isPending} onSubmit={addGenerator.mutate} />}{section === "readings" && <ReadingsModule siteId={siteId!} subscribers={subscribersQuery.data ?? []} readings={readings} readingPending={addReading.isPending} onAddReading={addReading.mutateAsync} />}{section === "invoices" && <InvoicesOverview invoices={invoices} />}{section === "collections" && <><CollectionsModule siteId={siteId!} siteName={activeSite?.name ?? "محطة PowerHub"} subscribers={subscribersQuery.data ?? []} invoices={invoices} payments={payments} pending={addPayment.isPending} sendingReceipt={sendPaymentReceipt.isPending} onSubmit={submitPayment} onSendReceipt={sendPaymentReceipt.mutate} canCollect={canCreateFinancialRecord} canSendReceipts={canSendReceipts} canDiscount={["owner", "manager", "accountant"].includes(powerRole ?? "")} /><CollectorSessionsPanel siteId={siteId!} /></>}{section === "expenses" && (canManageExpenses ? <ExpensesModule siteId={siteId!} generators={generatorsQuery.data ?? []} summary={summaryQuery.data} pending={addExpense.isPending} onSubmit={submitExpense} isOnline={isOnline} /> : <ExpensesReadOnlyModule siteId={siteId!} summary={summaryQuery.data} />)}{section === "reports" && <ReportsModule summary={summaryQuery.data} />}{section === "notifications" && <NotificationsModule data={notificationsQuery.data ?? []} />}{section === "audit" && <AuditModule data={auditQuery.data ?? []} />}</div></DashboardLayout>;
 }
 
 function SubscribersOverview({ data, canManage }: { data: any[]; canManage: boolean }) {
@@ -327,6 +439,7 @@ function InvoicesOverview({ invoices }: { invoices: any[] }) {
 function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, pending, sendingReceipt, onSubmit, onSendReceipt, canCollect, canSendReceipts, canDiscount }: any) {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId }, { enabled: canCollect });
+  const reportBranding = trpc.powerhub.reportBranding.get.useQuery({ siteId });
   const accounts = accountsQuery.data ?? [];
   const [companyAccountId, setCompanyAccountId] = useState("");
   const selectedCompanyAccount = accounts.find((account: any) => Number(account.id) === Number(companyAccountId));
@@ -336,6 +449,15 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     }
   }, [accounts, companyAccountId]);
   const [previewPayment, setPreviewPayment] = useState<{ url: string; paymentNo: string } | null>(null);
+  const getReceiptImage = trpc.powerhub.payments.getReceiptImage.useMutation();
+  const openReceiptImage = async (payment: any) => {
+    try {
+      const result = await getReceiptImage.mutateAsync({ siteId, paymentId: Number(payment.id) });
+      setPreviewPayment({ url: result.url, paymentNo: String(payment.paymentNo ?? "") });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تحميل صورة الإيصال.");
+    }
+  };
   const [paymentSearch, setPaymentSearch] = useState("");
   const [paymentProvider, setPaymentProvider] = useState("all");
   const [paymentReceiverType, setPaymentReceiverType] = useState("all");
@@ -356,7 +478,8 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
   const monthEndKey = new Date(Date.UTC(todayYear, todayMonth, 0)).toISOString().slice(0, 10);
   const effectivePaymentStart = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.startAt) : paymentPeriod === "month_end" ? monthEndStart : paymentStartDate;
   const effectivePaymentEnd = paymentPeriod === "today" ? todayKey : paymentPeriod === "current_cycle" ? gazaDateKey(cycleBoundsQuery.data?.endAt) : paymentPeriod === "month_end" ? monthEndKey : paymentEndDate;
-  const cycleFilterReady = paymentPeriod !== "current_cycle" || Boolean(cycleBoundsQuery.data && !cycleBoundsQuery.isError);
+  const cycleFilterReady = paymentPeriod !== "current_cycle" ||
+    isUsableReadingCycleBounds(cycleBoundsQuery.data, isExplicitAuthorizationDenial(cycleBoundsQuery.error));
   const initialSubscriberId = Number(new URLSearchParams(window.location.search).get("subscriberId") ?? 0);
   const [selectedSubscriberId, setSelectedSubscriberId] = useState<number>(initialSubscriberId);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
@@ -630,7 +753,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
       <label className="text-xs text-slate-400">الحساب المستقبل<select aria-label="الحساب المستقبل المحدد" value={paymentReceiverAccountId} onChange={(event) => setPaymentReceiverAccountId(event.target.value)} className={`${inputClass} mt-1 w-full`}><option value="all">كل الحسابات</option>{receiverAccountsForType.map((account: any) => <option key={account.id} value={String(account.id)}>{account.name}{account.phoneNumber ? ` — ${account.phoneNumber}` : ""}</option>)}</select></label>
       <label className="text-xs text-slate-400">نوع الحساب المحوَّل منه<select aria-label="نوع الحساب المحول منه" value={paymentProvider} onChange={(event) => setPaymentProvider(event.target.value)} className={`${inputClass} mt-1 w-full`}><option value="all">كل الأنواع</option>{REPORT_PAYMENT_METHOD_OPTIONS.filter((option) => option.value !== "all").map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
       <div className="flex flex-wrap items-end gap-2"><Button type="button" size="sm" variant="outline" onClick={() => { setPaymentSearch(""); setPaymentProvider("all"); setPaymentReceiverType("all"); setPaymentReceiverAccountId("all"); setPaymentPeriod("current_cycle"); setPaymentStartDate(""); setPaymentEndDate(""); }} className="border-white/10 text-slate-200 hover:bg-white/5">مسح الفلاتر</Button><Button type="button" size="sm" onClick={() => void exportPaymentsExcel()} disabled={!filteredPayments.length} className="bg-emerald-500 font-bold text-white hover:bg-emerald-400">Excel</Button><Button type="button" size="sm" onClick={exportPaymentsPdf} disabled={!filteredPayments.length} variant="outline" className="border-rose-400/35 text-rose-200 hover:bg-rose-400/10">PDF</Button></div>
-    </div>{filteredPayments.length ? <div className="w-full min-w-0 overflow-x-auto rounded-xl border border-white/8"><table className="w-full min-w-[1040px] table-fixed text-xs"><thead className="text-right text-xs text-slate-500"><tr><th className="w-40 px-2 py-2 text-center">المشترك</th><th className="w-20 px-2 py-2 text-center">المبلغ</th><th className="w-36 px-2 py-2 text-center">الحساب المحوَّل منه</th><th className="w-40 px-2 py-2 text-center">الحساب المستقبل</th><th className="w-32 px-2 py-2 text-center">الفاتورة / الدورة</th><th className="w-20 px-2 py-2 text-center">صورة الإيصال</th><th className="w-44 px-2 py-2">إجراءات</th><th className="w-20 px-2 py-2">تصحيح</th></tr></thead><tbody>{filteredPayments.map((x: any) => { const invoice = invoiceById.get(Number(x.payment.invoiceId)); const partial = invoice?.status === "partially_paid"; const receiptImageUrl = x.payment.receiptImageUrl as string | undefined; return <tr key={x.payment.id} className="border-t border-white/7 align-top"><td className="px-2 py-3 text-center"><div className="flex min-w-0 flex-col items-center gap-1"><span className="w-full break-words text-center text-xs font-bold leading-4 text-white">{x.subscriber.fullName}</span><span className="w-full break-all text-center text-[10px] font-normal leading-4 text-slate-500" dir="ltr">{x.subscriber.phone ?? "—"}</span></div></td><td className="whitespace-nowrap px-2 py-3 text-center tabular-nums">{formatValue(x.payment.amount, 2)}</td><td className="px-2 py-3 text-center text-xs text-slate-300"><div className="flex min-w-0 flex-col items-center gap-1"><span className="w-full break-words text-center leading-5">{paymentMethodLabel[x.payment.transferFromType] ?? x.payment.transferFromType ?? "نقدي"}</span><span className="w-full break-all text-center font-mono text-[11px] leading-4 text-slate-500" dir="ltr">{x.payment.transferFromAccount ?? "—"}</span></div></td><td className="px-3 py-4 text-center text-xs text-slate-300"><div className="flex min-w-0 flex-col items-center gap-1"><span className="w-full break-words text-center font-mono text-[11px] leading-4" dir="ltr">{x.payment.transferToAccount ?? "—"}</span><span className="w-full break-words text-center leading-5">{paymentMethodLabel[x.payment.transferToType] ?? x.payment.transferToType ?? "—"}</span></div></td><td className="px-2 py-3 text-center text-xs text-slate-400"><div className="flex min-w-0 flex-col items-center gap-1"><span className="w-full whitespace-nowrap text-center font-mono text-xs leading-4 text-[#F5B800]" dir="ltr">{x.invoiceNo ?? "—"}</span><span className="w-full break-words text-center text-[11px] leading-4 text-slate-500">{invoice?.billingPeriod ?? invoice?.cycleLabel ?? "—"}</span></div></td><td className="px-1 py-2 text-center">{receiptImageUrl ? canCollect ? <Button size="sm" variant="outline" onClick={() => setPreviewPayment({ url: receiptImageUrl, paymentNo: x.payment.paymentNo })} className="border-emerald-400/35 text-emerald-200 hover:bg-emerald-400/10 hover:text-emerald-100"><Eye className="ml-1 h-3.5 w-3.5" />عرض</Button> : <span className="text-xs font-bold text-emerald-300">مرفقة</span> : <span className="text-xs text-slate-600">—</span>}</td><td className="px-1 py-2">{partial ? <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" className="border-amber-400/35 text-amber-200 hover:bg-amber-400/10 hover:text-amber-100" onClick={() => printPartialPaymentReceipt({ payment: x.payment, invoice, subscriber: x.subscriber, siteName })}><Printer className="ml-1 h-3.5 w-3.5" />طباعة</Button>{canSendReceipts ? <><Button size="sm" disabled={sendingReceipt} variant="outline" className="border-sky-400/35 text-sky-200 hover:bg-sky-400/10 hover:text-sky-100" onClick={() => onSendReceipt({ siteId, paymentId: x.payment.id, channel: "sms" })}><Send className="ml-1 h-3.5 w-3.5" />SMS</Button><span className="self-center text-[11px] text-slate-500">إرسال إيصال WhatsApp غير متاح حاليًا</span></> : <span className="self-center text-xs text-slate-600">الإرسال لصاحب المولد فقط</span>}</div> : <span className="text-xs text-slate-600">يتاح للدفعة الجزئية</span>}</td><td className="px-1 py-2 text-center"><Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign(`/financial-settlements?entityType=payment&entityId=${x.payment.id}`)}>تصحيح</Button></td></tr>; })}</tbody></table></div> : <Empty text="لا توجد دفعات مسجلة. ستظهر هنا كل عمليات التحصيل النقدية والإلكترونية." />}</SectionCard>
+    </div>{filteredPayments.length ? <div className="w-full min-w-0 overflow-x-auto rounded-xl border border-white/8"><table className="w-full min-w-[1040px] table-fixed text-xs"><thead className="text-right text-xs text-slate-500"><tr><th className="w-40 px-2 py-2 text-center">المشترك</th><th className="w-20 px-2 py-2 text-center">المبلغ</th><th className="w-36 px-2 py-2 text-center">الحساب المحوَّل منه</th><th className="w-40 px-2 py-2 text-center">الحساب المستقبل</th><th className="w-32 px-2 py-2 text-center">الفاتورة / الدورة</th><th className="w-20 px-2 py-2 text-center">صورة الإيصال</th><th className="w-64 px-2 py-2">إجراءات</th></tr></thead><tbody>{filteredPayments.map((x: any) => { const invoice = invoiceById.get(Number(x.payment.invoiceId)); const partial = invoice?.status === "partially_paid"; const receiptImageUrl = x.payment.receiptImageUrl as string | undefined; return <tr key={x.payment.id} className="border-t border-white/7 align-top"><td className="px-2 py-3 text-center"><div className="flex min-w-0 flex-col items-center gap-1"><span className="w-full break-words text-center text-xs font-bold leading-4 text-white">{x.subscriber.fullName}</span><span className="w-full break-all text-center text-[10px] font-normal leading-4 text-slate-500" dir="ltr">{x.subscriber.phone ?? "—"}</span></div></td><td className="whitespace-nowrap px-2 py-3 text-center tabular-nums">{formatValue(x.payment.amount, 2)}</td><td className="px-2 py-3 text-center text-xs text-slate-300"><div className="flex min-w-0 flex-col items-center gap-1"><span className="w-full break-words text-center leading-5">{paymentMethodLabel[x.payment.transferFromType] ?? x.payment.transferFromType ?? "نقدي"}</span><span className="w-full break-all text-center font-mono text-[11px] leading-4 text-slate-500" dir="ltr">{x.payment.transferFromAccount ?? "—"}</span></div></td><td className="px-3 py-4 text-center text-xs text-slate-300"><div className="flex min-w-0 flex-col items-center gap-1"><span className="w-full break-words text-center font-mono text-[11px] leading-4" dir="ltr">{x.payment.transferToAccount ?? "—"}</span><span className="w-full break-words text-center leading-5">{paymentMethodLabel[x.payment.transferToType] ?? x.payment.transferToType ?? "—"}</span></div></td><td className="px-2 py-3 text-center text-xs text-slate-400"><div className="flex min-w-0 flex-col items-center gap-1"><span className="w-full whitespace-nowrap text-center font-mono text-xs leading-4 text-[#F5B800]" dir="ltr">{x.invoiceNo ?? "—"}</span><span className="w-full break-words text-center text-[11px] leading-4 text-slate-500">{invoice?.billingPeriod ?? invoice?.cycleLabel ?? "—"}</span></div></td><td className="px-1 py-2 text-center">{(x.payment.hasReceiptImage || receiptImageUrl) ? canCollect ? <Button size="sm" variant="outline" disabled={getReceiptImage.isPending} onClick={() => void openReceiptImage(x.payment)} className="border-emerald-400/35 text-emerald-200 hover:bg-emerald-400/10 hover:text-emerald-100"><Eye className="ml-1 h-3.5 w-3.5" />{getReceiptImage.isPending ? "جارٍ التحميل" : "عرض"}</Button> : <span className="text-xs font-bold text-emerald-300">مرفقة</span> : <span className="text-xs text-slate-600">—</span>}</td><td className="px-1 py-2"><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" className="border-amber-400/35 text-amber-200 hover:bg-amber-400/10 hover:text-amber-100" onClick={() => downloadPaymentReceiptPdf({ payment: x.payment, invoice, subscriber: x.subscriber, siteName, logoUrl: reportBranding.data?.logoUrl, companyName: reportBranding.data?.companyName })}><Printer className="ml-1 h-3.5 w-3.5" />تحميل PDF</Button>{partial ? (canSendReceipts ? <><Button size="sm" disabled={sendingReceipt} variant="outline" className="border-sky-400/35 text-sky-200 hover:bg-sky-400/10 hover:text-sky-100" onClick={() => onSendReceipt({ siteId, paymentId: x.payment.id, channel: "sms" })}><Send className="ml-1 h-3.5 w-3.5" />SMS</Button><span className="self-center text-[11px] text-slate-500">إرسال إيصال WhatsApp غير متاح حاليًا</span></> : <span className="self-center text-xs text-slate-600">الإرسال لصاحب المولد فقط</span>) : null}<Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign(`/financial-settlements?entityType=payment&entityId=${x.payment.id}`)}>تصحيح</Button></div></td></tr>; })}</tbody></table></div> : <Empty text="لا توجد دفعات مسجلة. ستظهر هنا كل عمليات التحصيل النقدية والإلكترونية." />}</SectionCard>
     <Dialog open={Boolean(previewPayment)} onOpenChange={(open) => !open && setPreviewPayment(null)}><DialogContent className="max-w-3xl border-white/10 bg-[#111823] text-white"><DialogHeader><DialogTitle>صورة إيصال الدفع <span className="font-display text-sm text-[#F5B800]" dir="ltr">{previewPayment?.paymentNo}</span></DialogTitle></DialogHeader>{previewPayment ? <img src={previewPayment.url} alt={`صورة إيصال الدفع ${previewPayment.paymentNo}`} className="max-h-[70vh] w-full rounded-xl border border-white/10 object-contain" /> : null}</DialogContent></Dialog>
   </div>;
 }
@@ -681,7 +804,9 @@ function useExpenseHistoryFilters(siteId: number, canManageExpenses: boolean, ma
   const startDate = period === "today" ? currentDate : period === "cycle" ? cycleStart : period === "monthEnd" ? firstOfMonth : period === "custom" ? customStart : undefined;
   const endDate = period === "today" ? currentDate : period === "cycle" ? cycleEnd : period === "monthEnd" ? lastOfMonth : period === "custom" ? customEnd : undefined;
   const customRangeValid = period !== "custom" || Boolean(customStart && customEnd && customStart <= customEnd);
-  const cycleRangeReady = period !== "cycle" || Boolean(cycleBoundsQuery.data && cycleStart && cycleEnd && cycleStart <= cycleEnd && !cycleBoundsQuery.isError);
+  const cycleRangeReady = period !== "cycle" ||
+    (Boolean(cycleStart && cycleEnd && cycleStart <= cycleEnd) &&
+      isUsableReadingCycleBounds(cycleBoundsQuery.data, isExplicitAuthorizationDenial(cycleBoundsQuery.error)));
   const filtersReady = customRangeValid && cycleRangeReady;
   const expenseQueryInput = {
     siteId,
@@ -695,7 +820,11 @@ function useExpenseHistoryFilters(siteId: number, canManageExpenses: boolean, ma
     accounts, accountsLoading: !canManageExpenses && readOnlyAccountsQuery.isLoading,
     accountsError: !canManageExpenses && readOnlyAccountsQuery.isError,
     refetchAccounts: readOnlyAccountsQuery.refetch,
-    cycleBoundsQuery, cycleRangeReady, customRangeValid, filtersReady, expensesQuery,
+    cycleBoundsQuery, cycleRangeReady,
+    cycleBoundsSavedAt: cycleBoundsQuery.dataUpdatedAt,
+    cycleBoundsIsFallback: Boolean(cycleBoundsQuery.isError && cycleRangeReady && cycleBoundsQuery.data &&
+      !isExplicitAuthorizationDenial(cycleBoundsQuery.error)),
+    customRangeValid, filtersReady, expensesQuery,
   };
 }
 
@@ -723,6 +852,9 @@ function ExpenseHistoryPanel({ history, canCorrect = true }: { history: ReturnTy
       <Field label="إلى تاريخ"><input aria-label="نهاية فترة المصروفات" type="date" value={history.customEnd} min={history.customStart || undefined} onChange={(event) => history.setCustomEnd(event.target.value)} className={inputClass} /></Field>
     </div> : null}
     {history.period === "custom" && !history.customRangeValid ? <p className="mb-3 text-sm text-amber-300">حدد تاريخ البداية والنهاية بصورة صحيحة لعرض المصروفات.</p> : null}
+    {history.period === "cycle" && history.cycleBoundsIsFallback ? <p className="mb-3 text-xs text-amber-200">
+      تُستخدم آخر حدود دورة محفوظة محليًا بتاريخ {history.cycleBoundsSavedAt ? new Date(history.cycleBoundsSavedAt).toLocaleString("ar-PS") : "غير معروف"}؛ سيُعاد التحقق منها عند عودة الاتصال.
+    </p> : null}
     {history.accountsError ? <div className="mb-3 rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحميل خيارات حساب الصرف. <Button size="sm" variant="outline" onClick={() => void history.refetchAccounts()}>إعادة المحاولة</Button></div> : null}
     {history.period === "cycle" && !history.cycleRangeReady && history.cycleBoundsQuery.isLoading ? <div className="mb-3 text-sm text-slate-400">جارٍ تحديد حدود دورة الفوترة...</div> : null}
     {history.period === "cycle" && !history.cycleRangeReady && !history.cycleBoundsQuery.isLoading ? <div className="mb-3 rounded-lg border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحديد حدود دورة الفوترة. <Button size="sm" variant="outline" onClick={() => void history.cycleBoundsQuery.refetch()}>إعادة المحاولة</Button></div> : null}
@@ -741,8 +873,10 @@ function ExpenseHistoryPanel({ history, canCorrect = true }: { history: ReturnTy
   </SectionCard>;
 }
 
-function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any) {
-  const accountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId });
+function ExpensesModule({ siteId, generators, summary, pending, onSubmit, isOnline }: any) {
+  // Keep only the minimized account selector projection in local storage. Cached balances
+  // are deliberately not shown or treated as spend authority.
+  const accountsQuery = trpc.powerhub.expenses.filterAccounts.useQuery({ siteId });
   const accounts = accountsQuery.data ?? [];
   const [accountId, setAccountId] = useState("");
   const history = useExpenseHistoryFilters(siteId, true, accounts);
@@ -771,23 +905,25 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit }: any)
             await onSubmit({ siteId, generatorId: f.get("generator") ? Number(f.get("generator")) : undefined, companyAccountId: selectedAccountId, category: String(f.get("category")), description, amount, referenceNo: String(f.get("reference") || "").trim() || undefined });
             form.reset();
             setAccountId("");
-          } catch {
-            // Keep the form intact after a server error so the user can retry.
+          } catch (error) {
+            // Keep the form intact; also surface failures from saving the local Outbox itself.
+            toast.error(error instanceof Error ? error.message : "تعذر حفظ المصروف أو مسودته.");
           }
         }}>
           <Field label="حساب الصرف من حسابات الشركة">
             <select required name="companyAccountId" value={accountId} onChange={(event) => setAccountId(event.target.value)} className={selectClass}>
               <option value="">اختر الحساب الذي تم الصرف منه</option>
-              {accounts.map((account: any) => <option key={account.id} value={account.id}>{account.name} — الرصيد {formatValue(account.balance, 2)} ش</option>)}
+              {accounts.map((account: any) => <option key={account.id} value={account.id}>{account.name} — {account.accountType ?? account.account_type ?? "حساب"}</option>)}
             </select>
           </Field>
-          {selectedAccount ? <p className="rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-rose-100">سيُخصم مبلغ المصروف من <strong>{selectedAccount.name}</strong> ويسجل كسحب في كشف الحساب، ولا يمكن إتمام العملية إذا كان الرصيد غير كافٍ.</p> : <p className="rounded-lg bg-white/[.03] px-3 py-2 text-xs text-slate-500">يجب تحديد الحساب الذي خرجت منه قيمة المصروف حتى تتطابق المصروفات مع حركة الحسابات.</p>}
+          {selectedAccount ? <p className="rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-rose-100">سيُعاد التحقق من صلاحية الحساب وارتباطه بالفرع ورصيده الحالي داخل معاملة الخادم. الاختيار المحلي لا يثبت توافر الرصيد ولا يرحّل أي حركة.</p> : <p className="rounded-lg bg-white/[.03] px-3 py-2 text-xs text-slate-500">يلزم تحديد حساب الصرف؛ الخيارات المخزنة محليًا أسماء ومعرّفات فقط وليست مرجعًا للرصيد أو الصلاحيات.</p>}
           <Field label="فئة المصروف"><select name="category" className={selectClass}><option value="fuel">وقود</option><option value="maintenance">صيانة</option><option value="payroll">رواتب</option><option value="parts">قطع غيار</option><option value="transport">نقل</option><option value="other">أخرى</option></select></Field>
           <Field label="المولد"><select name="generator" className={selectClass}><option value="">مصروف عام</option>{generators.map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
           <Field label="الوصف"><input required name="description" className={inputClass} placeholder="مثال: تعبئة ديزل" /></Field>
           <Field label="المبلغ"><input required name="amount" type="number" min="0.01" step="0.01" className={inputClass} dir="ltr" /></Field>
           <Field label="مرجع"><input name="reference" className={inputClass} placeholder="اختياري" /></Field>
-          <Button type="submit" disabled={pending || accountsQuery.isLoading || accountsQuery.isError || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError ? "تعذر تحميل حسابات الصرف" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : "حفظ المصروف"}</Button>
+          <Button type="submit" disabled={pending || !accounts.length} className="w-full bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ حفظ المصروف...</> : accountsQuery.isLoading ? "جاري تحميل الحسابات..." : accountsQuery.isError && !accounts.length ? "لا توجد خيارات حساب محفوظة" : !accounts.length ? "لا توجد حسابات متاحة للصرف" : isOnline ? "حفظ المصروف" : "حفظ مسودة المصروف دون اتصال"}</Button>
+          {!isOnline ? <p className="text-xs leading-5 text-amber-200">ستُحفظ نية المصروف محليًا فقط. لا يتغير رصيد الحساب ولا يُنشأ قيد نهائي حتى يقبل الخادم العملية.</p> : null}
         </form>
       </SectionCard>
       <ExpenseHistoryPanel history={history} />
