@@ -95,8 +95,8 @@ function FeatureControlsIndex() {
   </PlatformAdminLayout>;
 }
 
-const quotaAddonFeatures = new Set(["subscriber_management","platform_users","field_users","branch_management","sms"]);
-const addonLabels: Record<string,string> = { subscribers50:"المشتركين", platformUser:"مستخدمو المنصة", fieldUser:"المستخدمون الميدانيون", branch:"الفروع", sms:"الرسائل" };
+const quotaAddonFeatures = new Set(["subscriber_management","platform_users","field_users","branch_management"]);
+const addonLabels: Record<string,string> = { subscribers50:"المشتركين", platformUser:"مستخدمو المنصة", fieldUser:"المستخدمون الميدانيون", branch:"الفروع" };
 
 function FeatureRow({feature,policy,control,activeAddons,effectiveLimitFromServer,effectiveEnabledFromServer,subscriptionActive,onGrant,onSave,pending}:{feature:any;policy:any;control:any;activeAddons:any[];effectiveLimitFromServer?:number;effectiveEnabledFromServer?:boolean;subscriptionActive:boolean;onGrant:(v:any)=>void;onSave:(v:any)=>void;pending:boolean}) {
   const [status,setStatus]=useState(control?.status ?? "inherit");
@@ -108,7 +108,7 @@ function FeatureRow({feature,policy,control,activeAddons,effectiveLimitFromServe
   const isQuota = feature.feature_type === "quota" && quotaAddonFeatures.has(feature.feature_key);
   const effectiveEnabled = subscriptionActive && feature.is_active !== false && effectiveEligible
     && (isQuota ? true : (effectiveEnabledFromServer ?? (status === "enabled" || (status === "inherit" && policy?.policy === "included"))));
-  const addonCode = ({subscriber_management:"subscribers50",platform_users:"platformUser",field_users:"fieldUser",branch_management:"branch",sms:"sms"} as Record<string,string>)[feature.feature_key];
+  const addonCode = ({subscriber_management:"subscribers50",platform_users:"platformUser",field_users:"fieldUser",branch_management:"branch"} as Record<string,string>)[feature.feature_key];
   const activeForFeature = activeAddons.filter((a:any)=>a.addonCode===addonCode);
   const addonDelta = activeForFeature.reduce((sum:number,a:any)=>sum + (feature.feature_key === "subscriber_management" ? Number(a.quantity)*50 : Number(a.quantity)),0);
   const baseLimit = policy?.defaultLimit == null ? null : Number(policy.defaultLimit);
