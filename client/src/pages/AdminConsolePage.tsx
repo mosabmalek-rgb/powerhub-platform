@@ -115,7 +115,8 @@ export default function AdminConsolePage() {
     {tab === "smsWallet" && <SmsWalletAdministrationPanel />}
     {tab === "complaints" && <ComplaintsPanel />}
     {tab === "notifications" && <NotificationsCenter data={snapshot.data?.notifications} rows={notifications.data ?? []} />}
-    {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}\n    {tab === "performance" && <PlatformPerformancePanel />}
+    {tab === "security" && <SecurityCenter data={snapshot.data?.security} security={security.data} pending={recordSecurityEvent.isPending || saveSecuritySetting.isPending} onRecord={recordSecurityEvent.mutate} onSaveSetting={saveSecuritySetting.mutate} />}
+    {tab === "performance" && <PlatformPerformancePanel />}
     {tab === "settings" && <><PlatformControlPanel /><PublicPlanVisibilityPanel /><SubscriptionPackageCatalogPanel /><PlatformRolePoliciesPanel />{isPlatformOwner && <PlatformAccessPanel />}</>}
   </main></PlatformAdminLayout>;
 }
