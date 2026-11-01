@@ -122,7 +122,7 @@ GRANT EXECUTE ON FUNCTION public.powerhub_sync_generator_update(bigint,bigint,te
 GRANT USAGE ON SCHEMA public, auth TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon, service_role;
 
-\ir ../migrations/20261101111000_powerhub_generator_sync_require_tenant_membership.sql
+\ir ../migrations/20261101113014_powerhub_generator_sync_require_tenant_membership.sql
 
 DO $assert_acl$
 DECLARE

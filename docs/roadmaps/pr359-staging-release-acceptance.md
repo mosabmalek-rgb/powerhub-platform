@@ -1,14 +1,25 @@
+
+## تطبيق Migration صلاحيات المولدات على Staging — 2026-11-01
+
+- بناءً على طلب المستخدم، طُبّق ملف `supabase/migrations/20261101113014_powerhub_generator_sync_require_tenant_membership.sql` عبر أداة Supabase على المشروع `powerhub-staging-dr` (`iyuryuhaylhisjfcrwkz`) فقط.
+- أكدت أداة Supabase نجاح التطبيق، وسجل الترحيلات أصبح 311 مدخلاً، مع الإصدار والاسم المطابقين تمامًا: `20261101113014 / powerhub_generator_sync_require_tenant_membership`.
+- فحص لاحق لتعريف الدالتين أكد بقاء التوقيعات كما هي، و`SECURITY DEFINER` مع `search_path=public, pg_temp`، وامتيازات التنفيذ: `anon=false`, `authenticated=true`, `service_role=true`. لم تتغير ACLs المقصودة.
+- تعريف الدالتين الفعلي لا يحتوي اختصار تحويل `users.role='admin'` إلى مالك مستأجر؛ ويشترط عضوية مالك فعالة وغير منتهية في المستأجر المحدد أو ملف موظف نشطًا ومطابقًا لنطاق الموقع والصلاحية.
+- جرى التحقق من أن Production لا يحتوي الإصدار `20261101113014`، ولم يُجرَ عليه أي تغيير. لم تحدث عمليات كتابة لمولدات أو مخزون أو حسابات.
+- وُحّد اسم ملف المستودع مع الإصدار المسجل في Staging، وحُدّث مرجع `\\ir` في اختبار PostgreSQL. حُذف اسم الملف المبدئي `20261101111000` من الفرع لتجنّب ترحيل ثانٍ بنفس SQL عند إصدار لاحق.
+- قبول المتصفح لا يزال غير منفذ. لا تنشأ Preview قبل إثبات أن `SUPABASE_SERVICE_ROLE_KEY` الخاص بالفرع يعود إلى Staging؛ المتغيرات الثلاثة الأخرى مؤكدة فقط.
+- PR #359 يظل مفتوحًا وDraft وغير مدمج؛ يجب إعادة تشغيل CI على رأس الفرع بعد تعديل اسم الملف ومرجع الاختبار.
 ## Latest verified gate — 2026-11-01
 
 - Verified PR source head at the code/test gate: `28e3df7c59b09019b955e4461b7404247b1a8f44`. PR #359 is open, Draft, and unmerged.
 - All four required workflows completed successfully on that exact SHA: [PowerHub CI #5378](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/41301276382) (TypeScript, tests, production build), [Reading Cycle PostgreSQL Integration #3026](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/41301276345), [Supabase Admin Guard #4859](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/41301276316), and [PowerHub Security #5138](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/41301276325).
-- PostgreSQL Integration's previously failing generator-membership regression now passed. It loads `20261101111000_powerhub_generator_sync_require_tenant_membership.sql` and verifies denial for platform-only roles without tenant membership, expired owner denial, positive authorization for an admin with an active owner membership, no side effects, and preserved ACLs. The remaining PostgreSQL job checks also completed successfully.
+- PostgreSQL Integration's previously failing generator-membership regression now passed. It loads `20261101113014_powerhub_generator_sync_require_tenant_membership.sql` and verifies denial for platform-only roles without tenant membership, expired owner denial, positive authorization for an admin with an active owner membership, no side effects, and preserved ACLs. The remaining PostgreSQL job checks also completed successfully.
 - CodeQL analysis and Dependency Review were skipped by workflow configuration; they are not counted as passed. PowerHub Security's Dependency Audit succeeded.
 - Staging migration ledger contains 310 entries at this read. Migration `20261101111000 / powerhub_generator_sync_require_tenant_membership` is not present. The migration has not been applied to Staging or Production.
 - The branch-scoped Vercel Preview values `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_URL` were independently verified as Staging. `SUPABASE_SERVICE_ROLE_KEY` exists as a sensitive Preview Secret, but the Vercel API does not reveal its value or project association. Full four-variable isolation is therefore not proven.
 - No Preview was created and no browser acceptance was run. Do not deploy until the service-role secret is independently verified as Staging. Browser login/reload/reopen/multi-tab/offline/reconnect/Delta/Outbox/refresh-storm acceptance remains outstanding.
 - The PostgreSQL run used disposable CI databases only. No live financial, inventory, SMS or payroll operations were performed; no Production migration or data write was performed.
-- **Next release gate:** apply only the one approved migration through `.github/workflows/supabase-migration-release.yml` from `main`, target `staging`, exact path `supabase/migrations/20261101111000_powerhub_generator_sync_require_tenant_membership.sql`, and source PR 359, after its protected Staging environment reviewer approval. Do not use `apply_migration` or broad `db push` because migration-version parity must be preserved.
+- **Next release gate:** apply only the one approved migration through `.github/workflows/supabase-migration-release.yml` from `main`, target `staging`, exact path `supabase/migrations/20261101113014_powerhub_generator_sync_require_tenant_membership.sql`, and source PR 359, after its protected Staging environment reviewer approval. Do not use `apply_migration` or broad `db push` because migration-version parity must be preserved.
 
 # PR #359 — Staging migration and browser acceptance gate
 

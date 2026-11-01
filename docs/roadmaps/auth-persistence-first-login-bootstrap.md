@@ -731,7 +731,14 @@ type AuthDeviceContext = {
 ## CI and tenant-boundary security verification — 2026-11-01
 
 - At code head `28e3df7c59b09019b955e4461b7404247b1a8f44`, all four required CI workflows passed: PowerHub CI (TypeScript/tests/production build), Reading Cycle PostgreSQL Integration, Supabase Admin Guard, and PowerHub Security Dependency Audit. CodeQL and Dependency Review were skipped, not passed.
-- PostgreSQL test `offline_generator_membership_expiry.sql` now loads the forward-only migration `20261101111000_powerhub_generator_sync_require_tenant_membership.sql`. The successful run covers platform-only account denial, expired membership denial, valid tenant owner membership positive control, absence of side effects, and ACL preservation.
+- PostgreSQL test `offline_generator_membership_expiry.sql` now loads the forward-only migration `20261101113014_powerhub_generator_sync_require_tenant_membership.sql`. The successful run covers platform-only account denial, expired membership denial, valid tenant owner membership positive control, absence of side effects, and ACL preservation.
 - This is isolated PostgreSQL/source evidence only. The new migration is not yet applied to Staging or Production. The Staging migration ledger was read at 310 entries and does not contain version `20261101111000`.
 - Preview/browser acceptance remains blocked pending independent verification that the branch-scoped `SUPABASE_SERVICE_ROLE_KEY` belongs to Staging. The other three Preview Supabase variables were verified as Staging. No Preview was created.
 - PR #359 remains open and Draft. CI success does not replace the real-browser acceptance chain or authorize merge/Production release.
+
+## تطبيق حراسة عضوية المستأجر في Staging — 2026-11-01
+
+- طُبّق الترحيل عبر أداة Supabase على Staging فقط: `iyuryuhaylhisjfcrwkz` (`powerhub-staging-dr`). الإصدار الذي سجله Supabase هو `20261101113014` والاسم `powerhub_generator_sync_require_tenant_membership`.
+- تحققنا بعد التطبيق من دالتي إنشاء وتحديث المولدات: التوقيعات و`SECURITY DEFINER` و`search_path=public, pg_temp` وACL بقيت كما هي (`anon` غير مسموح، و`authenticated` و`service_role` مسموحان). أزيل تجاوز تحويل مدير المنصة إلى مالك مستأجر ضمن الدالتين.
+- ملف migration في الفرع واختبار PostgreSQL جرى توحيدهما مع رقم الإصدار الفعلي `20261101113014`. اجتياز CI السابق على رأس الكود `28e3df7c...` لا يحل محل إعادة CI بعد هذا التعديل.
+- Production لم يتغير ولم يتضمن سجلّه الإصدار `20261101113014`. لا Preview أو قبول متصفح حتى التحقق من `SUPABASE_SERVICE_ROLE_KEY` كسر Staging.
