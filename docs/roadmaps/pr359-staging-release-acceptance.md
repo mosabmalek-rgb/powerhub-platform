@@ -1,4 +1,18 @@
 # PR #359 — Staging migration and browser acceptance gate
+
+> **Verified continuation — 2026-11-01 (supersedes earlier status notes below where they conflict)**
+>
+> - PR head: `78adf2eb44bdd2ef4b68a0c3290c3f1e53a7d4e4`; PR #359 remains open and Draft.
+> - Same-head CI: PowerHub CI SUCCESS; Reading Cycle PostgreSQL Integration SUCCESS (60/60 steps); PowerHub Supabase Admin Guard SUCCESS; PowerHub Security / Dependency Audit SUCCESS. CodeQL and Dependency Review were `skipped`, not passed.
+> - Staging migration ledger: 308 entries. Production migration ledger: 486 entries. The 35 PR-related migrations are present in Staging; none of those 35 migration names is present in Production. Production was not migrated.
+> - The 34 original PR migration files were renamed to the exact version/name pairs assigned by Supabase `apply_migration` on Staging. The version reconciliation was source-controlled and all SQL tests and server contract tests that referenced the old file paths were updated. A 35th corrective migration, `20261101085211_powerhub_payment_documentation_owner_constraint_reconcile.sql`, reconciles the entitlement unique-constraint name between Staging and Production and uses an explicit `ON CONSTRAINT` target to avoid PL/pgSQL output-variable ambiguity.
+> - The Vercel Preview variables bound to `feat/auth-local-first-single-pr` are **not isolated**: `VITE_SUPABASE_URL` currently points to Production project `vvcdiqcyhaloxesvpppc`, and its publishable key does not match the Staging project's available publishable keys. The server's Supabase admin client prefers `VITE_SUPABASE_URL`, so deploying this branch would direct server admin requests to Production.
+> - A Vercel branch-scoped `SUPABASE_SERVICE_ROLE_KEY` exists but is sensitive and its value was not retrieved or exposed; its identity cannot be verified from current evidence. Historical notes record that the Preview key was copied from Production on 2026-10-27. No claim is made that this credential is a Staging key.
+> - **Browser acceptance is blocked and has not run.** No new Preview was created after the above was discovered. Do not deploy this branch until Preview `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are all verified to belong to Staging; ensure the server-side Supabase URL resolves to Staging as well. If required secrets cannot be verified, stop and have the project owner configure them directly in Vercel/Supabase. Never paste a service-role key into chat or GitHub.
+> - Do not merge, promote, or migrate Production. The remaining gate is a real-browser Staging run covering login/session restore, reload/reopen, offline cache/Outbox persistence, reconnect/Delta, multi-tab refresh behavior, explicit 401/403 cache handling, and role/site/tenant switching. Financial posting, real SMS, payroll approval, and inventory stock mutation remain prohibited in acceptance.
+>
+> The earlier 34-file workflow-only release plan and its statement that no PR migrations had been applied are historical and are superseded by this verified continuation. Preserve all recorded migration versions; do not edit Supabase migration history manually or replay the Staging batch.
+
 **Date:** 2026-10-31  
 **Status:** Draft / not merged. This is a release checklist, not an authorization to apply migrations or deploy.
 
