@@ -21,6 +21,70 @@ function Metric({ label, value, suffix = "", icon: Icon, tone = "gold" }: { labe
 
 const DASHBOARD_REFRESH_MS = 30_000;
 
+function AdminActivityMetricsPanel() {
+  const metrics = trpc.admin.activityMetrics.useQuery(undefined, {
+    refetchInterval: DASHBOARD_REFRESH_MS,
+    refetchIntervalInBackground: false,
+    staleTime: 10_000,
+  });
+  const data = metrics.data as any;
+  const payment = data?.paymentDocumentation;
+  const search = data?.search;
+  const dateLabel = (value: string | null | undefined) => value
+    ? new Date(value).toLocaleDateString("ar-PS", { timeZone: "Asia/Gaza" })
+    : "—";
+  const percentLabel = (value: number | null | undefined) => value === null || value === undefined
+    ? "لا توجد بيانات كافية"
+    : `${format(value)}٪`;
+
+  if (metrics.isLoading) return <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5 text-sm text-slate-400">جارٍ تحميل إحصاءات البحث وتوثيق الدفع…</CardContent></Card>;
+  if (metrics.isError) return <Card role="alert" className="border-rose-400/25 bg-rose-400/[.04]"><CardContent className="p-5"><h3 className="font-bold text-rose-200">تعذر تحميل إحصاءات البحث وتوثيق الدفع</h3><p className="mt-2 text-sm text-slate-400">{metrics.error.message}</p></CardContent></Card>;
+
+  return <section className="space-y-4">
+    <div className="flex flex-wrap items-end justify-between gap-2">
+      <div><h2 className="text-lg font-extrabold text-white">إحصاءات البحث وتوثيق الدفع</h2><p className="mt-1 text-xs text-slate-500">بيانات تشغيلية مجمعة، دون حفظ عبارات البحث أو بيانات المشتركين في سجل الإحصاءات.</p></div>
+      <Button type="button" variant="outline" size="sm" onClick={() => void metrics.refetch()} disabled={metrics.isFetching} className="border-white/10 text-slate-200">{metrics.isFetching ? "جارٍ التحديث…" : "تحديث الإحصاءات"}</Button>
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Metric label="طلبات توثيق الدفع" value={payment?.totalRequests} icon={WalletCards} />
+      <Metric label="طلبات قيد التحقق" value={payment?.pendingRequests} icon={AlertTriangle} tone={payment?.pendingRequests ? "red" : "green"} />
+      <Metric label="طلبات معتمدة" value={payment?.approvedRequests} icon={CircleDollarSign} tone="green" />
+      <Metric label="طلبات مرفوضة" value={payment?.rejectedRequests} icon={AlertTriangle} tone={payment?.rejectedRequests ? "red" : "green"} />
+      <Metric label="طلبات التوثيق آخر 7 أيام" value={payment?.requestsLast7Days} icon={BarChart3} />
+      <Metric label="المبالغ المعتمدة آخر 30 يومًا" value={payment ? format(payment.approvedAmountLast30Days) : undefined} suffix="" icon={WalletCards} tone="green" />
+      <Metric label="نسبة الاعتماد من الطلبات المحسومة" value={payment ? percentLabel(payment.approvalRatePercent) : undefined} icon={BarChart3} />
+      <Metric label="عمليات البحث آخر 30 يومًا" value={search?.searchesLast30Days} icon={Search} />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-2">
+      <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+        <h3 className="font-bold text-white">تفاصيل توثيق الدفع</h3>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">طلبات آخر 30 يومًا</p><p className="mt-1 text-xl font-bold text-white">{format(payment?.requestsLast30Days)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">إجمالي المبالغ المعتمدة</p><p className="mt-1 text-xl font-bold text-white">{format(payment?.approvedAmountAllTime)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">طلبات محسومة</p><p className="mt-1 text-xl font-bold text-white">{format(payment?.decidedRequests)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">آخر طلب</p><p className="mt-1 text-sm font-bold text-white">{payment?.latestSubmittedAt ? new Date(payment.latestSubmittedAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</p></div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">قيمة المبالغ تشمل الطلبات المعتمدة فقط، ولا تُعامل الطلبات المعلقة أو المرفوضة كتحصيل مالي.</p>
+      </CardContent></Card>
+      <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+        <h3 className="font-bold text-white">تفاصيل البحث المركزي</h3>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">عمليات البحث آخر 7 أيام</p><p className="mt-1 text-xl font-bold text-white">{format(search?.searchesLast7Days)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">عمليات دون نتائج آخر 30 يومًا</p><p className="mt-1 text-xl font-bold text-white">{format(search?.noResultSearchesLast30Days)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">معدل البحث دون نتائج</p><p className="mt-1 text-xl font-bold text-white">{percentLabel(search?.noResultRatePercentLast30Days)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">المستخدمون الباحثون آخر 30 يومًا</p><p className="mt-1 text-xl font-bold text-white">{format(search?.searchersLast30Days)}</p></div>
+        </div>
+        <div className="mt-4 space-y-2 text-xs text-slate-400">
+          <div className="flex justify-between gap-3"><span>نتائج المولدات</span><strong className="text-white">{format(search?.generatorResultHitsLast30Days)}</strong></div>
+          <div className="flex justify-between gap-3"><span>نتائج المشتركين</span><strong className="text-white">{format(search?.subscriberResultHitsLast30Days)}</strong></div>
+          <div className="flex justify-between gap-3"><span>نتائج أصحاب المولدات</span><strong className="text-white">{format(search?.ownerResultHitsLast30Days)}</strong></div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">يبدأ احتساب استخدام البحث من {dateLabel(search?.trackingStartedAt)}؛ لا توجد بيانات تاريخية قبل تفعيل القياس. تُسجّل الأعداد والفئات فقط دون عبارة البحث أو تفاصيل النتائج.</p>
+      </CardContent></Card>
+    </div>
+  </section>;
+}
+
 export function AdvancedDashboard() {
   const dashboard = trpc.admin.advancedDashboard.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: true, staleTime: 10_000 });
   const [query, setQuery] = useState("");
@@ -36,6 +100,7 @@ export function AdvancedDashboard() {
     <div className="grid gap-6 xl:grid-cols-2"><ChartCard title="نمو المشتركين خلال آخر 12 شهراً"><ResponsiveContainer width="100%" height={240}><LineChart data={data?.monthlyGrowth ?? []}><CartesianGrid stroke="#ffffff12" vertical={false} /><XAxis dataKey="month" stroke="#64748b" fontSize={11} /><YAxis stroke="#64748b" fontSize={11} /><Tooltip contentStyle={{ background: "#111823", border: "1px solid #ffffff1a", borderRadius: 12 }} /><Line type="monotone" dataKey="count" stroke="#F5B800" strokeWidth={3} dot={{ fill: "#F5B800" }} /></LineChart></ResponsiveContainer></ChartCard><ChartCard title="توزيع الاستهلاك حسب المناطق"><ResponsiveContainer width="100%" height={240}><BarChart data={data?.consumptionByRegion ?? []}><CartesianGrid stroke="#ffffff12" vertical={false} /><XAxis dataKey="region" stroke="#64748b" fontSize={11} /><YAxis stroke="#64748b" fontSize={11} /><Tooltip contentStyle={{ background: "#111823", border: "1px solid #ffffff1a", borderRadius: 12 }} /><Bar dataKey="consumptionKwh" fill="#2dd4bf" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></ChartCard></div>
     <div className="grid gap-6 xl:grid-cols-2"><ChartCard title="أعلى المولدات تحصيلاً"><GeneratorRank rows={top} color="#22c55e" /></ChartCard><ChartCard title="الأقل تحصيلاً"><GeneratorRank rows={low} color="#fb7185" /></ChartCard></div>
     <div className="grid gap-6 xl:grid-cols-3"><QuickList title="آخر المولدات المسجلة" rows={(data?.latestGenerators ?? []).map((item) => ({ title: item.name, detail: `${item.tenantName} · ${item.status}`, meta: item.code }))} /><QuickList title="الشكاوى الجديدة" rows={(data?.recentComplaints ?? []).map((item) => ({ title: item.title, detail: `${item.tenantName} · ${complaintStatus[item.status] ?? item.status}`, meta: item.priority }))} /><QuickList title="الاشتراكات الأقرب انتهاءً" rows={(data?.expiringSubscriptions ?? []).map((item) => ({ title: item.ownerName ?? item.tenantName, detail: item.tenantName, meta: date(item.endsAt) }))} /></div>
+    <AdminActivityMetricsPanel />
   </section>;
 }
 
