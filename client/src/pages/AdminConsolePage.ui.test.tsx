@@ -196,6 +196,7 @@ describe("PowerHub platform administration UI", () => {
   it("renders central operational data and controlled states in every platform tab", () => {
     state.role = "admin";
     render(<AdminConsolePage />);
+    expect(screen.getByText("إحصاءات البحث وتوثيق الدفع")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
     expect(screen.getByText("بانتظار المراجعة")).toBeInTheDocument();
