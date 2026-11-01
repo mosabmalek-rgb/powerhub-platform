@@ -53,7 +53,7 @@ vi.mock("@/lib/trpc", () => ({
       advancedDashboard: { useQuery: () => ({ data: { kpis: { activeGenerators: 2, subscribers: 150, dailyConsumption: 50, monthlyConsumption: 1000, monthlyCollections: 4000, openComplaints: 1, generatorsToReview: 0, collectionRate: state.collectionRate }, monthlyGrowth: [{ month: "2026-08", count: 150 }], consumptionByRegion: [{ region: "بغداد", consumptionKwh: 1000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", code: "GEN-T-01", tenantName: "مساحة مولد الاختبار", amount: 4000 }], latestGenerators: [], recentComplaints: [], expiringSubscriptions: [] } }) },
       globalSearch: { useQuery: () => ({ data: [] }) },
       performanceMetrics: { useQuery: () => ({ data: { generatedAt: new Date().toISOString(), database: { name: "powerhub", sizeBytes: 1048576, sizeMiB: 1 }, connections: { clientBackends: 2, active: 1, idleInTransaction: 0, maxConnections: 60 }, cacheHitRatioPercent: 99.5, transactions: { commits: 100, rollbacks: 1, deadlocks: 0, tempFiles: 0, tempBytes: 0, statsResetAt: null }, topTables: [] }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
-      activityMetrics: { useQuery: () => ({ data: { generatedAt: new Date().toISOString(), paymentDocumentation: { totalRequests: 4, pendingRequests: 1, approvedRequests: 2, rejectedRequests: 1, requestsLast7Days: 3, requestsLast30Days: 4, approvedAmountAllTime: 100, approvedAmountLast30Days: 75, decidedRequests: 3, approvalRatePercent: 66.67, latestSubmittedAt: new Date().toISOString() }, search: { searchesAllTime: 0, searchesLast7Days: 0, searchesLast30Days: 0, noResultSearchesLast30Days: 0, noResultRatePercentLast30Days: null, generatorResultHitsLast30Days: 0, subscriberResultHitsLast30Days: 0, ownerResultHitsLast30Days: 0, trackingStartedAt: null, lastSearchAt: null } }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
+      activityMetrics: { useQuery: () => ({ data: { generatedAt: new Date().toISOString(), period: { fromDate: "2026-10-04", toDate: "2026-11-02" }, paymentDocumentation: { totalRequests: 4, pendingRequests: 1, approvedRequests: 2, rejectedRequests: 1, approvedAmountInPeriod: 75, decidedRequests: 3, approvalRatePercent: 66.67, latestSubmittedAt: new Date().toISOString() }, search: { searchesInPeriod: 12, noResultSearchesInPeriod: 2, noResultRatePercentInPeriod: 16.67, generatorResultHitsInPeriod: 4, subscriberResultHitsInPeriod: 6, ownerResultHitsInPeriod: 2, trackingStartedAt: "2026-10-04", lastSearchAt: new Date().toISOString() } }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
       listComplaints: { useQuery: () => ({ data: [{ id: 4, title: "شكوى اختبار", description: "تفاصيل الشكوى", priority: "high", status: "open", response: null, openedAt: new Date(), resolvedAt: null, tenantId: 1, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", subscriberName: "مشترك تجريبي", assignedUserId: null, assignedUserName: null }] }) },
       updateComplaint: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       listTariffPolicies: { useQuery: () => ({ data: [] }) },
@@ -197,6 +197,14 @@ describe("PowerHub platform administration UI", () => {
     state.role = "admin";
     render(<AdminConsolePage />);
     expect(screen.getByText("إحصاءات البحث وتوثيق الدفع")).toBeInTheDocument();
+    expect(screen.getByText("الفترة الزمنية للإحصاءات")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "فترة مخصصة" }));
+    expect(screen.getByLabelText("من تاريخ")).toBeInTheDocument();
+    expect(screen.getByLabelText("إلى تاريخ")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("من تاريخ"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("إلى تاريخ"), { target: { value: "2026-10-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "تطبيق الفترة" }));
+    fireEvent.click(screen.getByRole("button", { name: "آخر 7 أيام" }));
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
     expect(screen.getByText("بانتظار المراجعة")).toBeInTheDocument();
