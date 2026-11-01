@@ -42,7 +42,7 @@ function AdminActivityMetricsPanel() {
   const [periodMode, setPeriodMode] = useState<"7d" | "30d" | "90d" | "all" | "custom">("30d");
   const [customFromDate, setCustomFromDate] = useState(defaultFromDate);
   const [customToDate, setCustomToDate] = useState(todayDate);
-  const [appliedPeriod, setAppliedPeriod] = useState({ fromDate: defaultFromDate, toDate: todayDate });
+  const [appliedPeriod, setAppliedPeriod] = useState<{ fromDate: string | null; toDate: string | null }>({ fromDate: defaultFromDate, toDate: todayDate });
   const [dateError, setDateError] = useState("");
   const metrics = trpc.admin.activityMetrics.useQuery(appliedPeriod, {
     refetchInterval: DASHBOARD_REFRESH_MS,
