@@ -1370,6 +1370,27 @@ export const powerhubRouter = router({
   }),
   staff: router({
     myAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => resolveSupabaseSiteAccess(ctx.user.id, input.siteId)),
+    myFeatureAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      const admin = supabaseAdmin();
+      const [supportChat, aiAssistant] = await Promise.all([
+        admin.rpc("powerhub_resolve_tenant_feature_policy", {
+          p_tenant_id: access.tenantId,
+          p_feature_key: "support_chat",
+        }),
+        admin.rpc("powerhub_resolve_tenant_feature_policy", {
+          p_tenant_id: access.tenantId,
+          p_feature_key: "powerhub_ai_assistant",
+        }),
+      ]);
+      if (supportChat.error || aiAssistant.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من إتاحة ميزات التواصل." });
+      }
+      return {
+        support_chat: supportChat.data?.[0]?.enabled === true,
+        powerhub_ai_assistant: aiAssistant.data?.[0]?.enabled === true,
+      };
+    }),
     allBranchAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
       if (access.role === "owner") return { isGlobal: true };

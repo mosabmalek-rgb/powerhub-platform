@@ -232,6 +232,13 @@ function DashboardLayoutContent({
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
+  const tenantFeatureAccess = trpc.powerhub.staff.myFeatureAccess.useQuery({ siteId: resolvedActiveSiteId ?? 0 }, {
+    enabled: Boolean(resolvedActiveSiteId && user?.role !== "admin"),
+    refetchInterval: 15000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
 
   useEffect(() => {
     if (!activeAccess.data || !resolvedActiveSiteId || user?.role === "admin" || activeAccess.isError) return;
@@ -293,6 +300,8 @@ function DashboardLayoutContent({
     ...group,
     items: group.items.filter((item) => {
       if (displayUser.role === "admin") return true;
+      if (item.path === "/support-chat") return !tenantFeatureAccess.isError && tenantFeatureAccess.data?.support_chat === true;
+      if (item.path === "/ai-support") return !tenantFeatureAccess.isError && tenantFeatureAccess.data?.powerhub_ai_assistant === true;
       if (item.path === "/payment-documentation") return Boolean(paymentDocumentationAccess.data?.allowed);
       if (!hasActiveTenantAccess) {
         // Keep navigation discoverable during a transient access-check outage.
