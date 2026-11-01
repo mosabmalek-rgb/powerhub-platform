@@ -86,7 +86,7 @@ function AdminActivityMetricsPanel() {
 }
 
 export function AdvancedDashboard() {
-  const dashboard = trpc.admin.advancedDashboard.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: true, staleTime: 10_000 });
+  const dashboard = trpc.admin.advancedDashboard.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: false, staleTime: 10_000 });
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   useEffect(() => {
@@ -110,7 +110,7 @@ export function AdvancedDashboard() {
 }
 
 export function OperationalMonitoringPanel({ onNavigate }: { onNavigate: (target: "notifications" | "security" | "reports" | "field_sync") => void }) {
-  const monitoring = trpc.admin.operationalMonitoring.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: true, staleTime: 10_000 });
+  const monitoring = trpc.admin.operationalMonitoring.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: false, staleTime: 10_000 });
   const data = monitoring.data;
   const iconByKey = { database: Database, messaging: Radio, sync: Wrench, security: ShieldAlert } as const;
   const tone = (state: string) => state === "healthy" ? "border-emerald-400/20 bg-emerald-400/[.055] text-emerald-200" : state === "warning" ? "border-amber-400/25 bg-amber-400/[.06] text-amber-100" : "border-rose-400/25 bg-rose-400/[.07] text-rose-100";
