@@ -174,3 +174,14 @@ The workflow fails closed unless the Staging environment has a required human re
 - Production remains unchanged: its ledger still has 486 entries and does not contain this migration.
 - This direct Supabase-tool application was a one-off execution explicitly requested by the user, and the generated ledger version has been reconciled into source. Preserve the protected release workflow for subsequent migration operations unless the user changes that instruction.
 - **Remaining action:** invoke the RPC under the `service_role` database role, then verify the single-account role promotion and audit row. Password issuance remains a separate Auth Admin API operation and has not occurred.
+
+## First Staging platform-admin bootstrap invoked and verified — 2026-11-01
+
+- Invoked `public.powerhub_staging_bootstrap_first_platform_admin()` on Staging project `iyuryuhaylhisjfcrwkz` using the Supabase SQL tool inside a transaction with `SET LOCAL ROLE service_role`. The RPC returned `bootstrapped`.
+- Post-invocation read-only verification confirms the exact approved profile (application user id `259`, approved Auth UUID) is now `role=admin`, `platform_role=platform_admin`, `account_status=active`.
+- Auth identity remains email-confirmed and unbanned. Password was not changed: `must_change_password=false`, `temporary_password_issued_at=NULL`.
+- Exactly one matching bootstrap audit event exists, with `created_by_user_id=NULL`, `passwordChanged=false`, and `membershipsChanged=false`. No tenant membership rows for this application user were present in `public.tenant_members`; the bootstrap function itself contains no membership DML.
+- Function ACL remains restricted: `anon=false`, `authenticated=false`, `service_role=true`. Replay safety is implemented through the function's idempotent `already_bootstrapped` branch and advisory transaction lock.
+- Staging migration ledger: 309 rows, exact entry `20261101101932 / powerhub_staging_first_platform_admin_bootstrap`. Production remains 486 rows with no corresponding migration.
+- Temporary password issuance and first successful sign-in are still outstanding. Do not claim the account is ready for browser login until a secure Auth Admin password update and sign-in verification have completed.
+- CI for the source reconciliation commit was still running at the time this note was added; verify all four required workflows on the new final PR head before considering this documentation/source update fully gated.
