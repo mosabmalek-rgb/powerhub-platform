@@ -427,7 +427,7 @@ export const adminRouterWithSupabaseReadContracts = router({
       ...(ownersByPhone.data ?? []).map((row) => ({ id: Number(row.id), kind: "owner" as const, label: row.full_name, reference: row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
     ]).slice(0, 30);
 
-    // Record only aggregate counts and the platform-admin actor/day. Never persist
+    // Record daily aggregate counts only. Never persist
     // the query string, subscriber phone, result labels, or identifiers.
     try {
       await admin.rpc("powerhub_admin_record_search_metric", {
