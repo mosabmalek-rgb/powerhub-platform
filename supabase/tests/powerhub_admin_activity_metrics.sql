@@ -27,8 +27,8 @@ INSERT INTO public.payment_documentation_requests (status, submitted_at, payment
 DO $acl$
 BEGIN
   IF has_function_privilege('anon','public.powerhub_admin_record_search_metric(integer,integer,integer,integer)','EXECUTE')
-     OR has_function_privilege('authenticated','public.powerhub_admin_record_search_metric(bigint,integer,integer,integer,integer)','EXECUTE')
-     OR NOT has_function_privilege('service_role','public.powerhub_admin_record_search_metric(bigint,integer,integer,integer,integer)','EXECUTE')
+     OR has_function_privilege('authenticated','public.powerhub_admin_record_search_metric(integer,integer,integer,integer)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.powerhub_admin_record_search_metric(integer,integer,integer,integer)','EXECUTE')
      OR has_function_privilege('anon','public.powerhub_admin_get_activity_metrics()','EXECUTE')
      OR has_function_privilege('authenticated','public.powerhub_admin_get_activity_metrics()','EXECUTE')
      OR NOT has_function_privilege('service_role','public.powerhub_admin_get_activity_metrics()','EXECUTE') THEN
