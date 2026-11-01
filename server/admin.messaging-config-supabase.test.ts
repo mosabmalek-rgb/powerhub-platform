@@ -81,6 +81,25 @@ const adminContext = (platformRole: PlatformRole = "platform_admin") => ({
   res: {} as never,
 });
 
+describe("إحصاءات البحث المركزي دون حفظ نص البحث", () => {
+  it("يسجل أعداد النتائج حسب الفئة فقط ولا يرسل عبارة البحث إلى RPC القياس", async () => {
+    state.calls.splice(0);
+    state.rpcArgs.splice(0);
+    const privateSearchPhrase = "private-search-phrase-should-never-be-stored";
+    const caller = adminRouter.createCaller(adminContext());
+    const results = await caller.globalSearch({ query: privateSearchPhrase });
+    expect(results.map((row) => row.kind)).toEqual(["generator", "subscriber", "owner"]);
+    const metricCall = state.rpcArgs.find((entry) => entry.functionName === "powerhub_admin_record_search_metric");
+    expect(metricCall?.args).toEqual({
+      p_result_count: 3,
+      p_generator_result_count: 1,
+      p_subscriber_result_count: 1,
+      p_owner_result_count: 1,
+    });
+    expect(JSON.stringify(metricCall?.args)).not.toContain(privateSearchPhrase);
+  });
+});
+
 describe("إعدادات مزود الرسائل المركزي عبر Supabase", () => {
   it("يقرأ الإعداد المركزي والمزود الاحتياطي دون MySQL أو اتصال خارجي", async () => {
     const caller = adminRouter.createCaller(adminContext());
