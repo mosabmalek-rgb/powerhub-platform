@@ -9,11 +9,8 @@ vi.mock("@/const", () => ({ startLogin: vi.fn() }));
 vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()] }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    platformContactSettings: {
-      public: { useQuery: () => ({ data: undefined, isLoading: false, isError: false }) },
-    },
     powerhub: {
-      publicPackageCatalog: { useQuery: () => ({ data: undefined, isLoading: false, isError: false }) },
+      publicPackageCatalog: { useQuery: () => ({ data: undefined, isLoading: false }) },
     },
   },
 }));
