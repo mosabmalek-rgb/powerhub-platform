@@ -130,7 +130,7 @@ describe("platform payment and search activity metrics", () => {
 
   it("fails closed when activity metrics do not match the schema", async () => {
     state.rpc.mockResolvedValue({
-      data: { ...activityMetrics, search: { ...activityMetrics.search, noResultRatePercentLast30Days: 101 } },
+      data: { ...activityMetrics, search: { ...activityMetrics.search, noResultRatePercentInPeriod: 101 } },
       error: null,
     });
     const caller = adminPerformanceRouter.createCaller({
