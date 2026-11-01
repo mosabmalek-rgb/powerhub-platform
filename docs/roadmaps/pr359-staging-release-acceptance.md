@@ -146,3 +146,20 @@ The workflow fails closed unless the Staging environment has a required human re
 - This code guard does **not** configure Vercel secrets and does not make the existing branch deployment safe by itself. Branch Preview variables must still be set by the project owner to Staging values, including the Staging service-role key. Do not deploy or run browser acceptance until those values are configured and verified. No Vercel environment variable or Supabase secret was changed by this commit.
 - CI and PostgreSQL must pass again on the new commit SHA; browser acceptance remains open.
 
+## Final-head verification and first-admin release gate — 2026-11-01 (supersedes older SHA/status notes)
+
+- Verified PR #359 head: `18f4a53edac545a1e7c0ee68108ad27823da67a6`. PR remains open and Draft, not merged. The branch includes current `main` (`behind_by=0`).
+- All four required GitHub workflows completed successfully on that exact SHA:
+  - PowerHub CI — TypeScript, tests, production build.
+  - PowerHub Supabase Admin Guard — runtime migration guards.
+  - Reading Cycle PostgreSQL Integration — workflow job completed successfully.
+  - PowerHub Security — dependency audit completed successfully.
+  - CodeQL analysis and Dependency Review were skipped; do not describe them as passed.
+- Staging migration ledger was re-read: 308 entries; latest is `20261101085211_powerhub_payment_documentation_owner_constraint_reconcile`. The 35 previously released PR migrations remain present with exact version/name pairs. The new migration `20261101100000_powerhub_staging_first_platform_admin_bootstrap` is not present.
+- A live read-only Staging check confirms the exact approved account still has `role=user`, `platform_role=platform_admin`, `account_status=active`; its Auth identity remains email-confirmed and unbanned. `must_change_password=false`, and the bootstrap RPC does not yet exist. No role or password mutation has occurred.
+- Production migration ledger remains at 486 entries; it has no `20261101...` entries. The specific approved Auth UUID/email is absent from Production. No Production DDL/DML was performed.
+- The branch-to-main comparison is `ahead` with `behind_by=0`; the migration source is an added file relative to current `main`, satisfying the release workflow's source preflight at this SHA.
+- **Next release action:** use [Supabase Versioned Migration Release](https://github.com/mosabmalek-rgb/powerhub-platform/actions/workflows/supabase-migration-release.yml) from `main` with `target=staging`, `migration_path=supabase/migrations/20261101100000_powerhub_staging_first_platform_admin_bootstrap.sql`, and `source_pr_number=359`; obtain the required human approval in the protected `supabase-staging` environment. Apply exactly this one migration. Do not bypass the release runner with direct SQL or a differently versioned migration.
+- After release, verify the exact migration ledger row, function definition, and ACL (EXECUTE only for `service_role`). Invoke the RPC only through a Staging service-role client, then verify the exact account became `role=admin` while its Auth identity, tenant memberships, platform role, and password fields remain unchanged.
+- **Password is a separate operation and remains pending.** Set it through Supabase Auth Admin `updateUserById` in a server-side/local Staging-only operation; generate a random temporary value, set both Auth metadata and `public.users.must_change_password=true`, record an accurate system-origin audit event, verify sign-in without persisting a session, and deliver the value once through protected local output. Never put the service-role key or password in Git, PR comments, chat, or CI logs.
+- No Preview Deployment, Production migration, merge, real SMS, final payroll approval, or live financial/stock operation was initiated by this verification.
