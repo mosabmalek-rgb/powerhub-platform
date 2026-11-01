@@ -14,12 +14,14 @@ import { supportRouter } from "./support-router";
 import { aiSupportRouter } from "./ai-support-router";
 import { platformAnnouncementsRouter } from "./platform-announcements-router";
 import { adminFeatureControlsRouter } from "./admin-feature-controls-router";
+import { adminPerformanceRouter } from "./admin-performance-router";
 
 const adminRuntimeRouter = router({
   ...adminRouterWithSupabasePlatformSetting._def.record,
   resetUserPassword: adminRouterWithSupabasePlatformSetting.resetUserPassword,
   ...adminRolePolicyRouter._def.record,
   ...adminFeatureControlsRouter._def.record,
+  ...adminPerformanceRouter._def.record,
 });
 
 const powerhubAppRouter = mergeRouters(powerhubRuntimeRouter, router({ performance: powerhubDashboardRouter }));
