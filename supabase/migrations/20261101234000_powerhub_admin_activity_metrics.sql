@@ -3,7 +3,6 @@ CREATE SCHEMA IF NOT EXISTS private;
 
 CREATE TABLE IF NOT EXISTS private.platform_admin_search_metrics_daily (
   metric_day date NOT NULL,
-  actor_user_id bigint NOT NULL,
   search_count bigint NOT NULL DEFAULT 0 CHECK (search_count >= 0),
   no_result_search_count bigint NOT NULL DEFAULT 0 CHECK (no_result_search_count >= 0),
   result_count bigint NOT NULL DEFAULT 0 CHECK (result_count >= 0),
@@ -12,7 +11,7 @@ CREATE TABLE IF NOT EXISTS private.platform_admin_search_metrics_daily (
   owner_result_count bigint NOT NULL DEFAULT 0 CHECK (owner_result_count >= 0),
   first_searched_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
   last_searched_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp(),
-  CONSTRAINT platform_admin_search_metrics_daily_pk PRIMARY KEY (metric_day, actor_user_id),
+  CONSTRAINT platform_admin_search_metrics_daily_pk PRIMARY KEY (metric_day),
   CONSTRAINT platform_admin_search_metrics_counts_check
     CHECK (no_result_search_count <= search_count)
 );
@@ -24,7 +23,6 @@ REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
 GRANT USAGE ON SCHEMA private TO postgres;
 
 CREATE OR REPLACE FUNCTION public.powerhub_admin_record_search_metric(
-  p_actor_user_id bigint,
   p_result_count integer,
   p_generator_result_count integer,
   p_subscriber_result_count integer,
@@ -42,8 +40,7 @@ BEGIN
     RAISE EXCEPTION 'INTERNAL_ONLY';
   END IF;
 
-  IF p_actor_user_id IS NULL OR p_actor_user_id <= 0
-     OR p_result_count IS NULL OR p_result_count < 0 OR p_result_count > 30
+  IF p_result_count IS NULL OR p_result_count < 0 OR p_result_count > 30
      OR p_generator_result_count IS NULL OR p_generator_result_count < 0
      OR p_subscriber_result_count IS NULL OR p_subscriber_result_count < 0
      OR p_owner_result_count IS NULL OR p_owner_result_count < 0
@@ -52,11 +49,11 @@ BEGIN
   END IF;
 
   INSERT INTO private.platform_admin_search_metrics_daily (
-    metric_day, actor_user_id, search_count, no_result_search_count,
+    metric_day, search_count, no_result_search_count,
     result_count, generator_result_count, subscriber_result_count,
     owner_result_count, first_searched_at, last_searched_at
   ) VALUES (
-    v_metric_day, p_actor_user_id, 1, CASE WHEN p_result_count = 0 THEN 1 ELSE 0 END,
+    v_metric_day, 1, CASE WHEN p_result_count = 0 THEN 1 ELSE 0 END,
     p_result_count, p_generator_result_count, p_subscriber_result_count,
     p_owner_result_count, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp()
   )
@@ -107,7 +104,6 @@ BEGIN
     coalesce(sum(search_count) FILTER (WHERE metric_day >= v_today - 6), 0)::bigint AS searches_last_7_days,
     coalesce(sum(search_count) FILTER (WHERE metric_day >= v_today - 29), 0)::bigint AS searches_last_30_days,
     coalesce(sum(no_result_search_count) FILTER (WHERE metric_day >= v_today - 29), 0)::bigint AS no_result_searches_last_30_days,
-    count(DISTINCT actor_user_id) FILTER (WHERE metric_day >= v_today - 29)::bigint AS searchers_last_30_days,
     coalesce(sum(generator_result_count) FILTER (WHERE metric_day >= v_today - 29), 0)::bigint AS generator_result_hits_last_30_days,
     coalesce(sum(subscriber_result_count) FILTER (WHERE metric_day >= v_today - 29), 0)::bigint AS subscriber_result_hits_last_30_days,
     coalesce(sum(owner_result_count) FILTER (WHERE metric_day >= v_today - 29), 0)::bigint AS owner_result_hits_last_30_days,
@@ -143,7 +139,6 @@ BEGIN
         WHEN v_search.searches_last_30_days = 0 THEN NULL
         ELSE round(100.0 * v_search.no_result_searches_last_30_days / v_search.searches_last_30_days, 2)
       END,
-      'searchersLast30Days', v_search.searchers_last_30_days,
       'generatorResultHitsLast30Days', v_search.generator_result_hits_last_30_days,
       'subscriberResultHitsLast30Days', v_search.subscriber_result_hits_last_30_days,
       'ownerResultHitsLast30Days', v_search.owner_result_hits_last_30_days,
@@ -154,7 +149,7 @@ BEGIN
 END;
 $function$;
 
-ALTER FUNCTION public.powerhub_admin_record_search_metric(bigint, integer, integer, integer, integer) OWNER TO postgres;
+ALTER FUNCTION public.powerhub_admin_record_search_metric(integer, integer, integer, integer) OWNER TO postgres;
 ALTER FUNCTION public.powerhub_admin_get_activity_metrics() OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.powerhub_admin_record_search_metric(bigint, integer, integer, integer, integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.powerhub_admin_get_activity_metrics() FROM PUBLIC, anon, authenticated, service_role;
