@@ -67,16 +67,6 @@ export function RouteAccessGate({ children, platformAdminOnly = false, supportOn
     return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى المساحة المناسبة…</h1><p className="mt-2 text-sm text-slate-400">سجّل الدخول أولاً للوصول إلى واجهات التشغيل والصلاحيات الخاصة بحسابك.</p></div></main>;
   }
 
-  if (featureCheckRequired && (featureSites.isLoading || (featureSiteId > 0 && featureAccess.isLoading))) {
-    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ التحقق من إتاحة الميزة…</h1></div></main>;
-  }
-  if (featureCheckRequired && (featureSites.isError || featureAccess.isError || !featureSiteId || !featureAccess.data)) {
-    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">تعذر التحقق من إتاحة الميزة</h1><p className="mt-2 text-sm leading-7 text-slate-400">لم نتمكن من التحقق من سياسة الاشتراك من الخادم. لن نفتح هذه الصفحة اعتمادًا على بيانات مخزنة قديمة.</p><button type="button" onClick={() => { void featureSites.refetch(); if (featureSiteId) void featureAccess.refetch(); }} className="mt-5 rounded-xl bg-[#F5B800] px-5 py-3 text-sm font-extrabold text-[#0D1117]">إعادة التحقق</button></div></main>;
-  }
-  if (featureCheckRequired && featureKey && featureAccess.data?.[featureKey] !== true) {
-    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">الميزة غير متاحة لهذا الاشتراك</h1><p className="mt-2 text-sm leading-7 text-slate-400">تم إيقاف الوصول إلى هذه الميزة وفق إعدادات المنصة أو الباقة أو التحكم الخاص بمساحة العمل.</p><button type="button" onClick={() => setLocation("/workspace")} className="mt-5 rounded-xl border border-white/15 px-5 py-3 text-sm font-bold text-slate-200">العودة إلى لوحة العمل</button></div></main>;
-  }
-
   if (featureKey && user && user.role !== "admin") {
     return <TenantFeatureAccessGate featureKey={featureKey}>{children}</TenantFeatureAccessGate>;
   }
