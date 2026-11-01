@@ -32,7 +32,7 @@ function AdminActivityMetricsPanel() {
   const search = data?.search;
   const dateLabel = (value: string | null | undefined) => value
     ? new Date(value).toLocaleDateString("ar-PS", { timeZone: "Asia/Gaza" })
-    : "—";
+    : "لم تُسجل عمليات بحث بعد";
   const percentLabel = (value: number | null | undefined) => value === null || value === undefined
     ? "لا توجد بيانات كافية"
     : `${format(value)}٪`;
@@ -69,6 +69,7 @@ function AdminActivityMetricsPanel() {
       <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
         <h3 className="font-bold text-white">تفاصيل البحث المركزي</h3>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">إجمالي البحث منذ بدء القياس</p><p className="mt-1 text-xl font-bold text-white">{format(search?.searchesAllTime)}</p></div>
           <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">عمليات البحث آخر 7 أيام</p><p className="mt-1 text-xl font-bold text-white">{format(search?.searchesLast7Days)}</p></div>
           <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">عمليات دون نتائج آخر 30 يومًا</p><p className="mt-1 text-xl font-bold text-white">{format(search?.noResultSearchesLast30Days)}</p></div>
           <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">معدل البحث دون نتائج</p><p className="mt-1 text-xl font-bold text-white">{percentLabel(search?.noResultRatePercentLast30Days)}</p></div>
@@ -78,7 +79,7 @@ function AdminActivityMetricsPanel() {
           <div className="flex justify-between gap-3"><span>نتائج المشتركين</span><strong className="text-white">{format(search?.subscriberResultHitsLast30Days)}</strong></div>
           <div className="flex justify-between gap-3"><span>نتائج أصحاب المولدات</span><strong className="text-white">{format(search?.ownerResultHitsLast30Days)}</strong></div>
         </div>
-        <p className="mt-3 text-xs leading-5 text-slate-500">يبدأ احتساب استخدام البحث من {dateLabel(search?.trackingStartedAt)}؛ لا توجد بيانات تاريخية قبل تفعيل القياس. تُسجّل الأعداد والفئات فقط دون عبارة البحث أو تفاصيل النتائج.</p>
+        <p className="mt-3 text-xs leading-5 text-slate-500">تاريخ بدء جمع الإحصاءات: {dateLabel(search?.trackingStartedAt)}؛ لا توجد بيانات تاريخية قبل تفعيل القياس. تُسجّل الأعداد والفئات فقط دون عبارة البحث أو تفاصيل النتائج.</p>
       </CardContent></Card>
     </div>
   </section>;
