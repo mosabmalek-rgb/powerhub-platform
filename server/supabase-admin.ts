@@ -1,11 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-type SupabaseAdminUrlEnvironment = {
-  VERCEL_ENV?: string;
-  SUPABASE_URL?: string;
-  VITE_SUPABASE_URL?: string;
-};
-
 function getProjectOrigin(value: string, variableName: string): string {
   let parsed: URL;
   try {
@@ -28,7 +22,7 @@ function getProjectOrigin(value: string, variableName: string): string {
  * project. Local development may still fall back to VITE_SUPABASE_URL.
  */
 export function resolveSupabaseAdminProjectUrl(
-  env: SupabaseAdminUrlEnvironment = process.env,
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
   const serverUrl = env.SUPABASE_URL?.trim();
   const clientUrl = env.VITE_SUPABASE_URL?.trim();
