@@ -8,7 +8,7 @@ BEGIN
 END
 $roles$;
 
-\ir ../migrations/20261102120000_powerhub_admin_performance_metrics.sql
+\ir ../migrations/20261101232628_powerhub_admin_performance_metrics.sql
 
 DO $acl$
 BEGIN
