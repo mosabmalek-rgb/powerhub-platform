@@ -31,6 +31,22 @@ jobs:
       - name: Regenerate lockfile from exact workspace configuration
         run: pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
 
+      - name: Capture generated dependency graph diagnostics
+        if: always()
+        run: |
+          pnpm why glob --recursive > pnpm-why-glob.txt 2>&1 || true
+          grep -n -E 'glob@|archiver-utils@|minimatch@|brace-expansion@' pnpm-lock.yaml > pnpm-lock-matcher-entries.txt || true
+      - name: Upload generated lockfile diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: powerhub-lockfile-diagnostics
+          path: |
+            pnpm-lock.yaml
+            pnpm-why-glob.txt
+            pnpm-lock-matcher-entries.txt
+          if-no-files-found: error
+
       - name: Verify frozen lockfile consistency
         run: pnpm install --frozen-lockfile --ignore-scripts
 
