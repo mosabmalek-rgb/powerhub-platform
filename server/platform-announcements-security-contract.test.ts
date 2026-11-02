@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const router = readFileSync(resolve(process.cwd(), "server/platform-announcements-router.ts"), "utf8");
-const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261102160000_powerhub_announcement_membership_tenant_role_scope.sql"), "utf8");
+const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261102180000_powerhub_announcement_membership_tenant_role_scope.sql"), "utf8");
 
 describe("platform announcement tenant authorization", () => {
   it("loads expiry-aware membership identity and tenant-scoped staff roles", () => {
