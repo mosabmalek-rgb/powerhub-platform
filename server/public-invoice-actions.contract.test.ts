@@ -616,7 +616,7 @@ describe("public invoice and inquiry actions", () => {
     expect(migration).toContain("v_request.created_at + interval '15 days'");
     expect(migration).not.toContain("interval '2 months'");
     expect(migration).toContain("receipt_image_retention_until=v_retention_until");
-    expect(migration).toContain("receipt_image_retention_until = v_retention_until");
+    expect(migration).toContain("receipt_image_retention_until=v_retention_until");
   });
 
 });
