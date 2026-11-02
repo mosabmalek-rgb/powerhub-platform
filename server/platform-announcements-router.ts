@@ -212,7 +212,7 @@ export const platformAnnouncementsRouter = router({
       if (!account || account.account_status !== "active" || !canUserReceiveAnnouncement(
         announcement.tenant_id == null ? null : Number(announcement.tenant_id),
         announcement.audience_roles,
-        { accountStatus: account.account_status, platformRole: account.platform_role },
+        { accountStatus: account.account_status, platformRole: account.platform_role, accountRole: account.role },
         memberships ?? [],
         profiles ?? [],
       )) {

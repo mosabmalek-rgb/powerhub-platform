@@ -51,7 +51,7 @@ describe("tenant-scoped platform announcement audience", () => {
     expect(canUserReceiveAnnouncement(
       20,
       ["platform_admin"],
-      { accountStatus: "active", platformRole: "platform_admin" },
+      { accountStatus: "active", platformRole: "platform_admin", accountRole: null },
       [],
       [],
     )).toBe(false);
