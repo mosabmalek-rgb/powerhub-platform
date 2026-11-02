@@ -113,6 +113,19 @@ describe("شاشة الإجراءات السريعة", () => {
     }
   });
 
+  it("يحافظ على مفاتيح React فريدة عندما تشترك اختصارات المتابعة في مسار واحد", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    state.preferences = ["collect_payment"];
+    render(<QuickActionsPage />);
+    expect(screen.getByRole("button", { name: /متابعة المتأخرات/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /إرسال تذكير بالسداد/ })).toBeInTheDocument();
+    const duplicateKeyWarnings = consoleError.mock.calls
+      .flatMap((args) => args.map(String))
+      .filter((message) => /same key|unique.*key/i.test(message));
+    consoleError.mockRestore();
+    expect(duplicateKeyWarnings).toHaveLength(0);
+  });
+
   it("لا يكرر رابط الفواتير في اختصارات المتابعة إذا كان إجراء الفاتورة ظاهرًا", () => {
     state.preferences = ["create_invoice", "collect_payment"];
     render(<QuickActionsPage />);
