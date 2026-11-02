@@ -31,5 +31,6 @@ describe("image retention namespace allowlist",()=>{
     expect(isEligibleImageRetentionKey("../payment-receipts/file.png")).toBe(false);
     expect(isEligibleImageRetentionKey("payment-receipts/../logos/logo.png")).toBe(false);
     expect(isEligibleImageRetentionKey("payment-receipts//file.png")).toBe(false);
+    expect(isEligibleImageRetentionKey("payment-receipts/a" + String.fromCharCode(92) + "b.png")).toBe(false);
   });
 });
