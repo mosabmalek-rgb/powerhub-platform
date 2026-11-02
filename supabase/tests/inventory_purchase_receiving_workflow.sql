@@ -3881,7 +3881,9 @@ declare
   -- Anchor the fixture date to the same instant used by v_end_time so a run
   -- crossing Gaza midnight cannot classify the ending readings as historical.
   v_local_today date := ((now() - interval '1 minute') at time zone 'Asia/Gaza')::date;
-  v_opening_time timestamptz := ((v_local_today-2)::timestamp + interval '20 hours') at time zone 'Asia/Gaza';
+  -- The month report is anchored to yesterday, so its opening tank/hour
+  -- baseline must be recorded before the start of that anchor's month.
+  v_opening_time timestamptz := (((date_trunc('month',(v_local_today-1)::timestamp)::date - 1)::timestamp + interval '20 hours') at time zone 'Asia/Gaza');
   v_fill_time timestamptz := ((v_local_today-1)::timestamp + interval '23 hours 30 minutes') at time zone 'Asia/Gaza';
   -- Keep all later correction timestamps safely before wall-clock maintenance close-out tests.
   v_end_time timestamptz := now() - interval '1 minute';
