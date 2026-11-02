@@ -60,9 +60,16 @@ export const adminRouter = router({
     if (!fingerprintSecret || fingerprintSecret.length < 32) {
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "مفتاح بصمة عمليات التسجيل غير مهيأ بأمان." });
     }
-    // normalized contains temporaryPassword: use a server-keyed HMAC so a database
-    // disclosure cannot be used for offline password guessing against this fingerprint.
-    const fingerprint = crypto.createHmac("sha256", fingerprintSecret).update(JSON.stringify(normalized)).digest("hex");
+    // Derive the temporary password with a deliberately expensive KDF before
+    // incorporating it into the keyed idempotency fingerprint.
+    const passwordFingerprint = crypto.scryptSync(
+      normalized.temporaryPassword,
+      Buffer.from(fingerprintSecret, "utf8"),
+      32,
+      { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 },
+    ).toString("hex");
+    const fingerprintPayload = { ...normalized, temporaryPassword: passwordFingerprint };
+    const fingerprint = crypto.createHmac("sha256", fingerprintSecret).update(JSON.stringify(fingerprintPayload)).digest("hex");
     const admin=supabaseAdmin();
     const begin = await admin.rpc("powerhub_admin_begin_generator_owner_provisioning", {
       p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,

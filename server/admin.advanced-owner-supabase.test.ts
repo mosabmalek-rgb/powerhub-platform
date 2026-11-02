@@ -165,8 +165,14 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
       temporaryPassword: input.temporaryPassword, packageCode: input.packageCode,
       billingCycle: "monthly", subscriptionDuration: 1, trialEnabled: false, trialDurationDays: null,
     };
+    const passwordFingerprint = crypto.scryptSync(
+      input.temporaryPassword,
+      Buffer.from(process.env.JWT_SECRET!, "utf8"),
+      32,
+      { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 },
+    ).toString("hex");
     const expectedFingerprint = crypto.createHmac("sha256", process.env.JWT_SECRET!)
-      .update(JSON.stringify(normalized)).digest("hex");
+      .update(JSON.stringify({ ...normalized, temporaryPassword: passwordFingerprint })).digest("hex");
     expect(fingerprintArgs.p_request_fingerprint).toBe(expectedFingerprint);
     expect(state.rpc).toHaveBeenNthCalledWith(1, "powerhub_admin_begin_generator_owner_provisioning", expect.objectContaining({
       p_actor_user_id: 1, p_client_operation_id: input.clientOperationId, p_owner_email: input.ownerEmail,

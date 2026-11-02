@@ -417,7 +417,16 @@ export function registerMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/v1/auth/change-password", async (req, res) => {
+  app.post("/api/mobile/v1/auth/change-password", async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-change-password-ip", windowSeconds: 900, maxAttempts: 30,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "900");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز محاولات تغيير كلمة المرور من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const parsed = mobileChangePasswordSchema.safeParse(req.body);
     if (!parsed.success) return sendError(res, 400, "INVALID_PASSWORD_INPUT", "كلمة المرور الجديدة غير صالحة.");
     const context = await authenticateMobile(req, true);
@@ -470,7 +479,16 @@ export function registerMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/v1/auth/logout", async (req, res) => {
+  app.post("/api/mobile/v1/auth/logout", async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-logout-ip", windowSeconds: 60, maxAttempts: 60,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز محاولات تسجيل الخروج من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة.");
     const logoutAllowed = await consumeHttpRateLimit({
@@ -487,7 +505,16 @@ export function registerMobileApi(app: Express) {
     return res.status(204).send();
   });
 
-  app.get("/api/mobile/v1/auth/me", async (req, res) => {
+  app.get("/api/mobile/v1/auth/me", async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-me-ip", windowSeconds: 60, maxAttempts: 240,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات الجلسة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
     const meAllowed = await consumeHttpRateLimit({
@@ -502,7 +529,16 @@ export function registerMobileApi(app: Express) {
     return res.json({ user: mobileUserPayload(context.scope) });
   });
 
-  app.get("/api/mobile/v1/reading-cycle", async (req, res) => {
+  app.get("/api/mobile/v1/reading-cycle", async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-reading-cycle-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات دورة القراءة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
     const cycleAllowed = await consumeHttpRateLimit({
@@ -542,7 +578,16 @@ export function registerMobileApi(app: Express) {
     });
   });
 
-  app.get("/api/mobile/v1/reading-cycle-sync-stats", async (req, res) => {
+  app.get("/api/mobile/v1/reading-cycle-sync-stats", async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-cycle-stats-ip", windowSeconds: 60, maxAttempts: 30,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات إحصاءات الدورة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
     const cycleStatsAllowed = await consumeHttpRateLimit({
@@ -595,7 +640,16 @@ export function registerMobileApi(app: Express) {
     return res.json({ branchId, from, to, syncedReadingCount: readingIds.size });
   });
 
-  app.get("/api/mobile/v1/subscribers", async (req, res) => {
+  app.get("/api/mobile/v1/subscribers", async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-subscribers-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات المشتركين من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
     const subscribersAllowed = await consumeHttpRateLimit({
@@ -690,7 +744,16 @@ export function registerMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/v1/readings", async (req, res) => {
+  app.post("/api/mobile/v1/readings", async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-reading-write-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد عمليات تسجيل القراءة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
     const readingAllowed = await consumeHttpRateLimit({
@@ -790,7 +853,16 @@ export function registerMobileApi(app: Express) {
     });
   });
 
-  app.post("/api/mobile/v1/sync-events", async (req, res) => {
+  app.post("/api/mobile/v1/sync-events", async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-sync-events-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد أحداث المزامنة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
     const syncEventsAllowed = await consumeHttpRateLimit({

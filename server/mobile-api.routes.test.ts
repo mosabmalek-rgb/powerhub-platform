@@ -44,7 +44,7 @@ vi.mock("./http-rate-limit", () => ({
 
 import { registerMobileApi } from "./mobile-api";
 
-type RouteHandler = (req: Request, res: Response) => Promise<unknown> | unknown;
+type RouteHandler = (req: Request, res: Response, next?: (error?: unknown) => void) => Promise<unknown> | unknown;
 
 const JWT_SECRET = "mobile-api-route-test-secret-at-least-32-characters";
 const originalJwtSecret = process.env.JWT_SECRET;
@@ -133,14 +133,25 @@ describe("Mobile API subscribers route", () => {
     });
 
     const routes = new Map<string, RouteHandler>();
+    const routeMiddlewares = new Map<string, RouteHandler[]>();
     const app = {
-      get: (path: string, handler: RouteHandler) => { routes.set(path, handler); },
-      post: (_path: string, _handler: RouteHandler) => undefined,
+      get: (path: string, ...handlers: RouteHandler[]) => {
+        routes.set(path, handlers[handlers.length - 1]);
+        routeMiddlewares.set(path, handlers.slice(0, -1));
+      },
+      post: (_path: string, ..._handlers: RouteHandler[]) => undefined,
     };
     registerMobileApi(app as unknown as Express);
     const handler = routes.get("/api/mobile/v1/subscribers");
     if (!handler) throw new Error("Mobile subscribers route was not registered");
-    subscribersHandler = handler;
+    subscribersHandler = async (req, res) => {
+      for (const middleware of routeMiddlewares.get("/api/mobile/v1/subscribers") ?? []) {
+        let nextCalled = false;
+        await middleware(req, res, () => { nextCalled = true; });
+        if (!nextCalled) return;
+      }
+      await handler(req, res);
+    };
   });
 
   afterEach(() => {
@@ -235,13 +246,27 @@ describe("Mobile API subscribers route", () => {
     expect(subscriberQuery?.filters.some((filter) => filter[0] === "eq" && filter[1] === "assigned_reader_user_id")).toBe(false);
   });
 
-  it("rate-limits authenticated subscriber reads before querying subscriber data", async () => {
+  it("rate-limits subscriber requests by IP before authentication or database reads", async () => {
     vi.mocked(consumeHttpRateLimit).mockResolvedValueOnce(false);
     const res = await callRoute({ branchId: "12", cursor: "0", limit: "2" }, await accessToken());
     expect(res.statusCode).toBe(429);
     expect(res.headers["Retry-After"]).toBe("60");
     expect(res.body.error.code).toBe("RATE_LIMITED");
     expect(consumeHttpRateLimit).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "mobile-subscribers-ip",
+      windowSeconds: 60,
+      maxAttempts: 120,
+    }));
+    expect(state.queries.some((query) => query.table === "users")).toBe(false);
+    expect(state.queries.some((query) => query.table === "subscribers")).toBe(false);
+  });
+
+  it("rate-limits subscribers by authenticated session after the IP middleware allows the request", async () => {
+    vi.mocked(consumeHttpRateLimit).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const res = await callRoute({ branchId: "12", cursor: "0", limit: "2" }, await accessToken());
+    expect(res.statusCode).toBe(429);
+    expect(res.headers["Retry-After"]).toBe("60");
+    expect(consumeHttpRateLimit).toHaveBeenNthCalledWith(2, expect.objectContaining({
       scope: "mobile-subscribers-session",
       keyMaterial: "20:7:101",
       windowSeconds: 60,

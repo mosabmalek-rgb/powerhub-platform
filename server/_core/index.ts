@@ -7,6 +7,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./static";
 import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webhooks";
+import { consumeHttpRateLimit } from "../http-rate-limit";
 import { registerMobileApi } from "../mobile-api";
 import { isVercelRuntime } from "./runtime";
 import { registerBrandAssetProxy } from "./storageProxy";
@@ -58,8 +59,26 @@ export function createPowerHubApp() {
   app.get("/api/ready", readinessHandler);
   registerBrandAssetProxy(app);
   registerMobileApi(app);
-  app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
-  app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
+  app.get("/api/webhooks/whatsapp/:tenantId", async (req, res, next) => {
+    const allowed = await consumeHttpRateLimit({
+      req, scope: "whatsapp-webhook-verify-ip", windowSeconds: 300, maxAttempts: 30,
+    });
+    if (!allowed) {
+      res.setHeader("Retry-After", "300");
+      return res.sendStatus(429);
+    }
+    return next();
+  }, verifyWhatsAppWebhook);
+  app.post("/api/webhooks/whatsapp/:tenantId", async (req, res, next) => {
+    const allowed = await consumeHttpRateLimit({
+      req, scope: "whatsapp-webhook-delivery-ip", windowSeconds: 300, maxAttempts: 300,
+    });
+    if (!allowed) {
+      res.setHeader("Retry-After", "300");
+      return res.sendStatus(429);
+    }
+    return next();
+  }, receiveWhatsAppWebhook);
   app.all("/api/scheduled/process-invoice-notifications", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";
