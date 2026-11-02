@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { getOfflineQueryStaleTime, isDeltaSyncBackedQueryKey } from "./lib/offline-query-policy";
-import { isNonAuthoritativeInitialNullSessionEvent } from "./lib/offline-auth-state";
+import { isNonAuthoritativeInitialNullSessionEvent, isOfflineCacheWriteCurrent } from "./lib/offline-auth-state";
 import { httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -224,13 +224,11 @@ async function bootstrapOfflineState() {
       import("./lib/supabase"),
       import("./lib/offline-auth"),
       import("./lib/offline-query-cache"),
-      import("./lib/offline-auth-state"),
       import("./lib/offline-connectivity"),
     ]);
     const { getSupabaseSession, subscribeSupabaseAuthState } = supabaseModule;
     const { getValidOfflineAuthLease } = offlineAuth;
     const { clearOfflineQueryCacheForUser, hydrateOfflineQueryCache, persistOfflineQuery } = offlineCache;
-    const { isOfflineCacheWriteCurrent } = authState;
     const { probePowerHubConnectivity } = connectivity;
 
     const activateUser = async (nextUserId: string | null) => {
