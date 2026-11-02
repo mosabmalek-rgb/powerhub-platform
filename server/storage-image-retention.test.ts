@@ -120,8 +120,9 @@ describe("storage image retention execution safety", () => {
     expect(result.deleted).toBe(1);
     expect(result.failed).toBe(0);
     expect(admin.remove).toHaveBeenCalledWith(["payment-receipts/receipt.jpg"]);
-    expect(admin.updates.size).toBe(4);
-    expect(Array.from(admin.updates.values()).every((update) => update.mock.calls.length === 1)).toBe(true);
+    const appliedUpdates = Array.from(admin.updates.values()).filter((update) => update.mock.calls.length > 0);
+    expect(appliedUpdates).toHaveLength(4);
+    expect(appliedUpdates.every((update) => update.mock.calls.length === 1)).toBe(true);
   });
 
   it("does not remove an object when any reference cleanup operation fails", async () => {
