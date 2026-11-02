@@ -73,4 +73,12 @@ describe("tenant-scoped platform announcement audience", () => {
       profiles,
     )).toBe(false);
   });
+  it("requires active target-tenant membership even for tenant-targeted all audiences", () => {
+    expect(canUserReceiveAnnouncement(20, ["all"], actor, memberships, profiles)).toBe(true);
+    expect(canUserReceiveAnnouncement(30, ["all"], actor, [], [])).toBe(false);
+    expect(canUserReceiveAnnouncement(30, ["all"], actor, [
+      { tenant_id: 30, role: "owner", is_active: true, membership_status: "active", expires_at: "2026-11-02T11:59:59.000Z" },
+    ], [])).toBe(false);
+  });
+
 });

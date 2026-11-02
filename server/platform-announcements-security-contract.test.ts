@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 
 const router = readFileSync(resolve(process.cwd(), "server/platform-announcements-router.ts"), "utf8");
 const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261102192441_powerhub_announcement_membership_tenant_role_scope.sql"), "utf8");
+const tenantAllGuardMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261102194000_powerhub_announcement_tenant_all_membership_guard.sql"), "utf8");
+
 
 describe("platform announcement tenant authorization", () => {
   it("loads expiry-aware membership identity and tenant-scoped staff roles", () => {
@@ -26,4 +28,12 @@ describe("platform announcement tenant authorization", () => {
     expect(migration).toContain("grant execute on function public.powerhub_platform_announcement_unread_count_for_user(bigint) to service_role");
     expect(migration).toContain("revoke all on function public.powerhub_platform_announcement_unread_count_for_user(bigint) from public, anon, authenticated");
   });
+  it("requires target-tenant membership before counting tenant-targeted all audiences", () => {
+    expect(tenantAllGuardMigration).toContain("from active_memberships am");
+    expect(tenantAllGuardMigration).toContain("where am.tenant_id = a.tenant_id");
+    expect(tenantAllGuardMigration).toContain("a.audience_roles @> array['all']::text[]");
+    expect(tenantAllGuardMigration).toContain("grant execute on function public.powerhub_platform_announcement_unread_count_for_user(bigint) to service_role");
+    expect(tenantAllGuardMigration).toContain("revoke all on function public.powerhub_platform_announcement_unread_count_for_user(bigint) from public, anon, authenticated");
+  });
+
 });
