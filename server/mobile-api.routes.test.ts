@@ -169,7 +169,7 @@ describe("Mobile API subscribers route", () => {
     expect(res.body.error.code).toBe("BRANCH_ACCESS_DENIED");
     expect(state.queries.some((query) => query.table === "subscribers")).toBe(false);
     const membershipQuery = state.queries.find((query) => query.table === "tenant_members");
-    expect(membershipQuery?.filters).toContainEqual(["or", "expires_at.is.null,expires_at.gt." + expect.any(String)]);
+    expect(membershipQuery?.filters).toContainEqual(["or", expect.stringMatching(/^expires_at\.is\.null,expires_at\.gt\..+$/)]);
   });
 
   it("returns server-derived cycle state and precision-safe readings only for the requested tenant and branch", async () => {
