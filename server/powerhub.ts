@@ -127,9 +127,11 @@ export const quickActionCapabilityById = {
   collect_payment: "collectPayments",
   record_expense: "manageExpenses",
   send_notification: "manageMessaging",
+  unassigned_field_subscribers: "manageTeam",
+  move_field_subscriber: "manageTeam",
 } as const satisfies Record<string, PowerCapability>;
 export const quickActionIds = Object.keys(quickActionCapabilityById) as Array<keyof typeof quickActionCapabilityById>;
-const quickActionIdSchema = z.enum(["add_subscriber", "record_reading", "create_invoice", "collect_payment", "record_expense", "send_notification"]);
+const quickActionIdSchema = z.enum(["add_subscriber", "record_reading", "create_invoice", "collect_payment", "record_expense", "send_notification", "unassigned_field_subscribers", "move_field_subscriber"]);
 function sessionCookie(req: { headers?: { cookie?: string } }) { return (req.headers?.cookie ?? "").split(";").map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE_NAME}=`))?.slice(COOKIE_NAME.length + 1) ?? ""; }
 const recordRoles = rolesWith("collectPayments");
 const readingRoles = rolesWith("recordReadings");
@@ -1358,7 +1360,7 @@ export const powerhubRouter = router({
       const actionIds = Array.isArray(preference?.action_ids) ? preference.action_ids.filter((actionId): actionId is keyof typeof quickActionCapabilityById => typeof actionId === "string" && actionId in quickActionCapabilityById) : [];
       return { actionIds, updatedAt: preference?.updated_at ? new Date(preference.updated_at) : null };
     }),
-    savePreferences: protectedProcedure.input(siteScoped.extend({ actionIds: z.array(quickActionIdSchema).min(1).max(6).refine((actionIds) => new Set(actionIds).size === actionIds.length, "لا يمكن تكرار الإجراء المختار.") })).mutation(async ({ ctx, input }) => {
+    savePreferences: protectedProcedure.input(siteScoped.extend({ actionIds: z.array(quickActionIdSchema).min(1).max(8).refine((actionIds) => new Set(actionIds).size === actionIds.length, "لا يمكن تكرار الإجراء المختار.") })).mutation(async ({ ctx, input }) => {
       const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
       const unavailable = input.actionIds.find((actionId) => access.role !== "owner" && !access.permissions.includes(quickActionCapabilityById[actionId]));
       if (unavailable) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك حفظ إجراء لا تملك صلاحيته في هذا الفرع." });
@@ -1373,32 +1375,95 @@ export const powerhubRouter = router({
     readingDistribution: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       const admin = supabaseAdmin();
-      const [settingsResult, assignmentsResult] = await Promise.all([
+      const [settingsResult, assignmentsResult, unassignedResult] = await Promise.all([
         admin.from("field_reading_distribution_settings").select("is_enabled, reader_user_ids, updated_at")
           .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle(),
         admin.from("subscribers").select("id", { count: "exact", head: true })
           .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).is("archived_at", null)
           .eq("service_status", "active").not("assigned_reader_user_id", "is", null),
+        admin.rpc("powerhub_list_field_reading_assignments", {
+          p_tenant_id: access.tenantId, p_site_id: input.siteId,
+          p_search: null, p_only_unassigned: true, p_limit: 1, p_offset: 0,
+        }),
       ]);
-      if (settingsResult.error || assignmentsResult.error) throw new TRPCError({
+      if (settingsResult.error || assignmentsResult.error || unassignedResult.error) throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد توزيع المشتركين على مدخلي القراءة.",
       });
+      const unassignedRows = Array.isArray(unassignedResult.data) ? unassignedResult.data : [];
       return {
         isEnabled: settingsResult.data?.is_enabled === true,
         readerUserIds: Array.isArray(settingsResult.data?.reader_user_ids)
           ? settingsResult.data.reader_user_ids.map(Number).filter((id) => Number.isInteger(id) && id > 0) : [],
         assignedSubscriberCount: assignmentsResult.count ?? 0,
+        unassignedSubscriberCount: Number(unassignedRows[0]?.total_count ?? 0),
         updatedAt: settingsResult.data?.updated_at ? new Date(settingsResult.data.updated_at) : null,
       };
     }),
+    fieldReaderAssignments: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), search: z.string().trim().max(120).optional(),
+      onlyUnassigned: z.boolean().default(true), limit: z.number().int().min(1).max(100).default(50),
+      offset: z.number().int().min(0).max(100000).default(0),
+    })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_list_field_reading_assignments", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_search: input.search?.trim() || null,
+        p_only_unassigned: input.onlyUnassigned, p_limit: input.limit, p_offset: input.offset,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قائمة توزيع المشتركين على مدخلي القراءة." });
+      const rows = Array.isArray(data) ? data : [];
+      return {
+        items: rows.map((row: any) => ({
+          subscriberId: Number(row.subscriber_id), subscriberNo: String(row.subscriber_no ?? ""),
+          fullName: String(row.full_name ?? ""), phone: row.phone ? String(row.phone) : null,
+          address: row.address ? String(row.address) : null, createdAt: row.created_at ? new Date(row.created_at) : null,
+          assignedReaderUserId: row.assigned_reader_user_id == null ? null : Number(row.assigned_reader_user_id),
+          assignedReaderName: row.assigned_reader_name ? String(row.assigned_reader_name) : null,
+          assignedReaderEmail: row.assigned_reader_email ? String(row.assigned_reader_email) : null,
+          isUnassigned: row.is_unassigned === true, unassignedReason: row.unassigned_reason ? String(row.unassigned_reason) : null,
+        })),
+        totalCount: Number(rows[0]?.total_count ?? 0),
+      };
+    }),
+    moveFieldReaderSubscriber: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), subscriberId: z.number().int().positive(),
+      targetReaderUserId: z.number().int().positive(),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_move_subscriber_field_reader", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id,
+        p_subscriber_id: input.subscriberId, p_target_reader_user_id: input.targetReaderUserId,
+      });
+      if (error) {
+        const message = String(error.message ?? "");
+        if (message.includes("FIELD_READING_DISTRIBUTION_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية نقل المشتركين بين مدخلي القراءة." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع المحدد لا يتبع مساحة المالك." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_NOT_ENABLED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "فعّل التقسيم أولاً من إدارة الحسابات." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_INVALID_READER")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "مدخل القراءة المستهدف غير نشط أو ليس ضمن الحسابات المشاركة." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_FIELD_USER_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "عدد الحسابات المشاركة يتجاوز حصة مستخدمي التطبيق الميداني في الاشتراك." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_SUBSCRIBER_NOT_FOUND")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود أو لم تعد خدمته نشطة في هذا الفرع." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_ALREADY_ASSIGNED")) throw new TRPCError({ code: "BAD_REQUEST", message: "المشترك مسند بالفعل إلى مدخل القراءة المحدد." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر نقل المشترك إلى مدخل القراءة المحدد." });
+      }
+      const result = Array.isArray(data) ? data[0] : data;
+      return { success: true, subscriberId: input.subscriberId,
+        previousReaderUserId: result?.previous_reader_user_id == null ? null : Number(result.previous_reader_user_id),
+        targetReaderUserId: Number(result?.assigned_reader_user_id ?? input.targetReaderUserId) };
+    }),
     configureReadingDistribution: protectedProcedure.input(z.object({
-      siteId: z.number().int().positive(),
-      isEnabled: z.boolean(),
+      siteId: z.number().int().positive(), isEnabled: z.boolean(),
       readerUserIds: z.array(z.number().int().positive()).max(1000).default([]),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       if (input.isEnabled && input.readerUserIds.length < 2) throw new TRPCError({
         code: "BAD_REQUEST", message: "اختر مدخلي قراءة اثنين على الأقل لتفعيل التقسيم، أو أوقفه لإتاحة جميع المشتركين للجميع.",
+      });
+      const quotaResult = await supabaseAdmin().rpc("powerhub_effective_tenant_quota", {
+        p_tenant_id: access.tenantId, p_resource: "fieldUser",
+      });
+      if (quotaResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من حصة مستخدمي التطبيق الميداني." });
+      const fieldUserLimit = Math.max(0, Number(Array.isArray(quotaResult.data) ? quotaResult.data[0] : quotaResult.data) || 0);
+      if (input.isEnabled && input.readerUserIds.length > fieldUserLimit) throw new TRPCError({
+        code: "PRECONDITION_FAILED", message: `لا يمكن اختيار أكثر من ${fieldUserLimit} حسابًا وفق حصة التطبيق الميداني في اشتراكك.`,
       });
       const { data, error } = await supabaseAdmin().rpc("powerhub_configure_field_reading_distribution", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id,
@@ -1410,6 +1475,7 @@ export const powerhubRouter = router({
         if (message.includes("FIELD_READING_DISTRIBUTION_SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع المحدد لا يتبع مساحة المالك." });
         if (message.includes("FIELD_READING_DISTRIBUTION_REQUIRES_TWO_READERS")) throw new TRPCError({ code: "BAD_REQUEST", message: "يلزم اختيار مدخلي قراءة اثنين على الأقل دون تكرار." });
         if (message.includes("FIELD_READING_DISTRIBUTION_INVALID_READER")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أحد الحسابات المختارة غير نشط أو لا يملك صلاحيات التطبيق الميداني ضمن هذا الفرع." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_FIELD_USER_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "عدد الحسابات المشاركة يتجاوز حصة مستخدمي التطبيق الميداني في الاشتراك." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ توزيع المشتركين على مدخلي القراءة." });
       }
       const result = Array.isArray(data) ? data[0] : data;
