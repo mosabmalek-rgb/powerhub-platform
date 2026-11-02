@@ -205,6 +205,8 @@ describe("PowerHub platform administration UI", () => {
     fireEvent.change(screen.getByLabelText("إلى تاريخ"), { target: { value: "2026-10-31" } });
     fireEvent.click(screen.getByRole("button", { name: "تطبيق الفترة" }));
     fireEvent.click(screen.getByRole("button", { name: "آخر 7 أيام" }));
+    fireEvent.click(screen.getByRole("button", { name: "آخر 90 يومًا" }));
+    fireEvent.click(screen.getByRole("button", { name: "كل الفترات" }));
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
     expect(screen.getByText("بانتظار المراجعة")).toBeInTheDocument();
