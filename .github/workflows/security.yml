@@ -2,7 +2,7 @@ name: PowerHub Security
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/auth-local-first-single-pr]
   pull_request:
     branches: [main]
   schedule:
