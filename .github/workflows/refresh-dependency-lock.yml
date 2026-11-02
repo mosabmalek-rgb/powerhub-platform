@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   refresh:
-    if: ${{ github.sha == 'dd7f63c38b45e6885ac9f3b9fc9126bccd3ad483' && startsWith(github.event.head_commit.message, 'ops(deps): regenerate PR #359 pnpm lockfile') }}
+    if: ${{ github.event.before == '96a121f73ea96a6e77ba48b42efeb99600c322b1' && startsWith(github.event.head_commit.message, 'ops(deps): regenerate PR #359 pnpm lockfile') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
