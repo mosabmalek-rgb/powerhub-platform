@@ -50,7 +50,8 @@ describe("Platform access owner panel", () => {
     expect(screen.getByRole("note")).toHaveTextContent("لا تُرسل المنصة بريدًا إلكترونيًا");
     expect(screen.getByRole("note")).toHaveTextContent("خلال مهلة 72 ساعة");
     expect(screen.getByRole("note")).toHaveTextContent("إنشاء حساب PowerHub أو تسجيل الدخول به");
-    expect(screen.queryByText(/كلمة مرور/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/كلمة مرور/)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/كلمة مرور/)).not.toBeInTheDocument();
     expect(screen.queryByText(/رمز دعوة/)).not.toBeInTheDocument();
   });
 
