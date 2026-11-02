@@ -43,7 +43,9 @@ const requiredOverrides = {
   "body-parser": "1.20.9",
 };
 for (const [name, version] of Object.entries(requiredOverrides)) {
-  if (!new RegExp(`^\\s+${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}:\\s*${version.replaceAll(".", "\\.")}\\s*$`, "m").test(workspace)) {
+  const expectedLine = `${name}: ${version}`;
+  const hasOverride = workspace.split(/\\r?\\n/).some((line) => line.trim() === expectedLine);
+  if (!hasOverride) {
     throw new Error(`missing secure pnpm override: ${name}@${version}`);
   }
 }
