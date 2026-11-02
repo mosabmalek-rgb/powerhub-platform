@@ -61,7 +61,7 @@ INSERT INTO public.payment_documentation_requests (id, tenant_id, status, submit
 
 \ir ../migrations/20261101234455_powerhub_admin_activity_metrics.sql
 \ir ../migrations/20261101235452_powerhub_admin_activity_metrics_date_filter.sql
-\ir ../migrations/20261102090921_powerhub_admin_owner_activity_metrics.sql
+\ir ../migrations/20261102110356_powerhub_admin_owner_activity_metrics.sql
 
 -- Seed an older aggregate day as a service-independent fixture to check that
 -- tracking_started_at remains the first observed day, outside the selected range.
