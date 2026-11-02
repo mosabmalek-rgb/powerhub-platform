@@ -124,11 +124,14 @@ export async function cleanupExpiredStorageImages(now=new Date(),options:{dryRun
     for(let offset=0;offset<keys.length;offset+=PAGE_SIZE){
       const batch=keys.slice(offset,offset+PAGE_SIZE);
       try{
-        // Delete through the Storage API only. Keep DB references until Storage confirms removal.
+        // First detach every known application reference. If any DB update fails, do not
+        // remove the object; a later run can retry while the object remains available.
+        // If Storage removal fails after detaching, the orphan remains discoverable under
+        // its allowlisted prefix and the next run retries the Storage API removal.
+        await clearReferences(admin,STORAGE_BUCKET,batch,now.toISOString());
         const {error:removeError}=await admin.storage.from(STORAGE_BUCKET).remove(batch);
         if(removeError)throw new Error(removeError.message);
         result.deleted+=batch.length;
-        await clearReferences(admin,STORAGE_BUCKET,batch,now.toISOString());
       }catch(e){
         result.failed+=batch.length;
         if(result.failures.length<20)result.failures.push({
