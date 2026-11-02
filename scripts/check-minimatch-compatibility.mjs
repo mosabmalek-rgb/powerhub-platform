@@ -38,7 +38,7 @@ function resolvedPackageVersion(requireFrom, packageName) {
   throw new Error(`Could not find package.json for resolved package: ${packageName}`);
 }
 
-assert.equal(packageVersion(globRequire, "minimatch"), "11.0.3", "archiver-utils glob 10 must resolve patched minimatch 11.0.3");
+assert.equal(packageVersion(globRequire, "minimatch"), "11.0.3", "archiver-utils glob 14 must resolve patched minimatch 11.0.3");
 assert.equal(packageVersion(readdirRequire, "minimatch"), "11.0.3", "readdir-glob must use patched minimatch 11.0.3");
 assert.equal(packageVersion(archiverUtilsRequire, "glob"), "14.0.3", "archiver-utils must resolve fixed glob 14.0.3");
 assert.equal(packageVersion(archiverRequire, "archiver-utils"), "5.0.2", "Archiver must run with archiver-utils 5.0.2");
@@ -65,7 +65,7 @@ try {
 
   const archiverUtils = archiverRequire("archiver-utils");
   const utilityGlobMatches = archiverUtils.file.expand({ cwd: tempDir, nodir: true }, ["**/*.txt"]).sort();
-  assert.deepEqual(utilityGlobMatches, ["nested/receipt.txt", "root.txt"], "archiver-utils file expansion must work with glob 10 and minimatch 11");
+  assert.deepEqual(utilityGlobMatches, ["nested/receipt.txt", "root.txt"], "archiver-utils file expansion must work with glob 14 and minimatch 11");
 
   const globMatches = glob.sync("**/*.txt", { cwd: tempDir, nodir: true }).sort();
   assert.deepEqual(globMatches, ["nested/receipt.txt", "root.txt"], "archiver-utils glob 14 must match with patched minimatch 11");

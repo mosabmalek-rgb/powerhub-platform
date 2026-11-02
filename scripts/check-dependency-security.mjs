@@ -123,7 +123,7 @@ const requiredPatchedLockEntries = [
   "archiver-utils@5.0.2",
   "glob@14.0.3",
   "unzipper@0.12.5",
-  "brace-expansion@1.1.21",
+  "brace-expansion@5.0.12",
   "minimatch@11.0.3",
   "uuid@11.1.1",
   "tmp@0.2.7",
