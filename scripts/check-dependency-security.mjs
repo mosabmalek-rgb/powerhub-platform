@@ -26,6 +26,10 @@ atLeast(versionOf(direct, "@trpc/server"), [11, 8, 0], "@trpc/server");
 const requiredOverrides = {
   "fast-xml-parser": "5.5.6",
   tar: "7.5.21",
+  minimatch: "11.0.1",
+  "postcss-selector-parser": "6.1.5",
+  qs: "6.17.1",
+  undici: "8.12.2",
   postcss: "8.5.28",
   rollup: "4.59.0",
   "path-to-regexp": "0.1.13",
@@ -62,10 +66,28 @@ const vulnerableLockEntries = [
   "body-parser@1.20.3",
   "nanoid@5.1.5",
   "postcss@8.5.6",
+  "minimatch@3.1.5",
+  "minimatch@5.1.9",
+  "postcss-selector-parser@6.0.10",
+  "qs@6.13.0",
+  "undici@8.10.0",
 ];
 const remainingVulnerableEntries = vulnerableLockEntries.filter((entry) => lockfile.includes(entry));
 if (remainingVulnerableEntries.length > 0) {
   throw new Error(`lockfile contains vulnerable package entries: ${remainingVulnerableEntries.join(", ")}`);
 }
 
-console.log("Dependency security guard passed: direct minimums, required overrides, and lockfile version checks are satisfied.");
+const requiredPatchedLockEntries = [
+  "minimatch@11.0.1",
+  "postcss-selector-parser@6.1.5",
+  "qs@6.17.1",
+  "undici@8.12.2",
+  "body-parser@1.20.9",
+  "follow-redirects@1.16.2",
+];
+const missingPatchedLockEntries = requiredPatchedLockEntries.filter((entry) => !lockfile.includes(entry));
+if (missingPatchedLockEntries.length > 0) {
+  throw new Error(`lockfile is missing required patched package entries: ${missingPatchedLockEntries.join(", ")}`);
+}
+
+console.log("Dependency security guard passed: minimums, all six Dependabot overrides, patched lock entries, and vulnerable-version exclusions are satisfied.");

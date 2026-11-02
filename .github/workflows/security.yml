@@ -105,6 +105,27 @@ jobs:
       - name: Static dependency security guard
         run: node scripts/check-dependency-security.mjs
 
+      - name: Capture full lockfile dependency advisories
+        if: always()
+        run: |
+          set +e
+          pnpm audit --json > pnpm-audit-full.json 2> pnpm-audit-errors.log
+          audit_status=$?
+          set -e
+          node scripts/summarize-pnpm-audit.mjs pnpm-audit-full.json "$audit_status" > pnpm-audit-summary.md
+          cat pnpm-audit-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full lockfile audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: powerhub-full-lockfile-audit
+          path: |
+            pnpm-audit-full.json
+            pnpm-audit-errors.log
+            pnpm-audit-summary.md
+          if-no-files-found: warn
+
   dependency-review:
     name: Dependency review
     if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name != 'main') }}

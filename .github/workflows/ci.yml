@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify minimatch 11 compatibility with legacy glob consumers
+        run: node scripts/check-minimatch-compatibility.mjs
+
       - name: Validate versioned Supabase migration release tooling
         run: |
           node --check scripts/check-supabase-migration-files.mjs
