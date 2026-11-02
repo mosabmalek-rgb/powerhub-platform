@@ -90,7 +90,7 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(migration).toContain("MAINTENANCE_COMPLETION_CORRECTION_REQUIRES_COMPLETED_ORDER");
     expect(migration).toContain("record-only-no-ledger-side-effects");
     expect(router).toContain('"correct_completion"');
-    expect(router).toContain("reopenCompletedWorkOrder: authenticatedProcedure");
+    expect(router).toContain("reopenCompletedWorkOrder: protectedProcedure");
     expect(router).toContain('rpc<Array<{ work_order_id: number; work_order_number: string; source_work_order_id: number; status: string; replayed: boolean }>>("powerhub_maintenance_reopen_completed_work_order"');
     expect(panel).toContain("trpc.powerhub.maintenance.reopenCompletedWorkOrder.useMutation");
     expect(panel).toContain("Array.isArray(result) ? result[0]?.replayed === true : false");

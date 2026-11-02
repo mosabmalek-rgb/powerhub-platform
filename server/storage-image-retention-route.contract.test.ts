@@ -8,7 +8,8 @@ describe("scheduled image retention endpoint", () => {
     const start = source.indexOf('app.all("/api/scheduled/payment-documentation-retention"');
     const end = source.indexOf('app.all("/api/scheduled/*"', start);
     const route = source.slice(start, end);
-    expect(route).toContain('req.headers.authorization !== `Bearer ${configuredSecret}`');
+    expect(route).toContain('const authorization = req.headers.authorization ?? "";');
+    expect(route).toContain('if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`)');
     expect(route).toContain('if (req.method !== "POST")');
     expect(route).toContain('(req.body as { dryRun?: unknown }).dryRun === true');
     expect(route).toContain('requestedDryRun ? { dryRun: true } : {}');
