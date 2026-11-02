@@ -37,7 +37,10 @@ export function imageIsExpired(entry:Entry,cutoff:Date){
 function pathJoin(prefix:string,name:string){return prefix?prefix+"/"+name:name;}
 
 export function isEligibleImageRetentionKey(key:string){
-  return STORAGE_IMAGE_RETENTION_PREFIXES.some((prefix)=>key.startsWith(`${prefix}/`));
+  if(!key || key.startsWith("/") || key.includes("\\\\"))return false;
+  const segments=key.split("/");
+  if(segments.some((segment)=>!segment || segment==="." || segment===".."))return false;
+  return STORAGE_IMAGE_RETENTION_PREFIXES.some((prefix)=>segments[0]===prefix);
 }
 
 async function listProtectedBrandKeys(admin:Admin,bucket:string):Promise<Set<string>>{
