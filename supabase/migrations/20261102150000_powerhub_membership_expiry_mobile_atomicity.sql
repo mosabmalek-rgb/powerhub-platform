@@ -25,6 +25,9 @@ declare
   v_existing public.meter_readings%rowtype;
   v_subscriber public.subscribers%rowtype;
   v_distribution_enabled boolean := false;
+  v_previous_value numeric := 0;
+  v_consumption numeric;
+  v_notes text;
 begin
   if p_client_operation_id is null then
     raise exception 'MOBILE_READING_OPERATION_ID_REQUIRED' using errcode = '22023';
