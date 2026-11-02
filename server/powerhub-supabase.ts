@@ -153,7 +153,7 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   membershipAndSubscriptionMs = Math.round(performance.now() - membershipAndSubscriptionStartedAt);
   const { data: membership, error: membershipError } = membershipResult;
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
-  if (!isTenantMembershipUnexpired(membership)) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة أو أن مدة العضوية قد انتهت." });
+  if (!membership || !isTenantMembershipUnexpired(membership)) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة أو أن مدة العضوية قد انتهت." });
 
   if (membership.role === "owner") {
     const ownerOverrides = Array.isArray((membership as any).tenant_member_capability_overrides)

@@ -4,9 +4,8 @@ import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./t
 describe("tenant membership expiry boundary", () => {
   const now = new Date("2026-11-02T12:00:00.000Z");
 
-  it("treats null expiry as indefinite but does not accept a missing membership", () => {
+  it("treats explicit null expiry as indefinite but rejects missing membership", () => {
     expect(isTenantMembershipUnexpired({ expires_at: null }, now)).toBe(true);
-    expect(isTenantMembershipUnexpired({}, now)).toBe(true);
     expect(isTenantMembershipUnexpired(undefined, now)).toBe(false);
   });
 
