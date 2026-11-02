@@ -38,7 +38,7 @@ const requiredOverrides = {
   "mdast-util-to-hast": "13.2.1",
   "@babel/core": "7.29.7",
   "source-map-js": "1.2.2",
-  tinypool: "2.2.0",
+  tinypool: "2.1.2",
   vite: "7.3.7",
   postcss: "8.5.28",
   "path-to-regexp": "0.1.13",
