@@ -60,9 +60,10 @@ const requiredOverrides = {
   rollup: "4.59.0",
 };
 for (const [name, version] of Object.entries(requiredOverrides)) {
-  const expectedLine = \`\${name}: \${version}\`;
-  if (!workspace.split("\\n").some((line) => line.trim() === expectedLine)) {
-    throw new Error(\`missing secure pnpm override: \${name}@\${version}\`);
+  const expectedLine = `${name}: ${version}`;
+  const quotedExpectedLine = `"${name}": ${version}`;
+  if (!workspace.split(/\r?\n/).some((line) => line.trim() === expectedLine || line.trim() === quotedExpectedLine)) {
+    throw new Error(`missing secure pnpm override: ${name}@${version}`);
   }
 }
 
