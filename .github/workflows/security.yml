@@ -112,8 +112,8 @@ jobs:
           pnpm audit --json > pnpm-audit-full.json 2> pnpm-audit-errors.log
           audit_status=$?
           set -e
-          node scripts/summarize-pnpm-audit.mjs pnpm-audit-full.json "$audit_status" > pnpm-audit-summary.md
-          cat pnpm-audit-summary.md >> "$GITHUB_STEP_SUMMARY"
+          set -o pipefail
+          node scripts/summarize-pnpm-audit.mjs pnpm-audit-full.json "$audit_status" | tee pnpm-audit-summary.md | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload full lockfile audit report
         if: always()
@@ -125,6 +125,9 @@ jobs:
             pnpm-audit-errors.log
             pnpm-audit-summary.md
           if-no-files-found: warn
+
+      - name: Gate all dependency groups at High severity
+        run: pnpm audit --audit-level high
 
   dependency-review:
     name: Dependency review
