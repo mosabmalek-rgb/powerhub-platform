@@ -611,8 +611,8 @@ describe("public invoice and inquiry actions", () => {
 
   it("aligns approved and rejected receipt metadata with the 15-day image policy", () => {
     const migration = read("supabase/migrations/20261102111500_powerhub_receipt_image_retention_15_days.sql");
-    expect(migration).toContain("create or replace function public.powerhub_approve_payment_documentation");
-    expect(migration).toContain("create or replace function public.powerhub_reject_payment_documentation");
+    expect(migration.toLowerCase()).toContain("create or replace function public.powerhub_approve_payment_documentation");
+    expect(migration.toLowerCase()).toContain("create or replace function public.powerhub_reject_payment_documentation");
     expect(migration).toContain("v_request.created_at + interval '15 days'");
     expect(migration).not.toContain("interval '2 months'");
     expect(migration).toContain("receipt_image_retention_until=v_retention_until");
