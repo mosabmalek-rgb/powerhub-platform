@@ -55,7 +55,7 @@ jobs:
             git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
           fi
           node scripts/check-supabase-migration-files.mjs
-          pnpm exec vitest run --maxWorkers=1 --minWorkers=1 server/supabase-migration-target.test.ts
+          pnpm exec vitest run --maxWorkers=1 server/supabase-migration-target.test.ts
 
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs
