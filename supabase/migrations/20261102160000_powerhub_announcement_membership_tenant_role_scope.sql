@@ -8,7 +8,7 @@ security definer
 set search_path = ''
 as $$
   with actor as (
-    select u.id, u.platform_role
+    select u.id, u.role, u.platform_role
     from public.users u
     where u.id = p_user_id
       and u.account_status = 'active'
@@ -34,6 +34,8 @@ as $$
   ),
   global_roles as (
     select tr.role from tenant_roles tr
+    union
+    select a.role::text from actor a where a.role is not null
     union
     select a.platform_role::text from actor a where a.platform_role is not null
     union

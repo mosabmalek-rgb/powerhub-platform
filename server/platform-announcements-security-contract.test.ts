@@ -22,6 +22,7 @@ describe("platform announcement tenant authorization", () => {
     expect(migration).toContain("tm.membership_status = 'active'");
     expect(migration).toContain("(tm.expires_at is null or tm.expires_at > now())");
     expect(migration).toContain("tr.tenant_id = a.tenant_id");
+    expect(migration).toContain("select a.role::text from actor a where a.role is not null");
     expect(migration).toContain("grant execute on function public.powerhub_platform_announcement_unread_count_for_user(bigint) to service_role");
     expect(migration).toContain("revoke all on function public.powerhub_platform_announcement_unread_count_for_user(bigint) from public, anon, authenticated");
   });

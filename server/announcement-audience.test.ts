@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canUserReceiveAnnouncement, type AnnouncementMembership, type AnnouncementStaffProfile } from "./announcement-audience";
 
-const actor = { accountStatus: "active", platformRole: null };
+const actor = { accountStatus: "active", platformRole: null, accountRole: null };
 const memberships: AnnouncementMembership[] = [
   { tenant_id: 10, role: "owner", is_active: true, membership_status: "active", expires_at: null },
   { tenant_id: 20, role: "member", is_active: true, membership_status: "active", expires_at: null },
@@ -35,6 +35,8 @@ describe("tenant-scoped platform announcement audience", () => {
 
   it("uses active tenant roles for global audiences but still allows all announcements", () => {
     expect(canUserReceiveAnnouncement(null, ["manager"], actor, memberships, profiles)).toBe(true);
+    expect(canUserReceiveAnnouncement(null, ["owner"], { ...actor, accountRole: "owner" }, [], [])).toBe(true);
+    expect(canUserReceiveAnnouncement(20, ["owner"], { ...actor, accountRole: "owner" }, memberships, profiles)).toBe(false);
     expect(canUserReceiveAnnouncement(null, ["all"], actor, [], [])).toBe(true);
   });
 
@@ -42,7 +44,7 @@ describe("tenant-scoped platform announcement audience", () => {
     expect(canUserReceiveAnnouncement(
       null,
       ["platform_admin"],
-      { accountStatus: "active", platformRole: "platform_admin" },
+      { accountStatus: "active", platformRole: "platform_admin", accountRole: null },
       [],
       [],
     )).toBe(true);
@@ -59,7 +61,7 @@ describe("tenant-scoped platform announcement audience", () => {
     expect(canUserReceiveAnnouncement(
       null,
       ["all"],
-      { accountStatus: "suspended", platformRole: null },
+      { accountStatus: "suspended", platformRole: null, accountRole: null },
       memberships,
       profiles,
     )).toBe(false);

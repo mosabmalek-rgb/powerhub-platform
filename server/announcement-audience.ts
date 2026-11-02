@@ -16,6 +16,7 @@ export type AnnouncementStaffProfile = {
 export type AnnouncementActor = {
   accountStatus: string | null;
   platformRole: string | null;
+  accountRole: string | null;
 };
 
 /**
@@ -52,6 +53,7 @@ export function canUserReceiveAnnouncement(
     if (announcementTenantId !== null && tenantId !== Number(announcementTenantId)) continue;
     roles.add(profile.role);
   }
+  if (announcementTenantId === null && actor.accountRole) roles.add(actor.accountRole);
   if (actor.platformRole) roles.add(actor.platformRole);
 
   const audience = audienceRoles?.length ? audienceRoles : ["all"];

@@ -159,7 +159,7 @@ export const platformAnnouncementsRouter = router({
         canUserReceiveAnnouncement(
           row.tenant_id == null ? null : Number(row.tenant_id),
           row.audience_roles,
-          { accountStatus: account.account_status, platformRole: account.platform_role },
+          { accountStatus: account.account_status, platformRole: account.platform_role, accountRole: account.role },
           activeMemberships,
           profiles ?? [],
         ),
