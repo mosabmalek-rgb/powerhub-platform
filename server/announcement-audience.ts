@@ -54,7 +54,7 @@ export function canUserReceiveAnnouncement(
     roles.add(profile.role);
   }
   if (announcementTenantId === null && actor.accountRole) roles.add(actor.accountRole);
-  if (actor.platformRole) roles.add(actor.platformRole);
+  if (announcementTenantId === null && actor.platformRole) roles.add(actor.platformRole);
 
   const audience = audienceRoles?.length ? audienceRoles : ["all"];
   return audience.includes("all") || audience.some((role) => roles.has(role));

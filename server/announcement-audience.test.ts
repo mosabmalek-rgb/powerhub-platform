@@ -55,6 +55,13 @@ describe("tenant-scoped platform announcement audience", () => {
       [],
       [],
     )).toBe(false);
+    expect(canUserReceiveAnnouncement(
+      20,
+      ["platform_admin"],
+      { accountStatus: "active", platformRole: "platform_admin", accountRole: null },
+      memberships,
+      profiles,
+    )).toBe(false);
   });
 
   it("rejects an inactive account", () => {
