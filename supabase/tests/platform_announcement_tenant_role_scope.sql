@@ -54,7 +54,7 @@ create table public.platform_announcement_reads (
   primary key (announcement_id, user_id)
 );
 
-\ir ../migrations/20261102194000_powerhub_announcement_tenant_all_membership_guard.sql
+\ir ../migrations/20261102193411_powerhub_announcement_tenant_all_membership_guard.sql
 
 insert into public.users (id, role, platform_role, account_status) values
   (1, 'owner', 'platform_admin', 'active'),

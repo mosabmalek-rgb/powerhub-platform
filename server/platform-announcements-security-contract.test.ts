@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const router = readFileSync(resolve(process.cwd(), "server/platform-announcements-router.ts"), "utf8");
 const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261102192441_powerhub_announcement_membership_tenant_role_scope.sql"), "utf8");
-const tenantAllGuardMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261102194000_powerhub_announcement_tenant_all_membership_guard.sql"), "utf8");
+const tenantAllGuardMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261102193411_powerhub_announcement_tenant_all_membership_guard.sql"), "utf8");
 
 
 describe("platform announcement tenant authorization", () => {
