@@ -1,0 +1,122 @@
+name: Refresh dependency lockfile (PR #359)
+
+on:
+  push:
+    branches: [feat/auth-local-first-single-pr]
+    paths:
+      - .github/workflows/refresh-dependency-lock.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: powerhub-pr359-lock-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: ${{ github.sha == 'dd7f63c38b45e6885ac9f3b9fc9126bccd3ad483' && startsWith(github.event.head_commit.message, 'ops(deps): regenerate PR #359 pnpm lockfile') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout the exact reviewed PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate PR #359 guardrails before lockfile generation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/359")"
+          jq -e --arg sha "$EXPECTED_HEAD" '
+            .state == "open" and
+            .draft == true and
+            .merged_at == null and
+            .base.ref == "main" and
+            .head.ref == "feat/auth-local-first-single-pr" and
+            .head.sha == $sha
+          ' <<<"$pr" >/dev/null
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@10.34.5
+
+      - name: Regenerate the exact pnpm lockfile without lifecycle scripts
+        run: pnpm install --lockfile-only --ignore-scripts
+
+      - name: Validate required patched package versions in the lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const lock = readFileSync("pnpm-lock.yaml", "utf8");
+          const required = [
+            "body-parser@1.20.9",
+            "follow-redirects@1.16.2",
+            "minimatch@11.0.1",
+            "postcss-selector-parser@6.1.5",
+            "qs@6.17.1",
+            "undici@8.12.2",
+          ];
+          const missing = required.filter((item) => !lock.includes(`  ${item}:`));
+          if (missing.length) {
+            throw new Error(`Lockfile is missing expected patched versions: ${missing.join(", ")}`);
+          }
+
+          const vulnerable = [
+            "body-parser@1.20.3",
+            "follow-redirects@1.16.0",
+            "minimatch@3.1.5",
+            "minimatch@5.1.9",
+            "postcss-selector-parser@6.0.10",
+            "qs@6.13.0",
+            "undici@8.10.0",
+          ];
+          const remaining = vulnerable.filter((item) => lock.includes(`  ${item}:`));
+          if (remaining.length) {
+            throw new Error(`Lockfile still contains superseded vulnerable package entries: ${remaining.join(", ")}`);
+          }
+          console.log("All six transitive security overrides are represented by the expected patched versions.");
+          NODE
+
+      - name: Verify frozen-lockfile reproducibility
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Commit the generated lockfile through the GitHub Contents API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_head="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/feat/auth-local-first-single-pr" --jq '.object.sha')"
+          [[ "$current_head" == "$EXPECTED_HEAD" ]] || {
+            echo "::error::PR branch moved during lockfile regeneration; refusing to write stale content."
+            exit 1
+          }
+
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/359")"
+          jq -e --arg sha "$EXPECTED_HEAD" '
+            .state == "open" and .draft == true and .merged_at == null and .head.sha == $sha
+          ' <<<"$pr" >/dev/null
+
+          lock_sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/pnpm-lock.yaml?ref=$EXPECTED_HEAD" --jq '.sha')"
+          lock_content="$(base64 -w0 pnpm-lock.yaml)"
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/pnpm-lock.yaml" \
+            --field message="chore(deps): refresh pnpm lockfile for security overrides" \
+            --field content="$lock_content" \
+            --field sha="$lock_sha" \
+            --field branch="feat/auth-local-first-single-pr" \
+            --jq '.commit.sha'
