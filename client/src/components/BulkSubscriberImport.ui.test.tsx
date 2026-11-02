@@ -15,7 +15,7 @@ const workbook = vi.hoisted(() => ({
   xlsx: { load: vi.fn().mockResolvedValue(undefined), writeBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)) },
 }));
 
-vi.mock("exceljs", () => ({ default: { Workbook: vi.fn(() => workbook) } }));
+vi.mock("@/lib/lazy-report-deps", () => ({ loadExcelJS: vi.fn(async () => ({ default: { Workbook: vi.fn(() => workbook) } })) }));
 vi.mock("@/lib/trpc", () => ({ trpc: { powerhub: { subscribers: { bulkImport: { useMutation: (options: typeof state.options) => { state.options = options; return { mutate: state.mutate, isPending: false }; } } } } } }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
