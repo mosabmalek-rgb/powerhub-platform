@@ -155,3 +155,5 @@ if (missingPatchedLockEntries.length > 0) {
 }
 
 console.log("Dependency security guard passed: ExcelJS uses unzipper 0.12.5, Archiver uses fixed glob 14.0.3, and legacy vulnerable package entries are removed.");
+
+// Lockfile is generated and committed only after the complete audit and compatibility contract passes.
