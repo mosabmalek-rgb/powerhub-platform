@@ -24,4 +24,20 @@ describe("tenant subscription gate integration contract", () => {
     expect(source).toContain(".eq(\"role\", \"technician\").eq(\"is_active\", true).eq(\"membership_status\", \"active\").or(activeTenantMembershipOrFilter())");
     expect(source).toContain(".eq(\"membership_status\", \"active\").or(activeTenantMembershipOrFilter()).neq(\"role\", \"owner\")");
   });
+
+  it("applies membership expiry to the fallback tenant resolver", () => {
+    const trpc = readFileSync(resolve(process.cwd(), "server/_core/trpc.ts"), "utf8");
+    expect(trpc).toContain(".or(activeTenantMembershipOrFilter())");
+    expect(trpc).toContain("isTenantMembershipUnexpired(membership)");
+  });
+
+  it("does not show expired owner or staff memberships as active in admin views", () => {
+    const admin = readFileSync(resolve(process.cwd(), "server/admin-supabase.ts"), "utf8");
+    const rolePolicy = readFileSync(resolve(process.cwd(), "server/admin-role-policy-router.ts"), "utf8");
+    expect(admin).toContain("const membershipExpired = !isTenantMembershipUnexpired(membership);");
+    expect(admin).toContain("!membershipExpired && user?.account_status === \"active\"");
+    expect(rolePolicy).toContain("isTenantMembershipUnexpired(member)");
+  });
+
+
 });

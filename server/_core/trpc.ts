@@ -6,6 +6,7 @@ import { claimPowerHubDevice } from "../auth-device-claim";
 import { requirePlatformCapability } from "../platform-capability";
 import { isActivePlatformAdmin, isActivePlatformIdentity, isActivePlatformSupport } from "../platform-admin";
 import type { TrpcContext } from "./context";
+import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "../tenant-membership-expiry";
 import { z } from "zod";
 
 const t = initTRPC.context<TrpcContext>().create({
@@ -144,9 +145,10 @@ const enforceTenantReadOnlyRetention = t.middleware(async opts => {
       .eq("user_id", user.id)
       .eq("is_active", true)
       .eq("membership_status", "active")
+      .or(activeTenantMembershipOrFilter())
       .limit(10);
     if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مساحة صاحب المولد." });
-    const validMemberships = (memberships ?? []).filter((membership) => !membership.expires_at || new Date(membership.expires_at).getTime() > Date.now());
+    const validMemberships = (memberships ?? []).filter((membership) => isTenantMembershipUnexpired(membership));
     if (validMemberships.length === 1) tenantId = Number(validMemberships[0].tenant_id);
   }
 
