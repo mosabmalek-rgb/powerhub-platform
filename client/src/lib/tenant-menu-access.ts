@@ -57,6 +57,7 @@ const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
   "/reports": { roles: READ_ROLES.reports },
   "/notifications": { capability: "manageMessaging" },
   "/mobile-sync": { roles: READ_ROLES.mobileSync },
+  "/field-distribution": { roles: ["owner"] },
   "/audit": { roles: READ_ROLES.audit, capability: "viewAudit" },
   "/portal-settings": { roles: ["owner"] },
   "/settings": { capability: "manageTeam" },

@@ -99,6 +99,7 @@ const menuGroups = [
     label: "الميدان والرقابة",
     items: [
       { icon: RadioTower, label: "الميدان والمزامنة", path: "/mobile-sync" },
+      { icon: UsersRound, label: "توزيع مدخلي القراءة", path: "/field-distribution" },
       { icon: CloudOff, label: "مسودات دون اتصال", path: "/offline-sync" },
       { icon: ShieldCheck, label: "السجل والتدقيق", path: "/audit" },
     ],

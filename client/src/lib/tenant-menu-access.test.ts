@@ -33,6 +33,12 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/inventory", "manager", ["viewInventory"], true)).toBe(true);
   });
 
+  it("restricts field distribution to owners even when team management is delegated", () => {
+    expect(tenantMenuRouteAllowed("/field-distribution", "owner")).toBe(true);
+    expect(tenantMenuRouteAllowed("/field-distribution", "manager", ["manageTeam"], true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/field-distribution", "technician", ["manageTeam"], true)).toBe(false);
+  });
+
   it("does not expose unknown routes", () => {
     expect(tenantMenuRouteAllowed("/does-not-exist", "owner")).toBe(false);
   });

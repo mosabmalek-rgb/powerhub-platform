@@ -36,6 +36,7 @@ const PayrollPage = lazy(() => import("./pages/PayrollPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MobileSyncPage = lazy(() => import("./pages/MobileSyncPage"));
 const MobileReadingDetailPage = lazy(() => import("./pages/MobileReadingDetailPage"));
+const FieldReaderDistributionPage = lazy(() => import("./pages/FieldReaderDistributionPage"));
 const QuickActionsPage = lazy(() => import("./pages/QuickActionsPage"));
 const OfflineSyncPage = lazy(() => import("./pages/OfflineSyncPage"));
 const SetupWizardPage = lazy(() => import("./pages/SetupWizardPage"));
@@ -88,6 +89,7 @@ function Router() {
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync/readings/:readingId"}>{() => <RouteAccessGate><MobileReadingDetailPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync"}>{() => <RouteAccessGate><MobileSyncPage /></RouteAccessGate>}</Route>
+      <Route path={"/field-distribution"}>{() => <RouteAccessGate><FieldReaderDistributionPage /></RouteAccessGate>}</Route>
       <Route path={"/offline-sync"}>{() => <RouteAccessGate><OfflineSyncPage /></RouteAccessGate>}</Route>
       <Route path={"/settings"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/staff"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
