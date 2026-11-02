@@ -41,6 +41,38 @@ jobs:
         with:
           category: /language:javascript-typescript
 
+      - name: Export open CodeQL alerts for remediation
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERT_REF: refs/heads/${{ github.ref_name }}
+        run: |
+          set -uo pipefail
+          endpoint="repos/${GITHUB_REPOSITORY}/code-scanning/alerts?state=open&tool_name=CodeQL&ref=${ALERT_REF}&per_page=100"
+          if ! gh api --paginate "$endpoint" > codeql-alerts.json 2> codeql-alerts-error.log; then
+            echo "CodeQL alert details could not be retrieved by this workflow token." >> "$GITHUB_STEP_SUMMARY"
+            cat codeql-alerts-error.log
+            exit 0
+          fi
+          jq -r '.[] |
+            "- Alert #\(.number): \(.rule.id) — \(.rule.security_severity_level // .rule.severity) — \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)\n  \(.rule.description)"'             codeql-alerts.json > codeql-alerts.md
+          if [ -s codeql-alerts.md ]; then
+            cat codeql-alerts.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No open CodeQL alerts were returned for $ALERT_REF." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload CodeQL alert diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-alert-diagnostics
+          path: |
+            codeql-alerts.json
+            codeql-alerts-error.log
+            codeql-alerts.md
+          if-no-files-found: ignore
+
   dependency-audit:
     name: Dependency audit
     runs-on: ubuntu-latest
@@ -54,19 +86,11 @@ jobs:
         with:
           node-version: 24
 
+      - name: Bootstrap pnpm
+        run: npm install --global pnpm@10.34.5
+
+      - name: Audit production dependency advisories
+        run: pnpm audit --prod --audit-level high
+
       - name: Static dependency security guard
         run: node scripts/check-dependency-security.mjs
-
-  dependency-review:
-    name: Dependency review
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
-        with:
-          base-ref: main
-          head-ref: ${{ github.sha }}
-          fail-on-severity: high
