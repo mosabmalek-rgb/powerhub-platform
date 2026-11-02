@@ -220,7 +220,7 @@ async function bootstrapOfflineState() {
   try {
     // Storage hydration is deliberately non-blocking: the authenticated shell
     // and its live queries must render even if IndexedDB/Supabase initialization stalls.
-    const [supabaseModule, offlineAuth, offlineCache, authState, connectivity] = await Promise.all([
+    const [supabaseModule, offlineAuth, offlineCache, connectivity] = await Promise.all([
       import("./lib/supabase"),
       import("./lib/offline-auth"),
       import("./lib/offline-query-cache"),
