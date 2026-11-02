@@ -18,6 +18,7 @@ CREATE TABLE public.payment_documentation_requests (
   payment_amount numeric(14,2) NOT NULL,
   reviewed_at timestamptz
 );
+GRANT SELECT ON public.payment_documentation_requests TO service_role;
 
 \ir ../migrations/20261101234455_powerhub_admin_activity_metrics.sql
 \ir ../migrations/20261101235452_powerhub_admin_activity_metrics_date_filter.sql
