@@ -32,10 +32,17 @@ describe("single operational reading per configured cycle", () => {
     expect(mobileApi).toContain('.eq("is_opening_baseline", false)');
   });
 
-  it("rejects a mobile duplicate before upload and maps a concurrent database conflict to HTTP 409", () => {
+  it("checks saved mobile operations before upload and delegates race-safe duplicate handling to the atomic RPC", () => {
+    const priorLookup = mobileApi.indexOf('.eq("client_operation_id", input.clientOperationId)');
+    const upload = mobileApi.indexOf("storagePut(");
+    const atomicWrite = mobileApi.indexOf('rpc("powerhub_mobile_create_field_reading"');
+    expect(priorLookup).toBeGreaterThan(-1);
+    expect(upload).toBeGreaterThan(priorLookup);
+    expect(atomicWrite).toBeGreaterThan(upload);
     expect(mobileApi).toContain("READING_ALREADY_EXISTS_IN_CYCLE");
-    expect(mobileApi).toContain('insertError?.code === "23505"');
+    expect(mobileApi).toContain("meter_readings_one_operational_reading_per_cycle");
     expect(mobileApi).not.toContain("READING_ALREADY_EXISTS_TODAY");
+    expect(mobileApi).not.toContain('.from("meter_readings").insert(');
   });
 
   it("maps the same database conflict to a user-facing platform CONFLICT", () => {

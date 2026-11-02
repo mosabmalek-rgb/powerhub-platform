@@ -248,7 +248,7 @@ begin
 
   select * into v_replayed from public.powerhub_mobile_create_field_reading(
     1,11,11,110,'550e8400-e29b-41d4-a716-446655440001',
-    now(),'120.500','manual',null,null,'',false,false
+    now(),'120.500','manual',null,null,'',false,false,'technician',null,null
   );
   if v_replayed.reading_id <> v_created.reading_id or not v_replayed.replayed then
     raise exception 'original actor replay did not return the committed operation';
@@ -289,6 +289,11 @@ begin
     or has_function_privilege('authenticated','public.powerhub_move_subscriber_field_reader(bigint,bigint,bigint,bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_move_subscriber_field_reader(bigint,bigint,bigint,bigint,bigint)','EXECUTE') then
    raise exception 'subscriber transfer RPC ACL mismatch';
+ end if;
+ if has_function_privilege('anon','public.powerhub_mobile_create_field_reading(bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,text,boolean,boolean,text,double precision,double precision)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_mobile_create_field_reading(bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,text,boolean,boolean,text,double precision,double precision)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_mobile_create_field_reading(bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,text,boolean,boolean,text,double precision,double precision)','EXECUTE') then
+   raise exception 'mobile field reading RPC ACL mismatch';
  end if;
  if has_function_privilege('anon','public.powerhub_reconcile_field_reader_selection(bigint,bigint,bigint)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_reconcile_field_reader_selection(bigint,bigint,bigint)','EXECUTE') then
