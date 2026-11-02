@@ -38,7 +38,7 @@ const invitations = [
     tenantId: 10,
     tenantName: "مساحة الشمال",
     siteName: "الفرع الرئيسي",
-    invitationExpiresAt: "2026-11-02T10:00:00.000Z",
+    invitationExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     invitationStatus: "invited",
   },
 ];
