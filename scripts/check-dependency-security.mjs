@@ -12,7 +12,7 @@ function versionOf(spec, name) {
 
 function atLeast(actual, expected, label) {
   if (!actual || actual[0] < expected[0] || (actual[0] === expected[0] && (actual[1] < expected[1] || (actual[1] === expected[1] && actual[2] < expected[2])))) {
-    throw new Error(`\${label} must be >= \${expected.join(".")}; found \${actual?.join(".") ?? "missing"}`);
+    throw new Error(`${label} must be >= ${expected.join(".")}; found ${actual?.join(".") ?? "missing"}`);
   }
 }
 
@@ -100,7 +100,7 @@ const vulnerableLockEntries = [
 ];
 const remainingVulnerableEntries = vulnerableLockEntries.filter((entry) => lockfile.includes(entry));
 if (remainingVulnerableEntries.length > 0) {
-  throw new Error(`lockfile contains vulnerable package entries: \${remainingVulnerableEntries.join(", ")}`);
+  throw new Error(`lockfile contains vulnerable package entries: ${remainingVulnerableEntries.join(", ")}`);
 }
 
 // glob@7.2.3 is an isolated legacy consumer used by the current ExcelJS/Archiver
@@ -140,7 +140,7 @@ const requiredPatchedLockEntries = [
 ];
 const missingPatchedLockEntries = requiredPatchedLockEntries.filter((entry) => !lockfile.includes(entry));
 if (missingPatchedLockEntries.length > 0) {
-  throw new Error(`lockfile is missing required patched package entries: \${missingPatchedLockEntries.join(", ")}`);
+  throw new Error(`lockfile is missing required patched package entries: ${missingPatchedLockEntries.join(", ")}`);
 }
 
 console.warn("Known unresolved dependency boundary: glob@7.2.3 -> minimatch@3.1.5 remains isolated for ExcelJS/Archiver compatibility; it is not suppressed or treated as patched.");
