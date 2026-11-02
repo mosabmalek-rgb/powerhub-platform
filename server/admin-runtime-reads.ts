@@ -430,14 +430,21 @@ export const adminRouterWithSupabaseReadContracts = router({
     // Record daily aggregate counts only. Never persist
     // the query string, subscriber phone, result labels, or identifiers.
     try {
-      await admin.rpc("powerhub_admin_record_search_metric", {
+      const { error } = await admin.rpc("powerhub_admin_record_search_metric", {
         p_result_count: results.length,
         p_generator_result_count: results.filter((row) => row.kind === "generator").length,
         p_subscriber_result_count: results.filter((row) => row.kind === "subscriber").length,
         p_owner_result_count: results.filter((row) => row.kind === "owner").length,
       });
+      if (error) {
+        // Log only a stable error code. Never include query text, result labels, or identifiers.
+        console.warn("[PowerHub admin search] Aggregate telemetry recording failed.", {
+          code: error.code ?? "UNKNOWN",
+        });
+      }
     } catch {
-      // Search remains available even if telemetry is temporarily unavailable.
+      // Search remains available; avoid logging request data or exception messages.
+      console.warn("[PowerHub admin search] Aggregate telemetry request failed.");
     }
 
     return results;
