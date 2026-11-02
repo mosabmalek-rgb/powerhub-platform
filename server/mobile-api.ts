@@ -237,13 +237,13 @@ async function resolveMobileScope(userId: number, tenantId: number, allowPasswor
   const admin = supabaseAdmin();
   const [userResult, membershipResult, tenantResult, profilesResult] = await Promise.all([
     admin.from("users").select("id, name, account_status, must_change_password").eq("id", userId).maybeSingle(),
-    admin.from("tenant_members").select("id").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
+    admin.from("tenant_members").select("id, expires_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
     admin.from("tenants").select("id, status").eq("id", tenantId).maybeSingle(),
     admin.from("staff_profiles").select("site_id, role, permissions, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true),
   ]);
   if (userResult.error || membershipResult.error || tenantResult.error || profilesResult.error) throw new Error("Supabase mobile scope lookup failed");
   const user = userResult.data;
-  if (!user || user.account_status !== "active" || (!allowPasswordChange && user.must_change_password) || !membershipResult.data || tenantResult.data?.status !== "active") return null;
+  if (!user || user.account_status !== "active" || (!allowPasswordChange && user.must_change_password) || !membershipResult.data || (membershipResult.data.expires_at && new Date(membershipResult.data.expires_at).getTime() <= Date.now()) || tenantResult.data?.status !== "active") return null;
 
   const now = new Date();
   const permitted = (profilesResult.data ?? []).filter((profile) => {
@@ -311,10 +311,12 @@ async function authenticateMobile(req: Request, allowPasswordChange = false): Pr
 
 async function availableTenantsForUser(userId: number) {
   const admin = supabaseAdmin();
-  const { data: memberships, error } = await admin.from("tenant_members").select("tenant_id, tenants!inner(id, name, status)")
+  const { data: memberships, error } = await admin.from("tenant_members").select("tenant_id, expires_at, tenants!inner(id, name, status)")
     .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").eq("tenants.status", "active");
   if (error) throw new Error(error.message);
-  return (memberships ?? []).map((membership: any) => ({ id: toNumber(membership.tenants.id), name: membership.tenants.name as string }));
+  const now = Date.now();
+  return (memberships ?? []).filter((membership: any) => !membership.expires_at || new Date(membership.expires_at).getTime() > now)
+    .map((membership: any) => ({ id: toNumber(membership.tenants.id), name: membership.tenants.name as string }));
 }
 
 async function createSession(scope: MobileScope, deviceLabel?: string) {
@@ -640,77 +642,28 @@ export function registerMobileApi(app: Express) {
     const parsed = readingSchema.safeParse(req.body);
     if (!parsed.success) {
       return sendError(res, 400, "INVALID_READING", "بيانات القراءة غير صالحة.", false, {
-        issues: parsed.error.issues.map((issue) => ({
-          path: issue.path.map(String).join("."),
-          code: issue.code,
-          message: issue.message,
-        })),
+        issues: parsed.error.issues.map((issue) => ({ path: issue.path.map(String).join("."), code: issue.code, message: issue.message })),
       });
     }
     const input = parsed.data;
     if (!context.scope.branchIds.includes(input.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية تسجيل قراءة لهذا الفرع.");
+
     const admin = supabaseAdmin();
-    const distribution = await resolveMobileFieldReadingDistributionEnabled(context.scope.tenantId, input.branchId);
-    if (distribution.error) return sendSupabaseError(res, distribution.error, "تعذر التحقق من توزيع المشتركين على مدخلي القراءة.");
-    const { data: existing, error: existingError } = await admin.from("meter_readings").select("id, status, consumption_kwh, subscriber_id")
-      .eq("tenant_id", context.scope.tenantId).eq("client_operation_id", input.clientOperationId).maybeSingle();
-    if (existingError) return sendSupabaseError(res, existingError);
-    if (existing) {
-      if (distribution.enabled) {
-        const { data: replaySubscriber, error: replayError } = await admin.from("subscribers").select("id")
-          .eq("id", existing.subscriber_id).eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId)
-          .eq("service_status", "active").eq("assigned_reader_user_id", context.scope.userId).maybeSingle();
-        if (replayError) return sendSupabaseError(res, replayError);
-        if (!replaySubscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك غير متاح ضمن قائمة مدخل القراءة الحالي.");
-      }
-      return res.status(200).json({ id: toNumber(existing.id), status: existing.status, consumptionKwh: existing.consumption_kwh, replayed: true });
-    }
-    let subscriberQuery = admin.from("subscribers").select("id")
-      .eq("id", input.subscriberId).eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId).eq("service_status", "active");
-    if (distribution.enabled) subscriberQuery = subscriberQuery.eq("assigned_reader_user_id", context.scope.userId);
-    const { data: subscriber, error: subscriberError } = await subscriberQuery.maybeSingle();
-    if (subscriberError) return sendSupabaseError(res, subscriberError);
-    if (!subscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
-    const readingAt = new Date(input.readingAt);
-    const submittedCycleResult = await resolveMobileReadingCycle(context.scope.tenantId, input.branchId, readingAt);
-    if (submittedCycleResult.error || !submittedCycleResult.cycle) {
-      return sendSupabaseError(res, submittedCycleResult.error, "تعذر التحقق من دورة القراءة قبل الحفظ.");
-    }
-    const { data: existingCycleReading, error: existingCycleReadingError } = await admin.from("meter_readings")
-      .select("id, reading_at, status")
+    // Fast-path an already committed operation before uploading its image again.
+    // The database RPC repeats this check under an operation-key lock to cover races.
+    const { data: prior, error: priorError } = await admin.from("meter_readings")
+      .select("id,status,consumption_kwh,subscriber_id,entered_by_user_id")
       .eq("tenant_id", context.scope.tenantId)
-      .eq("subscriber_id", subscriber.id)
-      .eq("is_opening_baseline", false)
-      .neq("status", "rejected")
-      .gte("reading_at", submittedCycleResult.cycle.startAt)
-      .lte("reading_at", submittedCycleResult.cycle.endAt)
-      .order("reading_at", { ascending: false })
-      .limit(1)
+      .eq("client_operation_id", input.clientOperationId)
       .maybeSingle();
-    if (existingCycleReadingError) return sendSupabaseError(res, existingCycleReadingError);
-    if (existingCycleReading) {
-      return sendError(
-        res,
-        409,
-        "READING_ALREADY_EXISTS_IN_CYCLE",
-        "توجد قراءة غير مرفوضة لهذا المشترك في دورة القراءة نفسها. حدّث بيانات المشترك قبل تسجيل قراءة جديدة.",
-        false,
-        {
-          existingReadingId: toNumber(existingCycleReading.id),
-          readingAt: existingCycleReading.reading_at,
-          status: existingCycleReading.status,
-          cycle: submittedCycleResult.cycle,
-        },
-      );
+    if (priorError) return sendSupabaseError(res, priorError);
+    if (prior) {
+      if (Number(prior.subscriber_id) !== input.subscriberId || Number(prior.entered_by_user_id) !== context.scope.userId) {
+        return sendError(res, 409, "IDEMPOTENCY_KEY_REUSED", "معرف العملية مستخدم لعملية أخرى.");
+      }
+      return res.status(200).json({ id: toNumber(prior.id), status: prior.status, consumptionKwh: prior.consumption_kwh, replayed: true });
     }
-    const { data: previous, error: previousError } = await admin.from("meter_readings").select("reading_value")
-      .eq("subscriber_id", subscriber.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
-    if (previousError) return sendSupabaseError(res, previousError);
-    const previousValue = Number(previous?.reading_value ?? 0);
-    const nextValue = Number(input.readingValue);
-    if (nextValue < previousValue && !input.isReadingReset) return sendError(res, 409, "READING_BELOW_PREVIOUS", "القراءة الحالية أقل من القراءة المعتمدة السابقة.");
-    if (nextValue < previousValue && !input.notes) return sendError(res, 400, "READING_RESET_NOTE_REQUIRED", "أدخل ملاحظة تشرح إعادة ضبط سجل القراءة.");
-    const consumptionKwh = input.isReadingReset && nextValue < previousValue ? nextValue : nextValue - previousValue;
+
     let imageKey: string | undefined;
     let imageHash: string | undefined;
     if (input.imageData) {
@@ -719,39 +672,56 @@ export function registerMobileApi(app: Express) {
       if (!imageBytes.byteLength || imageBytes.byteLength > 7 * 1024 * 1024) return sendError(res, 413, "IMAGE_TOO_LARGE", "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت.");
       imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
       const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-      imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${subscriber.id}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
-    }
-    const notes = [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ");
-    const { data: inserted, error: insertError } = await admin.from("meter_readings").insert({
-      tenant_id: context.scope.tenantId, subscriber_id: subscriber.id, client_operation_id: input.clientOperationId, reading_at: readingAt.toISOString(), reading_value: input.readingValue,
-      previous_reading_value: previous?.reading_value ?? null, consumption_kwh: String(consumptionKwh), capture_method: input.captureMethod, image_key: imageKey, image_hash: imageHash, entered_by_user_id: context.scope.userId, notes,
-    }).select("id, status, consumption_kwh").single();
-    const cycleDuplicateError = Boolean(
-      insertError?.code === "23505"
-      && (insertError.message.includes("READING_ALREADY_EXISTS_IN_CYCLE")
-        || insertError.message.includes("meter_readings_one_operational_reading_per_cycle")),
-    );
-    if (insertError && cycleDuplicateError) {
-      if (imageKey) {
-        try { await storageRemove(imageKey); }
-        catch (cleanupError) { console.error("[Mobile API] duplicate-reading image cleanup failed", cleanupError); }
+      try {
+        imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${input.subscriberId}-${input.clientOperationId}.${extension}`, imageBytes, input.imageMime)).key;
+      } catch (storageError) {
+        return sendSupabaseError(res, storageError instanceof Error ? storageError : null, "تعذر حفظ صورة القراءة.");
       }
-      return sendError(
-        res,
-        409,
-        "READING_ALREADY_EXISTS_IN_CYCLE",
-        "توجد قراءة غير مرفوضة لهذا المشترك في دورة القراءة نفسها. حدّث بيانات المشترك قبل تسجيل قراءة جديدة.",
-        false,
-        { cycle: submittedCycleResult.cycle },
-      );
     }
-    if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل القراءة.");
-    try {
-      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "meter_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
-      return res.status(201).json({ id: toNumber(inserted.id), status: inserted.status, consumptionKwh: inserted.consumption_kwh, replayed: false });
-    } catch (auditError) {
-      return sendSupabaseError(res, auditError instanceof Error ? auditError : null, "تم حفظ القراءة لكن تعذر تسجيل التدقيق.");
+
+    const { data, error } = await admin.rpc("powerhub_mobile_create_field_reading", {
+      p_tenant_id: context.scope.tenantId,
+      p_site_id: input.branchId,
+      p_user_id: context.scope.userId,
+      p_subscriber_id: input.subscriberId,
+      p_client_operation_id: input.clientOperationId,
+      p_reading_at: input.readingAt,
+      p_reading_value: input.readingValue,
+      p_capture_method: input.captureMethod,
+      p_image_key: imageKey ?? null,
+      p_image_hash: imageHash ?? null,
+      p_notes: input.notes ?? null,
+      p_is_reading_reset: input.isReadingReset,
+      p_field_verified: input.fieldVerified,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    if (error || !row) {
+      if (imageKey) {
+        try { await storageRemove(imageKey); } catch (cleanupError) { console.error("[Mobile API] rejected reading image cleanup failed", cleanupError); }
+      }
+      const message = String(error?.message ?? "");
+      if (message.includes("FIELD_READER_ASSIGNMENT_CHANGED") || message.includes("MOBILE_FIELD_READER_NOT_ELIGIBLE")) {
+        return sendError(res, 403, "FIELD_READER_ASSIGNMENT_CHANGED", "لم تعد تملك إسناد هذا المشترك أو انتهت صلاحية عضويتك.", false);
+      }
+      if (message.includes("READING_ALREADY_EXISTS_IN_CYCLE") || message.includes("meter_readings_one_operational_reading_per_cycle")) {
+        return sendError(res, 409, "READING_ALREADY_EXISTS_IN_CYCLE", "توجد قراءة غير مرفوضة لهذا المشترك في دورة القراءة نفسها.");
+      }
+      if (message.includes("READING_BELOW_PREVIOUS")) return sendError(res, 409, "READING_BELOW_PREVIOUS", "القراءة الحالية أقل من القراءة المعتمدة السابقة.");
+      if (message.includes("READING_RESET_NOTES_REQUIRED")) return sendError(res, 400, "READING_RESET_NOTE_REQUIRED", "أدخل ملاحظة تشرح إعادة ضبط سجل القراءة.");
+      if (message.includes("MOBILE_READING_IDEMPOTENCY_KEY_REUSED")) return sendError(res, 409, "IDEMPOTENCY_KEY_REUSED", "معرف العملية مستخدم لعملية أخرى.");
+      if (message.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
+      return sendSupabaseError(res, error, "تعذر تسجيل القراءة.");
     }
+
+    if (row.replayed && imageKey) {
+      try { await storageRemove(imageKey); } catch (cleanupError) { console.error("[Mobile API] replay image cleanup failed", cleanupError); }
+    }
+    return res.status(row.replayed ? 200 : 201).json({
+      id: toNumber(row.reading_id),
+      status: row.status,
+      consumptionKwh: row.consumption_kwh,
+      replayed: Boolean(row.replayed),
+    });
   });
 
   app.post("/api/mobile/v1/sync-events", async (req, res) => {

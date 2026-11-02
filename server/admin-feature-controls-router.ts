@@ -25,7 +25,7 @@ async function tenantFeatureSnapshot(tenantId: number) {
     admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
     admin.from("sites").select("id,status",{count:"exact",head:true}).eq("tenant_id",tenantId),
     admin.from("subscribers").select("id",{count:"exact",head:true}).eq("tenant_id",tenantId),
-    admin.from("tenant_members").select("user_id,role,is_active,membership_status").eq("tenant_id",tenantId),
+    admin.from("tenant_members").select("user_id,role,is_active,membership_status,expires_at").eq("tenant_id",tenantId),
     admin.rpc("powerhub_admin_tenant_feature_controls",{p_tenant_id:tenantId}),
     admin.from("package_feature_policies").select("package_code,feature_key,policy,default_limit,limit_mode").order("feature_key"),
     admin.from("tenant_addon_requests").select("id,addon_code,quantity,status,billing_mode,source,starts_at,ends_at,duration_days").eq("tenant_id",tenantId).eq("status","approved").order("ends_at",{ascending:true}).limit(200),
@@ -45,7 +45,8 @@ async function tenantFeatureSnapshot(tenantId: number) {
   const subscription = subscriptionResult.data;
   const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.package_code);
   const controls = controlsResult.data ?? [];
-  const members = membersResult.data ?? [];
+  const now = Date.now();
+  const members = (membersResult.data ?? []).filter((member: any) => !member.expires_at || new Date(member.expires_at).getTime() > now);
   return {
     tenant: tenantResult.data ? { id:Number(tenantResult.data.id), name:tenantResult.data.name, slug:tenantResult.data.slug, status:tenantResult.data.status } : null,
     owner: ownerResult.data ? { fullName:ownerResult.data.full_name, phone:ownerResult.data.phone, email:ownerResult.data.email, companyName:ownerResult.data.company_name, userId:ownerResult.data.owner_user_id ? Number(ownerResult.data.owner_user_id) : null } : null,
@@ -96,7 +97,7 @@ export const adminFeatureControlsRouter = router({
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
       admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
-      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(5000),
+      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status,expires_at").limit(5000),
       admin.from("subscribers").select("tenant_id").limit(10000),
     ]);
     if (tenantsResult.error || ownersResult.error || subscriptionsResult.error || sitesResult.error || membersResult.error || subscribersResult.error) {
@@ -122,7 +123,7 @@ export const adminFeatureControlsRouter = router({
     }
     const users = new Map<number, { platform: number; field: number }>();
     for (const row of membersResult.data ?? []) {
-      if (!row.is_active || row.membership_status !== "active" || row.role === "owner") continue;
+      if (!row.is_active || row.membership_status !== "active" || row.role === "owner" || (row.expires_at && new Date(row.expires_at).getTime() <= Date.now())) continue;
       const tenantId = Number(row.tenant_id);
       const current = users.get(tenantId) ?? { platform: 0, field: 0 };
       current.platform += 1;
@@ -166,7 +167,7 @@ export const adminFeatureControlsRouter = router({
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
       admin.from("tenant_subscriptions").select("tenant_id,package_code,status,started_at,ends_at,billing_cycle,archived_at").order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
-      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(10000),
+      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status,expires_at").limit(10000),
       admin.from("subscribers").select("tenant_id").limit(20000),
       admin.from("tenant_tweetsms_accounts").select("tenant_id,monthly_limit,is_active,credential_ciphertext").limit(500),
       admin.from("notification_messages").select("tenant_id,segment_count,status,created_at").eq("channel","sms").gte("created_at", new Date(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1).toISOString()).in("status",["processing","submitted","delivered","read","needs_review"]).limit(100000),
@@ -181,7 +182,7 @@ export const adminFeatureControlsRouter = router({
     for(const row of subscriptionsResult.data??[]){const id=Number(row.tenant_id);if(!subscriptions.has(id))subscriptions.set(id,row);}
     const branches=new Map<number,number>(); for(const row of sitesResult.data??[]){if(row.status==="archived")continue;const id=Number(row.tenant_id);branches.set(id,(branches.get(id)??0)+1);}
     const subscribers=new Map<number,number>(); for(const row of subscribersResult.data??[]){const id=Number(row.tenant_id);subscribers.set(id,(subscribers.get(id)??0)+1);}
-    const members=new Map<number,{platform:number;field:number}>(); for(const row of membersResult.data??[]){if(!row.is_active||row.membership_status!=="active"||row.role==="owner")continue;const id=Number(row.tenant_id);const v=members.get(id)??{platform:0,field:0};if(row.role==="technician")v.field+=1;else v.platform+=1;members.set(id,v);}
+    const members=new Map<number,{platform:number;field:number}>(); for(const row of membersResult.data??[]){if(!row.is_active||row.membership_status!=="active"||row.role==="owner"||(row.expires_at&&new Date(row.expires_at).getTime()<=Date.now()))continue;const id=Number(row.tenant_id);const v=members.get(id)??{platform:0,field:0};if(row.role==="technician")v.field+=1;else v.platform+=1;members.set(id,v);}
     const smsAccounts=new Map((smsAccountsResult.data??[]).map(r=>[Number(r.tenant_id),r]));
     const smsUsed=new Map<number,number>(); for(const row of smsUsageResult.data??[]){const id=Number(row.tenant_id);smsUsed.set(id,(smsUsed.get(id)??0)+Math.max(1,Number(row.segment_count??1)));}
     const addons=new Map<number,any[]>(); for(const row of addonsResult.data??[]){const id=Number(row.tenant_id);const active=!row.starts_at||new Date(row.starts_at)<=new Date();const unexpired=!row.ends_at||new Date(row.ends_at)>new Date();if(active&&unexpired)(addons.get(id)??addons.set(id,[]).get(id)!).push(row);}

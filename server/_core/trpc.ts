@@ -140,13 +140,14 @@ const enforceTenantReadOnlyRetention = t.middleware(async opts => {
   if (!tenantId) {
     const { data: memberships, error: membershipError } = await supabaseAdmin()
       .from("tenant_members")
-      .select("tenant_id")
+      .select("tenant_id,expires_at")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .eq("membership_status", "active")
       .limit(10);
     if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من مساحة صاحب المولد." });
-    if (memberships?.length === 1) tenantId = Number(memberships[0].tenant_id);
+    const validMemberships = (memberships ?? []).filter((membership) => !membership.expires_at || new Date(membership.expires_at).getTime() > Date.now());
+    if (validMemberships.length === 1) tenantId = Number(validMemberships[0].tenant_id);
   }
 
   if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "تعذر تحديد مساحة صاحب المولد للتحقق من حالة الاشتراك." });

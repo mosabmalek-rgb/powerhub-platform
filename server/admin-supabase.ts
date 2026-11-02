@@ -248,7 +248,7 @@ export async function platformSnapshotFromSupabase() {
         accountStatus: user.account_status ?? "active",
         membershipStatus,
         status: membershipStatus,
-        isActive: Boolean(membership.is_active && membershipStatus === "active" && user.account_status === "active"),
+        isActive: Boolean(membership.is_active && membershipStatus === "active" && user.account_status === "active" && (!membership.expires_at || new Date(String(membership.expires_at)).getTime() > Date.now())),
         lastSignedIn: user.last_signed_in ?? null,
         staffProfileId: staffProfile ? numeric(staffProfile.id) : null,
         invitationStatus: null,
