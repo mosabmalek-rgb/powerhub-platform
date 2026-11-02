@@ -24,6 +24,7 @@ describe("Quick Actions and field-sync offline contract", () => {
       ["powerhub.mobileSync.technicians", { input: { siteId: 7 }, type: "query" }],
       ["powerhub.mobileSync.list", { input: { siteId: 7, page: 1, pageSize: 25 }, type: "query" }],
       ["powerhub.mobileSync.readings", { input: { siteId: 7, page: 1, pageSize: 20 }, type: "query" }],
+      ["powerhub.staff.fieldReaderAssignments", { input: { siteId: 7, search: "", onlyUnassigned: true, limit: 50, offset: 0 }, type: "query" }],
     ] as const;
     for (const key of keys) {
       expect(isOfflineCacheableQueryKey(key)).toBe(false);

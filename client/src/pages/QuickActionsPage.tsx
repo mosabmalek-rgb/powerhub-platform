@@ -12,8 +12,8 @@ import { toast } from "sonner";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 
-type Capability = "manageSubscribers" | "recordReadings" | "approveReadings" | "issueInvoices" | "collectPayments" | "manageExpenses" | "manageMessaging" | "approvePaymentDocumentation";
-type QuickActionId = "add_subscriber" | "record_reading" | "create_invoice" | "collect_payment" | "record_expense" | "send_notification";
+type Capability = "manageSubscribers" | "recordReadings" | "approveReadings" | "issueInvoices" | "collectPayments" | "manageExpenses" | "manageMessaging" | "approvePaymentDocumentation" | "manageTeam";
+type QuickActionId = "add_subscriber" | "record_reading" | "create_invoice" | "collect_payment" | "record_expense" | "send_notification" | "unassigned_field_subscribers" | "move_field_subscriber";
 type PrimaryAction = { id: QuickActionId; label: string; description: string; path: string; capability: Capability; icon: typeof UserPlus; tone: string; group: string };
 
 const primaryActions: PrimaryAction[] = [
@@ -23,6 +23,8 @@ const primaryActions: PrimaryAction[] = [
   { id: "collect_payment", label: "تحصيل دين", description: "تسجيل دفعة كاملة أو جزئية وإصدار إيصال.", path: "/collections", capability: "collectPayments", icon: WalletCards, tone: "emerald", group: "التحصيل" },
   { id: "record_expense", label: "تسجيل مصروف", description: "إضافة وقود أو صيانة أو مصروف تشغيلي للفرع.", path: "/expenses", capability: "manageExpenses", icon: CircleDollarSign, tone: "rose", group: "المالية" },
   { id: "send_notification", label: "مركز الرسائل", description: "متابعة رسائل SMS والتذكيرات وحالات الإرسال، وإرسال الرسائل المتاحة حسب صلاحيتك.", path: "/notifications", capability: "manageMessaging", icon: BellRing, tone: "amber", group: "التواصل" },
+  { id: "unassigned_field_subscribers", label: "المشتركون غير المفرزين", description: "عرض المشتركين الجدد والقدامى الذين لا يملكون مدخل قراءة صالحًا وإسنادهم.", path: "/field-distribution?view=unassigned", capability: "manageTeam", icon: UsersRound, tone: "sky", group: "الميدان" },
+  { id: "move_field_subscriber", label: "نقل مشترك بين المدخلين", description: "ابحث عن أي مشترك وانقله إلى مدخل قراءة آخر مشارك في التقسيم.", path: "/field-distribution?view=all", capability: "manageTeam", icon: UserPlus, tone: "violet", group: "الميدان" },
 ];
 
 const subscriberReadRoles = ["owner", "manager", "accountant", "collector", "viewer"];
@@ -64,7 +66,9 @@ export default function QuickActionsPage() {
   const preferencesQuery = trpc.powerhub.quickActions.preferences.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(siteId && user && user.role !== "admin" && isOnline && !isChecking), refetchOnReconnect: true });
   const savePreferences = trpc.powerhub.quickActions.savePreferences.useMutation({ onSuccess: async () => { await preferencesQuery.refetch(); setIsEditing(false); toast.success("تم حفظ اختصاراتك المفضلة لهذا الفرع."); }, onError: (error) => toast.error(error.message) });
   const permissions = new Set(accessQuery.data?.permissions ?? []);
-  const canUse = (capability: Capability) => accessQuery.data?.role === "owner" || permissions.has(capability);
+  const canUse = (capability: Capability) => capability === "manageTeam"
+    ? accessQuery.data?.role === "owner"
+    : accessQuery.data?.role === "owner" || permissions.has(capability);
   const allowedActions = primaryActions.filter((action) => canUse(action.capability));
   const allowedIds = allowedActions.map((action) => action.id);
   const savedIds = (preferencesQuery.data?.actionIds ?? []).filter((actionId): actionId is QuickActionId => allowedIds.includes(actionId as QuickActionId));

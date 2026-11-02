@@ -81,6 +81,22 @@ describe("شاشة الإجراءات السريعة", () => {
     expect(state.setLocation).toHaveBeenLastCalledWith("/notifications");
   });
 
+  it("يعرض اختصاري غير المفرزين ونقل المشترك للمالك ويربطهما بصفحة الميدان", () => {
+    state.preferences = ["unassigned_field_subscribers", "move_field_subscriber"];
+    render(<QuickActionsPage />);
+    fireEvent.click(screen.getByRole("button", { name: /المشتركون غير المفرزين/ }));
+    expect(state.setLocation).toHaveBeenLastCalledWith("/field-distribution?view=unassigned");
+    fireEvent.click(screen.getByRole("button", { name: /نقل مشترك بين المدخلين/ }));
+    expect(state.setLocation).toHaveBeenLastCalledWith("/field-distribution?view=all");
+  });
+
+  it("لا يعرض اختصارات توزيع الميدان للمستخدم غير المالك ولو كانت صلاحية إدارة الفريق ممنوحة", () => {
+    state.access = { role: "manager", permissions: ["manageTeam"] };
+    render(<QuickActionsPage />);
+    expect(screen.queryByText("المشتركون غير المفرزين")).not.toBeInTheDocument();
+    expect(screen.queryByText("نقل مشترك بين المدخلين")).not.toBeInTheDocument();
+  });
+
   it("يعرض اختصارات دورة الاشتراك ويربط البحث والمتأخرات والتذكير والاعتماد بمساراتها الفعلية", () => {
     state.preferences = ["collect_payment"];
     render(<QuickActionsPage />);
