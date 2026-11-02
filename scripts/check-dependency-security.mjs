@@ -126,7 +126,6 @@ const requiredPatchedLockEntries = [
   "katex@0.18.10",
   "mdast-util-to-hast@13.2.1",
   "source-map-js@1.2.2",
-  "tinypool@2.1.2",
   "vite@7.3.7",
   "vitest@4.1.12",
   "@vitest/mocker@4.1.12",
