@@ -42,9 +42,15 @@ jobs:
           import assert from "node:assert/strict";
 
           const block = (source, file) => {
-            const match = source.match(/^overrides:\\r?\n((?:^[ \\t]+.*(?:\\r?\n|$))*)/m);
-            assert.ok(match, `Missing overrides block in ${file}`);
-            return match[1].trimEnd();
+            const lines = source.split(/\r?\n/);
+            const start = lines.indexOf("overrides:");
+            assert.notEqual(start, -1, `Missing overrides block in ${file}`);
+            const entries = [];
+            for (const line of lines.slice(start + 1)) {
+              if (line.length > 0 && !/^[ \t]/.test(line)) break;
+              if (line.trim().length > 0) entries.push(line);
+            }
+            return entries.join("\n").trimEnd();
           };
 
           const workspace = fs.readFileSync("pnpm-workspace.yaml", "utf8");
