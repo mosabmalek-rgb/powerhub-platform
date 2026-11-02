@@ -59,7 +59,7 @@ jobs:
 
   dependency-review:
     name: Dependency review
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -67,4 +67,6 @@ jobs:
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
         with:
+          base-ref: main
+          head-ref: ${{ github.sha }}
           fail-on-severity: high
