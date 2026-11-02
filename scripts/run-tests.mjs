@@ -23,7 +23,7 @@ function run(args, timeoutMs = 5 * 60_000) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-const vitestArgs = ["run", "--maxWorkers=1", "--minWorkers=1"];
+const vitestArgs = ["run", "--maxWorkers=1"];
 const pageVitestArgs = [...vitestArgs, "--config", "vitest.pages.config.ts"];
 
 function runVitest(paths) {
