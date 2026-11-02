@@ -693,6 +693,9 @@ export function registerMobileApi(app: Express) {
       p_notes: input.notes ?? null,
       p_is_reading_reset: input.isReadingReset,
       p_field_verified: input.fieldVerified,
+      p_actor_tenant_role: context.scope.role,
+      p_latitude: input.latitude ?? null,
+      p_longitude: input.longitude ?? null,
     });
     const row = Array.isArray(data) ? data[0] : data;
     if (error || !row) {

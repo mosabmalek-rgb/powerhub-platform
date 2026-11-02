@@ -14,7 +14,10 @@ create or replace function public.powerhub_mobile_create_field_reading(
   p_image_hash text,
   p_notes text,
   p_is_reading_reset boolean,
-  p_field_verified boolean
+  p_field_verified boolean,
+  p_actor_tenant_role text,
+  p_latitude double precision,
+  p_longitude double precision
 )
 returns table (reading_id bigint, consumption_kwh numeric, status text, replayed boolean)
 language plpgsql
@@ -164,9 +167,9 @@ begin
   returning * into v_existing;
 
   insert into public.audit_logs (
-    tenant_id, site_id, user_id, entity_type, entity_id, action, after_data
+    tenant_id, site_id, user_id, actor_tenant_role, entity_type, entity_id, action, after_data
   ) values (
-    p_tenant_id, p_site_id, p_user_id, 'meter_reading', v_existing.id::text,
+    p_tenant_id, p_site_id, p_user_id, p_actor_tenant_role, 'meter_reading', v_existing.id::text,
     'mobile_create',
     jsonb_build_object(
       'clientOperationId', p_client_operation_id,
@@ -176,8 +179,8 @@ begin
       'consumptionKwh', v_consumption,
       'captureMethod', p_capture_method,
       'imageKey', nullif(p_image_key, ''),
-      'latitude', null,
-      'longitude', null
+      'latitude', p_latitude,
+      'longitude', p_longitude
     )
   );
 
@@ -186,10 +189,10 @@ end;
 $function$;
 
 revoke all on function public.powerhub_mobile_create_field_reading(
-  bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,text,boolean,boolean
+  bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,text,boolean,boolean,text,double precision,double precision
 ) from public, anon, authenticated;
 grant execute on function public.powerhub_mobile_create_field_reading(
-  bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,text,boolean,boolean
+  bigint,bigint,bigint,bigint,uuid,timestamptz,numeric,text,text,text,text,boolean,boolean,text,double precision,double precision
 ) to service_role;
 
 
