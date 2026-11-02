@@ -5,7 +5,7 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BulkSubscriberImport } from "./BulkSubscriberImport";
 
-const state = vi.hoisted(() => ({ mutate: vi.fn(), onSaved: vi.fn().mockResolvedValue(undefined), options: null as null | { onSuccess: (value: { created: Array<{ sourceRow: number; fullName: string; subscriberNo: string }>; updated: Array<{ sourceRow: number; fullName: string; subscriberNo: string }>; failed: Array<{ sourceRow: number; fullName: string; reason: string }>; message: string }) => Promise<void> } }));
+const state = vi.hoisted(() => ({ mutate: vi.fn(), onSaved: vi.fn().mockResolvedValue(undefined), loadExcelJS: vi.fn(), toastError: vi.fn(), options: null as null | { onSuccess: (value: { created: Array<{ sourceRow: number; fullName: string; subscriberNo: string }>; updated: Array<{ sourceRow: number; fullName: string; subscriberNo: string }>; failed: Array<{ sourceRow: number; fullName: string; reason: string }>; message: string }) => Promise<void> } }));
 const workbook = vi.hoisted(() => ({
   worksheets: [{ eachRow: (callback: (row: { values: unknown[] }, index: number) => void) => {
     callback({ values: [undefined, "الاسم الكامل", "رقم الجوال الدولي", "العنوان", "نوع الاشتراك", "الرقم المرجعي"] }, 1);
@@ -15,12 +15,12 @@ const workbook = vi.hoisted(() => ({
   xlsx: { load: vi.fn().mockResolvedValue(undefined), writeBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)) },
 }));
 
-vi.mock("@/lib/lazy-report-deps", () => ({ loadExcelJS: vi.fn(async () => ({ default: { Workbook: vi.fn(() => workbook) } })) }));
+vi.mock("@/lib/lazy-report-deps", () => ({ loadExcelJS: state.loadExcelJS }));
 vi.mock("@/lib/trpc", () => ({ trpc: { powerhub: { subscribers: { bulkImport: { useMutation: (options: typeof state.options) => { state.options = options; return { mutate: state.mutate, isPending: false }; } } } } } }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: state.toastError } }));
 
 describe("استيراد المشتركين من Excel", () => {
-  afterEach(() => { cleanup(); state.mutate.mockReset(); state.onSaved.mockClear(); state.options = null; });
+  afterEach(() => { cleanup(); state.mutate.mockReset(); state.onSaved.mockClear(); state.loadExcelJS.mockReset(); state.toastError.mockReset(); state.options = null; });
 
   it("يعرض مدخل الملف والقالب مع توضيح أن الرقم المرجعي للتحديث فقط", () => {
     render(<BulkSubscriberImport siteId={7} onSaved={state.onSaved} />);
@@ -31,11 +31,16 @@ describe("استيراد المشتركين من Excel", () => {
   });
 
   it("لا يرسل الرقم المرجعي عند إنشاء مشترك جديد، ويترك رقم المشترك للخادم", async () => {
+    state.loadExcelJS.mockResolvedValue({ default: { Workbook: vi.fn(() => workbook) } });
     render(<BulkSubscriberImport siteId={7} onSaved={state.onSaved} />);
     const uploadFile = new File(["xlsx"], "subscribers.xlsx");
     Object.defineProperty(uploadFile, "arrayBuffer", { value: vi.fn().mockResolvedValue(new ArrayBuffer(0)) });
-    fireEvent.change(screen.getByLabelText("رفع ملف Excel", { selector: "input" }), { target: { files: [uploadFile] } });
-    await screen.findByText("أحمد العلي");
+    const uploadInput = screen.getByLabelText("رفع ملف Excel", { selector: "input" });
+    Object.defineProperty(uploadInput, "files", { configurable: true, value: [uploadFile] });
+    fireEvent.change(uploadInput);
+    await vi.waitFor(() => expect(state.loadExcelJS).toHaveBeenCalledOnce());
+    await screen.findByText("أحمد العلي", {}, { timeout: 1_000 });
+    expect(state.toastError).not.toHaveBeenCalled();
     expect(screen.getByText("12.52")).toBeInTheDocument();
     expect(screen.getByText("99.25")).toBeInTheDocument();
     expect(screen.getByText(/أدخل الاسم الكامل/)).toBeInTheDocument();
