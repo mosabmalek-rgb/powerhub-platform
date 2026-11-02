@@ -81,7 +81,11 @@ describe("PowerHub maintenance router capability denials", () => {
 
   it("tracks every maintenance mutation in the primary capability-denial matrix", () => {
     const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.ts"), "utf8");
-    const declarations = [...routerSource.matchAll(/^  ([A-Za-z_][A-Za-z0-9_]*): authenticatedProcedure/gm)];
+    const declarations = [...routerSource.matchAll(/^  ([A-Za-z_][A-Za-z0-9_]*): protectedProcedure/gm)];
+    expect(routerSource).toContain('import { router, protectedProcedure } from "./_core/trpc";');
+    expect(routerSource).not.toContain("authenticatedProcedure");
+    expect(routerSource.match(/: protectedProcedure/g)?.length).toBe(13);
+
     const mutationProcedures = declarations.filter((declaration, index) => {
       const end = declarations[index + 1]?.index ?? routerSource.length;
       return routerSource.slice(declaration.index, end).includes(".mutation(");

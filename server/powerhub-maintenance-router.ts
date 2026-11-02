@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, authenticatedProcedure } from "./_core/trpc";
+import { router, protectedProcedure } from "./_core/trpc";
 import { requireSupabaseSiteRole } from "./powerhub-supabase";
 import { supabaseAdmin } from "./supabase-admin";
 
@@ -130,7 +130,7 @@ const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> =
 };
 
 export const powerhubMaintenanceRouter = router({
-  listGenerators: authenticatedProcedure
+  listGenerators: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
       const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
@@ -144,7 +144,7 @@ export const powerhubMaintenanceRouter = router({
       return (data ?? []).map((row) => ({ id: Number(row.id), name: row.name, code: row.code }));
     }),
 
-  reportByGenerator: authenticatedProcedure.input(z.object({
+  reportByGenerator: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(),
     fromDate: z.string().refine(isDateOnly, { message: "تاريخ البداية غير صالح." }),
     toDate: z.string().refine(isDateOnly, { message: "تاريخ النهاية غير صالح." }),
@@ -156,7 +156,7 @@ export const powerhubMaintenanceRouter = router({
       p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
     });
   }),
-  listAssignableSuppliers: authenticatedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+  listAssignableSuppliers: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).query(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
     const { data, error } = await supabaseAdmin().from("suppliers")
       .select("id,supplier_code,name").eq("tenant_id", access.tenantId).eq("is_active", true)
@@ -167,7 +167,7 @@ export const powerhubMaintenanceRouter = router({
     }
     return (data ?? []) as MaintenanceAssignableSupplierRow[];
   }),
-  assignSupplier: authenticatedProcedure.input(z.object({
+  assignSupplier: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
     supplierId: z.number().int().positive().nullable(), operationKey,
   })).mutation(async ({ ctx, input }) => {
@@ -177,7 +177,7 @@ export const powerhubMaintenanceRouter = router({
       p_work_order_id: input.workOrderId, p_supplier_id: input.supplierId, p_operation_key: input.operationKey,
     });
   }),
-  listWorkOrders: authenticatedProcedure.input(z.object({
+  listWorkOrders: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(),
     generatorId: z.number().int().positive().optional(),
     status: z.enum(["scheduled", "new", "in_progress", "waiting_for_parts", "completed", "cancelled"]).optional(),
@@ -189,7 +189,7 @@ export const powerhubMaintenanceRouter = router({
       p_generator_id: input.generatorId ?? null, p_status: input.status ?? null, p_limit: input.limit,
     });
   }),
-  listPreventivePlans: authenticatedProcedure.input(z.object({
+  listPreventivePlans: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(),
   })).query(async ({ ctx, input }) => {
     const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
@@ -197,11 +197,11 @@ export const powerhubMaintenanceRouter = router({
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_generator_id: input.generatorId ?? null,
     });
   }),
-  evaluateDuePlans: authenticatedProcedure.input(z.object({ siteId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+  evaluateDuePlans: protectedProcedure.input(z.object({ siteId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
     return rpc("powerhub_maintenance_evaluate_due_plans", { p_tenant_id: access.tenantId, p_site_id: input.siteId });
   }),
-  listParts: authenticatedProcedure.input(z.object({
+  listParts: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
   })).query(async ({ ctx, input }) => {
     const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
@@ -209,7 +209,7 @@ export const powerhubMaintenanceRouter = router({
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_work_order_id: input.workOrderId,
     });
   }),
-  createWorkOrder: authenticatedProcedure.input(z.object({
+  createWorkOrder: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive(),
     orderType: z.enum(["breakdown", "preventive", "inspection", "repair", "other"]),
     preventivePlanId: z.number().int().positive().optional(),
@@ -231,7 +231,7 @@ export const powerhubMaintenanceRouter = router({
       p_assigned_to_user_id: input.assignedToUserId ?? null, p_operation_key: input.operationKey,
     });
   }),
-  addPart: authenticatedProcedure.input(z.object({
+  addPart: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
     itemId: z.number().int().positive(), warehouseId: z.number().int().positive(),
     quantity: z.number().positive().max(1000000), notes: z.string().max(1000).optional(), operationKey,
@@ -244,7 +244,7 @@ export const powerhubMaintenanceRouter = router({
       p_quantity: input.quantity, p_notes: input.notes ?? null, p_operation_key: input.operationKey,
     });
   }),
-  reopenCompletedWorkOrder: authenticatedProcedure.input(z.object({
+  reopenCompletedWorkOrder: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
     reason: z.string().trim().min(3).max(500), operationKey,
   })).mutation(async ({ ctx, input }) => {
@@ -254,7 +254,7 @@ export const powerhubMaintenanceRouter = router({
       p_work_order_id: input.workOrderId, p_reason: input.reason, p_operation_key: input.operationKey,
     });
   }),
-  transitionWorkOrder: authenticatedProcedure.input(z.object({
+  transitionWorkOrder: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
     action: z.enum(["start", "wait_for_parts", "complete", "cancel", "correct_completion"]),
     workSummary: z.string().max(5000).optional(), meterHoursClose: z.number().min(0).max(1000000000).optional(),
@@ -278,7 +278,7 @@ export const powerhubMaintenanceRouter = router({
       p_reason: input.reason ?? null, p_operation_key: input.operationKey,
     });
   }),
-  createPreventivePlan: authenticatedProcedure.input(z.object({
+  createPreventivePlan: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive(),
     planCode: z.string().trim().min(2).max(40), title: z.string().trim().min(3).max(180),
     description: z.string().max(5000).optional(), intervalDays: z.number().int().min(1).max(3650).optional(),

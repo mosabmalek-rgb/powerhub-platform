@@ -111,7 +111,10 @@ export function createPowerHubApp() {
     if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
       const { cleanupExpiredStorageImages } = await import("../storage-image-retention");
-      const result = await cleanupExpiredStorageImages();
+      // A caller holding CRON_SECRET may explicitly request a read-only dry run,
+      // even after scheduled cleanup is enabled for actual deletion.
+      const requestedDryRun = req.body && typeof req.body === "object" && (req.body as { dryRun?: unknown }).dryRun === true;
+      const result = await cleanupExpiredStorageImages(new Date(), requestedDryRun ? { dryRun: true } : {});
       return res.status(200).json({ ok: true, ...result });
     } catch (error) {
       console.error("[storage-image-retention] cleanup failed", error);

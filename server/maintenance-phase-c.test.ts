@@ -32,7 +32,8 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(router).toContain('requireSupabaseSiteRole(userId, siteId, [...maintenanceRoles], "manageMaintenance")');
     expect(router).toContain("requireMaintenanceReadAccess(ctx.user.id, input.siteId)");
     expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRoles], "viewInventoryReports")');
-    expect(router).toContain("listGenerators: authenticatedProcedure");
+    expect(router).toContain("listGenerators: protectedProcedure");
+    expect(router).not.toContain("authenticatedProcedure");
     expect(page).toContain("canViewMaintenance = canViewInventory || canManageMaintenance");
     expect(page).toContain("canViewMaintenanceReport");
     expect(panel).toContain("canManageMaintenance ? (");
@@ -44,7 +45,7 @@ describe("PowerHub Phase C maintenance integration", () => {
     expect(panel).toContain("trpc.powerhub.maintenance.createPreventivePlan.useMutation");
     expect(router).toContain("reportByGenerator");
     expect(router).toContain("listAssignableSuppliers");
-    expect(router).toContain("assignSupplier: authenticatedProcedure");
+    expect(router).toContain("assignSupplier: protectedProcedure");
     expect(panel).toContain("trpc.powerhub.maintenance.assignSupplier.useMutation");
     expect(panel).toContain("trpc.powerhub.maintenance.reportByGenerator.useQuery");
     expect(panel).toContain('trpc.powerhub.reportBranding.get.useQuery');
