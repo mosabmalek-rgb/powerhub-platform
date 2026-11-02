@@ -9,6 +9,8 @@ overrides:
   nanoid@^3.0.0: 3.3.18
   fast-xml-parser: 5.11.2
   archiver-utils: 5.0.2
+  "archiver-utils@5.0.2>glob": 14.0.3
+  "exceljs@4.4.0>unzipper": 0.12.5
   tar: 7.5.21
   postcss: 8.5.28
   path-to-regexp: 0.1.13

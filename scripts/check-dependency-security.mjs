@@ -27,6 +27,8 @@ atLeast(versionOf(dev, "vitest"), [4, 1, 12], "vitest");
 const requiredOverrides = {
   "fast-xml-parser": "5.11.2",
   "archiver-utils": "5.0.2",
+  "archiver-utils@5.0.2>glob": "14.0.3",
+  "exceljs@4.4.0>unzipper": "0.12.5",
   tar: "7.5.21",
   minimatch: "11.0.3",
   "readdir-glob@1.1.3>minimatch": "11.0.3",
@@ -84,6 +86,10 @@ const vulnerableLockEntries = [
   "minimatch@5.1.9",
   "minimatch@3.1.5",
   "glob@7.2.3",
+  "glob@10.5.0",
+  "unzipper@0.10.14",
+  "fstream@1.0.12",
+  "rimraf@2.7.1",
   "archiver-utils@2.1.0",
   "archiver-utils@3.0.4",
   "postcss-selector-parser@6.0.10",
@@ -115,6 +121,8 @@ if (lockfile.includes("minimatch@5.1.9")) {
 const requiredPatchedLockEntries = [
   "fast-xml-parser@5.11.2",
   "archiver-utils@5.0.2",
+  "glob@14.0.3",
+  "unzipper@0.12.5",
   "brace-expansion@1.1.21",
   "minimatch@11.0.3",
   "uuid@11.1.1",
@@ -134,8 +142,11 @@ const requiredPatchedLockEntries = [
   "body-parser@1.20.9",
   "follow-redirects@1.16.2",
 ];
-if (!/glob@10\.\d+\.\d+/.test(lockfile)) {
-  throw new Error("lockfile must resolve archiver-utils to the glob 10.x compatibility line.");
+if (!lockfile.includes("glob@14.0.3")) {
+  throw new Error("lockfile must resolve archiver-utils to fixed glob@14.0.3.");
+}
+if (!lockfile.includes("unzipper@0.12.5")) {
+  throw new Error("lockfile must resolve ExcelJS to unzipper@0.12.5.");
 }
 
 const missingPatchedLockEntries = requiredPatchedLockEntries.filter((entry) => !lockfile.includes(entry));
@@ -143,4 +154,4 @@ if (missingPatchedLockEntries.length > 0) {
   throw new Error(`lockfile is missing required patched package entries: ${missingPatchedLockEntries.join(", ")}`);
 }
 
-console.log("Dependency security guard passed: patched dependency overrides are pinned and the vulnerable glob 7 / minimatch 3 chain is removed.");
+console.log("Dependency security guard passed: ExcelJS uses unzipper 0.12.5, Archiver uses fixed glob 14.0.3, and legacy vulnerable package entries are removed.");
