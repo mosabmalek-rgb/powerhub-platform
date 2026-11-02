@@ -82,6 +82,28 @@ const activityMetricsSchema = z.object({
   }),
 });
 
+const ownerActivityMetricsSchema = z.object({
+  generatedAt: z.string().min(1),
+  period: z.object({ fromDate: z.string().nullable(), toDate: z.string().nullable() }),
+  ownerCount: z.number().int().nonnegative(),
+  ownerBreakdownTruncated: z.boolean(),
+  owners: z.array(z.object({
+    tenantId: z.number().int().positive(), tenantName: z.string(), ownerName: z.string(),
+    companyName: z.string().nullable(), packageCode: z.string().nullable(), subscriptionStatus: z.string().nullable(),
+    payment: z.object({
+      totalRequests: z.number().int().nonnegative(), pendingRequests: z.number().int().nonnegative(),
+      approvedRequests: z.number().int().nonnegative(), rejectedRequests: z.number().int().nonnegative(),
+      approvedAmountInPeriod: z.number().finite().nonnegative(), decidedRequests: z.number().int().nonnegative(),
+      approvalRatePercent: z.number().finite().min(0).max(100).nullable(),
+    }),
+    search: z.object({
+      searchesInPeriod: z.number().int().nonnegative(), noResultSearchesInPeriod: z.number().int().nonnegative(),
+      noResultRatePercentInPeriod: z.number().finite().min(0).max(100).nullable(),
+      resultHitsInPeriod: z.number().int().nonnegative(), trackingStartedAt: z.string().nullable(), lastSearchAt: z.string().nullable(),
+    }),
+  })).max(500),
+});
+
 const platformAdminPerformanceProcedure = authenticatedProcedure.use(({ ctx, next }) => {
   if (
     ctx.user.role !== "admin" ||
@@ -136,6 +158,15 @@ export const adminPerformanceRouter = router({
         message: "أعاد مصدر إحصاءات النشاط بيانات غير مطابقة للعقد المتوقع.",
       });
     }
+    return parsed.data;
+  }),
+  ownerActivityMetrics: platformAdminPerformanceProcedure.input(activityMetricsInputSchema).query(async ({ input }) => {
+    const { data, error } = await supabaseAdmin().rpc("powerhub_admin_get_owner_activity_metrics", {
+      p_from_date: input.fromDate, p_to_date: input.toDate,
+    });
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إحصاءات أصحاب المولدات. تحقق من ترحيل إحصاءات نشاط المالكين." });
+    const parsed = ownerActivityMetricsSchema.safeParse(data);
+    if (!parsed.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعاد مصدر إحصاءات المالكين بيانات غير مطابقة للعقد المتوقع." });
     return parsed.data;
   }),
 });

@@ -52,6 +52,8 @@ function AdminActivityMetricsPanel() {
   const data = metrics.data as any;
   const payment = data?.paymentDocumentation;
   const search = data?.search;
+  const ownerMetrics = trpc.admin.ownerActivityMetrics.useQuery(appliedPeriod, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: false, staleTime: 10_000 });
+  const ownerRows = ownerMetrics.data?.owners ?? [];
   const dateLabel = (value: string | null | undefined) => value
     ? new Date(value).toLocaleDateString("ar-PS", { timeZone: "Asia/Gaza" })
     : "لا توجد بيانات ضمن الفترة";
@@ -149,6 +151,27 @@ function AdminActivityMetricsPanel() {
         <p className="mt-3 text-xs leading-5 text-slate-500">أعداد النتائج والفئات تخص عمليات البحث الواقعة ضمن الفترة المحددة، دون عبارة البحث أو تفاصيل النتائج.</p>
       </CardContent></Card>
     </div>
+    <Card className="border-white/8 bg-[#111823]">
+      <CardContent className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h3 className="font-bold text-white">تفاصيل النشاط حسب صاحب المولد والاشتراك</h3><p className="mt-1 text-xs leading-6 text-slate-500">يشمل كل مساحة مالك، حتى التي لا تملك نشاطًا. البحث المقاس هو بحث دليل المشتركين في الصفحة الأولى فقط؛ إعادة الجلب قد تُحتسب مرة أخرى. لا تُحفظ عبارة البحث أو بيانات المشترك.</p></div>
+          <Badge className="bg-white/5 text-slate-300">{ownerMetrics.isLoading ? "جارٍ التحميل…" : `${format(ownerMetrics.data?.ownerCount ?? 0)} مساحة`}</Badge>
+        </div>
+        {ownerMetrics.isError ? <div role="alert" className="mt-4 rounded-xl border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحميل إحصاءات المالكين. <Button type="button" variant="outline" size="sm" className="mr-2 border-white/10" onClick={() => void ownerMetrics.refetch()}>إعادة المحاولة</Button></div> : null}
+        {ownerMetrics.data?.ownerBreakdownTruncated ? <p className="mt-3 text-xs text-amber-200">يعرض التقرير أول 500 مساحة مرتبة حسب حجم النشاط؛ إجمالي المساحات: {format(ownerMetrics.data.ownerCount)}.</p> : null}
+        <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[1120px] text-right text-xs">
+          <thead><tr className="border-b border-white/10 text-slate-400"><th className="p-3">صاحب المولد / المساحة</th><th className="p-3">الباقة / الاشتراك</th><th className="p-3">طلبات التوثيق</th><th className="p-3">معلقة</th><th className="p-3">معتمدة</th><th className="p-3">مرفوضة</th><th className="p-3">المبالغ المعتمدة</th><th className="p-3">بحث المشتركين</th><th className="p-3">دون نتائج</th><th className="p-3">معدل دون نتائج</th><th className="p-3">آخر بحث</th></tr></thead>
+          <tbody>
+            {ownerRows.map((owner) => <tr key={owner.tenantId} className="border-b border-white/5 last:border-0">
+              <td className="p-3"><strong className="block text-white">{owner.ownerName}</strong><span className="mt-1 block text-slate-400">{owner.companyName ?? owner.tenantName}</span><span className="mt-1 block text-[10px] text-slate-600">{owner.tenantName} · #{owner.tenantId}</span></td>
+              <td className="p-3 text-slate-300"><strong className="block">{owner.packageCode ?? "—"}</strong><span className="mt-1 block text-slate-500">{owner.subscriptionStatus ?? "لا يوجد اشتراك"}</span></td>
+              <td className="p-3 text-white">{format(owner.payment.totalRequests)}</td><td className="p-3 text-amber-200">{format(owner.payment.pendingRequests)}</td><td className="p-3 text-emerald-300">{format(owner.payment.approvedRequests)}</td><td className="p-3 text-rose-300">{format(owner.payment.rejectedRequests)}</td><td className="p-3 text-emerald-200">{format(owner.payment.approvedAmountInPeriod)}</td><td className="p-3 text-white">{format(owner.search.searchesInPeriod)}</td><td className="p-3 text-slate-300">{format(owner.search.noResultSearchesInPeriod)}</td><td className="p-3 text-slate-300">{percentLabel(owner.search.noResultRatePercentInPeriod)}</td><td className="p-3 text-slate-400">{owner.search.lastSearchAt ? new Date(owner.search.lastSearchAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</td>
+            </tr>)}
+            {!ownerMetrics.isLoading && !ownerMetrics.isError && ownerRows.length === 0 ? <tr><td colSpan={11} className="p-8 text-center text-slate-500">لا توجد مساحات لعرضها.</td></tr> : null}
+          </tbody>
+        </table></div>
+      </CardContent>
+    </Card>
   </section>;
 }
 
