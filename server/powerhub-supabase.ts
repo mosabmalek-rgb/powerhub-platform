@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, powerCapabilityLabels, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
+import { recordTenantSearchMetric } from "./tenant-search-telemetry";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
 import { buildFinancialOverview } from "./financial-overview-utils";
@@ -374,6 +375,10 @@ export async function listSupabaseSubscriberDirectoryPage(input: {
     .range(from, from + input.pageSize - 1);
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة سجل المشتركين من Supabase." });
   const totalCount = count ?? 0;
+  // Count only a non-empty first-page directory search; background page prefetches are excluded.
+  if (term && input.page === 1) {
+    void recordTenantSearchMetric(input.tenantId, (data ?? []).length);
+  }
   return {
     items: (data ?? []).map((row) => ({
       id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberNo: row.subscriber_no,

@@ -103,6 +103,38 @@ describe("platform performance metrics authorization and contract", () => {
   });
 });
 
+describe("platform owner activity metrics", () => {
+  const ownerActivityMetrics = {
+    generatedAt: "2026-11-02T10:00:00.000Z", period: { fromDate: "2026-10-04", toDate: "2026-11-02" },
+    ownerCount: 1, ownerBreakdownTruncated: false,
+    owners: [{
+      tenantId: 101, tenantName: "مساحة الاختبار", ownerName: "مالك الاختبار", companyName: "شركة الاختبار",
+      packageCode: "professional", subscriptionStatus: "active",
+      payment: { totalRequests: 4, pendingRequests: 1, approvedRequests: 2, rejectedRequests: 1, approvedAmountInPeriod: 100, decidedRequests: 3, approvalRatePercent: 66.67 },
+      search: { searchesInPeriod: 10, noResultSearchesInPeriod: 2, noResultRatePercentInPeriod: 20, resultHitsInPeriod: 18, trackingStartedAt: "2026-10-01", lastSearchAt: "2026-11-02T09:59:00.000Z" },
+    }],
+  };
+  it("returns validated tenant-grouped metrics to active platform admins", async () => {
+    state.rpc.mockResolvedValue({ data: ownerActivityMetrics, error: null });
+    const caller = adminPerformanceRouter.createCaller({ user: baseUser, req: {} as never, res: {} as never });
+    await expect(caller.ownerActivityMetrics({ fromDate: "2026-10-04", toDate: "2026-11-02" })).resolves.toEqual(ownerActivityMetrics);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_get_owner_activity_metrics", { p_from_date: "2026-10-04", p_to_date: "2026-11-02" });
+  });
+  it("denies tenant users and rejects malformed payloads", async () => {
+    const tenantCaller = adminPerformanceRouter.createCaller({ user: { ...baseUser, role: "user", platformRole: null }, req: {} as never, res: {} as never });
+    await expect(tenantCaller.ownerActivityMetrics({ fromDate: null, toDate: null })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+    state.rpc.mockResolvedValue({ data: { ...ownerActivityMetrics, owners: [{ ...ownerActivityMetrics.owners[0], tenantId: -1 }] }, error: null });
+    const caller = adminPerformanceRouter.createCaller({ user: baseUser, req: {} as never, res: {} as never });
+    await expect(caller.ownerActivityMetrics({ fromDate: null, toDate: null })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+  it("rejects invalid date ranges before calling the RPC", async () => {
+    const caller = adminPerformanceRouter.createCaller({ user: baseUser, req: {} as never, res: {} as never });
+    await expect(caller.ownerActivityMetrics({ fromDate: "2026-11-03", toDate: "2026-11-02" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+});
+
 describe("platform payment and search activity metrics", () => {
   it("returns aggregate payment and privacy-preserving search metrics to platform admins", async () => {
     state.rpc.mockResolvedValue({ data: activityMetrics, error: null });
