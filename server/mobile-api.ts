@@ -560,7 +560,7 @@ export function registerMobileApi(app: Express) {
 
     const cycleReadingsBySubscriber = new Map<number, {
       readingId: number;
-      readingValue: string | number;
+      readingValue: string;
       readingAt: string;
       status: string;
     }>();

@@ -26,6 +26,7 @@ describe("single operational reading per configured cycle", () => {
     expect(mobileApi).toContain('rpc("powerhub_cycle_for_reading"');
     expect(mobileApi).toContain("currentCycleReading");
     expect(mobileApi).toContain("readingValue: String(reading.reading_value)");
+    expect(mobileApi).toContain("readingValue: string;");
     expect(mobileApi).toContain("hasReadingInCurrentCycle");
     expect(mobileApi).toContain('.neq("status", "rejected")');
     expect(mobileApi).toContain('.eq("is_opening_baseline", false)');

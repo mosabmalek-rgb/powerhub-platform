@@ -72,11 +72,27 @@ GET /api/mobile/v1/subscribers?branchId=12&cursor=…&limit=100
     "branchId": 12,
     "meterId": 789,
     "lastReading": "1250.500",
-    "lastReadingAt": "2026-08-01T08:00:00.000Z"
+    "lastReadingAt": "2026-08-01T08:00:00.000Z",
+    "hasReadingInCurrentCycle": true,
+    "currentCycleReading": {
+      "readingId": 991,
+      "readingValue": "1250.50",
+      "readingAt": "2026-08-22T14:30:00.000Z",
+      "status": "pending"
+    }
   }],
+  "currentCycle": {
+    "key": "cycle-key",
+    "startAt": "2026-08-01T00:00:00.000Z",
+    "endAt": "2026-09-01T00:00:00.000Z",
+    "label": "الدورة الحالية",
+    "asOf": "2026-08-22T14:30:00.000Z"
+  },
   "nextCursor": null
 }
 ```
+
+يكون `hasReadingInCurrentCycle` صحيحًا عند وجود قراءة تشغيلية غير افتتاحية وغير مرفوضة ضمن حدود الدورة التي أعادها الخادم. عند عدم وجودها تكون `currentCycleReading` مساوية لـ`null`. قيمة `currentCycleReading.readingValue` نص عشري دائمًا للحفاظ على دقة PostgreSQL `numeric` وتجنّب تحويلها إلى رقم JavaScript؛ ويحدد الخادم الدورة وحدودها الزمنية.
 
 ## رفع صورة العداد
 
