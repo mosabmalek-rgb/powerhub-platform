@@ -16,7 +16,7 @@ const state = vi.hoisted(() => {
     const chain: Record<string, any> = {};
     chain.select = (columns = "*") => { query.selected = String(columns); return chain; };
     chain.update = (payload: unknown) => { query.operation = "update"; query.payload = payload; return chain; };
-    for (const method of ["eq", "neq", "in", "gte", "lte", "gt", "is", "order", "limit"]) {
+    for (const method of ["eq", "neq", "in", "gte", "lte", "gt", "is", "or", "order", "limit"]) {
       chain[method] = (...args: unknown[]) => { query.filters.push([method, ...args]); return chain; };
     }
     chain.range = (...args: unknown[]) => {
@@ -86,7 +86,7 @@ describe("Mobile API subscribers route", () => {
 
     state.resolve.mockReset().mockImplementation(async (table: string, query: any, terminal: string) => {
       if (table === "users") return { data: { id: 7, name: "فني اختبار", account_status: "active", must_change_password: false }, error: null };
-      if (table === "tenant_members") return { data: { id: 1 }, error: null };
+      if (table === "tenant_members") return { data: { id: 1, expires_at: null }, error: null };
       if (table === "tenants") return { data: { id: 20, status: "active" }, error: null };
       if (table === "staff_profiles") {
         return { data: [{ site_id: 12, role: "technician", permissions: ["recordReadings", "accessFieldApp"], suspension_started_at: null, suspension_ends_at: null }], error: null };
@@ -168,6 +168,8 @@ describe("Mobile API subscribers route", () => {
     expect(res.statusCode).toBe(403);
     expect(res.body.error.code).toBe("BRANCH_ACCESS_DENIED");
     expect(state.queries.some((query) => query.table === "subscribers")).toBe(false);
+    const membershipQuery = state.queries.find((query) => query.table === "tenant_members");
+    expect(membershipQuery?.filters).toContainEqual(["or", "expires_at.is.null,expires_at.gt." + expect.any(String)]);
   });
 
   it("returns server-derived cycle state and precision-safe readings only for the requested tenant and branch", async () => {
