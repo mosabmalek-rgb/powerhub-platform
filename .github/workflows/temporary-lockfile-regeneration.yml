@@ -1,0 +1,60 @@
+name: Temporary PowerHub Lockfile Regeneration
+
+on:
+  push:
+    branches: [feat/auth-local-first-single-pr]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: powerhub-lockfile-regeneration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    name: Regenerate and validate pnpm lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Bootstrap pinned pnpm
+        run: npm install --global pnpm@10.34.5
+
+      - name: Regenerate lockfile from exact workspace configuration
+        run: pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
+
+      - name: Verify frozen lockfile consistency
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Verify dependency security contract
+        run: node scripts/check-dependency-security.mjs
+
+      - name: Verify matcher and ExcelJS compatibility
+        run: node scripts/check-minimatch-compatibility.mjs
+
+      - name: Audit all lockfile dependency groups
+        run: |
+          set +e
+          pnpm audit --json > pnpm-audit-regenerated.json 2> pnpm-audit-regenerated-errors.log
+          audit_status=$?
+          set -e
+          node scripts/summarize-pnpm-audit.mjs pnpm-audit-regenerated.json "$audit_status" | tee pnpm-audit-regenerated-summary.md
+
+      - name: Upload generated lockfile and audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: powerhub-regenerated-lockfile
+          path: |
+            pnpm-lock.yaml
+            pnpm-audit-regenerated.json
+            pnpm-audit-regenerated-errors.log
+            pnpm-audit-regenerated-summary.md
+          if-no-files-found: error
