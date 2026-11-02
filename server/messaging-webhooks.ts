@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { supabaseAdmin } from "./supabase-admin";
+import { consumeHttpRateLimit } from "./http-rate-limit";
 import { decryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 
 type RawRequest = Request & { rawBody?: Buffer };
@@ -25,6 +26,13 @@ export async function verifyWhatsAppWebhook(req: Request, res: Response) {
   const token = typeof req.query["hub.verify_token"] === "string" ? req.query["hub.verify_token"] : "";
   const challenge = typeof req.query["hub.challenge"] === "string" ? req.query["hub.challenge"] : "";
   if (!Number.isInteger(tenantId) || req.query["hub.mode"] !== "subscribe" || !token || !challenge) return res.sendStatus(403);
+  const verifyAllowed = await consumeHttpRateLimit({
+    req, scope: "whatsapp-webhook-verify-ip", windowSeconds: 300, maxAttempts: 30,
+  });
+  if (!verifyAllowed) {
+    res.setHeader("Retry-After", "300");
+    return res.sendStatus(429);
+  }
 
   const { data: configuration, error } = await supabaseAdmin().from("tenant_messaging_configurations")
     .select("webhook_verify_token_hash")
@@ -39,12 +47,19 @@ export async function verifyWhatsAppWebhook(req: Request, res: Response) {
   const actualHash = Buffer.from(configuration.webhook_verify_token_hash);
   const expectedHashBuffer = Buffer.from(expectedHash);
   if (actualHash.length !== expectedHashBuffer.length || !crypto.timingSafeEqual(actualHash, expectedHashBuffer)) return res.sendStatus(403);
-  return res.status(200).send(challenge);
+  return res.status(200).type("text/plain").send(challenge);
 }
 
 export async function receiveWhatsAppWebhook(req: RawRequest, res: Response) {
   const tenantId = Number(req.params.tenantId);
   if (!Number.isInteger(tenantId)) return res.sendStatus(404);
+  const webhookAllowed = await consumeHttpRateLimit({
+    req, scope: "whatsapp-webhook-delivery-ip", windowSeconds: 300, maxAttempts: 300,
+  });
+  if (!webhookAllowed) {
+    res.setHeader("Retry-After", "300");
+    return res.sendStatus(429);
+  }
 
   const { data: configuration, error } = await supabaseAdmin().from("tenant_messaging_configurations")
     .select("credential_ciphertext, credential_iv")

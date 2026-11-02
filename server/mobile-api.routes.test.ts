@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Express, Request, Response } from "express";
 import { SignJWT } from "jose";
+import { consumeHttpRateLimit } from "./http-rate-limit";
 
 const state = vi.hoisted(() => {
   const store: any = {
@@ -73,6 +74,7 @@ describe("Mobile API subscribers route", () => {
     process.env.JWT_SECRET = JWT_SECRET;
     state.queries.length = 0;
     state.distributionEnabled = false;
+    vi.mocked(consumeHttpRateLimit).mockReset().mockResolvedValue(true);
     state.from.mockClear();
     state.rpc.mockReset().mockResolvedValue({
       data: [{
@@ -231,6 +233,21 @@ describe("Mobile API subscribers route", () => {
     expect(res.body.items).toHaveLength(2);
     const subscriberQuery = state.queries.find((query) => query.table === "subscribers");
     expect(subscriberQuery?.filters.some((filter) => filter[0] === "eq" && filter[1] === "assigned_reader_user_id")).toBe(false);
+  });
+
+  it("rate-limits authenticated subscriber reads before querying subscriber data", async () => {
+    vi.mocked(consumeHttpRateLimit).mockResolvedValueOnce(false);
+    const res = await callRoute({ branchId: "12", cursor: "0", limit: "2" }, await accessToken());
+    expect(res.statusCode).toBe(429);
+    expect(res.headers["Retry-After"]).toBe("60");
+    expect(res.body.error.code).toBe("RATE_LIMITED");
+    expect(consumeHttpRateLimit).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "mobile-subscribers-session",
+      keyMaterial: "20:7:101",
+      windowSeconds: 60,
+      maxAttempts: 30,
+    }));
+    expect(state.queries.some((query) => query.table === "subscribers")).toBe(false);
   });
 
   it("rejects an invalid query before accessing the subscribers table", async () => {
