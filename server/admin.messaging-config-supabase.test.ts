@@ -357,7 +357,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
       expect.objectContaining({ id: 40, kind: "subscriber", tenantName: "مولدات الاختبار" }),
       expect.objectContaining({ id: 50, kind: "owner", tenantName: "مولدات الاختبار" }),
     ]));
-    expect(state.calls).toEqual(["generators", "generators", "subscribers", "subscribers", "subscribers", "tenant_owner_profiles", "tenant_owner_profiles", "tenants"]);
+    expect(state.calls).toEqual(["generators", "generators", "subscribers", "subscribers", "subscribers", "tenant_owner_profiles", "tenant_owner_profiles", "tenants", "rpc:powerhub_admin_record_search_metric"]);
     expect(state.filters).toEqual(expect.arrayContaining([["generators", "name", "%اختبار%"], ["subscribers", "full_name", "%اختبار%"], ["tenant_owner_profiles", "full_name", "%اختبار%"]]));
   });
 

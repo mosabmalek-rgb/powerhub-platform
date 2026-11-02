@@ -92,8 +92,19 @@ BEGIN
     RAISE EXCEPTION 'SEARCH_RAW_QUERY_OR_PII_COLUMN_PRESENT';
   END IF;
 
-  IF (SELECT count(*) FROM private.platform_admin_search_metrics_daily) <> 1 THEN
-    RAISE EXCEPTION 'SEARCH_DAILY_AGGREGATION_NOT_COALESCED';
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_constraint AS constraint_row
+    JOIN pg_catalog.pg_class AS table_row
+      ON table_row.oid = constraint_row.conrelid
+    JOIN pg_catalog.pg_namespace AS schema_row
+      ON schema_row.oid = table_row.relnamespace
+    WHERE schema_row.nspname = 'private'
+      AND table_row.relname = 'platform_admin_search_metrics_daily'
+      AND constraint_row.contype = 'p'
+      AND pg_catalog.pg_get_constraintdef(constraint_row.oid) = 'PRIMARY KEY (metric_day)'
+  ) THEN
+    RAISE EXCEPTION 'SEARCH_DAILY_AGGREGATION_PRIMARY_KEY_MISSING';
   END IF;
 END
 $privacy$;
