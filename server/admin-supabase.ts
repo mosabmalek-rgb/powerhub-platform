@@ -232,7 +232,8 @@ export async function platformSnapshotFromSupabase() {
       const ownerProfile = ownerProfileByUser.get(numeric(membership.user_id));
       const employeePhones = employeeByUser.get(numeric(membership.user_id)) ?? [];
       const phone = ownerProfile?.phone ?? ownerProfile?.whatsapp_number ?? employeePhones.find((row) => row.phone)?.phone ?? null;
-      const membershipStatus = membership.membership_status ?? (membership.is_active ? "active" : "suspended");
+      const membershipExpired = Boolean(membership.expires_at && new Date(String(membership.expires_at)).getTime() <= Date.now());
+      const membershipStatus = membershipExpired ? "expired" : (membership.membership_status ?? (membership.is_active ? "active" : "suspended"));
       return {
         id: numeric(membership.id),
         userId: numeric(membership.user_id),
@@ -248,7 +249,7 @@ export async function platformSnapshotFromSupabase() {
         accountStatus: user.account_status ?? "active",
         membershipStatus,
         status: membershipStatus,
-        isActive: Boolean(membership.is_active && membershipStatus === "active" && user.account_status === "active" && (!membership.expires_at || new Date(String(membership.expires_at)).getTime() > Date.now())),
+        isActive: Boolean(membership.is_active && membershipStatus === "active" && user.account_status === "active" && !membershipExpired),
         lastSignedIn: user.last_signed_in ?? null,
         staffProfileId: staffProfile ? numeric(staffProfile.id) : null,
         invitationStatus: null,
