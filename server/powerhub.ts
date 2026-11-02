@@ -1370,6 +1370,55 @@ export const powerhubRouter = router({
   }),
   staff: router({
     myAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => resolveSupabaseSiteAccess(ctx.user.id, input.siteId)),
+    readingDistribution: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const admin = supabaseAdmin();
+      const [settingsResult, assignmentsResult] = await Promise.all([
+        admin.from("field_reading_distribution_settings").select("is_enabled, reader_user_ids, updated_at")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).maybeSingle(),
+        admin.from("subscribers").select("id", { count: "exact", head: true })
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).is("archived_at", null)
+          .eq("service_status", "active").not("assigned_reader_user_id", "is", null),
+      ]);
+      if (settingsResult.error || assignmentsResult.error) throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل إعداد توزيع المشتركين على مدخلي القراءة.",
+      });
+      return {
+        isEnabled: settingsResult.data?.is_enabled === true,
+        readerUserIds: Array.isArray(settingsResult.data?.reader_user_ids)
+          ? settingsResult.data.reader_user_ids.map(Number).filter((id) => Number.isInteger(id) && id > 0) : [],
+        assignedSubscriberCount: assignmentsResult.count ?? 0,
+        updatedAt: settingsResult.data?.updated_at ? new Date(settingsResult.data.updated_at) : null,
+      };
+    }),
+    configureReadingDistribution: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      isEnabled: z.boolean(),
+      readerUserIds: z.array(z.number().int().positive()).max(1000).default([]),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      if (input.isEnabled && input.readerUserIds.length < 2) throw new TRPCError({
+        code: "BAD_REQUEST", message: "اختر مدخلي قراءة اثنين على الأقل لتفعيل التقسيم، أو أوقفه لإتاحة جميع المشتركين للجميع.",
+      });
+      const { data, error } = await supabaseAdmin().rpc("powerhub_configure_field_reading_distribution", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id,
+        p_enabled: input.isEnabled, p_reader_user_ids: input.isEnabled ? input.readerUserIds : [],
+      });
+      if (error) {
+        const message = String(error.message ?? "");
+        if (message.includes("FIELD_READING_DISTRIBUTION_FORBIDDEN")) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تعديل توزيع مدخلي القراءة." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع المحدد لا يتبع مساحة المالك." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_REQUIRES_TWO_READERS")) throw new TRPCError({ code: "BAD_REQUEST", message: "يلزم اختيار مدخلي قراءة اثنين على الأقل دون تكرار." });
+        if (message.includes("FIELD_READING_DISTRIBUTION_INVALID_READER")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أحد الحسابات المختارة غير نشط أو لا يملك صلاحيات التطبيق الميداني ضمن هذا الفرع." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر حفظ توزيع المشتركين على مدخلي القراءة." });
+      }
+      const result = Array.isArray(data) ? data[0] : data;
+      return {
+        success: true, isEnabled: result?.is_enabled === true,
+        readerCount: Number(result?.reader_count ?? 0),
+        assignedSubscriberCount: Number(result?.assigned_subscriber_count ?? 0),
+      };
+    }),
     myFeatureAccess: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
       const admin = supabaseAdmin();
