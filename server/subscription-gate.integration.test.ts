@@ -14,7 +14,7 @@ describe("tenant subscription gate integration contract", () => {
     expect(resolverSource).toContain("Promise.all");
     expect(resolverSource).toContain("tenant_members");
     expect(resolverSource).toContain(".or(activeTenantMembershipOrFilter())");
-    expect(resolverSource).toContain("if (!isTenantMembershipUnexpired(membership))");
+    expect(resolverSource).toContain("if (!membership || !isTenantMembershipUnexpired(membership))");
   });
 
   it("keeps site listing and quota projections bound to unexpired memberships", () => {

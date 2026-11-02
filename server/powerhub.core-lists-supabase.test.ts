@@ -921,7 +921,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يقرأ وصول الموظف وامتداد الفروع وسجل تغييرات الصلاحيات من Supabase دون MySQL", async () => {
     state.tables.users = [{ id: 2, role: "user" }];
-    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active", expires_at: null }];
     state.tables.staff_profiles = [{ id: 120, tenant_id: 20, user_id: 2, site_id: null, role: "manager", permissions: ["manageSubscribers"], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true }];
     const staffCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
     await expect(staffCaller.staff.myAccess({ siteId: 10 })).resolves.toEqual({ role: "manager", permissions: ["manageSubscribers"], tenantId: 20, usesPermissionOverride: true });
@@ -1260,7 +1260,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true,
     }];
     state.tables.tenant_members = [{
-      tenant_id: 20, user_id: 2, role: "collector", is_active: true, membership_status: "active",
+      tenant_id: 20, user_id: 2, role: "collector", is_active: true, membership_status: "active", expires_at: null,
     }];
     state.tables.collector_sessions = [];
     try {
@@ -1534,7 +1534,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const branchTwo = { id: 11, tenant_id: 20, name: "الفرع الثاني", code: "BR2", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
     state.tables.sites = [state.tables.sites[0], branchTwo];
     state.tables.users = [{ id: 2, role: "user", platform_role: "platform_user", account_status: "active" }];
-    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "manager", is_active: true, membership_status: "active" }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "manager", is_active: true, membership_status: "active", expires_at: null }];
     state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 2, is_active: true, role: "manager", permissions: null, custom_role_id: null, suspension_started_at: null, suspension_ends_at: null }];
     state.tables.company_accounts = [
       state.tables.company_accounts[0],
