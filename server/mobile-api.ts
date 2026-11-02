@@ -4,7 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
 import crypto from "node:crypto";
 import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
-import { storagePut } from "./storage";
+import { storagePut, storageRemove } from "./storage";
 import { supabaseAdmin } from "./supabase-admin";
 import { consumeHttpRateLimit, getClientIp } from "./http-rate-limit";
 
@@ -150,6 +150,36 @@ type MobileScope = {
 
 const toNumber = (value: number | string | null | undefined) => Number(value);
 const isoNow = () => new Date().toISOString();
+
+async function resolveMobileReadingCycle(tenantId: number, siteId: number, readingAt: Date | string) {
+  const at = readingAt instanceof Date ? readingAt.toISOString() : readingAt;
+  const { data, error } = await supabaseAdmin().rpc("powerhub_cycle_for_reading", {
+    p_tenant_id: tenantId,
+    p_site_id: siteId,
+    p_reading_at: at,
+  });
+  if (error) return { cycle: null, error };
+  const row = ((Array.isArray(data) ? data[0] : data) ?? null) as {
+    cycle_key?: string | null;
+    cycle_start_at?: string | null;
+    cycle_end_at?: string | null;
+    cycle_label?: string | null;
+  } | null;
+  if (!row?.cycle_key || !row.cycle_start_at || !row.cycle_end_at) {
+    return { cycle: null, error: { message: "Canonical reading-cycle boundaries were not returned." } };
+  }
+  return {
+    cycle: {
+      key: row.cycle_key,
+      startAt: row.cycle_start_at,
+      endAt: row.cycle_end_at,
+      label: row.cycle_label ?? row.cycle_key,
+      asOf: at,
+    },
+    error: null,
+  };
+}
+
 
 export function hashMobileToken(value: string) {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -451,6 +481,11 @@ export function registerMobileApi(app: Express) {
     });
     if (error) return sendSupabaseError(res, error, "تعذر تحميل دورة القراءات من PowerHub.");
 
+    const currentCycleResult = await resolveMobileReadingCycle(context.scope.tenantId, branchId, isoNow());
+    if (currentCycleResult.error || !currentCycleResult.cycle) {
+      return sendSupabaseError(res, currentCycleResult.error, "تعذر تحديد حدود دورة القراءات الحالية.");
+    }
+
     const row = Array.isArray(data) ? data[0] : data;
     return res.json({
       cycle: {
@@ -459,6 +494,7 @@ export function registerMobileApi(app: Express) {
         monthlyStartDay: Number(row?.monthly_start_day ?? 1),
         timezone: row?.timezone ?? "Asia/Gaza",
       },
+      currentCycle: currentCycleResult.cycle,
     });
   });
 
@@ -516,6 +552,44 @@ export function registerMobileApi(app: Express) {
     const { data: rows, error } = await admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
       .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active").order("id", { ascending: true }).range(parsed.data.cursor, parsed.data.cursor + parsed.data.limit - 1);
     if (error) return sendSupabaseError(res, error);
+
+    const currentCycleResult = await resolveMobileReadingCycle(context.scope.tenantId, parsed.data.branchId, isoNow());
+    if (currentCycleResult.error || !currentCycleResult.cycle) {
+      return sendSupabaseError(res, currentCycleResult.error, "تعذر تحديد حدود دورة القراءات الحالية.");
+    }
+
+    const cycleReadingsBySubscriber = new Map<number, {
+      readingId: number;
+      readingValue: string | number;
+      readingAt: string;
+      status: string;
+    }>();
+    const subscriberIds = (rows ?? []).map((row) => toNumber(row.id));
+    if (subscriberIds.length > 0) {
+      const { data: cycleReadings, error: cycleReadingsError } = await admin.from("meter_readings")
+        .select("id, subscriber_id, reading_value, reading_at, status")
+        .eq("tenant_id", context.scope.tenantId)
+        .in("subscriber_id", subscriberIds)
+        .eq("is_opening_baseline", false)
+        .neq("status", "rejected")
+        .gte("reading_at", currentCycleResult.cycle.startAt)
+        .lte("reading_at", currentCycleResult.cycle.endAt)
+        .order("reading_at", { ascending: false })
+        .limit(1000);
+      if (cycleReadingsError) return sendSupabaseError(res, cycleReadingsError, "تعذر تحميل قراءات المشتركين في الدورة الحالية.");
+      for (const reading of cycleReadings ?? []) {
+        const subscriberId = toNumber(reading.subscriber_id);
+        if (!cycleReadingsBySubscriber.has(subscriberId)) {
+          cycleReadingsBySubscriber.set(subscriberId, {
+            readingId: toNumber(reading.id),
+            readingValue: reading.reading_value,
+            readingAt: reading.reading_at,
+            status: reading.status,
+          });
+        }
+      }
+    }
+
     try {
       const items = await Promise.all((rows ?? []).map(async (row) => {
         // Keep the opening baseline as the meter-value starting point, but do not
@@ -536,9 +610,15 @@ export function registerMobileApi(app: Express) {
           phone: row.phone, address: row.address, branchId: toNumber(row.site_id),
           lastReading: lastApprovedResult.data?.reading_value == null ? null : normalizeMobileReadingValue(lastApprovedResult.data.reading_value),
           lastReadingAt: lastOperationalResult.data?.reading_at ?? null,
+          hasReadingInCurrentCycle: cycleReadingsBySubscriber.has(toNumber(row.id)),
+          currentCycleReading: cycleReadingsBySubscriber.get(toNumber(row.id)) ?? null,
         };
       }));
-      return res.json({ items, nextCursor: (rows?.length ?? 0) === parsed.data.limit ? String(parsed.data.cursor + parsed.data.limit) : null });
+      return res.json({
+        items,
+        currentCycle: currentCycleResult.cycle,
+        nextCursor: (rows?.length ?? 0) === parsed.data.limit ? String(parsed.data.cursor + parsed.data.limit) : null,
+      });
     } catch (lastReadingError) {
       return sendSupabaseError(res, lastReadingError instanceof Error ? lastReadingError : null);
     }
@@ -569,15 +649,37 @@ export function registerMobileApi(app: Express) {
     if (subscriberError) return sendSupabaseError(res, subscriberError);
     if (!subscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
     const readingAt = new Date(input.readingAt);
-    // Field readings use the platform's configured Gaza calendar convention.
-    // Do not depend on a non-contractual configuration table for duplicate protection.
-    const dayWindow = mobileReadingDayWindow(readingAt, "Asia/Gaza");
-    const { data: sameDayReading, error: sameDayError } = await admin.from("meter_readings").select("id")
+    const submittedCycleResult = await resolveMobileReadingCycle(context.scope.tenantId, input.branchId, readingAt);
+    if (submittedCycleResult.error || !submittedCycleResult.cycle) {
+      return sendSupabaseError(res, submittedCycleResult.error, "تعذر التحقق من دورة القراءة قبل الحفظ.");
+    }
+    const { data: existingCycleReading, error: existingCycleReadingError } = await admin.from("meter_readings")
+      .select("id, reading_at, status")
+      .eq("tenant_id", context.scope.tenantId)
       .eq("subscriber_id", subscriber.id)
-      .gte("reading_at", dayWindow.start.toISOString()).lt("reading_at", dayWindow.end.toISOString())
-      .eq("is_opening_baseline", false).neq("status", "rejected").limit(1).maybeSingle();
-    if (sameDayError) return sendSupabaseError(res, sameDayError);
-    if (sameDayReading) return sendError(res, 409, "READING_ALREADY_EXISTS_TODAY", "توجد قراءة غير مرفوضة لهذا المشترك في اليوم نفسه.");
+      .eq("is_opening_baseline", false)
+      .neq("status", "rejected")
+      .gte("reading_at", submittedCycleResult.cycle.startAt)
+      .lte("reading_at", submittedCycleResult.cycle.endAt)
+      .order("reading_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingCycleReadingError) return sendSupabaseError(res, existingCycleReadingError);
+    if (existingCycleReading) {
+      return sendError(
+        res,
+        409,
+        "READING_ALREADY_EXISTS_IN_CYCLE",
+        "توجد قراءة غير مرفوضة لهذا المشترك في دورة القراءة نفسها. حدّث بيانات المشترك قبل تسجيل قراءة جديدة.",
+        false,
+        {
+          existingReadingId: toNumber(existingCycleReading.id),
+          readingAt: existingCycleReading.reading_at,
+          status: existingCycleReading.status,
+          cycle: submittedCycleResult.cycle,
+        },
+      );
+    }
     const { data: previous, error: previousError } = await admin.from("meter_readings").select("reading_value")
       .eq("subscriber_id", subscriber.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
     if (previousError) return sendSupabaseError(res, previousError);
@@ -601,6 +703,25 @@ export function registerMobileApi(app: Express) {
       tenant_id: context.scope.tenantId, subscriber_id: subscriber.id, client_operation_id: input.clientOperationId, reading_at: readingAt.toISOString(), reading_value: input.readingValue,
       previous_reading_value: previous?.reading_value ?? null, consumption_kwh: String(consumptionKwh), capture_method: input.captureMethod, image_key: imageKey, image_hash: imageHash, entered_by_user_id: context.scope.userId, notes,
     }).select("id, status, consumption_kwh").single();
+    const cycleDuplicateError = Boolean(
+      insertError?.code === "23505"
+      && (insertError.message.includes("READING_ALREADY_EXISTS_IN_CYCLE")
+        || insertError.message.includes("meter_readings_one_operational_reading_per_cycle")),
+    );
+    if (insertError && cycleDuplicateError) {
+      if (imageKey) {
+        try { await storageRemove(imageKey); }
+        catch (cleanupError) { console.error("[Mobile API] duplicate-reading image cleanup failed", cleanupError); }
+      }
+      return sendError(
+        res,
+        409,
+        "READING_ALREADY_EXISTS_IN_CYCLE",
+        "توجد قراءة غير مرفوضة لهذا المشترك في دورة القراءة نفسها. حدّث بيانات المشترك قبل تسجيل قراءة جديدة.",
+        false,
+        { cycle: submittedCycleResult.cycle },
+      );
+    }
     if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل القراءة.");
     try {
       await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "meter_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });

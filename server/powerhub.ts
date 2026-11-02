@@ -2781,7 +2781,8 @@ export const powerhubRouter = router({
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك لا يتبع للمحطة المحددة أو أن خدمته غير نشطة." });
-      if (errorText.includes("SAME_DAY_READING_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه. يقتصر تجاوز ذلك على المالك أو المدير أو المحاسب مع تأكيد صريح." });
+      if (errorText.includes("READING_ALREADY_EXISTS_IN_CYCLE") || errorText.includes("meter_readings_one_operational_reading_per_cycle")) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة غير مرفوضة لهذا المشترك ضمن دورة القراءة الحالية؛ لا يمكن تسجيل قراءة ثانية في الدورة نفسها." });
+      if (errorText.includes("SAME_DAY_READING_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "توجد قراءة مسجلة لهذا المشترك في اليوم نفسه. لا يمكن تجاوز منع تكرار القراءة داخل دورة القراءة الحالية." });
       if (errorText.includes("READING_BELOW_PREVIOUS")) throw new TRPCError({ code: "CONFLICT", message: "القراءة الحالية أقل من القراءة المعتمدة السابقة. فعّل خيار إعادة ضبط سجل القراءة وسجل ملاحظة للتأكيد." });
       if (errorText.includes("READING_RESET_NOTES_REQUIRED")) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل ملاحظة توضح سبب إعادة ضبط سجل القراءة قبل حفظها." });
       if (errorText.includes("TARIFF_NOT_FOUND")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا توجد تعرفة فعالة في هذا الفرع؛ أضف التعرفة قبل تسجيل قراءة قابلة للفوترة." });
