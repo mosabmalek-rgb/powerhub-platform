@@ -1,0 +1,79 @@
+name: PowerHub SBOM
+
+on:
+  push:
+    branches: [main, feat/auth-local-first-single-pr]
+  schedule:
+    - cron: '47 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: powerhub-sbom-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    name: Generate and validate CycloneDX SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Guard pnpm lockfile format before SBOM cataloging
+        shell: bash
+        run: |
+          set -euo pipefail
+          document_markers="$(grep -Ec '^---[[:space:]]*$' pnpm-lock.yaml || true)"
+          if [[ "$document_markers" -ne 0 ]]; then
+            echo "::error::pnpm-lock.yaml has multiple YAML documents. Validate Syft's pnpm cataloger before generating an SBOM; do not publish a potentially incomplete inventory."
+            exit 1
+          fi
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: powerhub.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Validate SBOM coverage
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const sbom = JSON.parse(readFileSync("powerhub.cdx.json", "utf8"));
+          if (sbom.bomFormat !== "CycloneDX" || !Array.isArray(sbom.components)) {
+            throw new Error("SBOM is not a CycloneDX document with a components array.");
+          }
+
+          const names = new Set(sbom.components.map((component) => component.name));
+          const required = ["react", "express-rate-limit", "@supabase/supabase-js"];
+          const missing = required.filter((name) => !names.has(name));
+
+          if (sbom.components.length < 100) {
+            throw new Error(`SBOM contains only ${sbom.components.length} components; expected at least 100 for the resolved pnpm dependency graph.`);
+          }
+          if (missing.length > 0) {
+            throw new Error(`SBOM is missing expected direct dependencies: ${missing.join(", ")}`);
+          }
+
+          const licensed = sbom.components.filter((component) => Array.isArray(component.licenses) && component.licenses.length > 0).length;
+          console.log(`CycloneDX ${sbom.specVersion}: ${sbom.components.length} components; ${licensed} components include license metadata.`);
+          NODE
+
+      - name: Upload validated CycloneDX SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: powerhub-sbom-cyclonedx
+          path: powerhub.cdx.json
+          if-no-files-found: error
+          retention-days: 30

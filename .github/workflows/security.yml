@@ -55,7 +55,7 @@ jobs:
             exit 0
           fi
           jq -r '.[] |
-            "- Alert #\(.number): \(.rule.id) — \(.rule.security_severity_level // .rule.severity) — \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)\n  \(.rule.description)"'             codeql-alerts.json > codeql-alerts.md
+            "- Alert #\(.number): \(.rule.id) — \(.rule.security_severity_level // .rule.severity) — \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)\\n  \(.rule.description)"' codeql-alerts.json > codeql-alerts.md
           if [ -s codeql-alerts.md ]; then
             cat codeql-alerts.md >> "$GITHUB_STEP_SUMMARY"
           else
@@ -104,3 +104,21 @@ jobs:
 
       - name: Static dependency security guard
         run: node scripts/check-dependency-security.mjs
+
+  dependency-review:
+    name: Dependency review
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          config-file: ./.github/dependency-review-config.yml
+          comment-summary-in-pr: always
