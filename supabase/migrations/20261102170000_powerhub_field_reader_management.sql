@@ -12,8 +12,34 @@ declare
 begin
   if new.is_enabled then
     v_limit := public.powerhub_effective_tenant_quota(new.tenant_id, 'fieldUser');
-    if cardinality(coalesce(new.reader_user_ids, '{}'::bigint[])) > coalesce(v_limit, 0) then
+    if cardinality(coalesce(new.reader_user_ids, '{}'::bigint[])) < 2
+       or cardinality(new.reader_user_ids) <> (
+         select count(distinct reader_id)::integer from unnest(new.reader_user_ids) selected(reader_id)
+       ) then
+      raise exception 'FIELD_READING_DISTRIBUTION_REQUIRES_TWO_READERS' using errcode = '22023';
+    end if;
+    if cardinality(new.reader_user_ids) > coalesce(v_limit, 0) then
       raise exception 'FIELD_READING_DISTRIBUTION_FIELD_USER_LIMIT_REACHED' using errcode = 'P0001';
+    end if;
+    if exists (
+      select 1 from unnest(new.reader_user_ids) selected(reader_id)
+       where selected.reader_id is null or not exists (
+         select 1 from public.users reader
+         join public.tenant_members membership on membership.user_id=reader.id
+           and membership.tenant_id=new.tenant_id and membership.role='member'
+           and membership.is_active=true and membership.membership_status='active'
+           and (membership.expires_at is null or membership.expires_at>now())
+         join public.staff_profiles profile on profile.user_id=reader.id
+           and profile.tenant_id=new.tenant_id and profile.role='technician'
+           and profile.is_active=true and profile.archived_at is null
+           and (profile.site_id=new.site_id or profile.site_id is null)
+           and (profile.permissions is null or profile.permissions @> '["recordReadings","accessFieldApp"]'::jsonb)
+         where reader.id=selected.reader_id and reader.account_status='active'
+           and not (profile.suspension_started_at is not null and profile.suspension_started_at<=now()
+             and (profile.suspension_ends_at is null or profile.suspension_ends_at>now()))
+       )
+    ) then
+      raise exception 'FIELD_READING_DISTRIBUTION_INVALID_READER' using errcode='P0001';
     end if;
   end if;
   return new;
@@ -77,8 +103,10 @@ as $function$
             join public.tenant_members membership
               on membership.user_id = reader.id
              and membership.tenant_id = p_tenant_id
+             and membership.role = 'member'
              and membership.is_active = true
              and membership.membership_status = 'active'
+             and (membership.expires_at is null or membership.expires_at > now())
             join public.staff_profiles profile
               on profile.user_id = reader.id
              and profile.tenant_id = p_tenant_id
@@ -211,8 +239,10 @@ begin
       join public.tenant_members membership
         on membership.user_id = reader.id
        and membership.tenant_id = p_tenant_id
+       and membership.role = 'member'
        and membership.is_active = true
        and membership.membership_status = 'active'
+       and (membership.expires_at is null or membership.expires_at > now())
       join public.staff_profiles profile
         on profile.user_id = reader.id
        and profile.tenant_id = p_tenant_id
@@ -313,8 +343,10 @@ begin
         join public.tenant_members membership
           on membership.user_id = reader.id
          and membership.tenant_id = v_setting.tenant_id
+         and membership.role = 'member'
          and membership.is_active = true
          and membership.membership_status = 'active'
+         and (membership.expires_at is null or membership.expires_at > now())
         join public.staff_profiles profile
           on profile.user_id = reader.id
          and profile.tenant_id = v_setting.tenant_id
@@ -399,6 +431,10 @@ security definer
 set search_path = public, pg_temp
 as $function$
 begin
+  if tg_op = 'DELETE' then
+    perform public.powerhub_reconcile_field_reader_selection(old.tenant_id, old.user_id, old.site_id);
+    return old;
+  end if;
   if tg_op = 'UPDATE' then
     perform public.powerhub_reconcile_field_reader_selection(old.tenant_id, old.user_id, old.site_id);
   end if;
@@ -409,7 +445,7 @@ $function$;
 
 drop trigger if exists powerhub_reconcile_field_reader_after_profile_change on public.staff_profiles;
 create trigger powerhub_reconcile_field_reader_after_profile_change
-after update of role, is_active, permissions, suspension_started_at, suspension_ends_at, site_id
+after update of role, is_active, archived_at, permissions, suspension_started_at, suspension_ends_at, site_id
 or delete on public.staff_profiles
 for each row execute function public.powerhub_reconcile_field_reader_after_profile_change();
 
@@ -424,10 +460,14 @@ security definer
 set search_path = public, pg_temp
 as $function$
 begin
-  if tg_op = 'DELETE' or new.account_status <> 'active' then
-    perform public.powerhub_reconcile_field_reader_selection(null, coalesce(new.id, old.id), null);
+  if tg_op = 'DELETE' then
+    perform public.powerhub_reconcile_field_reader_selection(null, old.id, null);
+    return old;
   end if;
-  return coalesce(new, old);
+  if new.account_status <> 'active' then
+    perform public.powerhub_reconcile_field_reader_selection(null, new.id, null);
+  end if;
+  return new;
 end;
 $function$;
 
@@ -449,16 +489,19 @@ as $function$
 begin
   if tg_op = 'DELETE' then
     perform public.powerhub_reconcile_field_reader_selection(old.tenant_id, old.user_id, null);
-  elsif new.is_active is not true or new.membership_status <> 'active' then
+    return old;
+  end if;
+  if new.role <> 'member' or new.is_active is not true or new.membership_status <> 'active'
+     or (new.expires_at is not null and new.expires_at <= now()) then
     perform public.powerhub_reconcile_field_reader_selection(new.tenant_id, new.user_id, null);
   end if;
-  return coalesce(new, old);
+  return new;
 end;
 $function$;
 
 drop trigger if exists powerhub_reconcile_field_reader_after_membership_change on public.tenant_members;
 create trigger powerhub_reconcile_field_reader_after_membership_change
-after update of is_active, membership_status or delete on public.tenant_members
+after update of role, is_active, membership_status, expires_at or delete on public.tenant_members
 for each row execute function public.powerhub_reconcile_field_reader_after_membership_change();
 
 revoke all on function public.powerhub_reconcile_field_reader_after_membership_change() from public, anon, authenticated;
