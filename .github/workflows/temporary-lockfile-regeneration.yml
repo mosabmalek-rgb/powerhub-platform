@@ -5,11 +5,11 @@ on:
     branches: [feat/auth-local-first-single-pr]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: powerhub-lockfile-regeneration-${{ github.ref }}
-  cancel-in-progress: true
+  group: powerhub-lockfile-regeneration-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   regenerate:
@@ -48,6 +48,9 @@ jobs:
           set -e
           node scripts/summarize-pnpm-audit.mjs pnpm-audit-regenerated.json "$audit_status" | tee pnpm-audit-regenerated-summary.md
 
+      - name: Require zero registry advisories in all dependency groups
+        run: pnpm audit --audit-level low
+
       - name: Upload generated lockfile and audit evidence
         uses: actions/upload-artifact@v4
         with:
@@ -58,3 +61,13 @@ jobs:
             pnpm-audit-regenerated-errors.log
             pnpm-audit-regenerated-summary.md
           if-no-files-found: error
+
+      - name: Commit verified lockfile and remove temporary generator
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          git rm .github/workflows/temporary-lockfile-regeneration.yml
+          git commit -m "chore(deps): commit clean audited pnpm lockfile"
+          git push origin HEAD:$GITHUB_REF_NAME

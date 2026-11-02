@@ -81,7 +81,6 @@ for (const [id, advisory] of entries.sort((a, b) => {
 if (entries.length === 0) lines.push("| — | No advisories reported | — | — | — | — |");
 lines.push(
   "",
-  "- Known compatibility exception: glob@7.2.3 remains pinned to minimatch@3.1.5 until the ExcelJS/Archiver legacy consumer is replaced; this is unresolved and is not counted as patched.",
   "> This is the registry-based pnpm audit report, not GitHub's Dependabot alert feed. Its advisory IDs and total can differ from the repository's 83 Dependabot alerts; use both sources during reconciliation.",
   ""
 );

@@ -100,7 +100,7 @@ jobs:
           if-no-files-found: error
 
       - name: Audit production dependency advisories
-        run: pnpm audit --prod --audit-level high
+        run: pnpm audit --prod --audit-level low
 
       - name: Static dependency security guard
         run: node scripts/check-dependency-security.mjs
@@ -126,8 +126,8 @@ jobs:
             pnpm-audit-summary.md
           if-no-files-found: warn
 
-      - name: Gate all dependency groups at High severity
-        run: pnpm audit --audit-level high
+      - name: Gate all dependency groups at Low severity
+        run: pnpm audit --audit-level low
 
   dependency-review:
     name: Dependency review
