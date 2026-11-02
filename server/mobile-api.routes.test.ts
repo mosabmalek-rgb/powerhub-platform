@@ -7,6 +7,7 @@ const state = vi.hoisted(() => {
     queries: [] as Array<{ table: string; filters: unknown[][]; selected: string | null; operation: string; payload?: unknown }>,
     rpc: vi.fn(),
     resolve: vi.fn(),
+    distributionEnabled: false,
   };
 
   store.from = vi.fn((table: string) => {
@@ -71,6 +72,7 @@ describe("Mobile API subscribers route", () => {
   beforeEach(() => {
     process.env.JWT_SECRET = JWT_SECRET;
     state.queries.length = 0;
+    state.distributionEnabled = false;
     state.from.mockClear();
     state.rpc.mockReset().mockResolvedValue({
       data: [{
@@ -92,14 +94,15 @@ describe("Mobile API subscribers route", () => {
       if (table === "sites") return { data: [{ id: 12 }], error: null };
       if (table === "tenant_subscriptions") return { data: { status: "active", ends_at: "2099-12-31T00:00:00.000Z" }, error: null };
       if (table === "mobile_api_sessions") return { data: { id: 101 }, error: null };
+      if (table === "field_reading_distribution_settings") return { data: state.distributionEnabled ? { is_enabled: true } : null, error: null };
       if (table === "subscribers" && terminal === "range") {
-        return {
-          data: [
-            { id: 201, subscriber_no: "SUB-201", full_name: "مشترك أول", phone: "0590000001", address: "عنوان أول", site_id: 12 },
-            { id: 202, subscriber_no: "SUB-202", full_name: "مشترك ثان", phone: "0590000002", address: "عنوان ثان", site_id: 12 },
-          ],
-          error: null,
-        };
+        let data = [
+          { id: 201, subscriber_no: "SUB-201", full_name: "مشترك أول", phone: "0590000001", address: "عنوان أول", site_id: 12, assigned_reader_user_id: 7 },
+          { id: 202, subscriber_no: "SUB-202", full_name: "مشترك ثان", phone: "0590000002", address: "عنوان ثان", site_id: 12, assigned_reader_user_id: 8 },
+        ];
+        const readerFilter = query.filters.find((filter: unknown[]) => filter[0] === "eq" && filter[1] === "assigned_reader_user_id");
+        if (readerFilter) data = data.filter((row) => row.assigned_reader_user_id === Number(readerFilter[2]));
+        return { data, error: null };
       }
       if (table === "meter_readings") {
         const cycleQuery = query.filters.some((filter: unknown[]) => filter[0] === "in" && filter[1] === "subscriber_id");
@@ -208,6 +211,24 @@ describe("Mobile API subscribers route", () => {
       p_site_id: 12,
       p_reading_at: expect.any(String),
     });
+  });
+
+  it("filters the subscriber list by the authenticated reader only when optional distribution is enabled", async () => {
+    state.distributionEnabled = true;
+    const res = await callRoute({ branchId: "12", cursor: "0", limit: "2" }, await accessToken());
+    expect(res.statusCode).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].id).toBe(201);
+    const subscriberQuery = state.queries.find((query) => query.table === "subscribers");
+    expect(subscriberQuery?.filters).toContainEqual(["eq", "assigned_reader_user_id", 7]);
+  });
+
+  it("keeps the full subscriber list when distribution is disabled", async () => {
+    const res = await callRoute({ branchId: "12", cursor: "0", limit: "2" }, await accessToken());
+    expect(res.statusCode).toBe(200);
+    expect(res.body.items).toHaveLength(2);
+    const subscriberQuery = state.queries.find((query) => query.table === "subscribers");
+    expect(subscriberQuery?.filters.some((filter) => filter[0] === "eq" && filter[1] === "assigned_reader_user_id")).toBe(false);
   });
 
   it("rejects an invalid query before accessing the subscribers table", async () => {
