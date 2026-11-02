@@ -40,4 +40,15 @@ describe("tenant subscription gate integration contract", () => {
   });
 
 
+  it("uses the same membership expiry boundary for mobile authentication and chat workspace selection", () => {
+    const mobile = readFileSync(resolve(process.cwd(), "server/mobile-api.ts"), "utf8");
+    const assistant = readFileSync(resolve(process.cwd(), "client/src/pages/AiAssistantPage.tsx"), "utf8");
+    const support = readFileSync(resolve(process.cwd(), "client/src/pages/SupportChatPage.tsx"), "utf8");
+    expect(mobile).toContain("isTenantMembershipUnexpired(membershipResult.data)");
+    expect(mobile).toContain(".or(activeTenantMembershipOrFilter())");
+    expect(assistant).toContain('.or("expires_at.is.null,expires_at.gt." + new Date().toISOString())');
+    expect(support).toContain('.eq("membership_status", "active")');
+    expect(support).toContain('.or("expires_at.is.null,expires_at.gt." + new Date().toISOString())');
+  });
+
 });

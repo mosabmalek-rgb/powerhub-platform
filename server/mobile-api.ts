@@ -7,6 +7,7 @@ import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rb
 import { storagePut, storageRemove } from "./storage";
 import { supabaseAdmin } from "./supabase-admin";
 import { consumeHttpRateLimit, getClientIp } from "./http-rate-limit";
+import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./tenant-membership-expiry";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -237,13 +238,13 @@ async function resolveMobileScope(userId: number, tenantId: number, allowPasswor
   const admin = supabaseAdmin();
   const [userResult, membershipResult, tenantResult, profilesResult] = await Promise.all([
     admin.from("users").select("id, name, account_status, must_change_password").eq("id", userId).maybeSingle(),
-    admin.from("tenant_members").select("id, expires_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
+    admin.from("tenant_members").select("id, expires_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle(),
     admin.from("tenants").select("id, status").eq("id", tenantId).maybeSingle(),
     admin.from("staff_profiles").select("site_id, role, permissions, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true),
   ]);
   if (userResult.error || membershipResult.error || tenantResult.error || profilesResult.error) throw new Error("Supabase mobile scope lookup failed");
   const user = userResult.data;
-  if (!user || user.account_status !== "active" || (!allowPasswordChange && user.must_change_password) || !membershipResult.data || (membershipResult.data.expires_at && new Date(membershipResult.data.expires_at).getTime() <= Date.now()) || tenantResult.data?.status !== "active") return null;
+  if (!user || user.account_status !== "active" || (!allowPasswordChange && user.must_change_password) || !isTenantMembershipUnexpired(membershipResult.data) || tenantResult.data?.status !== "active") return null;
 
   const now = new Date();
   const permitted = (profilesResult.data ?? []).filter((profile) => {
@@ -312,10 +313,9 @@ async function authenticateMobile(req: Request, allowPasswordChange = false): Pr
 async function availableTenantsForUser(userId: number) {
   const admin = supabaseAdmin();
   const { data: memberships, error } = await admin.from("tenant_members").select("tenant_id, expires_at, tenants!inner(id, name, status)")
-    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").eq("tenants.status", "active");
+    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").eq("tenants.status", "active").or(activeTenantMembershipOrFilter());
   if (error) throw new Error(error.message);
-  const now = Date.now();
-  return (memberships ?? []).filter((membership: any) => !membership.expires_at || new Date(membership.expires_at).getTime() > now)
+  return (memberships ?? []).filter((membership: any) => isTenantMembershipUnexpired(membership))
     .map((membership: any) => ({ id: toNumber(membership.tenants.id), name: membership.tenants.name as string }));
 }
 
