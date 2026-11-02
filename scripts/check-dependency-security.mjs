@@ -34,6 +34,13 @@ const requiredOverrides = {
   "lodash-es": "4.18.1",
   browserslist: "4.29.1",
   "form-data": "4.0.6",
+  "proxy-addr": "2.0.8",
+  dompurify: "3.4.17",
+  "brace-expansion@^1.0.0": "1.1.20",
+  "brace-expansion@^2.0.0": "2.1.6",
+  "follow-redirects": "1.16.2",
+  zod: "4.6.6",
+  "body-parser": "1.20.9",
 };
 for (const [name, version] of Object.entries(requiredOverrides)) {
   if (!new RegExp(`^\\s+${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}:\\s*${version.replaceAll(".", "\\.")}\\s*$`, "m").test(workspace)) {
@@ -42,8 +49,21 @@ for (const [name, version] of Object.entries(requiredOverrides)) {
 }
 
 if (!lockfile.includes("lockfileVersion: '9.0'")) throw new Error("unsupported pnpm lockfile version");
-if (lockfile.includes("nanoid@5.1.5") || lockfile.includes("postcss@8.5.6") || lockfile.includes("rollup@4.58.")) {
-  throw new Error("lockfile contains a known high-severity vulnerable package version");
+const vulnerableLockEntries = [
+  "proxy-addr@2.0.7",
+  "dompurify@3.4.16",
+  "dompurify@3.4.14",
+  "brace-expansion@1.1.18",
+  "brace-expansion@2.1.4",
+  "follow-redirects@1.16.0",
+  "zod@4.1.12",
+  "body-parser@1.20.3",
+  "nanoid@5.1.5",
+  "postcss@8.5.6",
+];
+const remainingVulnerableEntries = vulnerableLockEntries.filter((entry) => lockfile.includes(entry));
+if (remainingVulnerableEntries.length > 0) {
+  throw new Error(`lockfile contains vulnerable package entries: ${remainingVulnerableEntries.join(", ")}`);
 }
 
 console.log("Dependency security guard passed: direct minimums, required overrides, and lockfile version checks are satisfied.");
