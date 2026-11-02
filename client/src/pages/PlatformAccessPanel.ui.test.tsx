@@ -47,6 +47,9 @@ describe("Platform access owner panel", () => {
     expect(screen.getByRole("button", { name: "دعوة حساب" })).toBeInTheDocument();
     expect(screen.getAllByText("مشرف مالي").length).toBeGreaterThan(0);
     expect(screen.getByText("بانتظار الدخول")).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("لا تُرسل المنصة بريدًا إلكترونيًا");
+    expect(screen.getByRole("note")).toHaveTextContent("خلال مهلة 72 ساعة");
+    expect(screen.getByRole("note")).toHaveTextContent("إنشاء حساب PowerHub أو تسجيل الدخول به");
     expect(screen.queryByText(/كلمة مرور/)).not.toBeInTheDocument();
     expect(screen.queryByText(/رمز دعوة/)).not.toBeInTheDocument();
   });

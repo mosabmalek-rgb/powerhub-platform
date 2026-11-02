@@ -81,6 +81,9 @@ export default function PlatformAccessPanel() {
       <select name="platformRole" defaultValue="platform_support" className={inputClass}><option value="platform_support">موظف دعم — الدعم فقط</option><option value="platform_admin">مشرف المنصة</option><option value="finance_admin">مشرف مالي</option></select>
       <Button type="submit" disabled={invite.isPending} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]"><ShieldPlus className="ml-2 h-4 w-4" />دعوة حساب</Button>
     </form>
+    <div role="note" className="mt-3 rounded-xl border border-amber-400/15 bg-amber-400/[.035] p-3 text-xs leading-6 text-amber-100/80">
+      لا تُرسل المنصة بريدًا إلكترونيًا ولا تنشئ كلمة مرور للمدعو. أبلغه بالبريد المحدد واطلب منه إنشاء حساب PowerHub أو تسجيل الدخول به؛ تُفعّل الدعوة تلقائيًا عند مزامنة ملفه بالبريد نفسه، خلال مهلة 72 ساعة.
+    </div>
     <div className="mt-6 grid gap-5 xl:grid-cols-2">
       <section><h3 className="text-sm font-bold text-white">حسابات الإدارة</h3><div className="mt-3 space-y-2">
         {directory.data?.accounts.map((account) => <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[.02] p-3">
