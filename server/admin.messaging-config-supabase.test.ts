@@ -128,6 +128,8 @@ describe("إحصاءات البحث المركزي دون حفظ نص البحث
     } finally {
       state.setMetricError(null);
       warning.mockRestore();
+      state.calls.splice(0);
+      state.rpcArgs.splice(0);
     }
   });
 });
