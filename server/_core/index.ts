@@ -8,6 +8,7 @@ import { createContext } from "./context";
 import { serveStatic } from "./static";
 import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webhooks";
 import { consumeHttpRateLimit } from "../http-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import { registerMobileApi } from "../mobile-api";
 import { isVercelRuntime } from "./runtime";
 import { registerBrandAssetProxy } from "./storageProxy";
@@ -59,7 +60,9 @@ export function createPowerHubApp() {
   app.get("/api/ready", readinessHandler);
   registerBrandAssetProxy(app);
   registerMobileApi(app);
-  app.get("/api/webhooks/whatsapp/:tenantId", async (req, res, next) => {
+  app.get("/api/webhooks/whatsapp/:tenantId", rateLimit({
+    windowMs: 300_000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false,
+  }), async (req, res, next) => {
     const allowed = await consumeHttpRateLimit({
       req, scope: "whatsapp-webhook-verify-ip", windowSeconds: 300, maxAttempts: 30,
     });
@@ -69,7 +72,9 @@ export function createPowerHubApp() {
     }
     return next();
   }, verifyWhatsAppWebhook);
-  app.post("/api/webhooks/whatsapp/:tenantId", async (req, res, next) => {
+  app.post("/api/webhooks/whatsapp/:tenantId", rateLimit({
+    windowMs: 300_000, limit: 600, standardHeaders: "draft-8", legacyHeaders: false,
+  }), async (req, res, next) => {
     const allowed = await consumeHttpRateLimit({
       req, scope: "whatsapp-webhook-delivery-ip", windowSeconds: 300, maxAttempts: 300,
     });

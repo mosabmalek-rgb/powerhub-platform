@@ -161,6 +161,8 @@ describe("Mobile API subscribers route", () => {
 
   async function callRoute(query: Record<string, string>, token?: string) {
     const req = {
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
       headers: token ? { authorization: `Bearer ${token}` } : {},
       query,
     } as unknown as Request;

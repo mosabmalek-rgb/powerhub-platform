@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { rateLimit } from "express-rate-limit";
 import { createClient } from "@supabase/supabase-js";
 import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
@@ -417,7 +418,13 @@ export function registerMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/v1/auth/change-password", async (req, res, next) => {
+  app.post("/api/mobile/v1/auth/change-password", rateLimit({
+    windowMs: 900000,
+    limit: 60,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز محاولات تغيير كلمة المرور من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
     const ipAllowed = await consumeHttpRateLimit({
       req, scope: "mobile-change-password-ip", windowSeconds: 900, maxAttempts: 30,
     });
@@ -479,7 +486,13 @@ export function registerMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/v1/auth/logout", async (req, res, next) => {
+  app.post("/api/mobile/v1/auth/logout", rateLimit({
+    windowMs: 60000,
+    limit: 120,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز محاولات تسجيل الخروج من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
     const ipAllowed = await consumeHttpRateLimit({
       req, scope: "mobile-logout-ip", windowSeconds: 60, maxAttempts: 60,
     });
@@ -505,7 +518,13 @@ export function registerMobileApi(app: Express) {
     return res.status(204).send();
   });
 
-  app.get("/api/mobile/v1/auth/me", async (req, res, next) => {
+  app.get("/api/mobile/v1/auth/me", rateLimit({
+    windowMs: 60000,
+    limit: 480,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد طلبات الجلسة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
     const ipAllowed = await consumeHttpRateLimit({
       req, scope: "mobile-me-ip", windowSeconds: 60, maxAttempts: 240,
     });
@@ -529,7 +548,13 @@ export function registerMobileApi(app: Express) {
     return res.json({ user: mobileUserPayload(context.scope) });
   });
 
-  app.get("/api/mobile/v1/reading-cycle", async (req, res, next) => {
+  app.get("/api/mobile/v1/reading-cycle", rateLimit({
+    windowMs: 60000,
+    limit: 240,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد طلبات دورة القراءة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
     const ipAllowed = await consumeHttpRateLimit({
       req, scope: "mobile-reading-cycle-ip", windowSeconds: 60, maxAttempts: 120,
     });
@@ -578,7 +603,13 @@ export function registerMobileApi(app: Express) {
     });
   });
 
-  app.get("/api/mobile/v1/reading-cycle-sync-stats", async (req, res, next) => {
+  app.get("/api/mobile/v1/reading-cycle-sync-stats", rateLimit({
+    windowMs: 60000,
+    limit: 60,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد طلبات إحصاءات الدورة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
     const ipAllowed = await consumeHttpRateLimit({
       req, scope: "mobile-cycle-stats-ip", windowSeconds: 60, maxAttempts: 30,
     });
@@ -640,7 +671,13 @@ export function registerMobileApi(app: Express) {
     return res.json({ branchId, from, to, syncedReadingCount: readingIds.size });
   });
 
-  app.get("/api/mobile/v1/subscribers", async (req, res, next) => {
+  app.get("/api/mobile/v1/subscribers", rateLimit({
+    windowMs: 60000,
+    limit: 240,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد طلبات المشتركين من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
     const ipAllowed = await consumeHttpRateLimit({
       req, scope: "mobile-subscribers-ip", windowSeconds: 60, maxAttempts: 120,
     });
@@ -744,7 +781,13 @@ export function registerMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/v1/readings", async (req, res, next) => {
+  app.post("/api/mobile/v1/readings", rateLimit({
+    windowMs: 60000,
+    limit: 240,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد عمليات تسجيل القراءة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
     const ipAllowed = await consumeHttpRateLimit({
       req, scope: "mobile-reading-write-ip", windowSeconds: 60, maxAttempts: 120,
     });
@@ -853,7 +896,13 @@ export function registerMobileApi(app: Express) {
     });
   });
 
-  app.post("/api/mobile/v1/sync-events", async (req, res, next) => {
+  app.post("/api/mobile/v1/sync-events", rateLimit({
+    windowMs: 60000,
+    limit: 240,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد أحداث المزامنة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
     const ipAllowed = await consumeHttpRateLimit({
       req, scope: "mobile-sync-events-ip", windowSeconds: 60, maxAttempts: 120,
     });
