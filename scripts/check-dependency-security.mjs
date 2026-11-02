@@ -44,7 +44,7 @@ const requiredOverrides = {
 };
 for (const [name, version] of Object.entries(requiredOverrides)) {
   const expectedLine = `${name}: ${version}`;
-  const hasOverride = workspace.split(/\\r?\\n/).some((line) => line.trim() === expectedLine);
+  const hasOverride = workspace.split("\n").some((line) => line.trim() === expectedLine);
   if (!hasOverride) {
     throw new Error(`missing secure pnpm override: ${name}@${version}`);
   }
