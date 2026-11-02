@@ -380,7 +380,9 @@ function SubaccountListSkeleton() {
   return <div role="status" aria-label="جارٍ تحميل الحسابات الفرعية" className="space-y-3"><span className="sr-only">جارٍ تحميل الحسابات الفرعية...</span>{Array.from({ length: 4 }, (_, index) => <div key={index} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3"><div className="space-y-2"><Skeleton className="h-4 w-36" /><Skeleton className="h-3 w-48" /></div><div className="flex items-center gap-2"><Skeleton className="h-6 w-16 rounded-full" /><Skeleton className="h-6 w-20 rounded-full" /><Skeleton className="h-8 w-24 rounded-lg" /></div></div>)}</div>;
 }
 
-function FieldReadingDistributionPanel({ siteId, staff }: { siteId: number; staff: any[] }) {
+function FieldReadingDistributionPanel({
+  siteId, staff, fieldUserLimit, fieldUserCount,
+}: { siteId: number; staff: any[]; fieldUserLimit: number; fieldUserCount: number }) {
   const query = trpc.powerhub.staff.readingDistribution.useQuery({ siteId });
   const utils = trpc.useUtils();
   const [isEnabled, setIsEnabled] = useState(false);
@@ -398,19 +400,21 @@ function FieldReadingDistributionPanel({ siteId, staff }: { siteId: number; staf
       const end = row.profile.suspensionEndsAt ? new Date(row.profile.suspensionEndsAt).getTime() : null;
       const suspended = start !== null && start <= now && (end === null || end > now);
       const permissions = row.profile.permissions as PowerCapability[] | null;
-      if (row.profile.role !== "technician" || !row.profile.isActive || row.user.accountStatus !== "active" || suspended) continue;
+      if (row.profile.role !== "technician" || !row.profile.isActive || row.profile.archivedAt || row.user.accountStatus !== "active" || suspended) continue;
       if (!can("technician", "recordReadings", permissions) || !can("technician", "accessFieldApp", permissions)) continue;
       unique.set(row.user.id, row.user);
     }
     return Array.from(unique.values()).sort((a,b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ar"));
   }, [staff]);
+  const maximumSelectableReaders = Math.min(eligibleReaders.length, Math.max(0, fieldUserLimit));
   const eligibleIds = new Set(eligibleReaders.map((reader) => reader.id));
   const unavailable = readerUserIds.filter((id) => !eligibleIds.has(id)).length;
+  const overQuota = readerUserIds.length > maximumSelectableReaders;
   const save = trpc.powerhub.staff.configureReadingDistribution.useMutation({
     onSuccess: async (result) => {
       await Promise.all([query.refetch(), utils.powerhub.staff.list.invalidate(), utils.powerhub.audit.list.invalidate()]);
       toast.success(result.isEnabled
-        ? `تم توزيع ${result.assignedSubscriberCount} مشتركًا على ${result.readerCount} من مدخلي القراءة.`
+        ? \`تم توزيع \${result.assignedSubscriberCount} مشتركًا على \${result.readerCount} من مدخلي القراءة.\`
         : "تم إيقاف التقسيم؛ جميع المشتركين متاحون لكل مدخلي القراءة.");
     },
     onError: (error) => toast.error(error.message),
@@ -418,25 +422,34 @@ function FieldReadingDistributionPanel({ siteId, staff }: { siteId: number; staf
   return <Card className="border-sky-400/20 bg-[#111823] shadow-panel"><CardContent className="p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><div className="flex items-center gap-2"><UsersRound className="h-5 w-5 text-sky-300" /><h2 className="font-bold text-white">توزيع المشتركين على مدخلي القراءة</h2></div>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">تقسيم اختياري لكل فرع. اختر أي عدد من مدخلي القراءة النشطين (2 أو 3 أو 4 أو أكثر). العنوان الواحد يبقى مع مدخل واحد، وتوزع مجموعات العناوين الأكبر أولاً لتحقيق توازن أفضل.</p>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">التقسيم اختياري لكل فرع. اختر أي عدد من مدخلي القراءة النشطين حسب الحصة الفعلية للاشتراك. العنوان الواحد يبقى مع مدخل واحد، وتوزع مجموعات العناوين الأكبر أولاً.</p>
       </div>
       <Badge className={isEnabled ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-slate-300"}>{isEnabled ? "التقسيم مفعّل" : "كل المشتركين متاحون للجميع"}</Badge>
     </div>
+    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className="rounded-lg border border-white/8 bg-white/[.02] p-3"><p className="text-xs text-slate-500">مدخلو القراءة النشطون</p><p className="mt-1 font-bold text-white">{eligibleReaders.length}</p></div>
+      <div className="rounded-lg border border-white/8 bg-white/[.02] p-3"><p className="text-xs text-slate-500">حصة التطبيق الميداني</p><p className="mt-1 font-bold text-white">{fieldUserCount} / {fieldUserLimit}</p></div>
+      <div className="rounded-lg border border-white/8 bg-white/[.02] p-3"><p className="text-xs text-slate-500">الحد الأقصى للمشاركة</p><p className="mt-1 font-bold text-sky-200">{maximumSelectableReaders}</p></div>
+    </div>
     <label className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[.025] p-3 text-sm text-slate-200">
-      <span><strong className="block text-white">تفعيل تقسيم مهام القراءة</strong><span className="mt-1 block text-xs text-slate-400">عند الإيقاف تزال التخصيصات وتعود القائمة كاملة لكل مدخل قراءة مصرح له.</span></span>
+      <span><strong className="block text-white">تفعيل تقسيم مهام القراءة</strong><span className="mt-1 block text-xs text-slate-400">عند الإيقاف تزال التخصيصات وتعود القائمة كاملة لكل مدخل قراءة مؤهل في الفرع.</span></span>
       <input type="checkbox" checked={isEnabled} onChange={(event) => setIsEnabled(event.target.checked)} className="h-4 w-4 accent-[#F5B800]" />
     </label>
     {isEnabled ? <div className="mt-4">
       <div className="mb-2 flex items-center justify-between gap-2"><p className="text-sm font-bold text-white">الحسابات المشاركة</p><Badge className="bg-sky-400/10 text-sky-200">{readerUserIds.length} محدد</Badge></div>
-      {eligibleReaders.length ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{eligibleReaders.map((reader) => <label key={reader.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/8 bg-white/[.02] px-3 py-3 text-sm text-slate-200">
-        <input type="checkbox" checked={readerUserIds.includes(reader.id)} onChange={(event) => setReaderUserIds((current) => event.target.checked ? [...new Set([...current, reader.id])] : current.filter((id) => id !== reader.id))} className="h-4 w-4 accent-[#F5B800]" />
-        <span className="min-w-0"><strong className="block truncate text-white">{reader.name || reader.email || `مدخل قراءة #${reader.id}`}</strong><span className="text-xs text-slate-500">{reader.email || "حساب التطبيق الميداني"}</span></span>
-      </label>)}</div> : <p className="rounded-xl border border-dashed border-white/10 p-4 text-sm text-slate-400">لا توجد حسابات مدخل قراءة نشطة ومصرح لها في هذا الفرع.</p>}
-      {unavailable > 0 ? <p role="alert" className="mt-3 rounded-lg border border-amber-400/20 p-3 text-xs text-amber-200">هناك {unavailable} حسابات محفوظة لم تعد نشطة أو مصرحًا لها. أزلها أو أوقف التقسيم.</p> : null}
-    </div> : <p className="mt-4 rounded-lg border border-emerald-400/15 bg-emerald-400/[.04] p-3 text-sm text-emerald-100">التقسيم متوقف؛ كل مدخل قراءة مصرح له يرى جميع المشتركين النشطين في الفرع.</p>}
+      {eligibleReaders.length ? <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{eligibleReaders.map((reader) => {
+        const selected = readerUserIds.includes(reader.id);
+        return <label key={reader.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/8 bg-white/[.02] px-3 py-3 text-sm text-slate-200">
+          <input type="checkbox" checked={selected} disabled={!selected && readerUserIds.length >= maximumSelectableReaders} onChange={(event) => setReaderUserIds((current) => event.target.checked ? [...new Set([...current, reader.id])] : current.filter((id) => id !== reader.id))} className="h-4 w-4 accent-[#F5B800]" />
+          <span className="min-w-0"><strong className="block truncate text-white">{reader.name || reader.email || \`مدخل قراءة #\${reader.id}\`}</strong><span className="text-xs text-slate-500">{reader.email || "حساب التطبيق الميداني"}</span></span>
+        </label>;
+      })}</div> : <p className="rounded-xl border border-dashed border-white/10 p-4 text-sm text-slate-400">لا توجد حسابات مدخل قراءة نشطة ومصرح لها في هذا الفرع.</p>}
+      {unavailable > 0 ? <p role="alert" className="mt-3 rounded-lg border border-amber-400/20 p-3 text-xs text-amber-200">هناك {unavailable} حسابات محفوظة لم تعد نشطة أو مصرحاً لها. أزلها من التحديد.</p> : null}
+      {overQuota ? <p role="alert" className="mt-3 rounded-lg border border-amber-400/20 p-3 text-xs text-amber-200">الإعداد المحفوظ يتجاوز الحصة الحالية ({maximumSelectableReaders}). خفّض عدد المشاركين أو عدّل الاشتراك.</p> : null}
+    </div> : <p className="mt-4 rounded-lg border border-emerald-400/15 bg-emerald-400/[.04] p-3 text-sm text-emerald-100">التقسيم متوقف؛ كل مدخل قراءة مؤهل يرى جميع المشتركين النشطين في الفرع.</p>}
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4">
-      <p className="text-xs text-slate-500">{query.isLoading ? "جارٍ تحميل الإعداد..." : `المشتركون المخصصون حاليًا: ${query.data?.assignedSubscriberCount ?? 0}`}</p>
-      <Button type="button" disabled={query.isLoading || save.isPending || unavailable > 0 || (isEnabled && readerUserIds.length < 2)} onClick={() => save.mutate({ siteId, isEnabled, readerUserIds: isEnabled ? readerUserIds : [] })} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">
+      <p className="text-xs text-slate-500">{query.isLoading ? "جارٍ تحميل الإعداد..." : \`المشتركون المخصصون: \${query.data?.assignedSubscriberCount ?? 0} · غير المفرزين: \${query.data?.unassignedSubscriberCount ?? 0}\`}</p>
+      <Button type="button" disabled={query.isLoading || save.isPending || unavailable > 0 || overQuota || (isEnabled && readerUserIds.length < 2)} onClick={() => save.mutate({ siteId, isEnabled, readerUserIds: isEnabled ? readerUserIds : [] })} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">
         {save.isPending ? "جارٍ حفظ التوزيع..." : isEnabled ? "حفظ التقسيم وإعادة التوزيع" : "إيقاف التقسيم وإتاحة الجميع"}
       </Button>
     </div>
@@ -521,7 +534,7 @@ export default function SettingsPage() {
     {!isSubaccountsRoute && siteId && can(accessQuery.data?.role, "manageTariffs") ? <TariffSettingsSection siteId={siteId} /> : null}
     {!isSubaccountsRoute && canManageTeam && <Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="font-bold text-white">هوية الشركة في التقارير</h2><p className="mt-2 text-sm leading-6 text-slate-400">أضف اسم الشركة وشعارها ليظهرا في التقارير الإدارية وملفات PDF.</p></div>{brandingQuery.data?.logoUrl && <img src={brandingQuery.data.logoUrl} alt="شعار الشركة" className="h-16 max-w-40 rounded-lg border border-white/10 bg-white object-contain p-2" />}</div><div className="mt-4 grid gap-4 md:grid-cols-2"><input value={companyName} onChange={e=>setCompanyName(e.target.value)} className={inputClass} placeholder="اسم الشركة / المولدات..." /><label className="flex h-10 cursor-pointer items-center rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-slate-300"><span className="truncate">{logoData ? "تم اختيار شعار جديد" : "اختر شعار الشركة"}</span><input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={e=>{const file=e.target.files?.[0]; if(!file)return; if(file.size>3*1024*1024)return toast.error("يجب ألا يتجاوز الشعار 3 ميغابايت."); const reader=new FileReader(); reader.onload=()=>{const value=String(reader.result); setLogoData(value.split(",")[1] ?? null); setLogoMime(file.type as typeof logoMime);}; reader.readAsDataURL(file);}} /></label></div><Button onClick={saveBranding} disabled={updateBranding.isPending} className="mt-4 bg-[#F5B800] font-bold text-[#0D1117]">{updateBranding.isPending ? "جارٍ الحفظ…" : "حفظ بيانات الشركة"}</Button></CardContent></Card>}
     {isSubaccountsRoute && <FlexiblePermissionsPanel siteId={siteId ?? 0} staff={(staffQuery.data ?? []) as never} canManageTeam={canManageTeam} />}
-    {isSubaccountsRoute && canManageTeam && siteId ? <FieldReadingDistributionPanel siteId={siteId} staff={staffQuery.data ?? []} /> : null}
+    {isSubaccountsRoute && canManageTeam && siteId && allowedRolesQuery.data ? <FieldReadingDistributionPanel siteId={siteId} staff={staffQuery.data ?? []} fieldUserLimit={allowedRolesQuery.data.fieldUserLimit} fieldUserCount={allowedRolesQuery.data.fieldUserCount} /> : null}
     {isSubaccountsRoute && <div className="space-y-6">{canManageTeam && allowedRolesQuery.data && <Card className="border-sky-400/20 bg-sky-400/[.035] shadow-panel"><CardContent className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-bold text-white">حصة الحسابات ضمن الاشتراك</h2><p className="mt-1 text-sm leading-6 text-slate-400">يوضح هذا الملخص الحد الفعلي المسموح به حالياً، والمستخدم، والمتبقي. يشمل الإضافات الزمنية والاستثناءات المعتمدة.</p></div><Badge className="bg-sky-400/10 text-sky-200">الباقة: {allowedRolesQuery.data.limit !== undefined ? "فعالة" : "غير متاحة"}</Badge></div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
