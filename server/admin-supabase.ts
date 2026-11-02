@@ -82,6 +82,11 @@ export async function ownerOverviewFromSupabase(tenantId?: number) {
 }
 
 type EntityRow = Record<string, unknown>;
+type MembershipEntityRow = EntityRow & {
+  expires_at: string | null;
+  is_active: boolean;
+  membership_status: string;
+};
 
 function requireData<T>(result: { data: T[] | null; error: { message: string; code?: string } | null }, area: string) {
   if (result.error) unavailable(result.error, area);
@@ -131,7 +136,7 @@ export async function platformSnapshotFromSupabase() {
   const generators = requireData(generatorsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.generators");
   const users = requireData(usersResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.users");
   const staff = requireData(staffResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.staffProfiles");
-  const memberships = requireData(membershipResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.tenantMembers");
+  const memberships = requireData(membershipResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.tenantMembers") as MembershipEntityRow[];
   const invoices = requireData(invoicesResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.invoices");
   const payments = requireData(paymentsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.payments");
   const readings = requireData(readingsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.meterReadings");
