@@ -6,6 +6,7 @@ import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { isActivePlatformAdmin } from "./platform-admin";
+import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./tenant-membership-expiry";
 
 const allCapabilities = Object.keys(powerCapabilityLabels) as PowerCapability[];
 
@@ -146,13 +147,13 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
   const membershipAndSubscriptionStartedAt = performance.now();
   const [membershipResult] = await Promise.all([
     admin.from("tenant_members")
-      .select("role,expires_at,tenant_member_capability_overrides(capability,is_allowed)").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
+      .select("role,expires_at,tenant_member_capability_overrides(capability,is_allowed)").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle(),
     requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true }),
   ]);
   membershipAndSubscriptionMs = Math.round(performance.now() - membershipAndSubscriptionStartedAt);
   const { data: membership, error: membershipError } = membershipResult;
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
-  if (!membership || (membership.expires_at && new Date(membership.expires_at).getTime() <= Date.now())) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة أو أن مدة العضوية قد انتهت." });
+  if (!isTenantMembershipUnexpired(membership)) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة أو أن مدة العضوية قد انتهت." });
 
   if (membership.role === "owner") {
     const ownerOverrides = Array.isArray((membership as any).tenant_member_capability_overrides)
@@ -291,9 +292,9 @@ export async function requireSupabaseAllBranchesRole(userId: number, siteId: num
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
   if (isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status })) return { tenantId: access.tenantId, role: "owner" as const };
   const { data: membership, error: membershipError } = await admin.from("tenant_members").select("role,expires_at")
-    .eq("tenant_id", access.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle();
+    .eq("tenant_id", access.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle();
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
-  if (membership?.role === "owner" && (!membership.expires_at || new Date(membership.expires_at).getTime() > Date.now())) return { tenantId: access.tenantId, role: "owner" as const };
+  if (membership?.role === "owner" && isTenantMembershipUnexpired(membership)) return { tenantId: access.tenantId, role: "owner" as const };
   const { data: profile, error: profileError } = await admin.from("staff_profiles").select("role")
     .eq("tenant_id", access.tenantId).eq("user_id", userId).is("site_id", null).eq("is_active", true).maybeSingle();
   if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تعيين جميع الأفرع في Supabase." });
@@ -310,14 +311,16 @@ export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmi
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع من Supabase." });
     return (data ?? []).map((site) => ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, invoiceDueHours: Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(site.invoice_due_days ?? 14) * 24))), createdAt: new Date(site.created_at) }));
   }
-  const { data: memberships, error: membershipsError } = await admin.from("tenant_members").select("tenant_id, role")
-    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active");
+  const { data: memberships, error: membershipsError } = await admin.from("tenant_members").select("tenant_id, role, expires_at")
+    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter());
   if (membershipsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل عضويات المستخدم من Supabase." });
-  const ownerTenantIds = (memberships ?? []).filter((member) => member.role === "owner").map((member) => Number(member.tenant_id));
-  const { data: profiles, error: profilesError } = await admin.from("staff_profiles").select("site_id")
+  const validMemberships = (memberships ?? []).filter((member) => isTenantMembershipUnexpired(member));
+  const activeTenantIds = new Set(validMemberships.map((member) => Number(member.tenant_id)));
+  const ownerTenantIds = validMemberships.filter((member) => member.role === "owner").map((member) => Number(member.tenant_id));
+  const { data: profiles, error: profilesError } = await admin.from("staff_profiles").select("site_id,tenant_id")
     .eq("user_id", userId).eq("is_active", true);
   if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيينات الفروع من Supabase." });
-  const assignedSiteIds = (profiles ?? []).map((profile) => profile.site_id).filter((id): id is number => id !== null).map(Number);
+  const assignedSiteIds = (profiles ?? []).filter((profile) => activeTenantIds.has(Number(profile.tenant_id))).map((profile) => profile.site_id).filter((id): id is number => id !== null).map(Number);
   const requestedIds = Array.from(new Set(assignedSiteIds));
   const [ownedResult, assignedResult] = await Promise.all([
     ownerTenantIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").in("tenant_id", ownerTenantIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
@@ -1417,12 +1420,12 @@ async function resolveSupabaseQuotaAlertState(input: {
       currentCount = result.count ?? 0;
     } else if (input.resource === "fieldUser") {
       const result = await admin.from("tenant_members").select("user_id", { count: "exact", head: true })
-        .eq("tenant_id", input.tenantId).eq("role", "technician").eq("is_active", true).eq("membership_status", "active");
+        .eq("tenant_id", input.tenantId).eq("role", "technician").eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter());
       if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب المستخدمين الميدانيين." });
       currentCount = result.count ?? 0;
     } else if (input.resource === "platformUser") {
       const result = await admin.from("tenant_members").select("user_id", { count: "exact", head: true })
-        .eq("tenant_id", input.tenantId).eq("is_active", true).eq("membership_status", "active").neq("role", "owner");
+        .eq("tenant_id", input.tenantId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).neq("role", "owner");
       if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب مستخدمي المنصة." });
       currentCount = result.count ?? 0;
     }
