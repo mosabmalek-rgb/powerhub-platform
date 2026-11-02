@@ -31,7 +31,7 @@ assert.equal(packageVersion(exceljsRequire, "tmp"), "0.2.7", "ExcelJS must resol
 const globMinimatch = globRequire("minimatch");
 const readdirMinimatch = readdirRequire("minimatch");
 assert.equal(typeof globMinimatch.Minimatch, "function", "glob's legacy Minimatch constructor must remain available");
-assert.equal(typeof globMinimatch.GLOBSTAR, "symbol", "glob's legacy GLOBSTAR symbol must remain available");
+assert.ok(globMinimatch.GLOBSTAR && typeof globMinimatch.GLOBSTAR === "object", "glob 7 must retain its legacy GLOBSTAR matcher sentinel");
 assert.equal(typeof readdirMinimatch.Minimatch, "function", "readdir-glob's named Minimatch export must remain available");
 assert.equal(new globMinimatch.Minimatch("**/*.txt").match("nested/receipt.txt"), true);
 assert.equal(new readdirMinimatch.Minimatch("**/*.txt").match("nested/receipt.txt"), true);
