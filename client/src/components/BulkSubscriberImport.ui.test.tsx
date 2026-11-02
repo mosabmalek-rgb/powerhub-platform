@@ -32,7 +32,9 @@ describe("استيراد المشتركين من Excel", () => {
 
   it("لا يرسل الرقم المرجعي عند إنشاء مشترك جديد، ويترك رقم المشترك للخادم", async () => {
     render(<BulkSubscriberImport siteId={7} onSaved={state.onSaved} />);
-    fireEvent.change(screen.getByLabelText("رفع ملف Excel", { selector: "input" }), { target: { files: [new File(["xlsx"], "subscribers.xlsx")] } });
+    const uploadFile = new File(["xlsx"], "subscribers.xlsx");
+    Object.defineProperty(uploadFile, "arrayBuffer", { value: vi.fn().mockResolvedValue(new ArrayBuffer(0)) });
+    fireEvent.change(screen.getByLabelText("رفع ملف Excel", { selector: "input" }), { target: { files: [uploadFile] } });
     await screen.findByText("أحمد العلي");
     expect(screen.getByText("12.52")).toBeInTheDocument();
     expect(screen.getByText("99.25")).toBeInTheDocument();
