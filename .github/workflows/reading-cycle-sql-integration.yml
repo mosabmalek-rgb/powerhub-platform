@@ -48,6 +48,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres mobile_single_device_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname mobile_single_device_test --set ON_ERROR_STOP=1 --file supabase/tests/mobile_single_device_session.sql
 
+      - name: Verify optional field-reader distribution, address grouping, balancing, and API ACLs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres field_reading_distribution_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname field_reading_distribution_test --set ON_ERROR_STOP=1 --file supabase/tests/field_reading_distribution.sql
+
       - name: Execute migration against disposable PostgreSQL
         env:
           PGPASSWORD: postgres
