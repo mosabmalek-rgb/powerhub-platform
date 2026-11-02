@@ -414,7 +414,7 @@ function FieldReadingDistributionPanel({
     onSuccess: async (result) => {
       await Promise.all([query.refetch(), utils.powerhub.staff.list.invalidate(), utils.powerhub.audit.list.invalidate()]);
       toast.success(result.isEnabled
-        ? \`تم توزيع \${result.assignedSubscriberCount} مشتركًا على \${result.readerCount} من مدخلي القراءة.\`
+        ? `تم توزيع ${result.assignedSubscriberCount} مشتركًا على ${result.readerCount} من مدخلي القراءة.`
         : "تم إيقاف التقسيم؛ جميع المشتركين متاحون لكل مدخلي القراءة.");
     },
     onError: (error) => toast.error(error.message),
@@ -441,14 +441,14 @@ function FieldReadingDistributionPanel({
         const selected = readerUserIds.includes(reader.id);
         return <label key={reader.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/8 bg-white/[.02] px-3 py-3 text-sm text-slate-200">
           <input type="checkbox" checked={selected} disabled={!selected && readerUserIds.length >= maximumSelectableReaders} onChange={(event) => setReaderUserIds((current) => event.target.checked ? [...new Set([...current, reader.id])] : current.filter((id) => id !== reader.id))} className="h-4 w-4 accent-[#F5B800]" />
-          <span className="min-w-0"><strong className="block truncate text-white">{reader.name || reader.email || \`مدخل قراءة #\${reader.id}\`}</strong><span className="text-xs text-slate-500">{reader.email || "حساب التطبيق الميداني"}</span></span>
+          <span className="min-w-0"><strong className="block truncate text-white">{reader.name || reader.email || `مدخل قراءة #${reader.id}`}</strong><span className="text-xs text-slate-500">{reader.email || "حساب التطبيق الميداني"}</span></span>
         </label>;
       })}</div> : <p className="rounded-xl border border-dashed border-white/10 p-4 text-sm text-slate-400">لا توجد حسابات مدخل قراءة نشطة ومصرح لها في هذا الفرع.</p>}
       {unavailable > 0 ? <p role="alert" className="mt-3 rounded-lg border border-amber-400/20 p-3 text-xs text-amber-200">هناك {unavailable} حسابات محفوظة لم تعد نشطة أو مصرحاً لها. أزلها من التحديد.</p> : null}
       {overQuota ? <p role="alert" className="mt-3 rounded-lg border border-amber-400/20 p-3 text-xs text-amber-200">الإعداد المحفوظ يتجاوز الحصة الحالية ({maximumSelectableReaders}). خفّض عدد المشاركين أو عدّل الاشتراك.</p> : null}
     </div> : <p className="mt-4 rounded-lg border border-emerald-400/15 bg-emerald-400/[.04] p-3 text-sm text-emerald-100">التقسيم متوقف؛ كل مدخل قراءة مؤهل يرى جميع المشتركين النشطين في الفرع.</p>}
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4">
-      <p className="text-xs text-slate-500">{query.isLoading ? "جارٍ تحميل الإعداد..." : \`المشتركون المخصصون: \${query.data?.assignedSubscriberCount ?? 0} · غير المفرزين: \${query.data?.unassignedSubscriberCount ?? 0}\`}</p>
+      <p className="text-xs text-slate-500">{query.isLoading ? "جارٍ تحميل الإعداد..." : `المشتركون المخصصون: ${query.data?.assignedSubscriberCount ?? 0} · غير المفرزين: ${query.data?.unassignedSubscriberCount ?? 0}`}</p>
       <Button type="button" disabled={query.isLoading || save.isPending || unavailable > 0 || overQuota || (isEnabled && readerUserIds.length < 2)} onClick={() => save.mutate({ siteId, isEnabled, readerUserIds: isEnabled ? readerUserIds : [] })} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">
         {save.isPending ? "جارٍ حفظ التوزيع..." : isEnabled ? "حفظ التقسيم وإعادة التوزيع" : "إيقاف التقسيم وإتاحة الجميع"}
       </Button>

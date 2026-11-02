@@ -156,8 +156,8 @@ begin
 
   select count(*) into v_count
     from public.powerhub_list_field_reading_assignments(1,11,null,false,100,0);
-  if v_count <> 7 then
-    raise exception 'all-subscriber list should contain seven active subscribers; got %', v_count;
+  if v_count <> 10 then
+    raise exception 'all-subscriber list should contain ten active subscribers; got %', v_count;
   end if;
 
   begin
