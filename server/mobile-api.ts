@@ -151,6 +151,12 @@ type MobileScope = {
 const toNumber = (value: number | string | null | undefined) => Number(value);
 const isoNow = () => new Date().toISOString();
 
+async function resolveMobileFieldReadingDistributionEnabled(tenantId: number, siteId: number) {
+  const { data, error } = await supabaseAdmin().from("field_reading_distribution_settings")
+    .select("is_enabled").eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
+  return { enabled: data?.is_enabled === true, error };
+}
+
 async function resolveMobileReadingCycle(tenantId: number, siteId: number, readingAt: Date | string) {
   const at = readingAt instanceof Date ? readingAt.toISOString() : readingAt;
   const { data, error } = await supabaseAdmin().rpc("powerhub_cycle_for_reading", {
@@ -549,8 +555,12 @@ export function registerMobileApi(app: Express) {
     if (!parsed.success) return sendError(res, 400, "INVALID_QUERY", "بيانات طلب المشتركين غير صالحة.");
     if (!context.scope.branchIds.includes(parsed.data.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
     const admin = supabaseAdmin();
-    const { data: rows, error } = await admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
-      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active").order("id", { ascending: true }).range(parsed.data.cursor, parsed.data.cursor + parsed.data.limit - 1);
+    const distribution = await resolveMobileFieldReadingDistributionEnabled(context.scope.tenantId, parsed.data.branchId);
+    if (distribution.error) return sendSupabaseError(res, distribution.error, "تعذر التحقق من توزيع المشتركين على مدخلي القراءة.");
+    let subscribersQuery = admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
+      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active");
+    if (distribution.enabled) subscribersQuery = subscribersQuery.eq("assigned_reader_user_id", context.scope.userId);
+    const { data: rows, error } = await subscribersQuery.order("id", { ascending: true }).range(parsed.data.cursor, parsed.data.cursor + parsed.data.limit - 1);
     if (error) return sendSupabaseError(res, error);
 
     const currentCycleResult = await resolveMobileReadingCycle(context.scope.tenantId, parsed.data.branchId, isoNow());
@@ -640,12 +650,25 @@ export function registerMobileApi(app: Express) {
     const input = parsed.data;
     if (!context.scope.branchIds.includes(input.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية تسجيل قراءة لهذا الفرع.");
     const admin = supabaseAdmin();
-    const { data: existing, error: existingError } = await admin.from("meter_readings").select("id, status, consumption_kwh")
+    const distribution = await resolveMobileFieldReadingDistributionEnabled(context.scope.tenantId, input.branchId);
+    if (distribution.error) return sendSupabaseError(res, distribution.error, "تعذر التحقق من توزيع المشتركين على مدخلي القراءة.");
+    const { data: existing, error: existingError } = await admin.from("meter_readings").select("id, status, consumption_kwh, subscriber_id")
       .eq("tenant_id", context.scope.tenantId).eq("client_operation_id", input.clientOperationId).maybeSingle();
     if (existingError) return sendSupabaseError(res, existingError);
-    if (existing) return res.status(200).json({ id: toNumber(existing.id), status: existing.status, consumptionKwh: existing.consumption_kwh, replayed: true });
-    const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id")
-      .eq("id", input.subscriberId).eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId).eq("service_status", "active").maybeSingle();
+    if (existing) {
+      if (distribution.enabled) {
+        const { data: replaySubscriber, error: replayError } = await admin.from("subscribers").select("id")
+          .eq("id", existing.subscriber_id).eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId)
+          .eq("service_status", "active").eq("assigned_reader_user_id", context.scope.userId).maybeSingle();
+        if (replayError) return sendSupabaseError(res, replayError);
+        if (!replaySubscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك غير متاح ضمن قائمة مدخل القراءة الحالي.");
+      }
+      return res.status(200).json({ id: toNumber(existing.id), status: existing.status, consumptionKwh: existing.consumption_kwh, replayed: true });
+    }
+    let subscriberQuery = admin.from("subscribers").select("id")
+      .eq("id", input.subscriberId).eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId).eq("service_status", "active");
+    if (distribution.enabled) subscriberQuery = subscriberQuery.eq("assigned_reader_user_id", context.scope.userId);
+    const { data: subscriber, error: subscriberError } = await subscriberQuery.maybeSingle();
     if (subscriberError) return sendSupabaseError(res, subscriberError);
     if (!subscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
     const readingAt = new Date(input.readingAt);
