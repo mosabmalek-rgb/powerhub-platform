@@ -141,6 +141,7 @@ function AdminActivityMetricsPanel() {
           <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">آخر عملية بحث</p><p className="mt-1 text-sm font-bold text-white">{search?.lastSearchAt ? new Date(search.lastSearchAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</p></div>
         </div>
         <div className="mt-4 space-y-2 text-xs text-slate-400">
+          <div className="flex justify-between gap-3"><span>أول يوم قياس ضمن الفترة</span><strong className="text-white">{dateLabel(search?.trackingStartedAt)}</strong></div>
           <div className="flex justify-between gap-3"><span>نتائج المولدات</span><strong className="text-white">{format(search?.generatorResultHitsInPeriod)}</strong></div>
           <div className="flex justify-between gap-3"><span>نتائج المشتركين</span><strong className="text-white">{format(search?.subscriberResultHitsInPeriod)}</strong></div>
           <div className="flex justify-between gap-3"><span>نتائج أصحاب المولدات</span><strong className="text-white">{format(search?.ownerResultHitsInPeriod)}</strong></div>
