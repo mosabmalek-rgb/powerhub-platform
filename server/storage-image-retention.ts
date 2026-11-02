@@ -4,6 +4,8 @@ import { STORAGE_BUCKET } from "./storage";
 export const STORAGE_IMAGE_RETENTION_DAYS = 15;
 const PAGE_SIZE = 1000;
 const MAX_DEPTH = 20;
+// Retention is restricted to application-owned upload namespaces. Never walk the whole bucket.
+export const STORAGE_IMAGE_RETENTION_PREFIXES = ["payment-receipts", "subscriber-readings", "chat"] as const;
 const IMAGE_EXT = /\.(?:avif|apng|bmp|gif|heic|heif|ico|jpe?g|jfif|png|svg|tif|tiff|webp)$/i;
 
 type Entry = { id: string | null; name: string; created_at?: string | null; metadata?: Record<string, unknown> | null };
@@ -33,6 +35,10 @@ export function imageIsExpired(entry:Entry,cutoff:Date){
   return Number.isFinite(created)&&created<=cutoff.getTime();
 }
 function pathJoin(prefix:string,name:string){return prefix?prefix+"/"+name:name;}
+
+export function isEligibleImageRetentionKey(key:string){
+  return STORAGE_IMAGE_RETENTION_PREFIXES.some((prefix)=>key.startsWith(`${prefix}/`));
+}
 
 async function listProtectedBrandKeys(admin:Admin,bucket:string):Promise<Set<string>>{
   const keys=new Set<string>();
@@ -89,36 +95,55 @@ async function clearReferences(admin:Admin,bucket:string,keys:string[],deletedAt
   if(failures.length)throw new Error(failures.map((r:DbResult)=>r.error?.message??"reference cleanup failed").join("; "));
 }
 
-export async function cleanupExpiredStorageImages(now=new Date()){
+export async function cleanupExpiredStorageImages(now=new Date(),options:{dryRun?:boolean}={}){
   const admin=supabaseAdmin() as unknown as Admin;
+  const dryRun=options.dryRun ?? process.env.POWERHUB_IMAGE_RETENTION_DRY_RUN !== "false";
   const cutoff=new Date(now.getTime()-STORAGE_IMAGE_RETENTION_DAYS*24*60*60*1000);
-  const result={retentionDays:STORAGE_IMAGE_RETENTION_DAYS,cutoff:cutoff.toISOString(),bucketsScanned:0,filesScanned:0,protectedBrandImages:0,expiredImagesFound:0,deleted:0,failed:0,skippedWithoutCreatedAt:0,failures:[] as Array<{bucket:string;stage:string;message:string}>};
-  const {data:buckets,error}=await admin.storage.listBuckets();
-  if(error)throw new Error(`Unable to list Storage buckets: ${error.message}`);
-  for(const bucket of buckets??[]){
-    result.bucketsScanned++;
-    try{
-      const protectedKeys=await listProtectedBrandKeys(admin,bucket.id);
-      const scan=await scanBucket(admin,bucket.id,"",cutoff,protectedKeys);
-      result.filesScanned+=scan.scanned;result.skippedWithoutCreatedAt+=scan.skipped;
-      result.protectedBrandImages+=protectedKeys.size;
-      const keys=Array.from(new Set(scan.expired));result.expiredImagesFound+=keys.length;
-      for(let offset=0;offset<keys.length;offset+=PAGE_SIZE){
-        const batch=keys.slice(offset,offset+PAGE_SIZE);
-        try{
-          await clearReferences(admin,bucket.id,batch,now.toISOString());
-          const {error:removeError}=await admin.storage.from(bucket.id).remove(batch);
-          if(removeError)throw new Error(removeError.message);
-          result.deleted+=batch.length;
-        }catch(e){
-          result.failed+=batch.length;
-          if(result.failures.length<20)result.failures.push({bucket:bucket.id,stage:"delete",message:e instanceof Error?e.message:"Image deletion failed."});
-        }
-      }
-    }catch(e){
-      result.failed++;
-      if(result.failures.length<20)result.failures.push({bucket:bucket.id,stage:"scan",message:e instanceof Error?e.message:"Storage scan failed."});
+  const result={
+    retentionDays:STORAGE_IMAGE_RETENTION_DAYS,dryRun,cutoff:cutoff.toISOString(),
+    bucket:STORAGE_BUCKET,eligiblePrefixes:[...STORAGE_IMAGE_RETENTION_PREFIXES],
+    bucketsScanned:1,filesScanned:0,protectedBrandImages:0,expiredImagesFound:0,
+    deleted:0,failed:0,skippedWithoutCreatedAt:0,
+    failures:[] as Array<{bucket:string;stage:string;message:string}>,
+  };
+  // Never enumerate other buckets or unrelated folders (logos, exports, documents,
+  // backups, generated assets, and future features are outside this retention policy).
+  try{
+    const protectedKeys=await listProtectedBrandKeys(admin,STORAGE_BUCKET);
+    result.protectedBrandImages=protectedKeys.size;
+    const allExpired:string[]=[];
+    for(const prefix of STORAGE_IMAGE_RETENTION_PREFIXES){
+      const scan=await scanBucket(admin,STORAGE_BUCKET,prefix,cutoff,protectedKeys);
+      result.filesScanned+=scan.scanned;
+      result.skippedWithoutCreatedAt+=scan.skipped;
+      allExpired.push(...scan.expired.filter(isEligibleImageRetentionKey));
     }
+    const keys=Array.from(new Set(allExpired));
+    result.expiredImagesFound=keys.length;
+    if(dryRun)return result;
+    for(let offset=0;offset<keys.length;offset+=PAGE_SIZE){
+      const batch=keys.slice(offset,offset+PAGE_SIZE);
+      try{
+        // Supabase Storage API is the only supported deletion path; never delete
+        // storage.objects rows directly. Clear references only after object removal.
+        const {error:removeError}=await admin.storage.from(STORAGE_BUCKET).remove(batch);
+        if(removeError)throw new Error(removeError.message);
+        result.deleted+=batch.length;
+        await clearReferences(admin,STORAGE_BUCKET,batch,now.toISOString());
+      }catch(e){
+        result.failed+=batch.length;
+        if(result.failures.length<20)result.failures.push({
+          bucket:STORAGE_BUCKET,stage:"delete-or-reference-cleanup",
+          message:e instanceof Error?e.message:"Image deletion failed.",
+        });
+      }
+    }
+  }catch(e){
+    result.failed++;
+    if(result.failures.length<20)result.failures.push({
+      bucket:STORAGE_BUCKET,stage:"scan",
+      message:e instanceof Error?e.message:"Storage scan failed.",
+    });
   }
   return result;
 }

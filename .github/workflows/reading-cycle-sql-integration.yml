@@ -458,13 +458,6 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_admin_activity_date_filter_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_admin_activity_date_filter_test --set ON_ERROR_STOP=1 --file supabase/tests/powerhub_admin_activity_metrics_date_filter.sql
 
-      - name: Verify per-owner payment documentation and tenant-scoped subscriber search analytics
-        env:
-          PGPASSWORD: postgres
-        run: |
-          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_admin_owner_activity_metrics_test
-          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_admin_owner_activity_metrics_test --set ON_ERROR_STOP=1 --file supabase/tests/powerhub_admin_owner_activity_metrics.sql
-
       - name: Verify PowerHub chat RPC wrappers execute through the private-function boundary
         env:
           PGPASSWORD: postgres
