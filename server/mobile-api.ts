@@ -582,7 +582,7 @@ export function registerMobileApi(app: Express) {
         if (!cycleReadingsBySubscriber.has(subscriberId)) {
           cycleReadingsBySubscriber.set(subscriberId, {
             readingId: toNumber(reading.id),
-            readingValue: reading.reading_value,
+            readingValue: String(reading.reading_value),
             readingAt: reading.reading_at,
             status: reading.status,
           });
