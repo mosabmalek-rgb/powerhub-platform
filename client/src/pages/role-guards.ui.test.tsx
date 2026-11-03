@@ -53,6 +53,7 @@ const mocks = vi.hoisted(() => {
   createGeneratorMutate: vi.fn(),
   createReadingMutate: vi.fn(),
   createReadingMutateAsync: vi.fn(async () => ({ status: "approved", readingId: 900, invoiceId: 901 })),
+  createPaymentMutateAsync: vi.fn(async (_input: unknown) => ({ id: 901, replayed: false })),
   saveCustomRoleMutateAsync: vi.fn(async () => ({ success: true, id: 123 })),
   runWithStableOperationKey: vi.fn(async (_scope: unknown, action: (key: string) => Promise<unknown>) => action("00000000-0000-4000-8000-000000000359")),
   sendDeferredInvoices: vi.fn(),
@@ -132,7 +133,7 @@ vi.mock("@/lib/trpc", () => ({
         bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation }
       },
       generators: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("generators.list", input, options); return mocks.query([]); } }, create: { useMutation: () => ({ mutate: mocks.createGeneratorMutate, isPending: false }) }, update: { useMutation: mocks.mutation } },
-      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("payments.page", input, options); return mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }); } }, getReceiptImage: { useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue({ url: "https://example.invalid/receipt" }), isPending: false }) }, create: { useMutation: mocks.mutation } },
+      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("payments.page", input, options); return mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }); } }, getReceiptImage: { useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue({ url: "https://example.invalid/receipt" }), isPending: false }) }, create: { useMutation: () => ({ mutate: vi.fn(), mutateAsync: mocks.createPaymentMutateAsync, isPending: false }) } },
       companyAccounts: {
         list: {
           useQuery: () => mocks.query([{
@@ -166,7 +167,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.paymentDocumentationAccessError = false; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.publicPaymentContext = { siteId: 1, paymentDocumentationAvailable: true, invoice: { id: 551, invoiceNo: "INV-TEST-0551", billingPeriod: "2026-10", previousReading: 10, currentReading: 10.5, consumptionKwh: 0.5, pricePerKwh: 30, fixedFee: 0, taxAmount: 0, discountAmount: 0.4, totalAmount: 30, paidAmount: 0, balanceDue: 30, status: "issued" }, subscriber: { subscriberId: 21, fullName: "مشترك اختبار التوثيق", subscriberNo: "TEST-021" }, accounts: [{ id: 90, name: "حساب الاستلام", accountType: "jawwal_pay", phoneNumber: "0590000000" }], lines: [{ id: 1, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 }, { id: 2, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 }, { id: 3, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0.4, displayOrder: 3 }, { id: 4, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.8, displayOrder: 4 }] }; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
+afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.createPaymentMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.paymentDocumentationAccessError = false; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.publicPaymentContext = { siteId: 1, paymentDocumentationAvailable: true, invoice: { id: 551, invoiceNo: "INV-TEST-0551", billingPeriod: "2026-10", previousReading: 10, currentReading: 10.5, consumptionKwh: 0.5, pricePerKwh: 30, fixedFee: 0, taxAmount: 0, discountAmount: 0.4, totalAmount: 30, paidAmount: 0, balanceDue: 30, status: "issued" }, subscriber: { subscriberId: 21, fullName: "مشترك اختبار التوثيق", subscriberNo: "TEST-021" }, accounts: [{ id: 90, name: "حساب الاستلام", accountType: "jawwal_pay", phoneNumber: "0590000000" }], lines: [{ id: 1, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 }, { id: 2, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 }, { id: 3, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0.4, displayOrder: 3 }, { id: 4, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.8, displayOrder: 4 }] }; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("keeps invoice issuance automatic and hides manual issue controls from the viewer", () => {
@@ -552,6 +553,30 @@ describe("role guards in administration UI", () => {
     render(<OperationsPage section="collections" />);
     fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     expect(screen.getByRole("button", { name: /تسجيل الدفعة/ })).toBeInTheDocument();
+  });
+
+  it("records a credit-only receipt without selecting an invoice and sends no invoice id", async () => {
+    mocks.activeRole = "owner";
+    mocks.subscribers = [{ id: 101, fullName: "أحمد حسن", subscriberNo: "SUB-101", phone: "0599000101" }];
+    render(<OperationsPage section="collections" />);
+    fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
+    fireEvent.change(screen.getByLabelText("الحساب المستقبِل للتحصيل"), { target: { value: "90" } });
+    const picker = screen.getByRole("combobox", { name: "البحث واختيار المشترك للتحصيل" });
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "أحمد" } });
+    fireEvent.click(screen.getByRole("option", { name: /أحمد حسن/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "إيداع مبلغ في رصيد المشترك دون ربطه بفاتورة" }));
+    fireEvent.change(screen.getByLabelText("رقم الإيصال"), { target: { value: "PAY-CREDIT-ONLY-001" } });
+    fireEvent.change(screen.getByLabelText("المبلغ النقدي المستلم"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "تسجيل الدفعة" }));
+    await waitFor(() => expect(mocks.createPaymentMutateAsync).toHaveBeenCalledTimes(1));
+    const input = mocks.createPaymentMutateAsync.mock.calls[0][0] as Record<string, unknown>;
+    expect(input).toMatchObject({
+      siteId: 1, subscriberId: 101, paymentNo: "PAY-CREDIT-ONLY-001",
+      amount: 15, companyAccountId: 90, paymentMethod: "cash",
+    });
+    expect(input.invoiceId).toBeUndefined();
+    expect(input.clientOperationId).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/i));
   });
 
   it("shows expense entry to the accountant but keeps it read-only for the collector", () => {

@@ -122,6 +122,18 @@ describe("طابور المسودات دون اتصال", () => {
     expect(draft).toMatchObject({ kind: "payment_create", status: "pending", payload: { invoiceId: 41, amount: 75, receiptImageMime: "image/png" } });
   });
 
+  it("يحفظ إيداع الرصيد الدائن دون فاتورة كمسودة تحصيل قابلة للمزامنة", () => {
+    const draft = createOfflineWork({
+      userId: 7, siteId: 3, kind: "payment_create",
+      payload: { subscriberId: 31, paymentNo: "PAY-CREDIT-OFFLINE", amount: 18, paymentMethod: "cash", companyAccountId: 2 },
+    });
+    expect(draft).toMatchObject({
+      kind: "payment_create", status: "pending",
+      payload: { subscriberId: 31, paymentNo: "PAY-CREDIT-OFFLINE", amount: 18, companyAccountId: 2 },
+    });
+    expect(draft.payload.invoiceId).toBeUndefined();
+  });
+
   it("يحفظ إنشاء المولد مع نطاق المستخدم والفرع", () => {
     const payload: GeneratorCreateDraft = { code: "GEN-001", name: "مولد الاختبار", ratedCapacityKw: "150", fuelType: "diesel" };
     const draft = createOfflineWork({ userId: 17, siteId: 3, kind: "generator_create", payload });
