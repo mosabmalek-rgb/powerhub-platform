@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS public.company_account_movement_operations (
 );
 
 ALTER TABLE public.company_account_movement_operations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS company_account_movement_operations_service_role_only ON public.company_account_movement_operations;
+CREATE POLICY company_account_movement_operations_service_role_only
+  ON public.company_account_movement_operations
+  FOR ALL TO service_role
+  USING (true)
+  WITH CHECK (true);
 REVOKE ALL ON TABLE public.company_account_movement_operations FROM PUBLIC,anon,authenticated;
 GRANT SELECT,INSERT ON TABLE public.company_account_movement_operations TO service_role;
 
