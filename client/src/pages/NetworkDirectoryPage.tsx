@@ -818,8 +818,10 @@ function SubscriberSecurityDepositOverview({ overview, loading, error, onRefresh
       @page{size:A4 landscape;margin:12mm}@media print{button{display:none}}
     </style></head><body><h1>سجل تأمينات المشتركين</h1><p>إجمالي الالتزامات: ${escapeHtml(format(overview?.totalAmount))} شيكل · عدد المشتركين: ${escapeHtml(format(overview?.subscriberCount))}</p>
     <table><thead><tr><th>الرقم المرجعي</th><th>اسم المشترك</th><th>الهاتف</th><th>مبلغ التأمين</th><th>آخر حركة</th></tr></thead><tbody>${tableRows}</tbody></table>
-    <script>window.onload=()=>{window.print()}<\/script></body></html>`);
+    </body></html>`);
     popup.document.close();
+    popup.focus();
+    popup.print();
   };
   return <Card className="border-amber-300/20 bg-[#111823] shadow-panel">
     <CardContent className="p-5">
