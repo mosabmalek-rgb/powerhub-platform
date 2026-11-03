@@ -15,6 +15,7 @@ import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { escapeCsvCell } from "@/lib/report-csv";
+import { downloadBlob } from "@/lib/download-blob";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { ArrowDownLeft, ArrowUpRight, CalendarDays, CircleDollarSign, CloudOff, Download, FileBarChart2, FileSpreadsheet, FileText, GitCompareArrows, ImagePlus, Layers3, Loader2, RefreshCw, Save } from "lucide-react";
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
@@ -48,7 +49,7 @@ function financialRows(report: FinancialReport, scopeName: string, sections: Rep
 }
 
 function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+  downloadBlob(blob, filename);
 }
 
 function readBase64(file: File) { return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error("تعذر قراءة ملف الشعار.")); reader.onload = () => resolve(String(reader.result).split(",")[1] ?? ""); reader.readAsDataURL(file); }); }
