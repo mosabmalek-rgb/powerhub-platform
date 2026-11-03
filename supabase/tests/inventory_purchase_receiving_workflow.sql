@@ -517,7 +517,7 @@ alter table public.powerhub_sync_scope_state enable row level security;
 revoke all on table public.powerhub_sync_scope_state from public,anon,authenticated;
 grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261101083224_powerhub_supplier_ledger_revision.sql
-\ir ../migrations/20261103162000_powerhub_supplier_accounting_period_scope.sql
+\ir ../migrations/20261103174058_powerhub_supplier_accounting_period_scope.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
