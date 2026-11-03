@@ -249,7 +249,7 @@ export default function OperationsPage({ section }: { section: Section }) {
       ],
     );
   }, onError: (e) => toast.error(e.message) });
-  const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: () => {
+  const addPayment = trpc.powerhub.payments.create.useMutation({ onSuccess: (_result, variables) => {
     refreshOperational(
       [
         () => utils.powerhub.invoices.page.invalidate({ siteId: siteId ?? 0, limit: 100 }),
@@ -258,6 +258,7 @@ export default function OperationsPage({ section }: { section: Section }) {
       [
         // Collection sessions and the payment list expose totals derived from the new payment.
         () => utils.powerhub.payments.list.invalidate({ siteId: siteId ?? 0 }),
+        () => utils.powerhub.subscribers.balanceSnapshot.invalidate({ siteId: siteId ?? 0, subscriberId: variables.subscriberId }),
         () => utils.powerhub.collectorSessions.list.invalidate({ siteId: siteId ?? 0 }),
         () => utils.powerhub.collectorSessions.current.invalidate({ siteId: siteId ?? 0 }),
         () => utils.powerhub.dashboard.summary.invalidate({ siteId: siteId ?? 0 }),
