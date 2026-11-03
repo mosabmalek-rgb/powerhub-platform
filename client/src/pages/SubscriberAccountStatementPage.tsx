@@ -2,6 +2,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { downloadBlob } from "@/lib/download-blob";
 import { formatReportDate, formatReportDateTime, formatReportMoney, REPORT_PAYMENT_METHOD_LABELS } from "@/lib/report-design-system";
@@ -11,7 +12,7 @@ import { can } from "@shared/powerhub-rbac";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation, useRoute } from "wouter";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
-import { ArrowRight, Download, FileBarChart2, FileSpreadsheet, Gauge, Loader2, ReceiptText, WalletCards, ExternalLink, CreditCard, GaugeCircle } from "lucide-react";
+import { ArrowRight, Download, FileBarChart2, FileSpreadsheet, Gauge, Loader2, ReceiptText, WalletCards, ExternalLink, CreditCard, GaugeCircle, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -22,9 +23,13 @@ const num=(v:unknown,d=2)=>new Intl.NumberFormat("ar",{maximumFractionDigits:d})
 const method=(v:string)=>REPORT_PAYMENT_METHOD_LABELS[v]??v;
 
 export default function SubscriberAccountStatementPage(){
- const {isAuthenticated,loading}=useAuth(); const [,setLocation]=useLocation(); const [,params]=useRoute("/subscriber-statement/:subscriberId");
+ const {isAuthenticated,loading}=useAuth(); const [,setLocation]=useLocation(); const [,params]=useRoute("/subscriber-statement/:subscriberId"); const utils=trpc.useUtils();
  const subscriberId=Number(params?.subscriberId??0); const siteId=Number(new URLSearchParams(window.location.search).get("siteId")??0); const pdfRef=useRef<HTMLDivElement>(null);
- const createShareLink=trpc.powerhub.invoices.createShareLink.useMutation({onSuccess:(result)=>window.location.assign(result.path),onError:(e: unknown)=>toast.error(e instanceof Error ? e.message : "تعذر إنشاء رابط آمن لتوثيق الدفع.")}); const accessQuery=trpc.powerhub.staff.myAccess.useQuery({siteId},{enabled:Boolean(isAuthenticated&&siteId)}); const canRemind=can(accessQuery.data?.role,"manageMessaging"); const sendReminder=trpc.powerhub.notifications.sendPaymentReminderSms.useMutation({onSuccess:()=>toast.success("تم إرسال تذكير السداد."),onError:(e: unknown)=>toast.error(e instanceof Error ? e.message : "تعذر إرسال تذكير السداد.")}); const q=trpc.powerhub.subscribers.accountStatement.useQuery({siteId,subscriberId},{enabled:Boolean(isAuthenticated&&siteId&&subscriberId),retry:false}); const statementIsAuthoritative=hasAuthoritativeServerRead(q); const branding=trpc.powerhub.reportBranding.get.useQuery({siteId},{enabled:Boolean(isAuthenticated&&siteId)}); const data=statementIsAuthoritative?q.data:undefined;
+ const createShareLink=trpc.powerhub.invoices.createShareLink.useMutation({onSuccess:(result)=>window.location.assign(result.path),onError:(e: unknown)=>toast.error(e instanceof Error ? e.message : "تعذر إنشاء رابط آمن لتوثيق الدفع.")}); const accessQuery=trpc.powerhub.staff.myAccess.useQuery({siteId},{enabled:Boolean(isAuthenticated&&siteId)}); const canRemind=can(accessQuery.data?.role,"manageMessaging"); const canManageDeposits=["owner","manager","accountant"].includes(String(accessQuery.data?.role))&&can(accessQuery.data?.role,"collectPayments"); const sendReminder=trpc.powerhub.notifications.sendPaymentReminderSms.useMutation({onSuccess:()=>toast.success("تم إرسال تذكير السداد."),onError:(e: unknown)=>toast.error(e instanceof Error ? e.message : "تعذر إرسال تذكير السداد.")}); const q=trpc.powerhub.subscribers.accountStatement.useQuery({siteId,subscriberId},{enabled:Boolean(isAuthenticated&&siteId&&subscriberId),retry:false}); const statementIsAuthoritative=hasAuthoritativeServerRead(q); const branding=trpc.powerhub.reportBranding.get.useQuery({siteId},{enabled:Boolean(isAuthenticated&&siteId)}); const data=statementIsAuthoritative?q.data:undefined;
+ const depositAccounts=trpc.powerhub.subscribers.securityDepositAccounts.useQuery({siteId},{enabled:Boolean(isAuthenticated&&siteId&&canManageDeposits),staleTime:60_000,refetchOnReconnect:"always"});
+ const [refundDialogOpen,setRefundDialogOpen]=useState(false); const [refundAccountId,setRefundAccountId]=useState(""); const [refundReference,setRefundReference]=useState(""); const [terminateAfterSettlement,setTerminateAfterSettlement]=useState(false);
+ const refundOperationRef=useRef<{clientOperationId:string;paymentNo:string}|null>(null);
+ const refundDeposit=trpc.powerhub.subscribers.refundSecurityDeposit.useMutation({onSuccess:(result)=>{const parts=[Number(result.appliedToInvoices)>0?"تمت تسوية فواتير بمبلغ "+money(result.appliedToInvoices):null,Number(result.refundedAmount)>0?"تم رد "+money(result.refundedAmount):null,Number(result.remainingOutstanding)>0?"المتبقي على الفواتير "+money(result.remainingOutstanding):null,result.terminated?"تم إنهاء الاشتراك":result.terminationBlocked?"لم يُنهَ الاشتراك لوجود فواتير مستحقة":null].filter(Boolean);toast.success(parts.join(" · ")||"تمت تسوية التأمين.");refundOperationRef.current=null;setRefundDialogOpen(false);setRefundReference("");setTerminateAfterSettlement(false);void q.refetch();void depositAccounts.refetch();void utils.powerhub.subscribers.securityDepositOverview.invalidate({siteId});},onError:(error)=>toast.error(error.message||"تعذر تسوية التأمين أو رده.")});
  type StatementData = NonNullable<typeof q.data>;
  const [allInvoices,setAllInvoices]=useState<StatementData["invoices"]>([]);
  const [allPayments,setAllPayments]=useState<StatementData["payments"]>([]);
