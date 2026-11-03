@@ -370,6 +370,23 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
         return toast.error("تعذر تحديد المستأجر الحالي؛ لم تُحفظ مسودة المشترك.");
       }
       try {
+        const offlineSubscriberPayload: import("@/lib/offline-work-queue").SubscriberCreateDraft = {
+          fullName: base.fullName,
+          phone: base.phone,
+          address: base.address,
+          subscriptionType: base.subscriptionType,
+          openingReading: base.openingReading,
+          openingReadingAt: base.openingReadingAt,
+          openingReadingApproved: base.openingReadingApproved,
+          openingReadingImageData: base.openingReadingImageData,
+          openingReadingImageMime: base.openingReadingImageMime,
+          securityDepositAmount: base.securityDepositAmount,
+          securityDepositCompanyAccountId: base.securityDepositCompanyAccountId,
+          securityDepositPaymentMethod: base.securityDepositPaymentMethod,
+          securityDepositPaymentNo: base.securityDepositPaymentNo,
+          securityDepositReferenceNo: base.securityDepositReferenceNo,
+          securityDepositOperationId: base.securityDepositOperationId,
+        };
         let reservedNumber: string | undefined;
         if (editing) {
           await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "subscriber_update", payload: { subscriberId: editing.id, fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType, serviceStatus: base.serviceStatus, expectedUpdatedAt: new Date(editing.updatedAt).toISOString() } });
@@ -382,38 +399,13 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
             tenantId: activeTenantId,
             siteId: siteId!,
             kind: "subscriber_create",
-            payload: {
-              fullName: base.fullName,
-              phone: base.phone,
-              address: base.address,
-              subscriptionType: base.subscriptionType,
-              openingReading: base.openingReading,
-              openingReadingAt: base.openingReadingAt,
-              openingReadingApproved: base.openingReadingApproved,
-              openingReadingImageData: base.openingReadingImageData,
-              openingReadingImageMime: base.openingReadingImageMime,
-              securityDepositAmount: base.securityDepositAmount,
-              securityDepositCompanyAccountId: base.securityDepositCompanyAccountId,
-              securityDepositPaymentMethod: base.securityDepositPaymentMethod,
-              securityDepositPaymentNo: base.securityDepositPaymentNo,
-              securityDepositReferenceNo: base.securityDepositReferenceNo,
-              securityDepositOperationId: base.securityDepositOperationId,
-              clientOperationId: base.clientOperationId,
-            },
+            payload: offlineSubscriberPayload,
           });
         } else {
           const deviceId = await getPowerHubDeviceId();
           const queued = await enqueueOfflineSubscriberCreateWithNumber({
             scope: { userId: Number(user.id), tenantId: activeTenantId, siteId: siteId!, deviceId },
-            payload: {
-              fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType,
-              securityDepositAmount: base.securityDepositAmount,
-              securityDepositCompanyAccountId: base.securityDepositCompanyAccountId,
-              securityDepositPaymentMethod: base.securityDepositPaymentMethod,
-              securityDepositPaymentNo: base.securityDepositPaymentNo,
-              securityDepositReferenceNo: base.securityDepositReferenceNo,
-              securityDepositOperationId: base.securityDepositOperationId,
-            },
+            payload: offlineSubscriberPayload,
           });
           reservedNumber = queued.formattedNumber;
         }
@@ -792,67 +784,132 @@ function SubscriberSecurityDepositOverview({ overview, loading, error, onRefresh
   const [dialogOpen, setDialogOpen] = useState(false);
   const format = (value: unknown) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
   const rows = overview?.items ?? [];
+
   const exportExcel = async () => {
+    if (!overview) {
+      toast.error("لا تتوفر قراءة خادمية موثوقة لتأمينات المشتركين.");
+      return;
+    }
     try {
       const { default: ExcelJS } = await loadExcelJS();
       const workbook = new ExcelJS.Workbook();
-      const sheet = workbook.addWorksheet("تأمينات المشتركين", { views: [{ rightToLeft: true }] });
+      workbook.creator = "PowerHub";
+      const sheet = workbook.addWorksheet("تأمينات المشتركين", {
+        views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
+      });
       sheet.addRow(["سجل تأمينات المشتركين"]);
-      sheet.addRow(["إجمالي التأمينات", Number(overview?.totalAmount ?? 0), "عدد المشتركين", Number(overview?.subscriberCount ?? 0)]);
+      sheet.addRow(["إجمالي التأمينات القائمة", Number(overview.totalAmount), "عدد المشتركين", Number(overview.subscriberCount)]);
       sheet.addRow([]);
-      sheet.addRow(["الرقم المرجعي", "اسم المشترك", "الهاتف", "مبلغ التأمين", "آخر حركة"]);
+      sheet.addRow(["الرقم المرجعي", "اسم المشترك", "الهاتف", "المبلغ المعتمد للتأمين", "آخر حركة"]);
       rows.forEach((item) => sheet.addRow([
-        item.subscriberNo, item.fullName, item.phone ?? "—", Number(item.amount),
+        item.subscriberNo,
+        item.fullName,
+        item.phone ?? "—",
+        Number(item.amount),
         item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—",
       ]));
-      sheet.columns = [{ width: 22 }, { width: 32 }, { width: 20 }, { width: 18 }, { width: 24 }];
+      sheet.mergeCells("A1:E1");
+      sheet.getCell("A1").font = { name: "Tahoma", size: 16, bold: true };
+      sheet.getCell("A1").alignment = { horizontal: "right", vertical: "middle" };
+      sheet.getRow(1).height = 30;
+      sheet.getRow(4).font = { name: "Tahoma", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+      sheet.getRow(4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF202A38" } };
+      sheet.getRow(4).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      sheet.getColumn(4).numFmt = "#,##0.00";
+      sheet.columns = [{ width: 22 }, { width: 32 }, { width: 20 }, { width: 22 }, { width: 26 }];
+      sheet.autoFilter = { from: "A4", to: `E${Math.max(4, sheet.rowCount)}` };
       const buffer = await workbook.xlsx.writeBuffer();
       downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "تأمينات-المشتركين.xlsx");
       toast.success("تم تصدير سجل التأمينات إلى Excel.");
-    } catch (cause) { toast.error(cause instanceof Error ? cause.message : "تعذر تصدير Excel."); }
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "تعذر تصدير Excel.");
+    }
   };
+
+  // Native HTML table + browser print: text and cells remain selectable/searchable in the saved PDF.
+  // Deliberately do not rasterize this report or route it through the screenshot PDF helper.
   const exportPdf = () => {
+    if (!overview) {
+      toast.error("لا تتوفر قراءة خادمية موثوقة لتأمينات المشتركين.");
+      return;
+    }
     const popup = window.open("", "_blank");
-    if (!popup) { toast.error("اسمح بفتح نافذة التصدير ثم أعد المحاولة."); return; }
-    const tableRows = rows.map((item) => `<tr><td>${escapeHtml(item.subscriberNo)}</td><td>${escapeHtml(item.fullName)}</td><td>${escapeHtml(item.phone ?? "—")}</td><td>${escapeHtml(format(item.amount))}</td><td>${escapeHtml(item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—")}</td></tr>`).join("");
+    if (!popup) {
+      toast.error("اسمح بفتح نافذة التصدير ثم أعد المحاولة.");
+      return;
+    }
+    const tableRows = rows.length
+      ? rows.map((item) => `<tr><td>${escapeHtml(item.subscriberNo)}</td><td>${escapeHtml(item.fullName)}</td><td>${escapeHtml(item.phone ?? "—")}</td><td>${escapeHtml(format(item.amount))}</td><td>${escapeHtml(item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—")}</td></tr>`).join("")
+      : '<tr><td colspan="5" class="empty">لا توجد تأمينات قائمة حالياً.</td></tr>';
     popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تأمينات المشتركين</title><style>
-      body{font-family:Arial,sans-serif;color:#172033;margin:24px}h1{font-size:20px}p{font-size:12px}
-      table{border-collapse:collapse;width:100%;font-size:11px}th,td{border:1px solid #8993a3;padding:7px;text-align:right}
-      th{background:#e8edf3}thead{display:table-header-group}tr{break-inside:avoid}
-      @page{size:A4 landscape;margin:12mm}@media print{button{display:none}}
-    </style></head><body><h1>سجل تأمينات المشتركين</h1><p>إجمالي الالتزامات: ${escapeHtml(format(overview?.totalAmount))} شيكل · عدد المشتركين: ${escapeHtml(format(overview?.subscriberCount))}</p>
-    <table><thead><tr><th>الرقم المرجعي</th><th>اسم المشترك</th><th>الهاتف</th><th>مبلغ التأمين</th><th>آخر حركة</th></tr></thead><tbody>${tableRows}</tbody></table>
+      *{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;color:#172033;margin:24px}
+      h1{font-size:20px;margin:0 0 10px}p{font-size:12px;margin:0 0 18px}
+      table{border-collapse:collapse;width:100%;font-size:11px;table-layout:auto}
+      th,td{border:1px solid #8993a3;padding:7px;text-align:right;vertical-align:top}
+      th{background:#e8edf3;font-weight:700}thead{display:table-header-group}
+      tr{break-inside:avoid}.empty{text-align:center;color:#657080}
+      @page{size:A4 landscape;margin:12mm}@media print{body{margin:0}}
+    </style></head><body><h1>سجل تأمينات المشتركين</h1>
+    <p>إجمالي التأمينات القائمة: ${escapeHtml(format(overview.totalAmount))} شيكل · عدد المشتركين: ${escapeHtml(format(overview.subscriberCount))}</p>
+    <table><thead><tr><th>الرقم المرجعي</th><th>اسم المشترك</th><th>الهاتف</th><th>المبلغ المعتمد للتأمين</th><th>آخر حركة</th></tr></thead><tbody>${tableRows}</tbody></table>
     </body></html>`);
     popup.document.close();
     popup.focus();
     popup.print();
   };
+
   return <Card className="border-amber-300/20 bg-[#111823] shadow-panel">
     <CardContent className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 className="font-bold text-white">تأمينات المشتركين</h2><p className="mt-1 text-xs text-slate-400">التزام مالي مستقل عن الفواتير والتحصيل التشغيلي.</p></div>
+        <div>
+          <h2 className="font-bold text-white">تأمينات المشتركين</h2>
+          <p className="mt-1 text-xs text-slate-400">إجمالي الالتزامات القائمة وعدد المشتركين أصحاب التأمين، بصورة مستقلة عن الفواتير والتحصيل التشغيلي.</p>
+        </div>
         <div className="flex gap-2">
           <Button type="button" size="sm" variant="outline" disabled={loading || !overview} onClick={() => void exportExcel()} className="border-white/10 text-slate-200"><FileSpreadsheet className="ml-1 h-4 w-4"/>Excel</Button>
-          <Button type="button" size="sm" variant="outline" disabled={loading || !overview} onClick={exportPdf} className="border-white/10 text-slate-200"><FileText className="ml-1 h-4 w-4"/>PDF</Button>
+          <Button type="button" size="sm" variant="outline" disabled={loading || !overview} onClick={exportPdf} className="border-white/10 text-slate-200"><FileText className="ml-1 h-4 w-4"/>طباعة / حفظ PDF</Button>
           <Button type="button" size="sm" variant="ghost" onClick={onRefresh} className="text-slate-300"><RefreshCw className="ml-1 h-4 w-4"/>تحديث</Button>
         </div>
       </div>
       {error ? <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p> : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <button type="button" disabled={loading || !rows.length} aria-label="عرض كشف التأمينات حسب إجمالي المبلغ" onClick={() => setDialogOpen(true)} className="w-full rounded-xl border border-amber-300/15 bg-amber-300/[.04] p-4 text-right transition hover:bg-amber-300/[.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed disabled:opacity-60"><p className="text-xs text-amber-100/70">إجمالي مبالغ التأمين القائمة</p><p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.totalAmount)} <span className="text-xs font-normal">شيكل</span></p><p className="mt-1 text-[11px] text-slate-500">انقر لعرض المشتركين</p></button>
-        <button type="button" disabled={loading || !rows.length} aria-label="عرض كشف التأمينات حسب عدد المشتركين" onClick={() => setDialogOpen(true)} className="w-full rounded-xl border border-white/8 bg-white/[.025] p-4 text-right transition hover:bg-white/[.05] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed disabled:opacity-60"><p className="text-xs text-slate-400">عدد المشتركين أصحاب التأمين</p><p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.subscriberCount)}</p><p className="mt-1 text-[11px] text-slate-500">انقر لعرض المشتركين</p></button>
+        <button type="button" disabled={loading || !overview} aria-label="عرض كشف التأمينات حسب إجمالي المبلغ" onClick={() => setDialogOpen(true)} className="w-full rounded-xl border border-amber-300/15 bg-amber-300/[.04] p-4 text-right transition hover:bg-amber-300/[.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed disabled:opacity-60">
+          <p className="text-xs text-amber-100/70">إجمالي مبلغ التأمينات القائمة</p>
+          <p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.totalAmount)} <span className="text-xs font-normal">شيكل</span></p>
+          <p className="mt-1 text-[11px] text-slate-500">انقر لعرض المشتركين ومبالغ التأمين المعتمدة</p>
+        </button>
+        <button type="button" disabled={loading || !overview} aria-label="عرض كشف التأمينات حسب عدد المشتركين" onClick={() => setDialogOpen(true)} className="w-full rounded-xl border border-white/8 bg-white/[.025] p-4 text-right transition hover:bg-white/[.05] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed disabled:opacity-60">
+          <p className="text-xs text-slate-400">عدد المشتركين الذين لديهم مبلغ تأمين</p>
+          <p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.subscriberCount)}</p>
+          <p className="mt-1 text-[11px] text-slate-500">انقر لعرض كشف التأمينات</p>
+        </button>
       </div>
+      <p className="mt-2 text-[11px] leading-5 text-slate-500">يعرض الجدول رصيد التأمين القائم المعتمد بعد حركات الاستلام والتسوية والرد، وليس مجموع الإيداعات التاريخية.</p>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="h-[80vh] w-[80vw] max-w-[80vw] overflow-hidden border-white/10 bg-[#111823] p-4 text-white sm:max-w-[80vw]">
-          <DialogHeader><DialogTitle>كشف تأمينات المشتركين</DialogTitle><DialogDescription>الإجمالي {format(overview?.totalAmount)} شيكل · {format(overview?.subscriberCount)} مشترك</DialogDescription></DialogHeader>
-          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-white/10">
+        <DialogContent className="grid h-[80vh] max-h-[80vh] w-[80vw] max-w-[80vw] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-white/10 bg-[#111823] p-4 text-white sm:max-w-[80vw]">
+          <DialogHeader>
+            <DialogTitle>كشف تأمينات المشتركين</DialogTitle>
+            <DialogDescription>الإجمالي {format(overview?.totalAmount)} شيكل · {format(overview?.subscriberCount)} مشترك</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 overflow-auto rounded-lg border border-white/10">
             <table className="w-full min-w-[720px] text-right text-[11px]">
-              <thead className="sticky top-0 bg-[#202a38]"><tr>{["الرقم المرجعي","اسم المشترك","الهاتف","مبلغ التأمين","آخر حركة"].map(h=><th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
-              <tbody>{rows.map(item=><tr key={item.subscriberId} className="border-t border-white/8"><td className="px-3 py-2" dir="ltr">{item.subscriberNo}</td><td className="px-3 py-2">{item.fullName}</td><td className="px-3 py-2" dir="ltr">{item.phone ?? "—"}</td><td className="px-3 py-2">{format(item.amount)}</td><td className="px-3 py-2">{item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—"}</td></tr>)}</tbody>
+              <thead className="sticky top-0 bg-[#202a38]"><tr>{["الرقم المرجعي","اسم المشترك","الهاتف","المبلغ المعتمد للتأمين","آخر حركة"].map((header) => <th key={header} scope="col" className="px-3 py-2">{header}</th>)}</tr></thead>
+              <tbody>
+                {rows.map((item) => <tr key={item.subscriberId} className="border-t border-white/8">
+                  <td className="px-3 py-2" dir="ltr">{item.subscriberNo}</td>
+                  <td className="px-3 py-2">{item.fullName}</td>
+                  <td className="px-3 py-2" dir="ltr">{item.phone ?? "—"}</td>
+                  <td className="px-3 py-2 tabular-nums">{format(item.amount)} شيكل</td>
+                  <td className="px-3 py-2">{item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—"}</td>
+                </tr>)}
+              </tbody>
             </table>
             {!rows.length ? <p className="p-8 text-center text-xs text-slate-400">لا توجد تأمينات قائمة.</p> : null}
           </div>
-          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => void exportExcel()}>Excel</Button><Button type="button" onClick={exportPdf}>PDF</Button></div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => void exportExcel()} disabled={!overview}>Excel</Button>
+            <Button type="button" onClick={exportPdf} disabled={!overview}>طباعة / حفظ PDF</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </CardContent>
