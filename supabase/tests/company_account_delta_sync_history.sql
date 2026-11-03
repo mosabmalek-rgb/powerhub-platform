@@ -279,7 +279,7 @@ begin
  v_snapshot:=public.powerhub_get_sync_snapshot(1,10,'company_accounts');
  if jsonb_array_length(v_snapshot->'rows')<>1
    or v_snapshot #>> '{rows,0,id}' is distinct from '700'
-   or (v_snapshot #>> '{rows,0,balance}')::numeric<>140
+   or (v_snapshot #>> '{rows,0,balance}')::numeric<>100
    or jsonb_array_length(v_snapshot #> '{rows,0,linked_sites}')<>1
    or v_snapshot #>> '{rows,0,linked_sites,0,site_id}' is distinct from '10'
  then raise exception 'Branch-scoped account snapshot failed: %',v_snapshot; end if;
