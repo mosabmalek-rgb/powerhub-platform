@@ -130,7 +130,7 @@ export default function PublicInvoice() {
                 <span className={isCredit ? "shrink-0 font-display font-bold text-emerald-300" : "shrink-0 font-display font-bold text-white"} dir="ltr">{displayedAmount > 0 ? "+" : ""}{amountText} شيكل</span>
               </div>;
             })}
-            {Number(invoice.creditAppliedAmount ?? 0) > 0 ? <div className="flex items-start justify-between gap-4 border-b border-white/7 bg-emerald-500/5 px-4 py-3 text-sm"><span className="font-bold text-emerald-300">استخدام الرصيد المتاح للمشترك</span><span className="shrink-0 font-display font-bold text-emerald-300" dir="ltr">−{new Intl.NumberFormat("ar", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(invoice.creditAppliedAmount))} شيكل</span></div> : null}
+
             {!visibleLines.length && Number(invoice.creditAppliedAmount ?? 0) <= 0 ? <p className="px-4 py-5 text-sm text-slate-400">لا توجد بنود مالية لعرضها.</p> : null}
           </div>
           <div data-html2canvas-ignore="true" className="mt-9 grid gap-3 sm:grid-cols-2">
