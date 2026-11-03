@@ -170,6 +170,10 @@ export async function downloadReportHtmlAsPdf(element: HTMLElement, filename: st
   host.appendChild(report);
   document.body.appendChild(host);
   try {
+    if (document.fonts?.ready) await document.fonts.ready.catch(() => undefined);
+    await Promise.all(
+      Array.from(report.querySelectorAll("img")).map((image) => image.decode().catch(() => undefined)),
+    );
     const canvas = await html2canvas(report, { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: width, windowHeight: Math.max(794, report.scrollHeight || 0), scrollX: 0, scrollY: 0 });
     const pdf = new jsPDF({ orientation, unit: "pt", format: "a4", compress: true });
     const pageWidth = pdf.internal.pageSize.getWidth();
