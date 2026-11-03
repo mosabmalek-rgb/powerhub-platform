@@ -32,7 +32,7 @@ const findingsCount = entries.reduce((total, [, advisory]) => {
 }, 0);
 
 function cell(value) {
-  return String(value ?? "—").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
+  return String(value ?? "—").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
 }
 
 const lines = [
