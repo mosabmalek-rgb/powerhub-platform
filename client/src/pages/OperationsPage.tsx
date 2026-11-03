@@ -17,6 +17,7 @@ import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { preparePaymentReceiptImage } from "@/lib/payment-receipt-image";
 import { cn } from "@/lib/utils";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
+import { downloadBlob } from "@/lib/download-blob";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { invoiceStatusMeta, outstandingInvoices, summarizeOutstandingInvoices } from "@/lib/invoice-collection-presentation";
 import { can } from "@shared/powerhub-rbac";
@@ -607,8 +608,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     sheet.getColumn(5).numFmt = "#,##0.00";
     sheet.autoFilter = { from: "A3", to: `J${Math.max(3, sheet.rowCount)}` };
     const buffer = await workbook.xlsx.writeBuffer();
-    const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-    const link = document.createElement("a"); link.href = url; link.download = `powerhub-payments-${effectivePaymentStart || "all"}-${effectivePaymentEnd || "all"}.xlsx`; link.click(); URL.revokeObjectURL(url);
+    downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `powerhub-payments-${effectivePaymentStart || "all"}-${effectivePaymentEnd || "all"}.xlsx`);
     toast.success("تم تصدير الدفعات المفلترة إلى Excel.");
   };
   const exportPaymentsPdf = async () => {
