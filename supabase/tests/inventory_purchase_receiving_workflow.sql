@@ -517,6 +517,7 @@ alter table public.powerhub_sync_scope_state enable row level security;
 revoke all on table public.powerhub_sync_scope_state from public,anon,authenticated;
 grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261101083224_powerhub_supplier_ledger_revision.sql
+\ir ../migrations/20261103162000_powerhub_supplier_accounting_period_scope.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -4443,6 +4444,137 @@ begin
     then raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_SUPPLIER_LEDGER_REVISION_FUNCTION'; end if;
 end;
 $supplier_ledger_revision_assertions$;
+
+-- Dated supplier payments and opening payables follow their accounting date.
+do $financial_period_accounting_date_regression$
+declare
+  v_supplier_id bigint;
+  v_warehouse_id bigint;
+  v_item_id bigint;
+  v_purchase_id bigint;
+  v_purchase_status text;
+  v_opening_entry_id bigint;
+  v_opening_amount numeric(14,2);
+  v_opening_date date;
+  v_opening_replayed boolean;
+  v_single_payment_id bigint;
+  v_single_transaction_id bigint;
+  v_single_date date;
+  v_single_replayed boolean;
+  v_batch_payment_id bigint;
+  v_batch_transaction_id bigint;
+  v_batch_date date;
+  v_batch_replayed boolean;
+  v_account_balance numeric(14,2);
+  v_lock_id bigint;
+  v_accounting_date date := current_date-10;
+begin
+  select id into v_item_id from public.inventory_items
+  where tenant_id=10 and sku='DSL-01' order by id limit 1;
+  select id into v_warehouse_id from public.inventory_warehouses
+  where tenant_id=10 and site_id=100 order by id limit 1;
+  if v_item_id is null or v_warehouse_id is null then
+    raise exception 'PERIOD_DATE_SUPPLIER_FIXTURE_MISSING';
+  end if;
+
+  select ca.opening_balance+coalesce(sum(
+    case when atx.transaction_type in ('deposit','transfer_in','collection') then atx.amount else -atx.amount end
+  ),0)::numeric(14,2)
+  into v_account_balance
+  from public.company_accounts ca
+  left join public.account_transactions atx on atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  where ca.tenant_id=10 and ca.id=1000
+  group by ca.opening_balance;
+  if coalesce(v_account_balance,0)<0.02 then
+    raise exception 'PERIOD_DATE_SUPPLIER_TEST_ACCOUNT_BALANCE_TOO_LOW';
+  end if;
+
+  select id into v_supplier_id from public.powerhub_inventory_create_supplier(
+    10,100,1,'DATE-GUARD-SUP-01','Accounting date guard supplier','AP contact',
+    '0599000001','date.guard@example.test','Disposable test address','DATE-GUARD-TAX',
+    30,'Disposable period-date regression fixture'
+  );
+  select purchase_id,total_amount into v_purchase_id,v_opening_amount
+  from public.powerhub_inventory_create_purchase(
+    10,100,1,v_supplier_id,v_warehouse_id,'DATE-GUARD-PUR-01',current_date,null,30,
+    'DATE-GUARD-REF-01','Disposable period-date purchase','period-date:create-purchase',
+    jsonb_build_array(jsonb_build_object(
+      'item_id',v_item_id,'quantity',2,'unit','liter','units_to_base_factor',1,
+      'unit_price',10,'discount_amount',0,'tax_amount',0,'notes','period-date regression'
+    ))
+  );
+  if v_purchase_id is null or v_opening_amount<>20 then
+    raise exception 'PERIOD_DATE_SUPPLIER_PURCHASE_CREATE_FAILED';
+  end if;
+  select status into v_purchase_status
+  from public.powerhub_inventory_confirm_purchase(10,100,1,v_purchase_id);
+  if v_purchase_status<>'confirmed' then
+    raise exception 'PERIOD_DATE_SUPPLIER_PURCHASE_CONFIRM_FAILED';
+  end if;
+
+  insert into public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
+  values(10,100,'locked',current_date::timestamp at time zone 'UTC',
+    ((current_date+1)::timestamp at time zone 'UTC')-interval '1 microsecond')
+  returning id into v_lock_id;
+
+  select ledger_entry_id,amount,as_of_date,replayed
+    into v_opening_entry_id,v_opening_amount,v_opening_date,v_opening_replayed
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_supplier_id,5.00,v_accounting_date,'DATE-GUARD-OPEN-01',
+    'Opening payable in an unlocked historical period'
+  );
+  if v_opening_entry_id is null or v_opening_amount<>5 or v_opening_date<>v_accounting_date or v_opening_replayed then
+    raise exception 'BACKDATED_SUPPLIER_OPENING_BALANCE_WAS_NOT_POSTED';
+  end if;
+  if not exists(
+    select 1 from public.supplier_ledger_entries
+    where id=v_opening_entry_id and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_SUPPLIER_OPENING_BALANCE_DATE_MISMATCH'; end if;
+
+  select payment_id,account_transaction_id,payment_date,replayed
+    into v_single_payment_id,v_single_transaction_id,v_single_date,v_single_replayed
+  from public.powerhub_inventory_record_supplier_payment(
+    10,100,1,v_purchase_id,1000,0.01,v_accounting_date,'DATE-GUARD-SINGLE-PAY',
+    'Backdated supplier payment while today is locked','period-date:supplier-single'
+  );
+  if v_single_payment_id is null or v_single_transaction_id is null
+    or v_single_date<>v_accounting_date or v_single_replayed then
+    raise exception 'BACKDATED_SINGLE_SUPPLIER_PAYMENT_WAS_NOT_POSTED';
+  end if;
+  if not exists(
+    select 1 from public.account_transactions
+    where id=v_single_transaction_id and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) or not exists(
+    select 1 from public.supplier_ledger_entries
+    where supplier_payment_id=v_single_payment_id
+      and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_SINGLE_SUPPLIER_PAYMENT_DATE_MISMATCH'; end if;
+
+  select payment_id,account_transaction_id,payment_date,replayed
+    into v_batch_payment_id,v_batch_transaction_id,v_batch_date,v_batch_replayed
+  from public.powerhub_inventory_record_supplier_payment_batch(
+    10,100,1,v_supplier_id,1000,0.01,v_accounting_date,'DATE-GUARD-BATCH-PAY',
+    'Backdated supplier batch payment while today is locked','period-date:supplier-batch',
+    jsonb_build_array(jsonb_build_object(
+      'purchase_id',null,'supplier_ledger_entry_id',v_opening_entry_id,'amount',0.01
+    ))
+  );
+  if v_batch_payment_id is null or v_batch_transaction_id is null
+    or v_batch_date<>v_accounting_date or v_batch_replayed then
+    raise exception 'BACKDATED_BATCH_SUPPLIER_PAYMENT_WAS_NOT_POSTED';
+  end if;
+  if not exists(
+    select 1 from public.account_transactions
+    where id=v_batch_transaction_id and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) or not exists(
+    select 1 from public.supplier_ledger_entries
+    where supplier_payment_id=v_batch_payment_id
+      and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_BATCH_SUPPLIER_PAYMENT_DATE_MISMATCH'; end if;
+
+  delete from public.financial_settlements where id=v_lock_id;
+end
+$financial_period_accounting_date_regression$;
 
 select 'inventory purchasing, supplier ledger, fuel fill/reading, measured consumption and stock operations PostgreSQL integration passed' as result;
 

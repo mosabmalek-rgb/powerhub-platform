@@ -160,6 +160,7 @@ as $fixture$ select false $fixture$;
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
+\ir ../migrations/20261103161000_powerhub_employee_advance_accounting_period_scope.sql
 \ir ../migrations/20261101083059_powerhub_hr_delta_sync.sql
 \ir ../migrations/20261101083133_powerhub_hr_offline_operation_idempotency.sql
 -- Re-run both migrations to verify DDL and trigger idempotency.
@@ -751,5 +752,98 @@ begin
   end if;
 end
 $hr_object_scope_isolation$;
+
+-- A lock on the execution day must not block an explicitly backdated posting in an open period.
+-- The actual accounting date must still be rejected when its own period is locked.
+do $financial_period_accounting_date_regression$
+declare
+  v_lock_id bigint;
+  v_today_start timestamptz := current_date::timestamp at time zone 'UTC';
+  v_today_end timestamptz := (current_date+1)::timestamp at time zone 'UTC' - interval '1 microsecond';
+  v_backdate date := current_date-10;
+  v_locked_date date := current_date-30;
+  v_advance_id bigint;
+  v_transaction_id bigint;
+  v_remaining numeric(12,2);
+  v_replayed boolean;
+  v_before_adjustments bigint;
+  v_before_transactions bigint;
+begin
+  insert into public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
+  values(1,100,'locked',v_today_start,v_today_end)
+  returning id into v_lock_id;
+
+  select adjustment_id,account_transaction_id,remaining_amount,replayed
+    into v_advance_id,v_transaction_id,v_remaining,v_replayed
+  from public.powerhub_issue_employee_advance(
+    1,100,10,1,'salary_advance',20,null,1,v_backdate,
+    'Dated advance while execution day is locked','period-date:advance-open'
+  );
+  if v_advance_id is null or v_transaction_id is null or v_remaining<>20 or v_replayed then
+    raise exception 'BACKDATED_ADVANCE_IN_OPEN_PERIOD_WAS_NOT_POSTED';
+  end if;
+  if not exists(
+    select 1 from public.account_transactions
+    where id=v_transaction_id and occurred_at=(v_backdate::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_ADVANCE_TRANSACTION_DATE_MISMATCH'; end if;
+
+  select remaining_amount into v_remaining
+  from public.powerhub_repay_employee_advance(
+    1,100,10,v_advance_id,1,5,v_backdate+1,'PERIOD-DATE-REP-01',
+    'Repayment in an open historical period','period-date:repayment-open'
+  );
+  if v_remaining<>15 then raise exception 'BACKDATED_ADVANCE_REPAYMENT_BALANCE_MISMATCH'; end if;
+  if not exists(
+    select 1 from public.account_transactions
+    where reference_no='EMP-REPAY:period-date:repayment-open'
+      and occurred_at=((v_backdate+1)::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_ADVANCE_REPAYMENT_DATE_MISMATCH'; end if;
+
+  begin
+    perform * from public.powerhub_issue_employee_advance(
+      1,100,10,1,'salary_advance',1,null,1,current_date,
+      'Must be blocked by today lock','period-date:advance-today-locked'
+    );
+    raise exception 'CURRENT_DATE_LOCK_WAS_IGNORED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'FINANCIAL_PERIOD_LOCKED' then raise; end if;
+  end;
+
+  update public.financial_settlements
+  set period_start=(v_locked_date::timestamp at time zone 'UTC'),
+      period_end=((v_locked_date+1)::timestamp at time zone 'UTC')-interval '1 microsecond'
+  where id=v_lock_id;
+
+  select count(*) into v_before_adjustments from public.employee_adjustments;
+  select count(*) into v_before_transactions from public.account_transactions;
+
+  begin
+    perform * from public.powerhub_issue_employee_advance(
+      1,100,10,1,'salary_advance',1,null,1,v_locked_date,
+      'Must be blocked by historical lock','period-date:advance-historically-locked'
+    );
+    raise exception 'HISTORICAL_DATE_LOCK_WAS_IGNORED_FOR_ADVANCE';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'FINANCIAL_PERIOD_LOCKED' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_repay_employee_advance(
+      1,100,10,v_advance_id,1,1,v_locked_date,null,
+      'Must be blocked by historical lock','period-date:repayment-historically-locked'
+    );
+    raise exception 'HISTORICAL_DATE_LOCK_WAS_IGNORED_FOR_REPAYMENT';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'FINANCIAL_PERIOD_LOCKED' then raise; end if;
+  end;
+
+  if (select count(*) from public.employee_adjustments)<>v_before_adjustments
+    or (select count(*) from public.account_transactions)<>v_before_transactions then
+    raise exception 'REJECTED_HISTORICAL_PERIOD_OPERATION_LEFT_SIDE_EFFECTS';
+  end if;
+
+  delete from public.financial_settlements where id=v_lock_id;
+end
+$financial_period_accounting_date_regression$;
 
 select 'EMPLOYEE_ADVANCES_LOANS_INTEGRATION_OK' as result;
