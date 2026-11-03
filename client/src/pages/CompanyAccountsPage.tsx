@@ -106,16 +106,19 @@ export default function CompanyAccountsPage() {
     },
     onError: (error) => toast.error(error.message),
   });
-  const accountOperationKeyRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const accountOperationKeysRef = useRef<Map<string, string>>(new Map());
   const operationKeyFor = (payload: Record<string, unknown>) => {
     const fingerprint = JSON.stringify(payload);
-    if (!accountOperationKeyRef.current || accountOperationKeyRef.current.fingerprint !== fingerprint) {
-      accountOperationKeyRef.current = { fingerprint, key: crypto.randomUUID() };
-    }
-    return accountOperationKeyRef.current.key;
+    const current = accountOperationKeysRef.current.get(fingerprint);
+    if (current) return current;
+    const operationKey = crypto.randomUUID();
+    accountOperationKeysRef.current.set(fingerprint, operationKey);
+    return operationKey;
   };
   const clearAccountOperationKey = (operationKey: string) => {
-    if (accountOperationKeyRef.current?.key === operationKey) accountOperationKeyRef.current = null;
+    for (const [fingerprint, key] of accountOperationKeysRef.current) {
+      if (key === operationKey) accountOperationKeysRef.current.delete(fingerprint);
+    }
   };
   const movement = trpc.powerhub.companyAccounts.addMovement.useMutation({
     onSuccess: (_result, variables) => { clearAccountOperationKey(variables.operationKey); toast.success("تم تسجيل حركة الحساب."); setAmount(""); setDescription(""); refreshAccounts(); },

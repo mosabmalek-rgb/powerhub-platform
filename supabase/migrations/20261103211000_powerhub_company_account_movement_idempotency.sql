@@ -9,13 +9,8 @@ BEGIN
      OR to_regclass('public.audit_logs') IS NULL
      OR to_regclass('public.sites') IS NULL
      OR to_regclass('public.users') IS NULL
-     OR NOT EXISTS (
-       SELECT 1 FROM pg_constraint
-       WHERE conrelid='public.account_transactions'::regclass
-         AND contype IN ('p','u')
-       GROUP BY conrelid
-       HAVING bool_or(pg_get_constraintdef(oid) ILIKE '%tenant_id%id%')
-     ) THEN
+     OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='account_transactions' AND column_name='site_id') THEN
     RAISE EXCEPTION 'COMPANY_ACCOUNT_MOVEMENT_IDEMPOTENCY_PREREQUISITES_MISSING';
   END IF;
 END
@@ -69,7 +64,7 @@ DECLARE
 BEGIN
   IF p_tenant_id IS NULL OR p_tenant_id<1 OR p_site_id IS NULL OR p_site_id<1
      OR p_user_id IS NULL OR p_user_id<1 OR p_account_id IS NULL OR p_account_id<1
-     OR p_operation_key IS NULL OR p_transaction_type NOT IN ('deposit','withdrawal')
+     OR p_operation_key IS NULL OR p_transaction_type IS NULL OR p_transaction_type NOT IN ('deposit','withdrawal')
      OR p_amount IS NULL OR p_amount<=0 OR p_amount>100000000 OR p_amount<>round(p_amount,2)
      OR char_length(coalesce(p_description,''))<2 OR char_length(p_description)>255
      OR char_length(coalesce(p_reference_no,''))>120 THEN

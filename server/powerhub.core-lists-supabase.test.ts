@@ -1675,6 +1675,20 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     ]);
   });
 
+  it("رفض إعادة استخدام مفتاح حركة حساب مع مدخلات مختلفة", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      return { data: null, error: { code: "P0001", message: "IDEMPOTENCY_KEY_REUSED" } };
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.companyAccounts.addMovement({
+      siteId: 10, accountId: 90, transactionType: "deposit", amount: 10,
+      description: "إيداع مختلف", operationKey: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(state.rpcCalls).toHaveLength(1);
+    expect(state.rpcCalls[0].name).toBe("powerhub_add_account_movement_idempotent");
+  });
+
   it("يحدّث إعدادات حساب الشركة عبر Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.companyAccounts.updatePhone({ siteId: 10, accountId: 92, phoneNumber: "+970599000001" })).resolves.toEqual({ success: true });

@@ -1,6 +1,18 @@
 \set ON_ERROR_STOP on
 DO $role$
 BEGIN
+  CREATE ROLE anon NOLOGIN;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END
+$role$;
+DO $role$
+BEGIN
+  CREATE ROLE authenticated NOLOGIN;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END
+$role$;
+DO $role$
+BEGIN
   CREATE ROLE service_role NOLOGIN BYPASSRLS;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END
