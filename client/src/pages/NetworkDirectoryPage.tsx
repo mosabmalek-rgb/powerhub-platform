@@ -785,6 +785,7 @@ function SubscriberSecurityDepositOverview({ overview, loading, error, onRefresh
   error?: string;
   onRefresh: () => void;
 }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
   const format = (value: unknown) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
   const rows = overview?.items ?? [];
   const exportExcel = async () => {
@@ -807,7 +808,7 @@ function SubscriberSecurityDepositOverview({ overview, loading, error, onRefresh
     } catch (cause) { toast.error(cause instanceof Error ? cause.message : "تعذر تصدير Excel."); }
   };
   const exportPdf = () => {
-    const popup = window.open("", "_blank", "noopener,noreferrer");
+    const popup = window.open("", "_blank");
     if (!popup) { toast.error("اسمح بفتح نافذة التصدير ثم أعد المحاولة."); return; }
     const tableRows = rows.map((item) => `<tr><td>${escapeHtml(item.subscriberNo)}</td><td>${escapeHtml(item.fullName)}</td><td>${escapeHtml(item.phone ?? "—")}</td><td>${escapeHtml(format(item.amount))}</td><td>${escapeHtml(item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—")}</td></tr>`).join("");
     popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تأمينات المشتركين</title><style>
@@ -835,8 +836,8 @@ function SubscriberSecurityDepositOverview({ overview, loading, error, onRefresh
         <div className="rounded-xl border border-amber-300/15 bg-amber-300/[.04] p-4"><p className="text-xs text-amber-100/70">إجمالي مبالغ التأمين القائمة</p><p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.totalAmount)} <span className="text-xs font-normal">شيكل</span></p></div>
         <div className="rounded-xl border border-white/8 bg-white/[.025] p-4"><p className="text-xs text-slate-400">عدد المشتركين أصحاب التأمين</p><p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.subscriberCount)}</p></div>
       </div>
-      <Dialog>
-        <div className="mt-3 flex justify-end"><Button type="button" variant="outline" disabled={loading || !rows.length} className="border-amber-300/20 text-amber-100" onClick={() => window.dispatchEvent(new CustomEvent("powerhub:open-security-deposits"))}>عرض كشف التأمينات</Button></div>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <div className="mt-3 flex justify-end"><Button type="button" variant="outline" disabled={loading || !rows.length} className="border-amber-300/20 text-amber-100" onClick={() => setDialogOpen(true)}>عرض كشف التأمينات</Button></div>
         <DialogContent className="h-[80vh] w-[80vw] max-w-[80vw] overflow-hidden border-white/10 bg-[#111823] p-4 text-white sm:max-w-[80vw]">
           <DialogHeader><DialogTitle>كشف تأمينات المشتركين</DialogTitle><DialogDescription>الإجمالي {format(overview?.totalAmount)} شيكل · {format(overview?.subscriberCount)} مشترك</DialogDescription></DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-white/10">
