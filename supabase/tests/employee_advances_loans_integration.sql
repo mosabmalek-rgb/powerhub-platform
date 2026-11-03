@@ -160,7 +160,7 @@ as $fixture$ select false $fixture$;
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
-\ir ../migrations/20261103161000_powerhub_employee_advance_accounting_period_scope.sql
+\ir ../migrations/20261103174050_powerhub_employee_advance_accounting_period_scope.sql
 \ir ../migrations/20261101083059_powerhub_hr_delta_sync.sql
 \ir ../migrations/20261101083133_powerhub_hr_offline_operation_idempotency.sql
 -- Re-run both migrations to verify DDL and trigger idempotency.
