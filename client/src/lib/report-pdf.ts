@@ -222,7 +222,7 @@ export async function printReportHtmlAsPdf(
   const popup = window.open("", "_blank");
   if (!popup) throw new Error("اسمح بفتح نافذة الطباعة ثم أعد محاولة تصدير PDF.");
 
-  const title = options?.title?.trim() || filename.replace(/\\.pdf$/i, "");
+  const title = options?.title?.trim() || filename.replace(/\.pdf$/i, "");
   const direction = element.dir === "ltr" ? "ltr" : "rtl";
   const orientation = options?.landscape ? "landscape" : "portrait";
   popup.document.open();
