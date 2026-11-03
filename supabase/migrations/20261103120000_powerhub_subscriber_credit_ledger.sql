@@ -238,7 +238,9 @@ declare
   v_fingerprint text;
   v_platform_role text;
   v_tenant_role text;
+  v_expected_purpose text;
 begin
+  v_expected_purpose := case when p_balance_type='available_credit' then 'subscriber_credit' else 'security_deposit' end;
   if p_client_operation_id is null then raise exception 'BALANCE_OPERATION_KEY_REQUIRED' using errcode='P0001'; end if;
   if p_balance_type not in ('available_credit','security_deposit') then raise exception 'INVALID_SUBSCRIBER_BALANCE_TYPE' using errcode='P0001'; end if;
   if p_amount is null or p_amount<=0 or round(p_amount,2)<>p_amount then raise exception 'INVALID_PAYMENT_AMOUNT' using errcode='P0001'; end if;
@@ -265,7 +267,7 @@ begin
       raise exception 'BALANCE_OPERATION_SCOPE_CONFLICT' using errcode='P0001';
     end if;
     select * into v_existing_payment from public.payments where id=(v_operation.response->>'id')::bigint for update;
-    if not found or v_existing_payment.payment_purpose is distinct from case when p_balance_type='available_credit' then 'subscriber_credit' else 'security_deposit' end
+    if not found or v_existing_payment.payment_purpose is distinct from v_expected_purpose
        or v_existing_payment.client_operation_id is distinct from p_client_operation_id::text
        or v_existing_payment.tenant_id is distinct from p_tenant_id or v_existing_payment.site_id is distinct from p_site_id
        or v_existing_payment.subscriber_id is distinct from p_subscriber_id or v_existing_payment.payment_no is distinct from p_payment_no
