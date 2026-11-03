@@ -85,8 +85,7 @@ BEGIN
   ));
   SELECT op.* INTO v_operation
   FROM public.company_account_movement_operations op
-  WHERE op.tenant_id=p_tenant_id AND op.operation_key=p_operation_key
-  FOR UPDATE;
+  WHERE op.tenant_id=p_tenant_id AND op.operation_key=p_operation_key;
   IF FOUND THEN
     IF v_operation.operation_type<>p_transaction_type OR v_operation.payload_hash<>v_hash THEN
       RAISE EXCEPTION 'IDEMPOTENCY_KEY_REUSED' USING ERRCODE='P0001';
@@ -198,8 +197,7 @@ BEGIN
   ));
   SELECT op.* INTO v_operation
   FROM public.company_account_movement_operations op
-  WHERE op.tenant_id=p_tenant_id AND op.operation_key=p_operation_key
-  FOR UPDATE;
+  WHERE op.tenant_id=p_tenant_id AND op.operation_key=p_operation_key;
   IF FOUND THEN
     IF v_operation.operation_type<>'transfer' OR v_operation.payload_hash<>v_hash
        OR v_operation.counterpart_transaction_id IS NULL THEN
