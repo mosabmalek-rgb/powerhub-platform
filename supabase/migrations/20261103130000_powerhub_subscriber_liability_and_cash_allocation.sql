@@ -1627,3 +1627,47 @@ begin
   );
 end;
 $function$
+
+-- Disconnection is a financial close-out action, not a normal profile edit.
+-- This database guard prevents direct update RPCs or legacy paths from bypassing settlement.
+create or replace function public.powerhub_guard_subscriber_disconnection_financial_closeout()
+returns trigger
+language plpgsql
+security definer
+set search_path=''
+as $$
+declare
+  v_outstanding numeric(14,2);
+  v_security_deposit numeric(14,2);
+begin
+  if new.service_status='disconnected' and old.service_status is distinct from 'disconnected' then
+    select coalesce(sum(i.balance_due),0)::numeric(14,2)
+      into v_outstanding
+    from public.invoices i
+    where i.tenant_id=new.tenant_id and i.site_id=new.site_id and i.subscriber_id=new.id
+      and i.balance_due>0 and i.status not in ('draft','cancelled','paid');
+    if v_outstanding>0 then
+      raise exception 'SUBSCRIBER_HAS_OUTSTANDING_INVOICES'
+        using errcode='P0001', detail='Remaining invoice balance: '||v_outstanding::text;
+    end if;
+
+    select coalesce(sum(case when l.direction='credit' then l.amount else -l.amount end),0)::numeric(14,2)
+      into v_security_deposit
+    from public.subscriber_balance_ledger l
+    where l.tenant_id=new.tenant_id and l.site_id=new.site_id and l.subscriber_id=new.id
+      and l.balance_type='security_deposit';
+    if v_security_deposit>0 then
+      raise exception 'SUBSCRIBER_SECURITY_DEPOSIT_NOT_SETTLED'
+        using errcode='P0001', detail='Remaining security deposit: '||v_security_deposit::text;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists powerhub_guard_subscriber_disconnection_financial_closeout on public.subscribers;
+create trigger powerhub_guard_subscriber_disconnection_financial_closeout
+before update of service_status on public.subscribers
+for each row
+execute function public.powerhub_guard_subscriber_disconnection_financial_closeout();
+
