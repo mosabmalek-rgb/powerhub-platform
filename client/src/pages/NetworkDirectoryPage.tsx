@@ -779,6 +779,80 @@ function SubscriberDebtorWorkspace({
   );
 }
 
+function SubscriberSecurityDepositOverview({ overview, loading, error, onRefresh }: {
+  overview?: { totalAmount: string; subscriberCount: number; items: Array<{ subscriberId: number; fullName: string; subscriberNo: string; phone: string | null; amount: string; lastMovementAt: Date | null }> };
+  loading: boolean;
+  error?: string;
+  onRefresh: () => void;
+}) {
+  const format = (value: unknown) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
+  const rows = overview?.items ?? [];
+  const exportExcel = async () => {
+    try {
+      const { default: ExcelJS } = await loadExcelJS();
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("تأمينات المشتركين", { views: [{ rightToLeft: true }] });
+      sheet.addRow(["سجل تأمينات المشتركين"]);
+      sheet.addRow(["إجمالي التأمينات", Number(overview?.totalAmount ?? 0), "عدد المشتركين", Number(overview?.subscriberCount ?? 0)]);
+      sheet.addRow([]);
+      sheet.addRow(["الرقم المرجعي", "اسم المشترك", "الهاتف", "مبلغ التأمين", "آخر حركة"]);
+      rows.forEach((item) => sheet.addRow([
+        item.subscriberNo, item.fullName, item.phone ?? "—", Number(item.amount),
+        item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—",
+      ]));
+      sheet.columns = [{ width: 22 }, { width: 32 }, { width: 20 }, { width: 18 }, { width: 24 }];
+      const buffer = await workbook.xlsx.writeBuffer();
+      downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "تأمينات-المشتركين.xlsx");
+      toast.success("تم تصدير سجل التأمينات إلى Excel.");
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : "تعذر تصدير Excel."); }
+  };
+  const exportPdf = () => {
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) { toast.error("اسمح بفتح نافذة التصدير ثم أعد المحاولة."); return; }
+    const tableRows = rows.map((item) => `<tr><td>${escapeHtml(item.subscriberNo)}</td><td>${escapeHtml(item.fullName)}</td><td>${escapeHtml(item.phone ?? "—")}</td><td>${escapeHtml(format(item.amount))}</td><td>${escapeHtml(item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—")}</td></tr>`).join("");
+    popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تأمينات المشتركين</title><style>
+      body{font-family:Arial,sans-serif;color:#172033;margin:24px}h1{font-size:20px}p{font-size:12px}
+      table{border-collapse:collapse;width:100%;font-size:11px}th,td{border:1px solid #8993a3;padding:7px;text-align:right}
+      th{background:#e8edf3}thead{display:table-header-group}tr{break-inside:avoid}
+      @page{size:A4 landscape;margin:12mm}@media print{button{display:none}}
+    </style></head><body><h1>سجل تأمينات المشتركين</h1><p>إجمالي الالتزامات: ${escapeHtml(format(overview?.totalAmount))} شيكل · عدد المشتركين: ${escapeHtml(format(overview?.subscriberCount))}</p>
+    <table><thead><tr><th>الرقم المرجعي</th><th>اسم المشترك</th><th>الهاتف</th><th>مبلغ التأمين</th><th>آخر حركة</th></tr></thead><tbody>${tableRows}</tbody></table>
+    <script>window.onload=()=>{window.print()}<\/script></body></html>`);
+    popup.document.close();
+  };
+  return <Card className="border-amber-300/20 bg-[#111823] shadow-panel">
+    <CardContent className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="font-bold text-white">تأمينات المشتركين</h2><p className="mt-1 text-xs text-slate-400">التزام مالي مستقل عن الفواتير والتحصيل التشغيلي.</p></div>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant="outline" disabled={loading || !overview} onClick={() => void exportExcel()} className="border-white/10 text-slate-200"><FileSpreadsheet className="ml-1 h-4 w-4"/>Excel</Button>
+          <Button type="button" size="sm" variant="outline" disabled={loading || !overview} onClick={exportPdf} className="border-white/10 text-slate-200"><FileText className="ml-1 h-4 w-4"/>PDF</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onRefresh} className="text-slate-300"><RefreshCw className="ml-1 h-4 w-4"/>تحديث</Button>
+        </div>
+      </div>
+      {error ? <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p> : null}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-amber-300/15 bg-amber-300/[.04] p-4"><p className="text-xs text-amber-100/70">إجمالي مبالغ التأمين القائمة</p><p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.totalAmount)} <span className="text-xs font-normal">شيكل</span></p></div>
+        <div className="rounded-xl border border-white/8 bg-white/[.025] p-4"><p className="text-xs text-slate-400">عدد المشتركين أصحاب التأمين</p><p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.subscriberCount)}</p></div>
+      </div>
+      <Dialog>
+        <div className="mt-3 flex justify-end"><Button type="button" variant="outline" disabled={loading || !rows.length} className="border-amber-300/20 text-amber-100" onClick={() => window.dispatchEvent(new CustomEvent("powerhub:open-security-deposits"))}>عرض كشف التأمينات</Button></div>
+        <DialogContent className="h-[80vh] w-[80vw] max-w-[80vw] overflow-hidden border-white/10 bg-[#111823] p-4 text-white sm:max-w-[80vw]">
+          <DialogHeader><DialogTitle>كشف تأمينات المشتركين</DialogTitle><DialogDescription>الإجمالي {format(overview?.totalAmount)} شيكل · {format(overview?.subscriberCount)} مشترك</DialogDescription></DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-white/10">
+            <table className="w-full min-w-[720px] text-right text-[11px]">
+              <thead className="sticky top-0 bg-[#202a38]"><tr>{["الرقم المرجعي","اسم المشترك","الهاتف","مبلغ التأمين","آخر حركة"].map(h=><th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
+              <tbody>{rows.map(item=><tr key={item.subscriberId} className="border-t border-white/8"><td className="px-3 py-2" dir="ltr">{item.subscriberNo}</td><td className="px-3 py-2">{item.fullName}</td><td className="px-3 py-2" dir="ltr">{item.phone ?? "—"}</td><td className="px-3 py-2">{format(item.amount)}</td><td className="px-3 py-2">{item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—"}</td></tr>)}</tbody>
+            </table>
+            {!rows.length ? <p className="p-8 text-center text-xs text-slate-400">لا توجد تأمينات قائمة.</p> : null}
+          </div>
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => void exportExcel()}>Excel</Button><Button type="button" onClick={exportPdf}>PDF</Button></div>
+        </DialogContent>
+      </Dialog>
+    </CardContent>
+  </Card>;
+}
+
 function SubscriberFinancialOverview({ overview }: { overview: any }) {
   const format = (value: unknown) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
   return <section className="grid gap-4 sm:grid-cols-3"><Card className="border-rose-400/20 bg-rose-400/[.055] shadow-panel"><CardContent className="p-5"><div className="flex items-center justify-between text-rose-200"><span className="text-sm font-bold">إجمالي الأرصدة المفتوحة</span><CircleAlert className="h-4 w-4" /></div><p className="mt-4 font-display text-3xl font-extrabold text-white">{format(overview?.outstanding.total)}</p><p className="mt-2 text-xs text-rose-100/70">الرصيد الإجمالي على {format(overview?.outstanding.accountCount)} مشتركاً لديه رصيد مفتوح.</p></CardContent></Card><Card className="border-amber-400/20 bg-amber-400/[.055] shadow-panel"><CardContent className="p-5"><div className="flex items-center justify-between text-amber-200"><span className="text-sm font-bold">دفعات جزئية</span><WalletCards className="h-4 w-4" /></div><p className="mt-4 font-display text-3xl font-extrabold text-white">{format(overview?.outstanding.partialInvoices)}</p><p className="mt-2 text-xs text-amber-100/70">عدد الفواتير المدفوعة جزئياً التي بقي عليها رصيد.</p></CardContent></Card><Card className="border-sky-400/20 bg-sky-400/[.055] shadow-panel"><CardContent className="p-5"><div className="flex items-center justify-between text-sky-200"><span className="text-sm font-bold">متأخر عن الاستحقاق</span><Clock3 className="h-4 w-4" /></div><p className="mt-4 font-display text-3xl font-extrabold text-white">{format(overview?.outstanding.overdue)}</p><p className="mt-2 text-xs text-sky-100/70">إجمالي الأرصدة التي تجاوزت تاريخ الاستحقاق المحدد.</p></CardContent></Card></section>;

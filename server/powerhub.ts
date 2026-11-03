@@ -2435,7 +2435,7 @@ export const powerhubRouter = router({
       const hasSecurityDeposit = input.securityDepositAmount !== undefined;
       const admin = supabaseAdmin();
       // Opening readings establish a baseline and are approved immediately; they do not issue consumption invoices.
-      if (input.clientOperationId && !input.offlineNumberClaim && !hasSecurityDeposit) {
+      if (input.clientOperationId && !input.offlineNumberClaim) {
         const { data: applied, error: appliedError } = await admin.from("offline_sync_operations")
           .select("tenant_id, site_id, entity_type, operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
@@ -2452,7 +2452,7 @@ export const powerhubRouter = router({
         }
       }
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
-      if (!input.offlineNumberClaim && !hasSecurityDeposit && quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
+      if (!input.offlineNumberClaim && quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
       const whatsappNumber = input.whatsappNumber ? normalizeInternationalPhone(input.whatsappNumber) : undefined;
       if (input.openingReadingImageData && !input.openingReadingImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة القراءة الافتتاحية." });
