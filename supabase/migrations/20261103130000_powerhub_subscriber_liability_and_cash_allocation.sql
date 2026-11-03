@@ -24,18 +24,35 @@ alter table public.payments
     'security_deposit',
     'security_deposit_refund'
   ));
+update public.payments
+set invoice_applied_amount=case
+      when payment_purpose in ('invoice_collection','invoice_collection_with_credit') then amount
+      else 0
+    end,
+    subscriber_credit_amount=case
+      when payment_purpose='subscriber_credit' then amount
+      else 0
+    end
+where invoice_applied_amount=0 and subscriber_credit_amount=0;
+
 alter table public.payments drop constraint if exists payments_invoice_credit_split_check;
 alter table public.payments
   add constraint payments_invoice_credit_split_check
   check (
-    invoice_applied_amount >= 0
-    and subscriber_credit_amount >= 0
-    and round(invoice_applied_amount + subscriber_credit_amount,2) <= round(amount,2)
-    and (
-      (payment_purpose='invoice_collection' and subscriber_credit_amount=0)
-      or (payment_purpose='invoice_collection_with_credit' and invoice_applied_amount>0 and subscriber_credit_amount>0)
-      or (payment_purpose in ('subscriber_credit','security_deposit','security_deposit_refund') and invoice_applied_amount=0 and subscriber_credit_amount=0)
-    )
+    case payment_purpose
+      when 'invoice_collection' then
+        invoice_applied_amount=amount and subscriber_credit_amount=0
+      when 'invoice_collection_with_credit' then
+        invoice_applied_amount>0 and subscriber_credit_amount>0
+        and round(invoice_applied_amount+subscriber_credit_amount,2)=round(amount,2)
+      when 'subscriber_credit' then
+        invoice_applied_amount=0 and subscriber_credit_amount=amount
+      when 'security_deposit' then
+        invoice_applied_amount=0 and subscriber_credit_amount=0
+      when 'security_deposit_refund' then
+        invoice_applied_amount=0 and subscriber_credit_amount=0
+      else false
+    end
   );
 
 alter table public.subscriber_balance_ledger
@@ -230,8 +247,8 @@ create or replace function public.powerhub_create_subscriber_with_security_depos
   p_whatsapp_number text,p_address text,p_subscription_type text,p_client_operation_id uuid,p_quota_limit integer,
   p_opening_reading numeric,p_opening_reading_at timestamptz,p_opening_image_key text,p_opening_image_hash text,
   p_opening_reading_approved boolean,p_offline_device_id uuid,p_offline_grant_id uuid,p_offline_number_value text,
-  p_security_deposit_amount numeric,p_security_deposit_company_account_id bigint,p_security_deposit_payment_no text,
-  p_security_deposit_reference_no text,p_security_deposit_operation_id uuid
+  p_security_deposit_amount numeric,p_security_deposit_company_account_id bigint,p_security_deposit_payment_method text,
+  p_security_deposit_payment_no text,p_security_deposit_reference_no text,p_security_deposit_operation_id uuid
 )
 returns table(subscriber_id bigint,subscriber_no text,opening_reading_id bigint,opening_reading_status text,replayed boolean,security_deposit_payment_id bigint)
 language plpgsql
@@ -287,7 +304,7 @@ begin
   select r.payment_id into v_deposit_payment_id
   from public.powerhub_record_security_deposit_receipt(
     p_tenant_id,p_site_id,p_user_id,v_subscriber_id,p_security_deposit_payment_no,
-    p_security_deposit_amount,p_security_deposit_company_account_id,'cash',
+    p_security_deposit_amount,p_security_deposit_company_account_id,p_security_deposit_payment_method,
     p_security_deposit_reference_no,p_security_deposit_operation_id
   ) r;
 
@@ -295,8 +312,8 @@ begin
     coalesce(v_replayed,false),v_deposit_payment_id;
 end;
 $$;
-revoke all on function public.powerhub_create_subscriber_with_security_deposit(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamptz,text,text,boolean,uuid,uuid,text,numeric,bigint,text,text,uuid) from public,anon,authenticated;
-grant execute on function public.powerhub_create_subscriber_with_security_deposit(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamptz,text,text,boolean,uuid,uuid,text,numeric,bigint,text,text,uuid) to service_role;
+revoke all on function public.powerhub_create_subscriber_with_security_deposit(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamptz,text,text,boolean,uuid,uuid,text,numeric,bigint,text,text,text,uuid) from public,anon,authenticated;
+grant execute on function public.powerhub_create_subscriber_with_security_deposit(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamptz,text,text,boolean,uuid,uuid,text,numeric,bigint,text,text,text,uuid) to service_role;
 
 create or replace function public.powerhub_refund_subscriber_security_deposit(
   p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_subscriber_id bigint,p_amount numeric,
@@ -1326,3 +1343,67 @@ AS $function$
   cross join reading_summary;
 $function$
 
+
+
+-- The public share link may expose invoice credit available to settle this invoice,
+-- but never discloses refundable security-deposit liabilities.
+CREATE OR REPLACE FUNCTION public.powerhub_get_shared_invoice_by_token_hash(p_token_hash text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_link public.invoice_share_links%rowtype;
+  v_invoice public.invoices%rowtype;
+  v_subscriber record;
+  v_lines jsonb;
+  v_available_credit numeric(14,2) := 0;
+begin
+  if length(p_token_hash)<32 then
+    raise exception 'SHARE_LINK_NOT_FOUND' using errcode='P0001';
+  end if;
+  perform pg_advisory_xact_lock(hashtext(p_token_hash));
+  select * into v_link from public.invoice_share_links where token_hash=p_token_hash for update;
+  if not found or v_link.revoked_at is not null or (v_link.expires_at is not null and v_link.expires_at<=now()) then
+    raise exception 'SHARE_LINK_NOT_FOUND' using errcode='P0001';
+  end if;
+  select * into v_invoice from public.invoices
+  where id=v_link.invoice_id and tenant_id=v_link.tenant_id;
+  if not found then
+    raise exception 'SHARE_LINK_NOT_FOUND' using errcode='P0001';
+  end if;
+  select full_name,subscriber_no into v_subscriber
+  from public.subscribers
+  where id=v_invoice.subscriber_id and tenant_id=v_link.tenant_id;
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id',line.id,'lineType',line.line_type,'description',line.description,'amount',line.amount,
+    'quantity',line.quantity,'unitPrice',line.unit_price,'displayOrder',line.display_order
+  ) order by line.display_order),'[]'::jsonb)
+  into v_lines
+  from public.invoice_lines line
+  where line.invoice_id=v_invoice.id and line.tenant_id=v_link.tenant_id;
+  select coalesce(sum(case when l.direction='credit' then l.amount else -l.amount end),0)
+  into v_available_credit
+  from public.subscriber_balance_ledger l
+  where l.tenant_id=v_link.tenant_id and l.site_id=v_invoice.site_id
+    and l.subscriber_id=v_invoice.subscriber_id and l.balance_type='available_credit';
+  update public.invoice_share_links
+  set view_count=view_count+1,last_viewed_at=now()
+  where id=v_link.id;
+  return jsonb_build_object(
+    'siteId',v_invoice.site_id,
+    'tenantId',v_link.tenant_id,
+    'invoice',jsonb_build_object(
+      'id',v_invoice.id,'subscriberId',v_invoice.subscriber_id,'invoiceNo',v_invoice.invoice_no,
+      'billingPeriod',v_invoice.billing_period,'issueDate',v_invoice.issue_date,'dueDate',v_invoice.due_date,
+      'previousReading',v_invoice.previous_reading,'currentReading',v_invoice.current_reading,
+      'consumptionKwh',v_invoice.consumption_kwh,'pricePerKwh',v_invoice.price_per_kwh,
+      'fixedFee',v_invoice.fixed_fee,'taxAmount',v_invoice.tax_amount,'discountAmount',v_invoice.discount_amount,
+      'totalAmount',v_invoice.total_amount,'paidAmount',v_invoice.paid_amount,'creditAppliedAmount',coalesce(v_invoice.credit_applied_amount,0),'balanceDue',v_invoice.balance_due,'status',v_invoice.status
+    ),
+    'subscriber',case when v_subscriber is null then null else jsonb_build_object('fullName',v_subscriber.full_name,'subscriberNo',v_subscriber.subscriber_no) end,
+    'lines',v_lines,
+    'subscriberBalance',jsonb_build_object('availableCredit',v_available_credit)
+  );
+end;
+$function$
