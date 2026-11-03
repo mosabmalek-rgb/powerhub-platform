@@ -52,7 +52,7 @@ export default function SubscriberAccountStatementPage(){
  const sumScaled=(values:Array<string|number|null|undefined>,scale:number)=>values.reduce<number>((total,value)=>total+Math.round(Number(value??0)*scale),0);
  const historyAggregatesMatch=Boolean(data
   &&sumScaled(allInvoices.map(row=>row.totalAmount),100)===Math.round(Number(data.summary.totalInvoiced)*100)
-  &&sumScaled(allPayments.filter(row=>["invoice_collection","invoice_collection_with_credit","subscriber_credit"].includes(row.paymentPurpose)).map(row=>row.amount),100)===Math.round(Number(data.summary.totalCollected)*100)
+  &&sumScaled(allPayments.map(row=>row.invoiceAppliedAmount),100)===Math.round(Number(data.summary.totalCollected)*100)
   &&sumScaled(allInvoices.map(row=>row.balanceDue),100)===Math.round(Number(data.summary.totalOutstanding)*100)
   &&sumScaled(allInvoices.map(row=>row.consumptionKwh),1000)===Math.round(Number(data.summary.totalConsumptionKwh)*1000));
  const historySummaryMatches=historyCountsMatch&&historyAggregatesMatch;

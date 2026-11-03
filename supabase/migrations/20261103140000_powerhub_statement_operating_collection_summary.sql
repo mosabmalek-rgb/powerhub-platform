@@ -34,13 +34,13 @@ as $function$
   payment_summary as (
     select
       count(*)::bigint as payment_count,
-      coalesce(sum(p.amount) filter (
+      coalesce(sum(p.invoice_applied_amount) filter (
         where coalesce(p.payment_purpose, 'invoice_collection')
-          in ('invoice_collection', 'invoice_collection_with_credit', 'subscriber_credit')
+          in ('invoice_collection', 'invoice_collection_with_credit')
       ), 0)::numeric as total_collected,
       max(p.paid_at) filter (
         where coalesce(p.payment_purpose, 'invoice_collection')
-          in ('invoice_collection', 'invoice_collection_with_credit', 'subscriber_credit')
+          in ('invoice_collection', 'invoice_collection_with_credit')
       ) as last_payment_at
     from public.payments p
     where p.tenant_id = p_tenant_id

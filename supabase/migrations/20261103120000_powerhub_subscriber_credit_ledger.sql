@@ -323,7 +323,9 @@ begin
   insert into public.account_transactions(
     tenant_id,account_id,transaction_type,amount,description,reference_no,related_payment_id,created_by_user_id
   ) values (
-    p_tenant_id,v_account.id,'collection',p_amount,
+    p_tenant_id,v_account.id,
+    case when p_balance_type='security_deposit' then 'deposit' else 'collection' end,
+    p_amount,
     case when p_balance_type='available_credit' then 'إضافة رصيد متاح للمشترك '||v_subscriber.subscriber_no
          else 'استلام تأمين المشترك '||v_subscriber.subscriber_no end,
     p_reference_no,v_payment_id,p_user_id
