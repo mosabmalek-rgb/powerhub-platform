@@ -74,7 +74,7 @@ export default function PublicInvoice() {
     return <div className="min-h-screen bg-[#0D1117] px-4 py-10" dir="ltr"><main dir="rtl" style={{ width: "100%", maxWidth: "576px", margin: "0 auto" }} className="rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center shadow-2xl shadow-black/30"><PowerHubLogo className="justify-center" /><div className="mx-auto mt-8 grid h-14 w-14 place-items-center rounded-2xl bg-rose-400/10 text-rose-400"><FileText className="h-6 w-6" /></div><h1 className="mt-5 text-xl font-extrabold text-white">{title}</h1><p className="mt-3 leading-7 text-slate-400">{description}</p>{!linkIsInvalid ? <Button className="mt-6 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]" onClick={() => { setLoadingTimedOut(false); void invoiceQuery.refetch(); }}>إعادة المحاولة</Button> : null}</main></div>;
   }
 
-  const { invoice, subscriber, lines, paymentDocumentationAvailable, companyName, companyLogoUrl } = invoiceQuery.data;
+  const { invoice, subscriber, lines, paymentDocumentationAvailable, companyName, companyLogoUrl, subscriberBalance } = invoiceQuery.data;
   const format = (value: unknown, digits = 2) => new Intl.NumberFormat("ar", { maximumFractionDigits: digits }).format(Number(value ?? 0));
   const visibleLines = lines.filter((line) => {
     const amount = Number(line.amount ?? 0);
@@ -108,6 +108,8 @@ export default function PublicInvoice() {
             <div className="bg-[#111823] p-4 text-right"><p className="text-xs text-slate-500">الاستهلاك</p><p className="mt-2 font-display text-xl font-extrabold text-white">{format(invoice.consumptionKwh, 3)} <span className="text-xs text-slate-500">kWh</span></p></div>
             <div className="bg-[#111823] p-4 text-right"><p className="text-xs text-slate-500">سعر الكيلوواط</p><p className="mt-2 font-display text-lg font-extrabold text-white">{format(invoice.pricePerKwh, 4)} <span className="text-xs font-medium text-slate-400">شيكل/kWh</span></p></div>
             <div className="bg-[#111823] p-4 text-right col-span-2 md:col-span-1"><p className="text-xs text-slate-500">المتبقي للسداد</p><p className="mt-2 font-display text-xl font-extrabold text-[#F5B800]">{format(invoice.balanceDue)} <span className="text-xs font-medium">شيكل</span></p></div>
+            {Number(invoice.creditAppliedAmount ?? 0) > 0 ? <div className="bg-emerald-500/[.06] p-4 text-right col-span-2 md:col-span-1"><p className="text-xs text-emerald-200">الرصيد الدائن المطبق على الفاتورة</p><p className="mt-2 font-display text-xl font-extrabold text-emerald-300">−{format(invoice.creditAppliedAmount)} <span className="text-xs font-medium">شيكل</span></p></div> : null}
+            {Number(subscriberBalance?.availableCredit ?? 0) > 0 ? <div className="bg-sky-500/[.06] p-4 text-right col-span-2 md:col-span-1"><p className="text-xs text-sky-200">رصيد دائن متاح للمشترك</p><p className="mt-2 font-display text-xl font-extrabold text-sky-300">{format(subscriberBalance.availableCredit)} <span className="text-xs font-medium">شيكل</span></p><p className="mt-1 text-[11px] text-slate-400">رصيد منفصل لم يُطبق على هذه الفاتورة بعد.</p></div> : null}
           </div>
           <div className="mx-auto mt-5 max-w-3xl overflow-hidden rounded-2xl border border-white/8 text-right">
             <div className="border-b border-white/8 bg-white/[0.025] px-4 py-3 text-sm font-bold text-white">بنود الفاتورة</div>

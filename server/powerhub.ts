@@ -2367,6 +2367,17 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
       return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: input.siteId });
     }),
+    balanceSnapshot: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      subscriberId: z.number().int().positive(),
+    })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_balance_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_subscriber_id: input.subscriberId,
+      });
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل رصيد المشترك الدائن والتأمين." });
+      return { availableCredit: String(data?.[0]?.available_credit ?? 0), securityDeposit: String(data?.[0]?.security_deposit ?? 0) };
+    }),
     accountStatement: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       subscriberId: z.number().int().positive(),
@@ -3099,8 +3110,9 @@ export const powerhubRouter = router({
         const payload = data as {
           siteId?: number;
           tenantId?: number;
-          invoice: { id: number; subscriberId: number; invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; previousReading: number | null; currentReading: number | null; consumptionKwh: number; pricePerKwh: number; fixedFee: number; taxAmount: number; discountAmount: number; totalAmount: number; paidAmount: number; balanceDue: number; status: string };
+          invoice: { id: number; subscriberId: number; invoiceNo: string; billingPeriod: string; issueDate: string; dueDate: string; previousReading: number | null; currentReading: number | null; consumptionKwh: number; pricePerKwh: number; fixedFee: number; taxAmount: number; discountAmount: number; totalAmount: number; paidAmount: number; creditAppliedAmount?: number; balanceDue: number; status: string };
           subscriber: { fullName: string; subscriberNo: string } | null;
+          subscriberBalance?: { availableCredit?: number };
           lines: Array<{ id: number; lineType?: string; description: string; amount: number; quantity: number; unitPrice: number; displayOrder: number }>;
         };
         let paymentDocumentationAvailable = false;
