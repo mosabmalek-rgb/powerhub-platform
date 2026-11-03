@@ -21,6 +21,18 @@ describe("public invoice and inquiry actions", () => {
     expect(billing).toContain("result.path");
   });
 
+  it("shows available subscriber credit only when positive and renders applied credit once from the canonical invoice line", () => {
+    const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
+    const creditMigration = read("supabase/migrations/20261103120000_powerhub_subscriber_credit_ledger.sql");
+
+    expect(publicInvoice).toContain("الرصيد الدائن المطبق على الفاتورة");
+    expect(publicInvoice).toContain("Number(subscriberBalance?.availableCredit ?? 0) > 0");
+    expect(publicInvoice).not.toContain("استخدام الرصيد المتاح للمشترك</span>");
+    expect(creditMigration).toContain("'other','استخدام الرصيد المتاح للمشترك'");
+    expect(creditMigration).toContain("'subscriberBalance',jsonb_build_object('availableCredit',v_available_credit)");
+    expect(creditMigration).not.toContain("'securityDeposit',v_security_deposit");
+  });
+
   it("allows same-origin framing only for shared invoice previews", () => {
     const config = JSON.parse(read("vercel.json")) as {
       headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }>;
