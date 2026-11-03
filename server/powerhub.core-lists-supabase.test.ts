@@ -19,7 +19,7 @@ const state = vi.hoisted(() => {
     user_quick_action_preferences: [{ user_id: 1, site_id: 10, action_ids: ["record_reading"], updated_at: "2026-08-01T00:00:00.000Z" }],
     tenant_tweetsms_accounts: [{ tenant_id: 20, sender_name: "PowerHub", monthly_limit: 1000, is_active: true, credential_ciphertext: "configured", last_error: null }],
     sms_package_requests: [],
-    payments: [{ id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70, payment_no: "PAY-202608-0001", client_operation_id: null, amount: 25, payment_method: "cash", transfer_from_account: null, transfer_from_type: null, transfer_to_account: null, transfer_to_type: null, reference_no: "REF-1", receipt_image_key: null, receipt_image_hash: null, status: "completed", collected_by_user_id: 1, collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
+    payments: [{ id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70, payment_no: "PAY-202608-0001", client_operation_id: null, amount: 25, invoice_applied_amount: 25, subscriber_credit_amount: 0, payment_purpose: "invoice_collection", payment_method: "cash", transfer_from_account: null, transfer_from_type: null, transfer_to_account: null, transfer_to_type: null, reference_no: "REF-1", receipt_image_key: null, receipt_image_hash: null, status: "completed", collected_by_user_id: 1, collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
     company_accounts: [{ id: 90, tenant_id: 20, name: "كاش", account_type: "cash", phone_number: null, color: "#64748b", opening_balance: 100, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" }],
     company_account_sites: [{ tenant_id: 20, account_id: 90, site_id: 10 }],
     account_transactions: [{ id: 91, tenant_id: 20, account_id: 90, transaction_type: "collection", amount: 25, description: "تحصيل الفاتورة PAY-202608-0001", reference_no: "REF-1", related_payment_id: 81, related_account_id: null, created_by_user_id: 1, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
@@ -558,6 +558,53 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       createdAt: expect.any(Date),
       reviewedAt: null,
     });
+  });
+
+  it("يحسب التحصيل التشغيلي من الجزء المطبق على الفاتورة فقط ويستبعد الرصيد الدائن والتأمين", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    const previousPayments = state.tables.payments;
+    state.tables.payments = [
+      {
+        id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70,
+        payment_no: "PAY-SPLIT-001", client_operation_id: "split-op", amount: 40,
+        invoice_applied_amount: 25, subscriber_credit_amount: 15,
+        payment_purpose: "invoice_collection_with_credit", payment_method: "cash",
+        transfer_from_account: null, transfer_from_type: null, transfer_to_account: null,
+        transfer_to_type: null, reference_no: "SPLIT-REF", receipt_image_key: null,
+        receipt_image_hash: null, status: "completed", collected_by_user_id: 1,
+        collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z",
+        created_at: "2026-08-03T00:00:00.000Z",
+      },
+      {
+        id: 82, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: null,
+        payment_no: "CREDIT-001", amount: 20, invoice_applied_amount: 0,
+        subscriber_credit_amount: 20, payment_purpose: "subscriber_credit",
+        payment_method: "cash", status: "completed", paid_at: "2026-08-04T00:00:00.000Z",
+        collected_by_user_id: 1,
+      },
+      {
+        id: 83, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: null,
+        payment_no: "DEPOSIT-001", amount: 100, invoice_applied_amount: 0,
+        subscriber_credit_amount: 0, payment_purpose: "security_deposit",
+        payment_method: "cash", status: "completed", paid_at: "2026-08-05T00:00:00.000Z",
+        collected_by_user_id: 1,
+      },
+      {
+        id: 84, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: null,
+        payment_no: "DEPOSIT-REFUND-001", amount: 10, invoice_applied_amount: 0,
+        subscriber_credit_amount: 0, payment_purpose: "security_deposit_refund",
+        payment_method: "cash", status: "completed", paid_at: "2026-08-06T00:00:00.000Z",
+        collected_by_user_id: 1,
+      },
+    ];
+    try {
+      const report = await caller.reports.range({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" });
+      expect(report.summary).toMatchObject({ collected: 25, operatingProfit: 10 });
+      expect(report.collectors).toEqual([{ name: "محصل غير محدد", count: 1, amount: 25 }]);
+      expect(report.paymentDetails).toEqual([expect.objectContaining({ paymentNo: "PAY-SPLIT-001", amount: 25 })]);
+    } finally {
+      state.tables.payments = previousPayments;
+    }
   });
 
   it("يعرض التقرير الشهري للفرع من Supabase دون استدعاء MySQL", async () => {
