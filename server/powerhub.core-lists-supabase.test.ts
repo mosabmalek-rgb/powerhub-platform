@@ -317,8 +317,8 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_site") return resolved([{ site_id: 11 }]);
       if (["powerhub_update_company_account_phone", "powerhub_update_company_account_opening_balance", "powerhub_update_company_account_sites"].includes(name)) return resolved([{ account_id: 92 }]);
       if (name === "powerhub_create_company_account") return resolved([{ account_id: 92 }]);
-      if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
-      if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
+      if (name === "powerhub_add_account_movement_idempotent") return resolved([{ transaction_id: 93, replayed: false }]);
+      if (name === "powerhub_transfer_company_accounts_idempotent") return resolved([{ from_transaction_id: 94, to_transaction_id: 95, replayed: false }]);
       if (name === "powerhub_queue_payment_sms") return resolved([{ notification_id: 90, queued: true }]);
       if (name === "powerhub_close_collector_session") return resolved([{ expected_cash: 10, variance_amount: 0 }]);
       if (name === "powerhub_get_sms_quota") return resolved([{ total_messages: 1000, used_segments: 2, remaining_messages: 998, subscription_id: 108, sms_plan_id: null, plan_code: "basic", plan_name: "الناشئة", base_messages: 0, additional_messages: 1000 }]);
@@ -1664,12 +1664,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("ينشئ حساب الشركة وحركاته وتحويله عبر Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "جوال بي 1", accountType: "jawwal_pay", phoneNumber: "+970595123456", openingBalance: 5, siteIds: [10] })).resolves.toEqual({ id: 92 });
-    await expect(caller.companyAccounts.addMovement({ siteId: 10, accountId: 90, transactionType: "deposit", amount: 10, description: "إيداع" })).resolves.toEqual({ id: 93 });
-    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل داخلي" })).resolves.toEqual({ success: true });
+    const movementOperationKey = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const transferOperationKey = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    await expect(caller.companyAccounts.addMovement({ siteId: 10, accountId: 90, transactionType: "deposit", amount: 10, description: "إيداع", operationKey: movementOperationKey })).resolves.toEqual({ id: 93, replayed: false });
+    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل داخلي", operationKey: transferOperationKey })).resolves.toEqual({ success: true, replayed: false });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_create_company_account", args: expect.objectContaining({ p_tenant_id: 20, p_site_ids: [10] }) }),
-      expect.objectContaining({ name: "powerhub_add_account_movement", args: expect.objectContaining({ p_account_id: 90, p_transaction_type: "deposit", p_amount: 10 }) }),
-      expect.objectContaining({ name: "powerhub_transfer_company_accounts", args: expect.objectContaining({ p_from_account_id: 90, p_to_account_id: 92, p_amount: 5 }) }),
+      expect.objectContaining({ name: "powerhub_add_account_movement_idempotent", args: expect.objectContaining({ p_account_id: 90, p_transaction_type: "deposit", p_amount: 10, p_operation_key: movementOperationKey }) }),
+      expect.objectContaining({ name: "powerhub_transfer_company_accounts_idempotent", args: expect.objectContaining({ p_from_account_id: 90, p_to_account_id: 92, p_amount: 5, p_operation_key: transferOperationKey }) }),
     ]);
   });
 

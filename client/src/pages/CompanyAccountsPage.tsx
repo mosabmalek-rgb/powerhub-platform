@@ -106,8 +106,25 @@ export default function CompanyAccountsPage() {
     },
     onError: (error) => toast.error(error.message),
   });
-  const movement = trpc.powerhub.companyAccounts.addMovement.useMutation({ onSuccess: () => { toast.success("تم تسجيل حركة الحساب."); setAmount(""); setDescription(""); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-  const transfer = trpc.powerhub.companyAccounts.transfer.useMutation({ onSuccess: () => { toast.success("تم تنفيذ التحويل بين الحسابات."); setAmount(""); setDescription(""); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
+  const accountOperationKeyRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const operationKeyFor = (payload: Record<string, unknown>) => {
+    const fingerprint = JSON.stringify(payload);
+    if (!accountOperationKeyRef.current || accountOperationKeyRef.current.fingerprint !== fingerprint) {
+      accountOperationKeyRef.current = { fingerprint, key: crypto.randomUUID() };
+    }
+    return accountOperationKeyRef.current.key;
+  };
+  const clearAccountOperationKey = (operationKey: string) => {
+    if (accountOperationKeyRef.current?.key === operationKey) accountOperationKeyRef.current = null;
+  };
+  const movement = trpc.powerhub.companyAccounts.addMovement.useMutation({
+    onSuccess: (_result, variables) => { clearAccountOperationKey(variables.operationKey); toast.success("تم تسجيل حركة الحساب."); setAmount(""); setDescription(""); refreshAccounts(); },
+    onError: (error) => toast.error(error.message),
+  });
+  const transfer = trpc.powerhub.companyAccounts.transfer.useMutation({
+    onSuccess: (_result, variables) => { clearAccountOperationKey(variables.operationKey); toast.success("تم تنفيذ التحويل بين الحسابات."); setAmount(""); setDescription(""); refreshAccounts(); },
+    onError: (error) => toast.error(error.message),
+  });
 
   const rows = accounts.data ?? [];
   const filtered = useMemo(() => rows.filter((account) => `${account.name} ${account.phoneNumber ?? ""} ${labels[account.accountType] ?? account.accountType}`.toLowerCase().includes(search.toLowerCase().trim())), [rows, search]);
@@ -218,15 +235,18 @@ export default function CompanyAccountsPage() {
       setPendingAction({ kind: "withdrawal", amount: value, description: description.trim() });
       return;
     }
-    movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: mode, amount: value, description: description.trim() });
+    const payload = { siteId, accountId: selectedAccount.id, transactionType: mode, amount: value, description: description.trim() };
+    movement.mutate({ ...payload, operationKey: operationKeyFor(payload) });
   };
 
   const confirmPendingAction = () => {
     if (!selectedAccount || !pendingAction) return;
     if (pendingAction.kind === "transfer" && pendingAction.targetAccountId) {
-      transfer.mutate({ siteId, fromAccountId: selectedAccount.id, toAccountId: pendingAction.targetAccountId, amount: pendingAction.amount, description: pendingAction.description });
+      const payload = { siteId, fromAccountId: selectedAccount.id, toAccountId: pendingAction.targetAccountId, amount: pendingAction.amount, description: pendingAction.description };
+      transfer.mutate({ ...payload, operationKey: operationKeyFor(payload) });
     } else {
-      movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: "withdrawal", amount: pendingAction.amount, description: pendingAction.description });
+      const payload = { siteId, accountId: selectedAccount.id, transactionType: "withdrawal" as const, amount: pendingAction.amount, description: pendingAction.description };
+      movement.mutate({ ...payload, operationKey: operationKeyFor(payload) });
     }
     setPendingAction(null);
   };
