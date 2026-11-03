@@ -3,6 +3,9 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { downloadBlob } from "@/lib/download-blob";
+import { escapeHtml } from "@/lib/report-pdf";
 import { SubscriberQuotaCard } from "@/components/SubscriberQuotaCard";
 import { BulkSubscriberImport } from "@/components/BulkSubscriberImport";
 import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
@@ -31,6 +34,11 @@ type SubscriberTypeFilter = "all" | "residential" | "commercial" | "institution"
 const SUBSCRIBER_PAGE_SIZE = 20;
 function normalizeSubscriberSearch(value: unknown) { return String(value ?? "").normalize("NFKC").toLocaleLowerCase("ar").trim(); }
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
+
+function companyAccountDepositMethod(accountType: string): "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "wallet" | "bank_transfer" | "card" {
+  if (accountType === "cash" || accountType === "jawwal_pay" || accountType === "palpay" || accountType === "bank_of_palestine") return accountType;
+  return "bank_transfer";
+}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>;
@@ -107,6 +115,18 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     totalPages: number;
   }>());
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
+  const role = accessQuery.data?.role;
+  const canManageSubscriberDeposits = ["owner", "manager", "accountant"].includes(String(role)) && can(role, "collectPayments");
+  const securityDepositAccountsQuery = trpc.powerhub.subscribers.securityDepositAccounts.useQuery({ siteId: siteId ?? 0 }, {
+    enabled: enabled && kind === "subscribers" && canManageSubscriberDeposits,
+    staleTime: 60_000,
+    refetchOnReconnect: "always",
+  });
+  const securityDepositOverviewQuery = trpc.powerhub.subscribers.securityDepositOverview.useQuery({ siteId: siteId ?? 0 }, {
+    enabled: enabled && kind === "subscribers" && accessQuery.isSuccess,
+    staleTime: 60_000,
+    refetchOnReconnect: "always",
+  });
   const subscribersQuery = trpc.powerhub.subscribers.directoryPage.useQuery({
     siteId: siteId ?? 0,
     page: subscriberPage,
@@ -236,7 +256,6 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch", includeDetails: false }, { enabled: enabled && kind === "subscribers", staleTime: 60_000 });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators" });
-  const role = accessQuery.data?.role;
   const canEdit = kind === "subscribers" ? can(role, "manageSubscribers") : can(role, "manageGenerators");
   const data: any[] = kind === "subscribers" ? subscribersQuery.data?.items ?? [] : generatorsQuery.data ?? [];
   const searchTerm = normalizeSubscriberSearch(subscriberSearch);
@@ -284,6 +303,7 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
           // directory caches after a local create/update.
           utils.powerhub.subscribers.directoryPage.invalidate({ siteId: siteScope.siteId }),
           ...(operation === "create" ? [utils.powerhub.subscribers.quota.invalidate(siteScope)] : []),
+          utils.powerhub.subscribers.securityDepositOverview.invalidate(siteScope),
           utils.powerhub.dashboard.financialOverview.invalidate({ ...siteScope, scope: "branch" }),
           utils.powerhub.dashboard.summary.invalidate(siteScope),
           utils.powerhub.audit.list.invalidate(siteScope),
@@ -308,7 +328,38 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: () => { refresh("update"); setEditing(null); toast.success("تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
 
   const submitSubscriber = async (values: Values) => {
-    const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial" | "institution" | "mosque", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected", openingReading: values.openingReading ? String(values.openingReading) : undefined, openingReadingAt: values.openingReadingAt ? String(values.openingReadingAt) : undefined, openingReadingApproved: Boolean(values.openingReading), openingReadingImageData: values.openingReadingImageData ? String(values.openingReadingImageData) : undefined, openingReadingImageMime: values.openingReadingImageMime ? String(values.openingReadingImageMime) as "image/jpeg" | "image/png" | "image/webp" : undefined };
+    const securityDepositAmount = values.securityDepositAmount === undefined || values.securityDepositAmount === "" ? undefined : Number(values.securityDepositAmount);
+    const securityDepositAccountId = values.securityDepositCompanyAccountId ? Number(values.securityDepositCompanyAccountId) : undefined;
+    const securityDepositAccount = securityDepositAccountsQuery.data?.find((account) => account.id === securityDepositAccountId);
+    const securityDepositPaymentMethod = securityDepositAccount ? companyAccountDepositMethod(securityDepositAccount.accountType) : undefined;
+    if (securityDepositAmount !== undefined && (
+      !Number.isFinite(securityDepositAmount) || securityDepositAmount <= 0 ||
+      !Number.isInteger(securityDepositAccountId) || !securityDepositAccount ||
+      !securityDepositPaymentMethod || !canManageSubscriberDeposits
+    )) {
+      toast.error("تحقق من مبلغ التأمين واختر حساب شركة نشطاً ومتاحاً لهذا الفرع.");
+      return;
+    }
+    const base = {
+      siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone),
+      address: values.address ? String(values.address) : undefined,
+      subscriptionType: values.subscriptionType as "residential" | "commercial" | "institution" | "mosque",
+      serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected",
+      openingReading: values.openingReading ? String(values.openingReading) : undefined,
+      openingReadingAt: values.openingReadingAt ? String(values.openingReadingAt) : undefined,
+      openingReadingApproved: Boolean(values.openingReading),
+      openingReadingImageData: values.openingReadingImageData ? String(values.openingReadingImageData) : undefined,
+      openingReadingImageMime: values.openingReadingImageMime ? String(values.openingReadingImageMime) as "image/jpeg" | "image/png" | "image/webp" : undefined,
+      ...(securityDepositAmount !== undefined ? {
+        securityDepositAmount,
+        securityDepositCompanyAccountId: securityDepositAccountId!,
+        securityDepositPaymentMethod: securityDepositPaymentMethod!,
+        securityDepositPaymentNo: String(values.securityDepositPaymentNo),
+        securityDepositReferenceNo: values.securityDepositReferenceNo ? String(values.securityDepositReferenceNo) : undefined,
+        securityDepositOperationId: String(values.securityDepositOperationId),
+        clientOperationId: String(values.clientOperationId),
+      } : {}),
+    };
     if (!isOnline) {
       if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ المسودة محلياً.");
       if (!editing && (!Number.isSafeInteger(activeTenantId) || activeTenantId <= 0)) {
@@ -337,13 +388,28 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
               openingReadingApproved: base.openingReadingApproved,
               openingReadingImageData: base.openingReadingImageData,
               openingReadingImageMime: base.openingReadingImageMime,
+              securityDepositAmount: base.securityDepositAmount,
+              securityDepositCompanyAccountId: base.securityDepositCompanyAccountId,
+              securityDepositPaymentMethod: base.securityDepositPaymentMethod,
+              securityDepositPaymentNo: base.securityDepositPaymentNo,
+              securityDepositReferenceNo: base.securityDepositReferenceNo,
+              securityDepositOperationId: base.securityDepositOperationId,
+              clientOperationId: base.clientOperationId,
             },
           });
         } else {
           const deviceId = await getPowerHubDeviceId();
           const queued = await enqueueOfflineSubscriberCreateWithNumber({
             scope: { userId: Number(user.id), tenantId: activeTenantId, siteId: siteId!, deviceId },
-            payload: { fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType },
+            payload: {
+              fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType,
+              securityDepositAmount: base.securityDepositAmount,
+              securityDepositCompanyAccountId: base.securityDepositCompanyAccountId,
+              securityDepositPaymentMethod: base.securityDepositPaymentMethod,
+              securityDepositPaymentNo: base.securityDepositPaymentNo,
+              securityDepositReferenceNo: base.securityDepositReferenceNo,
+              securityDepositOperationId: base.securityDepositOperationId,
+            },
           });
           reservedNumber = queued.formattedNumber;
         }
@@ -422,11 +488,11 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><div className="flex items-center gap-2">{kind === "subscribers" ? <Button type="button" variant="outline" size="sm" onClick={() => void refreshSubscriberDirectory()} disabled={isManuallyRefreshingSubscribers || subscribersQuery.isFetching} className="shrink-0 border-white/10 text-slate-200"><RefreshCw className={`ml-2 h-4 w-4 ${isManuallyRefreshingSubscribers || subscribersQuery.isFetching ? "animate-spin" : ""}`} />تحديث القائمة</Button> : null}<select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); setSubscriberPage(1); setSubscriberSearch(""); setDebouncedSubscriberSearch(""); setSubscriberTypeFilter("all"); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></div></header>
     {directoryQueryError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06]"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بيانات هذا القسم</h2><p className="mt-1 text-sm leading-6 text-slate-400">لن نعتبر فشل الاتصال دليلاً على حذف السجلات. أعد المحاولة بعد استعادة الاتصال.</p></div><Button type="button" variant="outline" onClick={() => void retryDirectoryQueries()} className="shrink-0 border-amber-300/30 text-amber-100">إعادة المحاولة</Button></CardContent></Card> : null}
     <div className={kind === "subscribers" ? "space-y-6" : "grid gap-6 xl:grid-cols-[.8fr_1.2fr]"}>
-      {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <><div className="mb-4 flex items-center justify-between gap-3"><span className={addCardCollapsed && !editing ? "text-lg font-extrabold text-white sm:text-xl" : "text-sm font-bold text-slate-300"}>{editing ? "تعديل بيانات المشترك" : "إضافة مشترك"}</span><Button type="button" size="sm" variant="outline" onClick={() => setAddCardCollapsed((value) => !value)} className="border-white/10 text-slate-200">{addCardCollapsed ? "فتح البطاقة" : "طي البطاقة"}</Button></div>{!addCardCollapsed ? <SubscriberEditor key={`${editing?.id ?? "new"}-${subscriberFormResetKey}`} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : null}</> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
+      {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <><div className="mb-4 flex items-center justify-between gap-3"><span className={addCardCollapsed && !editing ? "text-lg font-extrabold text-white sm:text-xl" : "text-sm font-bold text-slate-300"}>{editing ? "تعديل بيانات المشترك" : "إضافة مشترك"}</span><Button type="button" size="sm" variant="outline" onClick={() => setAddCardCollapsed((value) => !value)} className="border-white/10 text-slate-200">{addCardCollapsed ? "فتح البطاقة" : "طي البطاقة"}</Button></div>{!addCardCollapsed ? <SubscriberEditor key={`${editing?.id ?? "new"}-${subscriberFormResetKey}`} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} companyAccounts={securityDepositAccountsQuery.data ?? []} accountsLoading={securityDepositAccountsQuery.isLoading} canReceiveDeposit={canManageSubscriberDeposits} /> : null}</> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
       <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل {title}</h2><span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{kind === "subscribers" ? `${visibleData.length ? (currentSubscriberPage - 1) * SUBSCRIBER_PAGE_SIZE + 1 : 0}–${Math.min(currentSubscriberPage * SUBSCRIBER_PAGE_SIZE, totalSubscriberResults)} من ${totalSubscriberResults} نتيجة` : `${visibleData.length} من ${data.length} سجل`}</span></div><div className="p-5">{kind === "subscribers" ? <div className="mb-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs text-slate-400"><span className="mb-1 block">بحث ذكي وسريع</span><input id="subscriber-search-input" aria-label="بحث ذكي في سجل المشتركين" list={`subscriber-autocomplete-${siteId}`} value={subscriberSearch} onChange={(event) => setSubscriberSearch(event.target.value)} placeholder="اسم المشترك أو الرقم المرجعي أو الهاتف…" className={inputClass} /><datalist id={`subscriber-autocomplete-${siteId}`}>{data.slice(0,200).flatMap((row) => [<option key={`name-${row.id}`} value={row.fullName}/>,<option key={`number-${row.id}`} value={row.subscriberNo}/>,<option key={`phone-${row.id}`} value={row.phone}/>])}</datalist></label><label className="block text-xs text-slate-400"><span className="mb-1 block">نوع المشترك</span><select aria-label="فلتر نوع المشترك" value={subscriberTypeFilter} onChange={(event) => { setSubscriberTypeFilter(event.target.value as SubscriberTypeFilter); setSubscriberPage(1); }} className={inputClass}><option value="all">كل الأنواع</option><option value="residential">سكني</option><option value="commercial">تجاري</option><option value="institution">مؤسسات</option><option value="mosque">مساجد</option></select></label></div> : null}{pageData.length ? <div className="space-y-2">{pageData.map((item) => <RecordRow key={item.id} kind={kind} item={item} canEdit={canEdit} onEdit={() => { setEditing(item); setAddCardCollapsed(false); }} onOpenStatement={kind === "subscribers" && siteId ? () => setLocation(`/subscriber-statement/${item.id}?siteId=${siteId}`) : undefined} />)}</div> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">{kind === "generators" && generatorsQuery.isError ? "تعذر تحميل سجلات المولدات؛ أعد المحاولة أعلاه." : kind === "subscribers" && subscribersQuery.isError ? "تعذر تحميل سجل المشتركين؛ أعد المحاولة أعلاه." : kind === "subscribers" && (searchTerm || subscriberTypeFilter !== "all") ? "لا توجد نتائج مطابقة للبحث أو نوع المشترك المحدد." : `لا توجد سجلات في ${activeSite?.name}.`} {canEdit && !searchTerm && subscriberTypeFilter === "all" ? "استخدم النموذج لإضافة أول سجل." : ""}</div>}{kind === "subscribers" && totalSubscriberResults > SUBSCRIBER_PAGE_SIZE ? <nav aria-label="صفحات سجل المشتركين" className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4"><span className="text-xs text-slate-400">عرض 20 مشتركاً كحد أقصى في الصفحة</span><div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage(1)} className="border-white/10 text-slate-200">الأولى</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage((page) => Math.max(1, page - 1))} className="border-white/10 text-slate-200">السابق</Button><span aria-live="polite" className="min-w-24 text-center text-xs text-slate-300">صفحة {currentSubscriberPage} من {totalSubscriberPages}</span><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage((page) => Math.min(totalSubscriberPages, page + 1))} className="border-white/10 text-slate-200">التالي</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage(totalSubscriberPages)} className="border-white/10 text-slate-200">الأخيرة</Button></div></nav> : null}</div></CardContent></Card>
     </div>
     {kind === "generators" && canEdit && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}
-    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { refresh("create"); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace siteId={siteId!} canRemind={can(role, "manageMessaging")} initialPeriod={initialDebtorPeriod} initialScope={initialDebtorScope} initialStatus={initialDebtorStatus} autoFocus={focusDebtorCard} /></> : null}
+    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberSecurityDepositOverview overview={securityDepositOverviewQuery.data} loading={securityDepositOverviewQuery.isLoading} error={securityDepositOverviewQuery.error?.message} onRefresh={() => void securityDepositOverviewQuery.refetch()} /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { refresh("create"); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace siteId={siteId!} canRemind={can(role, "manageMessaging")} initialPeriod={initialDebtorPeriod} initialScope={initialDebtorScope} initialStatus={initialDebtorStatus} autoFocus={focusDebtorCard} /></> : null}
   </div>);
 }
 
@@ -737,12 +803,18 @@ async function copySubscriberReference(subscriberNo: string) {
   }
 }
 
-function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
+function SubscriberEditor({ editing, pending, onCancel, onSubmit, companyAccounts, accountsLoading, canReceiveDeposit }: {
   editing: any;
   pending: boolean;
   onCancel: () => void;
-  onSubmit: (values: Values) => void;
+  onSubmit: (values: Values) => void | Promise<void>;
+  companyAccounts: Array<{ id: number; name: string; accountType: string; balance: number }>;
+  accountsLoading: boolean;
+  canReceiveDeposit: boolean;
 }) {
+  const [depositEnabled, setDepositEnabled] = useState(false);
+  const [localSubmitting, setLocalSubmitting] = useState(false);
+  const operationRef = useRef<{ fingerprint: string; clientOperationId: string; depositOperationId: string; paymentNo: string } | null>(null);
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -750,6 +822,12 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
     const image = rawImage instanceof File && rawImage.size > 0 ? rawImage : null;
     const reading = String(form.get("openingReading") || "").trim();
     const readingAt = String(form.get("openingReadingAt") || "").trim();
+    const securityDepositAmountText = depositEnabled ? String(form.get("securityDepositAmount") || "").trim() : "";
+    const securityDepositAmount = securityDepositAmountText ? Number(securityDepositAmountText) : undefined;
+    const securityDepositCompanyAccountId = depositEnabled ? Number(form.get("securityDepositCompanyAccountId") || 0) : undefined;
+    const securityDepositReferenceNo = depositEnabled ? String(form.get("securityDepositReferenceNo") || "").trim() : "";
+    const securityDepositAccount = companyAccounts.find((account) => account.id === securityDepositCompanyAccountId);
+    const securityDepositPaymentMethod = securityDepositAccount ? companyAccountDepositMethod(securityDepositAccount.accountType) : undefined;
 
 
     if (image && image.size > 7 * 1024 * 1024) {
@@ -760,8 +838,15 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
       window.alert("أدخل قيمة القراءة الافتتاحية قبل إضافة صورتها أو اعتمادها.");
       return;
     }
-
-    const submit = (openingReadingImageData?: string) => onSubmit({
+    if (depositEnabled && (
+      securityDepositAmount === undefined || !Number.isFinite(securityDepositAmount) ||
+      securityDepositAmount <= 0 || Math.round(securityDepositAmount * 100) !== securityDepositAmount * 100 ||
+      !securityDepositAccount || !securityDepositPaymentMethod
+    )) {
+      window.alert("أدخل مبلغ التأمين الصحيح واختر حساب إيداع نشطاً ومتاحاً لهذا الفرع.");
+      return;
+    }
+    const values: Values = {
       fullName: String(form.get("fullName")),
       phone: String(form.get("phone")),
       address: String(form.get("address") || ""),
@@ -770,9 +855,35 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
       openingReading: reading || undefined,
       openingReadingAt: readingAt || undefined,
       openingReadingApproved: Boolean(reading),
-      openingReadingImageData,
+      securityDepositAmount,
+      securityDepositCompanyAccountId: depositEnabled ? securityDepositCompanyAccountId : undefined,
+      securityDepositPaymentMethod,
+      securityDepositReferenceNo: securityDepositReferenceNo || undefined,
+      openingReadingImageData: undefined,
       openingReadingImageMime: image?.type || undefined,
-    });
+    };
+    const fingerprint = JSON.stringify({ ...values, openingReadingImage: image ? [image.name, image.size, image.lastModified] : null });
+    let operation = operationRef.current;
+    if (!editing && depositEnabled && (!operation || operation.fingerprint !== fingerprint)) {
+      const clientOperationId = crypto.randomUUID();
+      operation = {
+        fingerprint, clientOperationId, depositOperationId: crypto.randomUUID(),
+        paymentNo: `DEP-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${clientOperationId.slice(0,8).toUpperCase()}`,
+      };
+      operationRef.current = operation;
+    }
+    const submit = (openingReadingImageData?: string) => {
+      setLocalSubmitting(true);
+      const payload: Values = {
+        ...values, openingReadingImageData,
+        ...(operation && depositEnabled ? {
+          clientOperationId: operation.clientOperationId,
+          securityDepositOperationId: operation.depositOperationId,
+          securityDepositPaymentNo: operation.paymentNo,
+        } : {}),
+      };
+      void Promise.resolve(onSubmit(payload)).finally(() => setLocalSubmitting(false));
+    };
 
     if (image && image.size) {
       const reader = new FileReader();
@@ -828,6 +939,34 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
           </select>
         </Field>
 
+        {!editing && canReceiveDeposit ? (
+          <section className="space-y-3 rounded-xl border border-amber-300/20 bg-amber-300/[.035] p-4">
+            <label className="flex cursor-pointer items-center gap-3 text-sm font-bold text-amber-100">
+              <input type="checkbox" name="securityDepositEnabled" checked={depositEnabled} onChange={(event) => setDepositEnabled(event.target.checked)} className="h-4 w-4 accent-[#F5B800]" />
+              تسجيل مبلغ تأمين مع إنشاء المشترك (اختياري)
+            </label>
+            {depositEnabled ? (
+              <>
+                <p className="text-xs leading-5 text-slate-400">سيُسجل التأمين كالتزام مستقل على ملف المشترك، وتُسجل حركة الإيداع في حساب الشركة المختار دون إضافته إلى التحصيل التشغيلي.</p>
+                <Field label="مبلغ التأمين">
+                  <input required name="securityDepositAmount" type="number" min="0.01" step="0.01" className={inputClass} placeholder="0.00" dir="ltr" />
+                </Field>
+                <Field label="حساب إيداع التأمين">
+                  <select required name="securityDepositCompanyAccountId" defaultValue="" disabled={accountsLoading || companyAccounts.length === 0} className={inputClass}>
+                    <option value="" disabled>{accountsLoading ? "جارٍ تحميل الحسابات…" : "اختر الحساب الذي استلم التأمين"}</option>
+                    {companyAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.accountType === "cash" ? "نقدي" : account.accountType === "jawwal_pay" ? "جوال باي" : account.accountType === "palpay" ? "بال باي" : account.accountType === "bank_of_palestine" ? "بنك فلسطين" : "حساب آخر"}</option>)}
+                  </select>
+                  {!accountsLoading && !companyAccounts.length ? <p className="mt-1 text-xs text-amber-300">لا توجد حسابات شركة نشطة متاحة لهذا الفرع.</p> : null}
+                </Field>
+                <Field label="مرجع الإيداع (اختياري)">
+                  <input name="securityDepositReferenceNo" className={inputClass} placeholder="رقم مرجع أو ملاحظة" />
+                </Field>
+                <p className="text-[11px] text-slate-500">سيولد النظام رقم إيصال ومفتاحي عملية ثابتين، ويعيد استخدامهما عند إعادة المحاولة.</p>
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
         {!editing && (
           <>
             <Field label="القراءة الافتتاحية (اختيارية)">
@@ -864,7 +1003,7 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
           </>
         )}
 
-        <div className="grid gap-2 sm:grid-cols-2">{!editing && <Button type="button" variant="outline" onClick={(event) => event.currentTarget.form?.reset()} className="w-full border-white/10 text-slate-300">إفراغ الحقول</Button>}<SubmitButton text={editing ? "حفظ التعديلات" : "إضافة المشترك"} pending={pending} /></div>
+        <div className="grid gap-2 sm:grid-cols-2">{!editing && <Button type="button" variant="outline" disabled={pending || localSubmitting} onClick={(event) => { event.currentTarget.form?.reset(); setDepositEnabled(false); operationRef.current = null; }} className="w-full border-white/10 text-slate-300">إفراغ الحقول</Button>}<SubmitButton text={editing ? "حفظ التعديلات" : "إضافة المشترك"} pending={pending || localSubmitting} /></div>
       </form>
     </>
   );
