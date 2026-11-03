@@ -73,7 +73,16 @@ GRANT USAGE ON SCHEMA public,auth,private TO anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO PUBLIC;
 GRANT EXECUTE ON FUNCTION private.powerhub_current_user_id() TO authenticated,service_role;
 GRANT EXECUTE ON FUNCTION private.powerhub_is_platform_admin() TO authenticated,service_role;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT SELECT ON TABLE
+ public.account_transactions,public.audit_logs,public.expenses,public.financial_settlements,
+ public.invoices,public.payments,public.employees,public.employee_adjustments,
+ public.employee_attendance,public.payroll_runs,public.supplier_ledger_entries,
+ public.supplier_payments,public.supplier_purchases,public.supplier_purchase_receipts,
+ public.supplier_purchase_returns,public.invoice_lines,public.payroll_items,
+ public.payroll_adjustment_allocations,public.supplier_purchase_lines,
+ public.supplier_purchase_receipt_lines,public.supplier_purchase_return_lines,
+ public.supplier_payment_allocations,public.company_accounts,public.company_account_sites
+ TO authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
 INSERT INTO public.users(id,auth_user_id,role,platform_role,account_status) VALUES
