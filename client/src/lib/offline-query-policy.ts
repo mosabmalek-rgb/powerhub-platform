@@ -272,6 +272,15 @@ function isSafeSubscriberDirectoryPage(queryKey: readonly unknown[]) {
     (typeof subscriptionType === "string" && allowedTypes.has(subscriptionType));
 }
 
+function isSafeSecurityDepositAccountsSnapshot(queryKey: readonly unknown[], segments = getPowerHubQuerySegments(queryKey)) {
+  if (segments.length !== 3 || segments[0] !== "powerhub" ||
+      segments[1] !== "subscribers" || segments[2] !== "securityDepositAccounts") return false;
+  const input = getOfflineQueryInput(queryKey);
+  return Boolean(input && Object.keys(input).length === 1 &&
+    Object.prototype.hasOwnProperty.call(input, "siteId") &&
+    Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0);
+}
+
 function isSafeExpenseFilterAccounts(queryKey: readonly unknown[], segments = getPowerHubQuerySegments(queryKey)) {
   if (segments.length !== 3 || segments[1] !== "expenses" || segments[2] !== "filterAccounts") return false;
   const input = getOfflineQueryInput(queryKey);
@@ -409,6 +418,9 @@ export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
   if (isSafeOfflineStocktakeAccessSnapshot(queryKey, segments)) return true;
+  // Active, branch-scoped account choices are cached as a minimized option list.
+  // The server revalidates account activity and branch access when an offline draft syncs.
+  if (isSafeSecurityDepositAccountsSnapshot(queryKey, segments)) return true;
   // Read-only site-scoped billing-cycle bounds are needed to restore offline date filters.
   if (isSafeReadingCycleBoundsSnapshot(queryKey, segments)) return true;
   if (isSafeHrOfflineProjection(queryKey, segments)) return true;
