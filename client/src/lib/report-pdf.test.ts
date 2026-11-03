@@ -88,3 +88,15 @@ describe("Payment receipt PDF generation", () => {
     expect(receipt).toContain("...(invoice ? [");
   });
 });
+
+
+describe("PDF asset readiness", () => {
+  it("waits for document fonts and decodes embedded images before html2canvas", () => {
+    const source = readFileSync(resolve(process.cwd(), "client/src/lib/report-pdf.ts"), "utf8");
+    expect(source).toContain("document.fonts?.ready");
+    expect(source).toContain('report.querySelectorAll("img")');
+    expect(source).toContain("image.decode().catch(() => undefined)");
+    expect(source.indexOf("document.fonts?.ready")).toBeLessThan(source.indexOf("html2canvas(report"));
+    expect(source.indexOf('report.querySelectorAll("img")')).toBeLessThan(source.indexOf("html2canvas(report"));
+  });
+});
