@@ -1654,7 +1654,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.companyAccounts.list({ siteId: 10, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "حساب فرع 2", accountType: "cash", phoneNumber: "+970595123457", openingBalance: 0, siteIds: [11] })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل خارج النطاق" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل خارج النطاق", operationKey: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(state.rpcCalls).toEqual([{
       name: "powerhub_company_account_balance_rollup",
       args: { p_tenant_id: 20, p_account_ids: [90, 92] },
@@ -1831,7 +1831,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
     const accounts = await caller.companyAccounts.list({ siteId: 10 });
     expect(accounts[0]).toMatchObject({ id: 90, balance: 1105 });
-    expect(accounts[0].transactions).toHaveLength(1000);
+    expect(accounts[0].transactions).toHaveLength(1005);
     expect(state.rpcCalls).toContainEqual({
       name: "powerhub_company_account_balance_rollup",
       args: { p_tenant_id: 20, p_account_ids: [90] },
