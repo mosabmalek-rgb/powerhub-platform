@@ -50,7 +50,7 @@ describe("subscriber account statement complete-history contract", () => {
     expect(migration).toContain("sum(p.invoice_applied_amount)");
     expect(migration).toContain("in ('invoice_collection', 'invoice_collection_with_credit')");
     expect(migration).not.toContain("sum(p.amount) filter");
-    const liability = read("supabase/migrations/20261103130000_powerhub_subscriber_liability_and_cash_allocation.sql");
+    const liability = read("supabase/migrations/20261103131104_powerhub_subscriber_liability_and_cash_allocation.sql");
     expect(liability).toContain("when 'subscriber_credit' then");
     expect(liability).toContain("when 'security_deposit' then");
     expect(liability).toContain("when 'security_deposit_refund' then");
