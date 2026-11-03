@@ -100,6 +100,13 @@ export type SubscriberCreateDraft = {
   openingReadingApproved?: boolean;
   openingReadingImageData?: string;
   openingReadingImageMime?: "image/jpeg" | "image/png" | "image/webp";
+  securityDepositAmount?: number;
+  securityDepositCompanyAccountId?: number;
+  securityDepositPaymentMethod?: "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "wallet" | "bank_transfer" | "card";
+  securityDepositPaymentNo?: string;
+  securityDepositReferenceNo?: string;
+  securityDepositOperationId?: string;
+  clientOperationId?: string;
   offlineNumberClaim?: SubscriberOfflineNumberClaim;
 };
 

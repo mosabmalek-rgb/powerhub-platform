@@ -218,6 +218,9 @@ export function OfflineWorkSyncPanel({ siteId, userId, compact = false }: { site
     if (targets.has("subscriber-quota")) {
       refreshes.push(utils.powerhub.subscribers.quota.invalidate({ siteId }));
     }
+    if (targets.has("security-deposits")) {
+      refreshes.push(utils.powerhub.subscribers.securityDepositOverview.invalidate({ siteId }));
+    }
     if (targets.has("generators")) {
       refreshes.push(utils.powerhub.generators.list.invalidate({ siteId }));
     }

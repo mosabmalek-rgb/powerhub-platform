@@ -26,6 +26,20 @@ describe("offline sync Query invalidation plan", () => {
     ])).toEqual(["subscribers", "subscriber-quota", "dashboard-summary", "audit"]);
   });
 
+  it("refreshes security-deposit totals only after the atomic subscriber and deposit receipt is applied", () => {
+    const payload = {
+      fullName: "مشترك اختبار", phone: "+970599000000", subscriptionType: "residential" as const,
+      securityDepositAmount: 150, securityDepositCompanyAccountId: 92,
+      securityDepositPaymentMethod: "bank_transfer" as const,
+      securityDepositPaymentNo: "DEP-20261103-ABCDE123",
+      securityDepositOperationId: "550e8400-e29b-41d4-a716-446655440001",
+    };
+    expect(getOfflineSyncRefreshTargets([result("subscriber_create", "pending", payload)])).toEqual([]);
+    expect(getOfflineSyncRefreshTargets([result("subscriber_create", "applied", payload)])).toEqual([
+      "subscribers", "subscriber-quota", "dashboard-summary", "security-deposits", "audit",
+    ]);
+  });
+
   it("refreshes opening-reading baselines without incorrectly invalidating invoice data", () => {
     expect(getOfflineSyncRefreshTargets([
       result("subscriber_create", "applied", {

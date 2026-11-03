@@ -3,6 +3,7 @@ import type { QueuedOfflineWork } from "./offline-work-queue";
 export type OfflineSyncRefreshTarget =
   | "subscribers"
   | "subscriber-quota"
+  | "security-deposits"
   | "generators"
   | "readings"
   | "invoices"
@@ -61,6 +62,10 @@ export function getOfflineSyncRefreshTargets(
   for (const result of results) {
     if (!SUCCESS_OUTCOMES.has(result.outcome)) continue;
     for (const target of TARGETS_BY_KIND[result.item.kind] ?? []) targets.add(target);
+    if (result.item.kind === "subscriber_create" && typeof result.item.payload === "object" && result.item.payload !== null &&
+        "securityDepositAmount" in result.item.payload && Number(result.item.payload.securityDepositAmount) > 0) {
+      targets.add("security-deposits");
+    }
     if (result.item.kind === "subscriber_create" && typeof result.item.payload === "object" && result.item.payload !== null &&
         "openingReading" in result.item.payload && Boolean(result.item.payload.openingReading)) {
       // An opening baseline is created with the subscriber but does not issue an invoice.
