@@ -19,6 +19,11 @@ alter table public.subscriber_balance_ledger
       and source_ledger_id is null
     )
     or (
+      balance_type = 'available_credit'
+      and entry_type = 'refund'
+      and source_ledger_id is null
+    )
+    or (
       entry_type not in ('refund','application')
       and source_ledger_id is null
     )

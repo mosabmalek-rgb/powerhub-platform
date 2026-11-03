@@ -33,12 +33,14 @@ values
   ('available_credit','application','debit',15,7001,null,'credit-application');
 
 -- Security-deposit application and refund stay traceable to their originating receipt (id=3).
+-- Available-credit refunds retain their prior source-free ledger contract.
 insert into public.subscriber_balance_ledger
   (balance_type,entry_type,direction,amount,invoice_id,source_ledger_id,idempotency_key)
 values
   ('security_deposit','receipt','credit',30,null,null,'deposit-receipt'),
   ('security_deposit','application','debit',10,7002,3,'deposit-application'),
-  ('security_deposit','refund','debit',5,null,3,'deposit-refund');
+  ('security_deposit','refund','debit',5,null,3,'deposit-refund'),
+  ('available_credit','refund','debit',2,null,null,'available-credit-refund');
 
 do $assertions$
 begin
@@ -61,20 +63,12 @@ begin
   begin
     insert into public.subscriber_balance_ledger
       (balance_type,entry_type,direction,amount,invoice_id,source_ledger_id,idempotency_key)
-    values ('available_credit','refund','debit',1,null,null,'bad-credit-refund');
-    raise exception 'AVAILABLE_CREDIT_REFUND_WITHOUT_SOURCE_ACCEPTED';
-  exception when check_violation then null;
-  end;
-
-  begin
-    insert into public.subscriber_balance_ledger
-      (balance_type,entry_type,direction,amount,invoice_id,source_ledger_id,idempotency_key)
     values ('available_credit','receipt','credit',1,null,3,'bad-receipt-source');
     raise exception 'UNEXPECTED_SOURCE_LINK_ACCEPTED';
   exception when check_violation then null;
   end;
 
-  if (select count(*) from public.subscriber_balance_ledger)<>5 then
+  if (select count(*) from public.subscriber_balance_ledger)<>6 then
     raise exception 'SUBSCRIBER_BALANCE_LEDGER_VALID_ROW_COUNT_MISMATCH';
   end if;
 end
