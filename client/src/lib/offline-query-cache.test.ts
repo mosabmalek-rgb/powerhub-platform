@@ -58,6 +58,25 @@ describe("offline query cache policy", () => {
   });
 
 
+  it("caches only minimized branch-scoped security-deposit account options for offline drafts", () => {
+    const key = ["powerhub.subscribers.securityDepositAccounts", {
+      input: { siteId: 7 }, type: "query",
+    }] as const;
+    const malformed = ["powerhub.subscribers.securityDepositAccounts", {
+      input: { siteId: 7, tenantId: 2 }, type: "query",
+    }] as const;
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isOfflineCacheableQueryKey(malformed)).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.subscribers.securityDepositAccounts", {
+      input: { siteId: 0 }, type: "query",
+    }])).toBe(false);
+    expect(sanitizeOfflineQueryData(key, [
+      { id: 4, name: "صندوق الفرع", accountType: "cash", balance: 1200, phoneNumber: "0590000000" },
+      { id: 5, name: "حساب غير مدعوم", accountType: "other", balance: 500 },
+      { id: 0, name: "حساب غير صالح", accountType: "cash", balance: 20 },
+    ])).toEqual([{ id: 4, name: "صندوق الفرع", accountType: "cash" }]);
+  });
+
   it("keeps generic staff permission snapshots uncached and persists only stocktake capability hints", () => {
     const generic = ["powerhub.staff.myAccess", { input: { siteId: 7 }, type: "query" }] as const;
     const key = ["powerhub.inventory.stocktakeOfflineAccess", { input: { siteId: 7 }, type: "query" }] as const;
