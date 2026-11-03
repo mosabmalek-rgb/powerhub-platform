@@ -884,7 +884,7 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit, companyAccount
   editing: any;
   pending: boolean;
   onCancel: () => void;
-  onSubmit: (values: Values) => void | Promise<void>;
+  onSubmit: (values: Values) => unknown | Promise<unknown>;
   companyAccounts: Array<{ id: number; name: string; accountType: string; balance: number }>;
   accountsLoading: boolean;
   canReceiveDeposit: boolean;
