@@ -23,7 +23,7 @@ create table public.subscriber_balance_ledger (
   )
 );
 
-\ir ../migrations/20261103160000_powerhub_subscriber_balance_ledger_source_scope_fix.sql
+\ir ../migrations/20261103174023_powerhub_subscriber_balance_ledger_application_scope_fix.sql
 
 -- Pooled credit can be applied without a fabricated link to a deposit receipt.
 insert into public.subscriber_balance_ledger
