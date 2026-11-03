@@ -58,19 +58,33 @@ alter table public.payments
 alter table public.subscriber_balance_ledger
   add column if not exists source_ledger_id bigint references public.subscriber_balance_ledger(id) on delete restrict;
 alter table public.subscriber_balance_ledger
+  drop constraint if exists subscriber_balance_ledger_entry_scope_check;
+alter table public.subscriber_balance_ledger
+  add constraint subscriber_balance_ledger_entry_scope_check check (
+    (balance_type='available_credit' and entry_type in ('receipt','application','refund','adjustment','reversal'))
+    or (balance_type='security_deposit' and entry_type in ('receipt','application','refund','adjustment','reversal'))
+  );
+alter table public.subscriber_balance_ledger
   drop constraint if exists subscriber_balance_ledger_application_scope_check;
 alter table public.subscriber_balance_ledger
   add constraint subscriber_balance_ledger_application_scope_check check (
-    (entry_type='application' and balance_type='available_credit' and direction='debit' and invoice_id is not null)
+    (entry_type='application' and balance_type in ('available_credit','security_deposit') and direction='debit' and invoice_id is not null)
     or (entry_type<>'application' and invoice_id is null)
   );
 alter table public.subscriber_balance_ledger
   drop constraint if exists subscriber_balance_ledger_refund_source_check;
 alter table public.subscriber_balance_ledger
   add constraint subscriber_balance_ledger_refund_source_check check (
-    (entry_type='refund' and balance_type='security_deposit' and direction='debit' and source_ledger_id is not null)
-    or (entry_type<>'refund' and source_ledger_id is null)
+    (entry_type in ('refund','application') and balance_type='security_deposit' and direction='debit' and source_ledger_id is not null)
+    or (entry_type not in ('refund','application') and source_ledger_id is null)
   );
+alter table public.billing_adjustments drop constraint if exists billing_adjustments_adjustment_type_check;
+alter table public.billing_adjustments
+  add constraint billing_adjustments_adjustment_type_check
+  check (adjustment_type in (
+    'auto_fraction_discount','fraction_carried','carried_debt_applied','manual_collection_discount',
+    'security_deposit_applied'
+  ));
 create index if not exists subscriber_balance_ledger_source_idx
   on public.subscriber_balance_ledger(source_ledger_id)
   where source_ledger_id is not null;
@@ -315,11 +329,17 @@ $$;
 revoke all on function public.powerhub_create_subscriber_with_security_deposit(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamptz,text,text,boolean,uuid,uuid,text,numeric,bigint,text,text,text,uuid) from public,anon,authenticated;
 grant execute on function public.powerhub_create_subscriber_with_security_deposit(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamptz,text,text,boolean,uuid,uuid,text,numeric,bigint,text,text,text,uuid) to service_role;
 
-create or replace function public.powerhub_refund_subscriber_security_deposit(
+drop function if exists public.powerhub_refund_subscriber_security_deposit(bigint,bigint,bigint,bigint,numeric,text,bigint,text,text,uuid);
+create function public.powerhub_refund_subscriber_security_deposit(
   p_tenant_id bigint,p_site_id bigint,p_user_id bigint,p_subscriber_id bigint,p_amount numeric,
-  p_payment_no text,p_company_account_id bigint,p_payment_method text,p_reference_no text,p_client_operation_id uuid
+  p_payment_no text,p_company_account_id bigint,p_payment_method text,p_reference_no text,
+  p_client_operation_id uuid,p_terminate_subscription boolean default false
 )
-returns table(payment_id bigint,replayed boolean,security_deposit_balance numeric)
+returns table(
+  payment_id bigint,replayed boolean,security_deposit_balance numeric,
+  applied_to_invoices numeric,refunded_amount numeric,remaining_outstanding numeric,
+  terminated boolean,termination_blocked boolean
+)
 language plpgsql
 security definer
 set search_path=''
@@ -329,17 +349,24 @@ declare
   v_account public.company_accounts%rowtype;
   v_operation public.offline_sync_operations%rowtype;
   v_existing_payment public.payments%rowtype;
+  v_invoice public.invoices%rowtype;
   v_receipt record;
-  v_receipt_refunded numeric(14,2);
+  v_receipt_used numeric(14,2);
   v_receipt_remaining numeric(14,2);
+  v_invoice_remaining numeric(14,2);
   v_remaining numeric(14,2);
   v_chunk numeric(14,2);
+  v_apply numeric(14,2);
   v_balance numeric(14,2);
   v_account_balance numeric(14,2);
+  v_total_applied numeric(14,2):=0;
+  v_refund_amount numeric(14,2):=0;
+  v_remaining_outstanding numeric(14,2):=0;
   v_payment_id bigint;
   v_fingerprint text;
   v_platform_role text;
   v_tenant_role text;
+  v_terminated boolean:=false;
 begin
   if p_client_operation_id is null or p_amount is null or p_amount<=0
      or round(p_amount,2)<>p_amount or p_payment_no is null or length(btrim(p_payment_no))<3
@@ -350,41 +377,70 @@ begin
 
   v_fingerprint:=pg_catalog.md5(pg_catalog.jsonb_build_object(
     'tenantId',p_tenant_id,'siteId',p_site_id,'userId',p_user_id,'subscriberId',p_subscriber_id,
-    'amount',round(p_amount,2),'paymentNo',p_payment_no,'companyAccountId',p_company_account_id,
-    'paymentMethod',p_payment_method,'referenceNo',p_reference_no
+    'expectedDepositBalance',round(p_amount,2),'paymentNo',p_payment_no,
+    'companyAccountId',p_company_account_id,'paymentMethod',p_payment_method,
+    'referenceNo',p_reference_no,'terminateSubscription',coalesce(p_terminate_subscription,false)
   )::text);
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('security-deposit-refund:'||p_client_operation_id::text,0));
 
   select * into v_operation from public.offline_sync_operations op
-  where op.client_operation_id=p_client_operation_id::text
-  order by op.id limit 1 for update;
+  where op.client_operation_id=p_client_operation_id::text order by op.id limit 1 for update;
   if found then
     if v_operation.user_id is distinct from p_user_id or v_operation.tenant_id is distinct from p_tenant_id
        or v_operation.site_id is distinct from p_site_id
        or v_operation.operation_type is distinct from 'security_deposit_refund'
        or v_operation.entity_type is distinct from 'subscriber_balance'
        or v_operation.request_fingerprint is distinct from v_fingerprint
-       or coalesce(v_operation.response->>'paymentId','') !~ '^[0-9]+$' then
+       or v_operation.response->>'securityDepositSettlement' is distinct from 'true' then
       raise exception 'SECURITY_DEPOSIT_REFUND_OPERATION_CONFLICT' using errcode='P0001';
     end if;
-    select * into v_existing_payment from public.payments
-    where id=(v_operation.response->>'paymentId')::bigint for update;
-    if not found or v_existing_payment.payment_purpose is distinct from 'security_deposit_refund'
-       or v_existing_payment.subscriber_id is distinct from p_subscriber_id
-       or v_existing_payment.amount is distinct from round(p_amount,2)
-       or v_existing_payment.payment_no is distinct from p_payment_no
-       or not exists(
-         select 1 from public.account_transactions t
-         where t.related_payment_id=v_existing_payment.id and t.account_id=p_company_account_id
-           and t.transaction_type='withdrawal' and t.amount=round(p_amount,2)
-       ) then
+
+    v_payment_id:=case when coalesce(v_operation.response->>'paymentId','') ~ '^[0-9]+$'
+      then (v_operation.response->>'paymentId')::bigint else null end;
+    if v_payment_id is not null then
+      select * into v_existing_payment from public.payments where id=v_payment_id for update;
+      if not found or v_existing_payment.tenant_id is distinct from p_tenant_id
+         or v_existing_payment.site_id is distinct from p_site_id
+         or v_existing_payment.subscriber_id is distinct from p_subscriber_id
+         or v_existing_payment.payment_purpose is distinct from 'security_deposit_refund'
+         or v_existing_payment.amount is distinct from (v_operation.response->>'refundedAmount')::numeric
+         or v_existing_payment.payment_no is distinct from p_payment_no
+         or not exists(
+           select 1 from public.account_transactions t
+           where t.related_payment_id=v_payment_id and t.tenant_id=p_tenant_id
+             and t.account_id=p_company_account_id and t.transaction_type='withdrawal'
+             and t.amount=v_existing_payment.amount and t.created_by_user_id=p_user_id
+         )
+         or not exists(
+           select 1 from public.subscriber_balance_ledger l
+           where l.payment_id=v_payment_id and l.tenant_id=p_tenant_id and l.site_id=p_site_id
+             and l.subscriber_id=p_subscriber_id and l.balance_type='security_deposit'
+             and l.entry_type='refund' and l.direction='debit' and l.amount=v_existing_payment.amount
+         ) then
+        raise exception 'SECURITY_DEPOSIT_REFUND_REPLAY_INVALID' using errcode='P0001';
+      end if;
+    elsif coalesce((v_operation.response->>'refundedAmount')::numeric,0)<>0 then
       raise exception 'SECURITY_DEPOSIT_REFUND_REPLAY_INVALID' using errcode='P0001';
     end if;
-    select coalesce(sum(case when l.direction='credit' then l.amount else -l.amount end),0)::numeric(14,2)
-      into v_balance from public.subscriber_balance_ledger l
-    where l.tenant_id=p_tenant_id and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
-      and l.balance_type='security_deposit';
-    return query select v_existing_payment.id,true,v_balance;
+
+    if coalesce((v_operation.response->>'appliedToInvoices')::numeric,0)>0
+       and not exists(
+         select 1 from public.subscriber_balance_ledger l
+         where l.tenant_id=p_tenant_id and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
+           and l.balance_type='security_deposit' and l.entry_type='application'
+           and l.direction='debit' and l.metadata->>'settlementOperationId'=p_client_operation_id::text
+       ) then
+      raise exception 'SECURITY_DEPOSIT_SETTLEMENT_REPLAY_INVALID' using errcode='P0001';
+    end if;
+
+    return query select
+      v_payment_id,true,
+      coalesce((v_operation.response->>'securityDepositBalance')::numeric,0),
+      coalesce((v_operation.response->>'appliedToInvoices')::numeric,0),
+      coalesce((v_operation.response->>'refundedAmount')::numeric,0),
+      coalesce((v_operation.response->>'remainingOutstanding')::numeric,0),
+      coalesce((v_operation.response->>'terminated')::boolean,false),
+      coalesce((v_operation.response->>'terminationBlocked')::boolean,false);
     return;
   end if;
 
@@ -398,7 +454,10 @@ begin
   from public.subscriber_balance_ledger l
   where l.tenant_id=p_tenant_id and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
     and l.balance_type='security_deposit';
-  if p_amount>v_balance then raise exception 'SECURITY_DEPOSIT_BALANCE_INSUFFICIENT' using errcode='P0001'; end if;
+  if round(p_amount,2)<>v_balance then
+    raise exception 'SECURITY_DEPOSIT_BALANCE_CHANGED' using errcode='P0001';
+  end if;
+  if v_balance<=0 then raise exception 'SECURITY_DEPOSIT_BALANCE_INSUFFICIENT' using errcode='P0001'; end if;
 
   select * into v_account from public.company_accounts a
   where a.id=p_company_account_id and a.tenant_id=p_tenant_id and a.is_active=true
@@ -413,68 +472,161 @@ begin
                     where cs.account_id=v_account.id and cs.site_id=p_site_id and cs.tenant_id=p_tenant_id) then
     raise exception 'COMPANY_ACCOUNT_OUT_OF_SCOPE' using errcode='P0001';
   end if;
-  select coalesce(b.balance,0) into v_account_balance
-  from public.powerhub_company_account_balance_rollup(p_tenant_id,array[p_company_account_id]::bigint[]) b
-  where b.account_id=p_company_account_id;
-  if coalesce(v_account_balance,0)<p_amount then
-    raise exception 'INSUFFICIENT_ACCOUNT_BALANCE' using errcode='P0001';
-  end if;
   if exists(select 1 from public.financial_settlements fs
             where fs.tenant_id=p_tenant_id and fs.site_id=p_site_id and fs.status='locked'
               and fs.period_start<=pg_catalog.now() and fs.period_end>=pg_catalog.now()) then
     raise exception 'FINANCIAL_PERIOD_LOCKED' using errcode='P0001';
   end if;
-  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(p_payment_no));
-  if exists(select 1 from public.payments p where p.payment_no=p_payment_no) then
-    raise exception 'DUPLICATE_PAYMENT_NO' using errcode='P0001';
-  end if;
 
-  insert into public.payments(
-    tenant_id,site_id,subscriber_id,invoice_id,payment_no,client_operation_id,amount,payment_method,
-    transfer_to_account,transfer_to_type,reference_no,payment_purpose,invoice_applied_amount,
-    subscriber_credit_amount,collected_by_user_id
-  ) values (
-    p_tenant_id,p_site_id,p_subscriber_id,null,p_payment_no,p_client_operation_id::text,p_amount,p_payment_method,
-    v_account.phone_number,
-    case when v_account.account_type in('jawwal_pay','palpay','bank_of_palestine') then v_account.account_type else null end,
-    p_reference_no,'security_deposit_refund',0,0,p_user_id
-  ) returning id into v_payment_id;
-
-  -- A refund is an outward liability settlement, not an operating expense or invoice collection.
-  insert into public.account_transactions(
-    tenant_id,account_id,transaction_type,amount,description,reference_no,related_payment_id,created_by_user_id
-  ) values (
-    p_tenant_id,v_account.id,'withdrawal',p_amount,
-    'رد تأمين المشترك '||p_payment_no,p_reference_no,v_payment_id,p_user_id
-  );
-
-  v_remaining:=p_amount;
-  for v_receipt in
-    select l.id,l.amount,l.created_at
-    from public.subscriber_balance_ledger l
-    where l.tenant_id=p_tenant_id and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
-      and l.balance_type='security_deposit' and l.entry_type='receipt' and l.direction='credit'
-    order by l.created_at,l.id
+  -- Use the subscriber deposit to settle outstanding invoices in oldest-first order.
+  for v_invoice in
+    select i.* from public.invoices i
+    where i.tenant_id=p_tenant_id and i.site_id=p_site_id and i.subscriber_id=p_subscriber_id
+      and i.balance_due>0 and i.status not in ('draft','cancelled','paid')
+    order by i.issue_date asc,i.id asc
     for update
   loop
-    exit when v_remaining<=0;
-    select coalesce(sum(r.amount),0)::numeric(14,2) into v_receipt_refunded
-    from public.subscriber_balance_ledger r
-    where r.source_ledger_id=v_receipt.id and r.entry_type='refund';
-    v_receipt_remaining:=greatest(0,v_receipt.amount-v_receipt_refunded);
-    if v_receipt_remaining<=0 then continue; end if;
-    v_chunk:=least(v_remaining,v_receipt_remaining);
-    insert into public.subscriber_balance_ledger(
-      tenant_id,site_id,subscriber_id,balance_type,entry_type,direction,amount,payment_id,source_ledger_id,
-      idempotency_key,created_by_user_id,metadata
-    ) values (
-      p_tenant_id,p_site_id,p_subscriber_id,'security_deposit','refund','debit',v_chunk,v_payment_id,v_receipt.id,
-      'security-deposit:refund:'||p_client_operation_id::text||':'||v_receipt.id::text,p_user_id,
-      pg_catalog.jsonb_build_object('paymentNo',p_payment_no,'companyAccountId',v_account.id,'sourceReceiptLedgerId',v_receipt.id)
+    exit when round(v_balance-v_total_applied,2)<=0;
+    v_apply:=least(greatest(0,round(v_balance-v_total_applied,2)),v_invoice.balance_due);
+    if v_apply<=0 then exit; end if;
+
+    v_invoice_remaining:=v_apply;
+    for v_receipt in
+      select l.id,l.amount
+      from public.subscriber_balance_ledger l
+      where l.tenant_id=p_tenant_id and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
+        and l.balance_type='security_deposit' and l.entry_type='receipt' and l.direction='credit'
+      order by l.created_at,l.id
+      for update
+    loop
+      exit when v_invoice_remaining<=0;
+      select coalesce(sum(r.amount),0)::numeric(14,2) into v_receipt_used
+      from public.subscriber_balance_ledger r
+      where r.source_ledger_id=v_receipt.id and r.entry_type in ('application','refund');
+      v_receipt_remaining:=greatest(0,v_receipt.amount-v_receipt_used);
+      if v_receipt_remaining<=0 then continue; end if;
+      v_chunk:=least(v_invoice_remaining,v_receipt_remaining);
+      insert into public.subscriber_balance_ledger(
+        tenant_id,site_id,subscriber_id,balance_type,entry_type,direction,amount,invoice_id,source_ledger_id,
+        idempotency_key,created_by_user_id,metadata
+      ) values (
+        p_tenant_id,p_site_id,p_subscriber_id,'security_deposit','application','debit',v_chunk,v_invoice.id,v_receipt.id,
+        'security-deposit:application:'||p_client_operation_id::text||':'||v_invoice.id::text||':'||v_receipt.id::text,
+        p_user_id,pg_catalog.jsonb_build_object(
+          'invoiceNo',v_invoice.invoice_no,'settlementOperationId',p_client_operation_id,
+          'companyAccountId',p_company_account_id,'amount',v_chunk
+        )
+      );
+      v_invoice_remaining:=v_invoice_remaining-v_chunk;
+    end loop;
+    if v_invoice_remaining>0 then raise exception 'SECURITY_DEPOSIT_LEDGER_ALLOCATION_FAILED' using errcode='P0001'; end if;
+
+    update public.invoices
+    set credit_applied_amount=coalesce(credit_applied_amount,0)+v_apply,
+        balance_due=greatest(0,round(balance_due-v_apply,2)),
+        status=case
+          when greatest(0,round(balance_due-v_apply,2))=0 then 'paid'
+          when coalesce(paid_amount,0)+coalesce(credit_applied_amount,0)+v_apply>0 then 'partially_paid'
+          when due_date<pg_catalog.now() then 'overdue'
+          else 'issued'
+        end,
+        updated_at=pg_catalog.now()
+    where id=v_invoice.id and tenant_id=p_tenant_id and site_id=p_site_id and subscriber_id=p_subscriber_id;
+
+    insert into public.invoice_lines(tenant_id,invoice_id,line_type,description,quantity,unit_price,amount,display_order)
+    values(
+      p_tenant_id,v_invoice.id,'other','تسوية من تأمين المشترك',1,-v_apply,-v_apply,
+      coalesce((select max(il.display_order)+1 from public.invoice_lines il where il.tenant_id=p_tenant_id and il.invoice_id=v_invoice.id),1)
     );
-    v_remaining:=v_remaining-v_chunk;
+    insert into public.billing_adjustments(
+      tenant_id,site_id,subscriber_id,invoice_id,adjustment_type,amount,state,idempotency_key,created_by_user_id,metadata
+    ) values (
+      p_tenant_id,p_site_id,p_subscriber_id,v_invoice.id,'security_deposit_applied',v_apply,'applied',
+      'security-deposit:settlement:'||p_client_operation_id::text||':invoice:'||v_invoice.id::text,
+      p_user_id,pg_catalog.jsonb_build_object('paymentNo',p_payment_no,'operationId',p_client_operation_id,'appliedAmount',v_apply)
+    );
+    insert into public.audit_logs(tenant_id,site_id,user_id,entity_type,entity_id,action,before_data,after_data,metadata)
+    values (
+      p_tenant_id,p_site_id,p_user_id,'invoice',v_invoice.id::text,'security_deposit_applied',
+      pg_catalog.jsonb_build_object('balanceDue',v_invoice.balance_due,'creditAppliedAmount',coalesce(v_invoice.credit_applied_amount,0)),
+      pg_catalog.jsonb_build_object('balanceDue',greatest(0,round(v_invoice.balance_due-v_apply,2)),'creditAppliedAmount',coalesce(v_invoice.credit_applied_amount,0)+v_apply),
+      pg_catalog.jsonb_build_object('subscriberId',p_subscriber_id,'amount',v_apply,'operationId',p_client_operation_id)
+    );
+    v_total_applied:=v_total_applied+v_apply;
   end loop;
-  if v_remaining>0 then raise exception 'SECURITY_DEPOSIT_BALANCE_INSUFFICIENT' using errcode='P0001'; end if;
+
+  select coalesce(sum(i.balance_due),0)::numeric(14,2) into v_remaining_outstanding
+  from public.invoices i
+  where i.tenant_id=p_tenant_id and i.site_id=p_site_id and i.subscriber_id=p_subscriber_id
+    and i.balance_due>0 and i.status not in ('draft','cancelled','paid');
+
+  if v_remaining_outstanding=0 then
+    v_refund_amount:=greatest(0,round(v_balance-v_total_applied,2));
+  end if;
+
+  if v_refund_amount>0 then
+    select coalesce(b.balance,0) into v_account_balance
+    from public.powerhub_company_account_balance_rollup(p_tenant_id,array[p_company_account_id]::bigint[]) b
+    where b.account_id=p_company_account_id;
+    if coalesce(v_account_balance,0)<v_refund_amount then
+      raise exception 'INSUFFICIENT_ACCOUNT_BALANCE' using errcode='P0001';
+    end if;
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext(p_payment_no));
+    if exists(select 1 from public.payments p where p.payment_no=p_payment_no) then
+      raise exception 'DUPLICATE_PAYMENT_NO' using errcode='P0001';
+    end if;
+
+    insert into public.payments(
+      tenant_id,site_id,subscriber_id,invoice_id,payment_no,client_operation_id,amount,payment_method,
+      transfer_to_account,transfer_to_type,reference_no,payment_purpose,invoice_applied_amount,
+      subscriber_credit_amount,collected_by_user_id
+    ) values (
+      p_tenant_id,p_site_id,p_subscriber_id,null,p_payment_no,p_client_operation_id::text,v_refund_amount,p_payment_method,
+      v_account.phone_number,
+      case when v_account.account_type in('jawwal_pay','palpay','bank_of_palestine') then v_account.account_type else null end,
+      p_reference_no,'security_deposit_refund',0,0,p_user_id
+    ) returning id into v_payment_id;
+    insert into public.account_transactions(
+      tenant_id,account_id,transaction_type,amount,description,reference_no,related_payment_id,created_by_user_id
+    ) values (
+      p_tenant_id,v_account.id,'withdrawal',v_refund_amount,
+      'رد تأمين المشترك '||p_payment_no||case when v_total_applied>0 then ' بعد تسوية الفواتير' else '' end,
+      p_reference_no,v_payment_id,p_user_id
+    );
+
+    v_remaining:=v_refund_amount;
+    for v_receipt in
+      select l.id,l.amount from public.subscriber_balance_ledger l
+      where l.tenant_id=p_tenant_id and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
+        and l.balance_type='security_deposit' and l.entry_type='receipt' and l.direction='credit'
+      order by l.created_at,l.id
+      for update
+    loop
+      exit when v_remaining<=0;
+      select coalesce(sum(r.amount),0)::numeric(14,2) into v_receipt_used
+      from public.subscriber_balance_ledger r
+      where r.source_ledger_id=v_receipt.id and r.entry_type in ('application','refund');
+      v_receipt_remaining:=greatest(0,v_receipt.amount-v_receipt_used);
+      if v_receipt_remaining<=0 then continue; end if;
+      v_chunk:=least(v_remaining,v_receipt_remaining);
+      insert into public.subscriber_balance_ledger(
+        tenant_id,site_id,subscriber_id,balance_type,entry_type,direction,amount,payment_id,source_ledger_id,
+        idempotency_key,created_by_user_id,metadata
+      ) values (
+        p_tenant_id,p_site_id,p_subscriber_id,'security_deposit','refund','debit',v_chunk,v_payment_id,v_receipt.id,
+        'security-deposit:refund:'||p_client_operation_id::text||':'||v_receipt.id::text,p_user_id,
+        pg_catalog.jsonb_build_object('paymentNo',p_payment_no,'companyAccountId',v_account.id,'sourceReceiptLedgerId',v_receipt.id)
+      );
+      v_remaining:=v_remaining-v_chunk;
+    end loop;
+    if v_remaining>0 then raise exception 'SECURITY_DEPOSIT_BALANCE_INSUFFICIENT' using errcode='P0001'; end if;
+  end if;
+
+  if coalesce(p_terminate_subscription,false) and v_remaining_outstanding=0 then
+    update public.subscribers set service_status='disconnected',updated_at=pg_catalog.now()
+    where id=p_subscriber_id and tenant_id=p_tenant_id and site_id=p_site_id;
+    v_terminated:=true;
+  end if;
 
   select u.platform_role,m.role into v_platform_role,v_tenant_role
   from public.users u left join public.tenant_members m on m.user_id=u.id and m.tenant_id=p_tenant_id
@@ -483,23 +635,43 @@ begin
     tenant_id,site_id,user_id,actor_platform_role,actor_tenant_role,entity_type,entity_id,action,after_data,metadata
   ) values (
     p_tenant_id,p_site_id,p_user_id,v_platform_role,v_tenant_role,'subscriber_balance',p_subscriber_id::text,
-    'security_deposit_refunded',
-    pg_catalog.jsonb_build_object('amount',p_amount,'paymentId',v_payment_id,'paymentNo',p_payment_no),
-    pg_catalog.jsonb_build_object('companyAccountId',v_account.id,'clientOperationId',p_client_operation_id,'remainingBalance',v_balance-p_amount)
+    case when v_terminated then 'security_deposit_refunded_and_subscriber_disconnected'
+         when v_refund_amount>0 then 'security_deposit_refunded'
+         else 'security_deposit_applied_to_outstanding_invoices' end,
+    pg_catalog.jsonb_build_object(
+      'appliedToInvoices',v_total_applied,'refundedAmount',v_refund_amount,
+      'remainingOutstanding',v_remaining_outstanding,'terminated',v_terminated
+    ),
+    pg_catalog.jsonb_build_object(
+      'companyAccountId',v_account.id,'clientOperationId',p_client_operation_id,
+      'paymentId',v_payment_id,'paymentNo',p_payment_no,'expectedDepositBalance',v_balance,
+      'terminationRequested',coalesce(p_terminate_subscription,false),
+      'terminationBlocked',coalesce(p_terminate_subscription,false) and not v_terminated
+    )
   );
 
   insert into public.offline_sync_operations(
     tenant_id,site_id,user_id,client_operation_id,operation_type,entity_type,entity_id,response,request_fingerprint
   ) values (
     p_tenant_id,p_site_id,p_user_id,p_client_operation_id::text,'security_deposit_refund','subscriber_balance',
-    p_subscriber_id,pg_catalog.jsonb_build_object('paymentId',v_payment_id),v_fingerprint
+    p_subscriber_id,pg_catalog.jsonb_build_object(
+      'securityDepositSettlement',true,'paymentId',v_payment_id,
+      'securityDepositBalance',greatest(0,round(v_balance-v_total_applied-v_refund_amount,2)),
+      'appliedToInvoices',v_total_applied,'refundedAmount',v_refund_amount,
+      'remainingOutstanding',v_remaining_outstanding,'terminated',v_terminated,
+      'terminationBlocked',coalesce(p_terminate_subscription,false) and not v_terminated
+    ),v_fingerprint
   );
 
-  return query select v_payment_id,false,v_balance-p_amount;
+  return query select
+    v_payment_id,false,
+    greatest(0,round(v_balance-v_total_applied-v_refund_amount,2)),
+    v_total_applied,v_refund_amount,v_remaining_outstanding,v_terminated,
+    coalesce(p_terminate_subscription,false) and not v_terminated;
 end;
 $$;
-revoke all on function public.powerhub_refund_subscriber_security_deposit(bigint,bigint,bigint,bigint,numeric,text,bigint,text,text,uuid) from public,anon,authenticated;
-grant execute on function public.powerhub_refund_subscriber_security_deposit(bigint,bigint,bigint,bigint,numeric,text,bigint,text,text,uuid) to service_role;
+revoke all on function public.powerhub_refund_subscriber_security_deposit(bigint,bigint,bigint,bigint,numeric,text,bigint,text,text,uuid,boolean) from public,anon,authenticated;
+grant execute on function public.powerhub_refund_subscriber_security_deposit(bigint,bigint,bigint,bigint,numeric,text,bigint,text,text,uuid,boolean) to service_role;
 
 create or replace function public.powerhub_security_deposit_overview(p_tenant_id bigint,p_site_id bigint)
 returns table(total_amount numeric,subscriber_count bigint,items jsonb)

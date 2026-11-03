@@ -3200,6 +3200,7 @@ export const powerhubRouter = router({
       paymentNo: z.string().trim().min(3).max(60), companyAccountId: z.number().int().positive(),
       paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]),
       referenceNo: z.string().trim().max(120).optional(), clientOperationId: z.string().uuid(),
+      terminateSubscription: z.boolean().default(false),
     })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
       const { data, error } = await supabaseAdmin().rpc("powerhub_refund_subscriber_security_deposit", {
@@ -3207,19 +3208,26 @@ export const powerhubRouter = router({
         p_subscriber_id: input.subscriberId, p_amount: input.amount, p_payment_no: input.paymentNo,
         p_company_account_id: input.companyAccountId, p_payment_method: input.paymentMethod,
         p_reference_no: input.referenceNo ?? null, p_client_operation_id: input.clientOperationId,
+        p_terminate_subscription: input.terminateSubscription,
       });
       if (!error && data?.[0]) return {
-        id: Number(data[0].payment_id), replayed: Boolean(data[0].replayed),
+        id: data[0].payment_id == null ? null : Number(data[0].payment_id),
+        replayed: Boolean(data[0].replayed),
         securityDepositBalance: String(data[0].security_deposit_balance ?? 0),
+        appliedToInvoices: String(data[0].applied_to_invoices ?? 0),
+        refundedAmount: String(data[0].refunded_amount ?? 0),
+        remainingOutstanding: String(data[0].remaining_outstanding ?? 0),
+        terminated: Boolean(data[0].terminated),
+        terminationBlocked: Boolean(data[0].termination_blocked),
       };
       const message = String(error?.message ?? "");
-      if (message.includes("SECURITY_DEPOSIT_BALANCE_INSUFFICIENT")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ الرد أكبر من التأمين المتبقي للمشترك." });
+      if (message.includes("SECURITY_DEPOSIT_BALANCE_INSUFFICIENT") || message.includes("SECURITY_DEPOSIT_BALANCE_CHANGED")) throw new TRPCError({ code: "CONFLICT", message: "تغير رصيد التأمين منذ فتح النموذج؛ حدّث بيانات المشترك ثم أعد العملية." });
       if (message.includes("INSUFFICIENT_ACCOUNT_BALANCE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "رصيد حساب الصرف المحدد لا يكفي لإتمام رد التأمين." });
       if (message.includes("COMPANY_ACCOUNT_NOT_FOUND") || message.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الصرف غير نشط أو غير متاح لهذا الفرع." });
       if (message.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة رد التأمين لا تطابق نوع حساب الصرف." });
       if (message.includes("SECURITY_DEPOSIT_REFUND_OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف عملية الرد مستخدم مع بيانات مختلفة؛ لم يُسجل خصم جديد." });
       if (message.includes("DUPLICATE_PAYMENT_NO")) throw new TRPCError({ code: "CONFLICT", message: "رقم إيصال رد التأمين مستخدم مسبقاً." });
-      if (message.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن رد التأمين خلالها." });
+      if (message.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تسوية أو رد التأمين خلالها." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل رد التأمين." });
     }),
   }),
