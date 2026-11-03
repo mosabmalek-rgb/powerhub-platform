@@ -24,13 +24,14 @@ describe("public invoice and inquiry actions", () => {
   it("shows available subscriber credit only when positive and renders applied credit once from the canonical invoice line", () => {
     const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
     const creditMigration = read("supabase/migrations/20261103120000_powerhub_subscriber_credit_ledger.sql");
+    const publicInvoicePayloadMigration = read("supabase/migrations/20261103130000_powerhub_subscriber_liability_and_cash_allocation.sql");
 
     expect(publicInvoice).toContain("الرصيد الدائن المطبق على الفاتورة");
     expect(publicInvoice).toContain("Number(subscriberBalance?.availableCredit ?? 0) > 0");
     expect(publicInvoice).not.toContain("استخدام الرصيد المتاح للمشترك</span>");
     expect(creditMigration).toContain("'other','استخدام الرصيد المتاح للمشترك'");
-    expect(creditMigration).toContain("'subscriberBalance',jsonb_build_object('availableCredit',v_available_credit)");
-    expect(creditMigration).not.toContain("'securityDeposit',v_security_deposit");
+    expect(publicInvoicePayloadMigration).toContain("'subscriberBalance',jsonb_build_object('availableCredit',v_available_credit)");
+    expect(publicInvoicePayloadMigration).not.toContain("'securityDeposit',v_security_deposit");
   });
 
   it("allows same-origin framing only for shared invoice previews", () => {
