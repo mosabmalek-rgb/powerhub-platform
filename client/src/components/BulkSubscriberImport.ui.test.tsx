@@ -39,8 +39,11 @@ describe("استيراد المشتركين من Excel", () => {
     Object.defineProperty(uploadInput, "files", { configurable: true, value: [uploadFile] });
     fireEvent.change(uploadInput);
     await vi.waitFor(() => expect(state.loadExcelJS).toHaveBeenCalledOnce());
-    await screen.findByText("أحمد العلي", {}, { timeout: 1_000 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(state.toastError).not.toHaveBeenCalled();
+    expect(workbook.xlsx.load).toHaveBeenCalledOnce();
+    expect(workbook.worksheets[0].eachRow).toBeDefined();
+    expect(screen.getByText("أحمد العلي")).toBeInTheDocument();
     expect(screen.getByText("12.52")).toBeInTheDocument();
     expect(screen.getByText("99.25")).toBeInTheDocument();
     expect(screen.getByText(/أدخل الاسم الكامل/)).toBeInTheDocument();
