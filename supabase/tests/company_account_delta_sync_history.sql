@@ -77,7 +77,7 @@ create table public.company_account_sites (
  primary key (tenant_id,account_id,site_id)
 );
 create table public.account_transactions (
- id bigint primary key, tenant_id bigint not null, account_id bigint not null, transaction_type text not null,
+ id bigint primary key, tenant_id bigint not null, account_id bigint not null, site_id bigint, transaction_type text not null,
  amount numeric not null, description text, reference_no text, related_payment_id bigint, related_account_id bigint,
  created_by_user_id bigint, occurred_at timestamptz not null default now(), created_at timestamptz not null default now()
 );
@@ -108,6 +108,7 @@ create table public.inventory_warehouses (
 \ir ../migrations/20261101082546_powerhub_delta_payment_history.sql
 \ir ../migrations/20261101082610_powerhub_delta_expense_history.sql
 \ir ../migrations/20261101082641_powerhub_delta_company_account_history.sql
+\ir ../migrations/20261103210100_powerhub_company_account_delta_site_scope.sql
 create table public.inventory_stock_movements (
  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
  generator_id bigint, movement_type text not null, quantity numeric(14,3) not null, unit_cost numeric(14,4) not null default 0,
@@ -279,18 +280,19 @@ begin
  if jsonb_array_length(v_snapshot->'rows')<>1
    or v_snapshot #>> '{rows,0,id}' is distinct from '700'
    or (v_snapshot #>> '{rows,0,balance}')::numeric<>100
+   or jsonb_array_length(v_snapshot #> '{rows,0,linked_sites}')<>1
    or v_snapshot #>> '{rows,0,linked_sites,0,site_id}' is distinct from '10'
-   or v_snapshot #>> '{rows,0,linked_sites,1,site_id}' is distinct from '20'
  then raise exception 'Branch-scoped account snapshot failed: %',v_snapshot; end if;
  v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
 
  v_snapshot:=public.powerhub_get_sync_snapshot(1,10,'company_accounts_all');
  if jsonb_array_length(v_snapshot->'rows')<>1
    or v_snapshot #>> '{rows,0,id}' is distinct from '700'
+   or jsonb_array_length(v_snapshot #> '{rows,0,linked_sites}')<>2
  then raise exception 'All-branch account snapshot failed: %',v_snapshot; end if;
 
- insert into public.account_transactions(id,tenant_id,account_id,transaction_type,amount,description,reference_no,occurred_at)
- values (800,1,700,'deposit',25,'Opening deposit','TX-800',timestamptz '2026-10-27 10:00:00+00');
+ insert into public.account_transactions(id,tenant_id,account_id,site_id,transaction_type,amount,description,reference_no,occurred_at)
+ values (800,1,700,10,'deposit',25,'Opening deposit','TX-800',timestamptz '2026-10-27 10:00:00+00');
  v_delta:=public.powerhub_pull_sync_delta(1,10,'company_accounts',v_cursor,null,200);
  if jsonb_array_length(v_delta->'changes')<>1
    or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
@@ -298,6 +300,24 @@ begin
    or (v_delta #>> '{changes,0,row_data,balance}')::numeric<>125
    or v_delta #>> '{changes,0,row_data,transactions,0,id}' is distinct from '800'
  then raise exception 'Account ledger insert Delta failed: %',v_delta; end if;
+ v_next:=(v_delta->>'next_cursor')::bigint;
+ insert into public.account_transactions(id,tenant_id,account_id,site_id,transaction_type,amount,description,reference_no,occurred_at)
+ values(801,1,700,20,'deposit',40,'Second branch deposit','TX-801',timestamptz '2026-10-27 11:00:00+00');
+ v_delta:=public.powerhub_pull_sync_delta(1,10,'company_accounts',v_next,null,200);
+ if jsonb_array_length(v_delta->'changes')<>1
+   or (v_delta #>> '{changes,0,row_data,balance}')::numeric<>165
+   or jsonb_array_length(v_delta #> '{changes,0,row_data,transactions}')<>1
+   or v_delta #>> '{changes,0,row_data,transactions,0,id}' is distinct from '800'
+ then raise exception 'Branch feed exposed another branch movement or lost the shared balance: %',v_delta; end if;
+ v_snapshot:=public.powerhub_get_sync_snapshot(1,10,'company_accounts_all');
+ if (v_snapshot #>> '{rows,0,balance}')::numeric<>165
+   or jsonb_array_length(v_snapshot #> '{rows,0,transactions}')<>2
+ then raise exception 'All-branch feed did not retain the full shared ledger: %',v_snapshot; end if;
+ v_snapshot:=public.powerhub_get_sync_snapshot(1,20,'company_accounts');
+ if jsonb_array_length(v_snapshot #> '{rows,0,transactions}')<>1
+   or v_snapshot #>> '{rows,0,transactions,0,id}' is distinct from '801'
+   or v_snapshot #>> '{rows,0,linked_sites,0,site_id}' is distinct from '20'
+ then raise exception 'Second branch snapshot exposed the wrong company-account movement: %',v_snapshot; end if;
  v_next:=(v_delta->>'next_cursor')::bigint;
 
  update public.account_transactions set amount=35,description='Corrected deposit' where id=800;

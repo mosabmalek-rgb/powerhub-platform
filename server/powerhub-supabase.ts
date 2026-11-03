@@ -71,6 +71,7 @@ function isSuspended(now: Date, startsAt: Date | null, endsAt: Date | null) {
 
 type SupabaseAccountTransaction = {
   id: number;
+  siteId: number | null;
   tenantId: number;
   accountId: number;
   transactionType: string;
@@ -1230,12 +1231,20 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
   // Dashboard reads must remain read-only: do not create default financial accounts as a side effect.
   // An empty result means the tenant has not configured any company accounts yet.
   const accountIds = (accountRows ?? []).map((row) => Number(row.id));
-  const [siteLinksResult, sitesResult, transactionsResult, balancesResult] = await Promise.all([
-    accountIds.length ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds) : Promise.resolve({ data: [], error: null }),
-    admin.from("sites").select("id, name").eq("tenant_id", input.tenantId),
-    accountIds.length ? admin.from("account_transactions").select("id, tenant_id, account_id, transaction_type, amount, description, reference_no, related_payment_id, related_account_id, created_by_user_id, occurred_at, created_at")
+  const siteLinksQuery = accountIds.length
+    ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds)
+    : null;
+  if (siteLinksQuery && input.branchId !== undefined) siteLinksQuery.eq("site_id", input.branchId);
+  const transactionsQuery = accountIds.length
+    ? admin.from("account_transactions").select("id, tenant_id, account_id, site_id, transaction_type, amount, description, reference_no, related_payment_id, related_account_id, created_by_user_id, occurred_at, created_at")
       .eq("tenant_id", input.tenantId).in("account_id", accountIds)
-      .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z").lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z").order("occurred_at", { ascending: false }).order("id", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+      .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z").lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z").order("occurred_at", { ascending: false }).order("id", { ascending: false }).limit(1000)
+    : null;
+  if (transactionsQuery && input.branchId !== undefined) transactionsQuery.eq("site_id", input.branchId);
+  const [siteLinksResult, sitesResult, transactionsResult, balancesResult] = await Promise.all([
+    siteLinksQuery ?? Promise.resolve({ data: [], error: null }),
+    admin.from("sites").select("id, name").eq("tenant_id", input.tenantId),
+    transactionsQuery ?? Promise.resolve({ data: [], error: null }),
     accountIds.length ? admin.rpc("powerhub_company_account_balance_rollup", { p_tenant_id: input.tenantId, p_account_ids: accountIds }) : Promise.resolve({ data: [], error: null }),
   ]);
   if (siteLinksResult.error || sitesResult.error || transactionsResult.error || balancesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو أرصدة حسابات الشركة من Supabase." });
@@ -1249,7 +1258,7 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
   const transactionsByAccount = new Map<number, SupabaseAccountTransaction[]>();
   for (const row of transactionsResult.data ?? []) {
     const accountId = Number(row.account_id);
-    const transaction: SupabaseAccountTransaction = { id: Number(row.id), tenantId: Number(row.tenant_id), accountId, transactionType: row.transaction_type, amount: String(row.amount), description: row.description, referenceNo: row.reference_no, relatedPaymentId: row.related_payment_id === null ? null : Number(row.related_payment_id), relatedAccountId: row.related_account_id === null ? null : Number(row.related_account_id), createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), occurredAt: new Date(row.occurred_at), createdAt: new Date(row.created_at) };
+    const transaction: SupabaseAccountTransaction = { id: Number(row.id), siteId: row.site_id === null ? null : Number(row.site_id), tenantId: Number(row.tenant_id), accountId, transactionType: row.transaction_type, amount: String(row.amount), description: row.description, referenceNo: row.reference_no, relatedPaymentId: row.related_payment_id === null ? null : Number(row.related_payment_id), relatedAccountId: row.related_account_id === null ? null : Number(row.related_account_id), createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), occurredAt: new Date(row.occurred_at), createdAt: new Date(row.created_at) };
     transactionsByAccount.set(accountId, [...(transactionsByAccount.get(accountId) ?? []), transaction]);
   }
   return (accountRows ?? []).flatMap((row) => {

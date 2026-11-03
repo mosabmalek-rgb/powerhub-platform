@@ -22,7 +22,7 @@ const state = vi.hoisted(() => {
     payments: [{ id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70, payment_no: "PAY-202608-0001", client_operation_id: null, amount: 25, invoice_applied_amount: 25, subscriber_credit_amount: 0, payment_purpose: "invoice_collection", payment_method: "cash", transfer_from_account: null, transfer_from_type: null, transfer_to_account: null, transfer_to_type: null, reference_no: "REF-1", receipt_image_key: null, receipt_image_hash: null, status: "completed", collected_by_user_id: 1, collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
     company_accounts: [{ id: 90, tenant_id: 20, name: "كاش", account_type: "cash", phone_number: null, color: "#64748b", opening_balance: 100, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" }],
     company_account_sites: [{ tenant_id: 20, account_id: 90, site_id: 10 }],
-    account_transactions: [{ id: 91, tenant_id: 20, account_id: 90, transaction_type: "collection", amount: 25, description: "تحصيل الفاتورة PAY-202608-0001", reference_no: "REF-1", related_payment_id: 81, related_account_id: null, created_by_user_id: 1, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
+    account_transactions: [{ id: 91, tenant_id: 20, account_id: 90, site_id: 10, transaction_type: "collection", amount: 25, description: "تحصيل الفاتورة PAY-202608-0001", reference_no: "REF-1", related_payment_id: 81, related_account_id: null, created_by_user_id: 1, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
     collector_sessions: [{ id: 96, tenant_id: 20, site_id: 10, collector_user_id: 1, status: "open", opening_cash: 5, expected_cash: 5, declared_cash: null, variance_amount: null, opened_at: "2026-08-03T00:00:00.000Z", closed_at: null, notes: null, closed_by_user_id: null, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z" }],
     financial_settlements: [{ id: 97, tenant_id: 20, site_id: 10, period_start: "2026-08-01T00:00:00.000Z", period_end: "2026-08-31T23:59:59.999Z", total_collected: 100, total_expenses: 20, book_profit: 80, actual_cash: 75, difference: -5, notes: "تسوية دورية", status: "draft", created_by_user_id: 1, approved_by_user_id: null, locked_at: null, created_at: "2026-08-31T23:59:59.999Z", updated_at: "2026-08-31T23:59:59.999Z" }],
     audit_logs: [
@@ -1588,10 +1588,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { id: 92, tenant_id: 20, name: "جوال بي 2", account_type: "jawwal_pay", phone_number: null, color: "#16a34a", opening_balance: 50, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
     ];
     state.tables.company_account_sites = [{ account_id: 90, site_id: 10 }, { account_id: 92, site_id: 11 }];
-    state.tables.account_transactions = [];
+    state.tables.account_transactions = [
+      { id: 91, tenant_id: 20, account_id: 90, site_id: 10, transaction_type: "collection", amount: 25, description: "تحصيل الفرع الأول", reference_no: "TX-91", related_payment_id: null, related_account_id: null, created_by_user_id: 2, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" },
+      { id: 92, tenant_id: 20, account_id: 90, site_id: 11, transaction_type: "collection", amount: 75, description: "تحصيل الفرع الثاني", reference_no: "TX-92", related_payment_id: null, related_account_id: null, created_by_user_id: 3, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" },
+    ];
     const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
 
-    await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90 }]);
+    const branchAccounts = await caller.companyAccounts.list({ siteId: 10 });
+    expect(branchAccounts).toMatchObject([{ id: 90, linkedSites: [{ siteId: 10 }], transactions: [{ id: 91, siteId: 10 }] }]);
     await expect(caller.companyAccounts.list({ siteId: 10, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "حساب فرع 2", accountType: "cash", phoneNumber: "+970595123457", openingBalance: 0, siteIds: [11] })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).rejects.toMatchObject({ code: "FORBIDDEN" });

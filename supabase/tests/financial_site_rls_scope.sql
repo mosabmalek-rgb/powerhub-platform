@@ -30,14 +30,14 @@ CREATE TABLE public.company_account_sites(
  id bigint PRIMARY KEY,tenant_id bigint NOT NULL,account_id bigint NOT NULL,site_id bigint NOT NULL
 );
 
-CREATE TABLE public.account_transactions(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,account_id bigint NOT NULL);
-CREATE TABLE public.audit_logs(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint);
-CREATE TABLE public.expenses(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
+CREATE TABLE public.account_transactions(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,account_id bigint NOT NULL,site_id bigint,transaction_type text,amount numeric,description text,reference_no text,related_payment_id bigint,related_account_id bigint,related_expense_id bigint,related_supplier_payment_id bigint,related_supplier_return_id bigint,created_by_user_id bigint,occurred_at timestamptz DEFAULT now(),created_at timestamptz DEFAULT now());
+CREATE TABLE public.audit_logs(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint,after_data jsonb);
+CREATE TABLE public.expenses(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,category text,reference_no text);
 CREATE TABLE public.financial_settlements(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
 CREATE TABLE public.invoices(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
 CREATE TABLE public.payments(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
 CREATE TABLE public.employees(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
-CREATE TABLE public.employee_adjustments(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint);
+CREATE TABLE public.employee_adjustments(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint,disbursement_transaction_id bigint);
 CREATE TABLE public.employee_attendance(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
 CREATE TABLE public.payroll_runs(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint);
 CREATE TABLE public.supplier_ledger_entries(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
@@ -55,7 +55,7 @@ CREATE TABLE public.supplier_payment_allocations(
  id bigint PRIMARY KEY,tenant_id bigint NOT NULL,payment_id bigint NOT NULL,purchase_id bigint,supplier_ledger_entry_id bigint
 );
 CREATE TABLE public.subscriber_balance_ledger(id bigint PRIMARY KEY);
-CREATE TABLE public.employee_adjustment_repayments(id bigint PRIMARY KEY);
+CREATE TABLE public.employee_adjustment_repayments(id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,account_transaction_id bigint);
 
 CREATE OR REPLACE FUNCTION private.powerhub_current_user_id()
 RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path=''
@@ -118,9 +118,9 @@ INSERT INTO public.company_accounts(id,tenant_id) VALUES(100,1),(101,1),(102,1),
 INSERT INTO public.company_account_sites(id,tenant_id,account_id,site_id) VALUES
  (1,1,100,10),(2,1,101,11),(3,1,102,10),(4,1,102,11),(5,2,103,20);
 
-INSERT INTO public.account_transactions VALUES(1,1,100),(2,1,101),(3,1,102),(4,1,103),(5,1,104);
-INSERT INTO public.audit_logs VALUES(1,1,10),(2,1,11),(3,2,20),(4,1,NULL);
-INSERT INTO public.expenses VALUES(1,1,10),(2,1,11),(3,2,20);
+INSERT INTO public.account_transactions(id,tenant_id,account_id,reference_no,related_payment_id) VALUES(1,1,100,'TX-1',1),(2,1,101,'TX-2',2),(3,1,102,'TX-3',NULL),(4,2,103,'TX-4',3),(5,1,104,'TX-5',NULL),(6,1,102,'TX-6',NULL);
+INSERT INTO public.audit_logs(id,tenant_id,site_id,after_data) VALUES(1,1,10,'{\"transactionId\":3}'::jsonb),(2,1,11,'{\"transactionId\":6}'::jsonb),(3,2,20,NULL),(4,1,NULL,NULL);
+INSERT INTO public.expenses(id,tenant_id,site_id) VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.financial_settlements VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.invoices VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.payments VALUES(1,1,10),(2,1,11),(3,2,20);
@@ -158,6 +158,7 @@ END
 $enable_rls$;
 
 \ir ../migrations/20261103195752_powerhub_financial_site_rls_scope.sql
+\ir ../migrations/20261103210000_powerhub_account_transaction_site_scope.sql
 
 DO $assert_helpers$
 BEGIN
@@ -188,7 +189,7 @@ BEGIN
  IF (SELECT count(*) FROM public.payments)<>1 OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_PAYMENT_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoice_lines)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoice_lines WHERE id=1) THEN RAISE EXCEPTION 'INVOICE_CHILD_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.company_accounts)<>3 OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=100) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=104) THEN RAISE EXCEPTION 'COMPANY_ACCOUNT_BRANCH_SCOPE_FAILED'; END IF;
- IF (SELECT count(*) FROM public.account_transactions)<>3 THEN RAISE EXCEPTION 'ACCOUNT_TRANSACTION_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.account_transactions)<>2 OR NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=1) OR NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=3) THEN RAISE EXCEPTION 'ACCOUNT_TRANSACTION_SITE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.audit_logs)<>1 OR NOT EXISTS(SELECT 1 FROM public.audit_logs WHERE id=1) THEN RAISE EXCEPTION 'AUDIT_SITE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.supplier_purchase_lines)<>1 OR NOT EXISTS(SELECT 1 FROM public.supplier_purchase_lines WHERE id=1) THEN RAISE EXCEPTION 'PURCHASE_LINE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.supplier_purchase_receipt_lines)<>1 OR NOT EXISTS(SELECT 1 FROM public.supplier_purchase_receipt_lines WHERE id=1) THEN RAISE EXCEPTION 'PURCHASE_RECEIPT_LINE_SCOPE_FAILED'; END IF;
@@ -210,6 +211,7 @@ BEGIN
  IF (SELECT count(*) FROM public.expenses)<>1 OR NOT EXISTS(SELECT 1 FROM public.expenses WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_EXPENSE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoices)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoices WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_INVOICE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.company_accounts)<>3 OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=101) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=104) THEN RAISE EXCEPTION 'BRANCH_B_ACCOUNT_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.account_transactions)<>2 OR NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=2) OR NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=6) THEN RAISE EXCEPTION 'BRANCH_B_TRANSACTION_SITE_SCOPE_FAILED'; END IF;
 END
 $branch_b$;
 RESET ROLE;
@@ -221,6 +223,7 @@ BEGIN
  IF (SELECT count(*) FROM public.expenses)<>2 THEN RAISE EXCEPTION 'OWNER_ALL_BRANCH_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.audit_logs)<>3 THEN RAISE EXCEPTION 'OWNER_TENANT_AUDIT_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.company_accounts)<>4 THEN RAISE EXCEPTION 'OWNER_ACCOUNT_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.account_transactions)<>5 THEN RAISE EXCEPTION 'OWNER_TRANSACTION_SCOPE_FAILED'; END IF;
 END
 $owner$;
 RESET ROLE;
@@ -249,6 +252,7 @@ DO $global$
 BEGIN
  IF (SELECT count(*) FROM public.expenses)<>2 THEN RAISE EXCEPTION 'GLOBAL_PROFILE_ALL_BRANCH_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.audit_logs)<>3 THEN RAISE EXCEPTION 'GLOBAL_PROFILE_AUDIT_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.account_transactions)<>5 THEN RAISE EXCEPTION 'GLOBAL_PROFILE_TRANSACTION_SCOPE_FAILED'; END IF;
 END
 $global$;
 RESET ROLE;
@@ -267,6 +271,7 @@ SET ROLE authenticated;
 DO $platform_admin$
 BEGIN
  IF (SELECT count(*) FROM public.expenses)<>3 THEN RAISE EXCEPTION 'PLATFORM_ADMIN_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.account_transactions)<>6 THEN RAISE EXCEPTION 'PLATFORM_ADMIN_TRANSACTION_SCOPE_FAILED'; END IF;
 END
 $platform_admin$;
 RESET ROLE;
@@ -279,5 +284,57 @@ BEGIN
 END
 $disabled$;
 RESET ROLE;
+
+
+-- Payroll movements are linked to the payroll expense and receive its exact branch scope.
+INSERT INTO public.expenses(id,tenant_id,site_id,category,reference_no) VALUES(99,1,11,'payroll','PAYROLL-99');
+BEGIN;
+INSERT INTO public.account_transactions(id,tenant_id,account_id,transaction_type,amount,reference_no)
+VALUES(99,1,101,'withdrawal',10,'PAYROLL-99');
+COMMIT;
+DO $payroll_link$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.account_transactions WHERE id=99 AND site_id=11 AND related_expense_id=99) THEN
+    RAISE EXCEPTION 'PAYROLL_EXPENSE_ACCOUNT_TRANSACTION_LINK_FAILED';
+  END IF;
+END
+$payroll_link$;
+
+-- Manual account movements become branch-scoped from their same-transaction audit record.
+BEGIN;
+INSERT INTO public.account_transactions(id,tenant_id,account_id,transaction_type,amount,description,reference_no)
+VALUES(100,1,102,'deposit',5,'Manual branch deposit','MANUAL-100');
+INSERT INTO public.audit_logs(id,tenant_id,site_id,after_data)
+VALUES(100,1,11,'{\"transactionId\":100}'::jsonb);
+COMMIT;
+DO $audit_scope$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.account_transactions WHERE id=100 AND site_id=11) THEN
+    RAISE EXCEPTION 'MANUAL_ACCOUNT_MOVEMENT_AUDIT_SCOPE_FAILED';
+  END IF;
+END
+$audit_scope$;
+
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
+SET ROLE authenticated;
+DO $manual_branch_a$
+BEGIN
+  IF EXISTS(SELECT 1 FROM public.account_transactions WHERE id=100) THEN
+    RAISE EXCEPTION 'BRANCH_A_SEES_BRANCH_B_MANUAL_TRANSACTION';
+  END IF;
+END
+$manual_branch_a$;
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000003',false);
+SET ROLE authenticated;
+DO $manual_branch_b$
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=100 AND site_id=11) THEN
+    RAISE EXCEPTION 'BRANCH_B_CANNOT_SEE_OWN_MANUAL_TRANSACTION';
+  END IF;
+END
+$manual_branch_b$;
+RESET ROLE;
+
 
 SELECT 'FINANCIAL_SITE_RLS_SCOPE_OK' AS result;
