@@ -82,5 +82,9 @@ describe("Payment receipt PDF generation", () => {
     expect(receipt).toContain('alt="شعار الاشتراك"');
     expect(receipt).not.toContain("window.open");
     expect(receipt).not.toContain("window.print");
+    expect(receipt).toContain('invoice?.status === "partially_paid"');
+    expect(receipt).toContain('invoice?.invoiceNo ?? payment.invoiceNo ?? "—"');
+    expect(receipt).toContain("دفعة مستقلة غير مرتبطة بفاتورة");
+    expect(receipt).toContain("...(invoice ? [");
   });
 });
