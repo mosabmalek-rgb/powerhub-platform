@@ -1,52 +1,72 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { downloadBlob } from "./download-blob";
 
-describe("downloadBlob", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
+function installDownloadEnvironment() {
+  const anchor = {
+    href: "",
+    download: "",
+    style: { display: "" },
+    click: vi.fn(),
+    remove: vi.fn(),
+  };
+  const documentMock = {
+    createElement: vi.fn(() => anchor),
+    body: { appendChild: vi.fn() },
+  };
+  let cleanup: (() => void) | undefined;
+  const setTimeout = vi.fn((callback: () => void, delay: number) => {
+    expect(delay).toBe(1_000);
+    cleanup = callback;
+    return 1;
   });
 
+  vi.stubGlobal("document", documentMock as unknown as Document);
+  vi.stubGlobal("window", { setTimeout } as unknown as Window);
+  const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:powerhub-download");
+  const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+
+  return { anchor, documentMock, setTimeout, cleanup: () => cleanup, createObjectURL, revokeObjectURL };
+}
+
+describe("downloadBlob", () => {
   afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
   it("clicks and removes the anchor while keeping the Blob URL alive for browser handoff", () => {
-    const createObjectURL = vi.fn(() => "blob:powerhub-download");
-    const revokeObjectURL = vi.fn();
-    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const env = installDownloadEnvironment();
     const blob = new Blob(["report"]);
 
     downloadBlob(blob, "powerhub-report.xlsx");
 
-    expect(createObjectURL).toHaveBeenCalledWith(blob);
-    expect(click).toHaveBeenCalledTimes(1);
-    const anchor = click.mock.contexts[0] as HTMLAnchorElement;
-    expect(anchor.download).toBe("powerhub-report.xlsx");
-    expect(anchor.href).toBe("blob:powerhub-download");
-    expect(document.body.contains(anchor)).toBe(false);
-    expect(revokeObjectURL).not.toHaveBeenCalled();
+    expect(env.createObjectURL).toHaveBeenCalledWith(blob);
+    expect(env.documentMock.createElement).toHaveBeenCalledWith("a");
+    expect(env.documentMock.body.appendChild).toHaveBeenCalledWith(env.anchor);
+    expect(env.anchor.href).toBe("blob:powerhub-download");
+    expect(env.anchor.download).toBe("powerhub-report.xlsx");
+    expect(env.anchor.style.display).toBe("none");
+    expect(env.anchor.click).toHaveBeenCalledOnce();
+    expect(env.anchor.remove).toHaveBeenCalledOnce();
+    expect(env.setTimeout).toHaveBeenCalledOnce();
+    expect(env.revokeObjectURL).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(999);
-    expect(revokeObjectURL).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(1);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:powerhub-download");
+    env.cleanup()?.();
+    expect(env.revokeObjectURL).toHaveBeenCalledWith("blob:powerhub-download");
   });
 
   it("still schedules Blob URL cleanup if the browser click throws", () => {
-    const createObjectURL = vi.fn(() => "blob:powerhub-download");
-    const revokeObjectURL = vi.fn();
-    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {
+    const env = installDownloadEnvironment();
+    env.anchor.click.mockImplementation(() => {
       throw new Error("download unavailable");
     });
 
     expect(() => downloadBlob(new Blob(["report"]), "powerhub-report.csv")).toThrow("download unavailable");
-    expect(revokeObjectURL).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1_000);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:powerhub-download");
+    expect(env.anchor.remove).toHaveBeenCalledOnce();
+    expect(env.setTimeout).toHaveBeenCalledOnce();
+    expect(env.revokeObjectURL).not.toHaveBeenCalled();
+
+    env.cleanup()?.();
+    expect(env.revokeObjectURL).toHaveBeenCalledWith("blob:powerhub-download");
   });
 });
