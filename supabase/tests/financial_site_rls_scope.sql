@@ -157,7 +157,7 @@ BEGIN
 END
 $enable_rls$;
 
-\ir ../migrations/20261103183000_powerhub_financial_site_rls_scope.sql
+\ir ../migrations/20261103195752_powerhub_financial_site_rls_scope.sql
 
 DO $assert_helpers$
 BEGIN
