@@ -2363,6 +2363,10 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
       return getSupabaseSecurityDepositOverview(access.tenantId, input.siteId);
     }),
+    securityDepositAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: input.siteId });
+    }),
     accountStatement: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       subscriberId: z.number().int().positive(),
@@ -2407,11 +2411,31 @@ export const powerhubRouter = router({
       openingReadingApproved: z.boolean().default(false),
       openingReadingImageData: z.string().optional(),
       openingReadingImageMime: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
-    }).omit({ code: true })).mutation(async ({ ctx, input }) => {
+      securityDepositAmount: z.number().positive().max(100000000).refine(hasAtMostTwoDecimalPlaces, "مبلغ التأمين يجب ألا يتجاوز منزلتين عشريتين.").optional(),
+      securityDepositCompanyAccountId: z.number().int().positive().optional(),
+      securityDepositPaymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]).optional(),
+      securityDepositPaymentNo: z.string().trim().min(3).max(60).optional(),
+      securityDepositReferenceNo: z.string().trim().max(120).optional(),
+      securityDepositOperationId: z.string().uuid().optional(),
+    }).omit({ code: true }).superRefine((input, ctx) => {
+      const hasDeposit = input.securityDepositAmount !== undefined;
+      const depositFields = [input.securityDepositCompanyAccountId, input.securityDepositPaymentMethod, input.securityDepositPaymentNo, input.securityDepositOperationId];
+      if (hasDeposit) {
+        if (!input.clientOperationId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["clientOperationId"], message: "يتطلب تسجيل التأمين مفتاح عملية ثابتاً." });
+        if (depositFields.some((value) => value === undefined)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["securityDepositCompanyAccountId"], message: "حدد حساب الإيداع وطريقة الدفع ورقم إيصال التأمين." });
+        if (input.securityDepositOperationId === input.clientOperationId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["securityDepositOperationId"], message: "يجب أن يختلف مفتاح التأمين عن مفتاح إنشاء المشترك." });
+      } else if (depositFields.some((value) => value !== undefined) || input.securityDepositReferenceNo !== undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["securityDepositAmount"], message: "أدخل مبلغ التأمين قبل تحديد بيانات الإيداع." });
+      }
+    })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageSubscribers");
+      if (input.securityDepositAmount !== undefined) {
+        await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      }
+      const hasSecurityDeposit = input.securityDepositAmount !== undefined;
       const admin = supabaseAdmin();
       // Opening readings establish a baseline and are approved immediately; they do not issue consumption invoices.
-      if (input.clientOperationId && !input.offlineNumberClaim) {
+      if (input.clientOperationId && !input.offlineNumberClaim && !hasSecurityDeposit) {
         const { data: applied, error: appliedError } = await admin.from("offline_sync_operations")
           .select("tenant_id, site_id, entity_type, operation_type, response")
           .eq("user_id", ctx.user.id).eq("client_operation_id", input.clientOperationId).maybeSingle();
@@ -2428,7 +2452,7 @@ export const powerhubRouter = router({
         }
       }
       const quota = await getSupabaseOwnerSubscriberQuota(access.tenantId);
-      if (!input.offlineNumberClaim && quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
+      if (!input.offlineNumberClaim && !hasSecurityDeposit && quota.currentCount >= quota.limit) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `وصلت إلى الحد الأقصى للمشتركين في باقتك (${quota.limit}). تواصل مع إدارة المنصة لترقية الاشتراك.` });
       const phone = normalizeInternationalPhone(input.phone);
       const whatsappNumber = input.whatsappNumber ? normalizeInternationalPhone(input.whatsappNumber) : undefined;
       if (input.openingReadingImageData && !input.openingReadingImageMime) throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تحديد نوع صورة القراءة الافتتاحية." });
@@ -2445,16 +2469,39 @@ export const powerhubRouter = router({
         }
         const expectedNumber = `SUB-${claim.numberValue.padStart(6, "0")}`;
         if (claim.formattedNumber !== expectedNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "صيغة الرقم المحلي المحجوز غير مطابقة." });
-        const { data, error } = await admin.rpc("powerhub_create_subscriber_with_offline_number", {
+        const offlineCreateArgs = {
           p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
           p_device_id: headerDeviceId, p_grant_id: claim.grantId, p_number_value: claim.numberValue,
           p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "",
           p_address: input.address?.trim() ?? "", p_subscription_type: input.subscriptionType,
           p_client_operation_id: input.clientOperationId,
-        });
+        };
+        const { data, error } = hasSecurityDeposit
+          ? await admin.rpc("powerhub_create_subscriber_with_security_deposit", {
+              p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+              p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "",
+              p_address: input.address?.trim() ?? "", p_subscription_type: input.subscriptionType,
+              p_client_operation_id: input.clientOperationId, p_quota_limit: quota.limit,
+              p_opening_reading: null, p_opening_reading_at: null, p_opening_image_key: null,
+              p_opening_image_hash: null, p_opening_reading_approved: false,
+              p_offline_device_id: headerDeviceId, p_offline_grant_id: claim.grantId,
+              p_offline_number_value: claim.numberValue,
+              p_security_deposit_amount: input.securityDepositAmount,
+              p_security_deposit_company_account_id: input.securityDepositCompanyAccountId,
+              p_security_deposit_payment_method: input.securityDepositPaymentMethod,
+              p_security_deposit_payment_no: input.securityDepositPaymentNo,
+              p_security_deposit_reference_no: input.securityDepositReferenceNo ?? null,
+              p_security_deposit_operation_id: input.securityDepositOperationId,
+            })
+          : await admin.rpc("powerhub_create_subscriber_with_offline_number", offlineCreateArgs);
         if (!error && data?.[0]) {
-          const row = data[0] as { subscriber_id: number | string; subscriber_no: string; replayed: boolean };
-          const response = { id: Number(row.subscriber_id), subscriberNo: row.subscriber_no, referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }>, replayed: Boolean(row.replayed) };
+          const row = data[0] as { subscriber_id: number | string; subscriber_no: string; replayed: boolean; security_deposit_payment_id?: number | string | null };
+          const response = {
+            id: Number(row.subscriber_id), subscriberNo: row.subscriber_no,
+            referenceNotifications: [] as Array<{ notificationId: number; status: string; error?: string }>,
+            replayed: Boolean(row.replayed),
+            ...(row.security_deposit_payment_id ? { securityDepositPaymentId: Number(row.security_deposit_payment_id) } : {}),
+          };
           if (!row.replayed) {
             try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } }); }
             catch (alertError) { console.error("[PowerHub] subscriber quota alert failed after offline creation", alertError); }
@@ -2498,10 +2545,30 @@ export const powerhubRouter = router({
         p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "", p_address: input.address?.trim() ?? "",
         p_subscription_type: input.subscriptionType, p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
       };
-      const { data, error } = await admin.rpc(rpcName, rpcArgs);
+      const depositRpcArgs = {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_full_name: input.fullName.trim(), p_phone: phone, p_whatsapp_number: whatsappNumber ?? "",
+        p_address: input.address?.trim() ?? "", p_subscription_type: input.subscriptionType,
+        p_client_operation_id: input.clientOperationId ?? null, p_quota_limit: quota.limit,
+        p_opening_reading: input.openingReading ? Number(input.openingReading) : null,
+        p_opening_reading_at: input.openingReadingAt ? new Date(input.openingReadingAt).toISOString() : null,
+        p_opening_image_key: openingImageKey ?? null, p_opening_image_hash: openingImageHash ?? null,
+        p_opening_reading_approved: Boolean(input.openingReading),
+        p_offline_device_id: null, p_offline_grant_id: null, p_offline_number_value: null,
+        p_security_deposit_amount: input.securityDepositAmount,
+        p_security_deposit_company_account_id: input.securityDepositCompanyAccountId,
+        p_security_deposit_payment_method: input.securityDepositPaymentMethod,
+        p_security_deposit_payment_no: input.securityDepositPaymentNo,
+        p_security_deposit_reference_no: input.securityDepositReferenceNo ?? null,
+        p_security_deposit_operation_id: input.securityDepositOperationId,
+      };
+      const { data, error } = hasSecurityDeposit
+        ? await admin.rpc("powerhub_create_subscriber_with_security_deposit", depositRpcArgs)
+        : await admin.rpc(rpcName, rpcArgs);
       if (error && openingImageKey) await storageRemove(openingImageKey).catch(() => undefined);
       if (!error && data?.[0]) {
-        const row = data[0] as { subscriber_id: number | string; subscriber_no: string; opening_reading_id?: number | string | null; opening_reading_status?: string | null; replayed: boolean };
+        const row = data[0] as { subscriber_id: number | string; subscriber_no: string; opening_reading_id?: number | string | null; opening_reading_status?: string | null; replayed: boolean; security_deposit_payment_id?: number | string | null };
+        if (row.replayed && openingImageKey) await storageRemove(openingImageKey).catch(() => undefined);
         let openingReadingId = row.opening_reading_id ? Number(row.opening_reading_id) : undefined;
         let openingReadingStatus = row.opening_reading_status ?? undefined;
         if (row.replayed && !openingReadingId) {
@@ -2521,7 +2588,8 @@ export const powerhubRouter = router({
         if (!row.replayed) {
           try { await recordSupabaseSubscriberQuotaAlert({ tenantId: access.tenantId, siteId: input.siteId, userId: ctx.user.id, quota: { ...quota, currentCount: quota.currentCount + 1, remaining: Math.max(0, quota.remaining - 1) } }); } catch (alertError) { console.error("[PowerHub] subscriber quota alert failed after successful creation", alertError); }
         }
-        return openingReadingId ? { ...response, openingReadingId, openingReadingStatus } : response;
+        const withDeposit = row.security_deposit_payment_id ? { ...response, securityDepositPaymentId: Number(row.security_deposit_payment_id) } : response;
+        return openingReadingId ? { ...withDeposit, openingReadingId, openingReadingStatus } : withDeposit;
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_QUOTA_REACHED")) {
@@ -2644,6 +2712,8 @@ export const powerhubRouter = router({
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن المحطة المحددة." });
       if (errorText.includes("SUBSCRIBER_VERSION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "تغيرت بيانات المشترك على الخادم منذ حفظ هذه المسودة. راجع التعارض ثم أعد المحاولة." });
+      if (errorText.includes("SUBSCRIBER_HAS_OUTSTANDING_INVOICES")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن فصل المشترك قبل تسديد جميع الفواتير المستحقة أو تسويتها من التأمين." });
+      if (errorText.includes("SUBSCRIBER_SECURITY_DEPOSIT_NOT_SETTLED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يمكن فصل المشترك قبل تسوية التأمين أو رد الرصيد المتبقي." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث المشترك في Supabase." });
     }),
     phoneReview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {

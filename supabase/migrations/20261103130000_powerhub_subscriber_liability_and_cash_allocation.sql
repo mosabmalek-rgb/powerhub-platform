@@ -1670,4 +1670,5 @@ create trigger powerhub_guard_subscriber_disconnection_financial_closeout
 before update of service_status on public.subscribers
 for each row
 execute function public.powerhub_guard_subscriber_disconnection_financial_closeout();
+revoke all on function public.powerhub_guard_subscriber_disconnection_financial_closeout() from public,anon,authenticated;
 
