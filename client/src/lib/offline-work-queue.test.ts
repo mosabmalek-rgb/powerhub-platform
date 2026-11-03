@@ -166,4 +166,46 @@ describe("expense Outbox intent", () => {
     });
     expect(item).not.toHaveProperty("appliedEntityId");
   });
+
+  it("يحافظ على مبلغ التأمين ورقم الإيصال ومفتاح التأمين في مسودة المشترك غير المتصلة حتى إعادة المزامنة", () => {
+    const payload = {
+      fullName: "مشترك تأمين دون اتصال",
+      phone: "+970599000001",
+      subscriptionType: "residential" as const,
+      securityDepositAmount: 125.5,
+      securityDepositCompanyAccountId: 44,
+      securityDepositPaymentMethod: "cash" as const,
+      securityDepositPaymentNo: "DEP-OFFLINE-RETRY-001",
+      securityDepositReferenceNo: "LOCAL-REFERENCE-001",
+      securityDepositOperationId: "11111111-1111-4111-8111-111111111111",
+    };
+    const draft = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "subscriber_create", payload,
+      clientOperationId: "22222222-2222-4222-8222-222222222222",
+    });
+    const retryMetadata = {
+      ...createInitialSyncMetadataRecord(draft),
+      outcome: "retryable" as const,
+      attempts: 1,
+      nextAttemptAt: draft.createdAt + 1_000,
+    };
+
+    expect(draft).toMatchObject({
+      status: "pending",
+      clientOperationId: "22222222-2222-4222-8222-222222222222",
+      payload: {
+        securityDepositAmount: 125.5,
+        securityDepositCompanyAccountId: 44,
+        securityDepositPaymentMethod: "cash",
+        securityDepositPaymentNo: "DEP-OFFLINE-RETRY-001",
+        securityDepositReferenceNo: "LOCAL-REFERENCE-001",
+        securityDepositOperationId: "11111111-1111-4111-8111-111111111111",
+      },
+    });
+    expect(draft.payload.securityDepositOperationId).not.toBe(draft.clientOperationId);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, retryMetadata)).toBe(true);
+    expect(retryMetadata.operationId).toBe(draft.clientOperationId);
+    expect(retryMetadata.dependsOn).toEqual([]);
+  });
+
 });
