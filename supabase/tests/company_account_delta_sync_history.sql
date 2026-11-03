@@ -279,7 +279,7 @@ begin
  v_snapshot:=public.powerhub_get_sync_snapshot(1,10,'company_accounts');
  if jsonb_array_length(v_snapshot->'rows')<>1
    or v_snapshot #>> '{rows,0,id}' is distinct from '700'
-   or (v_snapshot #>> '{rows,0,balance}')::numeric<>100
+   or (v_snapshot #>> '{rows,0,balance}')::numeric<>140
    or jsonb_array_length(v_snapshot #> '{rows,0,linked_sites}')<>1
    or v_snapshot #>> '{rows,0,linked_sites,0,site_id}' is distinct from '10'
  then raise exception 'Branch-scoped account snapshot failed: %',v_snapshot; end if;
@@ -324,7 +324,7 @@ begin
  v_delta:=public.powerhub_pull_sync_delta(1,10,'company_accounts',v_next,null,200);
  if jsonb_array_length(v_delta->'changes')<>1
    or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
-   or (v_delta #>> '{changes,0,row_data,balance}')::numeric<>135
+   or (v_delta #>> '{changes,0,row_data,balance}')::numeric<>175
    or (v_delta #>> '{changes,0,row_data,transactions,0,amount}')::numeric<>35
  then raise exception 'Account ledger update Delta failed: %',v_delta; end if;
  v_next:=(v_delta->>'next_cursor')::bigint;
@@ -333,7 +333,7 @@ begin
  v_delta:=public.powerhub_pull_sync_delta(1,10,'company_accounts',v_next,null,200);
  if jsonb_array_length(v_delta->'changes')<>1
    or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
-   or (v_delta #>> '{changes,0,row_data,balance}')::numeric<>100
+   or (v_delta #>> '{changes,0,row_data,balance}')::numeric<>140
    or jsonb_array_length(v_delta #> '{changes,0,row_data,transactions}')<>0
  then raise exception 'Account ledger delete Delta failed: %',v_delta; end if;
  v_next:=(v_delta->>'next_cursor')::bigint;
@@ -349,7 +349,7 @@ begin
  v_snapshot:=public.powerhub_get_sync_snapshot(1,20,'company_accounts');
  if jsonb_array_length(v_snapshot->'rows')<>1
    or v_snapshot #>> '{rows,0,id}' is distinct from '700'
-   or (v_snapshot #>> '{rows,0,balance}')::numeric<>100
+   or (v_snapshot #>> '{rows,0,balance}')::numeric<>140
  then raise exception 'Account remained missing from its still-linked branch: %',v_snapshot; end if;
 
  v_cursor:=(v_snapshot->>'snapshot_cursor')::bigint;
