@@ -202,7 +202,8 @@ describe("expense Outbox intent", () => {
         securityDepositOperationId: "11111111-1111-4111-8111-111111111111",
       },
     });
-    expect(draft.payload.securityDepositOperationId).not.toBe(draft.clientOperationId);
+    const queuedPayload = draft.payload as typeof payload;
+    expect(queuedPayload.securityDepositOperationId).not.toBe(draft.clientOperationId);
     expect(isSyncMetadataCompatibleWithWorkItem(draft, retryMetadata)).toBe(true);
     expect(retryMetadata.operationId).toBe(draft.clientOperationId);
     expect(retryMetadata.dependsOn).toEqual([]);
