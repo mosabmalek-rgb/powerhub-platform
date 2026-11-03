@@ -23,7 +23,7 @@ describe("public invoice and inquiry actions", () => {
 
   it("shows available subscriber credit only when positive and renders applied credit once from the canonical invoice line", () => {
     const publicInvoice = read("client/src/pages/PublicInvoice.tsx");
-    const creditMigration = read("supabase/migrations/20261103120000_powerhub_subscriber_credit_ledger.sql");
+    const creditMigration = read("supabase/migrations/20261103131052_powerhub_subscriber_credit_ledger.sql");
     const publicInvoicePayloadMigration = read("supabase/migrations/20261103130000_powerhub_subscriber_liability_and_cash_allocation.sql");
 
     expect(publicInvoice).toContain("الرصيد الدائن المطبق على الفاتورة");
