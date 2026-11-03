@@ -397,6 +397,33 @@ export async function listSupabaseSubscriberDirectoryPage(input: {
 }
 
 
+export async function getSupabaseSubscriberBalanceSnapshot(tenantId: number, siteId: number, subscriberId: number) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_balance_snapshot", {
+    p_tenant_id: tenantId, p_site_id: siteId, p_subscriber_id: subscriberId,
+  });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أرصدة المشترك من Supabase." });
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب أرصدة المشترك." });
+  return { availableCredit: String(row.available_credit ?? 0), securityDeposit: String(row.security_deposit ?? 0) };
+}
+
+export async function getSupabaseSecurityDepositOverview(tenantId: number, siteId: number) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_security_deposit_overview", {
+    p_tenant_id: tenantId, p_site_id: siteId,
+  });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص تأمينات المشتركين." });
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    totalAmount: String(row?.total_amount ?? 0),
+    subscriberCount: Number(row?.subscriber_count ?? 0),
+    items: Array.isArray(row?.items) ? row.items.map((item: any) => ({
+      subscriberId: Number(item.subscriberId), fullName: String(item.fullName ?? "مشترك"),
+      subscriberNo: String(item.subscriberNo ?? ""), phone: item.phone == null ? null : String(item.phone),
+      amount: String(item.amount ?? 0), lastMovementAt: item.lastMovementAt ? new Date(item.lastMovementAt) : null,
+    })) : [],
+  };
+}
+
 export async function getSupabaseSubscriberAccountStatement(siteId: number, subscriberId: number) {
   const admin = supabaseAdmin();
   const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
@@ -405,7 +432,7 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
   if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المشترك من Supabase." });
   if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن الفرع المحدد." });
 
-  const [statementSummaryResult, invoiceRecentResult, paymentRecentResult, readingRecentResult] = await Promise.all([
+  const [statementSummaryResult, invoiceRecentResult, paymentRecentResult, readingRecentResult, balanceSnapshotResult] = await Promise.all([
     admin.rpc("powerhub_subscriber_statement_summary", {
       p_tenant_id: Number(subscriber.tenant_id),
       p_site_id: siteId,
@@ -416,16 +443,19 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId)
       .neq("status", "cancelled").order("issue_date", { ascending: false }).order("id", { ascending: false }).limit(21),
     admin.from("payments")
-      .select("id, payment_no, invoice_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, status, paid_at")
+      .select("id, payment_no, invoice_id, amount, invoice_applied_amount, subscriber_credit_amount, payment_purpose, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, status, paid_at")
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId).eq("status", "completed")
       .order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(21),
     admin.from("meter_readings")
       .select("id, reading_at, reading_value, previous_reading_value, consumption_kwh, capture_method, status, version_no, notes")
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("subscriber_id", subscriberId)
       .order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(21),
+    admin.rpc("powerhub_subscriber_balance_snapshot", {
+      p_tenant_id: Number(subscriber.tenant_id), p_site_id: siteId, p_subscriber_id: subscriberId,
+    }),
   ]);
 
-  if (statementSummaryResult.error || invoiceRecentResult.error || paymentRecentResult.error || readingRecentResult.error) {
+  if (statementSummaryResult.error || invoiceRecentResult.error || paymentRecentResult.error || readingRecentResult.error || balanceSnapshotResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل كشف حساب المشترك من Supabase." });
   }
 
@@ -474,6 +504,8 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       totalCollected,
       totalOutstanding,
       totalConsumptionKwh,
+      availableCredit: String(balanceSnapshotResult.data?.[0]?.available_credit ?? 0),
+      securityDeposit: String(balanceSnapshotResult.data?.[0]?.security_deposit ?? 0),
       lastPaymentAt: statementSummary.last_payment_at ? new Date(statementSummary.last_payment_at) : null,
     },
     limits: {
@@ -509,6 +541,9 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
       invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null,
       amount: String(row.amount),
+      invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0),
+      subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0),
+      paymentPurpose: row.payment_purpose ?? "invoice_collection",
       paymentMethod: row.payment_method,
       transferFromAccount: row.transfer_from_account,
       transferFromType: row.transfer_from_type,
@@ -542,6 +577,7 @@ export type SubscriberStatementInvoiceHistoryItem = {
 };
 export type SubscriberStatementPaymentHistoryItem = {
   id: number; paymentNo: string; invoiceId: number | null; invoiceNo: string | null; amount: string;
+  invoiceAppliedAmount: string; subscriberCreditAmount: string; paymentPurpose: string;
   paymentMethod: string; transferFromAccount: string | null; transferFromType: string | null;
   transferToAccount: string | null; transferToType: string | null; referenceNo: string | null;
   status: string; paidAt: Date;
@@ -600,7 +636,7 @@ export async function listSupabaseSubscriberAccountStatementHistoryPage(
 
   if (section === "payments") {
     let query = admin.from("payments")
-      .select("id,payment_no,invoice_id,amount,payment_method,transfer_from_account,transfer_from_type,transfer_to_account,transfer_to_type,reference_no,status,paid_at")
+      .select("id,payment_no,invoice_id,amount,invoice_applied_amount,subscriber_credit_amount,payment_purpose,payment_method,transfer_from_account,transfer_from_type,transfer_to_account,transfer_to_type,reference_no,status,paid_at")
       .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId).eq("status", "completed");
     if (cursor) query = query.or("paid_at.lt." + cursor.at + ",and(paid_at.eq." + cursor.at + ",id.lt." + cursor.id + ")");
     const { data, error } = await query.order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
@@ -619,6 +655,9 @@ export async function listSupabaseSubscriberAccountStatementHistoryPage(
       invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
       invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null,
       amount: String(row.amount),
+      invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0),
+      subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0),
+      paymentPurpose: row.payment_purpose ?? "invoice_collection",
       paymentMethod: row.payment_method,
       transferFromAccount: row.transfer_from_account,
       transferFromType: row.transfer_from_type,
@@ -833,7 +872,7 @@ export async function listSupabaseInvoicePage(siteId: number, input: { limit?: n
 export async function listSupabasePayments(siteId: number) {
   const admin = supabaseAdmin();
   const { data: paymentRows, error: paymentsError } = await admin.from("payments")
-    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, status, collected_by_user_id, collector_session_id, paid_at, created_at")
+    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, payment_purpose, invoice_applied_amount, subscriber_credit_amount, status, collected_by_user_id, collector_session_id, paid_at, created_at")
     .eq("site_id", siteId).order("paid_at", { ascending: false });
   if (paymentsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الدفعات من Supabase." });
   const subscriberIds = Array.from(new Set((paymentRows ?? []).map((row) => Number(row.subscriber_id))));
@@ -856,7 +895,7 @@ export async function listSupabasePayments(siteId: number) {
       id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
       paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method,
       transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type,
-      referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), status: row.status,
+      referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), paymentPurpose: row.payment_purpose ?? "invoice_collection", invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0), subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0), status: row.status,
       collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id),
       paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: null,
     };
@@ -868,7 +907,7 @@ export async function listSupabasePaymentPage(siteId: number, input: { limit?: n
   const limit = historyLimit(input.limit);
   const cursor = decodeHistoryCursor(input.cursor);
   let query = supabaseAdmin().from("payments")
-    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, status, collected_by_user_id, collector_session_id, paid_at, created_at")
+    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, payment_purpose, invoice_applied_amount, subscriber_credit_amount, status, collected_by_user_id, collector_session_id, paid_at, created_at")
     .eq("site_id", siteId);
   if (cursor) query = query.or(`paid_at.lt.${cursor.at},and(paid_at.eq.${cursor.at},id.lt.${cursor.id})`);
   const { data: paymentRows, error } = await query.order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
@@ -888,7 +927,7 @@ export async function listSupabasePaymentPage(siteId: number, input: { limit?: n
   const items = await Promise.all(pageRows.map(async (row: any) => {
     const subscriber = subscriberById.get(Number(row.subscriber_id));
     if (!subscriber) return null;
-    return { payment: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method, transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type, referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), status: row.status, collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id), paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: null }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null };
+    return { payment: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method, transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type, referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), paymentPurpose: row.payment_purpose ?? "invoice_collection", invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0), subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0), status: row.status, collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id), paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: null }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null };
   })).then((values) => values.filter(Boolean));
   const last = pageRows.at(-1) as any;
   return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: String(last.paid_at), id: Number(last.id) }) : null };
@@ -1042,9 +1081,10 @@ export async function listSupabaseReportPayments(input: {
   const rows = await readSupabaseReportPages((from, to) =>
     admin.from("payments")
       .select(input.summaryOnly
-        ? "id, site_id, subscriber_id, amount, status, paid_at"
-        : "id, site_id, subscriber_id, payment_no, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
+        ? "id, site_id, subscriber_id, invoice_applied_amount, status, paid_at"
+        : "id, site_id, subscriber_id, payment_no, invoice_applied_amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
       .eq("tenant_id", input.tenantId)
+      .in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit"])
       .in("site_id", siteIds)
       .gte("paid_at", input.start.toISOString())
       .lt("paid_at", input.endExclusive.toISOString())
@@ -1057,7 +1097,7 @@ export async function listSupabaseReportPayments(input: {
       siteId: Number(row.site_id),
       subscriberId: Number(row.subscriber_id),
       paymentNo: String(row.payment_no ?? ""),
-      amount: String(row.amount),
+      amount: String(row.invoice_applied_amount ?? 0),
       paymentMethod: String(row.payment_method ?? ""),
       transferFromAccount: row.transfer_from_account == null ? null : String(row.transfer_from_account),
       transferFromType: row.transfer_from_type == null ? null : String(row.transfer_from_type),

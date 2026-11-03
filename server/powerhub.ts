@@ -28,7 +28,7 @@ import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { powerhubInventoryRouter } from "./powerhub-inventory-router";
 import { powerhubMaintenanceRouter } from "./powerhub-maintenance-router";
 import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, listSupabaseSubscriberAccountStatementHistoryPage, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, getSupabaseSecurityDepositOverview, listSupabaseSubscriberAccountStatementHistoryPage, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 
@@ -2359,6 +2359,10 @@ export const powerhubRouter = router({
       if (message.includes("SUBSCRIBER_OUT_OF_SCOPE")) throw new TRPCError({ code:"NOT_FOUND", message:"المشترك غير موجود ضمن الفرع المحدد." });
       throw new TRPCError({ code:"INTERNAL_SERVER_ERROR", message:"تعذر تغيير دورة حياة المشترك." });
     }),
+    securityDepositOverview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      return getSupabaseSecurityDepositOverview(access.tenantId, input.siteId);
+    }),
     accountStatement: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       subscriberId: z.number().int().positive(),
@@ -3189,6 +3193,34 @@ export const powerhubRouter = router({
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن تعديل أو إضافة بيانات مالية داخلها." });
       if (errorText.includes("COLLECTOR_SESSION_NOT_OPEN")) throw new TRPCError({ code: "BAD_REQUEST", message: "افتح جلسة تحصيل قبل تسجيل دفعاتك الميدانية." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل التحصيل في Supabase." });
+    }),
+    refundSecurityDeposit: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), subscriberId: z.number().int().positive(),
+      amount: z.number().positive().refine(hasAtMostTwoDecimalPlaces, "مبلغ الرد يجب ألا يتجاوز منزلتين عشريتين."),
+      paymentNo: z.string().trim().min(3).max(60), companyAccountId: z.number().int().positive(),
+      paymentMethod: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"]),
+      referenceNo: z.string().trim().max(120).optional(), clientOperationId: z.string().uuid(),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "collectPayments");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_refund_subscriber_security_deposit", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_subscriber_id: input.subscriberId, p_amount: input.amount, p_payment_no: input.paymentNo,
+        p_company_account_id: input.companyAccountId, p_payment_method: input.paymentMethod,
+        p_reference_no: input.referenceNo ?? null, p_client_operation_id: input.clientOperationId,
+      });
+      if (!error && data?.[0]) return {
+        id: Number(data[0].payment_id), replayed: Boolean(data[0].replayed),
+        securityDepositBalance: String(data[0].security_deposit_balance ?? 0),
+      };
+      const message = String(error?.message ?? "");
+      if (message.includes("SECURITY_DEPOSIT_BALANCE_INSUFFICIENT")) throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ الرد أكبر من التأمين المتبقي للمشترك." });
+      if (message.includes("INSUFFICIENT_ACCOUNT_BALANCE")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "رصيد حساب الصرف المحدد لا يكفي لإتمام رد التأمين." });
+      if (message.includes("COMPANY_ACCOUNT_NOT_FOUND") || message.includes("COMPANY_ACCOUNT_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "حساب الصرف غير نشط أو غير متاح لهذا الفرع." });
+      if (message.includes("COMPANY_ACCOUNT_TYPE_MISMATCH")) throw new TRPCError({ code: "BAD_REQUEST", message: "طريقة رد التأمين لا تطابق نوع حساب الصرف." });
+      if (message.includes("SECURITY_DEPOSIT_REFUND_OPERATION_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "معرّف عملية الرد مستخدم مع بيانات مختلفة؛ لم يُسجل خصم جديد." });
+      if (message.includes("DUPLICATE_PAYMENT_NO")) throw new TRPCError({ code: "CONFLICT", message: "رقم إيصال رد التأمين مستخدم مسبقاً." });
+      if (message.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن رد التأمين خلالها." });
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تسجيل رد التأمين." });
     }),
   }),
 

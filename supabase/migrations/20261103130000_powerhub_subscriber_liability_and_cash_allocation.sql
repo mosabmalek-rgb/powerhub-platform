@@ -618,6 +618,18 @@ begin
      or v_existing_payment.receipt_image_key is distinct from p_receipt_image_key
      or v_existing_payment.receipt_image_hash is distinct from p_receipt_image_hash
      or v_existing_payment.collector_session_id is distinct from p_collector_session_id
+      or round(coalesce(v_existing_payment.invoice_applied_amount,0)+coalesce(v_existing_payment.subscriber_credit_amount,0),2) is distinct from round(p_amount,2)
+      or (
+        coalesce(v_existing_payment.subscriber_credit_amount,0)>0
+        and not exists(
+          select 1 from public.subscriber_balance_ledger l
+          where l.payment_id=v_existing_payment.id and l.tenant_id=p_tenant_id
+            and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
+            and l.balance_type='available_credit' and l.entry_type='receipt'
+            and l.direction='credit' and l.amount=v_existing_payment.subscriber_credit_amount
+            and l.idempotency_key='subscriber-credit:payment:'||v_existing_payment.id::text
+        )
+      )
      or not exists(
        select 1 from public.account_transactions t
        where t.related_payment_id=v_existing_payment.id
@@ -655,6 +667,18 @@ begin
      or v_existing_payment.receipt_image_key is distinct from p_receipt_image_key
      or v_existing_payment.receipt_image_hash is distinct from p_receipt_image_hash
      or v_existing_payment.collector_session_id is distinct from p_collector_session_id
+      or round(coalesce(v_existing_payment.invoice_applied_amount,0)+coalesce(v_existing_payment.subscriber_credit_amount,0),2) is distinct from round(p_amount,2)
+      or (
+        coalesce(v_existing_payment.subscriber_credit_amount,0)>0
+        and not exists(
+          select 1 from public.subscriber_balance_ledger l
+          where l.payment_id=v_existing_payment.id and l.tenant_id=p_tenant_id
+            and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
+            and l.balance_type='available_credit' and l.entry_type='receipt'
+            and l.direction='credit' and l.amount=v_existing_payment.subscriber_credit_amount
+            and l.idempotency_key='subscriber-credit:payment:'||v_existing_payment.id::text
+        )
+      )
      or not exists(
        select 1 from public.account_transactions t
        where t.related_payment_id=v_existing_payment.id
@@ -720,7 +744,7 @@ begin
     set paid_amount=v_new_paid,balance_due=v_new_balance,status=v_invoice_status,updated_at=now()
     where id=v_invoice.id and tenant_id=p_tenant_id and site_id=p_site_id;
   else
-    v_invoice_applied_amount:=round(p_amount,2);
+    v_subscriber_credit_amount:=round(p_amount,2);
   end if;
 
   insert into public.payments(
@@ -870,6 +894,18 @@ begin
      or v_existing_payment.receipt_image_key is distinct from p_receipt_image_key
      or v_existing_payment.receipt_image_hash is distinct from p_receipt_image_hash
      or v_existing_payment.collector_session_id is distinct from p_collector_session_id
+      or round(coalesce(v_existing_payment.invoice_applied_amount,0)+coalesce(v_existing_payment.subscriber_credit_amount,0),2) is distinct from round(p_amount,2)
+      or (
+        coalesce(v_existing_payment.subscriber_credit_amount,0)>0
+        and not exists(
+          select 1 from public.subscriber_balance_ledger l
+          where l.payment_id=v_existing_payment.id and l.tenant_id=p_tenant_id
+            and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
+            and l.balance_type='available_credit' and l.entry_type='receipt'
+            and l.direction='credit' and l.amount=v_existing_payment.subscriber_credit_amount
+            and l.idempotency_key='subscriber-credit:payment:'||v_existing_payment.id::text
+        )
+      )
      or not exists(
        select 1 from public.account_transactions t
        where t.related_payment_id=v_existing_payment.id
@@ -921,6 +957,18 @@ begin
      or v_existing_payment.receipt_image_key is distinct from p_receipt_image_key
      or v_existing_payment.receipt_image_hash is distinct from p_receipt_image_hash
      or v_existing_payment.collector_session_id is distinct from p_collector_session_id
+      or round(coalesce(v_existing_payment.invoice_applied_amount,0)+coalesce(v_existing_payment.subscriber_credit_amount,0),2) is distinct from round(p_amount,2)
+      or (
+        coalesce(v_existing_payment.subscriber_credit_amount,0)>0
+        and not exists(
+          select 1 from public.subscriber_balance_ledger l
+          where l.payment_id=v_existing_payment.id and l.tenant_id=p_tenant_id
+            and l.site_id=p_site_id and l.subscriber_id=p_subscriber_id
+            and l.balance_type='available_credit' and l.entry_type='receipt'
+            and l.direction='credit' and l.amount=v_existing_payment.subscriber_credit_amount
+            and l.idempotency_key='subscriber-credit:payment:'||v_existing_payment.id::text
+        )
+      )
      or not exists(
        select 1 from public.account_transactions t
        where t.related_payment_id=v_existing_payment.id
