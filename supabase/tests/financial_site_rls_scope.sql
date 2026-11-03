@@ -85,7 +85,8 @@ INSERT INTO public.users(id,auth_user_id,role,platform_role,account_status) VALU
  (6,'00000000-0000-0000-0000-000000000006','user',NULL,'active'),
  (7,'00000000-0000-0000-0000-000000000007','admin','platform_support','active'),
  (8,'00000000-0000-0000-0000-000000000008','admin','platform_admin','active'),
- (9,'00000000-0000-0000-0000-000000000009','user',NULL,'disabled');
+ (9,'00000000-0000-0000-0000-000000000009','user',NULL,'disabled'),
+ (10,'00000000-0000-0000-0000-000000000010','user',NULL,'active');
 
 INSERT INTO public.sites(id,tenant_id) VALUES(10,1),(11,1),(20,2);
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
@@ -96,19 +97,19 @@ INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_st
  (1,5,'member',true,'active',now()-interval '1 hour'),
  (1,6,'member',true,'active',NULL),
  (1,7,'member',true,'active',NULL),
- (2,2,'member',true,'active',NULL);
+ (2,10,'member',true,'active',NULL);
 INSERT INTO public.staff_profiles(id,tenant_id,user_id,site_id,role,is_active,archived_at,suspension_started_at,suspension_ends_at) VALUES
  (1,1,2,10,'manager',true,NULL,NULL,NULL),
  (2,1,3,11,'accountant',true,NULL,NULL,NULL),
  (3,1,4,10,'manager',true,NULL,now()-interval '1 hour',now()+interval '1 hour'),
  (4,1,6,NULL,'accountant',true,NULL,NULL,NULL),
- (5,2,2,20,'manager',true,NULL,NULL,NULL);
+ (5,2,10,20,'manager',true,NULL,NULL,NULL);
 
-INSERT INTO public.company_accounts(id,tenant_id) VALUES(100,1),(101,1),(102,1),(103,2);
+INSERT INTO public.company_accounts(id,tenant_id) VALUES(100,1),(101,1),(102,1),(103,2),(104,1);
 INSERT INTO public.company_account_sites(id,tenant_id,account_id,site_id) VALUES
  (1,1,100,10),(2,1,101,11),(3,1,102,10),(4,1,102,11),(5,2,103,20);
 
-INSERT INTO public.account_transactions VALUES(1,1,100),(2,1,101),(3,1,102),(4,1,103);
+INSERT INTO public.account_transactions VALUES(1,1,100),(2,1,101),(3,1,102),(4,1,103),(5,1,104);
 INSERT INTO public.audit_logs VALUES(1,1,10),(2,1,11),(3,2,20),(4,1,NULL);
 INSERT INTO public.expenses VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.financial_settlements VALUES(1,1,10),(2,1,11),(3,2,20);
@@ -177,7 +178,7 @@ BEGIN
  IF (SELECT count(*) FROM public.invoices)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoices WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_INVOICE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.payments)<>1 OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_PAYMENT_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoice_lines)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoice_lines WHERE id=1) THEN RAISE EXCEPTION 'INVOICE_CHILD_SCOPE_FAILED'; END IF;
- IF (SELECT count(*) FROM public.company_accounts)<>3 OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=100) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102) THEN RAISE EXCEPTION 'COMPANY_ACCOUNT_BRANCH_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.company_accounts)<>3 OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=100) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=104) THEN RAISE EXCEPTION 'COMPANY_ACCOUNT_BRANCH_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.account_transactions)<>3 THEN RAISE EXCEPTION 'ACCOUNT_TRANSACTION_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.audit_logs)<>1 OR NOT EXISTS(SELECT 1 FROM public.audit_logs WHERE id=1) THEN RAISE EXCEPTION 'AUDIT_SITE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.supplier_purchase_lines)<>1 OR NOT EXISTS(SELECT 1 FROM public.supplier_purchase_lines WHERE id=1) THEN RAISE EXCEPTION 'PURCHASE_LINE_SCOPE_FAILED'; END IF;
@@ -199,7 +200,7 @@ DO $branch_b$
 BEGIN
  IF (SELECT count(*) FROM public.expenses)<>1 OR NOT EXISTS(SELECT 1 FROM public.expenses WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_EXPENSE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoices)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoices WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_INVOICE_SCOPE_FAILED'; END IF;
- IF (SELECT count(*) FROM public.company_accounts)<>2 OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=101) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102) THEN RAISE EXCEPTION 'BRANCH_B_ACCOUNT_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.company_accounts)<>3 OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=101) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=104) THEN RAISE EXCEPTION 'BRANCH_B_ACCOUNT_SCOPE_FAILED'; END IF;
 END
 $branch_b$;
 RESET ROLE;
@@ -210,7 +211,7 @@ DO $owner$
 BEGIN
  IF (SELECT count(*) FROM public.expenses)<>2 THEN RAISE EXCEPTION 'OWNER_ALL_BRANCH_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.audit_logs)<>3 THEN RAISE EXCEPTION 'OWNER_TENANT_AUDIT_SCOPE_FAILED'; END IF;
- IF (SELECT count(*) FROM public.company_accounts)<>3 THEN RAISE EXCEPTION 'OWNER_ACCOUNT_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.company_accounts)<>4 THEN RAISE EXCEPTION 'OWNER_ACCOUNT_SCOPE_FAILED'; END IF;
 END
 $owner$;
 RESET ROLE;
