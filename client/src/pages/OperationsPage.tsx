@@ -83,6 +83,9 @@ function downloadPaymentReceiptPdf({ payment, invoice, subscriber, siteName, log
   receiptRoot.dir = "rtl";
   receiptRoot.style.cssText = "position:fixed;left:-30000px;top:0;width:794px;pointer-events:none;z-index:-1;background:#fff;overflow:visible";
   const total = invoice ? Number(invoice.totalAmount) : null; const paid = invoice ? Number(invoice.paidAmount) : null; const balance = invoice ? Number(invoice.balanceDue) : null; const paymentAmount = Number(payment.amount);
+  const purpose = String(payment.paymentPurpose ?? "invoice_collection");
+  const receiptTitle = purpose === "security_deposit" ? "إيصال استلام تأمين" : purpose === "security_deposit_refund" ? "إيصال رد تأمين" : purpose === "subscriber_credit" ? "إيصال رصيد دائن" : "إيصال تحصيل";
+  const movementLabel = purpose === "security_deposit_refund" ? "المبلغ المصروف" : purpose === "security_deposit" ? "مبلغ التأمين المستلم" : "النقد المستلم الآن";
   receiptRoot.innerHTML = [
     "<style>",
     ".powerhub-payment-receipt-root .receipt{width:100%;max-width:720px;margin:0 auto;background:#fff;border:1px solid #e6e9ee;border-radius:18px;overflow:hidden;font-family:Tajawal,Tahoma,Arial,sans-serif;color:#0D1117;line-height:1.6}",
@@ -102,12 +105,12 @@ function downloadPaymentReceiptPdf({ payment, invoice, subscriber, siteName, log
     ".powerhub-payment-receipt-root .footer{margin-top:28px;padding-top:16px;border-top:1px dashed #cfd5dd;color:#657080;font-size:12px;text-align:center}",
     "</style>",
     '<main class="receipt">',
-    '<header class="head"><div><div class="eyebrow">POWERHUB — إدارة الطاقة بذكاء</div><h1>إيصال تحصيل</h1></div>',
+    '<header class="head"><div><div class="eyebrow">POWERHUB — إدارة الطاقة بذكاء</div><h1>' + receiptTitle + '</h1></div>',
     '<div style="display:flex;align-items:center;gap:12px"><div class="brand">' + escapeReceiptHtml(companyName || ("مولدات " + siteName)) + "</div>",
     logoUrl ? '<img alt="شعار الاشتراك" src="' + escapeReceiptHtml(logoUrl) + '" style="max-width:120px;max-height:64px;object-fit:contain">' : "",
     "</div></header>",
     '<section class="body">',
-    '<div class="notice">' + (invoice?.status === "partially_paid" ? "تم استلام دفعة جزئية، وما زال الرصيد الموضح أدناه مستحقاً على الفاتورة." : "تم تسجيل الدفعة بنجاح، وتفاصيلها موضحة أدناه.") + "</div>",
+    '<div class="notice">' + (purpose === "security_deposit" ? "تم استلام التأمين كالتزام مستقل على المشترك، ولا يُحتسب تحصيلاً تشغيلياً." : purpose === "security_deposit_refund" ? "تم تسجيل رد التأمين من حساب الشركة المحدد، كحركة صرف موثقة." : purpose === "subscriber_credit" ? "تم استلام مبلغ نقدي وإثباته كرصد دائن مستقل عن سداد الفواتير." : invoice?.status === "partially_paid" ? "تم استلام دفعة جزئية، وما زال الرصيد الموضح أدناه مستحقاً على الفاتورة." : "تم تسجيل الدفعة بنجاح، وتفاصيلها موضحة أدناه.") + "</div>",
     '<div class="grid">',
     '<div class="item"><span class="label">المحطة</span><span class="value">' + escapeReceiptHtml(siteName) + "</span></div>",
     '<div class="item"><span class="label">رقم الإيصال</span><span class="value" dir="ltr">' + escapeReceiptHtml(payment.paymentNo) + "</span></div>",
@@ -117,7 +120,9 @@ function downloadPaymentReceiptPdf({ payment, invoice, subscriber, siteName, log
     '<div class="item"><span class="label">تاريخ التحصيل</span><span class="value">' + escapeReceiptHtml(formatDate(payment.paidAt)) + "</span></div>",
     "</div>",
     '<div class="amounts">',
-    "<div><span>الدفعة المستلمة الآن</span><strong>" + formatValue(paymentAmount, 2) + "</strong></div>",
+    "<div><span>" + movementLabel + "</span><strong>" + formatValue(paymentAmount, 2) + "</strong></div>",
+    ...(Number(payment.invoiceAppliedAmount ?? 0) > 0 ? ["<div><span>المطبق على الفاتورة</span><strong>" + formatValue(payment.invoiceAppliedAmount, 2) + "</strong></div>"] : []),
+    ...(Number(payment.subscriberCreditAmount ?? 0) > 0 ? ["<div><span>المضاف إلى الرصيد الدائن</span><strong>" + formatValue(payment.subscriberCreditAmount, 2) + "</strong></div>"] : []),
     ...(invoice ? [
       "<div><span>إجمالي الفاتورة</span><strong>" + formatValue(total, 2) + "</strong></div>",
       "<div><span>إجمالي المدفوع</span><strong>" + formatValue(paid, 2) + "</strong></div>",
