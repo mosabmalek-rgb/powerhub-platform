@@ -342,6 +342,25 @@ function safeHrVersionNo(...values: unknown[]): number {
 
 export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unknown): unknown {
   const first = queryKey[0];
+  const querySegments = Array.isArray(first)
+    ? first.filter((part): part is string => typeof part === "string")
+    : typeof first === "string" ? first.split(".") : [];
+  if (querySegments[0] === "powerhub" && querySegments[1] === "subscribers" &&
+      querySegments[2] === "securityDepositAccounts" && Array.isArray(data)) {
+    // Persist only account identity/type needed to draft an offline deposit.
+    // Balances and other account metadata are intentionally omitted; the server
+    // revalidates that the account is active and available to this site on sync.
+    return data.slice(0, 100).flatMap((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+      const row = value as Record<string, unknown>;
+      const id = Number(row.id);
+      const name = typeof row.name === "string" ? row.name.trim() : "";
+      const accountType = typeof row.accountType === "string" ? row.accountType : "";
+      if (!Number.isSafeInteger(id) || id < 1 || !name || name.length > 160 ||
+          !["cash", "jawwal_pay", "palpay", "bank_of_palestine", "wallet", "bank_transfer", "card"].includes(accountType)) return [];
+      return [{ id, name, accountType }];
+    });
+  }
   if (isOfflineDashboardSnapshotQueryKey(queryKey) && data && typeof data === "object" && !Array.isArray(data)) {
     const segments = Array.isArray(first)
       ? first.filter((part): part is string => typeof part === "string")
