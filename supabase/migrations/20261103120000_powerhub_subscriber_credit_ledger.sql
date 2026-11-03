@@ -374,7 +374,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_create_payment(p_tenant_id bigint, p_
  RETURNS TABLE(payment_id bigint, replayed boolean)
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$
+AS $function$;
 declare
   v_invoice public.invoices%rowtype;
   v_account public.company_accounts%rowtype;
@@ -551,14 +551,14 @@ begin
   end if;
   return query select v_payment_id,false;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.powerhub_create_payment_with_discount(p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_id bigint, p_invoice_id bigint, p_payment_no text, p_amount numeric, p_payment_method text, p_company_account_id bigint, p_transfer_from_account text, p_transfer_from_type text, p_reference_no text, p_receipt_image_key text, p_receipt_image_hash text, p_collector_session_id bigint, p_client_operation_id uuid, p_manual_discount_amount numeric, p_manual_discount_reason text)
  RETURNS TABLE(payment_id bigint, replayed boolean)
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$
+AS $function$;
 declare
   v_invoice public.invoices%rowtype;
   v_account public.company_accounts%rowtype;
@@ -774,14 +774,14 @@ begin
   end if;
   return query select v_payment_id,coalesce(v_replayed,false);
   return;
-end;$function$
+end;$function$;
 
 
 CREATE OR REPLACE FUNCTION public.powerhub_get_shared_invoice_by_token_hash(p_token_hash text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$
+AS $function$;
 declare
   v_link public.invoice_share_links%rowtype;
   v_invoice public.invoices%rowtype;
@@ -840,5 +840,5 @@ begin
     'subscriberBalance',jsonb_build_object('availableCredit',v_available_credit,'securityDeposit',v_security_deposit)
   );
 end;
-$function$
+$function$;
 

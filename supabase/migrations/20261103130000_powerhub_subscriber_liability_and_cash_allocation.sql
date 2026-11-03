@@ -713,7 +713,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_create_payment(p_tenant_id bigint, p_
  RETURNS TABLE(payment_id bigint, replayed boolean)
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$
+AS $function$;
 declare
   v_invoice public.invoices%rowtype;
   v_account public.company_accounts%rowtype;
@@ -976,7 +976,7 @@ begin
   end if;
   return query select v_payment_id,false;
 end;
-$function$
+$function$;
 
 
 -- Keep manual discounts separate from both cash and subscriber credit.
@@ -984,7 +984,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_create_payment_with_discount(p_tenant
  RETURNS TABLE(payment_id bigint, replayed boolean)
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$
+AS $function$;
 declare
   v_invoice public.invoices%rowtype;
   v_account public.company_accounts%rowtype;
@@ -1225,7 +1225,7 @@ begin
   end if;
   return query select v_payment_id,coalesce(v_replayed,false);
   return;
-end;$function$
+end;$function$;
 
 
 -- The dashboard's "collected" metric is invoice settlement, not refundable deposits,
@@ -1235,7 +1235,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_dashboard_financial_overview(p_tenant
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO ''
-AS $function$
+AS $function$;
 declare
   v_now timestamptz := coalesce(p_now, now());
   v_today_start timestamptz;
@@ -1509,7 +1509,7 @@ begin
     )
   );
 end;
-$function$
+$function$;
 
 
 -- The account statement keeps all financial movements in its history, while total_collected
@@ -1519,7 +1519,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_subscriber_statement_summary(p_tenant
  LANGUAGE sql
  STABLE
  SET search_path TO 'public', 'pg_temp'
-AS $function$
+AS $function$;
   with invoice_summary as (
     select
       count(*)::bigint as invoice_count,
@@ -1561,7 +1561,7 @@ AS $function$
   from invoice_summary
   cross join payment_summary
   cross join reading_summary;
-$function$
+$function$;
 
 
 
@@ -1571,7 +1571,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_get_shared_invoice_by_token_hash(p_to
  RETURNS jsonb
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$
+AS $function$;
 declare
   v_link public.invoice_share_links%rowtype;
   v_invoice public.invoices%rowtype;
@@ -1626,7 +1626,7 @@ begin
     'subscriberBalance',jsonb_build_object('availableCredit',v_available_credit)
   );
 end;
-$function$
+$function$;
 
 -- Disconnection is a financial close-out action, not a normal profile edit.
 -- This database guard prevents direct update RPCs or legacy paths from bypassing settlement.
