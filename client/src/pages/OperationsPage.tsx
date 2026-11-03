@@ -81,7 +81,7 @@ function downloadPaymentReceiptPdf({ payment, invoice, subscriber, siteName, log
   receiptRoot.className = "powerhub-payment-receipt-root";
   receiptRoot.dir = "rtl";
   receiptRoot.style.cssText = "position:fixed;left:-30000px;top:0;width:794px;pointer-events:none;z-index:-1;background:#fff;overflow:visible";
-  const total = Number(invoice.totalAmount); const paid = Number(invoice.paidAmount); const balance = Number(invoice.balanceDue); const paymentAmount = Number(payment.amount);
+  const total = invoice ? Number(invoice.totalAmount) : null; const paid = invoice ? Number(invoice.paidAmount) : null; const balance = invoice ? Number(invoice.balanceDue) : null; const paymentAmount = Number(payment.amount);
   receiptRoot.innerHTML = [
     "<style>",
     ".powerhub-payment-receipt-root .receipt{width:100%;max-width:720px;margin:0 auto;background:#fff;border:1px solid #e6e9ee;border-radius:18px;overflow:hidden;font-family:Tajawal,Tahoma,Arial,sans-serif;color:#0D1117;line-height:1.6}",
@@ -106,20 +106,24 @@ function downloadPaymentReceiptPdf({ payment, invoice, subscriber, siteName, log
     logoUrl ? '<img alt="شعار الاشتراك" src="' + escapeReceiptHtml(logoUrl) + '" style="max-width:120px;max-height:64px;object-fit:contain">' : "",
     "</div></header>",
     '<section class="body">',
-    '<div class="notice">' + (invoice.status === "partially_paid" ? "تم استلام دفعة جزئية، وما زال الرصيد الموضح أدناه مستحقاً على الفاتورة." : "تم تسجيل الدفعة بنجاح، وتفاصيلها موضحة أدناه.") + "</div>",
+    '<div class="notice">' + (invoice?.status === "partially_paid" ? "تم استلام دفعة جزئية، وما زال الرصيد الموضح أدناه مستحقاً على الفاتورة." : "تم تسجيل الدفعة بنجاح، وتفاصيلها موضحة أدناه.") + "</div>",
     '<div class="grid">',
     '<div class="item"><span class="label">المحطة</span><span class="value">' + escapeReceiptHtml(siteName) + "</span></div>",
     '<div class="item"><span class="label">رقم الإيصال</span><span class="value" dir="ltr">' + escapeReceiptHtml(payment.paymentNo) + "</span></div>",
     '<div class="item"><span class="label">المشترك</span><span class="value">' + escapeReceiptHtml(subscriber.fullName) + "</span></div>",
-    '<div class="item"><span class="label">رقم الفاتورة</span><span class="value" dir="ltr">' + escapeReceiptHtml(invoice.invoiceNo) + "</span></div>",
+    '<div class="item"><span class="label">رقم الفاتورة</span><span class="value" dir="ltr">' + escapeReceiptHtml(invoice?.invoiceNo ?? payment.invoiceNo ?? "—") + "</span></div>",
     '<div class="item"><span class="label">طريقة الدفع</span><span class="value">' + escapeReceiptHtml(paymentMethodLabel[payment.paymentMethod] ?? payment.paymentMethod) + "</span></div>",
     '<div class="item"><span class="label">تاريخ التحصيل</span><span class="value">' + escapeReceiptHtml(formatDate(payment.paidAt)) + "</span></div>",
     "</div>",
     '<div class="amounts">',
-    "<div><span>إجمالي الفاتورة</span><strong>" + formatValue(total, 2) + "</strong></div>",
     "<div><span>الدفعة المستلمة الآن</span><strong>" + formatValue(paymentAmount, 2) + "</strong></div>",
-    "<div><span>إجمالي المدفوع</span><strong>" + formatValue(paid, 2) + "</strong></div>",
-    "<div><span>الرصيد المتبقي</span><strong>" + formatValue(balance, 2) + "</strong></div>",
+    ...(invoice ? [
+      "<div><span>إجمالي الفاتورة</span><strong>" + formatValue(total, 2) + "</strong></div>",
+      "<div><span>إجمالي المدفوع</span><strong>" + formatValue(paid, 2) + "</strong></div>",
+      "<div><span>الرصيد المتبقي</span><strong>" + formatValue(balance, 2) + "</strong></div>",
+    ] : [
+      "<div><span>حالة الربط</span><strong>دفعة مستقلة غير مرتبطة بفاتورة</strong></div>",
+    ]),
     "</div>",
     '<p class="footer">هذا الإيصال صادر من PowerHub. احتفظ به كمرجع لعملية التحصيل.</p>',
     "</section></main>"
