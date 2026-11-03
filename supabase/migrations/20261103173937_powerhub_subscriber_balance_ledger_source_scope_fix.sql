@@ -1,3 +1,1 @@
--- No-op alignment for Staging migration-history entry 20261103173937.
--- This version was registered during a migration-tool validation probe with no SQL.
--- The actual ledger constraint correction is in migration 20261103174023.
+-- noop probe intentionally not run

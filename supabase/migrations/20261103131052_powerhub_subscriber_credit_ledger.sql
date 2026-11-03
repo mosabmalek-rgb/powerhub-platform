@@ -205,7 +205,6 @@ drop trigger if exists powerhub_apply_subscriber_credit_after_invoice_insert on 
 create trigger powerhub_apply_subscriber_credit_after_invoice_insert
 after insert on public.invoices
 for each row execute function public.powerhub_apply_subscriber_credit_after_invoice_insert();
-revoke all on function public.powerhub_apply_subscriber_credit_after_invoice_insert() from public,anon,authenticated;
 
 create or replace function public.powerhub_record_subscriber_balance_receipt(
   p_tenant_id bigint,
