@@ -119,7 +119,7 @@ INSERT INTO public.company_account_sites(id,tenant_id,account_id,site_id) VALUES
  (1,1,100,10),(2,1,101,11),(3,1,102,10),(4,1,102,11),(5,2,103,20);
 
 INSERT INTO public.account_transactions(id,tenant_id,account_id,reference_no,related_payment_id) VALUES(1,1,100,'TX-1',1),(2,1,101,'TX-2',2),(3,1,102,'TX-3',NULL),(4,2,103,'TX-4',3),(5,1,104,'TX-5',NULL),(6,1,102,'TX-6',NULL);
-INSERT INTO public.audit_logs(id,tenant_id,site_id,after_data) VALUES(1,1,10,'{\"transactionId\":3}'::jsonb),(2,1,11,'{\"transactionId\":6}'::jsonb),(3,2,20,NULL),(4,1,NULL,NULL);
+INSERT INTO public.audit_logs(id,tenant_id,site_id,after_data) VALUES(1,1,10,'{"transactionId":3}'::jsonb),(2,1,11,'{"transactionId":6}'::jsonb),(3,2,20,NULL),(4,1,NULL,NULL);
 INSERT INTO public.expenses(id,tenant_id,site_id) VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.financial_settlements VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.invoices VALUES(1,1,10),(2,1,11),(3,2,20);
@@ -305,7 +305,7 @@ BEGIN;
 INSERT INTO public.account_transactions(id,tenant_id,account_id,transaction_type,amount,description,reference_no)
 VALUES(100,1,102,'deposit',5,'Manual branch deposit','MANUAL-100');
 INSERT INTO public.audit_logs(id,tenant_id,site_id,after_data)
-VALUES(100,1,11,'{\"transactionId\":100}'::jsonb);
+VALUES(100,1,11,'{"transactionId":100}'::jsonb);
 COMMIT;
 DO $audit_scope$
 BEGIN
