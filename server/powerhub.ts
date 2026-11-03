@@ -4176,7 +4176,7 @@ export const powerhubRouter = router({
       const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
       const admin = supabaseAdmin();
       let expenseRows: Array<{ amount: number | string }> = [];
-      let paymentRows: Array<{ amount: number | string; status: string }> = [];
+      let paymentRows: Array<{ invoice_applied_amount: number | string; status: string }> = [];
       let arrearsRows: Array<{
         site_id: number | string;
         subscriber_id: number | string;
@@ -4200,9 +4200,10 @@ export const powerhubRouter = router({
       if (siteIds.length && input.metric === "netCash") {
         paymentRows = await readSupabaseReportPages((from, to) =>
           admin.from("payments")
-            .select("amount, status")
+            .select("invoice_applied_amount, status")
             .eq("tenant_id", tenantId)
             .in("site_id", siteIds)
+            .in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit"])
             .gte("paid_at", monthStart.toISOString())
             .lt("paid_at", nextMonthStart.toISOString())
             .eq("status", "completed")
@@ -4226,7 +4227,7 @@ export const powerhubRouter = router({
       const result = buildDashboardFinancialKpi({
         metric: input.metric as DashboardFinancialKpiMetric,
         expenses: expenseRows,
-        payments: paymentRows,
+        payments: paymentRows.map((row) => ({ amount: row.invoice_applied_amount, status: row.status })),
         arrears: arrearsRows.map((row) => ({
           siteId: row.site_id,
           subscriberId: row.subscriber_id,
@@ -4270,7 +4271,7 @@ export const powerhubRouter = router({
       if (!branchIds.length) return buildFinancialOverview({ branches: [], invoices: [], payments: [], expenses: [] });
       const [invoiceRows, paymentRows, expenseRows, subscriberRows] = await Promise.all([
         readSupabaseReportPages((from, to) => admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("tenant_id", access.tenantId).in("site_id", branchIds).not("status", "in", "(cancelled,draft)").order("id", { ascending: true }).range(from, to), "تعذر تحميل فواتير ملخص جميع الأفرع من Supabase."),
-        readSupabaseReportPages((from, to) => admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل تحصيلات ملخص جميع الأفرع من Supabase."),
+        readSupabaseReportPages((from, to) => admin.from("payments").select("site_id, subscriber_id, invoice_applied_amount, status, payment_purpose, paid_at").eq("tenant_id", access.tenantId).in("site_id", branchIds).eq("status", "completed").in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit"]).order("id", { ascending: true }).range(from, to), "تعذر تحميل تحصيلات ملخص جميع الأفرع من Supabase."),
         readSupabaseReportPages((from, to) => admin.from("expenses").select("site_id, amount, occurred_at").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل مصروفات ملخص جميع الأفرع من Supabase."),
         readSupabaseReportPages((from, to) => admin.from("subscribers").select("id, site_id, full_name, subscriber_no, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المشتركين لملخص جميع الأفرع من Supabase."),
       ]);
@@ -4283,7 +4284,7 @@ export const powerhubRouter = router({
           const subscriber = subscribersById.get(Number(invoice.subscriber_id));
           return subscriber ? [{ id: Number(invoice.id), siteId: Number(invoice.site_id), subscriberId: Number(invoice.subscriber_id), subscriberName: subscriber.full_name, subscriberNo: subscriber.subscriber_no, invoiceNo: invoice.invoice_no, issueDate: new Date(invoice.issue_date), dueDate: new Date(invoice.due_date), totalAmount: Number(invoice.total_amount), paidAmount: Number(invoice.paid_amount), balanceDue: Number(invoice.balance_due), status: invoice.status }] : [];
         }),
-        payments: paymentRows.map((payment) => ({ siteId: Number(payment.site_id), subscriberId: Number(payment.subscriber_id), amount: Number(payment.amount), status: payment.status, paidAt: new Date(payment.paid_at) })),
+        payments: paymentRows.map((payment) => ({ siteId: Number(payment.site_id), subscriberId: Number(payment.subscriber_id), amount: Number(payment.invoice_applied_amount ?? 0), status: payment.status, paidAt: new Date(payment.paid_at) })),
         expenses: expenseRows.map((expense) => ({ siteId: Number(expense.site_id), amount: Number(expense.amount), occurredAt: new Date(expense.occurred_at) })),
       });
       return input.includeDetails ? overview : { ...overview, outstandingInvoices: [] };

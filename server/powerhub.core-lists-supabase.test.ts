@@ -683,15 +683,21 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       balance_due: 10,
       status: "issued",
     }));
-    state.tables.payments = subscriberRows.map((subscriber, index) => ({
-      id: 30000 + index,
-      tenant_id: 20,
-      site_id: 10,
-      subscriber_id: subscriber.id,
-      amount: 2,
-      status: "completed",
-      paid_at: stamp,
-    }));
+    state.tables.payments = subscriberRows.map((subscriber, index) => {
+      const kind = index % 4;
+      return {
+        id: 30000 + index,
+        tenant_id: 20,
+        site_id: 10,
+        subscriber_id: subscriber.id,
+        amount: kind === 1 ? 5 : kind === 2 ? 8 : 2,
+        invoice_applied_amount: kind === 2 ? 0 : 2,
+        subscriber_credit_amount: kind === 1 ? 3 : 0,
+        payment_purpose: kind === 1 ? "invoice_collection_with_credit" : kind === 2 ? "security_deposit" : "invoice_collection",
+        status: kind === 3 ? "pending" : "completed",
+        paid_at: stamp,
+      };
+    });
     state.tables.expenses = subscriberRows.map((_, index) => ({
       id: 40000 + index,
       tenant_id: 20,
@@ -715,16 +721,38 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       });
       const result = await caller.dashboard.financialOverview({ siteId: 10, scope: "all" });
       expect(result.branchSummaries).toEqual([
-        expect.objectContaining({ id: 10, activeSubscribers: 1001, invoiced: 10010, collected: 2002, outstanding: 10010 }),
+        expect.objectContaining({ id: 10, activeSubscribers: 1001, invoiced: 10010, collected: 1002, outstanding: 10010 }),
       ]);
       expect(result.outstanding).toMatchObject({ total: 10010, accountCount: 1001 });
-      expect(result.month).toMatchObject({ invoiced: 10010, collected: 2002, expenses: 1001, netCash: 1001 });
+      expect(result.month).toMatchObject({ invoiced: 10010, collected: 1002, expenses: 1001, netCash: 1 });
     } finally {
       state.tables.invoices = originalTables.invoices;
       state.tables.payments = originalTables.payments;
       state.tables.expenses = originalTables.expenses;
       state.tables.subscribers = originalTables.subscribers;
       state.tables.notification_messages = originalTables.notification_messages;
+    }
+  });
+
+  it("excludes subscriber credit, security deposits, and pending payments from operating collections in the branch fallback", async () => {
+    const originalPayments = state.tables.payments;
+    const paidAt = new Date().toISOString();
+    state.missingRpcs.add("powerhub_dashboard_financial_overview");
+    state.tables.payments = [
+      { id: 701, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 100, invoice_applied_amount: 100, subscriber_credit_amount: 0, payment_purpose: "invoice_collection", status: "completed", paid_at: paidAt },
+      { id: 702, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 120, invoice_applied_amount: 70, subscriber_credit_amount: 50, payment_purpose: "invoice_collection_with_credit", status: "completed", paid_at: paidAt },
+      { id: 703, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 80, invoice_applied_amount: 0, subscriber_credit_amount: 0, payment_purpose: "security_deposit", status: "completed", paid_at: paidAt },
+      { id: 704, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 10, invoice_applied_amount: 0, subscriber_credit_amount: 0, payment_purpose: "security_deposit_refund", status: "completed", paid_at: paidAt },
+      { id: 705, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 20, invoice_applied_amount: 10, subscriber_credit_amount: 10, payment_purpose: "invoice_collection_with_credit", status: "pending", paid_at: paidAt },
+    ];
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      const result = await caller.dashboard.financialOverview({ siteId: 10, scope: "branch" });
+      expect(result.today).toMatchObject({ collected: 170 });
+      expect(result.month).toMatchObject({ collected: 170 });
+    } finally {
+      state.tables.payments = originalPayments;
+      state.missingRpcs.delete("powerhub_dashboard_financial_overview");
     }
   });
 
