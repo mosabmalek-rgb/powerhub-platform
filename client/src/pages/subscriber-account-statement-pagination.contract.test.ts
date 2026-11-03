@@ -32,7 +32,7 @@ describe("subscriber account statement complete-history contract", () => {
     expect(page).toContain("allReadings.length===Number(data.summary.readingCount)");
     expect(page).toContain("historyAggregatesMatch");
     expect(page).toContain("sumScaled(allInvoices.map(row=>row.totalAmount),100)");
-    expect(page).toContain("sumScaled(allPayments.map(row=>row.amount),100)");
+    expect(page).toContain("sumScaled(allPayments.map(row=>row.invoiceAppliedAmount),100)");
     expect(page).toContain("sumScaled(allInvoices.map(row=>row.balanceDue),100)");
     expect(page).toContain("sumScaled(allInvoices.map(row=>row.consumptionKwh),1000)");
     expect(page).toContain("historySummaryMatches");
@@ -43,6 +43,18 @@ describe("subscriber account statement complete-history contract", () => {
     expect(page).not.toContain("آخر 20 فاتورة");
     expect(page).not.toContain("آخر 20 دفعة");
     expect(page).not.toContain("آخر 20 قراءة");
+  });
+
+  it("keeps operating collection totals limited to invoice-applied amounts, excluding credit and deposit flows", () => {
+    const migration = read("supabase/migrations/20261103140000_powerhub_statement_operating_collection_summary.sql");
+    expect(migration).toContain("sum(p.invoice_applied_amount)");
+    expect(migration).toContain("in ('invoice_collection', 'invoice_collection_with_credit')");
+    expect(migration).not.toContain("sum(p.amount) filter");
+    const liability = read("supabase/migrations/20261103130000_powerhub_subscriber_liability_and_cash_allocation.sql");
+    expect(liability).toContain("when 'subscriber_credit' then");
+    expect(liability).toContain("when 'security_deposit' then");
+    expect(liability).toContain("when 'security_deposit_refund' then");
+    expect(liability).toContain("invoice_applied_amount=0 and subscriber_credit_amount=0");
   });
 
   it("uses stable tenant/site-scoped keyset pagination and explicit item types on the server", () => {
