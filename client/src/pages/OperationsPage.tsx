@@ -588,25 +588,26 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     const invoice = invoiceById.get(Number(payment.invoiceId));
     const receiverType = paymentMethodLabel[payment.transferToType] ?? payment.transferToType ?? "—";
     const receiverValue = payment.transferToAccount ?? "—";
-    return [payment.paymentNo, siteName, invoice?.billingPeriod ?? invoice?.cycleLabel ?? "—", entry.subscriber?.fullName ?? "—", formatValue(payment.amount, 2), paymentMethodLabel[payment.transferFromType] ?? payment.transferFromType ?? "نقدي", payment.transferFromAccount ?? "—", `${receiverValue} — ${receiverType}`, entry.invoiceNo ?? "—", gazaDateKey(payment.paidAt)];
+    const purpose = payment.paymentPurpose === "security_deposit" ? "استلام تأمين" : payment.paymentPurpose === "security_deposit_refund" ? "رد تأمين" : payment.paymentPurpose === "subscriber_credit" ? "إيداع رصيد دائن" : payment.paymentPurpose === "invoice_collection_with_credit" ? "تحصيل مع فائض" : "تحصيل فاتورة";
+    return [payment.paymentNo, purpose, siteName, invoice?.billingPeriod ?? invoice?.cycleLabel ?? "—", entry.subscriber?.fullName ?? "—", formatValue(payment.amount, 2), formatValue(payment.invoiceAppliedAmount, 2), formatValue(payment.subscriberCreditAmount, 2), paymentMethodLabel[payment.transferFromType] ?? payment.transferFromType ?? "نقدي", payment.transferFromAccount ?? "—", `${receiverValue} — ${receiverType}`, entry.invoiceNo ?? "—", gazaDateKey(payment.paidAt)];
   });
   const exportPaymentsExcel = async () => {
     const { default: ExcelJS } = await loadExcelJS();
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "PowerHub";
     const sheet = workbook.addWorksheet("الدفعات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }] });
-    sheet.mergeCells("A1:J1");
+    sheet.mergeCells("A1:M1");
     sheet.getCell("A1").value = `PowerHub — تقرير الدفعات | ${siteName}`;
     sheet.getCell("A1").font = { name: "Tahoma", size: 16, bold: true, color: { argb: "FFF5B800" } };
     sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
     sheet.getCell("A1").alignment = { horizontal: "right", vertical: "middle" };
     sheet.getRow(1).height = 34;
-    sheet.mergeCells("A2:J2");
+    sheet.mergeCells("A2:M2");
     sheet.getCell("A2").value = `الفترة: ${paymentPeriod === "today" ? "اليوم" : paymentPeriod === "current_cycle" ? (cycleBoundsQuery.data?.cycleLabel || "هذه الدورة") : paymentPeriod === "month_end" ? "من بداية الشهر حتى اليوم" : `${paymentStartDate || "—"} إلى ${paymentEndDate || "—"}`}`;
     sheet.getCell("A2").font = { name: "Tahoma", size: 11, bold: true };
     sheet.getCell("A2").alignment = { horizontal: "right", vertical: "middle", wrapText: true };
     sheet.getRow(2).height = 26;
-    sheet.addRow(["الإيصال", "اسم المولد", "دورة الفوترة", "المشترك", "المبلغ", "نوع الحساب المحوَّل منه", "الحساب المحوِّل", "الحساب المستقبل", "الفاتورة", "التاريخ"]);
+    sheet.addRow(["الإيصال", "الغرض", "اسم المولد", "دورة الفوترة", "المشترك", "النقد المستلم/المردود", "المطبق على الفاتورة", "الرصيد الدائن", "نوع الحساب المحوَّل منه", "الحساب المحوِّل", "الحساب المستقبل", "الفاتورة", "التاريخ"]);
     const header = sheet.getRow(3); header.height = 34;
     header.eachCell((cell) => { cell.font = { name: "Tahoma", bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } }; cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true }; cell.border = { top: {style:"thin",color:{argb:"FFCAD1DC"}}, bottom:{style:"thin",color:{argb:"FFCAD1DC"}}, left:{style:"thin",color:{argb:"FFCAD1DC"}}, right:{style:"thin",color:{argb:"FFCAD1DC"}} }; });
     exportPaymentRows.forEach((row: any[]) => {
@@ -614,9 +615,9 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
       added.height = 30;
       added.eachCell((cell, col) => { cell.font = { name: "Tahoma", size: 10 }; cell.alignment = { horizontal: col === 2 || col === 3 || col === 4 || col === 6 || col === 7 || col === 8 ? "right" : "center", vertical: "middle", wrapText: true }; cell.border = { bottom: { style: "thin", color: { argb: "FFE1E5EB" } } }; if (added.number % 2 === 0) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F6F8" } }; });
     });
-    sheet.columns = [{ width: 20 }, { width: 25 }, { width: 24 }, { width: 25 }, { width: 14 }, { width: 25 }, { width: 24 }, { width: 30 }, { width: 20 }, { width: 16 }];
-    sheet.getColumn(5).numFmt = "#,##0.00";
-    sheet.autoFilter = { from: "A3", to: `J${Math.max(3, sheet.rowCount)}` };
+    sheet.columns = [{ width: 20 }, { width: 18 }, { width: 25 }, { width: 24 }, { width: 25 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 25 }, { width: 24 }, { width: 30 }, { width: 20 }, { width: 16 }];
+    [6,7,8].forEach((column) => { sheet.getColumn(column).numFmt = "#,##0.00"; });
+    sheet.autoFilter = { from: "A3", to: `M${Math.max(3, sheet.rowCount)}` };
     const buffer = await workbook.xlsx.writeBuffer();
     downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `powerhub-payments-${effectivePaymentStart || "all"}-${effectivePaymentEnd || "all"}.xlsx`);
     toast.success("تم تصدير الدفعات المفلترة إلى Excel.");
@@ -626,7 +627,7 @@ function CollectionsModule({ siteId, siteName, subscribers, invoices, payments, 
     const root = document.createElement("div"); root.dir = "rtl";
     root.style.cssText = "position:fixed;left:-10000px;top:0;width:1400px;background:#fff;color:#101828;padding:36px;font-family:Tahoma,Arial,sans-serif";
     const paymentRowsHtml = exportPaymentRows.map((row: any[]) => `<tr>${row.map((cell, index) => `<td style="padding:9px 7px;border:1px solid #d8dee8;vertical-align:top;overflow-wrap:anywhere;text-align:${[1,2,3,5,6,7].includes(index) ? "right" : "center"}">${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
-    root.innerHTML = `<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px;margin:0 0 12px">PowerHub — تفاصيل الدفعات</h1><p style="margin:0 0 18px;font-weight:bold">اسم المولد: ${escapeHtml(siteName)} | الفترة: ${escapeHtml(paymentPeriod === "today" ? "اليوم" : paymentPeriod === "current_cycle" ? (cycleBoundsQuery.data?.cycleLabel || "هذه الدورة") : paymentPeriod === "month_end" ? "من بداية الشهر حتى اليوم" : `${paymentStartDate || "—"} إلى ${paymentEndDate || "—"}`)}</p><table style="width:100%;border-collapse:collapse;table-layout:fixed;text-align:right;font-size:10px;line-height:1.6;overflow-wrap:anywhere"><thead><tr style="background:#0D1117;color:#fff">${["الإيصال","اسم المولد","دورة الفوترة","المشترك","المبلغ","نوع الحساب المحوَّل منه","الحساب المحوِّل","الحساب المستقبل","الفاتورة","التاريخ"].map(h=>`<th style="padding:10px 6px;border:1px solid #d8dee8;overflow-wrap:anywhere;vertical-align:middle">${h}</th>`).join("")}</tr></thead><tbody>${paymentRowsHtml}</tbody></table>`;
+    root.innerHTML = `<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px;margin:0 0 12px">PowerHub — تفاصيل الدفعات</h1><p style="margin:0 0 18px;font-weight:bold">اسم المولد: ${escapeHtml(siteName)} | الفترة: ${escapeHtml(paymentPeriod === "today" ? "اليوم" : paymentPeriod === "current_cycle" ? (cycleBoundsQuery.data?.cycleLabel || "هذه الدورة") : paymentPeriod === "month_end" ? "من بداية الشهر حتى اليوم" : `${paymentStartDate || "—"} إلى ${paymentEndDate || "—"}`)}</p><table style="width:100%;border-collapse:collapse;table-layout:fixed;text-align:right;font-size:10px;line-height:1.6;overflow-wrap:anywhere"><thead><tr style="background:#0D1117;color:#fff">${["الإيصال","الغرض","اسم المولد","دورة الفوترة","المشترك","النقد المستلم/المردود","المطبق على الفاتورة","الرصيد الدائن","نوع الحساب المحوَّل منه","الحساب المحوِّل","الحساب المستقبل","الفاتورة","التاريخ"].map(h=>`<th style="padding:10px 6px;border:1px solid #d8dee8;overflow-wrap:anywhere;vertical-align:middle">${h}</th>`).join("")}</tr></thead><tbody>${paymentRowsHtml}</tbody></table>`;
     document.body.appendChild(root);
     try { await downloadReportHtmlAsPdf(root, `دفعات-${effectivePaymentStart || "كل"}-${effectivePaymentEnd || "الفترات"}.pdf`, { landscape: true, title: "تفاصيل الدفعات - PowerHub" }); toast.success("تم تصدير الدفعات المفلترة إلى PDF."); }
     catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); }
