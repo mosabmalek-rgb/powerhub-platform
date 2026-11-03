@@ -71,7 +71,7 @@ insert into public.subscriber_balance_ledger (
   'subscriber-balance-receipt:existing-credit-004', 7, '{"source":"pre-existing-credit-receipt"}'::jsonb
 );
 
-\i supabase/migrations/20261103160000_powerhub_legacy_unlinked_payments_to_subscriber_credit.sql
+\i supabase/migrations/20261103145232_powerhub_legacy_unlinked_payments_to_subscriber_credit.sql
 
 do $test$
 begin
@@ -129,7 +129,7 @@ end;
 $test$;
 
 -- A second application must not reclassify or duplicate any financial entries.
-\i supabase/migrations/20261103160000_powerhub_legacy_unlinked_payments_to_subscriber_credit.sql
+\i supabase/migrations/20261103145232_powerhub_legacy_unlinked_payments_to_subscriber_credit.sql
 
 do $replay$
 begin
