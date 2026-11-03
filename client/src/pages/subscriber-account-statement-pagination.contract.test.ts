@@ -46,7 +46,7 @@ describe("subscriber account statement complete-history contract", () => {
   });
 
   it("keeps operating collection totals limited to invoice-applied amounts, excluding credit and deposit flows", () => {
-    const migration = read("supabase/migrations/20261103140000_powerhub_statement_operating_collection_summary.sql");
+    const migration = read("supabase/migrations/20261103131125_powerhub_statement_operating_collection_summary.sql");
     expect(migration).toContain("sum(p.invoice_applied_amount)");
     expect(migration).toContain("in ('invoice_collection', 'invoice_collection_with_credit')");
     expect(migration).not.toContain("sum(p.amount) filter");
