@@ -399,6 +399,33 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.dashboard.summary({ siteId: 10 })).resolves.toEqual({ subscribers: 1, generators: { active: 1, maintenance: 0 }, financial: { invoiced: 100, collected: 25, outstanding: 75, expenses: 15, operatingProfit: 10 }, energyKwh: 10, failedNotifications: 1 });
   });
 
+  it("loads the complete company-account history in ordered PostgREST pages beyond 1,000 rows", async () => {
+    state.tables.account_transactions = Array.from({ length: 1001 }, (_, index) => ({
+      id: 1001 - index,
+      tenant_id: 20,
+      account_id: 90,
+      site_id: 10,
+      transaction_type: "collection",
+      amount: 1,
+      description: "تحصيل تاريخي " + (1001 - index),
+      reference_no: "HIST-" + (1001 - index),
+      related_payment_id: null,
+      related_account_id: null,
+      created_by_user_id: 1,
+      occurred_at: new Date(Date.UTC(2026, 7, 31, 12, 0, 0) - index * 1000).toISOString(),
+      created_at: new Date(Date.UTC(2026, 7, 31, 12, 0, 0) - index * 1000).toISOString(),
+    }));
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    const accounts = await caller.companyAccounts.list({ siteId: 10 });
+    expect(accounts[0].transactions).toHaveLength(1001);
+    expect(accounts[0].transactions[0]).toMatchObject({ id: 1001, siteId: 10 });
+    expect(accounts[0].transactions[1000]).toMatchObject({ id: 1, siteId: 10 });
+    expect(state.orderCalls.filter((call) => call.table === "account_transactions").slice(-2)).toEqual([
+      { table: "account_transactions", column: "occurred_at", options: { ascending: false } },
+      { table: "account_transactions", column: "id", options: { ascending: false } },
+    ]);
+  });
+
   it("يعالج رسائل SMS المؤجلة ضمن الفرع عبر حجز Supabase دون الوصول إلى MySQL", async () => {
     state.tables.notification_messages = [{ id: 90, tenant_id: 20, invoice_id: 70, subscriber_id: 30, channel: "sms", status: "pending" }];
     notificationWorker.processQueue.mockResolvedValueOnce({ requested: 1, submitted: 1, failed: 0, skipped: 0, results: [{ notificationId: 90, status: "submitted" }] });
