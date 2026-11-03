@@ -24,12 +24,28 @@ describe("طابور المسودات دون اتصال", () => {
     expect(canCoalesceOfflineStocktakeCount(item, { ...metadata, userId: 8 }, scope)).toBe(false);
   });
   it("ينشئ معرف عملية ثابتاً داخل السجل ومعرفاً مختلفاً لكل مسودة", () => {
-    const base = { userId: 7, siteId: 3, kind: "subscriber_create" as const, payload: { fullName: "أحمد علي", phone: "+970599000000", subscriptionType: "residential" as const } };
+    const base = {
+      userId: 7, tenantId: 2, siteId: 3, kind: "subscriber_create" as const,
+      payload: {
+        fullName: "أحمد علي", phone: "+970599000000", subscriptionType: "residential" as const,
+        securityDepositAmount: 100, securityDepositCompanyAccountId: 4,
+        securityDepositPaymentMethod: "cash" as const, securityDepositPaymentNo: "DEP-OFF-001",
+        securityDepositReferenceNo: "LOCAL-DEP", securityDepositOperationId: "deposit-op-1",
+      },
+    };
     const first = createOfflineWork(base);
     const second = createOfflineWork(base);
     expect(first.id).toBe(first.clientOperationId);
     expect(first.clientOperationId).not.toBe(second.clientOperationId);
     expect(first.status).toBe("pending");
+    expect(first).toMatchObject({
+      tenantId: 2,
+      payload: {
+        securityDepositAmount: 100, securityDepositCompanyAccountId: 4,
+        securityDepositPaymentMethod: "cash", securityDepositPaymentNo: "DEP-OFF-001",
+        securityDepositReferenceNo: "LOCAL-DEP", securityDepositOperationId: "deposit-op-1",
+      },
+    });
   });
 
   it("ينشئ بيانات مزامنة أولية بنفس نطاق ومعرف العملية", () => {
