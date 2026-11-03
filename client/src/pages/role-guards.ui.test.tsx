@@ -700,7 +700,7 @@ describe("role guards in administration UI", () => {
     mocks.activeRole = "owner";
     const subscribersView = render(<NetworkDirectoryPage kind="subscribers" />);
     let enabled = mocks.queryCalls.filter((call) => call.enabled === true).map((call) => call.key).sort();
-    expect(enabled).toEqual(["dashboard.financialOverview", "subscribers.directoryPage", "subscribers.quota"]);
+    expect(enabled).toEqual(["dashboard.financialOverview", "subscribers.directoryPage", "subscribers.quota", "subscribers.securityDepositAccounts", "subscribers.securityDepositOverview"].sort());
     subscribersView.unmount();
     mocks.queryCalls.length = 0;
     const generatorsView = render(<NetworkDirectoryPage kind="generators" />);
