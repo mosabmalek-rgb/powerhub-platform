@@ -127,6 +127,7 @@ vi.mock("@/lib/trpc", () => ({
         phoneReview: { useQuery: () => mocks.query([]) },
         securityDepositAccounts: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.securityDepositAccounts", input, options); return mocks.query([{ id: 90, name: "كاش", accountType: "cash", balance: 1000 }]); } },
         securityDepositOverview: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.securityDepositOverview", input, options); return mocks.query({ totalAmount: "0", subscriberCount: 0, items: [] }); } },
+        balanceSnapshot: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.balanceSnapshot", input, options); return mocks.query({ availableCredit: "0", securityDeposit: "0" }); } },
         create: { useMutation: () => ({ mutate: mocks.createSubscriberMutate, isPending: false }) },
         bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation }
       },
@@ -540,6 +541,7 @@ describe("role guards in administration UI", () => {
 
   it("hides payment entry from the viewer in the operational collections view", () => {
     render(<OperationsPage section="collections" />);
+    expect(mocks.queryCalls.some((call) => call.key === "subscribers.balanceSnapshot" && call.enabled === false)).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     expect(screen.getByText(/دورك يتيح مراجعة التحصيلات فقط/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /تسجيل الدفعة/ })).not.toBeInTheDocument();
