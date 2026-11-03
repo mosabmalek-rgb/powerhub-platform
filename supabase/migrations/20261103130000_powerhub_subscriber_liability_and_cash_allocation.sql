@@ -713,7 +713,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_create_payment(p_tenant_id bigint, p_
  RETURNS TABLE(payment_id bigint, replayed boolean)
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$;
+as $function$
 declare
   v_invoice public.invoices%rowtype;
   v_account public.company_accounts%rowtype;
@@ -984,7 +984,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_create_payment_with_discount(p_tenant
  RETURNS TABLE(payment_id bigint, replayed boolean)
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$;
+as $function$
 declare
   v_invoice public.invoices%rowtype;
   v_account public.company_accounts%rowtype;
@@ -1235,7 +1235,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_dashboard_financial_overview(p_tenant
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO ''
-AS $function$;
+as $function$
 declare
   v_now timestamptz := coalesce(p_now, now());
   v_today_start timestamptz;
@@ -1519,7 +1519,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_subscriber_statement_summary(p_tenant
  LANGUAGE sql
  STABLE
  SET search_path TO 'public', 'pg_temp'
-AS $function$;
+as $function$
   with invoice_summary as (
     select
       count(*)::bigint as invoice_count,
@@ -1571,7 +1571,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_get_shared_invoice_by_token_hash(p_to
  RETURNS jsonb
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$;
+as $function$
 declare
   v_link public.invoice_share_links%rowtype;
   v_invoice public.invoices%rowtype;

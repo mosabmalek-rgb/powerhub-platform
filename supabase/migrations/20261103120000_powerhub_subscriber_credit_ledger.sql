@@ -376,7 +376,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_create_payment(p_tenant_id bigint, p_
  RETURNS TABLE(payment_id bigint, replayed boolean)
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$;
+as $function$
 declare
   v_invoice public.invoices%rowtype;
   v_account public.company_accounts%rowtype;
@@ -560,7 +560,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_create_payment_with_discount(p_tenant
  RETURNS TABLE(payment_id bigint, replayed boolean)
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$;
+as $function$
 declare
   v_invoice public.invoices%rowtype;
   v_account public.company_accounts%rowtype;
@@ -783,7 +783,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_get_shared_invoice_by_token_hash(p_to
  RETURNS jsonb
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
-AS $function$;
+as $function$
 declare
   v_link public.invoice_share_links%rowtype;
   v_invoice public.invoices%rowtype;
