@@ -115,4 +115,11 @@ describe("subscriber directory pagination and type support", () => {
     expect(server).toContain('admin.rpc("powerhub_create_subscriber_with_security_deposit"');
   });
 
+
+  it("hides the subscriber available-credit card when there is no positive surplus", () => {
+    const statement = read("client/src/pages/SubscriberAccountStatementPage.tsx");
+    expect(statement).toContain("Number(data.summary.availableCredit)>0?");
+    expect(statement).toContain("الرصيد الفائض (الدائن) المتاح");
+  });
+
 });
