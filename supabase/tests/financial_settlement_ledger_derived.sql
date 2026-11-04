@@ -72,9 +72,9 @@ INSERT INTO public.company_accounts(id,tenant_id,opening_balance,created_at) VAL
   (100,1,50,'2026-09-01T00:00:00Z'),
   (101,1,25,'2026-10-15T00:00:00Z'),
   (102,1,40,'2026-09-01T00:00:00Z'),
-  (103,1,0,'2026-09-01T00:00:00Z');
+  (104,1,0,'2026-09-01T00:00:00Z');
 INSERT INTO public.company_account_sites(tenant_id,account_id,site_id) VALUES
-  (1,100,10),(1,101,10),(1,102,10),(1,102,11),(1,103,12);
+  (1,100,10),(1,101,10),(1,102,10),(1,102,11),(1,104,12);
 
 INSERT INTO public.payments(id,tenant_id,site_id,amount,invoice_applied_amount,subscriber_credit_amount,payment_purpose,status,paid_at) VALUES
   (1,1,10,100,100,0,'invoice_collection','completed','2026-10-10T10:00:00Z'),
