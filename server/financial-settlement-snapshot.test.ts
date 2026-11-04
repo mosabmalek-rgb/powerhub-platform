@@ -20,7 +20,10 @@ describe("normalizeSettlementLedgerSnapshot", () => {
         outflows: { operatingExpenses: 20, supplierPayments: 12, securityDepositRefunds: 5 },
       },
       reconciliation: {
-        paymentCashMismatchCount: 0, expenseCashMismatchCount: 1, issueCount: 1,
+        paymentCashMismatchCount: 0, expenseCashMismatchCount: 1,
+        supplierPaymentCashMismatchCount: 2, supplierReturnCashMismatchCount: 3,
+        unlinkedAccountMovementCount: 4, orphanReferenceMovementCount: 5,
+        unallocatedSharedOpeningBalance: "15.00", issueCount: 15,
         status: "attention_required", internalDebug: "must-not-leak",
       },
       internalDebug: "must-not-leak",
@@ -41,7 +44,12 @@ describe("normalizeSettlementLedgerSnapshot", () => {
         inflows: { subscriberCollections: 100, securityDepositReceipts: 40, transfersIn: 10 },
         outflows: { operatingExpenses: 20, supplierPayments: 12, securityDepositRefunds: 5 },
       },
-      reconciliation: { paymentCashMismatchCount: 0, expenseCashMismatchCount: 1, issueCount: 1, status: "attention_required" },
+      reconciliation: {
+        paymentCashMismatchCount: 0, expenseCashMismatchCount: 1,
+        supplierPaymentCashMismatchCount: 2, supplierReturnCashMismatchCount: 3,
+        unlinkedAccountMovementCount: 4, orphanReferenceMovementCount: 5,
+        unallocatedSharedOpeningBalance: 15, issueCount: 15, status: "attention_required",
+      },
     });
     expect(result).not.toHaveProperty("sourceFingerprint");
     expect(result).not.toHaveProperty("internalDebug");
