@@ -321,6 +321,42 @@ BEGIN
     END;
     PERFORM * FROM public.powerhub_set_financial_settlement_status(1,10,2,v_id,'approved');
     PERFORM * FROM public.powerhub_set_financial_settlement_status(1,10,3,v_id,'locked');
+
+    -- A locked close must reject every mutation that can change its source
+    -- fingerprint, including direct SQL and pre-period cash movements.
+    BEGIN
+      UPDATE public.account_transactions SET amount=amount+1 WHERE id=14;
+      RAISE EXCEPTION 'EXPECTED_LOCKED_PERIOD_ACCOUNT_MOVEMENT_UPDATE_TO_FAIL';
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN
+      IF SQLERRM<>'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+    END;
+
+    BEGIN
+      UPDATE public.account_transactions SET amount=amount+1 WHERE id=1;
+      RAISE EXCEPTION 'EXPECTED_OPENING_CASH_MOVEMENT_UPDATE_TO_FAIL';
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN
+      IF SQLERRM<>'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+    END;
+
+    BEGIN
+      UPDATE public.supplier_purchases SET status='cancelled' WHERE id=1;
+      RAISE EXCEPTION 'EXPECTED_LOCKED_PURCHASE_SOURCE_UPDATE_TO_FAIL';
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN
+      IF SQLERRM<>'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+    END;
+
+    BEGIN
+      UPDATE public.company_accounts SET opening_balance=opening_balance+1 WHERE id=100;
+      RAISE EXCEPTION 'EXPECTED_LOCKED_ACCOUNT_OPENING_BALANCE_UPDATE_TO_FAIL';
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN
+      IF SQLERRM<>'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+    END;
+
+    -- The same tenant may continue operating normally in a different site.
+    INSERT INTO public.account_transactions(
+      id,tenant_id,site_id,account_id,transaction_type,amount,occurred_at
+    ) VALUES(19,1,11,102,'deposit',1,'2026-10-25T10:00:00Z');
+
     SELECT approved_by_user_id INTO v_approver FROM public.financial_settlements WHERE id=v_id;
     IF v_approver<>2 THEN RAISE EXCEPTION 'APPROVER_IDENTITY_WAS_NOT_PRESERVED'; END IF;
   END;
