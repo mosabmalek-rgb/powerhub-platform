@@ -853,7 +853,7 @@ describe("inventory workspace UI contract", () => {
   it("discloses generator fuel consumption cost from stock without adding it to operating profit", () => {
     const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
     const router = read("server/powerhub-inventory-router.ts");
-    const migration = read("supabase/migrations/20261104150000_powerhub_inventory_fuel_consumption_cost_report.sql");
+    const migration = read("supabase/migrations/20261104155320_powerhub_inventory_fuel_consumption_cost_report.sql");
     const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
 
     expect(dashboard).toContain("fuelConsumptionCostReportPeriod.useQuery");
