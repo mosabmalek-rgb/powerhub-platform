@@ -101,6 +101,16 @@ BEGIN
     IF SQLERRM <> 'SETTLEMENT_ALREADY_LOCKED' THEN RAISE; END IF;
   END;
 
+  BEGIN
+    PERFORM * FROM public.powerhub_create_financial_settlement(
+      1,10,1,'2026-09-15T00:00:00Z','2026-10-05T23:59:59.999Z',
+      70,10,NULL,'overlapping settlement must be denied'
+    );
+    RAISE EXCEPTION 'EXPECTED_OVERLAP_WITH_LOCKED_SETTLEMENT_TO_BE_REJECTED';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM <> 'SETTLEMENT_PERIOD_OVERLAPS_LOCKED' THEN RAISE; END IF;
+  END;
+
   SELECT settlement_id INTO v_second_settlement_id
   FROM public.powerhub_create_financial_settlement(
     1,10,1,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z',

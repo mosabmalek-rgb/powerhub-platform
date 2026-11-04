@@ -52,9 +52,11 @@ BEGIN
     RAISE EXCEPTION 'ACTOR_NOT_FOUND' USING ERRCODE = 'P0001';
   END IF;
 
-  PERFORM pg_advisory_xact_lock(
-    p_site_id, hashtext(p_period_start::text || ':' || p_period_end::text)
-  );
+  -- Serialize every settlement write for this tenant/site. This also closes
+  -- the race where concurrent, differently-sized periods overlap a locked close.
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    'powerhub-financial-settlement-site:' || p_tenant_id::text || ':' || p_site_id::text, 0
+  ));
 
   IF EXISTS (
     SELECT 1 FROM public.financial_settlements
@@ -130,7 +132,13 @@ BEGIN
     RAISE EXCEPTION 'ACTOR_NOT_FOUND' USING ERRCODE = 'P0001';
   END IF;
 
-  PERFORM pg_advisory_xact_lock(p_settlement_id);
+  -- Use the same site lock as creation, then serialize updates to this settlement.
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    'powerhub-financial-settlement-site:' || p_tenant_id::text || ':' || p_site_id::text, 0
+  ));
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    'powerhub-financial-settlement-row:' || p_tenant_id::text || ':' || p_settlement_id::text, 0
+  ));
 
   SELECT * INTO v_settlement
   FROM public.financial_settlements
