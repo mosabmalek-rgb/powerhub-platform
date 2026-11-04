@@ -22,9 +22,11 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
     expect(router).toContain("const subscriberRows = input.includeDetails");
     expect(reportReads).toContain('.select(input.summaryOnly');
     expect(reportReads).toContain('? "id, site_id, subscriber_id, issue_date, due_date, total_amount, balance_due, status"');
-    expect(reportReads).toContain('? "id, site_id, subscriber_id, invoice_applied_amount, status, paid_at"');
-    expect(reportReads).toContain('.in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit"])');
-    expect(reportReads).toContain('amount: String(row.invoice_applied_amount ?? 0)');
+    expect(reportReads).toContain('? "id, site_id, subscriber_id, amount, invoice_applied_amount, subscriber_credit_amount, status, paid_at"');
+    expect(reportReads).toContain('.in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"])');
+    expect(reportReads).toContain('grossAmount: String(row.amount ?? 0)');
+    expect(reportReads).toContain('invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0)');
+    expect(reportReads).toContain('subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0)');
     expect(router).toContain("paymentDocumentationGazaDateBoundary(input.startDate)");
     expect(metrics).toContain('invoice.status !== "cancelled" && invoice.status !== "draft"');
     expect(metrics).toContain('payment.status === "completed"');
