@@ -863,6 +863,25 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("متوسط تكلفة اللتر");
     expect(dashboard).toContain("لا تُضاف إلى الربح التشغيلي الحالي");
     expect(dashboard).toContain("generatorOperatingRows.map");
+    const csvExport = dashboard.slice(
+      dashboard.indexOf("const downloadDashboardCsv"),
+      dashboard.indexOf("const exportDashboardExcel"),
+    );
+    const excelExport = dashboard.slice(
+      dashboard.indexOf("const exportDashboardExcel"),
+      dashboard.indexOf("const exportDashboardPdf"),
+    );
+    const pdfExport = dashboard.slice(
+      dashboard.indexOf("const exportDashboardPdf"),
+      dashboard.indexOf("return <section"),
+    );
+    for (const exportSource of [csvExport, excelExport, pdfExport]) {
+      expect(exportSource).toContain("inventory_consumption_liters");
+      expect(exportSource).toContain("inventory_consumption_cost");
+      expect(exportSource).toContain("inventory_average_cost_per_liter");
+      expect(exportSource).toContain("inventory_consumption_movements");
+      expect(exportSource).toContain("غير مضافة للربح");
+    }
     expect(router).toContain("fuelConsumptionCostReportPeriod: protectedProcedure");
     expect(router).toContain("powerhub_inventory_fuel_consumption_cost_report_period");
     expect(router).toContain('"viewInventoryReports"');
