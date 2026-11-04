@@ -451,10 +451,10 @@ export default function InventoryDashboardPanel({
   const exportReady = () => {
     if (!canViewInventoryReports) { toast.error("ليست لديك صلاحية تصدير التقارير المالية."); return false; }
     if (!dateRange) { toast.error("حدد نطاقًا زمنيًا صالحًا لا يتجاوز 366 يومًا."); return false; }
-    if (isLoading || hasError || stock.isFetching || reportWarehouses.isFetching || fuelReport.isFetching || maintenanceReport.isFetching || phaseDFinancialSummary.isFetching) {
+    if (isLoading || hasError || stock.isFetching || reportWarehouses.isFetching || fuelReport.isFetching || fuelConsumptionCostReport.isFetching || maintenanceReport.isFetching || phaseDFinancialSummary.isFetching) {
       toast.error("انتظر اكتمال تحميل مصادر التقرير بنجاح قبل التصدير."); return false;
     }
-    if (stock.isError || reportWarehouses.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError) {
+    if (stock.isError || reportWarehouses.isError || fuelReport.isError || fuelConsumptionCostReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError) {
       toast.error("تعذر تحميل مصدر واحد أو أكثر؛ أعد المحاولة قبل التصدير."); return false;
     }
     return true;
@@ -490,6 +490,8 @@ export default function InventoryDashboardPanel({
       ["قيمة ائتمان المرتجعات", financial?.supplierReturnCreditAmount == null ? "غير متاح لهذه الصلاحية" : amount(financial.supplierReturnCreditAmount)],
       ["الوقود المعبأ (لتر)", fuelTotals.filledLiters],
       ["تكلفة التعبئة المسجلة", amount(fuelTotals.filledCost)],
+      ["الوقود المصروف من المخزون (لتر)", quantity(generatorOperatingRows.reduce((sum, row) => sum + numberOf(row.inventory_consumption_liters), 0))],
+      ["تكلفة الاستهلاك المخزني (إفصاح مستقل)", amount(generatorOperatingRows.reduce((sum, row) => sum + numberOf(row.inventory_consumption_cost), 0))],
       ["الاستهلاك المقاس (لتر)", fuelTotals.actualConsumption == null ? "غير متاح: قياسات غير مكتملة" : quantity(fuelTotals.actualConsumption)],
       ["عدد خزانات الوقود", fuelTotals.tanks],
       ["خزانات ذات استهلاك مقاس", fuelTotals.measuredTanks],
@@ -498,7 +500,7 @@ export default function InventoryDashboardPanel({
       ["أوامر الصيانة المفتوحة", maintenanceTotals.open],
       ["التوقف المسجل (دقيقة)", maintenanceTotals.downtime],
       ["تكلفة الصيانة المسجلة", amount(maintenanceTotals.recordedCost)],
-      ["حدود محاسبية", "المشتريات والدفعات وائتمانات المرتجعات وتكلفة التعبئة وتكاليف الصيانة أحداث مالية منفصلة؛ لا تُجمع كأنها مصروف تشغيل واحد."],
+      ["حدود محاسبية", "تكلفة التعبئة هي مرجع تكلفة الوقود المالي؛ وتكلفة الوقود المصروف من المخزون إفصاح منفصل لا يُضاف إلى الربح التشغيلي ولا يحل محل تكلفة التعبئة أو المصروف اليدوي. المشتريات والدفعات والمرتجعات والصيانة مصادر منفصلة لا تُجمع كمصروف واحد."],
       ["وقت التصدير (Asia/Gaza)", gazaTimestamp()],
     ];
   };
@@ -757,6 +759,7 @@ export default function InventoryDashboardPanel({
       work.push(fuelOptions.refetch());
       work.push(reportWarehouses.refetch());
       work.push(fuelReport.refetch());
+      work.push(fuelConsumptionCostReport.refetch());
       work.push(maintenanceReport.refetch());
       work.push(phaseDFinancialSummary.refetch());
       if (period === "cycle") work.push(cycleBounds.refetch());
