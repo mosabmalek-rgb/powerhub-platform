@@ -631,11 +631,11 @@ export default function InventoryFuelConsumptionPanel({
         <CardHeader className="flex flex-row items-center gap-3 space-y-0">
           <Droplet className="h-5 w-5" />
           <div><CardTitle>تسجيل تعبئة وقود</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">كل تعبئة تحرك رصيد الوقود وتكلفته ذريًا من المصدر إلى خزان المولد، وتحفظ المرجع والفاعل ووقت العملية.</p>
+            <p className="mt-1 text-sm text-muted-foreground">كل تعبئة تسجل صرفًا واحدًا من مخزن المصدر وتربطه بخزان المولد للتتبع؛ لا يُنشأ رصيد مخزني مستقل للخزان.</p>
           </div>
         </CardHeader>
         <CardContent>
-          {!isPowerHubOnline && !isConnectivityChecking ? <p role="status" className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700">PowerHub غير متاح الآن: يمكن حفظ تعبئة كمسودة محلية، ولن يتغير رصيد المخزون أو الخزان حتى يؤكد الخادم المزامنة.</p> : null}
+          {!isPowerHubOnline && !isConnectivityChecking ? <p role="status" className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700">PowerHub غير متاح الآن: يمكن حفظ تعبئة كمسودة محلية، ولن يُرحّل صرف المخزون أو سجل التعبئة النهائي حتى يؤكد الخادم المزامنة.</p> : null}
           <form onSubmit={submitFill} className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             <label className="grid gap-1.5 text-sm">المولد *
               <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={activeGeneratorId} onChange={(e) => setGeneratorId(e.target.value)}>
@@ -759,7 +759,7 @@ export default function InventoryFuelConsumptionPanel({
       <Card>
       <CardHeader>
         <CardTitle>إعدادات تنبيهات الوقود</CardTitle>
-        <p className="text-sm text-muted-foreground">يُرسل تنبيه داخل المنصة عند نزول المستوى عن الحد أو تجاوز معدل الاستهلاك المقاس. لا يُحتسب المعدل عند نقص القراءات أو تعارض التسوية.</p>
+        <p className="text-sm text-muted-foreground">يُحسب تنبيه انخفاض المستوى من آخر قراءة مستوى فعلية، ولا يُستنتج من كمية التعبئة أو رصيد المستودع. إذا لم توجد قراءة فلن يصدر تنبيه؛ وعبارة «لا يوجد تنبيه نشط» لا تثبت أن مستوى الخزان طبيعي. أما معدل الاستهلاك فيتطلب قراءات مستوى وساعات تشغيل متوافقة، ولا يُحتسب عند نقصها أو تعارض التسوية.</p>
       </CardHeader>
       <CardContent className="space-y-4">
         {alertSettingsAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية الوصول إلى إعدادات تنبيهات الوقود؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : alertSettings.error && alertSettings.data !== undefined ? <p role="status" className="text-xs text-amber-700">تعذر تحديث إعدادات التنبيهات؛ تُعرض آخر نسخة ناجحة لهذه الجلسة.</p> : alertSettings.error ? <p role="alert" className="text-sm text-destructive">تعذر تحميل إعدادات التنبيهات ولا توجد نسخة متاحة.</p> : null}
