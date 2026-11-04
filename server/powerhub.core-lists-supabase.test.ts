@@ -1621,6 +1621,20 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_set_financial_settlement_status", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_settlement_id: 97, p_status: "approved" }) })]);
   });
 
+  it("يمنع منشئ التسوية من اعتمادها ويعرض سبب الرفض بوضوح", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      return { data: null, error: { code: "P0001", message: "SETTLEMENT_CREATOR_CANNOT_APPROVE" } };
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.settlements.setStatus({ siteId: 10, settlementId: 97, status: "approved" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN", message: "لا يمكن لمنشئ التسوية اعتمادها؛ يجب أن يعتمدها مستخدم آخر." });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({
+      name: "powerhub_set_financial_settlement_status",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_settlement_id: 97, p_status: "approved" }),
+    })]);
+  });
+
   it("يعرض قائمة التسويات من Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.settlements.list({ siteId: 10, branchId: 10 })).resolves.toMatchObject([{ id: 97, siteId: 10, totalCollected: "100", totalExpenses: "20", bookProfit: "80", status: "draft" }]);

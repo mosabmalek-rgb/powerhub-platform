@@ -142,6 +142,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres company_account_movement_idempotency_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname company_account_movement_idempotency_test --set ON_ERROR_STOP=1 --file supabase/tests/company_account_movement_idempotency.sql
 
+      - name: Verify independent financial-settlement approval and immutable approver identity
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_settlement_approval_controls_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_settlement_approval_controls_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_settlement_approval_controls.sql
+
       - name: Verify unified invoice-issued automation, amount formatting, and deduplication
         env:
           PGPASSWORD: postgres
