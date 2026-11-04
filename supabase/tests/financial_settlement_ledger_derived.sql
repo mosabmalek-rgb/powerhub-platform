@@ -115,6 +115,7 @@ INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transact
 \ir ../migrations/20261104110822_20261104102600_powerhub_financial_settlement_source_fingerprint.sql
 \ir ../migrations/20261104131827_powerhub_financial_settlement_source_write_guard.sql
 \ir ../migrations/20261104221000_powerhub_settlement_inventory_consumption_cost.sql
+\ir ../migrations/20261105100000_powerhub_inventory_accounting_treatment.sql
 
 SET ROLE service_role;
 DO $ledger_preview$
@@ -414,8 +415,14 @@ DECLARE
   v_fingerprint_before text;
   v_settlement_id bigint;
 BEGIN
-  INSERT INTO public.inventory_items(id,tenant_id,category)
-  VALUES(1,1,'fuel'),(2,1,'oil'),(3,1,'spare_part');
+  INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment)
+  VALUES
+    (1,1,'fuel','expense_on_issue'),
+    (2,1,'oil','expense_on_issue'),
+    (3,1,'spare_part','expense_on_issue'),
+    (4,1,'other','capital_asset'),
+    (5,1,'other','pending_classification'),
+    (6,1,'other','expense_on_issue');
 
   -- 100 litres at weighted-average ₪5.60 plus 10 litres of oil at ₪10,
   -- less a 2-litre return: net non-cash inventory expense = ₪640.
@@ -476,6 +483,71 @@ BEGIN
   IF (v_summary->>'inventoryConsumptionCost')::numeric<>640 THEN
     RAISE EXCEPTION 'NON_ISSUE_MOVEMENT_MUST_NOT_AFFECT_EXPENSES: %',v_summary;
   END IF;
+
+  -- "Other" inventory is not silently omitted: pending issues block settlement,
+  -- explicit consumables expense at issue, and capital assets stay outside P&L.
+  INSERT INTO public.inventory_stock_movements(
+    id,tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,total_cost_amount,occurred_at
+  ) VALUES
+    (5,1,11,501,4,'issue',10,8,80,'2026-11-10T10:00:00Z'),
+    (6,1,11,501,5,'issue',5,6,30,'2026-11-11T10:00:00Z'),
+    (7,1,11,501,6,'issue',3,5,15,'2026-11-12T10:00:00Z');
+
+  v_summary:=public.powerhub_financial_settlement_preview(
+    1,11,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
+  );
+  IF (v_summary->>'inventoryConsumptionCost')::numeric<>15
+     OR (v_summary->>'inventoryCapitalAssetIssueCost')::numeric<>80
+     OR (v_summary->>'unclassifiedInventoryMovementCount')::bigint<>1
+     OR (v_summary->>'totalExpenses')::numeric<>15
+     OR (v_summary->>'isReconciled')::boolean IS TRUE
+     OR (v_summary->'reconciliation'->>'issueCount')::bigint<>1 THEN
+    RAISE EXCEPTION 'INVENTORY_ACCOUNTING_TREATMENT_NOT_ENFORCED: %',v_summary;
+  END IF;
+  BEGIN
+    PERFORM * FROM public.powerhub_create_financial_settlement(
+      1,11,1,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z',null,'unclassified inventory issue'
+    );
+    RAISE EXCEPTION 'UNCLASSIFIED_INVENTORY_ISSUE_DID_NOT_BLOCK_SETTLEMENT';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM<>'SETTLEMENT_LEDGER_RECONCILIATION_FAILED' THEN RAISE; END IF;
+  END;
+
+  v_fingerprint_before:=public.powerhub_financial_settlement_source_fingerprint(
+    1,11,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
+  );
+  UPDATE public.inventory_items SET accounting_treatment='expense_on_issue' WHERE id=5;
+  IF public.powerhub_financial_settlement_source_fingerprint(
+    1,11,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
+  )=v_fingerprint_before THEN
+    RAISE EXCEPTION 'ITEM_ACCOUNTING_TREATMENT_CHANGE_DID_NOT_CHANGE_SETTLEMENT_FINGERPRINT';
+  END IF;
+
+  v_summary:=public.powerhub_financial_settlement_preview(
+    1,11,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
+  );
+  IF (v_summary->>'inventoryConsumptionCost')::numeric<>45
+     OR (v_summary->>'inventoryCapitalAssetIssueCost')::numeric<>80
+     OR (v_summary->>'unclassifiedInventoryMovementCount')::bigint<>0
+     OR (v_summary->'operatingExpensesByCategory'->>'other')::numeric<>45
+     OR (v_summary->>'totalExpenses')::numeric<>45
+     OR (v_summary->>'isReconciled')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'CLASSIFIED_OTHER_INVENTORY_SETTLEMENT_TOTALS_FAILED: %',v_summary;
+  END IF;
+
+  SELECT settlement_id INTO v_settlement_id
+  FROM public.powerhub_create_financial_settlement(
+    1,11,1,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z',null,'classified other inventory'
+  );
+  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,11,1,v_settlement_id,'submitted');
+  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,11,2,v_settlement_id,'approved');
+  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,11,3,v_settlement_id,'locked');
+  BEGIN
+    UPDATE public.inventory_items SET accounting_treatment='capital_asset' WHERE id=6;
+    RAISE EXCEPTION 'LOCKED_SETTLEMENT_ALLOWED_ITEM_ACCOUNTING_RECLASSIFICATION';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM<>'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+  END;
 END
 $inventory_settlement_assertions$;
 
