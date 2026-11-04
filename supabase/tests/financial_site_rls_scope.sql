@@ -161,6 +161,28 @@ $enable_rls$;
 \ir ../migrations/20261104084749_20261103210000_powerhub_account_transaction_site_scope.sql
 \ir ../migrations/20261104192000_powerhub_account_transaction_account_id_scope_guard.sql
 
+-- Updating account_id alone must invoke the site resolver and reject an account
+-- that is linked exclusively to a different branch.
+DO $account_id_scope$
+BEGIN
+  BEGIN
+    UPDATE public.account_transactions
+    SET account_id=101
+    WHERE id=1 AND tenant_id=1 AND site_id=10;
+    RAISE EXCEPTION 'EXPECTED_ACCOUNT_ID_SITE_MISMATCH_TO_FAIL';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM<>'ACCOUNT_TRANSACTION_ACCOUNT_SITE_MISMATCH' THEN RAISE; END IF;
+  END;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.account_transactions
+    WHERE id=1 AND account_id=100 AND site_id=10
+  ) THEN
+    RAISE EXCEPTION 'ACCOUNT_ID_SITE_SCOPE_REJECTION_DID_NOT_PRESERVE_ROW';
+  END IF;
+END
+$account_id_scope$;
+
 DO $assert_helpers$
 BEGIN
  IF private.powerhub_has_site_access(1,10) IS DISTINCT FROM false THEN
