@@ -2270,7 +2270,7 @@ export const powerhubInventoryRouter = router({
         p_operating_hours: input.operatingHours ?? null, p_reference_no: input.referenceNo || null,
         p_notes: input.notes || null, p_operation_key: input.operationKey,
       });
-      if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر تسجيل تعبئة الوقود وترحيل حركة المخزون.");
+      if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر تسجيل تعبئة الوقود واحتساب تكلفة الصرف للمولد.");
       if (access.permissions.includes("viewInventoryReports")) return data[0];
       const { total_cost_amount: _totalCost, ...withoutCost } = data[0];
       return withoutCost;

@@ -79,7 +79,7 @@ const movementDescriptions: Record<MovementType, string> = {
   opening_balance: "يسجل الرصيد الفعلي عند بدء استخدام النظام مرة واحدة للصنف والمخزن، مع تكلفة وحدة وسبب واضح.",
   adjustment_in: "يسجل زيادة الجرد مع سبب واضح وتكلفة وحدة عند عدم وجود رصيد سابق.",
   adjustment_out: "يسجل نقص الجرد، ولا يسمح بأن يصبح الرصيد سالبًا.",
-  fuel_consumption: "يسجل استهلاك صنف وقود ويربط الحركة بمولد محدد.",
+  fuel_consumption: "يسجل حركة وقود مرتبطة بالمولد. سجّل التعبئة من شاشة الوقود حتى تُربط بالتكلفة وسجل التعبئة تلقائيًا.",
 };
 const units: Record<string, string> = {
   liter: "لتر", milliliter: "ملليلتر", piece: "قطعة", container: "عبوة",
@@ -131,7 +131,7 @@ export default function InventoryStockOperationsPanel({
   const allowedTypes = useMemo<MovementType[]>(() => [
     ...(canIssueInventory ? ["issue" as const] : []),
     ...(canAdjustInventory ? ["opening_balance" as const, "adjustment_in" as const, "adjustment_out" as const] : []),
-    ...(canManageFuelAndConsumption ? ["fuel_consumption" as const] : []),
+    
   ], [canIssueInventory, canAdjustInventory, canManageFuelAndConsumption]);
 
   const [movementType, setMovementType] = useState<MovementType>(allowedTypes[0] ?? "issue");

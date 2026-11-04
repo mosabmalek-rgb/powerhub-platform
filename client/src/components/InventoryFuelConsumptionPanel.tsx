@@ -40,7 +40,7 @@ type FuelEvent = {
   unit_cost?: number | string; total_cost_amount?: number | string; occurred_at: string;
   level_before_liters: number | string | null; level_after_liters: number | string | null;
   operating_hours: number | string | null; reference_no: string | null; notes: string | null;
-  stock_transfer_id: number; created_by_user_id: number | null;
+  stock_transfer_id: number | null; created_by_user_id: number | null;
 };
 type FuelReading = {
   reading_id: number; generator_id: number; generator_name: string; reading_type: "tank_level" | "operating_hours";
@@ -425,7 +425,7 @@ export default function InventoryFuelConsumptionPanel({
 
   const fillMutation = trpc.powerhub.inventory.recordFuelFill.useMutation({
     onSuccess: async (result) => {
-      toast.success(result.replayed ? "تم تأكيد التعبئة السابقة دون تكرار حركة المخزون." : `تم تسجيل التعبئة ${qty(result.litres)} لتر وترحيلها إلى خزان المولد.`);
+      toast.success(result.replayed ? "تم تأكيد التعبئة السابقة دون تكرار حركة المخزون." : `تم تسجيل ${qty(result.litres)} لتر كوقود مصروف للمولد واحتساب تكلفته مرة واحدة.`);
       setLitres(""); setLevelBefore(""); setLevelAfter(""); setFillOperatingHours(""); setFillReference(""); setFillNotes("");
       setFillAt(nowLocalDateTime());
       await Promise.all([
@@ -922,7 +922,7 @@ export default function InventoryFuelConsumptionPanel({
         </div> : <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">يظهر تقرير الوقود المعبأ لأصحاب صلاحية تقارير المخزون فقط.</p>}
 
         {canViewInventoryReports ? <div className="space-y-3">
-          <h3 className="font-medium">الاستهلاك المسجل والمقاس لكل مولد</h3>
+          <h3 className="font-medium">الوقود المصروف والقياس التشخيصي لكل مولد</h3>
           <p className="text-xs text-muted-foreground">
             الاستهلاك المسجل يأتي من حركات صرف الوقود في دفتر المخزون. أما الاستهلاك المقاس فيُحسب من مستويات الخزانات بين القراءات بعد احتساب التعبئات والحركات؛ وتُخفى الكمية الإجمالية إذا كان قياس أي خزان للمولد غير مكتمل أو به تعارض.
           </p>
@@ -949,9 +949,9 @@ export default function InventoryFuelConsumptionPanel({
         </div> : null}
 
         {canViewInventoryReports ? <div className="space-y-3">
-          <h3 className="font-medium">تكلفة استهلاك الوقود المسجل من المخزون</h3>
+          <h3 className="font-medium">تكلفة الوقود المصروف للمولد حسب التعبئة</h3>
           <p className="text-xs text-muted-foreground">
-            تُحسب التكلفة من حركات الاستهلاك الفعلية في دفتر المخزون وفق تكلفة المخزون المرجحة، ولا تُخلط بتكلفة التعبئة ولا تُضاف مرة ثانية إلى المصروفات أو أرباح التسوية المالية.
+            تُحسب تكلفة الوقود المصروف من كل تعبئة وفق متوسط تكلفة المخزون المرجّح، وتُدرج مرة واحدة ضمن مصروفات التشغيل والتسوية. الكمية هنا تمثل الوقود المصروف للمولد حسب التعبئة، وليست قياسًا لكمية الاحتراق الفعلي.
             {reportTankId ? " هذا الملخص على مستوى المولد ولا يُجزّأ حسب خزان الوقود." : ""}
           </p>
           {usingCachedFuelCostReport && cachedFuelCostReportForCurrentScope ? <p role="status" className="text-xs text-amber-700">
@@ -970,9 +970,9 @@ export default function InventoryFuelConsumptionPanel({
               <thead><tr className="bg-muted/50 text-right">
                 <th className="p-2">المولد</th>
                 <th className="p-2">عدد حركات الاستهلاك</th>
-                <th className="p-2">اللترات المستهلكة</th>
-                <th className="p-2">تكلفة الاستهلاك</th>
-                <th className="p-2">متوسط تكلفة اللتر المستهلك</th>
+                <th className="p-2">اللترات المصروفة حسب التعبئة</th>
+                <th className="p-2">تكلفة الوقود المصروف</th>
+                <th className="p-2">متوسط تكلفة اللتر المصروف</th>
               </tr></thead>
               <tbody>{fuelCostReportRows.map((row) => <tr key={row.generator_id} className="border-t">
                 <td className="p-2">{row.generator_name}</td>

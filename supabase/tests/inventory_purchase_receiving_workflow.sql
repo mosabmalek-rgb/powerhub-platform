@@ -532,6 +532,7 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261104155320_powerhub_inventory_fuel_consumption_cost_report.sql
 \ir ../migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql
 \ir ../migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql
+\ir ../migrations/20261104220000_powerhub_inventory_fuel_fill_as_issue.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -4102,7 +4103,7 @@ begin
     10,100,1,10000,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,
     5,v_fill_time,10,15,101,'PHASE-B-FILL-1','Five litre fixture fill','phase-b:fuel-fill-1'
   );
-  if v_fill.fuel_event_id is null or v_fill.stock_transfer_id is null
+  if v_fill.fuel_event_id is null or v_fill.stock_transfer_id is not null
      or v_fill.litres<>5 or v_fill.total_cost_amount<>47.50 or v_fill.replayed then
     raise exception 'PHASE_B_FUEL_FILL_POST_FAILED';
   end if;
@@ -4118,6 +4119,16 @@ begin
   if not v_fill_replay.replayed or v_fill_replay.fuel_event_id<>v_fill.fuel_event_id then
     raise exception 'PHASE_B_FUEL_FILL_IDEMPOTENCY_FAILED';
   end if;
+  if (select count(*) from public.inventory_stock_movements m
+      where m.tenant_id=10 and m.site_id=100 and m.operation_key='fuel-fill:phase-b:fuel-fill-1:issue'
+        and m.movement_type='fuel_consumption' and m.generator_id=10000
+        and m.quantity=5 and m.total_cost_amount=47.50)<>1 then
+    raise exception 'PHASE_B_FILL_MUST_CREATE_ONE_SOURCE_WAREHOUSE_ISSUE';
+  end if;
+  if (select count(*) from public.inventory_stock_transfers t
+      where t.tenant_id=10 and t.operation_key like 'fuel-fill:phase-b:fuel-fill-1%')<>0 then
+    raise exception 'PHASE_B_FILL_MUST_NOT_CREATE_INTERNAL_TANK_TRANSFER';
+  end if;
 
   begin
     perform * from public.powerhub_inventory_record_fuel_fill(
@@ -4132,11 +4143,20 @@ begin
   -- Capture the existing per-generator ledger totals first: this workflow
   -- deliberately creates other stock movements for the same generator/site.
   -- The regression asserts the exact incremental effect of this new 3L issue.
-  v_consumption_date:=(now() at time zone 'Asia/Gaza')::date;
+  v_consumption_date:=v_local_today-1;
   select * into v_cost_day_before
   from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'day',v_consumption_date,null,null,10000
   );
+  -- The previous-day fill is the single financial issue for the generator.
+  select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'day',v_local_today-1,null,null,10000
+  );
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.recorded_consumption_liters<>5
+     or v_cost_report.recorded_consumption_cost<>47.50 then
+    raise exception 'PHASE_B_FILL_COST_REPORT_FAILED row=%',row_to_json(v_cost_report);
+  end if;
   select * into v_cost_cycle_before
   from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'cycle',v_consumption_date,null,null,10000
@@ -4150,17 +4170,14 @@ begin
     10,100,'custom',null,v_consumption_date,v_consumption_date,10000
   );
 
-  perform * from public.powerhub_inventory_record_stock_movement(
-    10,100,1,v_generator_tank_id,v_fuel_item_id,'fuel_consumption',3,null,10000,
-    'PHASE-B-CONSUMPTION','Recorded generator fuel consumption','phase-b:fuel-consumption-1'
-  );
-
+  -- The fill itself is the recognized fuel issue and expense. Tank-level readings
+  -- remain an optional diagnostic; they do not create another stock issue.
   select m.occurred_at,m.total_cost_amount::numeric(14,2)
     into v_consumption_at,v_expected_fuel_cost
   from public.inventory_stock_movements m
   where m.tenant_id=10 and m.site_id=100 and m.generator_id=10000
-    and m.movement_type='fuel_consumption' and m.reference_no='PHASE-B-CONSUMPTION';
-  if not found then raise exception 'PHASE_B_FUEL_CONSUMPTION_MOVEMENT_MISSING'; end if;
+    and m.movement_type='fuel_consumption' and m.operation_key='fuel-fill:phase-b:fuel-fill-1:issue';
+  if not found or v_expected_fuel_cost<>47.50 then raise exception 'PHASE_B_FUEL_FILL_COST_MOVEMENT_MISSING'; end if;
   if v_consumption_date is distinct from (v_consumption_at at time zone 'Asia/Gaza')::date then
     raise exception 'PHASE_B_FUEL_CONSUMPTION_DAY_CHANGED_DURING_FIXTURE';
   end if;
@@ -4193,7 +4210,7 @@ begin
   if v_report.generator_id<>10000
      or v_report.fuel_filled_liters<>5
      or v_report.fuel_filled_cost<>47.50
-     or v_report.recorded_consumption_liters<>3
+     or v_report.recorded_consumption_liters<>0
      or v_report.opening_level_liters<>10
      or v_report.ending_level_liters<>12
      or v_report.actual_consumption_liters<>3
@@ -4217,7 +4234,7 @@ begin
     10,100,'custom',null,v_local_today-1,v_local_today,10000,v_generator_tank_id
   );
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
-     or v_period_report.recorded_consumption_liters<>3
+     or v_period_report.recorded_consumption_liters<>0
      or v_period_report.actual_consumption_liters<>3
      or v_period_report.fuel_filled_cost<>47.50 then
     raise exception 'PHASE_B_CUSTOM_REPORT_RECONCILIATION_FAILED row=%',row_to_json(v_period_report);
@@ -4254,7 +4271,7 @@ begin
   -- Monthly reporting carries the last valid pre-period tank reading as its
   -- opening baseline, so this fixture has enough readings for a measured result.
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
-     or v_period_report.recorded_consumption_liters<>3
+     or v_period_report.recorded_consumption_liters<>0
      or v_period_report.opening_level_liters<>10
      or v_period_report.ending_level_liters<>12
      or v_period_report.actual_consumption_liters<>3
@@ -4272,9 +4289,9 @@ begin
     10,100,'day',v_consumption_date,null,null,10000
   );
   if v_cost_report.generator_id<>10000
-     or v_cost_report.movement_count<>v_cost_day_before.movement_count+1
-     or v_cost_report.recorded_consumption_liters-v_cost_day_before.recorded_consumption_liters<>3
-     or v_cost_report.recorded_consumption_cost-v_cost_day_before.recorded_consumption_cost<>v_expected_fuel_cost
+     or v_cost_report.movement_count<>v_cost_day_before.movement_count
+     or v_cost_report.recorded_consumption_liters-v_cost_day_before.recorded_consumption_liters<>0
+     or v_cost_report.recorded_consumption_cost-v_cost_day_before.recorded_consumption_cost<>0
      or v_cost_report.average_cost_per_liter<>round(v_cost_report.recorded_consumption_cost/v_cost_report.recorded_consumption_liters,4) then
     raise exception 'PHASE_B_FUEL_COST_DAY_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
       row_to_json(v_cost_report),row_to_json(v_cost_day_before),v_expected_fuel_cost;
@@ -4284,9 +4301,9 @@ begin
     10,100,'cycle',v_consumption_date,null,null,10000
   );
   if v_cost_report.generator_id<>10000
-     or v_cost_report.movement_count<>v_cost_cycle_before.movement_count+1
-     or v_cost_report.recorded_consumption_liters-v_cost_cycle_before.recorded_consumption_liters<>3
-     or v_cost_report.recorded_consumption_cost-v_cost_cycle_before.recorded_consumption_cost<>v_expected_fuel_cost then
+     or v_cost_report.movement_count<>v_cost_cycle_before.movement_count
+     or v_cost_report.recorded_consumption_liters-v_cost_cycle_before.recorded_consumption_liters<>0
+     or v_cost_report.recorded_consumption_cost-v_cost_cycle_before.recorded_consumption_cost<>0 then
     raise exception 'PHASE_B_FUEL_COST_CYCLE_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
       row_to_json(v_cost_report),row_to_json(v_cost_cycle_before),v_expected_fuel_cost;
   end if;
@@ -4295,9 +4312,9 @@ begin
     10,100,'month',v_consumption_date,null,null,10000
   );
   if v_cost_report.generator_id<>10000
-     or v_cost_report.movement_count<>v_cost_month_before.movement_count+1
-     or v_cost_report.recorded_consumption_liters-v_cost_month_before.recorded_consumption_liters<>3
-     or v_cost_report.recorded_consumption_cost-v_cost_month_before.recorded_consumption_cost<>v_expected_fuel_cost then
+     or v_cost_report.movement_count<>v_cost_month_before.movement_count
+     or v_cost_report.recorded_consumption_liters-v_cost_month_before.recorded_consumption_liters<>0
+     or v_cost_report.recorded_consumption_cost-v_cost_month_before.recorded_consumption_cost<>0 then
     raise exception 'PHASE_B_FUEL_COST_MONTH_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
       row_to_json(v_cost_report),row_to_json(v_cost_month_before),v_expected_fuel_cost;
   end if;
@@ -4306,9 +4323,9 @@ begin
     10,100,'custom',null,v_consumption_date,v_consumption_date,10000
   );
   if v_cost_report.generator_id<>10000
-     or v_cost_report.movement_count<>v_cost_custom_before.movement_count+1
-     or v_cost_report.recorded_consumption_liters-v_cost_custom_before.recorded_consumption_liters<>3
-     or v_cost_report.recorded_consumption_cost-v_cost_custom_before.recorded_consumption_cost<>v_expected_fuel_cost
+     or v_cost_report.movement_count<>v_cost_custom_before.movement_count
+     or v_cost_report.recorded_consumption_liters-v_cost_custom_before.recorded_consumption_liters<>0
+     or v_cost_report.recorded_consumption_cost-v_cost_custom_before.recorded_consumption_cost<>0
      or v_cost_report.average_cost_per_liter<>round(v_cost_report.recorded_consumption_cost/v_cost_report.recorded_consumption_liters,4) then
     raise exception 'PHASE_B_FUEL_COST_CUSTOM_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
       row_to_json(v_cost_report),row_to_json(v_cost_custom_before),v_expected_fuel_cost;
