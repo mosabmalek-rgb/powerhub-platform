@@ -983,7 +983,9 @@ type SupabaseReportPayment = {
     siteId: number;
     subscriberId: number;
     paymentNo: string;
-    amount: string;
+    grossAmount: string;
+    invoiceAppliedAmount: string;
+    subscriberCreditAmount: string;
     paymentMethod: string;
     transferFromAccount: string | null;
     transferFromType: string | null;
@@ -1082,8 +1084,8 @@ export async function listSupabaseReportPayments(input: {
   const rows = await readSupabaseReportPages((from, to) =>
     admin.from("payments")
       .select(input.summaryOnly
-        ? "id, site_id, subscriber_id, invoice_applied_amount, status, paid_at"
-        : "id, site_id, subscriber_id, payment_no, invoice_applied_amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
+        ? "id, site_id, subscriber_id, amount, invoice_applied_amount, subscriber_credit_amount, status, paid_at"
+        : "id, site_id, subscriber_id, payment_no, amount, invoice_applied_amount, subscriber_credit_amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
       .eq("tenant_id", input.tenantId)
       .in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit"])
       .in("site_id", siteIds)
@@ -1098,7 +1100,9 @@ export async function listSupabaseReportPayments(input: {
       siteId: Number(row.site_id),
       subscriberId: Number(row.subscriber_id),
       paymentNo: String(row.payment_no ?? ""),
-      amount: String(row.invoice_applied_amount ?? 0),
+      grossAmount: String(row.amount ?? 0),
+      invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0),
+      subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0),
       paymentMethod: String(row.payment_method ?? ""),
       transferFromAccount: row.transfer_from_account == null ? null : String(row.transfer_from_account),
       transferFromType: row.transfer_from_type == null ? null : String(row.transfer_from_type),
