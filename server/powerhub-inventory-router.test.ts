@@ -850,6 +850,36 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
 
+  it("requires report permission and fetches generator-level fuel consumption cost across stock warehouses", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.fuelConsumptionCostReportPeriod;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["viewInventoryReports"] });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      generator_id: 10, movement_count: 1, recorded_consumption_liters: "0.500",
+      recorded_consumption_cost: "4.25", average_cost_per_liter: "8.5000",
+    }], error: null });
+    const result = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10 },
+    });
+    expect(result).toMatchObject([{
+      generator_id: 10, movement_count: 1, recorded_consumption_liters: "0.500",
+      recorded_consumption_cost: "4.25", average_cost_per_liter: "8.5000",
+    }]);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_fuel_consumption_cost_report_period", {
+      p_tenant_id: 44, p_site_id: 7, p_period_type: "cycle", p_anchor_date: "2026-10-22",
+      p_from_date: null, p_to_date: null, p_generator_id: 10,
+    });
+  });
+
   it("requires manageFuelAndConsumption before changing alert thresholds", async () => {
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.rpc.mockClear();
