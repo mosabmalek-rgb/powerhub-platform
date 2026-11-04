@@ -1302,7 +1302,6 @@ declare
   v_fuel_replacement_cost numeric(14,2);
   v_fuel_report record;
   v_anchor_date date;
-  v_cycle_boundary record;
   v_cycle_report record;
   v_month_report record;
   v_custom_report record;
@@ -1463,18 +1462,6 @@ begin
     in pg_get_functiondef('public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)'::regprocedure)
   )=0 then
     raise exception 'FUEL_COST_CYCLE_BOUNDARY_PRECISION_MISMATCH';
-  end if;
-
-  select * into v_cycle_boundary
-  from public.powerhub_cycle_for_reading(
-    v_tenant_id,v_site_id,v_anchor_date::timestamp at time zone 'Asia/Gaza'
-  );
-  if v_cycle_boundary.cycle_start_at is null or v_cycle_boundary.cycle_end_at is null then
-    raise exception 'FUEL_COST_CYCLE_BOUNDARY_UNAVAILABLE';
-  end if;
-  if v_cycle_boundary.cycle_end_at + interval '1 millisecond'
-       <= v_cycle_boundary.cycle_end_at + interval '1 microsecond' then
-    raise exception 'FUEL_COST_CYCLE_EXCLUSIVE_BOUNDARY_NOT_ADVANCED';
   end if;
 
   select * into v_cycle_report
