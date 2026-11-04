@@ -863,6 +863,19 @@ describe("inventory workspace UI contract", () => {
     expect(dashboard).toContain("متوسط تكلفة اللتر");
     expect(dashboard).toContain("لا تُضاف إلى الربح التشغيلي الحالي");
     expect(dashboard).toContain("generatorOperatingRows.map");
+    const exportReady = dashboard.slice(
+      dashboard.indexOf("const exportReady"),
+      dashboard.indexOf("const dashboardSummaryRows"),
+    );
+    const refresh = dashboard.slice(
+      dashboard.indexOf("const refresh = async"),
+      dashboard.indexOf("const isLoading"),
+    );
+    expect(exportReady).toContain("fuelConsumptionCostReport.isFetching");
+    expect(exportReady).toContain("fuelConsumptionCostReport.isError");
+    expect(refresh).toContain("fuelConsumptionCostReport.refetch()");
+    expect(dashboard).toContain("تكلفة الاستهلاك المخزني (إفصاح مستقل)");
+    expect(dashboard).toContain("لا يُضاف إلى الربح التشغيلي");
     const csvExport = dashboard.slice(
       dashboard.indexOf("const downloadDashboardCsv"),
       dashboard.indexOf("const exportDashboardExcel"),
