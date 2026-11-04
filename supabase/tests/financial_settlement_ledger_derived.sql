@@ -117,6 +117,37 @@ INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transact
 \ir ../migrations/20261104215452_powerhub_settlement_inventory_consumption_cost.sql
 \ir ../migrations/20261104231115_powerhub_inventory_accounting_treatment.sql
 
+-- Isolated fixture for per-generator fuel cost reporting across all period types.
+-- The SQL integration database is disposable; no Staging or Production rows are used.
+INSERT INTO public.sites(id,tenant_id,status) VALUES (14,1,'active'),(15,1,'active');
+
+CREATE TABLE public.generators(
+  id bigint PRIMARY KEY, tenant_id bigint NOT NULL, site_id bigint NOT NULL, name text NOT NULL
+);
+CREATE TABLE public.tenant_reading_cycle_configurations(
+  tenant_id bigint NOT NULL, site_id bigint NOT NULL, timezone text NOT NULL,
+  PRIMARY KEY(tenant_id,site_id)
+);
+CREATE TABLE public.generator_fuel_events(
+  id bigint PRIMARY KEY, tenant_id bigint NOT NULL, site_id bigint NOT NULL,
+  generator_id bigint NOT NULL, source_movement_id bigint NOT NULL,
+  stock_transfer_id bigint, litres numeric(14,3) NOT NULL,
+  total_cost_amount numeric(14,2) NOT NULL, occurred_at timestamptz NOT NULL
+);
+CREATE FUNCTION public.powerhub_cycle_for_reading(
+  p_tenant_id bigint,p_site_id bigint,p_read_at timestamptz
+) RETURNS TABLE(cycle_start_at timestamptz,cycle_end_at timestamptz)
+LANGUAGE sql STABLE AS $cycle$
+  SELECT timestamp '2026-11-01 00:00:00' AT TIME ZONE 'Asia/Gaza',
+         timestamp '2026-11-30 23:59:59.999999' AT TIME ZONE 'Asia/Gaza'
+  WHERE p_tenant_id=1 AND p_site_id=14
+$cycle$;
+
+GRANT ALL ON public.generators,public.tenant_reading_cycle_configurations,
+  public.generator_fuel_events TO service_role;
+
+\ir ../migrations/20261105010000_powerhub_fuel_cost_report_include_legacy_fills.sql
+
 SET ROLE service_role;
 DO $ledger_preview$
 DECLARE v_summary jsonb;
@@ -655,5 +686,130 @@ BEGIN
   END IF;
 END
 $acl$;
+
+
+-- Test multiple legacy fills plus the current direct-issue model. The historical
+-- transfer destination is deliberately not treated as a second consumption.
+INSERT INTO public.generators(id,tenant_id,site_id,name) VALUES
+  (1001,1,14,'Fuel report generator'),
+  (1002,1,14,'Zero fill generator'),
+  (2001,1,15,'Other site generator');
+INSERT INTO public.tenant_reading_cycle_configurations(tenant_id,site_id,timezone)
+VALUES (1,14,'Asia/Gaza'),(1,15,'Asia/Gaza');
+
+INSERT INTO public.inventory_stock_movements(
+  id,tenant_id,site_id,warehouse_id,item_id,generator_id,movement_type,
+  quantity,unit_cost,total_cost_amount,occurred_at,reversal_of_movement_id
+) VALUES
+  (9001,1,14,1,1,null,'issue',10,5,50,'2026-11-01 10:00:00 Asia/Gaza',null),
+  (9002,1,14,1,1,null,'issue',5,6,30,'2026-11-02 11:00:00 Asia/Gaza',null),
+  (9003,1,14,1,1,null,'adjustment_in',99,10,990,'2026-11-02 11:30:00 Asia/Gaza',null),
+  (9004,1,15,1,1,null,'issue',70,5,350,'2026-11-01 10:00:00 Asia/Gaza',null),
+  (9101,1,14,1,1,1001,'fuel_consumption',4,6,24,'2026-11-02 12:00:00 Asia/Gaza',null),
+  (9102,1,14,1,1,1001,'fuel_consumption',3,6,18,'2026-11-02 13:00:00 Asia/Gaza',null),
+  (9103,1,14,1,1,null,'adjustment_in',3,6,18,'2026-11-02 13:01:00 Asia/Gaza',9102);
+
+INSERT INTO public.generator_fuel_events(
+  id,tenant_id,site_id,generator_id,source_movement_id,stock_transfer_id,
+  litres,total_cost_amount,occurred_at
+) VALUES
+  (9201,1,14,1001,9001,31,10,50,'2026-11-01 10:00:00 Asia/Gaza'),
+  (9202,1,14,1001,9002,32,5,30,'2026-11-02 11:00:00 Asia/Gaza'),
+  -- Non-issue source is not a valid historical refuelling disclosure.
+  (9203,1,14,1001,9003,33,99,990,'2026-11-02 11:30:00 Asia/Gaza'),
+  -- A valid legacy event in another site must never leak into site 14.
+  (9204,1,15,2001,9004,34,70,350,'2026-11-01 10:00:00 Asia/Gaza');
+
+DO $fuel_cost_report_legacy_compatibility$
+DECLARE v_row record;
+BEGIN
+  SELECT * INTO v_row
+  FROM public.powerhub_inventory_fuel_consumption_cost_report_period(
+    1,14,'day','2026-11-01',null,null,1001
+  ) WHERE generator_id=1001;
+  IF NOT FOUND OR v_row.movement_count<>1
+     OR v_row.recorded_consumption_liters<>10
+     OR v_row.recorded_consumption_cost<>50 THEN
+    RAISE EXCEPTION 'FUEL_COST_REPORT_DAILY_LEGACY_FILL_FAILED: %',v_row;
+  END IF;
+
+  SELECT * INTO v_row
+  FROM public.powerhub_inventory_fuel_consumption_cost_report_period(
+    1,14,'day','2026-11-02',null,null,1001
+  ) WHERE generator_id=1001;
+  IF NOT FOUND OR v_row.movement_count<>2
+     OR v_row.recorded_consumption_liters<>9
+     OR v_row.recorded_consumption_cost<>54 THEN
+    RAISE EXCEPTION 'FUEL_COST_REPORT_DAILY_MIXED_FILL_FAILED: %',v_row;
+  END IF;
+
+  SELECT * INTO v_row
+  FROM public.powerhub_inventory_fuel_consumption_cost_report_period(
+    1,14,'month','2026-11-15',null,null,1001
+  ) WHERE generator_id=1001;
+  IF NOT FOUND OR v_row.movement_count<>3
+     OR v_row.recorded_consumption_liters<>19
+     OR v_row.recorded_consumption_cost<>104
+     OR v_row.average_cost_per_liter<>5.4737 THEN
+    RAISE EXCEPTION 'FUEL_COST_REPORT_MONTHLY_LEGACY_COMPATIBILITY_FAILED: %',v_row;
+  END IF;
+
+  SELECT * INTO v_row
+  FROM public.powerhub_inventory_fuel_consumption_cost_report_period(
+    1,14,'cycle','2026-11-05',null,null,1001
+  ) WHERE generator_id=1001;
+  IF NOT FOUND OR v_row.movement_count<>3
+     OR v_row.recorded_consumption_liters<>19
+     OR v_row.recorded_consumption_cost<>104 THEN
+    RAISE EXCEPTION 'FUEL_COST_REPORT_CYCLE_LEGACY_COMPATIBILITY_FAILED: %',v_row;
+  END IF;
+
+  SELECT * INTO v_row
+  FROM public.powerhub_inventory_fuel_consumption_cost_report_period(
+    1,14,'custom',null,'2026-11-01','2026-11-02',1001
+  ) WHERE generator_id=1001;
+  IF NOT FOUND OR v_row.movement_count<>3
+     OR v_row.recorded_consumption_liters<>19
+     OR v_row.recorded_consumption_cost<>104 THEN
+    RAISE EXCEPTION 'FUEL_COST_REPORT_CUSTOM_LEGACY_COMPATIBILITY_FAILED: %',v_row;
+  END IF;
+
+  SELECT * INTO v_row
+  FROM public.powerhub_inventory_fuel_consumption_cost_report_period(
+    1,14,'custom',null,'2026-11-02','2026-11-02',1001
+  ) WHERE generator_id=1001;
+  IF NOT FOUND OR v_row.movement_count<>2
+     OR v_row.recorded_consumption_liters<>9
+     OR v_row.recorded_consumption_cost<>54 THEN
+    RAISE EXCEPTION 'FUEL_COST_REPORT_CUSTOM_SINGLE_DAY_FAILED: %',v_row;
+  END IF;
+
+  SELECT * INTO v_row
+  FROM public.powerhub_inventory_fuel_consumption_cost_report_period(
+    1,14,'month','2026-11-15',null,null,1002
+  ) WHERE generator_id=1002;
+  IF NOT FOUND OR v_row.movement_count<>0
+     OR v_row.recorded_consumption_liters<>0
+     OR v_row.recorded_consumption_cost<>0
+     OR v_row.average_cost_per_liter IS NOT NULL THEN
+    RAISE EXCEPTION 'FUEL_COST_REPORT_ZERO_FILL_GENERATOR_FAILED: %',v_row;
+  END IF;
+
+  BEGIN
+    PERFORM 1 FROM public.powerhub_inventory_fuel_consumption_cost_report_period(
+      1,14,'day','2026-11-01',null,null,2001
+    );
+    RAISE EXCEPTION 'FUEL_COST_REPORT_CROSS_SITE_GENERATOR_WAS_ACCEPTED';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM<>'FUEL_COST_REPORT_GENERATOR_OUT_OF_SCOPE' THEN RAISE; END IF;
+  END;
+
+  IF has_function_privilege('anon','public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'FUEL_COST_REPORT_RPC_ACL_MISMATCH';
+  END IF;
+END
+$fuel_cost_report_legacy_compatibility$;
 
 SELECT 'FINANCIAL_SETTLEMENT_LEDGER_DERIVED_OK' AS result;
