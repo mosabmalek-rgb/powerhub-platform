@@ -850,4 +850,33 @@ describe("inventory workspace UI contract", () => {
     expect(cache).toContain("now - snapshot.savedAt >= OFFLINE_OPERATIONAL_REPORT_TTL_MS");
     expect(cache).toContain("options.accessAllowed === false");
   });
+  it("discloses generator fuel consumption cost from stock without adding it to operating profit", () => {
+    const dashboard = read("client/src/components/InventoryDashboardPanel.tsx");
+    const router = read("server/powerhub-inventory-router.ts");
+    const migration = read("supabase/migrations/20261104150000_powerhub_inventory_fuel_consumption_cost_report.sql");
+    const integration = read("supabase/tests/inventory_purchase_receiving_workflow.sql");
+
+    expect(dashboard).toContain("fuelConsumptionCostReportPeriod.useQuery");
+    expect(dashboard).toContain("inventory_consumption_liters");
+    expect(dashboard).toContain("inventory_consumption_cost");
+    expect(dashboard).toContain("تكلفة الاستهلاك المخزني");
+    expect(dashboard).toContain("متوسط تكلفة اللتر");
+    expect(dashboard).toContain("لا تُضاف إلى الربح التشغيلي الحالي");
+    expect(dashboard).toContain("generatorOperatingRows.map");
+    expect(router).toContain("fuelConsumptionCostReportPeriod: protectedProcedure");
+    expect(router).toContain("powerhub_inventory_fuel_consumption_cost_report_period");
+    expect(router).toContain('"viewInventoryReports"');
+    expect(migration).toContain("sum(m.total_cost_amount)");
+    expect(migration).toContain("not exists (");
+    expect(migration).toContain("reversal.reversal_of_movement_id=m.id");
+    expect(migration).toContain("set search_path to ''");
+    expect(migration).toContain("revoke all on function");
+    expect(migration).toContain("from public,anon,authenticated");
+    expect(migration).toContain("to service_role");
+    expect(integration).toContain("FUEL_CONSUMPTION_COST_REPORT_FAILED");
+    expect(integration).toContain("FUEL_CONSUMPTION_CORRECTION_COST_DOUBLE_COUNTED");
+    expect(integration).toContain("UNTRUSTED_ROLE_CAN_EXECUTE_FUEL_CONSUMPTION_COST_REPORT");
+    expect(integration).toContain("CROSS_TENANT_FUEL_COST_REPORT_WAS_ACCEPTED");
+  });
+
 });
