@@ -171,6 +171,27 @@ BEGIN
 
   UPDATE public.company_accounts SET opening_balance=0 WHERE id=102;
 
+  -- An account with no branch mapping is tenant-wide, but its opening cash
+  -- cannot be silently omitted from a branch settlement or marked reconciled.
+  INSERT INTO public.company_accounts(id,tenant_id,opening_balance,created_at)
+  VALUES(103,1,60,'2026-09-01T00:00:00Z');
+  v_summary := public.powerhub_financial_settlement_preview(1,10,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z');
+  IF (v_summary->'reconciliation'->>'unallocatedSharedOpeningBalance')::numeric<>60
+     OR (v_summary->>'isReconciled')::boolean IS TRUE
+     OR (v_summary->>'cashBalanceComplete')::boolean IS TRUE
+     OR (v_summary->>'bookCashBalance') IS DISTINCT FROM 'null'::jsonb THEN
+    RAISE EXCEPTION 'UNMAPPED_OPENING_BALANCE_MUST_BLOCK_RECONCILIATION: %',v_summary;
+  END IF;
+  BEGIN
+    PERFORM public.powerhub_create_financial_settlement(
+      1,10,1,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z',365,'unmapped opening balance'
+    );
+    RAISE EXCEPTION 'EXPECTED_UNMAPPED_OPENING_BALANCE_TO_BLOCK_SETTLEMENT';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM<>'SETTLEMENT_LEDGER_RECONCILIATION_FAILED' THEN RAISE; END IF;
+  END;
+  DELETE FROM public.company_accounts WHERE id=103;
+
   -- Supplier payment and return movements must reconcile to their source amounts.
   UPDATE public.account_transactions SET amount=39 WHERE id=8;
   v_summary := public.powerhub_financial_settlement_preview(1,10,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z');
