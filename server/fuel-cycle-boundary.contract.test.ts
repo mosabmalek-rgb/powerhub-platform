@@ -32,7 +32,7 @@ const inventoryCostAlignmentMigration = readFileSync(
   "utf8",
 );
 const legacyFuelCostMigration = readFileSync(
-  resolve(root, "supabase/migrations/20261105010000_powerhub_fuel_cost_report_include_legacy_fills.sql"),
+  resolve(root, "supabase/migrations/20261104235039_powerhub_fuel_cost_report_include_legacy_fills.sql"),
   "utf8",
 );
 
