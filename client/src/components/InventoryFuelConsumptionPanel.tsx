@@ -15,7 +15,12 @@ import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { clearOfflineFuelQueryCacheForSite } from "@/lib/offline-query-cache";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
-import { aggregateFuelFillReportByGenerator, type FuelFillReportRow } from "@/lib/fuel-fill-report";
+import {
+  aggregateFuelConsumptionReportByGenerator,
+  aggregateFuelFillReportByGenerator,
+  type FuelConsumptionReportRow,
+  type FuelFillReportRow,
+} from "@/lib/fuel-fill-report";
 import { BellRing, Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -56,7 +61,21 @@ type FuelAlertDispatch = {
   signal_key: string; measured_value: number | string; threshold_value: number | string;
   recipient_count: number; created_at: string;
 };
-type FuelReportRow = FuelFillReportRow;
+type FuelReportRow = FuelConsumptionReportRow;
+type FuelCostReportRow = {
+  generator_id: number;
+  generator_name: string;
+  movement_count: number;
+  recorded_consumption_liters: number | string;
+  recorded_consumption_cost: number | string;
+  average_cost_per_liter: number | string | null;
+};
+const fuelMeasurementLabels: Record<string, string> = {
+  measured: "قياس مكتمل",
+  measured_without_hour_rate: "قياس مكتمل دون معدل ساعة",
+  insufficient_level_readings: "قراءات مستوى غير كافية",
+  reconciliation_anomaly: "تعارض يحتاج مراجعة",
+};
 
 function nowLocalDateTime() {
   const now = new Date();
@@ -201,6 +220,25 @@ export default function InventoryFuelConsumptionPanel({
       (reportPeriodType === "custom" ? reportFromDate && reportToDate && reportFromDate <= reportToDate : reportAnchorDate)), staleTime: 15_000 },
   );
   const reportAuthorizationDenied = isExplicitAuthorizationDenial(report.error);
+  const reportPeriodReady = reportPeriodType === "custom"
+    ? Boolean(reportFromDate && reportToDate && reportFromDate <= reportToDate)
+    : Boolean(reportAnchorDate);
+  const fuelCostReport = trpc.powerhub.inventory.fuelConsumptionCostReportPeriod.useQuery(
+    {
+      siteId,
+      periodType: reportPeriodType,
+      anchorDate: reportPeriodType === "custom" ? undefined : reportAnchorDate,
+      fromDate: reportPeriodType === "custom" ? reportFromDate : undefined,
+      toDate: reportPeriodType === "custom" ? reportToDate : undefined,
+      generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined,
+    },
+    {
+      enabled: Boolean(siteId && isAuthenticated && canViewInventoryReports && reportPeriodReady),
+      staleTime: 15_000,
+      refetchInterval: isPowerHubOnline ? 60_000 : false,
+    },
+  );
+  const fuelCostReportAuthorizationDenied = isExplicitAuthorizationDenial(fuelCostReport.error);
   const refreshFuelFromDelta = useCallback((changed: OperationalDeltaRevisionEntity[]) => {
     const eventsChanged = changed.includes("fuel_events");
     const readingsChanged = changed.includes("fuel_readings");
@@ -209,9 +247,12 @@ export default function InventoryFuelConsumptionPanel({
     const reportReady = reportPeriodType === "custom"
       ? Boolean(reportFromDate && reportToDate && reportFromDate <= reportToDate)
       : Boolean(reportAnchorDate);
-    if ((eventsChanged || readingsChanged) && canViewInventoryReports && reportReady) void report.refetch();
+    if ((eventsChanged || readingsChanged) && canViewInventoryReports && reportReady) {
+      void report.refetch();
+      void fuelCostReport.refetch();
+    }
   }, [
-    events.refetch, readings.refetch, report.refetch,
+    events.refetch, readings.refetch, report.refetch, fuelCostReport.refetch,
     hasFilteredEventQuery, hasFilteredReadingQuery, canViewInventoryReports,
     reportPeriodType, reportFromDate, reportToDate, reportAnchorDate,
   ]);
@@ -254,6 +295,66 @@ export default function InventoryFuelConsumptionPanel({
     if (!fuelReportCacheInput || !canViewInventoryReports || !hasAuthoritativeServerRead(report) || !Array.isArray(report.data)) return;
     void saveOperationalReportSnapshot({ ...fuelReportCacheInput, rows: report.data }).catch(() => undefined);
   }, [auth.user?.id, siteId, canViewInventoryReports, report.isSuccess, report.isError, report.isFetching, report.isFetchedAfterMount, report.isPlaceholderData, report.data, reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId, reportTankId]);
+
+  const fuelCostReportCacheInput = auth.user?.id ? {
+    userId: auth.user.id,
+    siteId,
+    reportType: "fuel-consumption-cost" as const,
+    filters: {
+      periodType: reportPeriodType,
+      anchorDate: reportPeriodType === "custom" ? null : reportAnchorDate,
+      fromDate: reportPeriodType === "custom" ? reportFromDate : null,
+      toDate: reportPeriodType === "custom" ? reportToDate : null,
+      generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : null,
+    },
+  } : null;
+  const fuelCostReportCacheKey = fuelCostReportCacheInput
+    ? JSON.stringify([
+      fuelCostReportCacheInput.userId, fuelCostReportCacheInput.siteId,
+      fuelCostReportCacheInput.reportType, fuelCostReportCacheInput.filters,
+    ])
+    : null;
+  const [cachedFuelCostReport, setCachedFuelCostReport] = useState<{
+    key: string; rows: FuelCostReportRow[]; savedAt: number;
+  } | null>(null);
+  const cachedFuelCostReportForCurrentScope =
+    !fuelCostReportAuthorizationDenied && cachedFuelCostReport?.key === fuelCostReportCacheKey
+      ? cachedFuelCostReport
+      : null;
+  useEffect(() => {
+    let current = true;
+    setCachedFuelCostReport(null);
+    if (!fuelCostReportCacheInput || !canViewInventoryReports) return () => { current = false; };
+    void loadOperationalReportSnapshot(fuelCostReportCacheInput, { accessAllowed: canViewInventoryReports })
+      .then((snapshot) => {
+        if (current && snapshot) {
+          setCachedFuelCostReport({
+            key: snapshot.key,
+            rows: snapshot.rows as FuelCostReportRow[],
+            savedAt: snapshot.savedAt,
+          });
+        }
+      })
+      .catch(() => undefined);
+    return () => { current = false; };
+  }, [
+    auth.user?.id, siteId, canViewInventoryReports, reportPeriodType,
+    reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId,
+  ]);
+  useEffect(() => {
+    if (!fuelCostReportCacheInput || !canViewInventoryReports ||
+        !hasAuthoritativeServerRead(fuelCostReport) || !Array.isArray(fuelCostReport.data)) return;
+    void saveOperationalReportSnapshot({
+      ...fuelCostReportCacheInput,
+      rows: fuelCostReport.data,
+    }).catch(() => undefined);
+  }, [
+    auth.user?.id, siteId, canViewInventoryReports,
+    fuelCostReport.isSuccess, fuelCostReport.isError, fuelCostReport.isFetching,
+    fuelCostReport.isFetchedAfterMount, fuelCostReport.isPlaceholderData, fuelCostReport.data,
+    reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId,
+  ]);
+
   const alertSettings = trpc.powerhub.inventory.listFuelAlertSettings.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
@@ -489,6 +590,21 @@ export default function InventoryFuelConsumptionPanel({
     () => aggregateFuelFillReportByGenerator(reportRows),
     [reportRows],
   );
+  const generatorConsumptionSummaries = useMemo(
+    () => aggregateFuelConsumptionReportByGenerator(reportRows),
+    [reportRows],
+  );
+  const fuelCostReportRows = (fuelCostReportAuthorizationDenied ? [] :
+    hasAuthoritativeServerRead(fuelCostReport) ? fuelCostReport.data ?? [] :
+      cachedFuelCostReportForCurrentScope?.rows ?? []) as FuelCostReportRow[];
+  const fuelCostReportIsAuthoritative =
+    !fuelCostReportAuthorizationDenied && hasAuthoritativeServerRead(fuelCostReport);
+  const usingCachedFuelCostReport =
+    !fuelCostReportAuthorizationDenied && !fuelCostReportIsAuthoritative &&
+    cachedFuelCostReportForCurrentScope !== null;
+  const hasAvailableFuelCostReport =
+    !fuelCostReportAuthorizationDenied &&
+    (fuelCostReportIsAuthoritative || cachedFuelCostReportForCurrentScope !== null);
   const alertSettingRows = (alertSettingsAuthorizationDenied ? [] : alertSettings.data ?? []) as FuelAlertSetting[];
   const alertDispatchRows = (alertDispatchesAuthorizationDenied ? [] : alertDispatches.data ?? []) as FuelAlertDispatch[];
   const selectedGenerator = generators.find((row) => row.id === Number(activeGeneratorId));
@@ -734,7 +850,7 @@ export default function InventoryFuelConsumptionPanel({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div><CardTitle>سجل التعبئات والقراءات</CardTitle><p className="mt-1 text-sm text-muted-foreground">السجلات مرتبة زمنيًا مع مرجع العملية؛ لا يُستبدل السجل القديم عند التصحيح.</p></div>
-        <Button type="button" variant="outline" size="sm" onClick={() => { void events.refetch(); void readings.refetch(); }}>
+        <Button type="button" variant="outline" size="sm" onClick={() => { void events.refetch(); void readings.refetch(); void report.refetch(); void fuelCostReport.refetch(); }}>
           <RefreshCw className="ml-2 h-4 w-4" /> تحديث
         </Button>
       </CardHeader>
@@ -804,6 +920,74 @@ export default function InventoryFuelConsumptionPanel({
           </table>
           </div>
         </div> : <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">يظهر تقرير الوقود المعبأ لأصحاب صلاحية تقارير المخزون فقط.</p>}
+
+        {canViewInventoryReports ? <div className="space-y-3">
+          <h3 className="font-medium">الاستهلاك المسجل والمقاس لكل مولد</h3>
+          <p className="text-xs text-muted-foreground">
+            الاستهلاك المسجل يأتي من حركات صرف الوقود في دفتر المخزون. أما الاستهلاك المقاس فيُحسب من مستويات الخزانات بين القراءات بعد احتساب التعبئات والحركات؛ وتُخفى الكمية الإجمالية إذا كان قياس أي خزان للمولد غير مكتمل أو به تعارض.
+          </p>
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-muted/50 text-right">
+                <th className="p-2">المولد</th>
+                <th className="p-2">الاستهلاك المسجل</th>
+                <th className="p-2">الاستهلاك المقاس</th>
+                <th className="p-2">لتر/ساعة</th>
+                <th className="p-2">حالة القياس</th>
+              </tr></thead>
+              <tbody>{generatorConsumptionSummaries.map((row) => <tr key={row.generator_id} className="border-t">
+                <td className="p-2">{row.generator_name}</td>
+                <td className="p-2">{qty(row.recorded_consumption_liters)} لتر</td>
+                <td className="p-2">{row.actual_consumption_liters == null ? "—" : `${qty(row.actual_consumption_liters)} لتر`}</td>
+                <td className="p-2">{row.litres_per_hour == null ? "—" : qty(row.litres_per_hour)}</td>
+                <td className="p-2">{fuelMeasurementLabels[row.measurement_status] ?? "غير محدد"}</td>
+              </tr>)}
+              {generatorConsumptionSummaries.length === 0 ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">لا توجد قراءات أو حركات استهلاك في الفترة المحددة.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div> : null}
+
+        {canViewInventoryReports ? <div className="space-y-3">
+          <h3 className="font-medium">تكلفة استهلاك الوقود المسجل من المخزون</h3>
+          <p className="text-xs text-muted-foreground">
+            تُحسب التكلفة من حركات الاستهلاك الفعلية في دفتر المخزون وفق تكلفة المخزون المرجحة، ولا تُخلط بتكلفة التعبئة ولا تُضاف مرة ثانية إلى المصروفات أو أرباح التسوية المالية.
+            {reportTankId ? " هذا الملخص على مستوى المولد ولا يُجزّأ حسب خزان الوقود." : ""}
+          </p>
+          {usingCachedFuelCostReport && cachedFuelCostReportForCurrentScope ? <p role="status" className="text-xs text-amber-700">
+            تُعرض لقطة تكلفة محفوظة بتاريخ {dateTime(new Date(cachedFuelCostReportForCurrentScope.savedAt).toISOString())}؛ أعد الاتصال لإعادة احتساب التكلفة.
+          </p> : null}
+          {fuelCostReportAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية عرض تكلفة استهلاك الوقود؛ أُخفيت أي لقطة محلية.</p>
+            : (fuelCostReport.isLoading || fuelCostReport.isFetching) && !hasAvailableFuelCostReport
+              ? <p className="text-sm text-muted-foreground">جارٍ احتساب تكلفة الاستهلاك…</p>
+              : fuelCostReport.error && !hasAvailableFuelCostReport
+                ? <p role="alert" className="text-sm text-destructive">تعذر احتساب تكلفة الاستهلاك من المخزون للفترة المحددة.</p>
+                : fuelCostReport.error && hasAvailableFuelCostReport && !usingCachedFuelCostReport
+                  ? <p role="status" className="text-xs text-amber-700">تعذر تحديث التكلفة؛ تُعرض آخر نتيجة ناجحة مطابقة للفترة.</p>
+                  : null}
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-muted/50 text-right">
+                <th className="p-2">المولد</th>
+                <th className="p-2">عدد حركات الاستهلاك</th>
+                <th className="p-2">اللترات المستهلكة</th>
+                <th className="p-2">تكلفة الاستهلاك</th>
+                <th className="p-2">متوسط تكلفة اللتر المستهلك</th>
+              </tr></thead>
+              <tbody>{fuelCostReportRows.map((row) => <tr key={row.generator_id} className="border-t">
+                <td className="p-2">{row.generator_name}</td>
+                <td className="p-2">{qty(row.movement_count)}</td>
+                <td className="p-2">{qty(row.recorded_consumption_liters)} لتر</td>
+                <td className="p-2">{money(row.recorded_consumption_cost)}</td>
+                <td className="p-2">{row.average_cost_per_liter == null ? "—" : money(row.average_cost_per_liter)}</td>
+              </tr>)}
+              {fuelCostReportRows.length === 0 && !fuelCostReport.isLoading && !fuelCostReport.isFetching
+                ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">لا توجد حركات استهلاك مسجلة في دفتر المخزون لهذه الفترة.</td></tr>
+                : null}
+              </tbody>
+            </table>
+          </div>
+        </div> : null}
 
         <div>
           <h3 className="mb-2 font-medium">سجل التعبئات</h3>
