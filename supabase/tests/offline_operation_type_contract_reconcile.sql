@@ -10,7 +10,7 @@ INSERT INTO public.offline_sync_operations(operation_type)
 VALUES ('payment_create');
 
 \ir ../migrations/20261101083858_powerhub_offline_operation_type_contract_reconcile.sql
-\ir ../migrations/20261104193000_powerhub_offline_security_deposit_operation_types.sql
+\ir ../migrations/20261104192418_powerhub_offline_security_deposit_operation_types.sql
 
 DO $assert_contract$
 DECLARE
@@ -67,7 +67,7 @@ END
 $assert_contract$;
 
 -- Reapplying the expanded constraint must preserve all 23 permitted types.
-\ir ../migrations/20261104193000_powerhub_offline_security_deposit_operation_types.sql
+\ir ../migrations/20261104192418_powerhub_offline_security_deposit_operation_types.sql
 DO $assert_repeat$
 BEGIN
   IF (SELECT count(*) FROM public.offline_sync_operations) <> 24 THEN
