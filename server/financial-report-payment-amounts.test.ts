@@ -5,6 +5,8 @@ import path from "node:path";
 const read = (file: string) => fs.readFileSync(path.resolve(process.cwd(), file), "utf8");
 const supabase = read("server/powerhub-supabase.ts");
 const router = read("server/powerhub.ts");
+const page = read("client/src/pages/ReportsPage.tsx");
+const offlineCache = read("client/src/lib/offline-report-cache.ts");
 const reportReads = supabase.slice(
   supabase.indexOf("export async function listSupabaseReportPayments"),
   supabase.indexOf("export async function listSupabaseReportExpenses"),
@@ -32,6 +34,22 @@ describe("financial report payment amount semantics", () => {
     expect(reportRoutes).toContain("grossAmount: Number(payment.grossAmount)");
     expect(reportRoutes).toContain("invoiceAppliedAmount: Number(payment.invoiceAppliedAmount)");
     expect(reportRoutes).toContain("subscriberCreditAmount: Number(payment.subscriberCreditAmount)");
+  });
+
+  it("labels and exports cash, invoice application and credit as separate figures", () => {
+    for (const label of ["النقد المقبوض", "المطبق على الفواتير", "الرصيد الدائن المنشأ"]) {
+      expect(page).toContain(label);
+    }
+    expect(page).toContain("payment.grossAmount");
+    expect(page).toContain("payment.invoiceAppliedAmount");
+    expect(page).toContain("payment.subscriberCreditAmount");
+    expect(page).toContain("payment.grossAmount; return totals");
+  });
+
+  it("keeps safe aggregate totals in the offline report cache but excludes receipt details", () => {
+    expect(offlineCache).toContain('["range", "summary", "scope", "branchSummaries"]');
+    expect(offlineCache).not.toContain("paymentDetails");
+    expect(offlineCache).not.toContain("collectors");
   });
 
   it("counts only completed monthly payments for collector performance", () => {
