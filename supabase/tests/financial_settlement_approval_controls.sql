@@ -52,7 +52,7 @@ INSERT INTO public.sites(id,tenant_id,status) VALUES (10,1,'active');
 INSERT INTO public.users(id,platform_role) VALUES
   (1,'platform_admin'),(2,'platform_admin'),(3,'platform_admin');
 
-\ir ../migrations/20261104100000_powerhub_financial_settlement_approval_controls.sql
+\ir ../migrations/20261104090010_20261104100000_powerhub_financial_settlement_approval_controls.sql
 
 SET ROLE service_role;
 DO $approval_controls$
