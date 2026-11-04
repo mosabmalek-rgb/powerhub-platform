@@ -31,6 +31,10 @@ const inventoryCostAlignmentMigration = readFileSync(
   resolve(root, "supabase/migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql"),
   "utf8",
 );
+const legacyFuelCostMigration = readFileSync(
+  resolve(root, "supabase/migrations/20261105010000_powerhub_fuel_cost_report_include_legacy_fills.sql"),
+  "utf8",
+);
 
 function extractFunction(source: string, signature: string): string {
   const start = source.indexOf(signature);
@@ -78,6 +82,18 @@ describe("Fuel cycle report boundary contract", () => {
     expect(alignedFunction).toBe(expectedFunction);
     expect(alignedFunction).toContain("v_end_at:=v_cycle.cycle_end_at+interval '1 microsecond';");
     expect(alignedFunction).not.toContain("interval '1 millisecond'");
+  });
+
+  it("includes legacy transfer-backed fills once beside direct fuel issues and aggregates repeated fills", () => {
+    const signature = "create or replace function public.powerhub_inventory_fuel_consumption_cost_report_period(";
+    const updatedFunction = extractFunction(legacyFuelCostMigration, signature);
+    expect(updatedFunction).toContain("from public.generator_fuel_events e");
+    expect(updatedFunction).toContain("e.stock_transfer_id is not null");
+    expect(updatedFunction).toContain("source.movement_type='issue'");
+    expect(workflowTest).toContain("PHASE_B_LEGACY_FILL_COST_REPORT_FAILED");
+    expect(workflowTest).toContain("'PHASE-B-FILL-2'");
+    expect(workflowTest).toContain("recorded_consumption_liters<>11");
+    expect(workflowTest).toContain("recorded_consumption_cost<>104.50");
   });
 
   it("covers 31-day month end, leap February, 15-day and weekly boundaries, and cycle non-overlap", () => {

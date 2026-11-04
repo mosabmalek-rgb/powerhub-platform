@@ -532,6 +532,7 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261104155320_powerhub_inventory_fuel_consumption_cost_report.sql
 \ir ../migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql
 \ir ../migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql
+\ir ../migrations/20261105010000_powerhub_fuel_cost_report_include_legacy_fills.sql
 \ir ../migrations/20261104220000_powerhub_inventory_fuel_fill_as_issue.sql
 \ir ../migrations/20261104220500_powerhub_fuel_fill_measurement_reconciliation.sql
 \ir ../migrations/20261105090000_powerhub_exclude_generator_tanks_from_stock_overview.sql
@@ -3993,6 +3994,10 @@ declare
   v_generator_tank_id bigint;
   v_fill record;
   v_fill_replay record;
+  v_second_fill record;
+  v_legacy_source_movement_id bigint;
+  v_legacy_destination_movement_id bigint;
+  v_legacy_transfer_id bigint;
   v_reading record;
   v_hour_reading_id bigint;
   v_tank_reading_id bigint;
@@ -4159,23 +4164,90 @@ begin
     if sqlerrm<>'IDEMPOTENCY_KEY_REUSED' then raise; end if;
   end;
 
-  -- Capture the existing per-generator ledger totals first: this workflow
-  -- deliberately creates other stock movements for the same generator/site.
-  -- The regression asserts the exact incremental effect of this new 3L issue.
+  -- A second direct fill in the same day proves that the report aggregates
+  -- multiple operations for one generator rather than returning only the latest.
+  select * into v_second_fill from public.powerhub_inventory_record_fuel_fill(
+    10,100,1,10000,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,
+    2,v_fill_time+interval '1 minute',15,17,102,'PHASE-B-FILL-2',
+    'Second same-period fixture fill','phase-b:fuel-fill-2'
+  );
+  if v_second_fill.fuel_event_id is null or v_second_fill.stock_transfer_id is not null
+     or v_second_fill.litres<>2 or v_second_fill.total_cost_amount<>19.00 or v_second_fill.replayed then
+    raise exception 'PHASE_B_SECOND_FUEL_FILL_POST_FAILED';
+  end if;
+
+  -- Recreate one historical transfer-backed fill without changing any live
+  -- rows. Its event must remain visible in cost disclosures exactly once.
+  insert into public.inventory_stock_movements(
+    tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,total_cost_amount,
+    reference_no,notes,operation_key,operation_payload_hash,occurred_at,created_by_user_id
+  ) values (
+    10,100,v_source_warehouse_id,v_fuel_item_id,'issue',4,9.5,38.00,
+    'LEGACY-PHASE-B-SOURCE','Historical transfer-backed fuel issue',
+    'legacy:phase-b:fuel-fill:out',md5('legacy:phase-b:fuel-fill:out'),
+    v_fill_time+interval '2 minutes',1
+  ) returning id into v_legacy_source_movement_id;
+
+  insert into public.inventory_stock_movements(
+    tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,total_cost_amount,
+    reference_no,notes,operation_key,operation_payload_hash,occurred_at,created_by_user_id
+  ) values (
+    10,100,v_generator_tank_id,v_fuel_item_id,'adjustment_in',4,9.5,38.00,
+    'LEGACY-PHASE-B-DESTINATION','Historical generator tank transfer-in',
+    'legacy:phase-b:fuel-fill:in',md5('legacy:phase-b:fuel-fill:in'),
+    v_fill_time+interval '2 minutes',1
+  ) returning id into v_legacy_destination_movement_id;
+
+  insert into public.inventory_stock_transfers(
+    tenant_id,site_id,item_id,source_warehouse_id,destination_warehouse_id,quantity,total_cost_amount,
+    operation_key,operation_payload_hash,reference_no,notes,source_movement_id,destination_movement_id,created_by_user_id
+  ) values (
+    10,100,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,4,38.00,
+    'legacy:phase-b:fuel-fill-transfer',md5('legacy:phase-b:fuel-fill-transfer'),
+    'LEGACY-PHASE-B','Historical fill fixture',v_legacy_source_movement_id,v_legacy_destination_movement_id,1
+  ) returning id into v_legacy_transfer_id;
+
+  insert into public.generator_fuel_events(
+    tenant_id,site_id,generator_id,fuel_item_id,source_warehouse_id,destination_warehouse_id,
+    stock_transfer_id,source_movement_id,destination_movement_id,litres,unit_cost,total_cost_amount,
+    occurred_at,level_before_liters,level_after_liters,operating_hours,reference_no,notes,
+    operation_key,operation_payload_hash,created_by_user_id
+  ) values (
+    10,100,10000,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,
+    v_legacy_transfer_id,v_legacy_source_movement_id,v_legacy_destination_movement_id,4,9.5,38.00,
+    v_fill_time+interval '2 minutes',17,21,102.5,'LEGACY-PHASE-B','Historical transfer-backed fill',
+    'legacy:phase-b:fuel-fill-event',md5('legacy:phase-b:fuel-fill-event'),1
+  );
+
+  perform * from public.powerhub_inventory_record_fuel_reading(
+    10,100,1,10000,'tank_level',v_generator_tank_id,17,v_fill_time+interval '2 minutes',
+    'LEGACY-PHASE-B-LEVEL-BEFORE','Historical fill opening level',null,null,'legacy:phase-b:level-before'
+  );
+  perform * from public.powerhub_inventory_record_fuel_reading(
+    10,100,1,10000,'tank_level',v_generator_tank_id,21,v_fill_time+interval '2 minutes',
+    'LEGACY-PHASE-B-LEVEL-AFTER','Historical fill ending level',null,null,'legacy:phase-b:level-after'
+  );
+  perform * from public.powerhub_inventory_record_fuel_reading(
+    10,100,1,10000,'operating_hours',null,102.5,v_fill_time+interval '2 minutes',
+    'LEGACY-PHASE-B-HOURS','Historical fill operating hours',null,null,'legacy:phase-b:hours'
+  );
+
+  -- Capture the baseline after two direct fills and one legacy event.
+  -- The report must count all three once, not the old tank transfer twice.
   v_consumption_date:=v_local_today-1;
+  select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'day',v_consumption_date,null,null,10000
+  );
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>3
+     or v_cost_report.recorded_consumption_liters<>11
+     or v_cost_report.recorded_consumption_cost<>104.50 then
+    raise exception 'PHASE_B_LEGACY_FILL_COST_REPORT_FAILED row=%',row_to_json(v_cost_report);
+  end if;
   select * into v_cost_day_before
   from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'day',v_consumption_date,null,null,10000
   );
-  -- The previous-day fill is the single financial issue for the generator.
-  select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
-    10,100,'day',v_local_today-1,null,null,10000
-  );
-  if v_cost_report.generator_id<>10000
-     or v_cost_report.recorded_consumption_liters<>5
-     or v_cost_report.recorded_consumption_cost<>47.50 then
-    raise exception 'PHASE_B_FILL_COST_REPORT_FAILED row=%',row_to_json(v_cost_report);
-  end if;
   select * into v_cost_cycle_before
   from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'cycle',v_consumption_date,null,null,10000
@@ -4244,7 +4316,7 @@ begin
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'day',v_local_today-1,null,null,10000,v_generator_tank_id
   );
-  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>11
      or v_period_report.actual_consumption_liters<>0 then
     raise exception 'PHASE_B_DAY_REPORT_FAILED row=%',row_to_json(v_period_report);
   end if;
@@ -4254,7 +4326,7 @@ begin
   );
   if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
      or v_period_report.recorded_consumption_liters<>0
-     or v_period_report.actual_consumption_liters<>3
+     or v_period_report.actual_consumption_liters<>9
      or v_period_report.fuel_filled_cost<>47.50 then
     raise exception 'PHASE_B_CUSTOM_REPORT_RECONCILIATION_FAILED row=%',row_to_json(v_period_report);
   end if;

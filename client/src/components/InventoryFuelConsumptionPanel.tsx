@@ -951,7 +951,7 @@ export default function InventoryFuelConsumptionPanel({
         {canViewInventoryReports ? <div className="space-y-3">
           <h3 className="font-medium">تكلفة الوقود المصروف للمولد حسب التعبئة</h3>
           <p className="text-xs text-muted-foreground">
-            تُحسب تكلفة الوقود المصروف من كل تعبئة وفق متوسط تكلفة المخزون المرجّح، وتُدرج مرة واحدة ضمن مصروفات التشغيل والتسوية. الكمية هنا تمثل الوقود المصروف للمولد حسب التعبئة، وليست قياسًا لكمية الاحتراق الفعلي.
+            تعرض التكلفة المسجلة لكل تعبئة وفق متوسط تكلفة المخزون المرجّح. تُحتسب التعبئات الجديدة المسجلة كصرف مباشر ضمن مصروفات التشغيل والتسوية؛ أما التعبئات التاريخية المسجلة كتحويل مخزني فتظل إفصاحًا تاريخيًا ولا تعيد فتح تسويات الفترات السابقة. الكمية تمثل الوقود المعبأ للمولد، وليست قياسًا للاحتراق الفعلي.
             {reportTankId ? " هذا الملخص على مستوى المولد ولا يُجزّأ حسب خزان الوقود." : ""}
           </p>
           {usingCachedFuelCostReport && cachedFuelCostReportForCurrentScope ? <p role="status" className="text-xs text-amber-700">
@@ -969,7 +969,7 @@ export default function InventoryFuelConsumptionPanel({
             <table className="w-full text-sm">
               <thead><tr className="bg-muted/50 text-right">
                 <th className="p-2">المولد</th>
-                <th className="p-2">عدد حركات الاستهلاك</th>
+                <th className="p-2">عدد سجلات التعبئة/الصرف</th>
                 <th className="p-2">اللترات المصروفة حسب التعبئة</th>
                 <th className="p-2">تكلفة الوقود المصروف</th>
                 <th className="p-2">متوسط تكلفة اللتر المصروف</th>
