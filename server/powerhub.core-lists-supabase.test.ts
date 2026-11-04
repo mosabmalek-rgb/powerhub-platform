@@ -567,10 +567,10 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.reports.range({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" })).resolves.toMatchObject({
       range: { startDate: "2026-08-01", endDate: "2026-08-31" },
-      summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
-      collectors: [{ name: "محصل غير محدد", count: 1, amount: 25 }],
+      summary: { invoiced: 100, collected: 25, grossCollected: 25, subscriberCreditCreated: 0, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
+      collectors: [{ name: "محصل غير محدد", count: 1, amount: 25, grossAmount: 25, subscriberCreditAmount: 0 }],
       topDebtors: [{ subscriber: "مشترك الاختبار", subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001", balanceDue: 75 }],
-      paymentDetails: [{ paymentNo: "PAY-202608-0001", amount: 25 }],
+      paymentDetails: [{ paymentNo: "PAY-202608-0001", grossAmount: 25, invoiceAppliedAmount: 25, subscriberCreditAmount: 0 }],
     });
   });
 
@@ -626,9 +626,14 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     ];
     try {
       const report = await caller.reports.range({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" });
-      expect(report.summary).toMatchObject({ collected: 25, operatingProfit: 10 });
-      expect(report.collectors).toEqual([{ name: "محصل غير محدد", count: 1, amount: 25 }]);
-      expect(report.paymentDetails).toEqual([expect.objectContaining({ paymentNo: "PAY-SPLIT-001", amount: 25 })]);
+      expect(report.summary).toMatchObject({ collected: 25, grossCollected: 60, subscriberCreditCreated: 35, operatingProfit: 10 });
+      expect(report.collectors).toEqual([{
+        name: "محصل غير محدد", count: 2, amount: 25, grossAmount: 60, subscriberCreditAmount: 35,
+      }]);
+      expect(report.paymentDetails).toEqual(expect.arrayContaining([
+        expect.objectContaining({ paymentNo: "PAY-SPLIT-001", grossAmount: 40, invoiceAppliedAmount: 25, subscriberCreditAmount: 15 }),
+        expect.objectContaining({ paymentNo: "CREDIT-001", grossAmount: 20, invoiceAppliedAmount: 0, subscriberCreditAmount: 20 }),
+      ]));
     } finally {
       state.tables.payments = previousPayments;
     }
