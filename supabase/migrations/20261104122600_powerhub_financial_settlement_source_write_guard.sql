@@ -23,34 +23,40 @@ DECLARE
 BEGIN
   CASE TG_TABLE_NAME
     WHEN 'payments' THEN
-      IF TG_OP='UPDATE'
-         AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.amount,OLD.invoice_applied_amount,
+      IF TG_OP='UPDATE' THEN
+        IF          AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.amount,OLD.invoice_applied_amount,
                  OLD.subscriber_credit_amount,OLD.payment_purpose,OLD.status,OLD.paid_at)
              IS NOT DISTINCT FROM
              ROW(NEW.id,NEW.tenant_id,NEW.site_id,NEW.amount,NEW.invoice_applied_amount,
                  NEW.subscriber_credit_amount,NEW.payment_purpose,NEW.status,NEW.paid_at) THEN
-        RETURN NEW;
+          RETURN NEW;
+        END IF;
       END IF;
 
-      IF TG_OP<>'INSERT' AND OLD.status='completed' THEN
+      IF TG_OP<>'INSERT' THEN
+        IF OLD.status='completed' THEN
         v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
           'tenant_id',OLD.tenant_id,'site_id',OLD.site_id,
           'guard_mode','timestamp','event_at',OLD.paid_at
         ));
+        END IF;
       END IF;
-      IF TG_OP<>'DELETE' AND NEW.status='completed' THEN
+      IF TG_OP<>'DELETE' THEN
+        IF NEW.status='completed' THEN
         v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
           'tenant_id',NEW.tenant_id,'site_id',NEW.site_id,
           'guard_mode','timestamp','event_at',NEW.paid_at
         ));
+        END IF;
       END IF;
 
     WHEN 'expenses' THEN
-      IF TG_OP='UPDATE'
-         AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.amount,OLD.category,OLD.occurred_at)
+      IF TG_OP='UPDATE' THEN
+        IF          AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.amount,OLD.category,OLD.occurred_at)
              IS NOT DISTINCT FROM
              ROW(NEW.id,NEW.tenant_id,NEW.site_id,NEW.amount,NEW.category,NEW.occurred_at) THEN
-        RETURN NEW;
+          RETURN NEW;
+        END IF;
       END IF;
 
       IF TG_OP<>'INSERT' THEN
@@ -67,15 +73,16 @@ BEGIN
       END IF;
 
     WHEN 'account_transactions' THEN
-      IF TG_OP='UPDATE'
-         AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.account_id,OLD.transaction_type,
+      IF TG_OP='UPDATE' THEN
+        IF          AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.account_id,OLD.transaction_type,
                  OLD.amount,OLD.occurred_at,OLD.related_payment_id,OLD.related_expense_id,
                  OLD.related_supplier_payment_id,OLD.related_supplier_return_id)
              IS NOT DISTINCT FROM
              ROW(NEW.id,NEW.tenant_id,NEW.site_id,NEW.account_id,NEW.transaction_type,
                  NEW.amount,NEW.occurred_at,NEW.related_payment_id,NEW.related_expense_id,
                  NEW.related_supplier_payment_id,NEW.related_supplier_return_id) THEN
-        RETURN NEW;
+          RETURN NEW;
+        END IF;
       END IF;
 
       IF TG_OP<>'INSERT' THEN
@@ -92,80 +99,94 @@ BEGIN
       END IF;
 
     WHEN 'supplier_payments' THEN
-      IF TG_OP='UPDATE'
-         AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.amount,OLD.payment_date,
+      IF TG_OP='UPDATE' THEN
+        IF          AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.amount,OLD.payment_date,
                  OLD.status,OLD.account_transaction_id)
              IS NOT DISTINCT FROM
              ROW(NEW.id,NEW.tenant_id,NEW.site_id,NEW.amount,NEW.payment_date,
                  NEW.status,NEW.account_transaction_id) THEN
-        RETURN NEW;
+          RETURN NEW;
+        END IF;
       END IF;
 
-      IF TG_OP<>'INSERT' AND OLD.status='posted' THEN
+      IF TG_OP<>'INSERT' THEN
+        IF OLD.status='posted' THEN
         v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
           'tenant_id',OLD.tenant_id,'site_id',OLD.site_id,
           'guard_mode','utc_date','event_date',OLD.payment_date
         ));
+        END IF;
       END IF;
-      IF TG_OP<>'DELETE' AND NEW.status='posted' THEN
+      IF TG_OP<>'DELETE' THEN
+        IF NEW.status='posted' THEN
         v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
           'tenant_id',NEW.tenant_id,'site_id',NEW.site_id,
           'guard_mode','utc_date','event_date',NEW.payment_date
         ));
+        END IF;
       END IF;
 
     WHEN 'supplier_purchase_returns' THEN
-      IF TG_OP='UPDATE'
-         AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.status,OLD.return_date,
+      IF TG_OP='UPDATE' THEN
+        IF          AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.status,OLD.return_date,
                  OLD.total_credit_amount,OLD.refund_amount)
              IS NOT DISTINCT FROM
              ROW(NEW.id,NEW.tenant_id,NEW.site_id,NEW.status,NEW.return_date,
                  NEW.total_credit_amount,NEW.refund_amount) THEN
-        RETURN NEW;
+          RETURN NEW;
+        END IF;
       END IF;
 
-      IF TG_OP<>'INSERT' AND OLD.status='posted' THEN
+      IF TG_OP<>'INSERT' THEN
+        IF OLD.status='posted' THEN
         v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
           'tenant_id',OLD.tenant_id,'site_id',OLD.site_id,
           'guard_mode','utc_date','event_date',OLD.return_date
         ));
+        END IF;
       END IF;
-      IF TG_OP<>'DELETE' AND NEW.status='posted' THEN
+      IF TG_OP<>'DELETE' THEN
+        IF NEW.status='posted' THEN
         v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
           'tenant_id',NEW.tenant_id,'site_id',NEW.site_id,
           'guard_mode','utc_date','event_date',NEW.return_date
         ));
+        END IF;
       END IF;
 
     WHEN 'supplier_purchases' THEN
-      IF TG_OP='UPDATE'
-         AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.status,OLD.invoice_date,OLD.total_amount)
+      IF TG_OP='UPDATE' THEN
+        IF          AND ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.status,OLD.invoice_date,OLD.total_amount)
              IS NOT DISTINCT FROM
              ROW(NEW.id,NEW.tenant_id,NEW.site_id,NEW.status,NEW.invoice_date,NEW.total_amount) THEN
-        RETURN NEW;
+          RETURN NEW;
+        END IF;
       END IF;
 
-      IF TG_OP<>'INSERT'
-         AND OLD.status IN ('confirmed','partially_received','received') THEN
+      IF TG_OP<>'INSERT' THEN
+        IF OLD.status IN ('confirmed','partially_received','received') THEN
         v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
           'tenant_id',OLD.tenant_id,'site_id',OLD.site_id,
           'guard_mode','utc_date','event_date',OLD.invoice_date
         ));
+        END IF;
       END IF;
-      IF TG_OP<>'DELETE'
-         AND NEW.status IN ('confirmed','partially_received','received') THEN
+      IF TG_OP<>'DELETE' THEN
+        IF NEW.status IN ('confirmed','partially_received','received') THEN
         v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
           'tenant_id',NEW.tenant_id,'site_id',NEW.site_id,
           'guard_mode','utc_date','event_date',NEW.invoice_date
         ));
+        END IF;
       END IF;
 
     WHEN 'company_accounts' THEN
-      IF TG_OP='UPDATE'
-         AND ROW(OLD.id,OLD.tenant_id,OLD.opening_balance,OLD.created_at)
+      IF TG_OP='UPDATE' THEN
+        IF          AND ROW(OLD.id,OLD.tenant_id,OLD.opening_balance,OLD.created_at)
              IS NOT DISTINCT FROM
              ROW(NEW.id,NEW.tenant_id,NEW.opening_balance,NEW.created_at) THEN
-        RETURN NEW;
+          RETURN NEW;
+        END IF;
       END IF;
 
       IF TG_OP<>'INSERT' THEN
@@ -194,11 +215,12 @@ BEGIN
       END IF;
 
     WHEN 'company_account_sites' THEN
-      IF TG_OP='UPDATE'
-         AND ROW(OLD.tenant_id,OLD.account_id,OLD.site_id)
+      IF TG_OP='UPDATE' THEN
+        IF          AND ROW(OLD.tenant_id,OLD.account_id,OLD.site_id)
              IS NOT DISTINCT FROM
              ROW(NEW.tenant_id,NEW.account_id,NEW.site_id) THEN
-        RETURN NEW;
+          RETURN NEW;
+        END IF;
       END IF;
 
       IF TG_OP<>'INSERT' THEN
