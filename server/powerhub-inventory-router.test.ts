@@ -855,6 +855,11 @@ describe("PowerHub inventory catalog and supplier API", () => {
     state.rpc.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.fuelConsumptionCostReportPeriod;
+    expect(query._def.inputs[0].parse({
+      siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10,
+    })).toMatchObject({
+      siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10,
+    });
     await expect(query._def.resolver({
       ctx: { user: { id: 55 } },
       input: { siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10 },
