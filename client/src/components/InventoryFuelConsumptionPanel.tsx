@@ -15,6 +15,7 @@ import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { clearOfflineFuelQueryCacheForSite } from "@/lib/offline-query-cache";
 import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
 import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
+import { aggregateFuelFillReportByGenerator, type FuelFillReportRow } from "@/lib/fuel-fill-report";
 import { BellRing, Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,15 +56,7 @@ type FuelAlertDispatch = {
   signal_key: string; measured_value: number | string; threshold_value: number | string;
   recipient_count: number; created_at: string;
 };
-type FuelReportRow = {
-  generator_id: number; generator_name: string; tank_warehouse_id: number; tank_name: string;
-  fuel_filled_liters: number | string; fuel_filled_cost: number | string; recorded_consumption_liters: number | string;
-  opening_level_liters: number | string | null; ending_level_liters: number | string | null;
-  actual_consumption_liters: number | string | null;
-  opening_operating_hours: number | string | null; ending_operating_hours: number | string | null;
-  operating_hours_delta: number | string | null; litres_per_hour: number | string | null;
-  measurement_status: "measured" | "insufficient_level_readings" | "reconciliation_anomaly" | "measured_without_hour_rate" | string;
-};
+type FuelReportRow = FuelFillReportRow;
 
 function nowLocalDateTime() {
   const now = new Date();
@@ -87,12 +80,7 @@ function dateTime(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("ar-PS");
 }
 const readingLabels: Record<string, string> = { tank_level: "مستوى الخزان", operating_hours: "ساعات التشغيل" };
-const statusLabels: Record<string, string> = {
-  measured: "استهلاك مقاس",
-  insufficient_level_readings: "قراءات مستوى غير كافية",
-  reconciliation_anomaly: "تعارض في التسوية",
-  measured_without_hour_rate: "استهلاك مقاس دون معدل ساعات موثوق",
-};
+
 
 export default function InventoryFuelConsumptionPanel({
   siteId, isAuthenticated, canManageFuelAndConsumption, canViewInventoryReports,
@@ -497,6 +485,10 @@ export default function InventoryFuelConsumptionPanel({
     : cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];
   const usingCachedFuelReport = !reportAuthorizationDenied && !reportIsAuthoritative && cachedFuelReportForCurrentScope !== null;
   const hasAvailableFuelReport = !reportAuthorizationDenied && (reportIsAuthoritative || cachedFuelReportForCurrentScope !== null);
+  const generatorFuelSummaries = useMemo(
+    () => aggregateFuelFillReportByGenerator(reportRows),
+    [reportRows],
+  );
   const alertSettingRows = (alertSettingsAuthorizationDenied ? [] : alertSettings.data ?? []) as FuelAlertSetting[];
   const alertDispatchRows = (alertDispatchesAuthorizationDenied ? [] : alertDispatches.data ?? []) as FuelAlertDispatch[];
   const selectedGenerator = generators.find((row) => row.id === Number(activeGeneratorId));
@@ -794,25 +786,24 @@ export default function InventoryFuelConsumptionPanel({
           {usingCachedFuelReport ? <p role="status" className="text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {dateTime(new Date(cachedFuelReportForCurrentScope!.savedAt).toISOString())}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
           {reportAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية احتساب تقرير الوقود؛ أُخفيت أي نسخة محلية لهذا الطلب.</p> : (report.isLoading || report.isFetching) && !hasAvailableFuelReport ? <p className="text-sm text-muted-foreground">جارٍ احتساب التقرير…</p> : report.error && !hasAvailableFuelReport ? <p role="alert" className="text-sm text-destructive">تعذر احتساب التقرير. تحقق من إعدادات الدورة والصلاحيات.</p> : report.error && hasAvailableFuelReport && !usingCachedFuelReport ? <p role="status" className="text-xs text-amber-700">تعذر تحديث التقرير؛ تُعرض آخر نتيجة ناجحة متاحة في الجلسة.</p> : null}
         </div> : null}
-        {canViewInventoryReports ? <div className="overflow-x-auto rounded-md border">
+        {canViewInventoryReports ? <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">تعرض هذه النتائج إجمالي الوقود المعبأ لكل مولد خلال الفترة المحددة، وتُجمع خزانات المولد معًا. لا تمثل الأرقام قياسًا للاستهلاك الفعلي.</p>
+          <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right">
-              <th className="p-2">المولد / الخزان</th><th className="p-2">المعبأ</th><th className="p-2">التكلفة</th>
-              <th className="p-2">الاستهلاك المسجل</th><th className="p-2">الاستهلاك المقاس</th><th className="p-2">ساعات التشغيل</th><th className="p-2">لتر/ساعة</th><th className="p-2">حالة القياس</th>
+              <th className="p-2">المولد</th><th className="p-2">إجمالي اللترات المعبأة</th><th className="p-2">تكلفة التعبئة</th><th className="p-2">متوسط تكلفة اللتر</th>
             </tr></thead>
-            <tbody>{reportRows.map((row) => <tr key={`${row.generator_id}:${row.tank_warehouse_id}`} className="border-t">
-              <td className="p-2"><div>{row.generator_name}</div><div className="text-xs text-muted-foreground">{row.tank_name}</div></td>
-              <td className="p-2">{qty(row.fuel_filled_liters)} لتر</td><td className="p-2">{money(row.fuel_filled_cost)}</td>
-              <td className="p-2">{qty(row.recorded_consumption_liters)} لتر</td>
-              <td className="p-2">{row.actual_consumption_liters == null ? "غير متاح" : `${qty(row.actual_consumption_liters)} لتر`}</td>
-              <td className="p-2">{row.operating_hours_delta == null ? "—" : qty(row.operating_hours_delta)}</td>
-              <td className="p-2">{row.litres_per_hour == null ? "—" : qty(row.litres_per_hour)}</td>
-              <td className="p-2"><Badge variant="outline">{statusLabels[row.measurement_status] ?? row.measurement_status}</Badge></td>
+            <tbody>{generatorFuelSummaries.map((row) => <tr key={row.generator_id} className="border-t">
+              <td className="p-2">{row.generator_name}</td>
+              <td className="p-2">{qty(row.fuel_filled_liters)} لتر</td>
+              <td className="p-2">{money(row.fuel_filled_cost)}</td>
+              <td className="p-2">{row.average_cost_per_liter == null ? "—" : money(row.average_cost_per_liter)}</td>
             </tr>)}
-            {reportRows.length === 0 ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">لا توجد خزانات مولدات ضمن النطاق أو لا توجد بيانات للعرض.</td></tr> : null}
+            {generatorFuelSummaries.length === 0 ? <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">لا توجد تعبئات وقود مسجلة لهذا المولد أو الفترة المحددة.</td></tr> : null}
             </tbody>
           </table>
-        </div> : <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">يظهر تقرير التكلفة والاستهلاك المقاس لأصحاب صلاحية تقارير المخزون فقط.</p>}
+          </div>
+        </div> : <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">يظهر تقرير الوقود المعبأ لأصحاب صلاحية تقارير المخزون فقط.</p>}
 
         <div>
           <h3 className="mb-2 font-medium">سجل التعبئات</h3>
