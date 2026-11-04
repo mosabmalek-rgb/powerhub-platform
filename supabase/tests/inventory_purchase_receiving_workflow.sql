@@ -535,7 +535,7 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261104215427_powerhub_inventory_fuel_fill_as_issue.sql
 \ir ../migrations/20261104215439_powerhub_fuel_fill_measurement_reconciliation.sql
 \ir ../migrations/20261104221820_powerhub_exclude_generator_tanks_from_stock_overview.sql
-\ir ../migrations/20261105010000_powerhub_fuel_cost_report_include_legacy_fills.sql
+\ir ../migrations/20261104235039_powerhub_fuel_cost_report_include_legacy_fills.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
