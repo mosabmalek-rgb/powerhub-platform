@@ -610,8 +610,7 @@ BEGIN
     )
   );
 END;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_financial_settlement_source_fingerprint(p_tenant_id bigint, p_site_id bigint, p_period_start timestamp with time zone, p_period_end timestamp with time zone)
  RETURNS text
@@ -704,8 +703,7 @@ AS $function$
       )
     ),'[]'::jsonb)
   )::text)
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_guard_financial_settlement_source_write()
  RETURNS trigger
@@ -1036,8 +1034,7 @@ BEGIN
 
   IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
 END;
-$function$
-
+$function$;
 
 DROP TRIGGER IF EXISTS zz_powerhub_financial_settlement_source_write_guard ON public.inventory_stock_movements;
 CREATE TRIGGER zz_powerhub_financial_settlement_source_write_guard
