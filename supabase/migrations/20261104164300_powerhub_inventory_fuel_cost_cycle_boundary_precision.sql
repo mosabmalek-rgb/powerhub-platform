@@ -70,7 +70,7 @@ begin
       raise exception 'FUEL_COST_REPORT_CYCLE_UNAVAILABLE' using errcode='P0001';
     end if;
     v_start_at:=v_cycle.cycle_start_at;
-    v_end_at:=v_cycle.cycle_end_at+interval '1 millisecond';
+    v_end_at:=v_cycle.cycle_end_at+interval '1 microsecond';
   else
     if p_from_date is null or p_to_date is null or p_from_date>p_to_date
       or (p_to_date-p_from_date)>365 then
