@@ -19,7 +19,7 @@ export const REPORT_PAYMENT_METHOD_OPTIONS = [
 
 export const REPORT_METRICS = [
   { key: "invoiced", label: "إجمالي الفوترة" },
-  { key: "collected", label: "إجمالي التحصيل" },
+  { key: "collected", label: "التحصيل المطبق على الفواتير" },
   { key: "outstanding", label: "الأرصدة المستحقة" },
   { key: "expenseTotal", label: "إجمالي المصروفات" },
   { key: "operatingProfit", label: "صافي التدفق التشغيلي" },
