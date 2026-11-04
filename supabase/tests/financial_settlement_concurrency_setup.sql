@@ -13,6 +13,8 @@ ALTER TABLE public.account_transactions
   ADD COLUMN description text NOT NULL DEFAULT '',
   ADD COLUMN reference_no text,
   ADD COLUMN created_by_user_id bigint;
+ALTER TABLE public.account_transactions
+  ALTER COLUMN occurred_at SET DEFAULT now();
 CREATE SEQUENCE public.financial_settlement_concurrency_tx_id_seq START WITH 90000;
 ALTER TABLE public.account_transactions
   ALTER COLUMN id SET DEFAULT nextval('public.financial_settlement_concurrency_tx_id_seq');
