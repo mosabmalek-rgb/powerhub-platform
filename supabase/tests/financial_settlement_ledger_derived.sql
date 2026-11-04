@@ -332,8 +332,28 @@ VALUES(1,10,'2026-09-01T00:00:00Z','2026-09-30T23:59:59.999Z',100,20,80,1,'legac
 
 SET ROLE service_role;
 DO $legacy$
-DECLARE v_id bigint;
+DECLARE
+  v_id bigint;
+  v_old_draft_id bigint;
 BEGIN
+  -- A pre-fingerprint reconciled draft must fail closed and be recreated.
+  INSERT INTO public.financial_settlements(
+    tenant_id,site_id,period_start,period_end,total_collected,total_expenses,
+    book_profit,created_by_user_id,ledger_reconciliation_status,ledger_snapshot
+  )
+  VALUES(
+    1,10,'2026-08-01T00:00:00Z','2026-08-31T23:59:59.999Z',
+    0,0,0,1,'reconciled',jsonb_build_object('isReconciled',true)
+  )
+  RETURNING id INTO v_old_draft_id;
+
+  BEGIN
+    PERFORM * FROM public.powerhub_set_financial_settlement_status(1,10,1,v_old_draft_id,'submitted');
+    RAISE EXCEPTION 'EXPECTED_PRE_FINGERPRINT_DRAFT_TO_BE_REJECTED';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM<>'SETTLEMENT_SOURCE_FINGERPRINT_REQUIRED' THEN RAISE; END IF;
+  END;
+
   SELECT id INTO v_id FROM public.financial_settlements
   WHERE tenant_id=1 AND site_id=10
     AND period_start='2026-09-01T00:00:00Z'
