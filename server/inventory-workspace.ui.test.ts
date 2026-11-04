@@ -836,7 +836,7 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("if (optionsAuthorizationDenied || alertSettingsAuthorizationDenied)");
     expect(panel).toContain("optionsAuthorizationDenied || alertSettingsAuthorizationDenied || !activeAlertGeneratorId");
     expect(panel).toContain("report.error && !hasAvailableFuelReport");
-    expect(panel).toContain("reportRows.map((row)");
+    expect(panel).toContain("generatorFuelSummaries.map((row)");
     expect(panel).toContain("events.error && events.data !== undefined");
     expect(panel).toContain("readings.error && readings.data !== undefined");
     expect(panel).toContain("const recentReadings = trpc.powerhub.inventory.listFuelReadings.useQuery(");
