@@ -4168,7 +4168,7 @@ begin
   -- multiple operations for one generator rather than returning only the latest.
   select * into v_second_fill from public.powerhub_inventory_record_fuel_fill(
     10,100,1,10000,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,
-    2,v_fill_time+interval '1 minute',15,17,102,'PHASE-B-FILL-2',
+    2,v_fill_time+interval '1 minute',15,17,null,'PHASE-B-FILL-2',
     'Second same-period fixture fill','phase-b:fuel-fill-2'
   );
   if v_second_fill.fuel_event_id is null or v_second_fill.stock_transfer_id is not null
@@ -4215,7 +4215,7 @@ begin
   ) values (
     10,100,10000,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,
     v_legacy_transfer_id,v_legacy_source_movement_id,v_legacy_destination_movement_id,4,9.5,38.00,
-    v_fill_time+interval '2 minutes',17,21,102.5,'LEGACY-PHASE-B','Historical transfer-backed fill',
+    v_fill_time+interval '2 minutes',17,21,null,'LEGACY-PHASE-B','Historical transfer-backed fill',
     'legacy:phase-b:fuel-fill-event',md5('legacy:phase-b:fuel-fill-event'),1
   );
 
@@ -4227,11 +4227,6 @@ begin
     10,100,1,10000,'tank_level',v_generator_tank_id,21,v_fill_time+interval '2 minutes',
     'LEGACY-PHASE-B-LEVEL-AFTER','Historical fill ending level',null,null,'legacy:phase-b:level-after'
   );
-  perform * from public.powerhub_inventory_record_fuel_reading(
-    10,100,1,10000,'operating_hours',null,102.5,v_fill_time+interval '2 minutes',
-    'LEGACY-PHASE-B-HOURS','Historical fill operating hours',null,null,'legacy:phase-b:hours'
-  );
-
   -- Capture the baseline after two direct fills and one legacy event.
   -- The report must count all three once, not the old tank transfer twice.
   v_consumption_date:=v_local_today-1;
