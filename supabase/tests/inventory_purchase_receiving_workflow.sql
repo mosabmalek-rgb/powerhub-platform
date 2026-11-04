@@ -3991,6 +3991,10 @@ declare
   v_prior_day_report record;
   v_period_report record;
   v_cost_report record;
+  v_cost_day_before record;
+  v_cost_cycle_before record;
+  v_cost_month_before record;
+  v_cost_custom_before record;
   v_expected_fuel_cost numeric(14,2);
   v_consumption_at timestamptz;
   v_consumption_date date;
@@ -4125,6 +4129,27 @@ begin
     if sqlerrm<>'IDEMPOTENCY_KEY_REUSED' then raise; end if;
   end;
 
+  -- Capture the existing per-generator ledger totals first: this workflow
+  -- deliberately creates other stock movements for the same generator/site.
+  -- The regression asserts the exact incremental effect of this new 3L issue.
+  v_consumption_date:=(now() at time zone 'Asia/Gaza')::date;
+  select * into v_cost_day_before
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'day',v_consumption_date,null,null,10000
+  );
+  select * into v_cost_cycle_before
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'cycle',v_consumption_date,null,null,10000
+  );
+  select * into v_cost_month_before
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'month',v_consumption_date,null,null,10000
+  );
+  select * into v_cost_custom_before
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'custom',null,v_consumption_date,v_consumption_date,10000
+  );
+
   perform * from public.powerhub_inventory_record_stock_movement(
     10,100,1,v_generator_tank_id,v_fuel_item_id,'fuel_consumption',3,null,10000,
     'PHASE-B-CONSUMPTION','Recorded generator fuel consumption','phase-b:fuel-consumption-1'
@@ -4136,7 +4161,9 @@ begin
   where m.tenant_id=10 and m.site_id=100 and m.generator_id=10000
     and m.movement_type='fuel_consumption' and m.reference_no='PHASE-B-CONSUMPTION';
   if not found then raise exception 'PHASE_B_FUEL_CONSUMPTION_MOVEMENT_MISSING'; end if;
-  v_consumption_date:=(v_consumption_at at time zone 'Asia/Gaza')::date;
+  if v_consumption_date is distinct from (v_consumption_at at time zone 'Asia/Gaza')::date then
+    raise exception 'PHASE_B_FUEL_CONSUMPTION_DAY_CHANGED_DURING_FIXTURE';
+  end if;
 
   select reading_id into v_hour_reading_id
   from public.powerhub_inventory_record_fuel_reading(
@@ -4239,47 +4266,52 @@ begin
   end if;
 
   -- Cost disclosure must use the recorded stock-consumption movement ledger,
-  -- not refuel event totals or measured tank draw-down.
+  -- not refuel event totals or measured tank draw-down. Assert the delta caused
+  -- by this operation, not a false assumption that no earlier fixture rows exist.
   select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'day',v_consumption_date,null,null,10000
   );
-  if v_cost_report.generator_id<>10000 or v_cost_report.movement_count<>1
-     or v_cost_report.recorded_consumption_liters<>3
-     or v_cost_report.recorded_consumption_cost<>v_expected_fuel_cost
-     or v_cost_report.average_cost_per_liter<>round(v_expected_fuel_cost/3,4) then
-    raise exception 'PHASE_B_FUEL_COST_DAY_REPORT_FAILED row=% expected_cost=%',
-      row_to_json(v_cost_report),v_expected_fuel_cost;
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>v_cost_day_before.movement_count+1
+     or v_cost_report.recorded_consumption_liters-v_cost_day_before.recorded_consumption_liters<>3
+     or v_cost_report.recorded_consumption_cost-v_cost_day_before.recorded_consumption_cost<>v_expected_fuel_cost
+     or v_cost_report.average_cost_per_liter<>round(v_cost_report.recorded_consumption_cost/v_cost_report.recorded_consumption_liters,4) then
+    raise exception 'PHASE_B_FUEL_COST_DAY_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
+      row_to_json(v_cost_report),row_to_json(v_cost_day_before),v_expected_fuel_cost;
   end if;
 
   select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'cycle',v_consumption_date,null,null,10000
   );
-  if v_cost_report.generator_id<>10000 or v_cost_report.movement_count<>1
-     or v_cost_report.recorded_consumption_liters<>3
-     or v_cost_report.recorded_consumption_cost<>v_expected_fuel_cost then
-    raise exception 'PHASE_B_FUEL_COST_CYCLE_REPORT_FAILED row=% expected_cost=%',
-      row_to_json(v_cost_report),v_expected_fuel_cost;
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>v_cost_cycle_before.movement_count+1
+     or v_cost_report.recorded_consumption_liters-v_cost_cycle_before.recorded_consumption_liters<>3
+     or v_cost_report.recorded_consumption_cost-v_cost_cycle_before.recorded_consumption_cost<>v_expected_fuel_cost then
+    raise exception 'PHASE_B_FUEL_COST_CYCLE_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
+      row_to_json(v_cost_report),row_to_json(v_cost_cycle_before),v_expected_fuel_cost;
   end if;
 
   select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'month',v_consumption_date,null,null,10000
   );
-  if v_cost_report.generator_id<>10000 or v_cost_report.movement_count<>1
-     or v_cost_report.recorded_consumption_liters<>3
-     or v_cost_report.recorded_consumption_cost<>v_expected_fuel_cost then
-    raise exception 'PHASE_B_FUEL_COST_MONTH_REPORT_FAILED row=% expected_cost=%',
-      row_to_json(v_cost_report),v_expected_fuel_cost;
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>v_cost_month_before.movement_count+1
+     or v_cost_report.recorded_consumption_liters-v_cost_month_before.recorded_consumption_liters<>3
+     or v_cost_report.recorded_consumption_cost-v_cost_month_before.recorded_consumption_cost<>v_expected_fuel_cost then
+    raise exception 'PHASE_B_FUEL_COST_MONTH_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
+      row_to_json(v_cost_report),row_to_json(v_cost_month_before),v_expected_fuel_cost;
   end if;
 
   select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'custom',null,v_consumption_date,v_consumption_date,10000
   );
-  if v_cost_report.generator_id<>10000 or v_cost_report.movement_count<>1
-     or v_cost_report.recorded_consumption_liters<>3
-     or v_cost_report.recorded_consumption_cost<>v_expected_fuel_cost
-     or v_cost_report.average_cost_per_liter<>round(v_expected_fuel_cost/3,4) then
-    raise exception 'PHASE_B_FUEL_COST_CUSTOM_REPORT_FAILED row=% expected_cost=%',
-      row_to_json(v_cost_report),v_expected_fuel_cost;
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>v_cost_custom_before.movement_count+1
+     or v_cost_report.recorded_consumption_liters-v_cost_custom_before.recorded_consumption_liters<>3
+     or v_cost_report.recorded_consumption_cost-v_cost_custom_before.recorded_consumption_cost<>v_expected_fuel_cost
+     or v_cost_report.average_cost_per_liter<>round(v_cost_report.recorded_consumption_cost/v_cost_report.recorded_consumption_liters,4) then
+    raise exception 'PHASE_B_FUEL_COST_CUSTOM_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
+      row_to_json(v_cost_report),row_to_json(v_cost_custom_before),v_expected_fuel_cost;
   end if;
 
   select count(*)::integer into v_rate_dispatches from public.powerhub_fuel_alert_dispatches
