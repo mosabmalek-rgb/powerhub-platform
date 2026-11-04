@@ -4287,9 +4287,9 @@ begin
   select * into v_prior_day_report from public.powerhub_inventory_fuel_consumption_report(
     10,100,v_local_today-1,v_local_today-1,10000
   );
-  if v_prior_day_report.fuel_filled_liters<>5
+  if v_prior_day_report.fuel_filled_liters<>11
      or v_prior_day_report.opening_level_liters<>10
-     or v_prior_day_report.ending_level_liters<>15
+     or v_prior_day_report.ending_level_liters<>21
      or v_prior_day_report.actual_consumption_liters<>0
      or v_prior_day_report.measurement_status<>'measured' then
     raise exception 'PHASE_B_HISTORICAL_FILL_DATE_RECONCILIATION_FAILED row=%',row_to_json(v_prior_day_report);
@@ -4299,16 +4299,16 @@ begin
     10,100,v_local_today-1,v_local_today,10000
   );
   if v_report.generator_id<>10000
-     or v_report.fuel_filled_liters<>5
-     or v_report.fuel_filled_cost<>47.50
+     or v_report.fuel_filled_liters<>11
+     or v_report.fuel_filled_cost<>104.50
      or v_report.recorded_consumption_liters<>0
      or v_report.opening_level_liters<>10
      or v_report.ending_level_liters<>12
-     or v_report.actual_consumption_liters<>3
+     or v_report.actual_consumption_liters<>9
      or v_report.opening_operating_hours<>100
      or v_report.ending_operating_hours<>103
      or v_report.operating_hours_delta<>3
-     or v_report.litres_per_hour<>1
+     or v_report.litres_per_hour<>3
      or v_report.measurement_status<>'measured' then
     raise exception 'PHASE_B_MEASURED_CONSUMPTION_RECONCILIATION_FAILED row=%',row_to_json(v_report);
   end if;
@@ -4324,10 +4324,10 @@ begin
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'custom',null,v_local_today-1,v_local_today,10000,v_generator_tank_id
   );
-  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>11
      or v_period_report.recorded_consumption_liters<>0
      or v_period_report.actual_consumption_liters<>9
-     or v_period_report.fuel_filled_cost<>47.50 then
+     or v_period_report.fuel_filled_cost<>104.50 then
     raise exception 'PHASE_B_CUSTOM_REPORT_RECONCILIATION_FAILED row=%',row_to_json(v_period_report);
   end if;
 
@@ -4337,7 +4337,7 @@ begin
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'cycle',v_local_today-1,null,null,10000,v_generator_tank_id
   );
-  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5 then
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>11 then
     raise exception 'PHASE_B_CYCLE_REPORT_FAILED row=% anchor=% fill_at=% cycle_start=% cycle_end=% timezone=%',
       row_to_json(v_period_report),v_local_today-1,v_fill_time,v_cycle_debug.cycle_start_at,v_cycle_debug.cycle_end_at,'Asia/Gaza';
   end if;
@@ -4361,7 +4361,7 @@ begin
   );
   -- Monthly reporting carries the last valid pre-period tank reading as its
   -- opening baseline, so this fixture has enough readings for a measured result.
-  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>11
      or v_period_report.recorded_consumption_liters<>0
      or v_period_report.opening_level_liters<>10
      or v_period_report.ending_level_liters<>12
