@@ -180,7 +180,7 @@ BEGIN
   IF (v_summary->'reconciliation'->>'unallocatedSharedOpeningBalance')::numeric<>60
      OR (v_summary->>'isReconciled')::boolean IS TRUE
      OR (v_summary->>'cashBalanceComplete')::boolean IS TRUE
-     OR (v_summary->>'bookCashBalance') IS DISTINCT FROM 'null'::jsonb THEN
+     OR (v_summary->'bookCashBalance') IS DISTINCT FROM 'null'::jsonb THEN
     RAISE EXCEPTION 'UNMAPPED_OPENING_BALANCE_MUST_BLOCK_RECONCILIATION: %',v_summary;
   END IF;
   BEGIN
