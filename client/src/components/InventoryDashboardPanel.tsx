@@ -545,11 +545,15 @@ export default function InventoryDashboardPanel({
         ]),
         [],
         ["التكلفة التشغيلية المسجلة حسب المولد — دون جمع مصادر مالية مختلفة"],
-        ["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","الاستهلاك المقاس لتر","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],
+        ["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","استهلاك المخزون المسجل لتر","تكلفة الاستهلاك المخزني — غير مضافة للربح","متوسط تكلفة اللتر","عدد حركات الاستهلاك","الاستهلاك المقاس لتر","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],
         ...generatorOperatingRows.map((row) => [
           row.generator_name, row.tank_count ?? "غير متاح",
           row.filled_liters == null ? "غير متاح" : row.filled_liters,
           row.filled_cost == null ? "غير متاح" : row.filled_cost,
+          row.inventory_consumption_liters == null ? "غير متاح" : row.inventory_consumption_liters,
+          row.inventory_consumption_cost == null ? "غير متاح" : row.inventory_consumption_cost,
+          row.inventory_average_cost_per_liter == null ? "غير متاح" : row.inventory_average_cost_per_liter,
+          row.inventory_consumption_movements == null ? "غير متاح" : row.inventory_consumption_movements,
           row.actual_consumption_liters == null ? "قياس غير مكتمل" : row.actual_consumption_liters,
           row.maintenance_orders ?? "غير متاح", row.maintenance_downtime ?? "غير متاح",
           row.maintenance_cost == null ? "غير متاح" : row.maintenance_cost,
@@ -625,14 +629,19 @@ export default function InventoryDashboardPanel({
       ]));
       maintenance.columns = [{width:26},{width:36},{width:14},{width:16},{width:14},{width:14},{width:18},{width:18},{width:18},{width:20},{width:24}];
       const operating = workbook.addWorksheet("تكلفة تشغيل المولدات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
-      operating.addRow(["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","الاستهلاك المقاس لتر","أوامر الصيانة","بلاغات الأعطال","التوقف بالدقائق","تكلفة الصيانة المسجلة"]);
+      operating.addRow(["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","استهلاك المخزون المسجل لتر","تكلفة الاستهلاك المخزني — غير مضافة للربح","متوسط تكلفة اللتر","عدد حركات الاستهلاك","الاستهلاك المقاس لتر","أوامر الصيانة","بلاغات الأعطال","التوقف بالدقائق","تكلفة الصيانة المسجلة"]);
       generatorOperatingRows.forEach((row) => operating.addRow([
         row.generator_name, row.tank_count ?? "غير متاح", row.filled_liters ?? "غير متاح",
-        row.filled_cost ?? "غير متاح", row.actual_consumption_liters ?? "قياس غير مكتمل",
+        row.filled_cost ?? "غير متاح",
+        row.inventory_consumption_liters ?? "غير متاح",
+        row.inventory_consumption_cost ?? "غير متاح",
+        row.inventory_average_cost_per_liter ?? "غير متاح",
+        row.inventory_consumption_movements ?? "غير متاح",
+        row.actual_consumption_liters ?? "قياس غير مكتمل",
         row.maintenance_orders ?? "غير متاح", row.maintenance_breakdowns ?? "غير متاح",
         row.maintenance_downtime ?? "غير متاح", row.maintenance_cost ?? "غير متاح",
       ]));
-      operating.columns = [{width:28},{width:16},{width:20},{width:22},{width:23},{width:18},{width:18},{width:18},{width:24}];
+      operating.columns = [{width:28},{width:16},{width:20},{width:22},{width:23},{width:32},{width:20},{width:19},{width:23},{width:18},{width:18},{width:18},{width:24}];
       const finance = workbook.addWorksheet("المشتريات والدفعات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
       finance.addRow(["التاريخ","نوع الحدث","رقم المرجع","المورد","الحالة","القيمة","المرجع المرتبط","المبلغ المسترد نقدًا","عدد التوزيعات"]);
       financialEvents.forEach((row) => finance.addRow([
@@ -710,12 +719,13 @@ export default function InventoryDashboardPanel({
           row.litres_per_hour==null?"غير متاح":quantity(numberOf(row.litres_per_hour)),row.measurement_status,
         ])) +
         "<h2>التكلفة التشغيلية المسجلة حسب المولد</h2>" +
-        table(["المولد","الخزانات","الوقود المعبأ","قيمة الوقود المنقول","الاستهلاك المسجل من المخزون","تكلفة الاستهلاك المخزني","متوسط تكلفة اللتر","الاستهلاك المقاس","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],generatorOperatingRows.map((row)=>[
+        table(["المولد","الخزانات","الوقود المعبأ","قيمة الوقود المنقول","الاستهلاك المسجل من المخزون","تكلفة الاستهلاك المخزني — غير مضافة للربح","متوسط تكلفة اللتر","عدد حركات الاستهلاك","الاستهلاك المقاس","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],generatorOperatingRows.map((row)=>[
           row.generator_name,row.tank_count??"غير متاح",row.filled_liters==null?"غير متاح":quantity(row.filled_liters)+" لتر",
           row.filled_cost==null?"غير متاح":amount(row.filled_cost),
           row.inventory_consumption_liters==null?"غير متاح":quantity(row.inventory_consumption_liters)+" لتر",
           row.inventory_consumption_cost==null?"غير متاح":amount(row.inventory_consumption_cost),
           row.inventory_average_cost_per_liter==null?"غير متاح":amount(row.inventory_average_cost_per_liter),
+          row.inventory_consumption_movements==null?"غير متاح":quantity(row.inventory_consumption_movements),
           row.actual_consumption_liters==null?"قياس غير مكتمل":quantity(row.actual_consumption_liters)+" لتر",
           row.maintenance_orders??"غير متاح",row.maintenance_downtime??"غير متاح",
           row.maintenance_cost==null?"غير متاح":amount(row.maintenance_cost),
@@ -850,7 +860,7 @@ export default function InventoryDashboardPanel({
               <thead><tr className="bg-muted/50 text-right">
                 <th className="p-2">المولد</th><th className="p-2">الخزانات</th><th className="p-2">الوقود المعبأ</th>
                 <th className="p-2">تكلفة الوقود المنقول</th><th className="p-2">الاستهلاك المسجل من المخزون</th>
-                <th className="p-2">تكلفة الاستهلاك المخزني</th><th className="p-2">متوسط تكلفة اللتر</th><th className="p-2">الاستهلاك المقاس</th>
+                <th className="p-2">تكلفة الاستهلاك المخزني — غير مضافة للربح</th><th className="p-2">متوسط تكلفة اللتر</th><th className="p-2">عدد حركات الاستهلاك</th><th className="p-2">الاستهلاك المقاس</th>
                 <th className="p-2">أوامر الصيانة</th><th className="p-2">التوقف بالدقائق</th><th className="p-2">تكلفة الصيانة المسجلة</th>
               </tr></thead>
               <tbody>{generatorOperatingRows.map((row) => <tr key={row.generator_id} className="border-t">
@@ -861,12 +871,13 @@ export default function InventoryDashboardPanel({
                 <td className="p-2">{row.inventory_consumption_liters === null ? "—" : `${quantity(row.inventory_consumption_liters)} لتر`}</td>
                 <td className="p-2">{row.inventory_consumption_cost === null ? "—" : amount(row.inventory_consumption_cost)}</td>
                 <td className="p-2">{row.inventory_average_cost_per_liter === null ? "—" : amount(row.inventory_average_cost_per_liter)}</td>
+                <td className="p-2">{row.inventory_consumption_movements === null ? "—" : numberOf(row.inventory_consumption_movements).toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.actual_consumption_liters === null ? "غير مكتمل/غير متاح" : `${quantity(row.actual_consumption_liters)} لتر`}</td>
                 <td className="p-2">{row.maintenance_orders === null ? "—" : row.maintenance_orders.toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.maintenance_downtime === null ? "—" : row.maintenance_downtime.toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.maintenance_cost === null ? "—" : amount(row.maintenance_cost)}</td>
               </tr>)}
-              {generatorOperatingRows.length === 0 ? <tr><td colSpan={11} className="p-4 text-center text-muted-foreground">لا توجد مولدات ضمن المرشحات الحالية.</td></tr> : null}
+              {generatorOperatingRows.length === 0 ? <tr><td colSpan={12} className="p-4 text-center text-muted-foreground">لا توجد مولدات ضمن المرشحات الحالية.</td></tr> : null}
             </tbody>
           </table>
         </div>
