@@ -1451,6 +1451,30 @@ begin
       row_to_json(v_fuel_report),v_fuel_replacement_cost;
   end if;
 
+  -- The internal RPC is callable only by service_role; never expose its
+  -- SECURITY DEFINER read path to anon or authenticated clients.
+  if has_function_privilege('anon',
+       'public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE')
+     or has_function_privilege('authenticated',
+       'public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE') then
+    raise exception 'UNTRUSTED_ROLE_CAN_EXECUTE_FUEL_CONSUMPTION_COST_REPORT';
+  end if;
+  if not has_function_privilege('service_role',
+       'public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_FUEL_CONSUMPTION_COST_REPORT';
+  end if;
+
+  -- Tenant/site scope is checked inside the privileged function as defense in depth.
+  begin
+    perform * from public.powerhub_inventory_fuel_consumption_cost_report_period(
+      20,v_site_id,'day',v_anchor_date,null,null,v_generator_id
+    );
+    raise exception 'CROSS_TENANT_FUEL_COST_REPORT_WAS_ACCEPTED';
+  exception when others then
+    if sqlerrm='CROSS_TENANT_FUEL_COST_REPORT_WAS_ACCEPTED' then raise; end if;
+    if sqlerrm not like '%FUEL_COST_REPORT_SITE_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
   -- Inventory gains/loses and the audit log are recorded atomically with the movement.
   select movement_id into v_movement_id
   from public.powerhub_inventory_record_stock_movement(
