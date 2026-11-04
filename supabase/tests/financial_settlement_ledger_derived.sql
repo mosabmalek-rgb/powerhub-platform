@@ -409,6 +409,34 @@ BEGIN
   END;
 END
 $ledger_preview$;
+DO $inventory_accounting_constraint_assertions$
+BEGIN
+  BEGIN
+    INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment)
+    VALUES(90,1,'fuel','capital_asset');
+    RAISE EXCEPTION 'FUEL_CAPITAL_ASSET_CLASSIFICATION_WAS_ACCEPTED';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment)
+    VALUES(91,1,'spare_part','capital_asset');
+    RAISE EXCEPTION 'SPARE_PART_CAPITAL_ASSET_CLASSIFICATION_WAS_ACCEPTED';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment)
+    VALUES(92,1,'oil','pending_classification');
+    RAISE EXCEPTION 'OIL_PENDING_CLASSIFICATION_WAS_ACCEPTED';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment)
+  VALUES(93,1,'other','capital_asset');
+  IF NOT EXISTS(SELECT 1 FROM public.inventory_items WHERE id=93 AND accounting_treatment='capital_asset') THEN
+    RAISE EXCEPTION 'OTHER_CATEGORY_CAPITAL_ASSET_CLASSIFICATION_FAILED';
+  END IF;
+END
+$inventory_accounting_constraint_assertions$;
+
 DO $inventory_settlement_assertions$
 DECLARE
   v_summary jsonb;
