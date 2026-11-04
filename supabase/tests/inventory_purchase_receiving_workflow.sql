@@ -503,7 +503,7 @@ $inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql
 \ir ../migrations/20261022200000_powerhub_owner_capability_overrides.sql
 \ir ../migrations/20261022203000_powerhub_inventory_supplier_ledger_statement_reconcile.sql
-\ir ../migrations/20261011110000_powerhub_reading_cycle_anchor_modes.sql
+\ir ../migrations/20261104193215_powerhub_reading_cycle_anchor_modes.sql
 \ir ../migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql
 \ir ../migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql
 \ir ../migrations/20261022220000_powerhub_fuel_report_windows.sql
@@ -530,8 +530,8 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261101083224_powerhub_supplier_ledger_revision.sql
 \ir ../migrations/20261103174058_powerhub_supplier_accounting_period_scope.sql
 \ir ../migrations/20261104155320_powerhub_inventory_fuel_consumption_cost_report.sql
-\ir ../migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql
-\ir ../migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql
+\ir ../migrations/20261104171631_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql
+\ir ../migrations/20261104193334_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql
 \ir ../migrations/20261104215427_powerhub_inventory_fuel_fill_as_issue.sql
 \ir ../migrations/20261104215439_powerhub_fuel_fill_measurement_reconciliation.sql
 \ir ../migrations/20261104221820_powerhub_exclude_generator_tanks_from_stock_overview.sql

@@ -64,7 +64,7 @@ values
   (112, 1, 12),
   (201, 2, 22);
 
-\ir ../migrations/20261011110000_powerhub_reading_cycle_anchor_modes.sql
+\ir ../migrations/20261104193215_powerhub_reading_cycle_anchor_modes.sql
 \ir ../migrations/20261102121500_powerhub_reading_cycle_duplicate_guard.sql
 
 do $test$

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const root = process.cwd();
 const cycleMigration = readFileSync(
-  resolve(root, "supabase/migrations/20261011110000_powerhub_reading_cycle_anchor_modes.sql"),
+  resolve(root, "supabase/migrations/20261104193215_powerhub_reading_cycle_anchor_modes.sql"),
   "utf8",
 );
 const fuelReportMigration = readFileSync(
@@ -24,11 +24,11 @@ const initialInventoryCostMigration = readFileSync(
   "utf8",
 );
 const inventoryCostBoundaryMigration = readFileSync(
-  resolve(root, "supabase/migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql"),
+  resolve(root, "supabase/migrations/20261104171631_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql"),
   "utf8",
 );
 const inventoryCostAlignmentMigration = readFileSync(
-  resolve(root, "supabase/migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql"),
+  resolve(root, "supabase/migrations/20261104193334_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql"),
   "utf8",
 );
 const legacyFuelCostMigration = readFileSync(
