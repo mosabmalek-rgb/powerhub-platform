@@ -4301,10 +4301,13 @@ begin
   select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'cycle',v_consumption_date,null,null,10000
   );
+  -- The test restores a wider 10-day cycle before this query. That window
+  -- now includes the 0.5L and 2L stock issues created by earlier independent
+  -- fixtures; the 5L fill itself was already present in the baseline.
   if v_cost_report.generator_id<>10000
-     or v_cost_report.movement_count<>v_cost_cycle_before.movement_count
-     or v_cost_report.recorded_consumption_liters-v_cost_cycle_before.recorded_consumption_liters<>0
-     or v_cost_report.recorded_consumption_cost-v_cost_cycle_before.recorded_consumption_cost<>0 then
+     or v_cost_report.movement_count<>v_cost_cycle_before.movement_count+3
+     or v_cost_report.recorded_consumption_liters-v_cost_cycle_before.recorded_consumption_liters<>2.5
+     or v_cost_report.recorded_consumption_cost-v_cost_cycle_before.recorded_consumption_cost<>9.76 then
     raise exception 'PHASE_B_FUEL_COST_CYCLE_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
       row_to_json(v_cost_report),row_to_json(v_cost_cycle_before),v_expected_fuel_cost;
   end if;
