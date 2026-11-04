@@ -64,3 +64,92 @@ export function aggregateFuelFillReportByGenerator(
     };
   });
 }
+export type FuelConsumptionReportRow = FuelFillReportRow & {
+  tank_warehouse_id?: number | null;
+  tank_name?: string | null;
+  recorded_consumption_liters?: number | string | null;
+  actual_consumption_liters?: number | string | null;
+  operating_hours_delta?: number | string | null;
+  litres_per_hour?: number | string | null;
+  measurement_status?: string | null;
+};
+
+export type FuelConsumptionGeneratorSummary = {
+  generator_id: number;
+  generator_name: string;
+  tank_count: number;
+  recorded_consumption_liters: number;
+  actual_consumption_liters: number | null;
+  operating_hours_delta: number | null;
+  litres_per_hour: number | null;
+  measurement_status: "measured" | "measured_without_hour_rate" | "insufficient_level_readings" | "reconciliation_anomaly";
+};
+
+/**
+ * Aggregate tank-level operational measurements to generator scope without
+ * presenting partial tank readings as a complete generator consumption total.
+ */
+export function aggregateFuelConsumptionReportByGenerator(
+  rows: readonly FuelConsumptionReportRow[],
+): FuelConsumptionGeneratorSummary[] {
+  const groups = new Map<number, FuelConsumptionReportRow[]>();
+  for (const row of rows) {
+    const id = Number(row.generator_id);
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    const current = groups.get(id) ?? [];
+    current.push(row);
+    groups.set(id, current);
+  }
+
+  return Array.from(groups.entries(), ([generatorId, generatorRows]) => {
+    const recordedMilli = generatorRows.reduce(
+      (sum, row) => sum + scaledInteger(row.recorded_consumption_liters ?? 0, 1000), 0,
+    );
+    const actualValues = generatorRows.map((row) =>
+      row.actual_consumption_liters == null ? null : Number(row.actual_consumption_liters),
+    );
+    const actualComplete = actualValues.every((value) => value !== null && Number.isFinite(value) && value >= 0);
+    const actualMilli = actualComplete
+      ? actualValues.reduce<number>((sum, value) => sum + Math.round((value ?? 0) * 1000), 0)
+      : 0;
+
+    const hoursValues = generatorRows.map((row) =>
+      row.operating_hours_delta == null ? null : Number(row.operating_hours_delta),
+    );
+    const hoursComplete = hoursValues.every((value) => value !== null && Number.isFinite(value) && value > 0);
+    const distinctHours = new Set(hoursValues.map((value) =>
+      value == null || !Number.isFinite(value) ? "missing" : value.toFixed(3),
+    ));
+    const hoursDelta = hoursComplete && distinctHours.size === 1
+      ? Number(hoursValues[0]?.toFixed(3))
+      : null;
+
+    const statusValues = generatorRows.map((row) => row.measurement_status);
+    const measurementStatus: FuelConsumptionGeneratorSummary["measurement_status"] =
+      statusValues.includes("reconciliation_anomaly")
+        ? "reconciliation_anomaly"
+        : !actualComplete || statusValues.includes("insufficient_level_readings")
+          ? "insufficient_level_readings"
+          : !hoursDelta || statusValues.includes("measured_without_hour_rate")
+            ? "measured_without_hour_rate"
+            : "measured";
+
+    const actual = actualComplete && measurementStatus !== "reconciliation_anomaly"
+      ? actualMilli / 1000
+      : null;
+    const litresPerHour = actual !== null && hoursDelta !== null
+      ? Number((actual / hoursDelta).toFixed(3))
+      : null;
+
+    return {
+      generator_id: generatorId,
+      generator_name: generatorRows[0]?.generator_name || `مولد #${generatorId}`,
+      tank_count: generatorRows.length,
+      recorded_consumption_liters: recordedMilli / 1000,
+      actual_consumption_liters: actual,
+      operating_hours_delta: hoursDelta,
+      litres_per_hour: litresPerHour,
+      measurement_status: measurementStatus,
+    };
+  }).sort((a, b) => a.generator_name.localeCompare(b.generator_name, "ar"));
+}
