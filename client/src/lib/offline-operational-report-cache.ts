@@ -1,4 +1,4 @@
-export type OperationalReportType = "fuel-consumption" | "maintenance";
+export type OperationalReportType = "fuel-consumption" | "fuel-consumption-cost" | "maintenance";
 export type OperationalReportFilters = Record<string, string | number | null>;
 export type OperationalReportSnapshot = {
   key: string;
@@ -22,6 +22,10 @@ const FUEL_FIELDS = [
   "opening_operating_hours", "ending_operating_hours", "operating_hours_delta",
   "litres_per_hour", "measurement_status",
 ] as const;
+const FUEL_COST_FIELDS = [
+  "generator_id", "generator_name", "movement_count",
+  "recorded_consumption_liters", "recorded_consumption_cost", "average_cost_per_liter",
+] as const;
 const MAINTENANCE_FIELDS = [
   "generator_id", "generator_name", "fault_title", "work_order_count",
   "breakdown_count", "preventive_count", "completed_count", "open_count",
@@ -31,7 +35,9 @@ const MAINTENANCE_FIELDS = [
 
 function sanitizeRows(reportType: OperationalReportType, value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];
-  const fields: readonly string[] = reportType === "fuel-consumption" ? FUEL_FIELDS : MAINTENANCE_FIELDS;
+  const fields: readonly string[] = reportType === "fuel-consumption"
+    ? FUEL_FIELDS
+    : reportType === "fuel-consumption-cost" ? FUEL_COST_FIELDS : MAINTENANCE_FIELDS;
   return value.filter((row): row is Record<string, unknown> =>
     row !== null && typeof row === "object" && !Array.isArray(row)
   ).map((row) => {
