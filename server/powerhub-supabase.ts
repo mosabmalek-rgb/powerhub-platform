@@ -1087,7 +1087,7 @@ export async function listSupabaseReportPayments(input: {
         ? "id, site_id, subscriber_id, amount, invoice_applied_amount, subscriber_credit_amount, status, paid_at"
         : "id, site_id, subscriber_id, payment_no, amount, invoice_applied_amount, subscriber_credit_amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
       .eq("tenant_id", input.tenantId)
-      .in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit"])
+      .in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"])
       .in("site_id", siteIds)
       .gte("paid_at", input.start.toISOString())
       .lt("paid_at", input.endExclusive.toISOString())
