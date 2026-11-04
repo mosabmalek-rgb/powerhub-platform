@@ -4383,10 +4383,12 @@ begin
 
   select count(*)::integer into v_replay_count from public.generator_fuel_events
     where tenant_id=10 and site_id=100 and operation_key='phase-b:fuel-fill-1';
-  select count(*)::integer into v_transfer_count from public.inventory_stock_transfers
-    where tenant_id=10 and operation_key='fuel-fill:phase-b:fuel-fill-1:transfer';
+  select count(*)::integer into v_transfer_count from public.inventory_stock_movements
+    where tenant_id=10 and site_id=100
+      and operation_key='fuel-fill:phase-b:fuel-fill-1:issue'
+      and movement_type='fuel_consumption' and generator_id=10000;
   if v_replay_count<>1 or v_transfer_count<>1 then
-    raise exception 'PHASE_B_REPLAY_CREATED_DUPLICATE_FILL_OR_TRANSFER';
+    raise exception 'PHASE_B_REPLAY_CREATED_DUPLICATE_FILL_OR_ISSUE';
   end if;
 
   begin
