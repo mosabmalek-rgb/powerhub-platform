@@ -56,6 +56,12 @@ describe("financial report payment amount semantics", () => {
     expect(payloadProjection).not.toContain("collectors");
   });
 
+  it("rolls gross cash and subscriber credit into the all-branch summary", () => {
+    expect(reportRoutes).toContain("grossCollected: total.grossCollected + branch.grossCollected");
+    expect(reportRoutes).toContain("subscriberCreditCreated: total.subscriberCreditCreated + branch.subscriberCreditCreated");
+    expect(reportRoutes).toContain("grossCollected: 0, subscriberCreditCreated: 0");
+  });
+
   it("counts only completed monthly payments for collector performance", () => {
     expect(reportRoutes).toContain("const completedPayments = periodPayments.filter((row) => row.payment.status === \"completed\")");
     expect(reportRoutes).toContain("completedPayments.reduce<Record<string, { name: string; count: number; amount: number; grossAmount: number; subscriberCreditAmount: number }>>");
