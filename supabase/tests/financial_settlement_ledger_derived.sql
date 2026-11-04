@@ -423,12 +423,16 @@ BEGIN
     RAISE EXCEPTION 'SPARE_PART_CAPITAL_ASSET_CLASSIFICATION_WAS_ACCEPTED';
   EXCEPTION WHEN check_violation THEN NULL;
   END;
-  BEGIN
-    INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment)
-    VALUES(92,1,'oil','pending_classification');
-    RAISE EXCEPTION 'OIL_PENDING_CLASSIFICATION_WAS_ACCEPTED';
-  EXCEPTION WHEN check_violation THEN NULL;
-  END;
+  -- Known operational categories are normalized to expense_on_issue by the
+  -- default-treatment trigger; only category=other may remain pending.
+  INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment)
+  VALUES(92,1,'oil','pending_classification');
+  IF NOT EXISTS(
+    SELECT 1 FROM public.inventory_items
+    WHERE id=92 AND accounting_treatment='expense_on_issue'
+  ) THEN
+    RAISE EXCEPTION 'KNOWN_OPERATIONAL_ITEM_WAS_NOT_NORMALIZED_TO_EXPENSE';
+  END IF;
   INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment)
   VALUES(93,1,'other','capital_asset');
   IF NOT EXISTS(SELECT 1 FROM public.inventory_items WHERE id=93 AND accounting_treatment='capital_asset') THEN
