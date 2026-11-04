@@ -45,6 +45,32 @@ describe("offline operational report snapshots", () => {
     expect(usable?.rows[0]).not.toHaveProperty("secret");
   });
 
+  it("caches only allowlisted per-generator fuel consumption cost aggregates", () => {
+    const costInput = {
+      userId: 7, siteId: 10, reportType: "fuel-consumption-cost" as const,
+      filters: { periodType: "cycle", anchorDate: "2026-10-22", fromDate: null, toDate: null, generatorId: 44 },
+    };
+    const costSnapshot: OperationalReportSnapshot = {
+      key: JSON.stringify([costInput.userId, costInput.siteId, costInput.reportType, costInput.filters]),
+      ...costInput,
+      rows: [{
+        generator_id: 44, generator_name: "G-44", movement_count: 3,
+        recorded_consumption_liters: "30.000", recorded_consumption_cost: "285.00",
+        average_cost_per_liter: "9.5000", notes: "drop", warehouse_id: 9, receipt_image_key: "secret",
+      }],
+      savedAt: 1000,
+    };
+    const usable = getUsableOperationalReportSnapshot(costSnapshot, costInput, { now: 1001 });
+    expect(usable?.rows[0]).toMatchObject({
+      generator_id: 44, generator_name: "G-44", movement_count: 3,
+      recorded_consumption_liters: "30.000", recorded_consumption_cost: "285.00",
+      average_cost_per_liter: "9.5000",
+    });
+    expect(usable?.rows[0]).not.toHaveProperty("notes");
+    expect(usable?.rows[0]).not.toHaveProperty("warehouse_id");
+    expect(usable?.rows[0]).not.toHaveProperty("receipt_image_key");
+  });
+
   it("supports maintenance report aggregates without caching work-order detail rows", () => {
     const maintenanceInput = {
       userId: 7, siteId: 10, reportType: "maintenance" as const,
