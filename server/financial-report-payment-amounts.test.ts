@@ -17,6 +17,7 @@ describe("financial report payment amount semantics", () => {
     expect(reportReads).toContain("grossAmount: String(row.amount ?? 0)");
     expect(reportReads).toContain("invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0)");
     expect(reportReads).toContain("subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0)");
+    expect(reportReads).toContain('.in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"])');
   });
 
   it("keeps operating collections and profit on invoice-applied amounts", () => {
