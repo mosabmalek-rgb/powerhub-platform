@@ -613,6 +613,10 @@ export const powerhubInventoryRouter = router({
       reorderPoint: z.number().finite().min(0).max(1_000_000_000).default(0),
       specification: z.string().trim().max(500).optional(),
       notes: z.string().trim().max(2000).optional(),
+    }).superRefine((value, issue) => {
+      if (value.accountingTreatment !== "expense_on_issue" && value.category !== "other") {
+        issue.addIssue({ code: "custom", path: ["accountingTreatment"], message: "المعالجة الرأسمالية أو غير المصنفة متاحة للأصناف الأخرى فقط." });
+      }
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createInventoryItems");
@@ -642,6 +646,10 @@ export const powerhubInventoryRouter = router({
       accountingTreatment: accountingTreatmentSchema, baseUnit: unitSchema,
       reorderPoint: z.number().finite().min(0).max(1_000_000_000),
       specification: z.string().trim().max(500).optional(), notes: z.string().trim().max(2000).optional(),
+    }).superRefine((value, issue) => {
+      if (value.accountingTreatment !== "expense_on_issue" && value.category !== "other") {
+        issue.addIssue({ code: "custom", path: ["accountingTreatment"], message: "المعالجة الرأسمالية أو غير المصنفة متاحة للأصناف الأخرى فقط." });
+      }
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editInventoryItems");
