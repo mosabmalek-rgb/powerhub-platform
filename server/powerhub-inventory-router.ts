@@ -2141,6 +2141,36 @@ export const powerhubInventoryRouter = router({
       return data ?? [];
     }),
 
+  fuelConsumptionCostReportPeriod: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      periodType: z.enum(["day", "cycle", "month", "custom"]),
+      anchorDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      generatorId: z.number().int().positive().optional(),
+    }).superRefine((value, ctx) => {
+      if (value.periodType !== "custom" && !value.anchorDate) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["anchorDate"], message: "حدد التاريخ المرجعي للفترة." });
+      }
+      if (value.periodType === "custom" && (!value.fromDate || !value.toDate || value.fromDate > value.toDate)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fromDate"], message: "حدد نطاقًا زمنيًا صحيحًا للتقرير." });
+      }
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
+      if (!access.permissions.includes("viewInventoryReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تكلفة استهلاك الوقود من المخزون." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_cost_report_period", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_period_type: input.periodType,
+        p_anchor_date: input.anchorDate ?? null, p_from_date: input.fromDate ?? null,
+        p_to_date: input.toDate ?? null, p_generator_id: input.generatorId ?? null,
+      });
+      if (error) mapFuelDatabaseError(error, "تعذر احتساب تكلفة استهلاك الوقود من المخزون للفترة المحددة.");
+      return data ?? [];
+    }),
+
   listFuelAlertSettings: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
