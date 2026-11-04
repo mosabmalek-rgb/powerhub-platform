@@ -6,6 +6,26 @@ const read = (file: string) => fs.readFileSync(path.resolve(process.cwd(), file)
 const router = read("server/powerhub.ts");
 const page = read("client/src/pages/FinancialSettlementsPage.tsx");
 
+describe("financial settlement branch-scoping UI contract", () => {
+  it("uses the selected branch for access checks, preview, and new settlement creation", () => {
+    expect(page).toContain("settlementAuthorizationSiteId=selectedBranchId??siteId");
+    expect(page).toContain('staff.myAccess.useQuery({siteId:settlementAuthorizationSiteId}');
+    expect(page).toContain('aria-label="فرع التسوية الجديدة"');
+    expect(page).toContain("targetSettlementSiteId");
+    expect(page).toContain("settlements.preview.useQuery({siteId:targetSettlementSiteId");
+    expect(page).toContain("create.mutate({siteId:targetSettlementSiteId");
+    expect(page).toContain("لا يمكن إنشاء تسوية على خيار جميع الفروع");
+  });
+
+  it("sends approval, locking, and exceptional edits with the row's actual site id", () => {
+    expect(page).toContain('setStatus.mutate({siteId:row.siteId,settlementId:row.id,status:"submitted"})');
+    expect(page).toContain('setStatus.mutate({siteId:row.siteId,settlementId:row.id,status:"approved"})');
+    expect(page).toContain('setStatus.mutate({siteId:row.siteId,settlementId:row.id,status:"locked"})');
+    expect(page).toContain("setExceptionalEditSiteId(row.siteId)");
+    expect(page).toContain("siteId:exceptionalEditSiteId??selectedBranchId??siteId");
+  });
+});
+
 describe("saved financial settlement ledger breakdown", () => {
   it("loads the persisted JSON snapshot and returns only the normalized projection", () => {
     const settlementsRoute = router.slice(router.indexOf("  settlements: router({"), router.indexOf("  reports: router({"));
