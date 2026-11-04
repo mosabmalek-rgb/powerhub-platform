@@ -48,14 +48,15 @@ create table public.company_account_sites(
   site_id bigint not null, unique(account_id,site_id)
 );
 create table public.account_transactions(
-  id bigint generated always as identity primary key, tenant_id bigint not null, account_id bigint not null,
+  id bigint generated always as identity primary key, tenant_id bigint not null, site_id bigint, account_id bigint not null,
+  related_expense_id bigint,
   transaction_type text not null, amount numeric(14,2) not null, description text not null,
   reference_no text, related_payment_id bigint, related_account_id bigint, created_by_user_id bigint,
   occurred_at timestamptz not null default now(), created_at timestamptz not null default now()
 );
 create table public.expenses(
   id bigint generated always as identity primary key, tenant_id bigint not null, site_id bigint not null,
-  category text not null, description text not null, amount numeric(14,2) not null,
+  company_account_id bigint, category text not null, description text not null, amount numeric(14,2) not null,
   occurred_at timestamptz not null default now(), reference_no text, created_by_user_id bigint
 );
 create table public.audit_logs(
@@ -142,6 +143,7 @@ grant select on public.payroll_adjustment_allocations to anon, authenticated;
 
 
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
+\ir ../migrations/20261104210000_powerhub_payroll_expense_account_linkage.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
 
 -- The production HR Delta migration requires the canonical private RLS guards.
@@ -159,6 +161,7 @@ as $fixture$ select false $fixture$;
 \ir ../migrations/20261023214342_powerhub_payroll_period_constraint_reconcile.sql
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
+\ir ../migrations/20261104210000_powerhub_payroll_expense_account_linkage.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
 \ir ../migrations/20261103174050_powerhub_employee_advance_accounting_period_scope.sql
 \ir ../migrations/20261101083059_powerhub_hr_delta_sync.sql
@@ -302,6 +305,7 @@ do $test$
 declare
   v_salary_advance_id bigint; v_loan_id bigint; v_tx bigint; v_remaining numeric; v_replayed boolean;
   v_payroll_id bigint; v_net numeric; v_salary_status text; v_loan_remaining numeric; v_balance numeric;
+  v_payroll_expense_id bigint; v_payroll_transaction_id bigint;
   v_before_transactions integer; v_repayment_id bigint; v_second_payroll_id bigint; v_third_payroll_id bigint; v_cancelled boolean;
 begin
   -- Legacy generic adjustment endpoint must not create advances without an account transaction.
@@ -366,7 +370,9 @@ begin
   if (select amount from public.payroll_adjustment_allocations where payroll_run_id=v_payroll_id and adjustment_id=v_loan_id)<>100 then raise exception 'LOAN_INSTALLMENT_ALLOCATION_FAILED'; end if;
 
   perform * from public.powerhub_approve_payroll(1,100,10,v_payroll_id);
-  perform * from public.powerhub_pay_payroll(1,100,10,v_payroll_id,1);
+  select expense_id,transaction_id
+    into v_payroll_expense_id,v_payroll_transaction_id
+    from public.powerhub_pay_payroll(1,100,10,v_payroll_id,1);
   select status into v_salary_status from public.employee_adjustments where id=v_salary_advance_id;
   if v_salary_status<>'settled' then raise exception 'SALARY_ADVANCE_NOT_SETTLED_AFTER_PAYROLL'; end if;
   select remaining_amount into v_loan_remaining from public.employee_adjustments where id=v_loan_id;
@@ -379,6 +385,30 @@ begin
   if exists(select 1 from public.employee_adjustment_repayments where payroll_run_id=v_payroll_id and repayment_method='payroll' and (company_account_id is not null or account_transaction_id is not null)) then raise exception 'PAYROLL_REPAYMENT_MUST_NOT_CREATE_DUPLICATE_CASH_MOVEMENT'; end if;
   if (select amount from public.expenses where reference_no='PAYROLL-'||v_payroll_id::text)<>700 then raise exception 'PAYROLL_EXPENSE_MUST_MATCH_NET_CASH_PAID'; end if;
   if (select amount from public.account_transactions where reference_no='PAYROLL-'||v_payroll_id::text)<>700 then raise exception 'PAYROLL_WITHDRAWAL_MUST_EQUAL_NET_PAY'; end if;
+  if NOT EXISTS (
+    SELECT 1 FROM public.expenses expense
+    WHERE expense.id=v_payroll_expense_id
+      AND expense.tenant_id=1 AND expense.site_id=100
+      AND expense.company_account_id=1 AND expense.category='payroll'
+      AND expense.amount=700
+      AND expense.reference_no='PAYROLL-'||v_payroll_id::text
+  ) THEN
+    RAISE EXCEPTION 'PAYROLL_EXPENSE_ACCOUNT_AND_SITE_LINK_FAILED';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.account_transactions tx
+    WHERE tx.id=v_payroll_transaction_id
+      AND tx.tenant_id=1 AND tx.site_id=100 AND tx.account_id=1
+      AND tx.transaction_type='withdrawal' AND tx.amount=700
+      AND tx.related_expense_id=v_payroll_expense_id
+      AND tx.reference_no='PAYROLL-'||v_payroll_id::text
+  ) THEN
+    RAISE EXCEPTION 'PAYROLL_WITHDRAWAL_MUST_REFERENCE_EXACT_EXPENSE';
+  END IF;
+  IF (SELECT count(*) FROM public.account_transactions tx
+      WHERE tx.related_expense_id=v_payroll_expense_id)<>1 THEN
+    RAISE EXCEPTION 'PAYROLL_EXPENSE_MUST_HAVE_EXACTLY_ONE_CASH_MOVEMENT';
+  END IF;
   begin
     perform * from public.powerhub_pay_payroll(1,100,10,v_payroll_id,1);
     raise exception 'EXPECTED_DUPLICATE_PAYROLL_PAYMENT_GUARD';

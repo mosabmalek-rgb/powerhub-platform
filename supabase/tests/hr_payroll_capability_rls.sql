@@ -92,7 +92,7 @@ GRANT USAGE ON SCHEMA private TO authenticated,service_role;
 GRANT EXECUTE ON FUNCTION private.powerhub_current_user_id() TO authenticated,service_role;
 GRANT EXECUTE ON FUNCTION private.powerhub_is_platform_admin() TO authenticated,service_role;
 
-\ir ../migrations/20261104220000_powerhub_payroll_read_capability_rls.sql
+\ir ../migrations/20261104203029_powerhub_payroll_read_capability_rls.sql
 
 DO $acl$
 BEGIN
