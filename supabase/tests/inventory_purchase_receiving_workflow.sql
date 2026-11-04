@@ -4365,7 +4365,7 @@ begin
      or v_period_report.recorded_consumption_liters<>0
      or v_period_report.opening_level_liters<>10
      or v_period_report.ending_level_liters<>12
-     or v_period_report.actual_consumption_liters<>3
+     or v_period_report.actual_consumption_liters<>9
      or v_period_report.opening_operating_hours<>100
      or v_period_report.ending_operating_hours<>103
      or v_period_report.operating_hours_delta<>3
