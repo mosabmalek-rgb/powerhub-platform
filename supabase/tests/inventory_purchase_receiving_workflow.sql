@@ -519,6 +519,7 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261101083224_powerhub_supplier_ledger_revision.sql
 \ir ../migrations/20261103174058_powerhub_supplier_accounting_period_scope.sql
 \ir ../migrations/20261104155320_powerhub_inventory_fuel_consumption_cost_report.sql
+\ir ../migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -1301,6 +1302,10 @@ declare
   v_fuel_replacement_cost numeric(14,2);
   v_fuel_report record;
   v_anchor_date date;
+  v_cycle_boundary record;
+  v_cycle_report record;
+  v_month_report record;
+  v_custom_report record;
 begin
   select id into v_item_id
   from public.inventory_items
@@ -1449,6 +1454,51 @@ begin
     or v_fuel_report.recorded_consumption_cost<>v_fuel_replacement_cost then
     raise exception 'FUEL_CONSUMPTION_CORRECTION_COST_DOUBLE_COUNTED row=% replacement_cost=%',
       row_to_json(v_fuel_report),v_fuel_replacement_cost;
+  end if;
+
+  -- Keep the cycle report's exclusive upper bound aligned with the reading-cycle
+  -- function, which ends at the last millisecond before the next cycle begins.
+  if position(
+    'v_end_at:=v_cycle.cycle_end_at+interval ''1 millisecond'''
+    in pg_get_functiondef('public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)'::regprocedure)
+  )=0 then
+    raise exception 'FUEL_COST_CYCLE_BOUNDARY_PRECISION_MISMATCH';
+  end if;
+
+  select * into v_cycle_boundary
+  from public.powerhub_cycle_for_reading(
+    v_tenant_id,v_site_id,v_anchor_date::timestamp at time zone 'Asia/Gaza'
+  );
+  if v_cycle_boundary.cycle_start_at is null or v_cycle_boundary.cycle_end_at is null then
+    raise exception 'FUEL_COST_CYCLE_BOUNDARY_UNAVAILABLE';
+  end if;
+  if v_cycle_boundary.cycle_end_at + interval '1 millisecond'
+       <= v_cycle_boundary.cycle_end_at + interval '1 microsecond' then
+    raise exception 'FUEL_COST_CYCLE_EXCLUSIVE_BOUNDARY_NOT_ADVANCED';
+  end if;
+
+  select * into v_cycle_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'cycle',v_anchor_date,null,null,v_generator_id
+  );
+  if v_cycle_report.generator_id is null then
+    raise exception 'FUEL_COST_CYCLE_REPORT_FAILED';
+  end if;
+
+  select * into v_month_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'month',v_anchor_date,null,null,v_generator_id
+  );
+  if v_month_report.generator_id is null then
+    raise exception 'FUEL_COST_MONTH_REPORT_FAILED';
+  end if;
+
+  select * into v_custom_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'custom',null,v_anchor_date,v_anchor_date,v_generator_id
+  );
+  if v_custom_report.generator_id is null then
+    raise exception 'FUEL_COST_CUSTOM_REPORT_FAILED';
   end if;
 
   -- The internal RPC is callable only by service_role; never expose its
