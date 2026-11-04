@@ -19,8 +19,14 @@ ALTER TABLE public.inventory_items
   ADD CONSTRAINT inventory_items_fuel_accounting_treatment_check
   CHECK (category<>'fuel' OR accounting_treatment='expense_on_issue');
 
+ALTER TABLE public.inventory_items
+  DROP CONSTRAINT IF EXISTS inventory_items_capital_asset_category_check;
+ALTER TABLE public.inventory_items
+  ADD CONSTRAINT inventory_items_capital_asset_category_check
+  CHECK (accounting_treatment<>'capital_asset' OR category='other');
+
 COMMENT ON COLUMN public.inventory_items.accounting_treatment IS
-  'expense_on_issue: P&L expense when issued; capital_asset: excluded from P&L and reported separately; pending_classification: blocks settlement when issued.';
+  'expense_on_issue: P&L expense when issued; capital_asset: only for category=other, excluded from P&L and reported separately; pending_classification: only for category=other and blocks settlement when issued.';
 
 CREATE OR REPLACE FUNCTION public.powerhub_inventory_set_default_accounting_treatment()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public,pg_temp
@@ -97,6 +103,9 @@ begin
   if p_category='fuel' and p_accounting_treatment<>'expense_on_issue' then
     raise exception 'FUEL_MUST_BE_EXPENSED_ON_ISSUE' using errcode='P0001';
   end if;
+  if p_accounting_treatment in ('capital_asset','pending_classification') and p_category<>'other' then
+    raise exception 'NON_OTHER_ITEM_REQUIRES_OPERATING_EXPENSE_TREATMENT' using errcode='P0001';
+  end if;
   perform 1 from public.sites as s where s.id=p_site_id and s.tenant_id=p_tenant_id;
   if not found then raise exception 'SITE_OUT_OF_SCOPE' using errcode='P0001'; end if;
 
@@ -166,7 +175,8 @@ begin
     or p_base_unit not in ('liter','milliliter','piece','container','kg','gram','meter','set','gallon','other')
     or p_reorder_point is null or p_reorder_point<0
     or p_accounting_treatment not in ('expense_on_issue','capital_asset','pending_classification')
-    or (p_category='fuel' and p_accounting_treatment<>'expense_on_issue') then
+    or (p_category='fuel' and p_accounting_treatment<>'expense_on_issue')
+    or (p_accounting_treatment in ('capital_asset','pending_classification') and p_category<>'other') then
     raise exception 'INVALID_INVENTORY_ITEM' using errcode='P0001';
   end if;
   select i.* into v_item from public.inventory_items i
