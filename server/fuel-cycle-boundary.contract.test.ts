@@ -19,6 +19,14 @@ const workflowTest = readFileSync(
   resolve(root, "supabase/tests/inventory_purchase_receiving_workflow.sql"),
   "utf8",
 );
+const initialInventoryCostMigration = readFileSync(
+  resolve(root, "supabase/migrations/20261104155320_powerhub_inventory_fuel_consumption_cost_report.sql"),
+  "utf8",
+);
+const inventoryCostBoundaryMigration = readFileSync(
+  resolve(root, "supabase/migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql"),
+  "utf8",
+);
 
 function extractFunction(source: string, signature: string): string {
   const start = source.indexOf(signature);
@@ -44,6 +52,19 @@ describe("Fuel cycle report boundary contract", () => {
       "v_end_at:=v_cycle.cycle_end_at+interval '1 millisecond';",
     );
     expect(fuelReportMigration).toContain("v_end_at:=v_cycle.cycle_end_at+interval '1 millisecond';");
+  });
+
+  it("keeps the generator cost report upper bound aligned with the inclusive microsecond cycle resolver", () => {
+    const signature = "create or replace function public.powerhub_inventory_fuel_consumption_cost_report_period(";
+    const initialFunction = extractFunction(initialInventoryCostMigration, signature);
+    const reconciledFunction = extractFunction(inventoryCostBoundaryMigration, signature);
+    expect(reconciledFunction).toBe(initialFunction);
+    expect(reconciledFunction).toContain(
+      "v_end_at:=v_cycle.cycle_end_at+interval '1 microsecond';",
+    );
+    expect(reconciledFunction).not.toContain(
+      "v_end_at:=v_cycle.cycle_end_at+interval '1 millisecond';",
+    );
   });
 
   it("covers 31-day month end, leap February, 15-day and weekly boundaries, and cycle non-overlap", () => {
