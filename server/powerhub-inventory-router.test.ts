@@ -68,6 +68,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
         siteId: 3,
         name: "Diesel",
         category: "fuel",
+        accountingTreatment: "expense_on_issue",
         baseUnit: "liter",
         reorderPoint: 20,
       },
@@ -75,6 +76,28 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
     expect(state.access).toHaveBeenCalledWith(99, 3, expect.any(Array), "createInventoryItems");
     expect(state.from).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicit accounting treatment to the atomic catalog RPC", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      id: 501, tenant_id: 44, category: "other", accounting_treatment: "capital_asset",
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.createItem;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 99 } },
+      input: {
+        siteId: 3, name: "Alternator assembly", category: "other",
+        accountingTreatment: "capital_asset", baseUnit: "piece", reorderPoint: 0,
+      },
+    });
+    expect(result.accounting_treatment).toBe("capital_asset");
+    expect(state.access).toHaveBeenCalledWith(99, 3, expect.any(Array), "createInventoryItems");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_create_item_v2", expect.objectContaining({
+      p_tenant_id: 44, p_site_id: 3, p_user_id: 99, p_category: "other",
+      p_accounting_treatment: "capital_asset",
+    }));
   });
 
   it("requires supplier-directory visibility before reading supplier data", async () => {
@@ -1081,7 +1104,7 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
     {
       procedure: "updateItem",
       capability: "editInventoryItems",
-      input: { siteId: 7, itemId: 9, name: "Engine oil", category: "oil", baseUnit: "liter", reorderPoint: 0 },
+      input: { siteId: 7, itemId: 9, name: "Engine oil", category: "oil", accountingTreatment: "expense_on_issue", baseUnit: "liter", reorderPoint: 0 },
     },
     {
       procedure: "setItemActive",
