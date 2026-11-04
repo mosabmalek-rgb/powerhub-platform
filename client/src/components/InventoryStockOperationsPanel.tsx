@@ -365,6 +365,7 @@ export default function InventoryStockOperationsPanel({
           <div>
             <CardTitle className="flex items-center gap-2"><Boxes className="h-5 w-5" /> أرصدة المخزون وحركاته</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">الرصيد مشتق من سجل الحركات؛ لا تُعدّل الكميات مباشرة في دليل الأصناف.</p>
+            <p className="mt-1 text-xs text-muted-foreground">خزانات المولدات لا تظهر ضمن أرصدة المخزون المؤكدة؛ التعبئة تسجل صرفًا من المستودع المصدر فقط، ويُعرض مستوى الخزان من خلال قراءة فعلية في تبويب الوقود.</p>
           </div>
           <Button type="button" variant="outline" onClick={() => void refreshStock()} disabled={stock.isFetching || movements.isFetching}>
             {stock.isFetching || movements.isFetching ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <RefreshCw className="ml-2 h-4 w-4" />} تحديث
