@@ -1300,7 +1300,6 @@ declare
   v_fuel_expected_cost numeric(14,2);
   v_fuel_replacement_cost numeric(14,2);
   v_fuel_report record;
-  v_timezone text;
   v_anchor_date date;
 begin
   select id into v_item_id
@@ -1416,12 +1415,9 @@ begin
   select m.total_cost_amount into v_fuel_expected_cost
   from public.inventory_stock_movements m
   where m.tenant_id=v_tenant_id and m.site_id=v_site_id and m.id=v_fuel_movement_id;
-  select coalesce(c.timezone,'Asia/Gaza') into v_timezone
-  from public.sites s
-  left join public.tenant_reading_cycle_configurations c
-    on c.tenant_id=s.tenant_id and c.site_id=s.id
-  where s.tenant_id=v_tenant_id and s.id=v_site_id;
-  v_anchor_date:=(now() at time zone coalesce(v_timezone,'Asia/Gaza'))::date;
+  -- The integration test runs as service_role; avoid direct reads from the protected
+  -- cycle-configuration table when constructing the local day used by this report test.
+  v_anchor_date:=(now() at time zone 'Asia/Gaza')::date;
 
   select * into v_fuel_report
   from public.powerhub_inventory_fuel_consumption_cost_report_period(
