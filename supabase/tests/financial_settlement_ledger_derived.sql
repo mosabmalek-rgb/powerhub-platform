@@ -97,7 +97,7 @@ INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transact
   (13,1,10,100,'withdrawal',8,'2026-10-23T10:00:00Z',null,null,null,null);
 
 \ir ../migrations/20261104090010_20261104100000_powerhub_financial_settlement_approval_controls.sql
-\ir ../migrations/20261104110000_powerhub_financial_settlement_ledger_derived_summary.sql
+\ir ../migrations/20261104101709_20261104110000_powerhub_financial_settlement_ledger_derived_summary.sql
 
 SET ROLE service_role;
 DO $ledger_preview$
