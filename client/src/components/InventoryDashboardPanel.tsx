@@ -740,7 +740,7 @@ export default function InventoryDashboardPanel({
           row.event_date,row.event_type==="purchase_invoice"?"فاتورة شراء":row.event_type==="supplier_payment"?"دفعة مورد":"مرتجع مورد",
           row.reference_no,row.counterparty_name,row.status,amount(numberOf(row.amount)),row.related_reference,amount(numberOf(row.refund_amount)),
         ])) +
-        "<p style=\"margin-top:16px;font-size:10px\">ملاحظة: المشتريات والدفعات وائتمانات المرتجعات وتكلفة التعبئة وتكاليف الصيانة مصادر مالية منفصلة. لا يُعد دفع فاتورة الشراء مصروف تشغيل جديدًا ولا تمثل تكلفة التعبئة الاستهلاك الفعلي المقاس.</p>";
+        "<p style=\"margin-top:16px;font-size:10px\">ملاحظة: المشتريات والدفعات وائتمانات المرتجعات وتكلفة التعبئة وتكلفة الاستهلاك المخزني وتكاليف الصيانة مصادر مالية منفصلة. تكلفة الاستهلاك المخزني إفصاح مستقل وغير مضافة إلى الربح التشغيلي الحالي إلى حين اعتماد سياسة تمنع ازدواجها مع مصروف الوقود اليدوي. لا يُعد دفع فاتورة الشراء مصروف تشغيل جديدًا ولا تمثل تكلفة التعبئة الاستهلاك الفعلي المقاس.</p>";
       document.body.appendChild(root);
       await downloadReportHtmlAsPdf(root, `تقرير-Phase-D-${siteId}-${dateRange?.fromDate}-${dateRange?.toDate}.pdf`, { landscape: true, title: "تقرير Phase D - PowerHub" });
       toast.success("تم إنشاء PDF عربي للوحة Phase D مع المرشحات والمصادر الفعلية.");
