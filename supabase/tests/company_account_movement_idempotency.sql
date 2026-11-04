@@ -59,7 +59,7 @@ CREATE TABLE public.audit_logs(
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
 
-\ir ../migrations/20261103211000_powerhub_company_account_movement_idempotency.sql
+\ir ../migrations/20261104084805_20261103211000_powerhub_company_account_movement_idempotency.sql
 
 INSERT INTO public.sites(id,tenant_id,name) VALUES(10,1,'Main'),(20,1,'Second');
 INSERT INTO public.users(id,platform_role) VALUES(7,'platform_admin');

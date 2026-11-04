@@ -158,7 +158,7 @@ END
 $enable_rls$;
 
 \ir ../migrations/20261103195752_powerhub_financial_site_rls_scope.sql
-\ir ../migrations/20261103210000_powerhub_account_transaction_site_scope.sql
+\ir ../migrations/20261104084749_20261103210000_powerhub_account_transaction_site_scope.sql
 
 DO $assert_helpers$
 BEGIN
