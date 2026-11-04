@@ -245,7 +245,7 @@ begin
           + 7,
           7
         ));
-    end_local := start_local + interval '7 days' - interval '1 microsecond';
+    end_local := start_local + interval '7 days' - interval '1 millisecond';
 
   elsif c.cycle_type = 'EVERY_10_DAYS' then
     last_day := extract(day from (date_trunc('month', local_at) + interval '1 month' - interval '1 day'))::integer;
@@ -257,8 +257,8 @@ begin
       end;
       start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
       end_local := case
-        when start_day = 21 then date_trunc('month', local_at) + interval '1 month' - interval '1 microsecond'
-        else start_local + interval '10 days' - interval '1 microsecond'
+        when start_day = 21 then date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'
+        else start_local + interval '10 days' - interval '1 millisecond'
       end;
     else
       -- Alternate 10/20/30 anchor. Day 30 is clamped to the last day of February.
@@ -290,7 +290,7 @@ begin
       else
         next_month_local := date_trunc('month', local_at) + interval '1 month' + interval '9 days';
       end if;
-      end_local := next_month_local - interval '1 microsecond';
+      end_local := next_month_local - interval '1 millisecond';
     end if;
 
   elsif c.cycle_type = 'EVERY_15_DAYS' then
@@ -299,8 +299,8 @@ begin
       start_day := case when extract(day from local_at)::integer <= 15 then 1 else 16 end;
       start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
       end_local := case
-        when start_day = 16 then date_trunc('month', local_at) + interval '1 month' - interval '1 microsecond'
-        else start_local + interval '15 days' - interval '1 microsecond'
+        when start_day = 16 then date_trunc('month', local_at) + interval '1 month' - interval '1 millisecond'
+        else start_local + interval '15 days' - interval '1 millisecond'
       end;
     else
       -- Alternate 15/30 anchor. Day 30 is clamped to the last day of February.
@@ -326,7 +326,7 @@ begin
         start_day := case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end;
         next_month_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
       end if;
-      end_local := next_month_local - interval '1 microsecond';
+      end_local := next_month_local - interval '1 millisecond';
     end if;
 
   else
@@ -364,7 +364,7 @@ begin
     end;
     end_local := next_month_local
       + make_interval(days => next_start_day - 1)
-      - interval '1 microsecond';
+      - interval '1 millisecond';
   end if;
 
   cycle_start_at := start_local at time zone c.timezone;
@@ -388,11 +388,12 @@ insert into public.tenant_reading_cycle_configurations(
 do $cycle_boundary_assertions$
 declare
   v_cycle record;
+  v_next_cycle record;
   v_expected_start timestamptz;
   v_expected_end timestamptz;
 begin
   v_expected_start := timestamp '2026-10-21 00:00:00' at time zone 'Asia/Gaza';
-  v_expected_end := (timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  v_expected_end := (timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 millisecond';
   select * into v_cycle from public.powerhub_cycle_for_reading(
     10,100,timestamp '2026-10-31 12:00:00' at time zone 'Asia/Gaza'
   );
@@ -401,8 +402,17 @@ begin
       v_cycle.cycle_start_at,v_cycle.cycle_end_at,v_expected_start,v_expected_end;
   end if;
 
+  -- The exclusive boundary used by reports must be exactly the next cycle start.
+  select * into v_next_cycle from public.powerhub_cycle_for_reading(
+    10,100,v_cycle.cycle_end_at+interval '1 millisecond'
+  );
+  if v_next_cycle.cycle_start_at<>v_cycle.cycle_end_at+interval '1 millisecond' then
+    raise exception 'CYCLE_NEXT_BOUNDARY_GAP_OR_OVERLAP previous_end=% next_start=%',
+      v_cycle.cycle_end_at,v_next_cycle.cycle_start_at;
+  end if;
+
   v_expected_start := timestamp '2024-02-21 00:00:00' at time zone 'Asia/Gaza';
-  v_expected_end := (timestamp '2024-03-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  v_expected_end := (timestamp '2024-03-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 millisecond';
   select * into v_cycle from public.powerhub_cycle_for_reading(
     10,100,timestamp '2024-02-29 12:00:00' at time zone 'Asia/Gaza'
   );
@@ -415,7 +425,7 @@ begin
   set cycle_type='EVERY_15_DAYS'
   where tenant_id=10 and site_id=100;
   v_expected_start := timestamp '2026-10-16 00:00:00' at time zone 'Asia/Gaza';
-  v_expected_end := (timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  v_expected_end := (timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 millisecond';
   select * into v_cycle from public.powerhub_cycle_for_reading(
     10,100,timestamp '2026-10-31 12:00:00' at time zone 'Asia/Gaza'
   );
@@ -431,7 +441,7 @@ begin
     10,100,timestamp '2026-11-01 12:00:00' at time zone 'Asia/Gaza'
   );
   if v_cycle.cycle_start_at<>(timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza')
-     or v_cycle.cycle_end_at<>(timestamp '2026-11-08 00:00:00' at time zone 'Asia/Gaza')-interval '1 microsecond' then
+     or v_cycle.cycle_end_at<>(timestamp '2026-11-08 00:00:00' at time zone 'Asia/Gaza')-interval '1 millisecond' then
     raise exception 'CYCLE_WEEKLY_MICROSECOND_BOUNDARY_FAILED start=% end=%',
       v_cycle.cycle_start_at,v_cycle.cycle_end_at;
   end if;
