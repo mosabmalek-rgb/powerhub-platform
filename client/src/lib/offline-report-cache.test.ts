@@ -49,18 +49,18 @@ describe("تنقية محتوى التقرير قبل التخزين المحل�
     const { createOfflineReportSnapshotPayload } = await import("./offline-report-cache");
     const safe = createOfflineReportSnapshotPayload({
       range: { startDate: "2026-10-01", endDate: "2026-10-29" },
-      summary: { invoiced: 1200, collected: 800, outstanding: 400 },
+      summary: { invoiced: 1200, collected: 750, grossCollected: 800, subscriberCreditCreated: 50, outstanding: 400 },
       scope: { branchCount: 1 },
-      branchSummaries: [{ siteId: 7, branchName: "فرع الاختبار", invoiced: 1200 }],
+      branchSummaries: [{ siteId: 7, branchName: "فرع الاختبار", invoiced: 1200, collected: 750, grossCollected: 800, subscriberCreditCreated: 50 }],
       topDebtors: [{ subscriber: "مشترك حساس", invoiceNo: "INV-1", balanceDue: 400 }],
       collectors: [{ name: "اسم موظف", count: 2, amount: 800 }],
       paymentDetails: [{ paymentNo: "PAY-1", amount: 800 }],
     }) as Record<string, unknown>;
     expect(safe).toEqual({
       range: { startDate: "2026-10-01", endDate: "2026-10-29" },
-      summary: { invoiced: 1200, collected: 800, outstanding: 400 },
+      summary: { invoiced: 1200, collected: 750, grossCollected: 800, subscriberCreditCreated: 50, outstanding: 400 },
       scope: { branchCount: 1 },
-      branchSummaries: [{ siteId: 7, branchName: "فرع الاختبار", invoiced: 1200 }],
+      branchSummaries: [{ siteId: 7, branchName: "فرع الاختبار", invoiced: 1200, collected: 750, grossCollected: 800, subscriberCreditCreated: 50 }],
     });
     expect(safe).not.toHaveProperty("topDebtors");
     expect(safe).not.toHaveProperty("collectors");
