@@ -98,6 +98,7 @@ INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transact
 
 \ir ../migrations/20261104090010_20261104100000_powerhub_financial_settlement_approval_controls.sql
 \ir ../migrations/20261104101709_20261104110000_powerhub_financial_settlement_ledger_derived_summary.sql
+\ir ../migrations/20261104102600_powerhub_financial_settlement_source_fingerprint.sql
 
 SET ROLE service_role;
 DO $ledger_preview$
@@ -168,6 +169,34 @@ BEGIN
   END;
 
   UPDATE public.company_accounts SET opening_balance=0 WHERE id=102;
+
+  -- Supplier payment and return movements must reconcile to their source amounts.
+  UPDATE public.account_transactions SET amount=39 WHERE id=8;
+  v_summary := public.powerhub_financial_settlement_preview(1,10,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z');
+  IF (v_summary->'reconciliation'->>'supplierPaymentCashMismatchCount')::bigint<>1
+     OR (v_summary->>'isReconciled')::boolean IS TRUE THEN
+    RAISE EXCEPTION 'SUPPLIER_PAYMENT_CASH_MISMATCH_NOT_DETECTED: %',v_summary;
+  END IF;
+  UPDATE public.account_transactions SET amount=40 WHERE id=8;
+
+  UPDATE public.account_transactions SET amount=6 WHERE id=9;
+  v_summary := public.powerhub_financial_settlement_preview(1,10,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z');
+  IF (v_summary->'reconciliation'->>'supplierReturnCashMismatchCount')::bigint<>1
+     OR (v_summary->>'isReconciled')::boolean IS TRUE THEN
+    RAISE EXCEPTION 'SUPPLIER_RETURN_CASH_MISMATCH_NOT_DETECTED: %',v_summary;
+  END IF;
+  UPDATE public.account_transactions SET amount=5 WHERE id=9;
+
+  -- Reject a movement that points to more than one source record.
+  INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transaction_type,amount,occurred_at,related_payment_id,related_expense_id)
+  VALUES(18,1,10,100,'collection',1,'2026-10-24T11:30:00Z',1,1);
+  v_summary := public.powerhub_financial_settlement_preview(1,10,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z');
+  IF (v_summary->'reconciliation'->>'orphanReferenceMovementCount')::bigint<>1
+     OR (v_summary->>'isReconciled')::boolean IS TRUE THEN
+    RAISE EXCEPTION 'MULTIPLE_SOURCE_REFERENCE_MOVEMENT_NOT_DETECTED: %',v_summary;
+  END IF;
+  DELETE FROM public.account_transactions WHERE id=18;
+
   v_summary := public.powerhub_financial_settlement_preview(1,10,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z');
   IF (v_summary->>'bookCashBalance')::numeric<>369
      OR (v_summary->>'isReconciled')::boolean IS NOT TRUE THEN
@@ -246,6 +275,41 @@ BEGIN
     DELETE FROM public.account_transactions WHERE id=17;
     DELETE FROM public.expenses WHERE id=3;
 
+
+    -- Preserve every displayed aggregate while changing the underlying source rows.
+    UPDATE public.payments SET amount=110,invoice_applied_amount=110 WHERE id=1;
+    UPDATE public.payments SET amount=110,invoice_applied_amount=90 WHERE id=2;
+    UPDATE public.account_transactions SET amount=110 WHERE id IN (2,3);
+
+    v_current_snapshot := public.powerhub_financial_settlement_preview(
+      1,10,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z'
+    );
+    IF (v_current_snapshot->>'totalCollected')::numeric<>200
+       OR (v_current_snapshot->>'cashInflows')::numeric<>397
+       OR (v_current_snapshot->>'cashOutflows')::numeric<>105
+       OR (v_current_snapshot->>'bookCashBalance')::numeric<>362
+       OR (v_current_snapshot->>'isReconciled')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'SAME_TOTAL_SOURCE_EDIT_CHANGED_SETTLEMENT_SUMMARY: %',v_current_snapshot;
+    END IF;
+    IF public.powerhub_financial_settlement_source_fingerprint(
+      1,10,'2026-10-01T00:00:00Z','2026-10-31T23:59:59.999Z'
+    ) = (SELECT ledger_snapshot->>'sourceFingerprint'
+         FROM public.financial_settlements WHERE id=v_id) THEN
+      RAISE EXCEPTION 'SAME_TOTAL_SOURCE_EDIT_DID_NOT_CHANGE_FINGERPRINT';
+    END IF;
+
+    BEGIN
+      PERFORM * FROM public.powerhub_set_financial_settlement_status(1,10,1,v_id,'submitted');
+      RAISE EXCEPTION 'EXPECTED_SAME_TOTAL_SOURCE_EDIT_TO_BE_REJECTED';
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN
+      IF SQLERRM<>'SETTLEMENT_SOURCE_LEDGER_CHANGED' THEN RAISE; END IF;
+    END;
+
+    UPDATE public.payments SET amount=100,invoice_applied_amount=100 WHERE id=1;
+    UPDATE public.payments SET amount=120,invoice_applied_amount=100 WHERE id=2;
+    UPDATE public.account_transactions SET amount=100 WHERE id=2;
+    UPDATE public.account_transactions SET amount=120 WHERE id=3;
+
     PERFORM * FROM public.powerhub_set_financial_settlement_status(1,10,1,v_id,'submitted');
     BEGIN
       PERFORM * FROM public.powerhub_set_financial_settlement_status(1,10,1,v_id,'approved');
@@ -287,7 +351,10 @@ RESET ROLE;
 
 DO $acl$
 BEGIN
-  IF has_function_privilege('anon','public.powerhub_financial_settlement_preview(bigint,bigint,timestamp with time zone,timestamp with time zone)','EXECUTE')
+  IF has_function_privilege('anon','public.powerhub_financial_settlement_source_fingerprint(bigint,bigint,timestamp with time zone,timestamp with time zone)','EXECUTE')
+     OR has_function_privilege('authenticated','public.powerhub_financial_settlement_source_fingerprint(bigint,bigint,timestamp with time zone,timestamp with time zone)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.powerhub_financial_settlement_source_fingerprint(bigint,bigint,timestamp with time zone,timestamp with time zone)','EXECUTE')
+     OR has_function_privilege('anon','public.powerhub_financial_settlement_preview(bigint,bigint,timestamp with time zone,timestamp with time zone)','EXECUTE')
      OR has_function_privilege('authenticated','public.powerhub_financial_settlement_preview(bigint,bigint,timestamp with time zone,timestamp with time zone)','EXECUTE')
      OR has_function_privilege('anon','public.powerhub_create_financial_settlement(bigint,bigint,bigint,timestamp with time zone,timestamp with time zone,numeric,text)','EXECUTE')
      OR has_function_privilege('authenticated','public.powerhub_create_financial_settlement(bigint,bigint,bigint,timestamp with time zone,timestamp with time zone,numeric,text)','EXECUTE')
