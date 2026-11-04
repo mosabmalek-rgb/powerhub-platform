@@ -532,9 +532,9 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261104155320_powerhub_inventory_fuel_consumption_cost_report.sql
 \ir ../migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql
 \ir ../migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql
-\ir ../migrations/20261105010000_powerhub_fuel_cost_report_include_legacy_fills.sql
 \ir ../migrations/20261104220000_powerhub_inventory_fuel_fill_as_issue.sql
 \ir ../migrations/20261104220500_powerhub_fuel_fill_measurement_reconciliation.sql
+\ir ../migrations/20261105010000_powerhub_fuel_cost_report_include_legacy_fills.sql
 \ir ../migrations/20261105090000_powerhub_exclude_generator_tanks_from_stock_overview.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
