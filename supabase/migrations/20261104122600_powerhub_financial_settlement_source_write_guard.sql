@@ -223,13 +223,26 @@ BEGIN
         END IF;
       END IF;
 
+      -- The settlement fingerprint records the complete siteIds array for
+      -- every linked company account. Changing one link can therefore change
+      -- the snapshot of every site linked to that account, not just OLD/NEW.
       IF TG_OP<>'INSERT' THEN
-        v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
-          'tenant_id',OLD.tenant_id,'site_id',OLD.site_id,'guard_mode','all'
-        ));
+        v_scopes := v_scopes || COALESCE((
+          SELECT jsonb_agg(jsonb_build_object(
+            'tenant_id',cas.tenant_id,'site_id',cas.site_id,'guard_mode','all'
+          ))
+          FROM public.company_account_sites cas
+          WHERE cas.tenant_id=OLD.tenant_id AND cas.account_id=OLD.account_id
+        ),'[]'::jsonb);
       END IF;
       IF TG_OP<>'DELETE' THEN
-        v_scopes := v_scopes || jsonb_build_array(jsonb_build_object(
+        v_scopes := v_scopes || COALESCE((
+          SELECT jsonb_agg(jsonb_build_object(
+            'tenant_id',cas.tenant_id,'site_id',cas.site_id,'guard_mode','all'
+          ))
+          FROM public.company_account_sites cas
+          WHERE cas.tenant_id=NEW.tenant_id AND cas.account_id=NEW.account_id
+        ),'[]'::jsonb) || jsonb_build_array(jsonb_build_object(
           'tenant_id',NEW.tenant_id,'site_id',NEW.site_id,'guard_mode','all'
         ));
       END IF;
