@@ -66,8 +66,7 @@ BEGIN
 END
 $assert_contract$;
 
--- Both migrations remain idempotent in their release order.
-\ir ../migrations/20261101083858_powerhub_offline_operation_type_contract_reconcile.sql
+-- Reapplying the expanded constraint must preserve all 23 permitted types.
 \ir ../migrations/20261104193000_powerhub_offline_security_deposit_operation_types.sql
 DO $assert_repeat$
 BEGIN
