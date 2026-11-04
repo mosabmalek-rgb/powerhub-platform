@@ -534,6 +534,7 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql
 \ir ../migrations/20261104220000_powerhub_inventory_fuel_fill_as_issue.sql
 \ir ../migrations/20261104220500_powerhub_fuel_fill_measurement_reconciliation.sql
+\ir ../migrations/20261105090000_powerhub_exclude_generator_tanks_from_stock_overview.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -3385,6 +3386,12 @@ begin
     'GEN-TANK-OPENING','Fixture opening stock on generator tank','inventory-location:opening'
   );
   if v_movement_id is null then raise exception 'GENERATOR_TANK_OPENING_STOCK_FAILED'; end if;
+  if exists(
+    select 1 from public.powerhub_inventory_stock_overview(10,100)
+    where warehouse_id=v_warehouse_id and item_id=v_item_id
+  ) then
+    raise exception 'GENERATOR_TANK_INCLUDED_IN_CONFIRMED_STOCK_OVERVIEW';
+  end if;
 
   begin
     perform * from public.powerhub_inventory_update_warehouse_with_location(
@@ -4082,6 +4089,17 @@ begin
     'PHASE-B-TANK-OPEN','Disposable generator tank opening balance','phase-b:tank-opening',
     md5('phase-b:tank-opening'),v_opening_time,1
   );
+
+  -- No periodic reading is required for a fuel fill or inventory movement.
+  -- An absent measurement must not be interpreted as a low or abnormal reading.
+  perform * from public.powerhub_inventory_evaluate_fuel_alerts(10,100);
+  select count(*)::integer into v_low_dispatches from public.powerhub_fuel_alert_dispatches
+  where tenant_id=10 and site_id=100 and setting_id=v_alert_setting.setting_id and alert_type='low_fuel_level';
+  select count(*)::integer into v_rate_dispatches from public.powerhub_fuel_alert_dispatches
+  where tenant_id=10 and site_id=100 and setting_id=v_alert_setting.setting_id and alert_type='abnormal_consumption';
+  if v_low_dispatches<>0 or v_rate_dispatches<>0 then
+    raise exception 'PHASE_B_ALERT_DISPATCHED_WITHOUT_MEASUREMENTS low=% abnormal=%',v_low_dispatches,v_rate_dispatches;
+  end if;
 
   perform * from public.powerhub_inventory_record_fuel_reading(
     10,100,1,10000,'tank_level',v_generator_tank_id,10,v_opening_time,
