@@ -427,6 +427,12 @@ jobs:
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres financial_site_rls_scope_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_site_rls_scope_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_site_rls_scope.sql
+      - name: Verify effective HR/payroll capabilities at direct-read RLS boundaries
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres hr_payroll_capability_rls_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname hr_payroll_capability_rls_test --set ON_ERROR_STOP=1 --file supabase/tests/hr_payroll_capability_rls.sql
 
       - name: Verify generator and meter-reading hot-path index parity
         env:
