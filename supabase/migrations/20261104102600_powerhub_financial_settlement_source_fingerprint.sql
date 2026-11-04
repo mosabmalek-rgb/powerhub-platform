@@ -31,8 +31,7 @@ AS $function$
     'accountTransactions',COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
         'id',t.id,'accountId',t.account_id,'siteId',t.site_id,
-        'transactionType',t.transaction_type,'amount',t.amount,'occurredAt',t.occurred_at,
-        'referenceNo',t.reference_no,'relatedPaymentId',t.related_payment_id,
+        'transactionType',t.transaction_type,'amount',t.amount,'occurredAt',t.occurred_at,'relatedPaymentId',t.related_payment_id,
         'relatedExpenseId',t.related_expense_id,'relatedSupplierPaymentId',t.related_supplier_payment_id,
         'relatedSupplierReturnId',t.related_supplier_return_id
       ) ORDER BY t.id)
