@@ -65,7 +65,7 @@ CREATE TABLE public.audit_logs(
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
 
-INSERT INTO public.sites(id,tenant_id,status) VALUES(10,1,'active'),(11,1,'active'),(12,1,'active');
+INSERT INTO public.sites(id,tenant_id,status) VALUES(10,1,'active'),(11,1,'active'),(12,1,'active'),(13,1,'active');
 INSERT INTO public.users(id,platform_role) VALUES(1,'platform_admin'),(2,'platform_admin'),(3,'platform_admin');
 
 INSERT INTO public.company_accounts(id,tenant_id,opening_balance,created_at) VALUES
@@ -489,12 +489,12 @@ BEGIN
   INSERT INTO public.inventory_stock_movements(
     id,tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,total_cost_amount,occurred_at
   ) VALUES
-    (5,1,11,501,4,'issue',10,8,80,'2026-11-10T10:00:00Z'),
-    (6,1,11,501,5,'issue',5,6,30,'2026-11-11T10:00:00Z'),
-    (7,1,11,501,6,'issue',3,5,15,'2026-11-12T10:00:00Z');
+    (5,1,13,501,4,'issue',10,8,80,'2026-11-10T10:00:00Z'),
+    (6,1,13,501,5,'issue',5,6,30,'2026-11-11T10:00:00Z'),
+    (7,1,13,501,6,'issue',3,5,15,'2026-11-12T10:00:00Z');
 
   v_summary:=public.powerhub_financial_settlement_preview(
-    1,11,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
+    1,13,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
   );
   IF (v_summary->>'inventoryConsumptionCost')::numeric<>15
      OR (v_summary->>'inventoryCapitalAssetIssueCost')::numeric<>80
@@ -506,7 +506,7 @@ BEGIN
   END IF;
   BEGIN
     PERFORM * FROM public.powerhub_create_financial_settlement(
-      1,11,1,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z',null,'unclassified inventory issue'
+      1,13,1,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z',null,'unclassified inventory issue'
     );
     RAISE EXCEPTION 'UNCLASSIFIED_INVENTORY_ISSUE_DID_NOT_BLOCK_SETTLEMENT';
   EXCEPTION WHEN SQLSTATE 'P0001' THEN
@@ -514,17 +514,17 @@ BEGIN
   END;
 
   v_fingerprint_before:=public.powerhub_financial_settlement_source_fingerprint(
-    1,11,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
+    1,13,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
   );
   UPDATE public.inventory_items SET accounting_treatment='expense_on_issue' WHERE id=5;
   IF public.powerhub_financial_settlement_source_fingerprint(
-    1,11,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
+    1,13,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
   )=v_fingerprint_before THEN
     RAISE EXCEPTION 'ITEM_ACCOUNTING_TREATMENT_CHANGE_DID_NOT_CHANGE_SETTLEMENT_FINGERPRINT';
   END IF;
 
   v_summary:=public.powerhub_financial_settlement_preview(
-    1,11,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
+    1,13,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z'
   );
   IF (v_summary->>'inventoryConsumptionCost')::numeric<>45
      OR (v_summary->>'inventoryCapitalAssetIssueCost')::numeric<>80
@@ -537,11 +537,11 @@ BEGIN
 
   SELECT settlement_id INTO v_settlement_id
   FROM public.powerhub_create_financial_settlement(
-    1,11,1,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z',null,'classified other inventory'
+    1,13,1,'2026-11-01T00:00:00Z','2026-11-30T23:59:59.999Z',null,'classified other inventory'
   );
-  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,11,1,v_settlement_id,'submitted');
-  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,11,2,v_settlement_id,'approved');
-  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,11,3,v_settlement_id,'locked');
+  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,13,1,v_settlement_id,'submitted');
+  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,13,2,v_settlement_id,'approved');
+  PERFORM * FROM public.powerhub_set_financial_settlement_status(1,13,3,v_settlement_id,'locked');
   BEGIN
     UPDATE public.inventory_items SET accounting_treatment='capital_asset' WHERE id=6;
     RAISE EXCEPTION 'LOCKED_SETTLEMENT_ALLOWED_ITEM_ACCOUNTING_RECLASSIFICATION';
