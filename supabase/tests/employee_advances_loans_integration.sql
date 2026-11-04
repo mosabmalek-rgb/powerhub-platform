@@ -143,7 +143,7 @@ grant select on public.payroll_adjustment_allocations to anon, authenticated;
 
 
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
-\ir ../migrations/20261104210000_powerhub_payroll_expense_account_linkage.sql
+\ir ../migrations/20261104203839_powerhub_payroll_expense_account_linkage.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
 
 -- The production HR Delta migration requires the canonical private RLS guards.
@@ -161,7 +161,7 @@ as $fixture$ select false $fixture$;
 \ir ../migrations/20261023214342_powerhub_payroll_period_constraint_reconcile.sql
 \ir ../migrations/20261023214421_powerhub_hr_payroll_rpc_baseline.sql
 \ir ../migrations/20261023214445_powerhub_employee_advances_loans.sql
-\ir ../migrations/20261104210000_powerhub_payroll_expense_account_linkage.sql
+\ir ../migrations/20261104203839_powerhub_payroll_expense_account_linkage.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
 \ir ../migrations/20261103174050_powerhub_employee_advance_accounting_period_scope.sql
 \ir ../migrations/20261101083059_powerhub_hr_delta_sync.sql
