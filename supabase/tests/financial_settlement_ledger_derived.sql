@@ -99,7 +99,7 @@ INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transact
 \ir ../migrations/20261104090010_20261104100000_powerhub_financial_settlement_approval_controls.sql
 \ir ../migrations/20261104101709_20261104110000_powerhub_financial_settlement_ledger_derived_summary.sql
 \ir ../migrations/20261104110822_20261104102600_powerhub_financial_settlement_source_fingerprint.sql
-\ir ../migrations/20261104122600_powerhub_financial_settlement_source_write_guard.sql
+\ir ../migrations/20261104131827_powerhub_financial_settlement_source_write_guard.sql
 
 SET ROLE service_role;
 DO $ledger_preview$
