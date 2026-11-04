@@ -518,6 +518,7 @@ revoke all on table public.powerhub_sync_scope_state from public,anon,authentica
 grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261101083224_powerhub_supplier_ledger_revision.sql
 \ir ../migrations/20261103174058_powerhub_supplier_accounting_period_scope.sql
+\ir ../migrations/20261104150000_powerhub_inventory_fuel_consumption_cost_report.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -1294,6 +1295,13 @@ declare
   v_replayed boolean;
   v_count integer;
   v_overview_quantity numeric(14,3);
+  v_fuel_movement_id bigint;
+  v_fuel_replacement_id bigint;
+  v_fuel_expected_cost numeric(14,2);
+  v_fuel_replacement_cost numeric(14,2);
+  v_fuel_report record;
+  v_timezone text;
+  v_anchor_date date;
 begin
   select id into v_item_id
   from public.inventory_items
@@ -1404,6 +1412,48 @@ begin
     'stock-workflow:fuel-001'
   );
   if v_movement_id is null then raise exception 'FUEL_CONSUMPTION_CREATE_FAILED'; end if;
+  v_fuel_movement_id:=v_movement_id;
+  select m.total_cost_amount into v_fuel_expected_cost
+  from public.inventory_stock_movements m
+  where m.tenant_id=v_tenant_id and m.site_id=v_site_id and m.id=v_fuel_movement_id;
+  select coalesce(c.timezone,'Asia/Gaza') into v_timezone
+  from public.sites s
+  left join public.tenant_reading_cycle_configurations c
+    on c.tenant_id=s.tenant_id and c.site_id=s.id
+  where s.tenant_id=v_tenant_id and s.id=v_site_id;
+  v_anchor_date:=(now() at time zone coalesce(v_timezone,'Asia/Gaza'))::date;
+
+  select * into v_fuel_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'day',v_anchor_date,null,null,v_generator_id
+  );
+  if v_fuel_report.movement_count<>1
+    or v_fuel_report.recorded_consumption_liters<>0.5
+    or v_fuel_report.recorded_consumption_cost<>v_fuel_expected_cost then
+    raise exception 'FUEL_CONSUMPTION_COST_REPORT_FAILED row=% expected_cost=%',
+      row_to_json(v_fuel_report),v_fuel_expected_cost;
+  end if;
+
+  select replacement_movement_id into v_fuel_replacement_id
+  from public.powerhub_inventory_correct_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_fuel_movement_id,0.5,null,
+    'FUEL-TEST-CORRECTED','corrected fuel movement','documented fuel consumption correction',
+    'stock-workflow:fuel-001-correction'
+  );
+  select m.total_cost_amount into v_fuel_replacement_cost
+  from public.inventory_stock_movements m
+  where m.tenant_id=v_tenant_id and m.site_id=v_site_id and m.id=v_fuel_replacement_id;
+  select * into v_fuel_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'day',v_anchor_date,null,null,v_generator_id
+  );
+  if v_fuel_replacement_id is null
+    or v_fuel_report.movement_count<>1
+    or v_fuel_report.recorded_consumption_liters<>0.5
+    or v_fuel_report.recorded_consumption_cost<>v_fuel_replacement_cost then
+    raise exception 'FUEL_CONSUMPTION_CORRECTION_COST_DOUBLE_COUNTED row=% replacement_cost=%',
+      row_to_json(v_fuel_report),v_fuel_replacement_cost;
+  end if;
 
   -- Inventory gains/loses and the audit log are recorded atomically with the movement.
   select movement_id into v_movement_id
