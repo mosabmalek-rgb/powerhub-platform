@@ -249,6 +249,7 @@ BEGIN
     v_approver bigint;
     v_difference numeric;
     v_book_cash numeric;
+    v_current_snapshot jsonb;
   BEGIN
     SELECT settlement_id INTO v_id
     FROM public.powerhub_create_financial_settlement(
