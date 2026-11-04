@@ -70,6 +70,7 @@ type InventoryStockMovementRow = {
 };
 
 const categorySchema = z.enum(["fuel", "oil", "filter", "spare_part", "maintenance_supply", "other"]);
+const accountingTreatmentSchema = z.enum(["expense_on_issue", "capital_asset", "pending_classification"]);
 const unitSchema = z.enum(["liter", "milliliter", "piece", "container", "kg", "gram", "meter", "set", "gallon", "other"]);
 
 function mapDatabaseError(error: { code?: string } | null, operation: string): never {
@@ -587,7 +588,7 @@ export const powerhubInventoryRouter = router({
     .query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewInventory");
       let query = supabaseAdmin().from("inventory_items")
-        .select("id,tenant_id,sku,name,category,base_unit,reorder_point,specification,notes,is_active,created_at,updated_at")
+        .select("id,tenant_id,sku,name,category,base_unit,reorder_point,specification,notes,accounting_treatment,is_active,created_at,updated_at")
         .eq("tenant_id", access.tenantId)
         .order("name", { ascending: true })
         .limit(500);
@@ -607,6 +608,7 @@ export const powerhubInventoryRouter = router({
       sku: z.string().trim().max(80).optional(),
       name: z.string().trim().min(1).max(180),
       category: categorySchema,
+      accountingTreatment: accountingTreatmentSchema,
       baseUnit: unitSchema,
       reorderPoint: z.number().finite().min(0).max(1_000_000_000).default(0),
       specification: z.string().trim().max(500).optional(),
@@ -614,13 +616,14 @@ export const powerhubInventoryRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createInventoryItems");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_item", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_item_v2", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
         p_user_id: ctx.user.id,
         p_sku: input.sku || null,
         p_name: input.name,
         p_category: input.category,
+        p_accounting_treatment: input.accountingTreatment,
         p_base_unit: input.baseUnit,
         p_reorder_point: input.reorderPoint,
         p_specification: input.specification || null,
@@ -635,16 +638,17 @@ export const powerhubInventoryRouter = router({
     .input(z.object({
       siteId: z.number().int().positive(), itemId: z.number().int().positive(),
       sku: z.string().trim().max(80).optional(),
-      name: z.string().trim().min(1).max(180), category: categorySchema, baseUnit: unitSchema,
+      name: z.string().trim().min(1).max(180), category: categorySchema,
+      accountingTreatment: accountingTreatmentSchema, baseUnit: unitSchema,
       reorderPoint: z.number().finite().min(0).max(1_000_000_000),
       specification: z.string().trim().max(500).optional(), notes: z.string().trim().max(2000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editInventoryItems");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_item", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_item_v2", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_item_id: input.itemId, p_sku: input.sku || null, p_name: input.name, p_category: input.category,
-        p_base_unit: input.baseUnit, p_reorder_point: input.reorderPoint,
+        p_accounting_treatment: input.accountingTreatment, p_base_unit: input.baseUnit, p_reorder_point: input.reorderPoint,
         p_specification: input.specification || null, p_notes: input.notes || null,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تعديل الصنف.");
