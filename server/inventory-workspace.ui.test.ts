@@ -676,11 +676,11 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("تكلفة التعبئة");
     expect(panel).toContain("متوسط تكلفة اللتر");
     expect(panel).toContain("لا تمثل الأرقام قياسًا للاستهلاك الفعلي");
-    expect(panel).toContain("الاستهلاك المسجل والمقاس لكل مولد");
+    expect(panel).toContain("الوقود المصروف والقياس التشخيصي لكل مولد");
     expect(panel).toContain("الاستهلاك المقاس</th>");
     expect(panel).toContain("لتر/ساعة</th>");
     expect(panel).toContain("fuelConsumptionCostReportPeriod.useQuery");
-    expect(panel).toContain("تكلفة استهلاك الوقود المسجل من المخزون");
+    expect(panel).toContain("تكلفة الوقود المصروف للمولد حسب التعبئة");
     expect(panel).toContain("recorded_consumption_cost");
     expect(panel).toContain('reportType: "fuel-consumption-cost" as const');
     expect(panel).toContain("aggregateFuelConsumptionReportByGenerator(reportRows)");
