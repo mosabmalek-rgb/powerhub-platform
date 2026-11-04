@@ -6,6 +6,13 @@
 -- The legacy account-movement RPC omits site_id. Reproduce the production
 -- BEFORE INSERT site resolver in this isolated fixture.
 ALTER TABLE public.account_transactions ALTER COLUMN site_id DROP NOT NULL;
+-- Keep the real company-account RPC compatible with the compact ledger fixture.
+-- These fields exist in the production account_transactions schema and are read
+-- or populated by powerhub_add_account_movement.
+ALTER TABLE public.account_transactions
+  ADD COLUMN description text NOT NULL DEFAULT '',
+  ADD COLUMN reference_no text,
+  ADD COLUMN created_by_user_id bigint;
 CREATE SEQUENCE public.financial_settlement_concurrency_tx_id_seq START WITH 90000;
 ALTER TABLE public.account_transactions
   ALTER COLUMN id SET DEFAULT nextval('public.financial_settlement_concurrency_tx_id_seq');
