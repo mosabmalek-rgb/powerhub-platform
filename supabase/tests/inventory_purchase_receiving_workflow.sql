@@ -535,6 +535,7 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261104220000_powerhub_inventory_fuel_fill_as_issue.sql
 \ir ../migrations/20261104220500_powerhub_fuel_fill_measurement_reconciliation.sql
 \ir ../migrations/20261105090000_powerhub_exclude_generator_tanks_from_stock_overview.sql
+\ir ../migrations/20261105100000_powerhub_inventory_accounting_treatment.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -604,12 +605,21 @@ $ledger_assertions$;
 
 -- Atomic RPCs create the domain row and its audit record together.
 do $atomic_create_assertions$
-declare v_item_id bigint; v_before integer; v_after integer;
+declare v_item_id bigint; v_capital_item_id bigint; v_treatment text; v_before integer; v_after integer;
 begin
   select count(*) into v_before from public.inventory_items where tenant_id=10;
   select id into v_item_id from public.powerhub_inventory_create_item(
     10,100,1,'RPC-ATOMIC-01','RPC-created diesel','fuel','liter',25,null,null
   );
+  select accounting_treatment into v_treatment from public.inventory_items where id=v_item_id;
+  if v_treatment<>'expense_on_issue' then raise exception 'LEGACY_FUEL_CREATE_DID_NOT_DEFAULT_TO_EXPENSE'; end if;
+  select id,accounting_treatment into v_capital_item_id,v_treatment
+  from public.powerhub_inventory_create_item_v2(
+    10,100,1,'RPC-CAPITAL-01','RPC-created capital asset','other','piece',0,null,null,'capital_asset'
+  );
+  if v_capital_item_id is null or v_treatment<>'capital_asset' then
+    raise exception 'INVENTORY_CREATE_V2_ACCOUNTING_TREATMENT_FAILED';
+  end if;
   if not exists (
     select 1 from public.audit_logs
     where tenant_id=10 and site_id=100 and entity_type='inventory_item'
@@ -641,16 +651,22 @@ begin
   drop function public.fail_inventory_audit_for_test();
 
   select count(*) into v_after from public.inventory_items where tenant_id=10;
-  if v_after<>v_before+1 then
-    raise exception 'INVENTORY_CREATE_NOT_ATOMIC expected=% actual=%',v_before+1,v_after;
+  if v_after<>v_before+2 then
+    raise exception 'INVENTORY_CREATE_NOT_ATOMIC expected=% actual=%',v_before+2,v_after;
   end if;
   -- Keep the existing foundation fixture's stable IDs for later FK/idempotency assertions.
-  delete from public.inventory_items where id=v_item_id;
+  delete from public.inventory_items where id in (v_item_id,v_capital_item_id);
   if has_function_privilege('authenticated','public.powerhub_inventory_create_item(bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE') then
     raise exception 'AUTHENTICATED_CAN_EXECUTE_INVENTORY_CREATE_RPC';
   end if;
   if not has_function_privilege('service_role','public.powerhub_inventory_create_item(bigint,bigint,bigint,text,text,text,text,numeric,text,text)','EXECUTE') then
     raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_INVENTORY_CREATE_RPC';
+  end if;
+  if has_function_privilege('authenticated','public.powerhub_inventory_create_item_v2(bigint,bigint,bigint,text,text,text,text,numeric,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_create_item_v2(bigint,bigint,bigint,text,text,text,text,numeric,text,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_update_item_v2(bigint,bigint,bigint,bigint,text,text,text,text,numeric,text,text,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_update_item_v2(bigint,bigint,bigint,bigint,text,text,text,text,numeric,text,text,text)','EXECUTE') then
+    raise exception 'INVENTORY_ACCOUNTING_TREATMENT_RPC_ACL_INVALID';
   end if;
 end;
 $atomic_create_assertions$;
