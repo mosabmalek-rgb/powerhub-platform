@@ -56,8 +56,10 @@ INSERT INTO public.staff_profiles(id,tenant_id,user_id,site_id,role,custom_role_
 (7,1,11,10,'accountant',NULL,'[]'::jsonb,true,NULL,NULL,NULL),
 (8,1,12,10,'manager',1,NULL,true,NULL,NULL,NULL),
 (9,1,13,10,'accountant',NULL,NULL,true,NULL,NULL,NULL);
+-- Keep the manager's explicit grant for the post-baseline override case;
+-- the default manager case must first prove that manageExpenses alone is insufficient.
 INSERT INTO public.staff_profile_capability_overrides VALUES
-(1,1,1,'managePayroll',true),(2,1,9,'managePayroll',false);
+(2,1,9,'managePayroll',false);
 
 INSERT INTO public.employees VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.employee_attendance VALUES(1,1,1,10),(2,1,2,11),(3,2,3,20);
@@ -114,6 +116,9 @@ BEGIN
 END
 $manager_default$;
 RESET ROLE;
+
+INSERT INTO public.staff_profile_capability_overrides(id,tenant_id,profile_id,capability,is_allowed)
+VALUES(1,1,1,'managePayroll',true);
 
 -- Explicit capability grant bypasses route role list consistently with the server resolver.
 SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
