@@ -77,6 +77,15 @@ type FuelReportRow = {
   measurement_status: string;
 };
 
+type FuelConsumptionCostReportRow = {
+  generator_id: number | string;
+  generator_name: string;
+  movement_count: number | string;
+  recorded_consumption_liters: number | string;
+  recorded_consumption_cost: number | string;
+  average_cost_per_liter: number | string | null;
+};
+
 type PhaseDFinancialSummary = {
   purchaseInvoiceCount: number | null;
   purchaseInvoiceAmount: number | null;
@@ -273,6 +282,19 @@ export default function InventoryDashboardPanel({
       staleTime: 15_000, retry: 1,
     },
   );
+  const fuelConsumptionCostReport = trpc.powerhub.inventory.fuelConsumptionCostReportPeriod.useQuery(
+    {
+      siteId, periodType: period, anchorDate: period === "custom" ? undefined : anchorDate,
+      fromDate: period === "custom" ? customFrom : undefined,
+      toDate: period === "custom" ? customTo : undefined,
+      generatorId: generatorId ? Number(generatorId) : undefined,
+    },
+    {
+      enabled: enabled && canViewInventoryReports && Boolean(dateRange) &&
+        (period !== "custom" || Boolean(customFrom && customTo && customFrom <= customTo)),
+      staleTime: 15_000, retry: 1,
+    },
+  );
   const maintenanceReport = trpc.powerhub.maintenance.reportByGenerator.useQuery(
     {
       siteId, fromDate: dateRange?.fromDate ?? today, toDate: dateRange?.toDate ?? today,
@@ -282,6 +304,7 @@ export default function InventoryDashboardPanel({
   );
 
   const fuelRows = (fuelReport.data ?? []) as FuelReportRow[];
+  const fuelConsumptionCostRows = (fuelConsumptionCostReport.data ?? []) as FuelConsumptionCostReportRow[];
   const fuelTotals = useMemo(() => {
     const measuredRows = fuelRows.filter((row) => row.actual_consumption_liters !== null && row.actual_consumption_liters !== undefined);
     const anomalies = fuelRows.filter((row) => row.measurement_status === "reconciliation_anomaly");
@@ -311,6 +334,10 @@ export default function InventoryDashboardPanel({
       const id = Number(row.generator_id);
       fuelByGenerator.set(id, [...(fuelByGenerator.get(id) ?? []), row]);
     }
+    const fuelConsumptionCostByGenerator = new Map<number, FuelConsumptionCostReportRow>();
+    for (const row of fuelConsumptionCostRows) {
+      fuelConsumptionCostByGenerator.set(Number(row.generator_id), row);
+    }
     const maintenanceByGenerator = new Map<number, {
       orders: number; breakdowns: number; open: number; downtime: number; cost: number;
     }>();
@@ -329,6 +356,7 @@ export default function InventoryDashboardPanel({
       .map((generator) => {
         const rows = fuelByGenerator.get(Number(generator.id)) ?? [];
         const measuredRows = rows.filter((row) => row.actual_consumption_liters !== null && row.actual_consumption_liters !== undefined);
+        const inventoryFuelCost = fuelConsumptionCostByGenerator.get(Number(generator.id));
         const maintenance = maintenanceByGenerator.get(Number(generator.id));
         return {
           generator_id: Number(generator.id),
@@ -337,6 +365,14 @@ export default function InventoryDashboardPanel({
           filled_liters: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.fuel_filled_liters), 0),
           filled_cost: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.fuel_filled_cost), 0),
           recorded_consumption_liters: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.recorded_consumption_liters), 0),
+          inventory_consumption_liters: fuelConsumptionCostReport.isLoading || fuelConsumptionCostReport.isError
+            ? null : numberOf(inventoryFuelCost?.recorded_consumption_liters),
+          inventory_consumption_cost: fuelConsumptionCostReport.isLoading || fuelConsumptionCostReport.isError
+            ? null : numberOf(inventoryFuelCost?.recorded_consumption_cost),
+          inventory_average_cost_per_liter: fuelConsumptionCostReport.isLoading || fuelConsumptionCostReport.isError
+            ? null : inventoryFuelCost?.average_cost_per_liter == null ? null : numberOf(inventoryFuelCost.average_cost_per_liter),
+          inventory_consumption_movements: fuelConsumptionCostReport.isLoading || fuelConsumptionCostReport.isError
+            ? null : numberOf(inventoryFuelCost?.movement_count),
           actual_consumption_liters: fuelReport.isLoading || fuelReport.isError || rows.length === 0 || measuredRows.length !== rows.length
             ? null : measuredRows.reduce((sum, row) => sum + numberOf(row.actual_consumption_liters), 0),
           measured_tank_count: measuredRows.length,
@@ -347,14 +383,14 @@ export default function InventoryDashboardPanel({
           maintenance_cost: maintenanceReport.isLoading || maintenanceReport.isError ? null : maintenance?.cost ?? 0,
         };
       });
-  }, [fuelOptions.data?.generators, fuelRows, maintenanceRows, fuelReport.isLoading, fuelReport.isError, maintenanceReport.isLoading, maintenanceReport.isError, generatorId]);
+  }, [fuelOptions.data?.generators, fuelRows, fuelConsumptionCostRows, maintenanceRows, fuelReport.isLoading, fuelReport.isError, fuelConsumptionCostReport.isLoading, fuelConsumptionCostReport.isError, maintenanceReport.isLoading, maintenanceReport.isError, generatorId]);
   const debt = payables.data as unknown as AgingSummary | undefined;
   const reportLoading = canViewInventoryReports && (
-    fuelOptions.isLoading || reportWarehouses.isLoading || fuelReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
+    fuelOptions.isLoading || reportWarehouses.isLoading || fuelReport.isLoading || fuelConsumptionCostReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
     (period === "cycle" && cycleBounds.isLoading)
   );
   const reportError = canViewInventoryReports && (
-    fuelOptions.isError || reportWarehouses.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
+    fuelOptions.isError || reportWarehouses.isError || fuelReport.isError || fuelConsumptionCostReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
     (period === "cycle" && cycleBounds.isError)
   );
   const financialTotals = phaseDFinancialSummary.data as PhaseDFinancialSummary | undefined;
@@ -674,9 +710,13 @@ export default function InventoryDashboardPanel({
           row.litres_per_hour==null?"غير متاح":quantity(numberOf(row.litres_per_hour)),row.measurement_status,
         ])) +
         "<h2>التكلفة التشغيلية المسجلة حسب المولد</h2>" +
-        table(["المولد","الخزانات","الوقود المعبأ","قيمة الوقود المنقول","الاستهلاك المقاس","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],generatorOperatingRows.map((row)=>[
+        table(["المولد","الخزانات","الوقود المعبأ","قيمة الوقود المنقول","الاستهلاك المسجل من المخزون","تكلفة الاستهلاك المخزني","متوسط تكلفة اللتر","الاستهلاك المقاس","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],generatorOperatingRows.map((row)=>[
           row.generator_name,row.tank_count??"غير متاح",row.filled_liters==null?"غير متاح":quantity(row.filled_liters)+" لتر",
-          row.filled_cost==null?"غير متاح":amount(row.filled_cost),row.actual_consumption_liters==null?"قياس غير مكتمل":quantity(row.actual_consumption_liters)+" لتر",
+          row.filled_cost==null?"غير متاح":amount(row.filled_cost),
+          row.inventory_consumption_liters==null?"غير متاح":quantity(row.inventory_consumption_liters)+" لتر",
+          row.inventory_consumption_cost==null?"غير متاح":amount(row.inventory_consumption_cost),
+          row.inventory_average_cost_per_liter==null?"غير متاح":amount(row.inventory_average_cost_per_liter),
+          row.actual_consumption_liters==null?"قياس غير مكتمل":quantity(row.actual_consumption_liters)+" لتر",
           row.maintenance_orders??"غير متاح",row.maintenance_downtime??"غير متاح",
           row.maintenance_cost==null?"غير متاح":amount(row.maintenance_cost),
         ])) +
@@ -803,13 +843,14 @@ export default function InventoryDashboardPanel({
         <div className="mt-5 space-y-3">
           <div>
             <h3 className="font-semibold">تفاصيل التكلفة التشغيلية المسجلة حسب المولد</h3>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">نعرض تكلفة الوقود المنقول إلى خزانات المولد وتكلفة الصيانة في عمودين منفصلين. لا تمثل تكلفة التعبئة وحدها استهلاك الوقود الفعلي، ولا نجمع المشتريات النقدية مع تكاليف التشغيل.</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">نعرض تكلفة الوقود المنقول إلى الخزانات وتكلفة حركات استهلاك الوقود من المخزون كإفصاح مستقل محسوب بمتوسط التكلفة، وتكلفة الصيانة في أعمدة منفصلة. تكلفة الاستهلاك المخزني لا تُضاف إلى الربح التشغيلي الحالي، حتى لا تتكرر مع مصروف الوقود اليدوي قبل اعتماد سياسة مصدر التكلفة.</p>
           </div>
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
               <thead><tr className="bg-muted/50 text-right">
                 <th className="p-2">المولد</th><th className="p-2">الخزانات</th><th className="p-2">الوقود المعبأ</th>
-                <th className="p-2">تكلفة الوقود المنقول</th><th className="p-2">الاستهلاك المقاس</th>
+                <th className="p-2">تكلفة الوقود المنقول</th><th className="p-2">الاستهلاك المسجل من المخزون</th>
+                <th className="p-2">تكلفة الاستهلاك المخزني</th><th className="p-2">متوسط تكلفة اللتر</th><th className="p-2">الاستهلاك المقاس</th>
                 <th className="p-2">أوامر الصيانة</th><th className="p-2">التوقف بالدقائق</th><th className="p-2">تكلفة الصيانة المسجلة</th>
               </tr></thead>
               <tbody>{generatorOperatingRows.map((row) => <tr key={row.generator_id} className="border-t">
@@ -817,17 +858,20 @@ export default function InventoryDashboardPanel({
                 <td className="p-2">{row.tank_count === null ? "—" : row.tank_count === 0 ? "لا يوجد خزان مرتبط" : row.tank_count.toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.filled_liters === null ? "—" : `${quantity(row.filled_liters)} لتر`}</td>
                 <td className="p-2">{row.filled_cost === null ? "—" : amount(row.filled_cost)}</td>
+                <td className="p-2">{row.inventory_consumption_liters === null ? "—" : `${quantity(row.inventory_consumption_liters)} لتر`}</td>
+                <td className="p-2">{row.inventory_consumption_cost === null ? "—" : amount(row.inventory_consumption_cost)}</td>
+                <td className="p-2">{row.inventory_average_cost_per_liter === null ? "—" : amount(row.inventory_average_cost_per_liter)}</td>
                 <td className="p-2">{row.actual_consumption_liters === null ? "غير مكتمل/غير متاح" : `${quantity(row.actual_consumption_liters)} لتر`}</td>
                 <td className="p-2">{row.maintenance_orders === null ? "—" : row.maintenance_orders.toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.maintenance_downtime === null ? "—" : row.maintenance_downtime.toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.maintenance_cost === null ? "—" : amount(row.maintenance_cost)}</td>
               </tr>)}
-              {generatorOperatingRows.length === 0 ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">لا توجد مولدات ضمن المرشحات الحالية.</td></tr> : null}
+              {generatorOperatingRows.length === 0 ? <tr><td colSpan={11} className="p-4 text-center text-muted-foreground">لا توجد مولدات ضمن المرشحات الحالية.</td></tr> : null}
             </tbody>
           </table>
         </div>
         </div>
-        {!reportLoading && (fuelReport.isError || maintenanceReport.isError) ? <p className="mt-3 rounded-md border border-destructive/30 p-3 text-sm text-destructive">تعذر تحميل تقرير الوقود أو الصيانة لهذا النطاق. بقيت بيانات المصدر الفاشل غير معروضة بدل إظهار أرقام صفرية.</p> : null}
+        {!reportLoading && (fuelReport.isError || fuelConsumptionCostReport.isError || maintenanceReport.isError) ? <p className="mt-3 rounded-md border border-destructive/30 p-3 text-sm text-destructive">تعذر تحميل أحد تقارير الوقود أو الصيانة لهذا النطاق. بقيت بيانات المصدر الفاشل غير معروضة بدل إظهار أرقام صفرية.</p> : null}
       </CardContent>
     </Card> : <Card><CardContent className="p-4 text-sm text-muted-foreground">مؤشرات الوقود والصيانة والتكاليف التشغيلية لا تظهر إلا لصلاحية تقارير المخزون.</CardContent></Card>}
 
