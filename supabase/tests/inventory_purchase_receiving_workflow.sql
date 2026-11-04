@@ -533,6 +533,7 @@ grant all on table public.powerhub_sync_scope_state to service_role;
 \ir ../migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql
 \ir ../migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql
 \ir ../migrations/20261104220000_powerhub_inventory_fuel_fill_as_issue.sql
+\ir ../migrations/20261104220500_powerhub_fuel_fill_measurement_reconciliation.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
