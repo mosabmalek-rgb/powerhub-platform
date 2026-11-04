@@ -2145,9 +2145,9 @@ export const powerhubInventoryRouter = router({
     .input(z.object({
       siteId: z.number().int().positive(),
       periodType: z.enum(["day", "cycle", "month", "custom"]),
-      anchorDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
-      fromDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
-      toDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      anchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       generatorId: z.number().int().positive().optional(),
     }).superRefine((value, ctx) => {
       if (value.periodType !== "custom" && !value.anchorDate) {
