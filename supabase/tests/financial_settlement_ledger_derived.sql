@@ -114,7 +114,7 @@ INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transact
 \ir ../migrations/20261104190000_powerhub_financial_settlement_unmapped_opening_balance_guard.sql
 \ir ../migrations/20261104110822_20261104102600_powerhub_financial_settlement_source_fingerprint.sql
 \ir ../migrations/20261104131827_powerhub_financial_settlement_source_write_guard.sql
-\ir ../migrations/20261104221000_powerhub_settlement_inventory_consumption_cost.sql
+\ir ../migrations/20261104215452_powerhub_settlement_inventory_consumption_cost.sql
 \ir ../migrations/20261104231115_powerhub_inventory_accounting_treatment.sql
 
 SET ROLE service_role;
