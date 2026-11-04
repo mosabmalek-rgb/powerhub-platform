@@ -20,7 +20,7 @@ returns table(
 language plpgsql
 stable
 security definer
-set search_path to 'public', 'pg_temp'
+set search_path to ''
 as $function$
 declare
   v_timezone text;
