@@ -4379,7 +4379,7 @@ export const powerhubRouter = router({
         startDate: input.startDate,
         endDate: input.endDate,
         invoices,
-        payments: paymentRows.map(({ payment }) => ({ status: payment.status, amount: payment.amount })),
+        payments: paymentRows.map(({ payment }) => ({ status: payment.status, amount: payment.invoiceAppliedAmount })),
         includeDetails: input.includeDetails,
       });
     }),
