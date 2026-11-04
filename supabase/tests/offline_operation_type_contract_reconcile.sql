@@ -10,6 +10,7 @@ INSERT INTO public.offline_sync_operations(operation_type)
 VALUES ('payment_create');
 
 \ir ../migrations/20261101083858_powerhub_offline_operation_type_contract_reconcile.sql
+\ir ../migrations/20261104193000_powerhub_offline_security_deposit_operation_types.sql
 
 DO $assert_contract$
 DECLARE
@@ -34,7 +35,9 @@ DECLARE
     'subscription_quick_upgrade',
     'reading_update',
     'reading_delete',
-    'subscriber_bulk_import'
+    'subscriber_bulk_import',
+    'security_deposit_receipt',
+    'security_deposit_refund'
   ]::text[];
   v_before bigint;
   v_after bigint;
@@ -63,14 +66,15 @@ BEGIN
 END
 $assert_contract$;
 
--- A second application must be idempotent and preserve all accepted history.
+-- Both migrations remain idempotent in their release order.
 \ir ../migrations/20261101083858_powerhub_offline_operation_type_contract_reconcile.sql
+\ir ../migrations/20261104193000_powerhub_offline_security_deposit_operation_types.sql
 DO $assert_repeat$
 BEGIN
-  IF (SELECT count(*) FROM public.offline_sync_operations) <> 22 THEN
+  IF (SELECT count(*) FROM public.offline_sync_operations) <> 24 THEN
     RAISE EXCEPTION 'OFFLINE_OPERATION_TYPE_REPEATABILITY_OR_ROW_PRESERVATION_FAILED';
   END IF;
 END
 $assert_repeat$;
 
-SELECT 'offline operation type reconciliation passed: 21 values, existing rows preserved, invalid values rejected, repeatable' AS result;
+SELECT 'offline operation type reconciliation passed: 23 values, existing rows preserved, invalid values rejected, repeatable' AS result;
