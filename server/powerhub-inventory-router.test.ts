@@ -743,6 +743,39 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
+  it("records a fuel fill when no tank-level or operating-hours readings are supplied", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["viewInventoryReports"] });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      fuel_event_id: 901, stock_transfer_id: null, litres: 100,
+      total_cost_amount: 560, replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordFuelFill;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: {
+        siteId: 7, generatorId: 10, fuelItemId: 12,
+        sourceWarehouseId: 4, destinationWarehouseId: 5,
+        litres: 100, occurredAt: "2026-11-04T20:00:00.000Z",
+        operationKey: "fuel-fill:without-measurements",
+      },
+    });
+
+    expect(result).toMatchObject({
+      fuel_event_id: 901, stock_transfer_id: null, litres: 100,
+      total_cost_amount: 560, replayed: false,
+    });
+    expect(state.access).toHaveBeenCalledWith(55, 7, expect.any(Array), "manageFuelAndConsumption");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_record_fuel_fill", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 55, p_generator_id: 10,
+      p_fuel_item_id: 12, p_source_warehouse_id: 4, p_destination_warehouse_id: 5,
+      p_litres: 100, p_occurred_at: "2026-11-04T20:00:00.000Z",
+      p_level_before_liters: null, p_level_after_liters: null,
+      p_operating_hours: null, p_reference_no: null, p_notes: null,
+      p_operation_key: "fuel-fill:without-measurements",
+    });
+  });
+
   it("denies fuel-reading writes before the RPC when the actor lacks fuel-management capability", async () => {
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.from.mockClear();
