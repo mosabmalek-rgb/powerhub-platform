@@ -1609,10 +1609,70 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_expense_with_account", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_company_account_id: 90, p_category: "fuel", p_amount: 50 }) })]);
   });
 
-  it("ينشئ تسوية مالية بالدالة الذرية في Supabase دون MySQL", async () => {
+  it("يشتق معاينة التسوية من دفتر الأستاذ ويرفض إجماليات التحصيل والمصروفات اليدوية", async () => {
+    const previewRow = {
+      totalCollected: 100, totalExpenses: 20, bookProfit: 80,
+      cashOpeningBalance: 50, cashInflows: 125, cashOutflows: 40, bookCashBalance: 135,
+      cashBalanceComplete: true, isReconciled: true,
+      subscriberCreditCreated: 15, securityDepositReceived: 30, securityDepositRefunded: 0,
+      supplierPaymentAmount: 10, supplierPurchaseInvoiceAmount: 60,
+      supplierReturnCreditAmount: 5, supplierReturnRefundAmount: 0,
+      operatingExpensesByCategory: { maintenance: 20 },
+      cashBreakdown: {
+        inflows: { subscriberCollections: 115, otherCollections: 0, securityDepositReceipts: 0, supplierReturnRefunds: 0, otherDeposits: 0, transfersIn: 0, accountOpeningBalanceAdded: 0 },
+        outflows: { operatingExpenses: 20, supplierPayments: 10, securityDepositRefunds: 0, otherPaymentRefunds: 0, otherWithdrawals: 0, transfersOut: 0 },
+      },
+      reconciliation: { issueCount: 0, status: "reconciled", orphanReferenceMovementCount: 0 },
+    };
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_financial_settlement_preview") return { data: previewRow, error: null };
+      if (name === "powerhub_create_financial_settlement") return { data: [{ settlement_id: 97 }], error: null };
+      return state.defaultRpc(name, args);
+    });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.settlements.create({ siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z", totalCollected: 100, totalExpenses: 20, actualCash: 75, notes: "تسوية دورية" })).resolves.toEqual({ id: 97 });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_financial_settlement", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_total_collected: 100, p_total_expenses: 20, p_actual_cash: 75 }) })]);
+    await expect(caller.settlements.preview({
+      siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z",
+    })).resolves.toMatchObject({
+      totalCollected: 100, totalExpenses: 20, bookProfit: 80,
+      bookCashBalance: 135, isReconciled: true, supplierPaymentAmount: 10,
+      subscriberCreditCreated: 15, securityDepositReceived: 30,
+      reconciliation: { issueCount: 0, status: "reconciled", orphanReferenceMovementCount: 0 },
+    });
+    await expect(caller.settlements.create({
+      siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z",
+      actualCash: 140, notes: "تسوية دورية",
+    })).resolves.toEqual({ id: 97 });
+    expect(state.rpcCalls).toEqual([
+      expect.objectContaining({
+        name: "powerhub_financial_settlement_preview",
+        args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_period_start: "2026-08-01T00:00:00.000Z", p_period_end: "2026-08-31T23:59:59.999Z" }),
+      }),
+      expect.objectContaining({
+        name: "powerhub_create_financial_settlement",
+        args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_actual_cash: 140, p_notes: "تسوية دورية" }),
+      }),
+    ]);
+    expect((state.rpcCalls[1].args as Record<string, unknown>)).not.toHaveProperty("p_total_collected");
+    expect((state.rpcCalls[1].args as Record<string, unknown>)).not.toHaveProperty("p_total_expenses");
+  });
+
+  it("يمنع إنشاء التسوية عندما ترفض قاعدة البيانات مطابقة الدفاتر", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_financial_settlement") {
+        return { data: null, error: { code: "P0001", message: "SETTLEMENT_LEDGER_RECONCILIATION_FAILED" } };
+      }
+      return state.defaultRpc(name, args);
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.settlements.create({
+      siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z",
+      actualCash: 140,
+    })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "لا يمكن حفظ التسوية: توجد حركات مالية غير مرتبطة أو رصيد افتتاحي مشترك لا يمكن إسناده بأمان.",
+    });
   });
 
   it("يغيّر حالة التسوية بالدالة الذرية في Supabase دون MySQL", async () => {
@@ -1633,6 +1693,19 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       name: "powerhub_set_financial_settlement_status",
       args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_settlement_id: 97, p_status: "approved" }),
     })]);
+  });
+
+  it("يرفض إرسال التسوية عندما تتغير الدفاتر بعد إنشاء المسودة", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      return { data: null, error: { code: "P0001", message: "SETTLEMENT_SOURCE_LEDGER_CHANGED" } };
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.settlements.setStatus({ siteId: 10, settlementId: 97, status: "submitted" }))
+      .rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: "تغيرت القيود المالية منذ إعداد التسوية؛ لا يمكن إرسالها أو اعتمادها أو إقفالها قبل إنشاء تسوية محدثة.",
+      });
   });
 
   it("يعرض قائمة التسويات من Supabase دون MySQL", async () => {

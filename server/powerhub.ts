@@ -4385,10 +4385,110 @@ export const powerhubRouter = router({
   }),
 
   settlements: router({
-    list: protectedProcedure.input(siteScoped.extend({ branchId: z.number().int().positive().optional(), allBranches: z.boolean().optional() })).query(async ({ ctx, input }) => { const targetSiteId=input.branchId??input.siteId; const access=input.allBranches?await requireSupabaseAllBranchesRole(ctx.user.id,input.siteId,["manager","accountant","viewer"]):await requireSupabaseSiteRole(ctx.user.id,targetSiteId,["owner","manager","accountant","viewer"]); const {data,error}=await supabaseAdmin().from("financial_settlements").select("id, tenant_id, site_id, period_start, period_end, total_collected, total_expenses, book_profit, actual_cash, difference, notes, status, created_by_user_id, approved_by_user_id, locked_at, created_at, updated_at").eq("tenant_id",access.tenantId).in("site_id",input.allBranches?(await supabaseAdmin().from("sites").select("id").eq("tenant_id",access.tenantId).neq("status","archived")).data?.map((site)=>Number(site.id))??[]:[targetSiteId]).order("period_start",{ascending:false}).limit(300); if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل التسويات المالية من Supabase."}); return (data??[]).map((row)=>({id:Number(row.id),tenantId:Number(row.tenant_id),siteId:Number(row.site_id),periodStart:new Date(row.period_start),periodEnd:new Date(row.period_end),totalCollected:String(row.total_collected),totalExpenses:String(row.total_expenses),bookProfit:String(row.book_profit),actualCash:row.actual_cash===null?null:String(row.actual_cash),difference:row.difference===null?null:String(row.difference),notes:row.notes,status:row.status,createdByUserId:Number(row.created_by_user_id),approvedByUserId:row.approved_by_user_id===null?null:Number(row.approved_by_user_id),lockedAt:row.locked_at?new Date(row.locked_at):null,createdAt:new Date(row.created_at),updatedAt:new Date(row.updated_at)})); }),
-    create: protectedProcedure.input(z.object({ siteId:z.number().int().positive(), periodStart:z.string().datetime(), periodEnd:z.string().datetime(), totalCollected:z.number().nonnegative(), totalExpenses:z.number().nonnegative(), actualCash:z.number().nonnegative().optional(), notes:z.string().max(2000).optional() })).mutation(async ({ctx,input})=>{ const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_create_financial_settlement",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_period_start:input.periodStart,p_period_end:input.periodEnd,p_total_collected:input.totalCollected,p_total_expenses:input.totalExpenses,p_actual_cash:input.actualCash??null,p_notes:input.notes??null}); if(error) throw new TRPCError({code:"BAD_REQUEST",message:error.message.includes("INVALID_SETTLEMENT_PERIOD")?"بداية الفترة يجب أن تسبق نهايتها.":error.message.includes("SETTLEMENT_PERIOD_OVERLAPS_LOCKED")?"تتداخل الفترة مع تسوية مقفلة.":"تعذر إنشاء التسوية المالية."}); const id=Number((data as Array<{settlement_id:number}>|null)?.[0]?.settlement_id); if(!id) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة التسوية معرفاً صالحاً."}); return {id}; }),
+    list: protectedProcedure.input(siteScoped.extend({ branchId: z.number().int().positive().optional(), allBranches: z.boolean().optional() })).query(async ({ ctx, input }) => { const targetSiteId=input.branchId??input.siteId; const access=input.allBranches?await requireSupabaseAllBranchesRole(ctx.user.id,input.siteId,["manager","accountant","viewer"]):await requireSupabaseSiteRole(ctx.user.id,targetSiteId,["owner","manager","accountant","viewer"]); const {data,error}=await supabaseAdmin().from("financial_settlements").select("id, tenant_id, site_id, period_start, period_end, total_collected, total_expenses, book_profit, actual_cash, difference, cash_opening_balance, cash_inflows, cash_outflows, book_cash_balance, ledger_reconciliation_status, notes, status, created_by_user_id, approved_by_user_id, locked_at, created_at, updated_at").eq("tenant_id",access.tenantId).in("site_id",input.allBranches?(await supabaseAdmin().from("sites").select("id").eq("tenant_id",access.tenantId).neq("status","archived")).data?.map((site)=>Number(site.id))??[]:[targetSiteId]).order("period_start",{ascending:false}).limit(300); if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل التسويات المالية من Supabase."}); return (data??[]).map((row)=>({id:Number(row.id),tenantId:Number(row.tenant_id),siteId:Number(row.site_id),periodStart:new Date(row.period_start),periodEnd:new Date(row.period_end),totalCollected:String(row.total_collected),totalExpenses:String(row.total_expenses),bookProfit:String(row.book_profit),actualCash:row.actual_cash===null?null:String(row.actual_cash),difference:row.difference===null?null:String(row.difference),cashOpeningBalance:row.cash_opening_balance===null?null:String(row.cash_opening_balance),cashInflows:row.cash_inflows===null?null:String(row.cash_inflows),cashOutflows:row.cash_outflows===null?null:String(row.cash_outflows),bookCashBalance:row.book_cash_balance===null?null:String(row.book_cash_balance),ledgerReconciliationStatus:row.ledger_reconciliation_status,notes:row.notes,status:row.status,createdByUserId:Number(row.created_by_user_id),approvedByUserId:row.approved_by_user_id===null?null:Number(row.approved_by_user_id),lockedAt:row.locked_at?new Date(row.locked_at):null,createdAt:new Date(row.created_at),updatedAt:new Date(row.updated_at)})); }),
+    preview: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      periodStart: z.string().datetime(),
+      periodEnd: z.string().datetime(),
+    }).refine((value) => value.periodStart < value.periodEnd, {
+      message: "بداية الفترة يجب أن تسبق نهايتها.",
+    })).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_financial_settlement_preview", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_period_start: input.periodStart,
+        p_period_end: input.periodEnd,
+      });
+      if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error.message.includes("INVALID_SETTLEMENT_PERIOD") ? "نطاق فترة التسوية غير صحيح." : "تعذر احتساب ملخص التسوية من الدفاتر." });
+      const row = (data ?? {}) as Record<string, unknown>;
+      const reconciliation = (row.reconciliation ?? {}) as Record<string, unknown>;
+      const rawCashBreakdown = (row.cashBreakdown ?? {}) as Record<string, unknown>;
+      const cashInflowsBreakdown = (rawCashBreakdown.inflows ?? {}) as Record<string, unknown>;
+      const cashOutflowsBreakdown = (rawCashBreakdown.outflows ?? {}) as Record<string, unknown>;
+      return {
+        totalCollected: Number(row.totalCollected ?? 0),
+        totalExpenses: Number(row.totalExpenses ?? 0),
+        bookProfit: Number(row.bookProfit ?? 0),
+        cashOpeningBalance: Number(row.cashOpeningBalance ?? 0),
+        cashInflows: Number(row.cashInflows ?? 0),
+        cashOutflows: Number(row.cashOutflows ?? 0),
+        bookCashBalance: row.bookCashBalance === null ? null : Number(row.bookCashBalance ?? 0),
+        cashBalanceComplete: row.cashBalanceComplete === true,
+        isReconciled: row.isReconciled === true,
+        subscriberCreditCreated: Number(row.subscriberCreditCreated ?? 0),
+        securityDepositReceived: Number(row.securityDepositReceived ?? 0),
+        securityDepositRefunded: Number(row.securityDepositRefunded ?? 0),
+        supplierPaymentAmount: Number(row.supplierPaymentAmount ?? 0),
+        supplierPurchaseInvoiceAmount: Number(row.supplierPurchaseInvoiceAmount ?? 0),
+        supplierReturnCreditAmount: Number(row.supplierReturnCreditAmount ?? 0),
+        supplierReturnRefundAmount: Number(row.supplierReturnRefundAmount ?? 0),
+        operatingExpensesByCategory: row.operatingExpensesByCategory ?? {},
+        cashBreakdown: {
+          inflows: {
+            subscriberCollections: Number(cashInflowsBreakdown.subscriberCollections ?? 0),
+            otherCollections: Number(cashInflowsBreakdown.otherCollections ?? 0),
+            securityDepositReceipts: Number(cashInflowsBreakdown.securityDepositReceipts ?? 0),
+            supplierReturnRefunds: Number(cashInflowsBreakdown.supplierReturnRefunds ?? 0),
+            otherDeposits: Number(cashInflowsBreakdown.otherDeposits ?? 0),
+            transfersIn: Number(cashInflowsBreakdown.transfersIn ?? 0),
+            accountOpeningBalanceAdded: Number(cashInflowsBreakdown.accountOpeningBalanceAdded ?? 0),
+          },
+          outflows: {
+            operatingExpenses: Number(cashOutflowsBreakdown.operatingExpenses ?? 0),
+            supplierPayments: Number(cashOutflowsBreakdown.supplierPayments ?? 0),
+            securityDepositRefunds: Number(cashOutflowsBreakdown.securityDepositRefunds ?? 0),
+            otherPaymentRefunds: Number(cashOutflowsBreakdown.otherPaymentRefunds ?? 0),
+            otherWithdrawals: Number(cashOutflowsBreakdown.otherWithdrawals ?? 0),
+            transfersOut: Number(cashOutflowsBreakdown.transfersOut ?? 0),
+          },
+        },
+        reconciliation: {
+          issueCount: Number(reconciliation.issueCount ?? 0),
+          status: String(reconciliation.status ?? "unknown"),
+          paymentCashMismatchCount: Number(reconciliation.paymentCashMismatchCount ?? 0),
+          expenseCashMismatchCount: Number(reconciliation.expenseCashMismatchCount ?? 0),
+          supplierPaymentCashMismatchCount: Number(reconciliation.supplierPaymentCashMismatchCount ?? 0),
+          supplierReturnCashMismatchCount: Number(reconciliation.supplierReturnCashMismatchCount ?? 0),
+          unlinkedAccountMovementCount: Number(reconciliation.unlinkedAccountMovementCount ?? 0),
+          orphanReferenceMovementCount: Number(reconciliation.orphanReferenceMovementCount ?? 0),
+          unallocatedSharedOpeningBalance: Number(reconciliation.unallocatedSharedOpeningBalance ?? 0),
+        },
+      };
+    }),
+    create: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      periodStart: z.string().datetime(),
+      periodEnd: z.string().datetime(),
+      actualCash: z.number().nonnegative().optional(),
+      notes: z.string().max(2000).optional(),
+    }).refine((value) => value.periodStart < value.periodEnd, {
+      message: "بداية الفترة يجب أن تسبق نهايتها.",
+    })).mutation(async ({ctx,input}) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses");
+      const { data, error } = await supabaseAdmin().rpc("powerhub_create_financial_settlement", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_period_start: input.periodStart,
+        p_period_end: input.periodEnd,
+        p_actual_cash: input.actualCash ?? null,
+        p_notes: input.notes ?? null,
+      });
+      if (error) throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: error.message.includes("INVALID_SETTLEMENT_PERIOD") ? "بداية الفترة يجب أن تسبق نهايتها."
+          : error.message.includes("SETTLEMENT_PERIOD_OVERLAPS_LOCKED") ? "تتداخل الفترة مع تسوية مقفلة."
+          : error.message.includes("SETTLEMENT_LEDGER_RECONCILIATION_FAILED") ? "لا يمكن حفظ التسوية: توجد حركات مالية غير مرتبطة أو رصيد افتتاحي مشترك لا يمكن إسناده بأمان."
+          : error.message.includes("SETTLEMENT_SOURCE_LEDGER_CHANGED") ? "تغيرت القيود المالية بعد إعداد المسودة؛ أعد احتساب التسوية وأنشئ مسودة جديدة قبل إرسالها."
+          : "تعذر إنشاء التسوية المالية من الدفاتر.",
+      });
+      const id = Number((data as Array<{settlement_id:number}> | null)?.[0]?.settlement_id);
+      if (!id) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة التسوية معرفاً صالحاً."});
+      return {id};
+    }),
     exceptionalEdit: protectedProcedure.input(z.object({ siteId:z.number().int().positive(), entityType:z.enum(["invoice","payment","expense"]), entityId:z.number().int().positive(), reason:z.string().trim().min(10,"سبب التصحيح يجب ألا يقل عن 10 أحرف.").max(1000), changes:z.object({ description:z.string().trim().min(2).max(255).optional(), referenceNo:z.string().trim().max(120).optional(), dueDate:z.date().optional(), category:z.enum(["fuel","maintenance","payroll","parts","transport","other"]).optional() }).refine((value)=>Object.keys(value).length>0,{message:"أدخل حقلاً واحداً على الأقل للتعديل."}) })).mutation(async({ctx,input})=>{ const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["manager"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_exceptional_locked_edit",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_entity_type:input.entityType,p_entity_id:input.entityId,p_reason:input.reason,p_description:input.changes.description??null,p_reference_no:input.changes.referenceNo??null,p_due_date:input.changes.dueDate?.toISOString()??null,p_category:input.changes.category??null}); if(error) throw new TRPCError({code:error.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":"BAD_REQUEST",message:error.message.includes("NOT_LOCKED")?"هذه العملية ليست ضمن فترة مقفلة.":error.message.includes("INVALID_EXCEPTIONAL_FIELDS")?"الحقول المسموح تعديلها لهذا النوع غير موجودة.":"تعذر تنفيذ التصحيح الاستثنائي."}); const result=(data as Array<{before_data:unknown;after_data:unknown}>|null)?.[0]; if(!result) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة التصحيح استجابة صالحة."}); return {success:true,before:result.before_data,after:result.after_data}; }),
-    setStatus: protectedProcedure.input(z.object({ siteId:z.number().int().positive(), settlementId:z.number().int().positive(), status:z.enum(["submitted","approved","locked"]) })).mutation(async({ctx,input})=>{ const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_set_financial_settlement_status",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_settlement_id:input.settlementId,p_status:input.status}); if(error) throw new TRPCError({code:error.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":error.message.includes("CREATOR_CANNOT_APPROVE")?"FORBIDDEN":"BAD_REQUEST",message:error.message.includes("CREATOR_CANNOT_APPROVE")?"لا يمكن لمنشئ التسوية اعتمادها؛ يجب أن يعتمدها مستخدم آخر.":error.message.includes("MUST_BE_SUBMITTED")?"يجب إرسال التسوية للمراجعة قبل اعتمادها.":error.message.includes("MUST_BE_APPROVED")?"يجب اعتماد التسوية قبل قفلها.":error.message.includes("ALREADY_LOCKED")?"التسوية مقفلة ولا يمكن تعديلها.":error.message.includes("INVALID_SETTLEMENT_TRANSITION")?"انتقال حالة التسوية غير مسموح.":"تعذر تحديث حالة التسوية."}); if(!Number((data as Array<{settlement_id:number}>|null)?.[0]?.settlement_id)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة التسوية استجابة صالحة."}); return {success:true}; }),
+    setStatus: protectedProcedure.input(z.object({ siteId:z.number().int().positive(), settlementId:z.number().int().positive(), status:z.enum(["submitted","approved","locked"]) })).mutation(async({ctx,input})=>{ const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_set_financial_settlement_status",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_settlement_id:input.settlementId,p_status:input.status}); if(error) throw new TRPCError({code:error.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":error.message.includes("CREATOR_CANNOT_APPROVE")?"FORBIDDEN":"BAD_REQUEST",message:error.message.includes("CREATOR_CANNOT_APPROVE")?"لا يمكن لمنشئ التسوية اعتمادها؛ يجب أن يعتمدها مستخدم آخر.":error.message.includes("SOURCE_LEDGER_CHANGED")?"تغيرت القيود المالية منذ إعداد التسوية؛ لا يمكن إرسالها أو اعتمادها أو إقفالها قبل إنشاء تسوية محدثة.":error.message.includes("LEDGER_RECONCILIATION_FAILED")?"تعذرت مطابقة الدفاتر المالية؛ راجع مصادر الحركة النقدية قبل المتابعة.":error.message.includes("MUST_BE_SUBMITTED")?"يجب إرسال التسوية للمراجعة قبل اعتمادها.":error.message.includes("MUST_BE_APPROVED")?"يجب اعتماد التسوية قبل قفلها.":error.message.includes("ALREADY_LOCKED")?"التسوية مقفلة ولا يمكن تعديلها.":error.message.includes("INVALID_SETTLEMENT_TRANSITION")?"انتقال حالة التسوية غير مسموح.":"تعذر تحديث حالة التسوية."}); if(!Number((data as Array<{settlement_id:number}>|null)?.[0]?.settlement_id)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة التسوية استجابة صالحة."}); return {success:true}; }),
   }),
   reports: router({
     range: protectedProcedure.input(z.object({
