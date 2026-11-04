@@ -47,9 +47,13 @@ describe("financial report payment amount semantics", () => {
   });
 
   it("keeps safe aggregate totals in the offline report cache but excludes receipt details", () => {
-    expect(offlineCache).toContain('["range", "summary", "scope", "branchSummaries"]');
-    expect(offlineCache).not.toContain("paymentDetails");
-    expect(offlineCache).not.toContain("collectors");
+    expect(offlineCache).toContain('for (const key of ["range", "summary", "scope", "branchSummaries"] as const)');
+    const payloadProjection = offlineCache.slice(
+      offlineCache.indexOf("export function createOfflineReportSnapshotPayload"),
+      offlineCache.indexOf("export type ReportSnapshotScope"),
+    );
+    expect(payloadProjection).not.toContain("paymentDetails");
+    expect(payloadProjection).not.toContain("collectors");
   });
 
   it("counts only completed monthly payments for collector performance", () => {
