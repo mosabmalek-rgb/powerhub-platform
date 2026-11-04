@@ -352,6 +352,16 @@ BEGIN
       IF SQLERRM<>'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
     END;
 
+    -- Account 102 is shared by sites 10 and 11. Adding site 12 changes the
+    -- siteIds array included in site 10's locked settlement fingerprint.
+    BEGIN
+      INSERT INTO public.company_account_sites(tenant_id,account_id,site_id)
+      VALUES(1,102,12);
+      RAISE EXCEPTION 'EXPECTED_SHARED_ACCOUNT_LINK_CHANGE_TO_FAIL_WHEN_ANY_LINKED_SITE_IS_LOCKED';
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN
+      IF SQLERRM<>'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+    END;
+
     -- The same tenant may continue operating normally in a different site.
     INSERT INTO public.account_transactions(
       id,tenant_id,site_id,account_id,transaction_type,amount,occurred_at
