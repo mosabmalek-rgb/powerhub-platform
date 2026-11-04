@@ -671,10 +671,14 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("trpc.powerhub.inventory.listFuelAlertDispatches.useQuery");
     expect(panel).toContain("إعدادات تنبيهات الوقود");
     expect(panel).toContain("سجل تنبيهات الوقود");
-    expect(panel).toContain("recorded_consumption_liters");
+    expect(panel).toContain("aggregateFuelFillReportByGenerator(reportRows)");
+    expect(panel).toContain("إجمالي اللترات المعبأة");
+    expect(panel).toContain("تكلفة التعبئة");
+    expect(panel).toContain("متوسط تكلفة اللتر");
+    expect(panel).toContain("لا تمثل الأرقام قياسًا للاستهلاك الفعلي");
+    expect(panel).not.toContain("الاستهلاك المقاس</th>");
+    expect(panel).not.toContain("ساعات التشغيل</th>");
     expect(migration).toContain("as recorded_consumption_liters");
-    expect(panel).toContain("insufficient_level_readings");
-    expect(panel).toContain("actual_consumption_liters == null ? \"غير متاح\"");
     expect(router).toContain("requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], \"manageFuelAndConsumption\")");
     expect(router).toContain("powerhub_inventory_record_fuel_fill");
     expect(router).toContain("powerhub_inventory_record_fuel_reading");
