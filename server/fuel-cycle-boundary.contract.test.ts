@@ -27,6 +27,10 @@ const inventoryCostBoundaryMigration = readFileSync(
   resolve(root, "supabase/migrations/20261104164300_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql"),
   "utf8",
 );
+const inventoryCostAlignmentMigration = readFileSync(
+  resolve(root, "supabase/migrations/20261104201500_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql"),
+  "utf8",
+);
 
 function extractFunction(source: string, signature: string): string {
   const start = source.indexOf(signature);
@@ -65,6 +69,15 @@ describe("Fuel cycle report boundary contract", () => {
     expect(reconciledFunction).not.toContain(
       "v_end_at:=v_cycle.cycle_end_at+interval '1 millisecond';",
     );
+  });
+
+  it("re-applies the microsecond-aligned cost report after the Staging precision correction", () => {
+    const signature = "create or replace function public.powerhub_inventory_fuel_consumption_cost_report_period(";
+    const expectedFunction = extractFunction(inventoryCostBoundaryMigration, signature);
+    const alignedFunction = extractFunction(inventoryCostAlignmentMigration, signature);
+    expect(alignedFunction).toBe(expectedFunction);
+    expect(alignedFunction).toContain("v_end_at:=v_cycle.cycle_end_at+interval '1 microsecond';");
+    expect(alignedFunction).not.toContain("interval '1 millisecond'");
   });
 
   it("covers 31-day month end, leap February, 15-day and weekly boundaries, and cycle non-overlap", () => {
