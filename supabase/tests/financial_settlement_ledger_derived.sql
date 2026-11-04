@@ -146,7 +146,7 @@ $cycle$;
 GRANT ALL ON public.generators,public.tenant_reading_cycle_configurations,
   public.generator_fuel_events TO service_role;
 
-\ir ../migrations/20261105010000_powerhub_fuel_cost_report_include_legacy_fills.sql
+\ir ../migrations/20261104235039_powerhub_fuel_cost_report_include_legacy_fills.sql
 
 SET ROLE service_role;
 DO $ledger_preview$
