@@ -266,6 +266,12 @@ BEGIN
       RAISE EXCEPTION 'OFFLINE_GENERATOR_RPC_ACL_DRIFT: %',v_signature;
     END IF;
   END LOOP;
+
+  IF has_function_privilege('anon','private.powerhub_has_generator_management_access(bigint,bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.powerhub_has_generator_management_access(bigint,bigint)','EXECUTE')
+     OR has_function_privilege('service_role','private.powerhub_has_generator_management_access(bigint,bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'GENERATOR_CAPABILITY_HELPER_MUST_REMAIN_PRIVATE';
+  END IF;
 END
 $assert_acl$;
 
