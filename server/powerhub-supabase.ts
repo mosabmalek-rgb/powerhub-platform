@@ -1270,7 +1270,7 @@ export async function listSupabaseCompanyAccountHistoryPage(input: {
     p_limit: limit,
   });
   if (error) {
-    const errorText = \`\${error.code ?? ""} \${error.message ?? ""}\`;
+    const errorText = String(error.code ?? "") + " " + String(error.message ?? "");
     if (errorText.includes("ACCOUNT_SITE_OUT_OF_SCOPE")) {
       throw new TRPCError({ code: "FORBIDDEN", message: "الحساب غير مرتبط بالفرع المحدد." });
     }
