@@ -1151,7 +1151,8 @@ begin
     (98102,1,98001,20,'withdrawal',5,'Branch two withdrawal','HIST-98102',timestamptz '2026-10-27 09:00:00+00'),
     (98103,1,98001,10,'collection',20,'Invoice collection','HIST-98103',timestamptz '2026-10-27 10:00:00+00'),
     (98104,1,98001,20,'transfer_out',3,'Branch two transfer','HIST-98104',timestamptz '2026-10-27 11:00:00+00'),
-    (98105,1,98001,10,'withdrawal',2,'Latest withdrawal','HIST-98105',timestamptz '2026-10-27 12:00:00+00');
+    (98105,1,98001,10,'withdrawal',2,'Latest withdrawal','HIST-98105',timestamptz '2026-10-27 12:00:00+00'),
+    (98106,1,98001,20,'transfer_in',5,'Branch two transfer in','HIST-98106',timestamptz '2026-10-27 13:00:00+00');
 
   -- Branch 10 returns only its three movements, while balance_after includes
   -- movements from both linked branches in the shared account ledger.
@@ -1189,12 +1190,16 @@ begin
   v_page:=public.powerhub_company_account_history_page(
     p_tenant_id=>1,p_account_id=>98001,p_branch_id=>20,p_limit=>10
   );
-  if (v_page->>'total_count')::bigint<>2
-     or (v_page->>'incoming_total')::numeric<>0
+  if (v_page->>'total_count')::bigint<>3
+     or (v_page->>'incoming_total')::numeric<>5
      or (v_page->>'outgoing_total')::numeric<>8
-     or jsonb_array_length(v_page->'items')<>2
-     or (v_page #>> '{items,0,balance_after}')::numeric<>72
-     or (v_page #>> '{items,1,balance_after}')::numeric<>55 then
+     or jsonb_array_length(v_page->'items')<>3
+     or v_page #>> '{items,0,id}' is distinct from '98106'
+     or (v_page #>> '{items,0,balance_after}')::numeric<>75
+     or v_page #>> '{items,1,id}' is distinct from '98104'
+     or (v_page #>> '{items,1,balance_after}')::numeric<>72
+     or v_page #>> '{items,2,id}' is distinct from '98102'
+     or (v_page #>> '{items,2,balance_after}')::numeric<>55 then
     raise exception 'COMPANY_ACCOUNT_HISTORY_SECOND_BRANCH_SCOPE_FAILED: %',v_page;
   end if;
 
@@ -1202,9 +1207,9 @@ begin
   v_page:=public.powerhub_company_account_history_page(
     p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,p_limit=>10
   );
-  if (v_page->>'total_count')::bigint<>5
-     or jsonb_array_length(v_page->'items')<>5
-     or (v_page #>> '{balance_timeline,0,balance}')::numeric<>70
+  if (v_page->>'total_count')::bigint<>6
+     or jsonb_array_length(v_page->'items')<>6
+     or (v_page #>> '{balance_timeline,0,balance}')::numeric<>75
      or v_page #>> '{balance_timeline,0,day}' is distinct from '2026-10-27' then
     raise exception 'COMPANY_ACCOUNT_HISTORY_ALL_BRANCH_TOTALS_FAILED: %',v_page;
   end if;
