@@ -288,13 +288,21 @@ CREATE POLICY meters_scope_guard ON public.meters AS RESTRICTIVE
 
 DO $assertions$
 BEGIN
-  IF has_table_privilege('anon','public.mobile_api_sessions','SELECT')
-     OR has_table_privilege('authenticated','public.mobile_api_sessions','SELECT') THEN
-    RAISE EXCEPTION 'MOBILE_API_SESSION_BROWSER_SELECT_NOT_REVOKED';
-  END IF;
-  IF NOT has_table_privilege('service_role','public.mobile_api_sessions','SELECT') THEN
-    RAISE EXCEPTION 'MOBILE_API_SESSION_SERVER_ACCESS_MISSING';
-  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(ARRAY[
+      'mobile_api_sessions','collector_sessions','mobile_sync_events',
+      'offline_sync_operations','access_invitations','staff_profiles','site_portal_settings'
+    ]) AS server_only(table_name)
+    WHERE has_table_privilege('anon',format('public.%I',server_only.table_name),'SELECT')
+       OR has_table_privilege('authenticated',format('public.%I',server_only.table_name),'SELECT')
+  ) THEN RAISE EXCEPTION 'SERVER_OWNED_TABLE_BROWSER_SELECT_NOT_REVOKED'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(ARRAY[
+      'mobile_api_sessions','collector_sessions','mobile_sync_events',
+      'offline_sync_operations','access_invitations','staff_profiles','site_portal_settings'
+    ]) AS server_only(table_name)
+    WHERE NOT has_table_privilege('service_role',format('public.%I',server_only.table_name),'SELECT')
+  ) THEN RAISE EXCEPTION 'SERVER_OWNED_TABLE_SERVICE_ROLE_SELECT_MISSING'; END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname='public' AND tablename='subscribers'
