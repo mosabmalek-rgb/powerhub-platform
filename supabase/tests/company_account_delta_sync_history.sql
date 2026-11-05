@@ -1538,7 +1538,7 @@ begin
 
   v_started := clock_timestamp();
   v_page := public.powerhub_company_account_history_page(
-    p_tenant_id=>1,p_account_id=98001,p_branch_id=>null,
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
     p_search=>'HIST-SCALE-123456',p_limit=>10
   );
   v_search_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
