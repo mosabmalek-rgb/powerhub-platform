@@ -111,6 +111,7 @@ create table public.inventory_warehouses (
 \ir ../migrations/20261104084757_20261103210100_powerhub_company_account_delta_site_scope.sql
 \ir ../migrations/20261105102000_powerhub_account_transaction_tenant_recent_index.sql
 \ir ../migrations/20261105134349_20261105104500_powerhub_company_account_history_paging.sql
+\ir ../migrations/20261105141835_powerhub_company_account_history_chart_balance_reuse.sql
 create table public.inventory_stock_movements (
  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
  generator_id bigint, movement_type text not null, quantity numeric(14,3) not null, unit_cost numeric(14,4) not null default 0,
@@ -1300,6 +1301,23 @@ begin
     98100,1,98001,10,'deposit',7,'Prior-day chart opening balance','HIST-98100',timestamptz '2026-10-26 15:00:00+00'
   );
 
+  -- The unfiltered first-page chart reuses its page balance and preserves
+  -- the complete daily series from opening balance through current balance.
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>7
+     or jsonb_array_length(v_page->'items')<>7
+     or jsonb_array_length(v_page->'balance_timeline')<>2
+     or v_page #>> '{balance_timeline,0,day}' is distinct from '2026-10-26'
+     or (v_page #>> '{balance_timeline,0,balance}')::numeric<>57
+     or v_page #>> '{balance_timeline,1,day}' is distinct from '2026-10-27'
+     or (v_page #>> '{balance_timeline,1,balance}')::numeric<>82
+     or v_page #>> '{items,0,id}' is distinct from '98106'
+     or (v_page #>> '{items,0,balance_after}')::numeric<>82 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_UNFILTERED_CHART_BALANCE_REUSE_FAILED: %',v_page;
+  end if;
+
   v_page:=public.powerhub_company_account_history_page(
     p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
     p_movement_from=>date '2026-10-27',p_movement_to=>date '2026-10-27',p_limit=>10
@@ -1366,6 +1384,9 @@ begin
       and indexname='account_transactions_tenant_account_history_idx'
   ) then
     raise exception 'COMPANY_ACCOUNT_HISTORY_KEYSET_INDEX_MISSING';
+  end if;
+  if to_regclass('public.account_transactions_tenant_account_history_balance_idx') is not null then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_DUPLICATE_BALANCE_INDEX_REMAINS';
   end if;
 end;
 $company_account_history_page_test$;
