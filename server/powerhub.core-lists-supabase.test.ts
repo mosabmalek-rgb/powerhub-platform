@@ -1831,7 +1831,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
 
     const branchAccounts = await caller.companyAccounts.list({ siteId: 10 });
-    expect(branchAccounts).toMatchObject([{ id: 90, linkedSites: [{ siteId: 10 }], balance: 125 }]);
+    expect(branchAccounts).toMatchObject([{ id: 90, linkedSites: [{ siteId: 10 }], balance: 200 }]);
     expect(branchAccounts[0]).not.toHaveProperty("transactions");
     await expect(caller.companyAccounts.list({ siteId: 10, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.history({ siteId: 10, accountId: 90, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -2013,7 +2013,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     })]);
   });
 
-  it("يحسب رصيد حساب الشركة من سجل الحركات الكامل لا من أول ألف حركة فقط", async () => {
+  it("يعرض رصيد حساب الشركة الكامل عبر rollup دون تحميل سجل الحركات", async () => {
     state.tables.company_accounts = [{
       id: 90, tenant_id: 20, name: "كاش", account_type: "cash", phone_number: null, color: "#64748b",
       opening_balance: 100, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z",
@@ -2029,7 +2029,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
     const accounts = await caller.companyAccounts.list({ siteId: 10 });
     expect(accounts[0]).toMatchObject({ id: 90, balance: 1105 });
-    expect(accounts[0].transactions).toHaveLength(1005);
+    expect(accounts[0]).not.toHaveProperty("transactions");
+    expect(state.orderCalls.some((call) => call.table === "account_transactions")).toBe(false);
     expect(state.rpcCalls).toContainEqual({
       name: "powerhub_company_account_balance_rollup",
       args: { p_tenant_id: 20, p_account_ids: [90] },
