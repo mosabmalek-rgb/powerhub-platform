@@ -129,10 +129,13 @@ INSERT INTO public.users(id,auth_user_id,account_status,role,platform_role) VALU
 INSERT INTO public.sites(id,tenant_id,status) VALUES (10,10,'active'),(20,20,'active');
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
   (10,1,'owner',true,'active',now()-interval '1 minute'),
-  (20,2,'owner',true,'active',now()+interval '1 day');
+  (20,2,'owner',true,'active',now()+interval '1 day'),
+  (39,2,'owner',true,'active',now()+interval '1 day');
 INSERT INTO public.generators(id,tenant_id,site_id,code,name,rated_capacity_kw,fuel_type,client_operation_id,updated_at) VALUES
   (101,10,10,'GEN-EXPIRED','Expired owner fixture',100,'diesel','seed-expired','2026-01-01T00:00:00Z'),
   (202,20,20,'GEN-ACTIVE','Active owner fixture',100,'diesel','seed-active','2026-01-01T00:00:00Z');
+INSERT INTO public.generators(id,tenant_id,site_id,code,name,rated_capacity_kw,fuel_type,client_operation_id,updated_at)
+VALUES (404,39,39,'GEN-OTHER-SITE','Other site generator',100,'diesel','seed-other-site','2026-01-01T00:00:00Z');
 
 INSERT INTO public.users(id,auth_user_id,account_status,role,platform_role) VALUES
   (5,'50000000-0000-4000-8000-000000000005','active','member',NULL),
@@ -146,6 +149,7 @@ INSERT INTO public.users(id,auth_user_id,account_status,role,platform_role) VALU
   (13,'d0000000-0000-4000-8000-000000000013','active','member',NULL);
 INSERT INTO public.sites(id,tenant_id,status) VALUES
   (30,30,'active'),(31,31,'active'),(32,32,'active'),(33,33,'active'),(34,34,'active'),(35,35,'active'),(36,36,'active'),(37,37,'active'),(38,38,'active');
+INSERT INTO public.sites(id,tenant_id,status) VALUES (39,39,'active');
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
   (30,5,'member',true,'active',now()-interval '1 minute'),
   (31,6,'member',true,'suspended',now()+interval '1 day'),
@@ -211,6 +215,10 @@ REVOKE ALL ON FUNCTION public.powerhub_sync_generator_update(bigint,bigint,text,
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_sync_generator_update(bigint,bigint,text,numeric,numeric,numeric,text,timestamptz,text)
   TO authenticated, service_role;
+
+INSERT INTO public.offline_sync_operations(tenant_id,site_id,user_id,client_operation_id,operation_type,entity_type,entity_id,response) VALUES
+  (20,20,2,'replay-create-other-site','generator_create','generator','202','{"id":202,"name":"Active owner fixture"}'::jsonb),
+  (20,20,2,'replay-update-other-site','generator_update','generator','202','{"id":202,"name":"Active owner fixture","updatedAt":"2026-01-01T00:00:00Z"}'::jsonb);
 
 GRANT USAGE ON SCHEMA public, auth TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon, service_role;
@@ -482,6 +490,39 @@ BEGIN
 END
 $assert_active_staff_scope_allowed$;
 RESET ROLE;
+
+-- A user may be authorized in multiple tenants; idempotency replay must not cross sites.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','20000000-0000-4000-8000-000000000002',false);
+DO $assert_cross_site_idempotency_replay_denied$
+DECLARE v_denied boolean;
+BEGIN
+  v_denied := false;
+  BEGIN
+    PERFORM * FROM public.powerhub_sync_generator_create(39,'GEN-REPLAY-CREATE','Must not replay another site','SER-REPLAY',100,'diesel','replay-create-other-site');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='GENERATOR_OPERATION_SCOPE_CONFLICT' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'CROSS_SITE_GENERATOR_CREATE_REPLAY_WAS_ALLOWED'; END IF;
+  v_denied := false;
+  BEGIN
+    PERFORM * FROM public.powerhub_sync_generator_update(39,404,'Must not replay another site',100,20,1,'active','2026-01-01T00:00:00Z'::timestamptz,'replay-update-other-site');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='GENERATOR_OPERATION_SCOPE_CONFLICT' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'CROSS_SITE_GENERATOR_UPDATE_REPLAY_WAS_ALLOWED'; END IF;
+END
+$assert_cross_site_idempotency_replay_denied$;
+RESET ROLE;
+
+DO $assert_cross_site_replay_no_side_effects$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.generators WHERE id=404 AND name<>'Other site generator')
+     OR EXISTS (SELECT 1 FROM public.offline_sync_operations WHERE tenant_id=39 AND user_id=2 AND client_operation_id LIKE 'replay-%') THEN
+    RAISE EXCEPTION 'CROSS_SITE_IDEMPOTENCY_REPLAY_LEFT_SIDE_EFFECTS';
+  END IF;
+END
+$assert_cross_site_replay_no_side_effects$;
 
 -- Positive control: an admin with an active owner membership can mutate within that tenant.
 SELECT set_config('request.jwt.claim.sub','20000000-0000-4000-8000-000000000002',false);
