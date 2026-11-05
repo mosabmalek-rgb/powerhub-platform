@@ -296,10 +296,14 @@ export async function requireSupabaseAllBranchesRole(userId: number, siteId: num
     .eq("tenant_id", access.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle();
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
   if (membership?.role === "owner" && isTenantMembershipUnexpired(membership)) return { tenantId: access.tenantId, role: "owner" as const };
-  const { data: profile, error: profileError } = await admin.from("staff_profiles").select("role")
-    .eq("tenant_id", access.tenantId).eq("user_id", userId).is("site_id", null).eq("is_active", true).maybeSingle();
+  const { data: profile, error: profileError } = await admin.from("staff_profiles")
+    .select("role, archived_at, suspension_started_at, suspension_ends_at")
+    .eq("tenant_id", access.tenantId).eq("user_id", userId)
+    .is("site_id", null).eq("is_active", true).is("archived_at", null).maybeSingle();
   if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تعيين جميع الأفرع في Supabase." });
-  if (!profile) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  if (!profile || isSuspended(new Date(), dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام نشط وغير موقوف معيّن على جميع الأفرع." });
+  }
   const role = asPowerRole(profile.role);
   if (!allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
   return { tenantId: access.tenantId, role };
