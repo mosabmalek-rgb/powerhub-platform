@@ -161,8 +161,7 @@ export default function CompanyAccountsPage() {
   const totalTransactions = Number(historyQuery.data?.totalCount ?? 0);
   const pageCount = Math.max(1, Math.ceil(totalTransactions / pageSize));
   const visibleTransactions = transactionRows;
-  const balanceAfterById = new Map(transactionRows.map((row) => [row.id, row.balanceAfter]));
-
+  
   const balanceTimeline = useMemo(() => (historyQuery.data?.balanceTimeline ?? []).map((row) => ({
     label: row.day
       ? new Date(String(row.day) + "T12:00:00Z").toLocaleDateString("ar", { timeZone: "Asia/Gaza", month: "short", day: "numeric" })
@@ -549,8 +548,8 @@ export default function CompanyAccountsPage() {
             <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات</h2><p className="mt-1 text-xs text-slate-500">يتم تحميل 10 حركات في كل صفحة؛ الملخص والرصيد بعد الحركة محسوبان في قاعدة البيانات.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={totalTransactions === 0 || exportingTransactions || historyQuery.isFetching} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">{exportingTransactions ? "جارٍ التصدير…" : "Excel"}</Button><Button size="sm" variant="outline" disabled={totalTransactions === 0 || exportingTransactions || historyQuery.isFetching} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">{exportingTransactions ? "جارٍ التصدير…" : "PDF"}</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); resetTransactionPagination(); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
 <label className="grid gap-1 text-xs text-slate-400"><span>بحث بالوصف أو رقم الحركة أو التاريخ</span><Input value={transactionSearch} onChange={(event) => { setTransactionSearch(event.target.value); resetTransactionPagination(); }} placeholder="ابحث في الحركات…" className="border-white/10 bg-[#0D1117] text-white" /></label>
-<label className="grid gap-1 text-xs text-slate-400"><span>من تاريخ</span><Input type="date" dir="ltr" value={movementFromDate} onChange={(event) => { setMovementFromDate(event.target.value); setTransactionPage(1); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
-<label className="grid gap-1 text-xs text-slate-400"><span>إلى تاريخ</span><Input type="date" dir="ltr" value={movementToDate} onChange={(event) => { setMovementToDate(event.target.value); setTransactionPage(1); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
+<label className="grid gap-1 text-xs text-slate-400"><span>من تاريخ</span><Input type="date" dir="ltr" value={movementFromDate} onChange={(event) => { setMovementFromDate(event.target.value); resetTransactionPagination(); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
+<label className="grid gap-1 text-xs text-slate-400"><span>إلى تاريخ</span><Input type="date" dir="ltr" value={movementToDate} onChange={(event) => { setMovementToDate(event.target.value); resetTransactionPagination(); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
 <div className="flex items-end"><Button size="sm" variant="outline" onClick={() => { setTransactionSearch(""); setTransactionTypeFilter(""); setMovementFromDate(""); setMovementToDate(""); resetTransactionPagination(); }} className="border-white/10 text-white">مسح فلاتر الحركات</Button></div>
 </div>
 <div className="mt-3 grid gap-2 sm:grid-cols-3">
