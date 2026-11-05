@@ -115,6 +115,7 @@ create table public.inventory_warehouses (
 \ir ../migrations/20261105141835_powerhub_company_account_history_chart_balance_reuse.sql
 \ir ../migrations/20261105174347_powerhub_account_history_chart_materialized_aggregate.sql
 \ir ../migrations/20261105184832_powerhub_company_account_history_trigram_search.sql
+\ir ../migrations/20261105201500_powerhub_company_account_history_chart_search_balance_reuse.sql
 create table public.inventory_stock_movements (
  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
  generator_id bigint, movement_type text not null, quantity numeric(14,3) not null, unit_cost numeric(14,4) not null default 0,
@@ -1496,6 +1497,7 @@ declare
   v_next_page_ms numeric;
   v_rollup_ms numeric;
   v_search_ms numeric;
+  v_no_match_search_ms numeric;
   v_rollup_balance numeric;
 begin
   insert into public.account_transactions(
@@ -1578,12 +1580,27 @@ begin
   v_search_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
   if (v_page->>'total_count')::bigint<>1
      or jsonb_array_length(v_page->'items')<>1
-     or v_page #>> '{items,0,reference_no}' is distinct from 'HIST-SCALE-123456' then
-    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_SEARCH_FAILED: %',v_page;
+     or v_page #>> '{items,0,reference_no}' is distinct from 'HIST-SCALE-123456'
+     or jsonb_array_length(v_page->'balance_timeline')<>5
+     or (v_page #>> '{balance_timeline,4,balance}')::numeric<>83416 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_SEARCH_OR_CHART_FAILED: %',v_page;
   end if;
 
-  raise notice 'COMPANY_ACCOUNT_HISTORY_250K_BENCHMARK first_page_ms=% continuation_page_ms=% balance_rollup_ms=% search_ms=% rows=250000',
-    round(v_first_page_ms,2),round(v_next_page_ms,2),round(v_rollup_ms,2),round(v_search_ms,2);
+  v_started := clock_timestamp();
+  v_page := public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
+    p_search=>'PH-NO-MATCH-SCALE-2026',p_limit=>10
+  );
+  v_no_match_search_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
+  if (v_page->>'total_count')::bigint<>0
+     or jsonb_array_length(v_page->'items')<>0
+     or jsonb_array_length(v_page->'balance_timeline')<>5
+     or (v_page #>> '{balance_timeline,4,balance}')::numeric<>83416 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_NO_MATCH_OR_CHART_FAILED: %',v_page;
+  end if;
+
+  raise notice 'COMPANY_ACCOUNT_HISTORY_250K_BENCHMARK first_page_ms=% continuation_page_ms=% balance_rollup_ms=% search_ms=% no_match_search_ms=% rows=250000',
+    round(v_first_page_ms,2),round(v_next_page_ms,2),round(v_rollup_ms,2),round(v_search_ms,2),round(v_no_match_search_ms,2);
 end;
 $company_account_history_scale_benchmark$;
 
