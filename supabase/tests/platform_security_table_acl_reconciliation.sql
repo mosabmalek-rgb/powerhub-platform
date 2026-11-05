@@ -80,7 +80,7 @@ INSERT INTO public.platform_security_settings(id,setting_key,value)
 \ir ../migrations/20261025182440_powerhub_scoped_platform_admin_and_recovery_rpc.sql
 -- Run the scoped correction twice to detect duplicate policies or non-repeatable DDL.
 \ir ../migrations/20261025182440_powerhub_scoped_platform_admin_and_recovery_rpc.sql
-\ir ../migrations/20261106101500_powerhub_platform_management_admin_search_path_hardening.sql
+\ir ../migrations/20261105223416_powerhub_platform_management_admin_search_path_hardening.sql
 
 DO $management_admin_search_path_contract$
 DECLARE
