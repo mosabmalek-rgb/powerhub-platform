@@ -305,6 +305,7 @@ TO authenticated;
 
 \ir ../migrations/20261105125000_powerhub_chat_rls_active_account_and_delivery_scope.sql
 \ir ../migrations/20261105130000_powerhub_chat_receipt_recipient_privacy.sql
+\ir ../migrations/20261105144757_powerhub_staging_chat_membership_and_receipt_scope_reconciliation.sql
 
 INSERT INTO public.users(id,auth_user_id,account_status,platform_role) VALUES
   (1,'11111111-1111-4111-8111-111111111111','active',NULL),
@@ -521,6 +522,85 @@ BEGIN
   END IF;
 END
 $suspended_membership$;
+
+-- Suspended members with a stale participant and receipt row cannot read or
+-- mutate receipt state through either per-message or conversation read RPC.
+SELECT set_config('request.jwt.claim.sub','44444444-4444-4444-8444-444444444444',false);
+DO $suspended_read_receipts$
+DECLARE
+  v_denied boolean;
+  v_receipt_updated_at timestamptz;
+BEGIN
+  SELECT updated_at INTO v_receipt_updated_at
+  FROM public.chat_message_receipts WHERE message_id=504 AND user_id=4;
+  IF v_receipt_updated_at IS NULL THEN
+    RAISE EXCEPTION 'SUSPENDED_READ_RECEIPT_FIXTURE_MISSING';
+  END IF;
+
+  v_denied:=false;
+  BEGIN PERFORM private.chat_mark_read(504);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'SUSPENDED_MEMBER_CHAT_MARK_READ_ALLOWED'; END IF;
+
+  v_denied:=false;
+  BEGIN PERFORM private.chat_mark_read_up_to(103,504);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'SUSPENDED_MEMBER_CHAT_MARK_READ_UP_TO_ALLOWED'; END IF;
+
+  IF (SELECT count(*) FROM public.chat_receipts_for_message(504))<>0 THEN
+    RAISE EXCEPTION 'SUSPENDED_MEMBER_CHAT_RECEIPTS_VISIBLE';
+  END IF;
+  IF (SELECT updated_at FROM public.chat_message_receipts WHERE message_id=504 AND user_id=4)
+       IS DISTINCT FROM v_receipt_updated_at THEN
+    RAISE EXCEPTION 'SUSPENDED_MEMBER_RECEIPT_MUTATED';
+  END IF;
+END
+$suspended_read_receipts$;
+
+-- An otherwise active user whose tenant membership has expired is denied by
+-- the same read and receipt boundaries.
+UPDATE public.tenant_members
+SET expires_at=now()-interval '1 minute'
+WHERE id=4 AND user_id=5;
+SELECT set_config('request.jwt.claim.sub','55555555-5555-4555-8555-555555555555',false);
+DO $expired_read_receipts$
+DECLARE
+  v_denied boolean;
+  v_receipt_updated_at timestamptz;
+BEGIN
+  SELECT updated_at INTO v_receipt_updated_at
+  FROM public.chat_message_receipts WHERE message_id=501 AND user_id=5;
+  IF v_receipt_updated_at IS NULL THEN
+    RAISE EXCEPTION 'EXPIRED_READ_RECEIPT_FIXTURE_MISSING';
+  END IF;
+
+  v_denied:=false;
+  BEGIN PERFORM private.chat_mark_read(501);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'EXPIRED_MEMBER_CHAT_MARK_READ_ALLOWED'; END IF;
+
+  v_denied:=false;
+  BEGIN PERFORM private.chat_mark_read_up_to(101,501);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'EXPIRED_MEMBER_CHAT_MARK_READ_UP_TO_ALLOWED'; END IF;
+
+  IF (SELECT count(*) FROM public.chat_receipts_for_message(501))<>0 THEN
+    RAISE EXCEPTION 'EXPIRED_MEMBER_CHAT_RECEIPTS_VISIBLE';
+  END IF;
+  IF (SELECT updated_at FROM public.chat_message_receipts WHERE message_id=501 AND user_id=5)
+       IS DISTINCT FROM v_receipt_updated_at THEN
+    RAISE EXCEPTION 'EXPIRED_MEMBER_RECEIPT_MUTATED';
+  END IF;
+END
+$expired_read_receipts$;
 
 -- A disabled account cannot use chat identity, AI feedback, or notification RPCs.
 SELECT set_config('request.jwt.claim.sub','33333333-3333-4333-8333-333333333333',false);
