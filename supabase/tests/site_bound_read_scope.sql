@@ -202,7 +202,7 @@ GRANT EXECUTE ON FUNCTION private.powerhub_has_site_access(bigint,bigint) TO aut
 GRANT SELECT ON TABLE
   public.sites,public.subscribers,public.tariffs,public.complaints,public.collector_sessions,
   public.mobile_sync_events,public.offline_sync_operations,public.access_invitations,
-  public.staff_profiles,public.site_portal_settings,public.meters,public.mobile_api_sessions
+  public.staff_profiles,public.site_portal_settings,public.meters,public.meter_readings,public.mobile_api_sessions
 TO authenticated,anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
@@ -268,7 +268,7 @@ BEGIN
   FOREACH target IN ARRAY ARRAY[
     'sites','subscribers','tariffs','complaints','collector_sessions',
     'mobile_sync_events','offline_sync_operations','access_invitations',
-    'staff_profiles','site_portal_settings','meters'
+    'staff_profiles','site_portal_settings','meters','meter_readings'
   ] LOOP
     EXECUTE format(
       'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (private.powerhub_has_tenant_access(tenant_id)) WITH CHECK (private.powerhub_has_tenant_access(tenant_id))',
