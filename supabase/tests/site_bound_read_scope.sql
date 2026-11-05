@@ -92,41 +92,104 @@ AS $$
     )
 $$;
 
-CREATE OR REPLACE FUNCTION private.powerhub_has_site_access(target_tenant_id bigint,target_site_id bigint)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=''
-AS $$
+CREATE OR REPLACE FUNCTION private.powerhub_has_site_access(
+  target_tenant_id bigint,
+  target_site_id bigint
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
   SELECT (SELECT private.powerhub_is_platform_admin())
-    OR EXISTS (
-      SELECT 1
-      FROM public.tenant_members m
-      JOIN public.users u ON u.id=m.user_id
-      WHERE m.tenant_id=target_tenant_id
-        AND m.user_id=(SELECT private.powerhub_current_user_id())
-        AND u.auth_user_id=(SELECT auth.uid())
-        AND u.account_status='active'
-        AND m.is_active
-        AND m.membership_status='active'
-        AND (m.expires_at IS NULL OR m.expires_at>now())
-        AND (
-          m.role='owner'
-          OR EXISTS (
-            SELECT 1 FROM public.staff_profiles p
-            WHERE p.tenant_id=target_tenant_id
-              AND p.user_id=m.user_id
-              AND p.is_active
-              AND p.archived_at IS NULL
-              AND (p.suspension_started_at IS NULL
-                   OR p.suspension_ends_at IS NULL
-                   OR now()<p.suspension_started_at
-                   OR now()>=p.suspension_ends_at)
-              AND (
-                (target_site_id IS NULL AND p.site_id IS NULL)
-                OR (target_site_id IS NOT NULL AND (p.site_id=target_site_id OR p.site_id IS NULL))
-              )
-          )
+    OR (
+      target_tenant_id IS NOT NULL
+      AND (
+        target_site_id IS NULL
+        OR EXISTS (
+          SELECT 1
+          FROM public.sites s
+          WHERE s.id = target_site_id
+            AND s.tenant_id = target_tenant_id
         )
-    )
-$$;
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM public.tenant_members membership
+        JOIN public.users account
+          ON account.id = membership.user_id
+        WHERE membership.tenant_id = target_tenant_id
+          AND membership.user_id = (SELECT private.powerhub_current_user_id())
+          AND account.auth_user_id = (SELECT auth.uid())
+          AND account.account_status = 'active'
+          AND membership.is_active = true
+          AND membership.membership_status = 'active'
+          AND (membership.expires_at IS NULL OR membership.expires_at > now())
+          AND (
+            membership.role = 'owner'
+            OR CASE
+              WHEN target_site_id IS NULL THEN
+                EXISTS (
+                  SELECT 1
+                  FROM public.staff_profiles profile
+                  WHERE profile.tenant_id = target_tenant_id
+                    AND profile.user_id = membership.user_id
+                    AND profile.site_id IS NULL
+                    AND profile.is_active = true
+                    AND profile.archived_at IS NULL
+                    AND NOT (
+                      profile.suspension_started_at IS NOT NULL
+                      AND profile.suspension_ends_at IS NOT NULL
+                      AND now() >= profile.suspension_started_at
+                      AND now() < profile.suspension_ends_at
+                    )
+                )
+              WHEN EXISTS (
+                SELECT 1
+                FROM public.staff_profiles exact_profile
+                WHERE exact_profile.tenant_id = target_tenant_id
+                  AND exact_profile.user_id = membership.user_id
+                  AND exact_profile.site_id = target_site_id
+                  AND exact_profile.is_active = true
+                  AND exact_profile.archived_at IS NULL
+              ) THEN
+                EXISTS (
+                  SELECT 1
+                  FROM public.staff_profiles exact_profile
+                  WHERE exact_profile.tenant_id = target_tenant_id
+                    AND exact_profile.user_id = membership.user_id
+                    AND exact_profile.site_id = target_site_id
+                    AND exact_profile.is_active = true
+                    AND exact_profile.archived_at IS NULL
+                    AND NOT (
+                      exact_profile.suspension_started_at IS NOT NULL
+                      AND exact_profile.suspension_ends_at IS NOT NULL
+                      AND now() >= exact_profile.suspension_started_at
+                      AND now() < exact_profile.suspension_ends_at
+                    )
+                )
+              ELSE
+                EXISTS (
+                  SELECT 1
+                  FROM public.staff_profiles global_profile
+                  WHERE global_profile.tenant_id = target_tenant_id
+                    AND global_profile.user_id = membership.user_id
+                    AND global_profile.site_id IS NULL
+                    AND global_profile.is_active = true
+                    AND global_profile.archived_at IS NULL
+                    AND NOT (
+                      global_profile.suspension_started_at IS NOT NULL
+                      AND global_profile.suspension_ends_at IS NOT NULL
+                      AND now() >= global_profile.suspension_started_at
+                      AND now() < global_profile.suspension_ends_at
+                    )
+                )
+            END
+          )
+      )
+    );
+$function$;
 
 GRANT USAGE ON SCHEMA public,auth,private TO anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO PUBLIC;
@@ -221,7 +284,7 @@ CREATE POLICY meters_scope_guard ON public.meters AS RESTRICTIVE
   FOR ALL TO authenticated USING (private.powerhub_has_tenant_access(tenant_id))
   WITH CHECK (private.powerhub_has_tenant_access(tenant_id));
 
-\ir ../migrations/20261105110000_powerhub_site_bound_read_scope.sql
+\ir ../migrations/20261105094000_powerhub_site_bound_read_scope.sql
 
 DO $assertions$
 BEGIN
