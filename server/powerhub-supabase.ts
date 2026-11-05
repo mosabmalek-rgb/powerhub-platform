@@ -1353,7 +1353,7 @@ export async function listSupabaseCompanyAccountHistoryPage(input: {
   };
 }
 
-export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number }) {
+export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; includeAllSiteLinks?: boolean }) {
   const admin = supabaseAdmin();
   const { data: accountRows, error: accountsError } = await admin.from("company_accounts")
     .select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
@@ -1366,7 +1366,7 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
   const siteLinksQuery = accountIds.length
     ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds)
     : null;
-  // Retain every linked branch for account management; the row filter below only limits which accounts appear.
+  if (siteLinksQuery && input.branchId !== undefined && !input.includeAllSiteLinks) siteLinksQuery.eq("site_id", input.branchId);
 
 
   const [siteLinksResult, sitesResult, balancesResult] = await Promise.all([
