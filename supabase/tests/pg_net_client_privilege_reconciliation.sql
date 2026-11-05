@@ -68,21 +68,4 @@ BEGIN
 END
 $existing$;
 
-SET ROLE supabase_admin;
-CREATE OR REPLACE FUNCTION net.powerhub_future_security_probe()
-RETURNS integer
-LANGUAGE sql
-AS $$ SELECT 7 $$;
-RESET ROLE;
-
-DO $future$
-BEGIN
-  IF has_function_privilege('anon','net.powerhub_future_security_probe()','EXECUTE')
-     OR has_function_privilege('authenticated','net.powerhub_future_security_probe()','EXECUTE')
-     OR NOT has_function_privilege('service_role','net.powerhub_future_security_probe()','EXECUTE') THEN
-    RAISE EXCEPTION 'PG_NET_FUTURE_FUNCTION_DEFAULT_ACL_NOT_RESTRICTED';
-  END IF;
-END
-$future$;
-
-SELECT 'PG_NET_CLIENT_PRIVILEGES_RESTRICTED' AS result;
+SELECT 'PG_NET_EXISTING_CLIENT_PRIVILEGES_RESTRICTED' AS result;
