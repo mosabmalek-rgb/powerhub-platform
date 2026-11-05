@@ -396,3 +396,37 @@ BEGIN
  END IF;
 END
 $anon_inventory$;
+
+DO $inventory_write_boundary$
+DECLARE target text;
+BEGIN
+ IF NOT EXISTS (
+   SELECT 1 FROM pg_policies
+   WHERE schemaname='public'
+     AND tablename='generators'
+     AND policyname='generators_tenant_isolation'
+     AND roles='{authenticated}'
+     AND cmd='ALL'
+     AND permissive='PERMISSIVE'
+     AND coalesce(qual,'') <> ''
+     AND coalesce(with_check,'') <> ''
+ ) THEN
+   RAISE EXCEPTION 'GENERATOR_WRITE_POLICY_NOT_PRESERVED';
+ END IF;
+
+ FOREACH target IN ARRAY ARRAY[
+   'generators','inventory_warehouses','inventory_stock_movements'
+ ] LOOP
+   IF NOT has_table_privilege('service_role',format('public.%I',target),'INSERT')
+      OR NOT has_table_privilege('service_role',format('public.%I',target),'UPDATE')
+      OR NOT has_table_privilege('service_role',format('public.%I',target),'DELETE') THEN
+     RAISE EXCEPTION 'INVENTORY_SERVICE_ROLE_DML_GRANT_CHANGED: %',target;
+   END IF;
+   IF has_table_privilege('authenticated',format('public.%I',target),'INSERT')
+      OR has_table_privilege('authenticated',format('public.%I',target),'UPDATE')
+      OR has_table_privilege('authenticated',format('public.%I',target),'DELETE') THEN
+     RAISE EXCEPTION 'INVENTORY_AUTHENTICATED_DIRECT_DML_GRANT_PRESENT: %',target;
+   END IF;
+ END LOOP;
+END
+$inventory_write_boundary$;

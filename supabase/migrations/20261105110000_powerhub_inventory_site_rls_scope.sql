@@ -1,6 +1,8 @@
 -- Restrict branch-bound inventory and generator reads to the user's assigned site.
 -- Inventory catalog items and suppliers remain tenant-wide; operational rows do not.
--- This migration changes SELECT visibility only. Writes remain behind existing server RPCs.
+-- This migration narrows SELECT visibility and removes stale anon SELECT grants.
+-- Existing authenticated write policies and service_role DML grants are preserved.
+-- Writes remain behind existing server RPCs.
 
 DO $preflight$
 DECLARE target text;
@@ -32,6 +34,14 @@ BEGIN
   END LOOP;
 END
 $preflight$;
+
+-- These operational tables are not anonymous read surfaces. Remove any stale
+-- explicit anon SELECT grant before asserting the intended access boundary.
+REVOKE SELECT ON TABLE
+  public.generators,
+  public.inventory_warehouses,
+  public.inventory_stock_movements
+FROM anon;
 
 -- Existing tenant/site indexes already support these predicates; avoid redundant indexes.
 
@@ -93,6 +103,21 @@ BEGIN
       RAISE EXCEPTION 'INVENTORY_SITE_RLS_SERVICE_ROLE_GRANT_MISSING: %',target;
     END IF;
   END LOOP;
+
+  -- Preserve the existing generator write policy; the new guard is SELECT-only.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname='public'
+      AND tablename='generators'
+      AND policyname='generators_tenant_isolation'
+      AND roles='{authenticated}'
+      AND cmd='ALL'
+      AND permissive='PERMISSIVE'
+      AND coalesce(qual,'') <> ''
+      AND coalesce(with_check,'') <> ''
+  ) THEN
+    RAISE EXCEPTION 'INVENTORY_SITE_RLS_GENERATOR_WRITE_POLICY_NOT_PRESERVED';
+  END IF;
 END
 $assertions$;
 
