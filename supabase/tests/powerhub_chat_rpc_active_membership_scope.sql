@@ -168,6 +168,28 @@ AS $function$
     WHERE u.auth_user_id=auth.uid() AND u.account_status='active'
   )
 $function$;
+CREATE OR REPLACE FUNCTION powerhub_private.current_tenant_ids()
+RETURNS bigint[] LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
+AS $function$
+  SELECT coalesce(array_agg(tm.tenant_id),'{}'::bigint[])
+  FROM public.tenant_members tm JOIN public.users u ON u.id=tm.user_id
+  WHERE u.auth_user_id=auth.uid() AND tm.is_active=true
+    AND tm.membership_status='active'
+    AND (tm.expires_at IS NULL OR tm.expires_at>now())
+$function$;
+CREATE OR REPLACE FUNCTION private.chat_feature_enabled_for_tenant(bigint,text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
+AS $function$ SELECT true $function$;
+CREATE OR REPLACE FUNCTION private.chat_rls_can_select_conversation(bigint,bigint)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
+AS $function$ SELECT false $function$;
+CREATE OR REPLACE FUNCTION private.chat_rls_can_select_participant(bigint,bigint,bigint,timestamptz)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
+AS $function$ SELECT false $function$;
+CREATE FUNCTION private.chat_mark_delivered(bigint)
+RETURNS public.chat_message_receipts LANGUAGE sql SECURITY DEFINER SET search_path TO ''
+AS $function$ SELECT NULL::public.chat_message_receipts $function$;
+
 CREATE OR REPLACE FUNCTION private.chat_current_user_id()
 RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
 AS $function$ SELECT powerhub_private.current_user_id() $function$;
@@ -248,6 +270,7 @@ RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path TO ''
 AS $function$ SELECT 0::integer $function$;
 
 REVOKE ALL ON FUNCTION private.chat_current_user_id(),
+  private.chat_mark_delivered(bigint),
   private.chat_mark_read(bigint),
   private.chat_mark_read_up_to(bigint,bigint),
   private.chat_rate_support(bigint,smallint,text),
@@ -271,6 +294,16 @@ GRANT EXECUTE ON FUNCTION public.chat_receipts_for_message(bigint),
 TO authenticated,service_role;
 
 \ir ../migrations/20261105124000_powerhub_chat_rpc_active_membership_scope.sql
+REVOKE ALL ON FUNCTION
+  private.chat_rls_can_select_conversation(bigint,bigint),
+  private.chat_rls_can_select_participant(bigint,bigint,bigint,timestamptz)
+FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION
+  private.chat_rls_can_select_conversation(bigint,bigint),
+  private.chat_rls_can_select_participant(bigint,bigint,bigint,timestamptz)
+TO authenticated;
+
+\ir ../migrations/20261105125000_powerhub_chat_rls_active_account_and_delivery_scope.sql
 
 INSERT INTO public.users(id,auth_user_id,account_status,platform_role) VALUES
   (1,'11111111-1111-4111-8111-111111111111','active',NULL),
@@ -516,3 +549,57 @@ END
 $inactive_account$;
 
 SELECT 'POWERHUB_CHAT_RPC_ACTIVE_MEMBERSHIP_SCOPE_ASSERTIONS_PASSED' AS result;
+
+-- Disabled accounts must not pass the chat-specific RLS helper predicates.
+SELECT set_config('request.jwt.claim.sub','33333333-3333-4333-8333-333333333333',false);
+DO $disabled_rls$
+BEGIN
+  IF private.chat_rls_can_select_conversation(100,10)
+     OR private.chat_rls_can_select_participant(100,10,3,NULL) THEN
+    RAISE EXCEPTION 'DISABLED_ACCOUNT_CHAT_RLS_ACCESS_GRANTED';
+  END IF;
+END
+$disabled_rls$;
+
+-- Support operators can read Support Center participants, never Assistant ones.
+SELECT set_config('request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false);
+DO $support_rls$
+BEGIN
+  IF private.chat_rls_can_select_conversation(100,10)
+     OR private.chat_rls_can_select_participant(100,10,1,NULL) THEN
+    RAISE EXCEPTION 'SUPPORT_RLS_ASSISTANT_SCOPE_BROKEN';
+  END IF;
+  IF NOT private.chat_rls_can_select_conversation(101,10)
+     OR NOT private.chat_rls_can_select_participant(101,10,1,NULL) THEN
+    RAISE EXCEPTION 'SUPPORT_RLS_SUPPORT_SCOPE_BROKEN';
+  END IF;
+  PERFORM private.chat_mark_delivered(501);
+END
+$support_rls$;
+
+-- Tenant members cannot mark internal notes as delivered.
+SELECT set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
+DO $internal_delivery$
+DECLARE v_updated_at timestamptz; v_denied boolean:=false;
+BEGIN
+  SELECT updated_at INTO v_updated_at FROM public.chat_message_receipts
+  WHERE message_id=502 AND user_id=1;
+  BEGIN
+    PERFORM private.chat_mark_delivered(502);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'TENANT_MARK_INTERNAL_NOTE_DELIVERED_ALLOWED'; END IF;
+  IF (SELECT updated_at FROM public.chat_message_receipts WHERE message_id=502 AND user_id=1)
+       IS DISTINCT FROM v_updated_at THEN
+    RAISE EXCEPTION 'TENANT_INTERNAL_DELIVERY_RECEIPT_SIDE_EFFECT';
+  END IF;
+  IF NOT private.chat_rls_can_select_conversation(100,10)
+     OR NOT private.chat_rls_can_select_participant(100,10,1,NULL) THEN
+    RAISE EXCEPTION 'ACTIVE_MEMBER_CHAT_RLS_ACCESS_DENIED';
+  END IF;
+END
+$internal_delivery$;
+
+SELECT 'POWERHUB_CHAT_RLS_ACTIVE_ACCOUNT_AND_DELIVERY_SCOPE_ASSERTIONS_PASSED' AS result;
+
