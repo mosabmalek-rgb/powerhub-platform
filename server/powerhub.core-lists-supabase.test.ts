@@ -238,6 +238,77 @@ const state = vi.hoisted(() => {
               .reduce((total, movement) => total + (["deposit", "transfer_in", "collection"].includes(String(movement.transaction_type)) ? 1 : -1) * Number(movement.amount ?? 0), 0),
           })));
       }
+      if (name === "powerhub_company_account_history_page") {
+        const input = args as {
+          p_tenant_id: number; p_account_id: number; p_branch_id: number | null;
+          p_from: string | null; p_to: string | null; p_movement_from: string | null; p_movement_to: string | null;
+          p_transaction_type: string | null; p_search: string | null; p_cursor_at: string | null; p_cursor_id: number | null; p_limit: number;
+        };
+        const allMovements = recordRows("account_transactions").filter((row) =>
+          Number(row.tenant_id) === Number(input.p_tenant_id) && Number(row.account_id) === Number(input.p_account_id)
+        );
+        const sign = (row: Record<string, unknown>) =>
+          (["withdrawal", "transfer_out"].includes(String(row.transaction_type)) ? -1 : 1) * Number(row.amount ?? 0);
+        const search = input.p_search?.trim().toLowerCase() ?? "";
+        const matching = allMovements.filter((row) => {
+          if (input.p_branch_id != null && Number(row.site_id) !== Number(input.p_branch_id)) return false;
+          const occurredAt = Date.parse(String(row.occurred_at));
+          if (input.p_from && occurredAt < Date.parse(input.p_from)) return false;
+          if (input.p_to && occurredAt > Date.parse(input.p_to)) return false;
+          if (input.p_transaction_type && String(row.transaction_type) !== input.p_transaction_type) return false;
+          if (search) {
+            const searchable = [row.description, row.transaction_type, row.id, row.reference_no]
+              .map((value) => String(value ?? "").toLowerCase()).join(" ");
+            if (!searchable.includes(search)) return false;
+          }
+          return true;
+        });
+        const sortDescending = (left: Record<string, unknown>, right: Record<string, unknown>) =>
+          Date.parse(String(right.occurred_at)) - Date.parse(String(left.occurred_at)) || Number(right.id) - Number(left.id);
+        const cursorAt = input.p_cursor_at == null ? null : Date.parse(input.p_cursor_at);
+        const cursorId = input.p_cursor_id == null ? null : Number(input.p_cursor_id);
+        const afterCursor = matching.filter((row) => {
+          if (cursorAt === null || cursorId === null) return true;
+          const time = Date.parse(String(row.occurred_at));
+          return time < cursorAt || (time === cursorAt && Number(row.id) < cursorId);
+        }).sort(sortDescending);
+        const limit = Math.max(1, Math.min(200, Number(input.p_limit ?? 10)));
+        const pagePlus = afterCursor.slice(0, limit + 1);
+        const hasNext = pagePlus.length > limit;
+        const pageRows = pagePlus.slice(0, limit);
+        const account = recordRows("company_accounts").find((row) =>
+          Number(row.tenant_id) === Number(input.p_tenant_id) && Number(row.id) === Number(input.p_account_id)
+        );
+        const fullBalance = Number(account?.opening_balance ?? 0) + allMovements.reduce((total, row) => total + sign(row), 0);
+        const items = pageRows.map((row) => {
+          const rowAt = Date.parse(String(row.occurred_at));
+          const newerNet = allMovements.filter((candidate) => {
+            const candidateAt = Date.parse(String(candidate.occurred_at));
+            return candidateAt > rowAt || (candidateAt === rowAt && Number(candidate.id) > Number(row.id));
+          }).reduce((total, candidate) => total + sign(candidate), 0);
+          return {
+            ...row,
+            balance_after: input.p_from || input.p_to ? null : fullBalance - newerNet,
+          };
+        });
+        const incomingTotal = matching.filter((row) => ["collection", "deposit", "transfer_in"].includes(String(row.transaction_type)))
+          .reduce((total, row) => total + Number(row.amount ?? 0), 0);
+        const outgoingTotal = matching.filter((row) => ["withdrawal", "transfer_out"].includes(String(row.transaction_type)))
+          .reduce((total, row) => total + Number(row.amount ?? 0), 0);
+        const last = pageRows[pageRows.length - 1];
+        return resolved({
+          items,
+          total_count: matching.length,
+          incoming_total: incomingTotal,
+          outgoing_total: outgoingTotal,
+          has_next: hasNext,
+          next_cursor_at: hasNext && last ? last.occurred_at : null,
+          next_cursor_id: hasNext && last ? Number(last.id) : null,
+          balance_timeline: input.p_branch_id == null && !input.p_from && !input.p_to
+            ? [{ day: "2026-08-31", balance: fullBalance }]
+            : [],
+        });
+      }
       if (name === "powerhub_create_tariff_idempotent") return resolved([{ tariff_id: 41, replayed: false }]);
       if (name === "powerhub_subscriber_portal_list") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
       if (name === "powerhub_subscriber_portal_theme") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
@@ -1760,7 +1831,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
 
     const branchAccounts = await caller.companyAccounts.list({ siteId: 10 });
-    expect(branchAccounts).toMatchObject([{ id: 90, linkedSites: [{ siteId: 10 }], transactions: [{ id: 91, siteId: 10 }] }]);
+    expect(branchAccounts).toMatchObject([{ id: 90, linkedSites: [{ siteId: 10 }], balance: 125 }]);
+    expect(branchAccounts[0]).not.toHaveProperty("transactions");
     await expect(caller.companyAccounts.list({ siteId: 10, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "حساب فرع 2", accountType: "cash", phoneNumber: "+970595123457", openingBalance: 0, siteIds: [11] })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -1768,6 +1840,21 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([{
       name: "powerhub_company_account_balance_rollup",
       args: { p_tenant_id: 20, p_account_ids: [90, 92] },
+    }]);
+  });
+
+  it("keeps every linked branch visible to an owner when filtering the account list by one branch", async () => {
+    const branchTwo = { id: 11, tenant_id: 20, name: "الفرع الثاني", code: "BR2", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
+    state.tables.sites = [state.tables.sites[0], branchTwo];
+    state.tables.company_account_sites = [
+      { tenant_id: 20, account_id: 90, site_id: 10 },
+      { tenant_id: 20, account_id: 90, site_id: 11 },
+    ];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    const accounts = await caller.companyAccounts.list({ siteId: 10, branchId: 10 });
+    expect(accounts).toMatchObject([{
+      id: 90,
+      linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }, { siteId: 11, siteName: "الفرع الثاني" }],
     }]);
   });
 
