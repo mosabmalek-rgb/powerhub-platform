@@ -33,12 +33,7 @@ BEGIN
 END
 $preflight$;
 
-CREATE INDEX IF NOT EXISTS generators_tenant_site_rls_idx
-  ON public.generators(tenant_id,site_id);
-CREATE INDEX IF NOT EXISTS inventory_warehouses_tenant_site_rls_idx
-  ON public.inventory_warehouses(tenant_id,site_id);
-CREATE INDEX IF NOT EXISTS inventory_stock_movements_tenant_site_rls_idx
-  ON public.inventory_stock_movements(tenant_id,site_id);
+-- Existing tenant/site indexes already support these predicates; avoid redundant indexes.
 
 -- Add a restrictive SELECT guard. Existing permissive policies remain intact,
 -- including generators' ALL policy that is required for existing write paths.
