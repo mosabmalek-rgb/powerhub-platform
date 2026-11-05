@@ -29,7 +29,7 @@ import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { powerhubInventoryRouter } from "./powerhub-inventory-router";
 import { powerhubMaintenanceRouter } from "./powerhub-maintenance-router";
 import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, getSupabaseSecurityDepositOverview, listSupabaseSubscriberAccountStatementHistoryPage, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, getSupabaseSecurityDepositOverview, listSupabaseSubscriberAccountStatementHistoryPage, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, listSupabaseCompanyAccountHistoryPage, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 
@@ -358,6 +358,32 @@ async function requireCompanyAccountSiteScope(
       throw new TRPCError({ code: "FORBIDDEN", message: "حساب الشركة غير متاح ضمن الفرع المحدد." });
     }
   }
+}
+
+
+async function resolveCompanyAccountBranchScope(
+  userId: number,
+  siteId: number,
+  access: { role: PowerRole; tenantId: number },
+  requestedBranchId?: number,
+): Promise<number | undefined> {
+  if (requestedBranchId !== undefined) {
+    const branchAccess = await requireSupabaseSiteRole(userId, requestedBranchId, ["owner", "manager", "accountant"], "manageExpenses");
+    if (branchAccess.tenantId !== access.tenantId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "الفرع المحدد لا يتبع مساحة الشركة الحالية." });
+    }
+    return requestedBranchId;
+  }
+
+  if (access.role !== "owner") {
+    try {
+      await requireSupabaseAllBranchesRole(userId, siteId, ["manager", "accountant"]);
+    } catch (error) {
+      if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
+      return siteId;
+    }
+  }
+  return undefined;
 }
 
 async function sendPendingInvoiceSmsRuntime(
@@ -5108,29 +5134,59 @@ export const powerhubRouter = router({
   }),
 
   companyAccounts: router({
-    list: protectedProcedure.input(siteScoped.extend({ branchId: z.number().int().positive().optional(), fromDate: z.string().optional(), toDate: z.string().optional() })).query(async ({ ctx, input }) => {
-      const from = input.fromDate ? new Date(input.fromDate) : null; const to = input.toDate ? new Date(input.toDate) : null;
+    list: protectedProcedure.input(siteScoped.extend({
+      branchId: z.number().int().positive().optional(),
+      fromDate: z.string().optional(),
+      toDate: z.string().optional(),
+    })).query(async ({ ctx, input }) => {
+      const from = input.fromDate ? new Date(input.fromDate) : null;
+      const to = input.toDate ? new Date(input.toDate) : null;
       if (from && Number.isNaN(from.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية غير صحيح." });
       if (to && Number.isNaN(to.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ النهاية غير صحيح." });
       if (from && to && from > to) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب أن يسبق تاريخ النهاية." });
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
-      let effectiveBranchId = input.branchId;
-      if (effectiveBranchId !== undefined) {
-        const branchAccess = await requireSupabaseSiteRole(ctx.user.id, effectiveBranchId, ["owner", "manager", "accountant"], "manageExpenses");
-        if (branchAccess.tenantId !== access.tenantId) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "الفرع المحدد لا يتبع مساحة الشركة الحالية." });
-        }
-      } else if (access.role !== "owner") {
-        let allBranches = false;
-        try {
-          await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"]);
-          allBranches = true;
-        } catch (error) {
-          if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
-        }
-        if (!allBranches) effectiveBranchId = input.siteId;
+      const effectiveBranchId = await resolveCompanyAccountBranchScope(ctx.user.id, input.siteId, access, input.branchId);
+      return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: effectiveBranchId });
+    }),
+    history: protectedProcedure.input(siteScoped.extend({
+      accountId: z.number().int().positive(),
+      branchId: z.number().int().positive().optional(),
+      fromDate: z.string().optional(),
+      toDate: z.string().optional(),
+      movementFromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      movementToDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      transactionType: z.enum(["collection", "deposit", "withdrawal", "transfer_in", "transfer_out"]).optional(),
+      search: z.string().trim().max(120).optional(),
+      cursor: z.string().max(300).optional(),
+      limit: z.number().int().min(1).max(200).default(10),
+    })).query(async ({ ctx, input }) => {
+      const from = input.fromDate ? new Date(input.fromDate) : null;
+      const to = input.toDate ? new Date(input.toDate) : null;
+      if (from && Number.isNaN(from.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية غير صحيح." });
+      if (to && Number.isNaN(to.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ النهاية غير صحيح." });
+      if (from && to && from > to) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب أن يسبق تاريخ النهاية." });
+      if (input.movementFromDate && input.movementToDate && input.movementFromDate > input.movementToDate) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "بداية فترة الحركات يجب أن تسبق نهايتها." });
       }
-      return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: effectiveBranchId, from, to });
+
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      const effectiveBranchId = await resolveCompanyAccountBranchScope(ctx.user.id, input.siteId, access, input.branchId);
+      if (effectiveBranchId !== undefined) {
+        await requireCompanyAccountSiteScope(access, effectiveBranchId, [input.accountId]);
+      }
+      return listSupabaseCompanyAccountHistoryPage({
+        tenantId: access.tenantId,
+        accountId: input.accountId,
+        branchId: effectiveBranchId,
+        from,
+        to,
+        movementFrom: input.movementFromDate ?? null,
+        movementTo: input.movementToDate ?? null,
+        transactionType: input.transactionType ?? null,
+        search: input.search ?? null,
+        cursor: input.cursor,
+        limit: input.limit,
+      });
     }),
     create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), name: z.string().trim().min(2).max(120), accountType: z.enum(["cash", "jawwal_pay", "palpay", "bank_of_palestine", "other"]), phoneNumber: z.string().trim().regex(/^\+?[0-9]{7,20}$/, "أدخل رقم جوال صحيحاً."), openingBalance: z.number().nonnegative().default(0), color: z.string().trim().max(20).optional(), siteIds: z.array(z.number().int().positive()).min(1) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseAccessibleSiteIds(ctx.user.id, input.siteId, input.siteIds, ["owner", "manager"], "manageExpenses");
