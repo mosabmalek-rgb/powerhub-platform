@@ -8,6 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "_core", "trpc.ts"), "utf8");
 const legacyAdminSource = readFileSync(join(here, "admin-runtime.ts"), "utf8");
 const powerhubRouterSource = readFileSync(join(here, "powerhub.ts"), "utf8");
+const powerhubSupabaseSource = readFileSync(join(here, "powerhub-supabase.ts"), "utf8");
 
 describe("Platform-admin authorization boundary", () => {
   it("must require active account status and an allowed platform role", () => {
@@ -43,5 +44,17 @@ describe("Inventory catalog Delta authorization boundary", () => {
     expect(powerhubRouterSource).toContain('input.entityType === "suppliers" ? "viewSuppliers"');
     expect(powerhubRouterSource).toContain('? "viewInventory" : undefined');
     expect(powerhubRouterSource).toContain('["inventory_items", "inventory_item_units", "inventory_warehouses", "inventory_stock_movements"]');
+  });
+});
+
+describe("All-branch staff authorization boundary", () => {
+  it("must exclude archived and currently suspended global staff profiles", () => {
+    const start = powerhubSupabaseSource.indexOf("export async function requireSupabaseAllBranchesRole");
+    const end = powerhubSupabaseSource.indexOf("export async function listSupabaseAccessibleSites", start);
+    const helper = powerhubSupabaseSource.slice(start, end);
+    expect(helper).toContain('.is("archived_at", null)');
+    expect(helper).toContain("suspension_started_at");
+    expect(helper).toContain("suspension_ends_at");
+    expect(helper).toContain("isSuspended(new Date()");
   });
 });
