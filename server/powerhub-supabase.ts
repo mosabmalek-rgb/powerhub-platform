@@ -1366,7 +1366,8 @@ export async function listSupabaseCompanyAccounts(input: { tenantId: number; bra
   const siteLinksQuery = accountIds.length
     ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds)
     : null;
-  if (siteLinksQuery && input.branchId !== undefined) siteLinksQuery.eq("site_id", input.branchId);
+  // Retain every linked branch for account management; the row filter below only limits which accounts appear.
+
 
   const [siteLinksResult, sitesResult, balancesResult] = await Promise.all([
     siteLinksQuery ?? Promise.resolve({ data: [], error: null }),
