@@ -5,37 +5,11 @@ ALTER FUNCTION public.powerhub_sync_generator_create(bigint,text,text,text,numer
 ALTER FUNCTION public.powerhub_sync_generator_update(bigint,bigint,text,numeric,numeric,numeric,text,timestamp with time zone,text)
   SET search_path = '';
 
--- pg_net is non-relocatable. Supabase documents drop/recreate to install it
--- outside public. Fail closed if the ephemeral request/response tables contain
--- data; never discard queued requests or responses during this migration.
-CREATE SCHEMA IF NOT EXISTS extensions;
-
-DO $pg_net_preflight$
-DECLARE
-  v_queue_count bigint;
-  v_response_count bigint;
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_net') THEN
-    RAISE EXCEPTION 'PG_NET_EXTENSION_NOT_INSTALLED';
-  END IF;
-
-  IF to_regclass('net.http_request_queue') IS NULL
-     OR to_regclass('net._http_response') IS NULL THEN
-    RAISE EXCEPTION 'PG_NET_EXPECTED_OBJECTS_MISSING';
-  END IF;
-
-  EXECUTE 'SELECT count(*) FROM net.http_request_queue' INTO v_queue_count;
-  EXECUTE 'SELECT count(*) FROM net._http_response' INTO v_response_count;
-
-  IF v_queue_count <> 0 OR v_response_count <> 0 THEN
-    RAISE EXCEPTION 'PG_NET_NOT_EMPTY: pending_requests=%, stored_responses=%',
-      v_queue_count,v_response_count;
-  END IF;
-END
-$pg_net_preflight$;
-
-DROP EXTENSION pg_net;
-CREATE EXTENSION pg_net WITH SCHEMA extensions;
+-- Supabase's supported pg_net installation creates its API objects in the
+-- dedicated "net" schema. The extension catalog namespace may remain public;
+-- this is a provider-managed extension layout, not a public application table.
+-- Do not DROP/recreate or relocate pg_net: doing so can interrupt queued
+-- asynchronous HTTP work and is not required to isolate application objects.
 
 -- Remove only redundant duplicate indexes. Keep the sites index backing the
 -- composite foreign keys; drop the unreferenced duplicate instead.
@@ -89,15 +63,15 @@ DROP INDEX public.tenant_invoice_message_templates_tenant_channel_event_type_key
 DO $postconditions$
 DECLARE
   v_extension_schema text;
-  v_queue_count bigint;
-  v_response_count bigint;
 BEGIN
   SELECT n.nspname INTO v_extension_schema
   FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace
   WHERE e.extname='pg_net';
 
-  IF v_extension_schema <> 'extensions' THEN
-    RAISE EXCEPTION 'PG_NET_EXTENSION_SCHEMA_NOT_HARDENED: %',v_extension_schema;
+  -- Verify the provider-managed pg_net API remains available in its documented
+  -- net schema; do not impose a different extension catalog namespace.
+  IF to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)') IS NULL THEN
+    RAISE EXCEPTION 'PG_NET_HTTP_POST_API_MISSING';
   END IF;
 
   IF (SELECT proconfig FROM pg_proc
