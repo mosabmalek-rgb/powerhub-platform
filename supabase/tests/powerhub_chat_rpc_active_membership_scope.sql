@@ -304,16 +304,19 @@ GRANT EXECUTE ON FUNCTION
 TO authenticated;
 
 \ir ../migrations/20261105125000_powerhub_chat_rls_active_account_and_delivery_scope.sql
+\ir ../migrations/20261105130000_powerhub_chat_receipt_recipient_privacy.sql
 
 INSERT INTO public.users(id,auth_user_id,account_status,platform_role) VALUES
   (1,'11111111-1111-4111-8111-111111111111','active',NULL),
   (2,'22222222-2222-4222-8222-222222222222','active','platform_support'),
   (3,'33333333-3333-4333-8333-333333333333','disabled','platform_support'),
-  (4,'44444444-4444-4444-8444-444444444444','active',NULL);
+  (4,'44444444-4444-4444-8444-444444444444','active',NULL),
+  (5,'55555555-5555-4555-8555-555555555555','active',NULL);
 INSERT INTO public.tenant_members(id,tenant_id,user_id,is_active,membership_status,expires_at) VALUES
   (1,10,1,true,'active',NULL),
   (2,10,3,true,'active',NULL),
-  (3,10,4,true,'suspended',now()+interval '1 day');
+  (3,10,4,true,'suspended',now()+interval '1 day'),
+  (4,10,5,true,'active',NULL);
 INSERT INTO private.platform_capability_policies(platform_role,capability,is_allowed)
 VALUES ('platform_support','manageSupportChat',true);
 INSERT INTO public.chat_support_settings(id,auto_close_after_minutes,reopen_window_minutes)
@@ -330,6 +333,7 @@ INSERT INTO public.chat_participants(conversation_id,tenant_id,user_id,participa
   (100,10,1,'owner'),
   (100,10,3,'owner'),
   (101,10,1,'owner'),
+  (101,10,5,'owner'),
   (102,10,1,'owner'),
   (103,10,4,'owner');
 INSERT INTO public.chat_messages(id,conversation_id,tenant_id,sender_user_id,sender_type,visibility,body,created_at) VALUES
@@ -343,6 +347,7 @@ INSERT INTO public.chat_message_receipts(tenant_id,conversation_id,message_id,us
   (10,100,500,1,now(),now()),
   (10,101,501,1,now(),now()),
   (10,101,501,2,now(),now()),
+  (10,101,501,5,now(),now()),
   (10,101,502,1,now(),now()),
   (10,103,504,4,now(),now());
 INSERT INTO public.chat_support_assignments(
@@ -361,7 +366,7 @@ BEGIN
   IF (SELECT count(*) FROM public.chat_receipts_for_message(500))<>0 THEN
     RAISE EXCEPTION 'SUPPORT_READ_ASSISTANT_RECEIPTS_ALLOWED';
   END IF;
-  IF (SELECT count(*) FROM public.chat_receipts_for_message(501))<>2
+  IF (SELECT count(*) FROM public.chat_receipts_for_message(501))<>3
      OR (SELECT count(*) FROM public.chat_receipts_for_message(502))<>1 THEN
     RAISE EXCEPTION 'SUPPORT_CANNOT_READ_SUPPORT_RECEIPTS';
   END IF;
@@ -414,7 +419,7 @@ DO $tenant_scope$
 DECLARE v_notification_id bigint; v_internal_receipt_updated_at timestamptz;
 BEGIN
   IF (SELECT count(*) FROM public.chat_receipts_for_message(500))<>1
-     OR (SELECT count(*) FROM public.chat_receipts_for_message(501))<>2
+     OR (SELECT count(*) FROM public.chat_receipts_for_message(501))<>3
      OR (SELECT count(*) FROM public.chat_receipts_for_message(502))<>0 THEN
     RAISE EXCEPTION 'TENANT_RECEIPT_VISIBILITY_SCOPE_BROKEN';
   END IF;
@@ -465,6 +470,21 @@ BEGIN
   END IF;
 END
 $tenant_scope$;
+
+-- A normal recipient sees their own public receipt, not every other participant's.
+SELECT set_config('request.jwt.claim.sub','55555555-5555-4555-8555-555555555555',false);
+DO $recipient_receipt_scope$
+BEGIN
+  IF (SELECT count(*) FROM public.chat_receipts_for_message(501))<>1
+     OR (SELECT min(user_id) FROM public.chat_receipts_for_message(501))<>5
+     OR (SELECT max(user_id) FROM public.chat_receipts_for_message(501))<>5 THEN
+    RAISE EXCEPTION 'RECIPIENT_CAN_READ_OTHER_PARTICIPANTS_RECEIPTS';
+  END IF;
+  IF (SELECT count(*) FROM public.chat_receipts_for_message(502))<>0 THEN
+    RAISE EXCEPTION 'RECIPIENT_CAN_READ_INTERNAL_NOTE_RECEIPTS';
+  END IF;
+END
+$recipient_receipt_scope$;
 
 -- is_active alone is insufficient: suspended membership must fail all chat
 -- mutation paths even when the membership row remains enabled.
@@ -549,6 +569,17 @@ END
 $inactive_account$;
 
 SELECT 'POWERHUB_CHAT_RPC_ACTIVE_MEMBERSHIP_SCOPE_ASSERTIONS_PASSED' AS result;
+
+-- Disabled accounts cannot read public receipt metadata even if a stale
+-- participant row and membership row still exist.
+SELECT set_config('request.jwt.claim.sub','33333333-3333-4333-8333-333333333333',false);
+DO $disabled_receipts$
+BEGIN
+  IF (SELECT count(*) FROM public.chat_receipts_for_message(500))<>0 THEN
+    RAISE EXCEPTION 'DISABLED_ACCOUNT_CAN_READ_CHAT_RECEIPTS';
+  END IF;
+END
+$disabled_receipts$;
 
 -- Disabled accounts must not pass the chat-specific RLS helper predicates.
 SELECT set_config('request.jwt.claim.sub','33333333-3333-4333-8333-333333333333',false);
