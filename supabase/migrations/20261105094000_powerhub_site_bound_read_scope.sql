@@ -106,10 +106,20 @@ BEGIN
 END
 $install_site_guards$;
 
--- Mobile API refresh-token hashes and device session metadata are server-owned.
--- The only repository code path that reads/writes this table is server/mobile-api.ts
--- through supabaseAdmin(); browser direct SELECT is not part of the supported contract.
-REVOKE SELECT ON TABLE public.mobile_api_sessions FROM anon, authenticated;
+-- These records are server-owned. Application access is mediated by server-side
+-- tRPC/REST handlers using supabaseAdmin() and audited RPCs. There are no direct
+-- browser table reads or authenticated SECURITY INVOKER routines that depend on
+-- these grants. Keep the branch guards above as defense in depth if a reviewed
+-- future route intentionally introduces a direct read.
+REVOKE SELECT ON TABLE
+  public.mobile_api_sessions,
+  public.collector_sessions,
+  public.mobile_sync_events,
+  public.offline_sync_operations,
+  public.access_invitations,
+  public.staff_profiles,
+  public.site_portal_settings
+FROM PUBLIC, anon, authenticated;
 
 DO $assertions$
 DECLARE
@@ -138,12 +148,26 @@ BEGIN
     END IF;
   END LOOP;
 
-  IF has_table_privilege('anon', 'public.mobile_api_sessions', 'SELECT')
-     OR has_table_privilege('authenticated', 'public.mobile_api_sessions', 'SELECT') THEN
-    RAISE EXCEPTION 'MOBILE_API_SESSIONS_BROWSER_SELECT_GRANT_REMAINS';
+  IF EXISTS (
+    SELECT 1
+    FROM unnest(ARRAY[
+      'mobile_api_sessions','collector_sessions','mobile_sync_events',
+      'offline_sync_operations','access_invitations','staff_profiles','site_portal_settings'
+    ]) AS server_only(table_name)
+    WHERE has_table_privilege('anon', format('public.%I', server_only.table_name), 'SELECT')
+       OR has_table_privilege('authenticated', format('public.%I', server_only.table_name), 'SELECT')
+  ) THEN
+    RAISE EXCEPTION 'SERVER_OWNED_TABLE_BROWSER_SELECT_GRANT_REMAINS';
   END IF;
-  IF NOT has_table_privilege('service_role', 'public.mobile_api_sessions', 'SELECT') THEN
-    RAISE EXCEPTION 'MOBILE_API_SESSIONS_SERVER_SELECT_GRANT_MISSING';
+  IF EXISTS (
+    SELECT 1
+    FROM unnest(ARRAY[
+      'mobile_api_sessions','collector_sessions','mobile_sync_events',
+      'offline_sync_operations','access_invitations','staff_profiles','site_portal_settings'
+    ]) AS server_only(table_name)
+    WHERE NOT has_table_privilege('service_role', format('public.%I', server_only.table_name), 'SELECT')
+  ) THEN
+    RAISE EXCEPTION 'SERVER_OWNED_TABLE_SERVER_SELECT_GRANT_MISSING';
   END IF;
 END
 $assertions$;
