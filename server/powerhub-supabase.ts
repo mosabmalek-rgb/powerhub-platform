@@ -1226,6 +1226,133 @@ export async function getSupabaseFinancialOverview(site: SupabaseSite, includeDe
   return includeDetails ? overview : { ...overview, outstandingInvoices: [] };
 }
 
+export type SupabaseCompanyAccountHistoryItem = SupabaseAccountTransaction & {
+  balanceAfter: number | null;
+};
+
+export type SupabaseCompanyAccountHistoryPage = {
+  items: SupabaseCompanyAccountHistoryItem[];
+  totalCount: number;
+  incomingTotal: number;
+  outgoingTotal: number;
+  hasNext: boolean;
+  nextCursor: string | null;
+  balanceTimeline: Array<{ day: string | null; balance: number }>;
+};
+
+export async function listSupabaseCompanyAccountHistoryPage(input: {
+  tenantId: number;
+  accountId: number;
+  branchId?: number;
+  from?: Date | null;
+  to?: Date | null;
+  movementFrom?: string | null;
+  movementTo?: string | null;
+  transactionType?: string | null;
+  search?: string | null;
+  cursor?: string;
+  limit?: number;
+}): Promise<SupabaseCompanyAccountHistoryPage> {
+  const cursor = decodeHistoryCursor(input.cursor);
+  const limit = historyLimit(input.limit);
+  const { data, error } = await supabaseAdmin().rpc("powerhub_company_account_history_page", {
+    p_tenant_id: input.tenantId,
+    p_account_id: input.accountId,
+    p_branch_id: input.branchId ?? null,
+    p_from: input.from?.toISOString() ?? null,
+    p_to: input.to?.toISOString() ?? null,
+    p_movement_from: input.movementFrom ?? null,
+    p_movement_to: input.movementTo ?? null,
+    p_transaction_type: input.transactionType ?? null,
+    p_search: input.search?.trim() || null,
+    p_cursor_at: cursor?.at ?? null,
+    p_cursor_id: cursor?.id ?? null,
+    p_limit: limit,
+  });
+  if (error) {
+    const errorText = \`\${error.code ?? ""} \${error.message ?? ""}\`;
+    if (errorText.includes("ACCOUNT_SITE_OUT_OF_SCOPE")) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "الحساب غير مرتبط بالفرع المحدد." });
+    }
+    if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND")) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "حساب الشركة غير موجود ضمن مساحة الشركة." });
+    }
+    if (/COMPANY_ACCOUNT_HISTORY_(INVALID|SEARCH_TOO_LONG)/.test(errorText)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تطبيق فلاتر سجل الحركات؛ تحقق من الفترة ومؤشر الصفحة والبحث." });
+    }
+    logSupabaseDataReadFailure("companyAccounts.history", error);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل حركات حساب الشركة من Supabase." });
+  }
+
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة سجل حركات الحساب غير صالحة." });
+  }
+  const result = data as Record<string, unknown>;
+  const rows = Array.isArray(result.items) ? result.items : [];
+  const items: SupabaseCompanyAccountHistoryItem[] = rows.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "توجد حركة غير صالحة في سجل الحساب." });
+    }
+    const row = value as Record<string, unknown>;
+    const id = Number(row.id);
+    const accountId = Number(row.account_id);
+    const tenantId = Number(row.tenant_id);
+    const occurredAt = new Date(String(row.occurred_at));
+    const createdAt = new Date(String(row.created_at));
+    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(accountId) || !Number.isInteger(tenantId)
+      || Number.isNaN(occurredAt.getTime()) || Number.isNaN(createdAt.getTime())) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "توجد بيانات غير مكتملة في سجل الحساب." });
+    }
+    const balanceAfter = row.balance_after == null ? null : Number(row.balance_after);
+    if (balanceAfter !== null && !Number.isFinite(balanceAfter)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب الرصيد بعد الحركة." });
+    }
+    return {
+      id,
+      tenantId,
+      accountId,
+      siteId: row.site_id == null ? null : Number(row.site_id),
+      transactionType: String(row.transaction_type ?? ""),
+      amount: String(row.amount ?? "0"),
+      description: String(row.description ?? ""),
+      referenceNo: row.reference_no == null ? null : String(row.reference_no),
+      relatedPaymentId: row.related_payment_id == null ? null : Number(row.related_payment_id),
+      relatedAccountId: row.related_account_id == null ? null : Number(row.related_account_id),
+      createdByUserId: row.created_by_user_id == null ? null : Number(row.created_by_user_id),
+      occurredAt,
+      createdAt,
+      balanceAfter,
+    };
+  });
+
+  const hasNext = result.has_next === true;
+  const nextCursorAt = typeof result.next_cursor_at === "string" ? result.next_cursor_at : null;
+  const nextCursorId = Number(result.next_cursor_id);
+  if (hasNext && (!nextCursorAt || !Number.isInteger(nextCursorId) || nextCursorId <= 0)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "مؤشر الصفحة التالية لسجل الحساب غير صالح." });
+  }
+  const timelineRaw = Array.isArray(result.balance_timeline) ? result.balance_timeline : [];
+  const balanceTimeline = timelineRaw.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "بيانات مخطط رصيد الحساب غير صالحة." });
+    }
+    const row = value as Record<string, unknown>;
+    const balance = Number(row.balance);
+    if (!Number.isFinite(balance)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب مسار رصيد الحساب." });
+    return { day: row.day == null ? null : String(row.day), balance };
+  });
+
+  return {
+    items,
+    totalCount: Number(result.total_count ?? 0),
+    incomingTotal: Number(result.incoming_total ?? 0),
+    outgoingTotal: Number(result.outgoing_total ?? 0),
+    hasNext,
+    nextCursor: hasNext ? encodeHistoryCursor({ at: new Date(nextCursorAt!).toISOString(), id: nextCursorId }) : null,
+    balanceTimeline,
+  };
+}
+
 export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; from?: Date | null; to?: Date | null }) {
   const admin = supabaseAdmin();
   let { data: accountRows, error: accountsError } = await admin.from("company_accounts")
