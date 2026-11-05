@@ -378,6 +378,7 @@ end;
 $company_account_test$;
 
 
+BEGIN;
 -- Verify that the bounded previous-window candidate set is equivalent to the
 -- original full-history definition for insert, update, and delete boundaries.
 create temp table company_account_delta_window_base (
@@ -491,6 +492,7 @@ begin
   end loop;
 end
 $company_account_delta_window_equivalence$;
+COMMIT;
 
 -- Updating an existing branch link must remove the old scoped copy, publish
 -- the new scoped copy, and refresh the tenant-wide feed without a full reload.
