@@ -33,7 +33,7 @@ CREATE TABLE public.sites (
 CREATE SCHEMA net;
 CREATE FUNCTION net.http_post(
   url text, body jsonb, params jsonb, headers jsonb, timeout_milliseconds integer
-) RETURNS bigint LANGUAGE sql IMMUTABLE AS $ SELECT 1::bigint $;
+) RETURNS bigint LANGUAGE sql IMMUTABLE AS 'SELECT 1::bigint';
 
 CREATE UNIQUE INDEX sites_tenant_id_id_scope_uidx
   ON public.sites(tenant_id,id);
