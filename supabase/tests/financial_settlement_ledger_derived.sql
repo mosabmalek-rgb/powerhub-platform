@@ -14,7 +14,7 @@ CREATE TABLE public.account_transactions(
   related_payment_id bigint,related_expense_id bigint,related_supplier_payment_id bigint,related_supplier_return_id bigint
 );
 
-\ir ../migrations/20261105153000_powerhub_account_transaction_site_date_index.sql
+\ir ../migrations/20261105155500_powerhub_account_transaction_site_date_index.sql
 
 DO $site_date_index$
 DECLARE
