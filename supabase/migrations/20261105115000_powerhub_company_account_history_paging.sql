@@ -26,6 +26,7 @@ as $function$
 declare
   v_limit integer := least(200, greatest(1, coalesce(p_limit, 10)));
   v_search text := nullif(btrim(p_search), '');
+  v_search_pattern text;
   v_opening_balance numeric;
   v_balance numeric;
   v_total_count bigint := 0;
@@ -52,6 +53,7 @@ begin
   if length(coalesce(v_search, '')) > 120 then
     raise exception 'COMPANY_ACCOUNT_HISTORY_SEARCH_TOO_LONG' using errcode = '22023';
   end if;
+  v_search_pattern := case when v_search is null then null else replace(replace(replace(v_search, E'\\', E'\\\\'), '%', E'\\%'), '_', E'\\_') end;
 
   select ca.opening_balance
     into v_opening_balance
@@ -98,6 +100,7 @@ begin
   left join public.company_accounts counterpart
     on counterpart.tenant_id = tx.tenant_id
    and counterpart.id = tx.related_account_id
+   and counterpart.is_active = true
   where tx.tenant_id = p_tenant_id
     and tx.account_id = p_account_id
     and (p_branch_id is null or tx.site_id = p_branch_id)
@@ -108,7 +111,7 @@ begin
     and (p_transaction_type is null or tx.transaction_type = p_transaction_type)
     and (
       v_search is null
-      or tx.description ilike '%' || v_search || '%'
+      or tx.description ilike '%' || v_search_pattern || '%' escape E'\\'
       or tx.transaction_type ilike '%' || v_search || '%'
       or case tx.transaction_type
         when 'collection' then 'تحصيل'
