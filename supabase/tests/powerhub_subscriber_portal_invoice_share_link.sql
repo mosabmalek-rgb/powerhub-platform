@@ -153,6 +153,8 @@ AS $function$
 $function$;
 
 GRANT SELECT ON public.invoice_share_links TO service_role;
+-- The service-role test session changes only the synthetic entitlement flag.
+GRANT SELECT (tenant_id), UPDATE (allowed) ON public.test_payment_feature_access TO service_role;
 
 \ir ../migrations/20261105230419_powerhub_subscriber_portal_invoice_share_link_tenant_scope_reconciliation.sql
 
