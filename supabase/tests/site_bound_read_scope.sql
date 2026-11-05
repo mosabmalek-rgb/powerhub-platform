@@ -48,6 +48,8 @@ CREATE TABLE public.access_invitations(id bigint PRIMARY KEY, tenant_id bigint N
 CREATE TABLE public.site_portal_settings(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, site_id bigint NOT NULL, portal_code text);
 CREATE TABLE public.meters(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, subscriber_id bigint NOT NULL);
 CREATE TABLE public.meter_readings(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, subscriber_id bigint NOT NULL);
+CREATE TABLE public.tenant_scope_probe(id bigint PRIMARY KEY,tenant_id bigint NOT NULL);
+
 CREATE TABLE public.mobile_api_sessions(
   id bigint PRIMARY KEY,
   user_id bigint NOT NULL,
@@ -202,7 +204,7 @@ GRANT EXECUTE ON FUNCTION private.powerhub_has_site_access(bigint,bigint) TO aut
 GRANT SELECT ON TABLE
   public.sites,public.subscribers,public.tariffs,public.complaints,public.collector_sessions,
   public.mobile_sync_events,public.offline_sync_operations,public.access_invitations,
-  public.staff_profiles,public.site_portal_settings,public.meters,public.meter_readings,public.mobile_api_sessions
+  public.staff_profiles,public.site_portal_settings,public.meters,public.meter_readings,public.mobile_api_sessions,public.tenant_scope_probe
 TO authenticated,anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
@@ -246,6 +248,7 @@ INSERT INTO public.site_portal_settings VALUES(170,1,10,'portal-a'),(171,1,11,'p
 INSERT INTO public.meters VALUES(180,1,100),(181,1,101),(280,2,200);
 INSERT INTO public.meter_readings VALUES(1900,1,100),(1901,1,101),(2900,2,200);
 INSERT INTO public.mobile_api_sessions VALUES(190,2,1,'refresh-hash');
+INSERT INTO public.tenant_scope_probe VALUES(1,1),(2,2);
 
 DO $enable_rls$
 DECLARE target text;
@@ -253,7 +256,7 @@ BEGIN
   FOREACH target IN ARRAY ARRAY[
     'sites','subscribers','tariffs','complaints','collector_sessions',
     'mobile_sync_events','offline_sync_operations','access_invitations',
-    'staff_profiles','site_portal_settings','meters','meter_readings'
+    'staff_profiles','site_portal_settings','meters','meter_readings','tenant_scope_probe'
   ] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',target);
   END LOOP;
@@ -268,7 +271,7 @@ BEGIN
   FOREACH target IN ARRAY ARRAY[
     'sites','subscribers','tariffs','complaints','collector_sessions',
     'mobile_sync_events','offline_sync_operations','access_invitations',
-    'staff_profiles','site_portal_settings','meters','meter_readings'
+    'staff_profiles','site_portal_settings','meters','meter_readings','tenant_scope_probe'
   ] LOOP
     EXECUTE format(
       'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (private.powerhub_has_tenant_access(tenant_id)) WITH CHECK (private.powerhub_has_tenant_access(tenant_id))',
@@ -338,6 +341,7 @@ DO $branch_a$
 BEGIN
   IF (SELECT array_agg(id ORDER BY id) FROM public.sites) IS DISTINCT FROM ARRAY[10::bigint] THEN RAISE EXCEPTION 'BRANCH_A_SITE_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.subscribers) IS DISTINCT FROM ARRAY[100::bigint] THEN RAISE EXCEPTION 'BRANCH_A_SUBSCRIBER_SCOPE_FAILED'; END IF;
+  IF (SELECT array_agg(id ORDER BY id) FROM public.tenant_scope_probe) IS DISTINCT FROM ARRAY[1::bigint] THEN RAISE EXCEPTION 'TENANT_SCOPE_ACTIVE_MEMBER_READ_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.tariffs) IS DISTINCT FROM ARRAY[110::bigint] THEN RAISE EXCEPTION 'BRANCH_A_TARIFF_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.complaints) IS DISTINCT FROM ARRAY[120::bigint] THEN RAISE EXCEPTION 'BRANCH_A_COMPLAINT_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.meters) IS DISTINCT FROM ARRAY[180::bigint] THEN RAISE EXCEPTION 'BRANCH_A_METER_PARENT_SCOPE_FAILED'; END IF;
@@ -428,6 +432,7 @@ SET ROLE authenticated;
 DO $disabled$
 BEGIN
   IF (SELECT count(*) FROM public.subscribers)<>0 THEN RAISE EXCEPTION 'DISABLED_ACCOUNT_MUST_NOT_READ_BRANCH'; END IF;
+  IF (SELECT count(*) FROM public.tenant_scope_probe)<>0 THEN RAISE EXCEPTION 'DISABLED_ACCOUNT_MUST_NOT_READ_TENANT_SCOPE'; END IF;
 END
 $disabled$;
 RESET ROLE;
