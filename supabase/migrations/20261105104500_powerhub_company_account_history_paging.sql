@@ -80,8 +80,8 @@ begin
   -- narrowed to one linked branch.
   select v_opening_balance + coalesce(sum(
     case
-      when tx.transaction_type in ('deposit', 'transfer_in', 'collection') then tx.amount
-      else -tx.amount
+      when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
+      else tx.amount
     end
   ), 0)
     into v_balance
@@ -191,8 +191,8 @@ begin
         else v_balance - coalesce((
           select sum(
             case
-              when newer.transaction_type in ('deposit', 'transfer_in', 'collection') then newer.amount
-              else -newer.amount
+              when newer.transaction_type in ('withdrawal', 'transfer_out') then -newer.amount
+              else newer.amount
             end
           )
           from public.account_transactions newer
@@ -238,8 +238,8 @@ begin
       select
         (tx.occurred_at at time zone 'Asia/Gaza')::date as movement_day,
         sum(case
-          when tx.transaction_type in ('deposit', 'transfer_in', 'collection') then tx.amount
-          else -tx.amount
+          when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
+          else tx.amount
         end) as net_amount
       from public.account_transactions tx
       where tx.tenant_id = p_tenant_id
@@ -253,8 +253,8 @@ begin
     ),
     opening_balance as (
       select v_balance - coalesce(sum(case
-        when tx.transaction_type in ('deposit', 'transfer_in', 'collection') then tx.amount
-        else -tx.amount
+        when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
+        else tx.amount
       end), 0) as balance
       from first_day
       left join public.account_transactions tx
