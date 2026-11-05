@@ -1373,6 +1373,8 @@ $company_account_history_page_test$;
 
 -- Isolated scale benchmark: 100k ledger rows, first page and keyset continuation.
 -- Timing is emitted for review; no fragile wall-clock threshold is enforced in CI.
+ALTER TABLE public.account_transactions DISABLE TRIGGER powerhub_delta_sync_account_transactions;
+
 do $company_account_history_scale_benchmark$
 declare
   v_page jsonb;
@@ -1396,6 +1398,7 @@ begin
     'HIST-SCALE-' || g::text,
     timestamptz '2026-11-01 00:00:00+00' + g * interval '1 second'
   from generate_series(1,100000) g;
+  EXECUTE 'ANALYZE public.account_transactions';
 
   v_started := clock_timestamp();
   v_page := public.powerhub_company_account_history_page(
@@ -1432,5 +1435,7 @@ begin
     round(v_first_page_ms,2),round(v_next_page_ms,2);
 end;
 $company_account_history_scale_benchmark$;
+
+ALTER TABLE public.account_transactions ENABLE TRIGGER powerhub_delta_sync_account_transactions;
 
 select 'COMPANY_ACCOUNT_HISTORY_PAGE_OK' as result;
