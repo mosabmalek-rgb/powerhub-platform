@@ -5146,7 +5146,7 @@ export const powerhubRouter = router({
       if (from && to && from > to) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب أن يسبق تاريخ النهاية." });
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
       const effectiveBranchId = await resolveCompanyAccountBranchScope(ctx.user.id, input.siteId, access, input.branchId);
-      return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: effectiveBranchId });
+      return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: effectiveBranchId, includeAllSiteLinks: access.role === "owner" });
     }),
     history: protectedProcedure.input(siteScoped.extend({
       accountId: z.number().int().positive(),
