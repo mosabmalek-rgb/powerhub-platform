@@ -378,10 +378,17 @@ RESET ROLE;
 
 
 SELECT 'FINANCIAL_SITE_RLS_SCOPE_OK' AS result;
-SET ROLE anon;
 DO $anon_inventory$
 BEGIN
- IF (SELECT count(*) FROM public.generators)<>0 OR (SELECT count(*) FROM public.inventory_warehouses)<>0 OR (SELECT count(*) FROM public.inventory_stock_movements)<>0 THEN RAISE EXCEPTION 'ANON_INVENTORY_READ_NOT_DENIED'; END IF;
+ IF has_table_privilege('anon','public.generators','SELECT')
+    OR has_table_privilege('anon','public.inventory_warehouses','SELECT')
+    OR has_table_privilege('anon','public.inventory_stock_movements','SELECT') THEN
+   RAISE EXCEPTION 'ANON_INVENTORY_SELECT_GRANT_PRESENT';
+ END IF;
+ IF has_table_privilege('authenticated','public.generators','SELECT') IS NOT TRUE
+    OR has_table_privilege('authenticated','public.inventory_warehouses','SELECT') IS NOT TRUE
+    OR has_table_privilege('authenticated','public.inventory_stock_movements','SELECT') IS NOT TRUE THEN
+   RAISE EXCEPTION 'AUTHENTICATED_INVENTORY_SELECT_GRANT_MISSING';
+ END IF;
 END
 $anon_inventory$;
-RESET ROLE;
