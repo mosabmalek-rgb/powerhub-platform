@@ -110,6 +110,7 @@ create table public.inventory_warehouses (
 \ir ../migrations/20261101082641_powerhub_delta_company_account_history.sql
 \ir ../migrations/20261104084757_20261103210100_powerhub_company_account_delta_site_scope.sql
 \ir ../migrations/20261105102000_powerhub_account_transaction_tenant_recent_index.sql
+\ir ../migrations/20261105115000_powerhub_company_account_history_paging.sql
 create table public.inventory_stock_movements (
  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
  generator_id bigint, movement_type text not null, quantity numeric(14,3) not null, unit_cost numeric(14,4) not null default 0,
@@ -1129,3 +1130,167 @@ begin
   end if;
 end;
 $inventory_receipt_return_delta_test$;
+
+
+do $company_account_history_page_test$
+declare
+  v_page jsonb;
+  v_cursor_at timestamptz;
+  v_cursor_id bigint;
+begin
+  insert into public.company_accounts(
+    id,tenant_id,name,account_type,opening_balance,is_active
+  ) values (98001,1,'Keyset history test','cash',50,true);
+  insert into public.company_account_sites(tenant_id,account_id,site_id)
+    values (1,98001,10),(1,98001,20);
+
+  insert into public.account_transactions(
+    id,tenant_id,account_id,site_id,transaction_type,amount,description,reference_no,occurred_at
+  ) values
+    (98101,1,98001,10,'deposit',10,'Opening 100% deposit','HIST-98101',timestamptz '2026-10-27 08:00:00+00'),
+    (98102,1,98001,20,'withdrawal',5,'Branch two withdrawal','HIST-98102',timestamptz '2026-10-27 09:00:00+00'),
+    (98103,1,98001,10,'collection',20,'Invoice collection','HIST-98103',timestamptz '2026-10-27 10:00:00+00'),
+    (98104,1,98001,20,'transfer_out',3,'Branch two transfer','HIST-98104',timestamptz '2026-10-27 11:00:00+00'),
+    (98105,1,98001,10,'withdrawal',2,'Latest withdrawal','HIST-98105',timestamptz '2026-10-27 12:00:00+00');
+
+  -- Branch 10 returns only its three movements, while balance_after includes
+  -- movements from both linked branches in the shared account ledger.
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,p_limit=>2
+  );
+  if jsonb_array_length(v_page->'items')<>2
+     or v_page #>> '{items,0,id}' is distinct from '98105'
+     or v_page #>> '{items,1,id}' is distinct from '98103'
+     or (v_page #>> '{items,0,balance_after}')::numeric<>70
+     or (v_page #>> '{items,1,balance_after}')::numeric<>75
+     or (v_page->>'total_count')::bigint<>3
+     or (v_page->>'incoming_total')::numeric<>30
+     or (v_page->>'outgoing_total')::numeric<>2
+     or v_page->>'has_next' is distinct from 'true'
+     or v_page->>'next_cursor_at' is null
+     or v_page->>'next_cursor_id' is distinct from '98103' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_FIRST_PAGE_FAILED: %',v_page;
+  end if;
+
+  v_cursor_at:=(v_page->>'next_cursor_at')::timestamptz;
+  v_cursor_id:=(v_page->>'next_cursor_id')::bigint;
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,
+    p_cursor_at=>v_cursor_at,p_cursor_id=>v_cursor_id,p_limit=>2
+  );
+  if jsonb_array_length(v_page->'items')<>1
+     or v_page #>> '{items,0,id}' is distinct from '98101'
+     or (v_page #>> '{items,0,balance_after}')::numeric<>60
+     or v_page->>'has_next' is distinct from 'false' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_KEYSET_CONTINUATION_FAILED: %',v_page;
+  end if;
+
+  -- Branch 20 gets its own two rows while preserving the shared ledger balance.
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>20,p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>2
+     or (v_page->>'incoming_total')::numeric<>0
+     or (v_page->>'outgoing_total')::numeric<>8
+     or jsonb_array_length(v_page->'items')<>2
+     or (v_page #>> '{items,0,balance_after}')::numeric<>72
+     or (v_page #>> '{items,1,balance_after}')::numeric<>55 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_SECOND_BRANCH_SCOPE_FAILED: %',v_page;
+  end if;
+
+  -- All-branch view: daily chart closes at the full shared account balance.
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>5
+     or jsonb_array_length(v_page->'items')<>5
+     or (v_page #>> '{balance_timeline,0,balance}')::numeric<>70
+     or v_page #>> '{balance_timeline,0,day}' is distinct from '2026-10-27' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_ALL_BRANCH_TOTALS_FAILED: %',v_page;
+  end if;
+
+  -- Arabic labels and literal wildcard characters retain the UI search contract.
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,p_search=>'تحصيل',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>1
+     or v_page #>> '{items,0,id}' is distinct from '98103' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_ARABIC_SEARCH_FAILED: %',v_page;
+  end if;
+
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,p_search=>'%',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>1
+     or v_page #>> '{items,0,id}' is distinct from '98101' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_LITERAL_WILDCARD_SEARCH_FAILED: %',v_page;
+  end if;
+
+  -- The UTC from/to filter is inclusive and intentionally suppresses running
+  -- balances because rows outside the requested top-level date window are absent.
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
+    p_from=>timestamptz '2026-10-27 09:00:00+00',
+    p_to=>timestamptz '2026-10-27 11:00:00+00',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>3
+     or jsonb_array_length(v_page->'items')<>3
+     or v_page #>> '{items,0,balance_after}' is not null then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_UTC_WINDOW_FAILED: %',v_page;
+  end if;
+
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,
+    p_movement_from=>date '2026-10-27',p_movement_to=>date '2026-10-27',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>3 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_GAZA_LOCAL_DATE_FILTER_FAILED: %',v_page;
+  end if;
+
+  begin
+    perform public.powerhub_company_account_history_page(
+      p_tenant_id=>1,p_account_id=>98001,p_branch_id=>30,p_limit=>10
+    );
+    raise exception 'Expected account-site scope rejection';
+  exception when insufficient_privilege then
+    if sqlerrm<>'ACCOUNT_SITE_OUT_OF_SCOPE' then raise; end if;
+  end;
+
+  begin
+    perform public.powerhub_company_account_history_page(
+      p_tenant_id=>2,p_account_id=>98001,p_branch_id=>null,p_limit=>10
+    );
+    raise exception 'Expected account tenant scope rejection';
+  exception when no_data_found then
+    if sqlerrm<>'COMPANY_ACCOUNT_NOT_FOUND' then raise; end if;
+  end;
+
+  if has_function_privilege(
+       'anon',
+       'public.powerhub_company_account_history_page(bigint,bigint,bigint,timestamptz,timestamptz,date,date,text,text,timestamptz,bigint,integer)',
+       'EXECUTE'
+     )
+     or has_function_privilege(
+       'authenticated',
+       'public.powerhub_company_account_history_page(bigint,bigint,bigint,timestamptz,timestamptz,date,date,text,text,timestamptz,bigint,integer)',
+       'EXECUTE'
+     )
+     or not has_function_privilege(
+       'service_role',
+       'public.powerhub_company_account_history_page(bigint,bigint,bigint,timestamptz,timestamptz,date,date,text,text,timestamptz,bigint,integer)',
+       'EXECUTE'
+     ) then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_RPC_SERVER_ONLY_ACL_FAILED';
+  end if;
+
+  if not exists (
+    select 1 from pg_indexes
+    where schemaname='public'
+      and indexname='account_transactions_tenant_account_history_idx'
+  ) then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_KEYSET_INDEX_MISSING';
+  end if;
+end;
+$company_account_history_page_test$;
+
+select 'COMPANY_ACCOUNT_HISTORY_PAGE_OK' as result;
