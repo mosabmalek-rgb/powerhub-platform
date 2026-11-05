@@ -99,7 +99,80 @@ BEGIN
 END
 $fixtures$;
 
+-- Trigger-only functions retain trigger execution after browser-facing EXECUTE
+-- grants are revoked. PostgreSQL does not require table callers to hold EXECUTE
+-- on an attached trigger function.
+CREATE TABLE public.chat_conversations (
+  id bigint primary key,
+  prepared_by_trigger boolean not null default false,
+  post_insert_trigger_fired boolean not null default false
+);
+GRANT USAGE ON SCHEMA private TO anon,authenticated;
+
+CREATE FUNCTION private.chat_after_support_conversation_create()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+BEGIN
+  UPDATE public.chat_conversations
+  SET post_insert_trigger_fired=true
+  WHERE id=NEW.id;
+  RETURN NULL;
+END;
+$function$;
+
+CREATE FUNCTION private.chat_notify_message_visibility()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+BEGIN
+  RETURN NEW;
+END;
+$function$;
+
+CREATE FUNCTION private.chat_prepare_support_conversation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+BEGIN
+  NEW.prepared_by_trigger:=true;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER chat_prepare_support_conversation_before_insert
+BEFORE INSERT ON public.chat_conversations
+FOR EACH ROW EXECUTE FUNCTION private.chat_prepare_support_conversation();
+
+CREATE TRIGGER chat_after_support_conversation_create_trigger
+AFTER INSERT ON public.chat_conversations
+FOR EACH ROW EXECUTE FUNCTION private.chat_after_support_conversation_create();
+
+GRANT EXECUTE ON FUNCTION
+  private.chat_after_support_conversation_create(),
+  private.chat_notify_message_visibility(),
+  private.chat_prepare_support_conversation()
+TO PUBLIC,anon,authenticated,service_role;
+
+DO $trigger_grants_before$
+BEGIN
+  IF NOT has_function_privilege('anon','private.chat_after_support_conversation_create()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','private.chat_notify_message_visibility()','EXECUTE')
+     OR NOT has_function_privilege('service_role','private.chat_prepare_support_conversation()','EXECUTE') THEN
+    RAISE EXCEPTION 'CHAT_TRIGGER_EXECUTE_GRANT_FIXTURE_MISSING';
+  END IF;
+END
+$trigger_grants_before$;
+
 \ir ../migrations/20261101225044_powerhub_chat_rpc_wrapper_security_reconciliation.sql
+\ir ../migrations/20261105150000_powerhub_chat_trigger_function_exec_revoke.sql
+
 
 DO $assert_acl$
 DECLARE
@@ -232,5 +305,60 @@ BEGIN
 END
 $anonymous_runtime$;
 RESET ROLE;
+
+DO $trigger_exec_revoked$
+DECLARE
+  v_oid oid;
+  v_signature text;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.chat_after_support_conversation_create()',
+    'private.chat_notify_message_visibility()',
+    'private.chat_prepare_support_conversation()'
+  ] LOOP
+    v_oid:=to_regprocedure(v_signature);
+    IF v_oid IS NULL
+       OR has_function_privilege('anon',v_oid,'EXECUTE')
+       OR has_function_privilege('authenticated',v_oid,'EXECUTE')
+       OR has_function_privilege('service_role',v_oid,'EXECUTE')
+       OR EXISTS (
+         SELECT 1
+         FROM aclexplode(coalesce(
+           (SELECT proacl FROM pg_proc WHERE oid=v_oid),
+           acldefault('f',(SELECT proowner FROM pg_proc WHERE oid=v_oid))
+         )) a
+         WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+       ) THEN
+      RAISE EXCEPTION 'CHAT_TRIGGER_FUNCTION_EXECUTE_NOT_REVOKED: %',v_signature;
+    END IF;
+  END LOOP;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname='chat_prepare_support_conversation_before_insert'
+      AND tgfoid='private.chat_prepare_support_conversation()'::regprocedure
+      AND NOT tgisinternal
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname='chat_after_support_conversation_create_trigger'
+      AND tgfoid='private.chat_after_support_conversation_create()'::regprocedure
+      AND NOT tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'CHAT_TRIGGER_FUNCTION_ATTACHMENT_LOST';
+  END IF;
+END
+$trigger_exec_revoked$;
+
+INSERT INTO public.chat_conversations(id) VALUES(1);
+DO $trigger_runtime_preserved$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.chat_conversations
+    WHERE id=1 AND prepared_by_trigger=true AND post_insert_trigger_fired=true
+  ) THEN
+    RAISE EXCEPTION 'CHAT_TRIGGER_RUNTIME_BROKEN_AFTER_EXECUTE_REVOKE';
+  END IF;
+END
+$trigger_runtime_preserved$;
 
 SELECT 'POWERHUB_CHAT_RPC_WRAPPER_SECURITY_ASSERTIONS_PASSED' AS result;
