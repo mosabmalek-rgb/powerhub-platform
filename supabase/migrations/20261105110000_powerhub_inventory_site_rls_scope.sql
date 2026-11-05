@@ -40,29 +40,30 @@ CREATE INDEX IF NOT EXISTS inventory_warehouses_tenant_site_rls_idx
 CREATE INDEX IF NOT EXISTS inventory_stock_movements_tenant_site_rls_idx
   ON public.inventory_stock_movements(tenant_id,site_id);
 
+-- Add a restrictive SELECT guard. Existing permissive policies remain intact,
+-- including generators' ALL policy that is required for existing write paths.
 DO $replace_policies$
 DECLARE
   target text;
-  old_policy record;
+  policy_name text;
 BEGIN
   FOREACH target IN ARRAY ARRAY[
     'generators',
     'inventory_warehouses',
     'inventory_stock_movements'
   ] LOOP
-    FOR old_policy IN
-      SELECT polname
-      FROM pg_policy
+    policy_name := target || '_site_scope_read';
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policy
       WHERE polrelid=to_regclass(format('public.%I',target))
-    LOOP
-      EXECUTE format('DROP POLICY %I ON public.%I',old_policy.polname,target);
-    END LOOP;
-
-    EXECUTE format(
-      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (private.powerhub_has_site_access(tenant_id,site_id))',
-      target || '_site_scope_read',
-      target
-    );
+        AND polname=policy_name
+    ) THEN
+      EXECUTE format(
+        'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR SELECT TO authenticated USING (private.powerhub_has_site_access(tenant_id,site_id))',
+        policy_name,
+        target
+      );
+    END IF;
   END LOOP;
 END
 $replace_policies$;
@@ -82,6 +83,7 @@ BEGIN
         AND policyname=target || '_site_scope_read'
         AND roles='{authenticated}'
         AND cmd='SELECT'
+        AND permissive='RESTRICTIVE'
         AND coalesce(qual,'') ILIKE '%powerhub_has_site_access%'
     ) THEN
       RAISE EXCEPTION 'INVENTORY_SITE_RLS_POLICY_ASSERTION_FAILED: %',target;
