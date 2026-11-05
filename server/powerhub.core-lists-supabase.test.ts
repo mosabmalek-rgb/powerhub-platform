@@ -31,7 +31,7 @@ const state = vi.hoisted(() => {
     ],
     users: [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }], tenant_branch_settings: [],
     tenant_owner_profiles: [{ tenant_id: 20, company_name: "شركة المولد", report_logo_key: null }],
-    staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }],
+    staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true, archived_at: null }],
     mobile_sync_events: [{ id: 110, tenant_id: 20, site_id: 10, user_id: 1, event_type: "sync_cycle", status: "success", synced_count: 2, retryable_count: 0, needs_review_count: 0, error_code: null, error_message: null, app_version: "1.0.0", device_label: "هاتف فني", occurred_at: "2026-08-03T00:00:00.000Z" }],
     employees: [{ id: 120, tenant_id: 20, site_id: 10, linked_user_id: null, full_name: "محاسب الاختبار", identity_no: null, phone: "0595000000", job_title: "accountant", employment_status: "active", contract_type: "monthly", base_wage: 1000, hire_date: "2026-08-01T00:00:00.000Z", notes: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" }],
     employee_adjustments: [{ id: 121, tenant_id: 20, employee_id: 120, site_id: 10, adjustment_type: "advance", amount: 100, remaining_amount: 100, reason: "سلفة اختبار", status: "open", created_by_user_id: 1, created_at: "2026-08-02T00:00:00.000Z", updated_at: "2026-08-02T00:00:00.000Z" }],
@@ -435,7 +435,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "meter_reading", entity_id: "60", action: "mobile_create", before_data: null, after_data: null, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
     ];
     state.tables.tenant_subscriptions = [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
-    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }];
+    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true, archived_at: null }];
     state.tables.tenants = [{ id: 20, plan: "professional", package_code: "professional" }];
     state.tables.platform_settings = [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }];
     state.inserts.splice(0);
@@ -1128,7 +1128,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   it("يقرأ وصول الموظف وامتداد الفروع وسجل تغييرات الصلاحيات من Supabase دون MySQL", async () => {
     state.tables.users = [{ id: 2, role: "user" }];
     state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active", expires_at: null }];
-    state.tables.staff_profiles = [{ id: 120, tenant_id: 20, user_id: 2, site_id: null, role: "manager", permissions: ["manageSubscribers"], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true }];
+    state.tables.staff_profiles = [{ id: 120, tenant_id: 20, user_id: 2, site_id: null, role: "manager", permissions: ["manageSubscribers"], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null }];
     const staffCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
     await expect(staffCaller.staff.myAccess({ siteId: 10 })).resolves.toEqual({ role: "manager", permissions: ["manageSubscribers"], tenantId: 20, usesPermissionOverride: true });
     await expect(staffCaller.staff.allBranchAccess({ siteId: 10 })).resolves.toEqual({ isGlobal: true });
@@ -1206,7 +1206,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     ];
     state.tables.staff_profiles = [
       { id: 126, tenant_id: 20, user_id: 2, site_id: 10, role: "accountant", custom_role_id: null, permissions: ["collectPayments"], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
-      { id: 127, tenant_id: 20, user_id: 3, site_id: 11, role: "collector", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
+      { id: 127, tenant_id: 20, user_id: 3, site_id: 11, role: "collector", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
     ];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.list({ siteId: 10 })).resolves.toMatchObject([{ profile: { id: 126, tenantId: 20, siteId: 10, role: "accountant", createdAt: expect.any(Date) }, user: { id: 2, name: "محاسب الفرع", email: "accountant@example.com" } }]);
@@ -1248,7 +1248,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يعيد تعيين كلمة مرور الحساب الفرعي عبر Supabase Auth ثم يكمل Intent ذريًا", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "owner@example.test" }, { id: 2, role: "user", account_status: "active", auth_user_id: "auth-staff-1", email: "staff@example.test" }];
-    state.tables.staff_profiles = [{ id: 70, tenant_id: 20, site_id: 10, user_id: 2, role: "accountant", permissions: [], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true }, { tenant_id: 20, site_id: 10, user_id: 1, is_active: true }];
+    state.tables.staff_profiles = [{ id: 70, tenant_id: 20, site_id: 10, user_id: 2, role: "accountant", permissions: [], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null }, { tenant_id: 20, site_id: 10, user_id: 1, is_active: true, archived_at: null }];
     state.client.auth = { admin: { updateUserById: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })) } };
     state.rpcCalls.splice(0);
     state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
@@ -1463,7 +1463,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     }];
     state.tables.staff_profiles = [...oldProfiles, {
       id: 202, tenant_id: 20, site_id: 10, user_id: 2, role: "collector", permissions: null,
-      custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true,
+      custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null,
     }];
     state.tables.tenant_members = [{
       tenant_id: 20, user_id: 2, role: "collector", is_active: true, membership_status: "active", expires_at: null,
@@ -1828,7 +1828,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.tables.sites = [state.tables.sites[0], branchTwo];
     state.tables.users = [{ id: 2, role: "user", platform_role: "platform_user", account_status: "active" }];
     state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "manager", is_active: true, membership_status: "active", expires_at: null }];
-    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 2, is_active: true, role: "manager", permissions: null, custom_role_id: null, suspension_started_at: null, suspension_ends_at: null }];
+    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 2, is_active: true, role: "manager", permissions: null, custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, archived_at: null }];
     state.tables.company_accounts = [
       state.tables.company_accounts[0],
       { id: 92, tenant_id: 20, name: "جوال بي 2", account_type: "jawwal_pay", phone_number: null, color: "#16a34a", opening_balance: 50, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
