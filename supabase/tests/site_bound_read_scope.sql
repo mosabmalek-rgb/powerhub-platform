@@ -47,6 +47,7 @@ CREATE TABLE public.offline_sync_operations(id bigint PRIMARY KEY, tenant_id big
 CREATE TABLE public.access_invitations(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, site_id bigint NOT NULL, token_hash text);
 CREATE TABLE public.site_portal_settings(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, site_id bigint NOT NULL, portal_code text);
 CREATE TABLE public.meters(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, subscriber_id bigint NOT NULL);
+CREATE TABLE public.meter_readings(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, subscriber_id bigint NOT NULL);
 CREATE TABLE public.mobile_api_sessions(
   id bigint PRIMARY KEY,
   user_id bigint NOT NULL,
@@ -243,6 +244,7 @@ INSERT INTO public.offline_sync_operations VALUES(150,1,10,2),(151,1,11,3),(250,
 INSERT INTO public.access_invitations VALUES(160,1,10,'branch-a-hash'),(161,1,11,'branch-b-hash'),(260,2,20,'tenant-b-hash');
 INSERT INTO public.site_portal_settings VALUES(170,1,10,'portal-a'),(171,1,11,'portal-b'),(270,2,20,'portal-c');
 INSERT INTO public.meters VALUES(180,1,100),(181,1,101),(280,2,200);
+INSERT INTO public.meter_readings VALUES(1900,1,100),(1901,1,101),(2900,2,200);
 INSERT INTO public.mobile_api_sessions VALUES(190,2,1,'refresh-hash');
 
 DO $enable_rls$
@@ -251,7 +253,7 @@ BEGIN
   FOREACH target IN ARRAY ARRAY[
     'sites','subscribers','tariffs','complaints','collector_sessions',
     'mobile_sync_events','offline_sync_operations','access_invitations',
-    'staff_profiles','site_portal_settings','meters'
+    'staff_profiles','site_portal_settings','meters','meter_readings'
   ] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',target);
   END LOOP;
@@ -339,6 +341,7 @@ BEGIN
   IF (SELECT array_agg(id ORDER BY id) FROM public.tariffs) IS DISTINCT FROM ARRAY[110::bigint] THEN RAISE EXCEPTION 'BRANCH_A_TARIFF_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.complaints) IS DISTINCT FROM ARRAY[120::bigint] THEN RAISE EXCEPTION 'BRANCH_A_COMPLAINT_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.meters) IS DISTINCT FROM ARRAY[180::bigint] THEN RAISE EXCEPTION 'BRANCH_A_METER_PARENT_SCOPE_FAILED'; END IF;
+  IF (SELECT array_agg(id ORDER BY id) FROM public.meter_readings) IS DISTINCT FROM ARRAY[1900::bigint] THEN RAISE EXCEPTION 'BRANCH_A_METER_READING_PARENT_SCOPE_FAILED'; END IF;
 END
 $branch_a$;
 RESET ROLE;
@@ -352,6 +355,7 @@ BEGIN
   IF (SELECT array_agg(id ORDER BY id) FROM public.tariffs) IS DISTINCT FROM ARRAY[111::bigint] THEN RAISE EXCEPTION 'BRANCH_B_TARIFF_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.complaints) IS DISTINCT FROM ARRAY[121::bigint] THEN RAISE EXCEPTION 'BRANCH_B_COMPLAINT_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.meters) IS DISTINCT FROM ARRAY[181::bigint] THEN RAISE EXCEPTION 'BRANCH_B_METER_PARENT_SCOPE_FAILED'; END IF;
+  IF (SELECT array_agg(id ORDER BY id) FROM public.meter_readings) IS DISTINCT FROM ARRAY[1901::bigint] THEN RAISE EXCEPTION 'BRANCH_B_METER_READING_PARENT_SCOPE_FAILED'; END IF;
 END
 $branch_b$;
 RESET ROLE;
@@ -365,6 +369,7 @@ BEGIN
   IF (SELECT count(*) FROM public.tariffs)<>2 THEN RAISE EXCEPTION 'OWNER_TARIFF_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.complaints)<>2 THEN RAISE EXCEPTION 'OWNER_COMPLAINT_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.meters)<>2 THEN RAISE EXCEPTION 'OWNER_METER_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.meter_readings)<>2 THEN RAISE EXCEPTION 'OWNER_METER_READING_SCOPE_FAILED'; END IF;
 END
 $owner$;
 RESET ROLE;
