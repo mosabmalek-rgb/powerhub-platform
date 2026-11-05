@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, ChevronDown, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards, Eye, EyeOff } from "lucide-react";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
-import { type ElementType, useMemo, useRef, useState } from "react";
+import { type ElementType, useDeferredValue, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -38,15 +38,7 @@ const movementLabels: Record<string, string> = {
 
 const isOutgoingMovement = (type: string) => type === "withdrawal" || type === "transfer_out";
 const isIncomingMovement = (type: string) => type === "collection" || type === "deposit" || type === "transfer_in";
-const movementSign = (type: string, amount: number) => isOutgoingMovement(type) ? -amount : isIncomingMovement(type) ? amount : 0;
-
 const money = (value: number) => value.toLocaleString("ar", { maximumFractionDigits: 2 });
-
-const dateKeyInGaza = (value: Date | string) => {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
-  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "00";
-  return `${part("year")}-${part("month")}-${part("day")}`;
-};
 
 type PendingAccountAction = {
   kind: "withdrawal" | "transfer";
@@ -67,7 +59,9 @@ export default function CompanyAccountsPage() {
   const [movementFromDate, setMovementFromDate] = useState("");
   const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
-  const transactionsRef = useRef<HTMLDivElement>(null);
+  const [transactionCursors, setTransactionCursors] = useState<string[]>([""]);
+  const [exportingTransactions, setExportingTransactions] = useState(false);
+  const deferredTransactionSearch = useDeferredValue(transactionSearch);
   const [selected, setSelected] = useState<number | null>(null);
   const [managementExpanded, setManagementExpanded] = useState(false);
   const [search, setSearch] = useState("");
@@ -85,11 +79,18 @@ export default function CompanyAccountsPage() {
   const [pendingAction, setPendingAction] = useState<PendingAccountAction | null>(null);
 
   const accounts = trpc.powerhub.companyAccounts.list.useQuery(
-    { siteId, branchId: branchFilter ? Number(branchFilter) : undefined, fromDate: fromDate || undefined, toDate: toDate || undefined },
+    { siteId, branchId: branchFilter ? Number(branchFilter) : undefined },
     { enabled: Boolean(siteId && isAuthenticated) },
   );
   const utils = trpc.useUtils();
-  const refreshAccounts = () => void utils.powerhub.companyAccounts.list.invalidate();
+  const refreshAccounts = () => {
+    void utils.powerhub.companyAccounts.list.invalidate();
+    void utils.powerhub.companyAccounts.history.invalidate();
+  };
+  const resetTransactionPagination = () => {
+    setTransactionPage(1);
+    setTransactionCursors([""]);
+  };
   const updateOpeningBalance = trpc.powerhub.companyAccounts.updateOpeningBalance.useMutation({ onSuccess: () => { toast.success("تم حفظ الرصيد الافتتاحي."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updateSites = trpc.powerhub.companyAccounts.updateSites.useMutation({ onSuccess: () => { toast.success("تم تحديث الفروع المرتبطة."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updatePaymentDocumentationVisibility = trpc.powerhub.companyAccounts.updatePaymentDocumentationVisibility.useMutation({ onSuccess: () => { toast.success("تم تحديث إعداد ظهور الحساب في توثيق الدفع."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
@@ -133,57 +134,42 @@ export default function CompanyAccountsPage() {
   const filtered = useMemo(() => rows.filter((account) => `${account.name} ${account.phoneNumber ?? ""} ${labels[account.accountType] ?? account.accountType}`.toLowerCase().includes(search.toLowerCase().trim())), [rows, search]);
   const selectedAccount = rows.find((account) => account.id === selected);
   const total = rows.reduce((sum, row) => sum + Number(row.balance), 0);
-  const transactionRows = selectedAccount?.transactions.filter((row) => {
-    const date = dateKeyInGaza(row.occurredAt);
-    const relatedAccountName = row.relatedAccountId
-      ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? `حساب #${row.relatedAccountId}`
-      : "";
-    const query = transactionSearch.trim().toLowerCase();
-    const searchable = `${row.description} ${row.transactionType} ${movementLabels[row.transactionType] ?? row.transactionType} ${row.id} ${row.referenceNo ?? ""} ${row.relatedPaymentId ?? ""} ${relatedAccountName} ${date}`.toLowerCase();
-    const matchesSearch = !query || searchable.includes(query);
-    return matchesSearch && (!transactionTypeFilter || row.transactionType === transactionTypeFilter) && (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
-  }) ?? [];
-  const transactionSummary = transactionRows.reduce((summary, row) => {
-    const amount = Number(row.amount) || 0;
-    if (isOutgoingMovement(row.transactionType)) summary.outgoing += amount;
-    else if (isIncomingMovement(row.transactionType)) summary.incoming += amount;
-    return summary;
-  }, { incoming: 0, outgoing: 0 });
+  const historyCursor = transactionCursors[transactionPage - 1] ?? "";
+  const historyQuery = trpc.powerhub.companyAccounts.history.useQuery({
+    siteId,
+    accountId: selectedAccount?.id ?? 0,
+    branchId: branchFilter ? Number(branchFilter) : undefined,
+    fromDate: fromDate || undefined,
+    toDate: toDate || undefined,
+    movementFromDate: movementFromDate || undefined,
+    movementToDate: movementToDate || undefined,
+    transactionType: transactionTypeFilter
+      ? transactionTypeFilter as "collection" | "deposit" | "withdrawal" | "transfer_in" | "transfer_out"
+      : undefined,
+    search: deferredTransactionSearch.trim() || undefined,
+    cursor: historyCursor || undefined,
+    limit: 10,
+  }, { enabled: Boolean(siteId && isAuthenticated && selectedAccount) });
+
+  const transactionRows = historyQuery.data?.items ?? [];
+  const transactionSummary = {
+    incoming: Number(historyQuery.data?.incomingTotal ?? 0),
+    outgoing: Number(historyQuery.data?.outgoingTotal ?? 0),
+  };
   const transactionNet = transactionSummary.incoming - transactionSummary.outgoing;
   const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(transactionRows.length / pageSize));
-  const visibleTransactions = transactionRows.slice((transactionPage - 1) * pageSize, transactionPage * pageSize);
-  const balanceAfterById = useMemo(() => {
-    const result = new Map<number, number>();
-    if (!selectedAccount || fromDate || toDate) return result;
-    let running = Number(selectedAccount.balance);
-    for (const row of selectedAccount.transactions) {
-      result.set(row.id, running);
-      running -= movementSign(row.transactionType, Number(row.amount) || 0);
-    }
-    return result;
-  }, [selectedAccount, fromDate, toDate]);
+  const totalTransactions = Number(historyQuery.data?.totalCount ?? 0);
+  const pageCount = Math.max(1, Math.ceil(totalTransactions / pageSize));
+  const visibleTransactions = transactionRows;
+  const balanceAfterById = new Map(transactionRows.map((row) => [row.id, row.balanceAfter]));
 
-  const balanceTimeline = useMemo(() => {
-    if (!selectedAccount || fromDate || toDate) return [];
-    const dateFiltered = selectedAccount.transactions.filter((row) => {
-      const date = dateKeyInGaza(row.occurredAt);
-      return (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
-    });
-    if (!dateFiltered.length) return [{ label: "الرصيد الحالي", balance: Number(selectedAccount.balance) }];
-    const chronological = [...dateFiltered].reverse();
-    const oldest = chronological[0];
-    let running = (balanceAfterById.get(oldest.id) ?? Number(selectedAccount.balance)) - movementSign(oldest.transactionType, Number(oldest.amount) || 0);
-    const timeline = [{ label: "قبل أول حركة", balance: running }];
-    for (const row of chronological) {
-      running += movementSign(row.transactionType, Number(row.amount) || 0);
-      timeline.push({
-        label: new Date(row.occurredAt).toLocaleDateString("ar", { timeZone: "Asia/Gaza", month: "short", day: "numeric" }),
-        balance: running,
-      });
-    }
-    return timeline;
-  }, [selectedAccount, fromDate, toDate, movementFromDate, movementToDate, balanceAfterById]);
+  const balanceTimeline = useMemo(() => (historyQuery.data?.balanceTimeline ?? []).map((row) => ({
+    label: row.day
+      ? new Date(String(row.day) + "T12:00:00Z").toLocaleDateString("ar", { timeZone: "Asia/Gaza", month: "short", day: "numeric" })
+      : "الرصيد الحالي",
+    balance: row.balance,
+  })), [historyQuery.data?.balanceTimeline]);
+
 
   if (loading || accounts.isLoading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><div className="p-8 text-center text-white">سجّل الدخول للوصول إلى حسابات الشركة.</div></DashboardLayout>;
@@ -195,7 +181,7 @@ export default function CompanyAccountsPage() {
     setSelectedSites(account.linkedSites.map((site) => site.siteId));
     setOpeningBalance(String(account.openingBalance ?? 0));
     setNewPhone(account.phoneNumber ?? "");
-    setTransactionPage(1);
+    resetTransactionPagination();
     setTransactionTypeFilter("");
     setTransactionSearch("");
     setMovementFromDate("");
