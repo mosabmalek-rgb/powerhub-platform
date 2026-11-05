@@ -270,45 +270,134 @@ export default function CompanyAccountsPage() {
 
   const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(labels[row.accountType]??row.accountType)}</td><td>${escapeHtml(row.phoneNumber??"—")}</td><td>${escapeHtml(row.linkedSites.map(site=>site.siteName).join("، ")||"—")}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
 
-  const exportTransactionsExcel = async () => {
-    if (!selectedAccount || !transactionRows.length) return;
-    const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("حركات الحساب");
-    sheet.columns = [
-      { header: "التاريخ والوقت", key: "date", width: 24 },
-      { header: "رقم الحركة", key: "id", width: 14 },
-      { header: "المرجع", key: "reference", width: 20 },
-      { header: "البيان", key: "description", width: 36 },
-      { header: "نوع الحركة", key: "type", width: 18 },
-      { header: "الحساب المقابل", key: "counterpart", width: 24 },
-      { header: "وارد", key: "incoming", width: 16 },
-      { header: "صادر", key: "outgoing", width: 16 },
-      { header: "الرصيد بعد الحركة", key: "balance", width: 20 },
-    ];
-    transactionRows.forEach((row) => {
-      const amount = Number(row.amount) || 0;
-      const counterpart = row.relatedAccountId
-        ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? `حساب #${row.relatedAccountId}`
-        : row.relatedPaymentId ? `دفعة #${row.relatedPaymentId}` : "—";
-      sheet.addRow({
-        date: new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" }),
-        id: row.id,
-        reference: row.referenceNo ?? "—",
-        description: row.description,
-        type: movementLabels[row.transactionType] ?? row.transactionType,
-        counterpart,
-        incoming: isIncomingMovement(row.transactionType) ? amount : null,
-        outgoing: isOutgoingMovement(row.transactionType) ? amount : null,
-        balance: balanceAfterById.get(row.id) ?? null,
+  const fetchAllTransactionsForExport = async () => {
+    if (!selectedAccount) return [];
+    const allRows: typeof transactionRows = [];
+    let cursor: string | undefined;
+    do {
+      const page = await utils.powerhub.companyAccounts.history.fetch({
+        siteId,
+        accountId: selectedAccount.id,
+        branchId: branchFilter ? Number(branchFilter) : undefined,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        movementFromDate: movementFromDate || undefined,
+        movementToDate: movementToDate || undefined,
+        transactionType: transactionTypeFilter
+          ? transactionTypeFilter as "collection" | "deposit" | "withdrawal" | "transfer_in" | "transfer_out"
+          : undefined,
+        search: deferredTransactionSearch.trim() || undefined,
+        cursor,
+        limit: 200,
       });
-    });
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `حركات-${selectedAccount.name}.xlsx`; anchor.click(); URL.revokeObjectURL(url);
-    toast.success("تم تصدير حركات الحساب إلى Excel.");
+      allRows.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+      if (allRows.length > 50000) {
+        throw new Error("يتجاوز كشف الحركات حد التصدير الآمن البالغ 50 ألف حركة؛ استخدم فترة زمنية أضيق.");
+      }
+    } while (cursor);
+    return allRows;
   };
-  const exportTransactionsPdf = async () => { if (!selectedAccount || !transactionsRef.current) return; try { await downloadReportHtmlAsPdf(transactionsRef.current, `حركات-${selectedAccount.name}.pdf`, { landscape: true, title: `حركات حساب ${selectedAccount.name} - PowerHub` }); toast.success("تم تصدير حركات الحساب إلى PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
+
+  const exportTransactionsExcel = async () => {
+    if (!selectedAccount || totalTransactions === 0 || exportingTransactions) return;
+    setExportingTransactions(true);
+    try {
+      const rowsForExport = await fetchAllTransactionsForExport();
+      if (!rowsForExport.length) return toast.error("لا توجد حركات مطابقة للتصدير.");
+      const { default: ExcelJS } = await loadExcelJS();
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("حركات الحساب");
+      sheet.columns = [
+        { header: "التاريخ والوقت", key: "date", width: 24 },
+        { header: "رقم الحركة", key: "id", width: 14 },
+        { header: "المرجع", key: "reference", width: 20 },
+        { header: "البيان", key: "description", width: 36 },
+        { header: "نوع الحركة", key: "type", width: 18 },
+        { header: "الحساب المقابل", key: "counterpart", width: 24 },
+        { header: "وارد", key: "incoming", width: 16 },
+        { header: "صادر", key: "outgoing", width: 16 },
+        { header: "الرصيد بعد الحركة", key: "balance", width: 20 },
+      ];
+      rowsForExport.forEach((row) => {
+        const amount = Number(row.amount) || 0;
+        const counterpart = row.relatedAccountId
+          ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? ("حساب #" + row.relatedAccountId)
+          : row.relatedPaymentId ? ("دفعة #" + row.relatedPaymentId) : "—";
+        sheet.addRow({
+          date: new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" }),
+          id: row.id,
+          reference: row.referenceNo ?? "—",
+          description: row.description,
+          type: movementLabels[row.transactionType] ?? row.transactionType,
+          counterpart,
+          incoming: isIncomingMovement(row.transactionType) ? amount : null,
+          outgoing: isOutgoingMovement(row.transactionType) ? amount : null,
+          balance: row.balanceAfter,
+        });
+      });
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "حركات-" + selectedAccount.name + ".xlsx";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("تم تصدير " + rowsForExport.length.toLocaleString("ar") + " حركة إلى Excel.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تصدير حركات الحساب إلى Excel.");
+    } finally {
+      setExportingTransactions(false);
+    }
+  };
+
+  const exportTransactionsPdf = async () => {
+    if (!selectedAccount || totalTransactions === 0 || exportingTransactions) return;
+    setExportingTransactions(true);
+    try {
+      const rowsForExport = await fetchAllTransactionsForExport();
+      if (!rowsForExport.length) return toast.error("لا توجد حركات مطابقة للتصدير.");
+      const body = rowsForExport.map((row) => {
+        const amount = Number(row.amount) || 0;
+        const counterpart = row.relatedAccountId
+          ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? ("حساب #" + row.relatedAccountId)
+          : row.relatedPaymentId ? ("دفعة #" + row.relatedPaymentId) : "—";
+        return "<tr><td>" + escapeHtml(new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" })) +
+          "</td><td>" + row.id +
+          "</td><td>" + escapeHtml(row.referenceNo ?? "—") +
+          "</td><td>" + escapeHtml(row.description) +
+          "</td><td>" + escapeHtml(movementLabels[row.transactionType] ?? row.transactionType) +
+          "</td><td>" + escapeHtml(counterpart) +
+          "</td><td>" + (isIncomingMovement(row.transactionType) ? money(amount) : "—") +
+          "</td><td>" + (isOutgoingMovement(row.transactionType) ? money(amount) : "—") +
+          "</td><td>" + (row.balanceAfter === null ? "—" : money(row.balanceAfter)) +
+          "</td></tr>";
+      }).join("");
+      const root = document.createElement("div");
+      root.dir = "rtl";
+      root.style.cssText = "position:fixed;left:-10000px;top:0;width:1400px;background:#fff;color:#101828;padding:36px;font-family:Arial,sans-serif";
+      root.innerHTML = "<h1 style=\"border-bottom:3px solid #F5B800;padding-bottom:14px\">كشف حركات حساب " + escapeHtml(selectedAccount.name) + "</h1>" +
+        "<p>عدد الحركات: " + rowsForExport.length.toLocaleString("ar") +
+        " · إجمالي الوارد: " + money(transactionSummary.incoming) +
+        " · إجمالي الصادر: " + money(transactionSummary.outgoing) + "</p>" +
+        "<table style=\"width:100%;border-collapse:collapse;text-align:right;font-size:12px\"><thead><tr style=\"background:#0D1117;color:#fff\">" +
+        "<th>التاريخ</th><th>رقم الحركة</th><th>المرجع</th><th>البيان</th><th>النوع</th><th>الحساب المقابل</th><th>وارد</th><th>صادر</th><th>الرصيد بعد الحركة</th>" +
+        "</tr></thead><tbody>" + body + "</tbody></table>";
+      document.body.appendChild(root);
+      try {
+        await downloadReportHtmlAsPdf(root, "حركات-" + selectedAccount.name + ".pdf", { landscape: true, title: "حركات حساب " + selectedAccount.name + " - PowerHub" });
+      } finally {
+        root.remove();
+      }
+      toast.success("تم تصدير " + rowsForExport.length.toLocaleString("ar") + " حركة إلى PDF.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تصدير حركات الحساب إلى PDF.");
+    } finally {
+      setExportingTransactions(false);
+    }
+  };
+
 
   return (
     <DashboardLayout>
