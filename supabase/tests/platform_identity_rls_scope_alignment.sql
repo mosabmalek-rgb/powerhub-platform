@@ -114,14 +114,21 @@ INSERT INTO public.tenant_members(tenant_id,user_id,is_active,membership_status,
 CREATE TABLE public.fixture_powerhub_admin_scope(id bigint PRIMARY KEY,tenant_id bigint NOT NULL);
 CREATE TABLE public.fixture_powerhub_user_scope(id bigint PRIMARY KEY,tenant_id bigint NOT NULL);
 CREATE TABLE public.fixture_private_admin_scope(id bigint PRIMARY KEY,tenant_id bigint NOT NULL);
+CREATE TABLE public.fixture_powerhub_current_user_scope(id bigint PRIMARY KEY,user_id bigint NOT NULL);
+CREATE TABLE public.fixture_private_current_user_scope(id bigint PRIMARY KEY,user_id bigint NOT NULL);
 INSERT INTO public.fixture_powerhub_admin_scope VALUES (10,10),(20,20);
 INSERT INTO public.fixture_powerhub_user_scope VALUES (10,10),(20,20);
 INSERT INTO public.fixture_private_admin_scope VALUES (10,10),(20,20);
+INSERT INTO public.fixture_powerhub_current_user_scope VALUES (1,1),(8,8);
+INSERT INTO public.fixture_private_current_user_scope VALUES (1,1),(8,8);
 
 ALTER TABLE public.fixture_powerhub_admin_scope ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fixture_powerhub_user_scope ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fixture_private_admin_scope ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ON public.fixture_powerhub_admin_scope,public.fixture_powerhub_user_scope,public.fixture_private_admin_scope TO authenticated;
+ALTER TABLE public.fixture_powerhub_current_user_scope ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.fixture_private_current_user_scope ENABLE ROW LEVEL SECURITY;
+GRANT SELECT ON public.fixture_powerhub_current_user_scope,public.fixture_private_current_user_scope TO authenticated;
 CREATE POLICY fixture_powerhub_admin_scope_select ON public.fixture_powerhub_admin_scope
 FOR SELECT TO authenticated
 USING (tenant_id=ANY(powerhub_private.current_tenant_ids()) OR powerhub_private.is_platform_admin());
@@ -131,8 +138,15 @@ USING (tenant_id=ANY(powerhub_private.current_tenant_ids()) OR powerhub_private.
 CREATE POLICY fixture_private_admin_scope_select ON public.fixture_private_admin_scope
 FOR SELECT TO authenticated
 USING (tenant_id=ANY(powerhub_private.current_tenant_ids()) OR private.powerhub_is_platform_admin());
+CREATE POLICY fixture_powerhub_current_user_scope_select ON public.fixture_powerhub_current_user_scope
+FOR SELECT TO authenticated
+USING (user_id=powerhub_private.current_user_id());
+CREATE POLICY fixture_private_current_user_scope_select ON public.fixture_private_current_user_scope
+FOR SELECT TO authenticated
+USING (user_id=private.powerhub_current_user_id());
 
 \ir ../migrations/20261101084156_powerhub_platform_identity_rls_alignment.sql
+\ir ../migrations/20261105215524_powerhub_current_user_active_identity_guard.sql
 
 DO $assert_helper_contract$
 BEGIN
@@ -235,11 +249,28 @@ DO $assert_inactive_account$
 BEGIN
   IF powerhub_private.is_platform_admin() OR powerhub_private.is_platform_user()
      OR private.powerhub_is_platform_admin()
-     OR (SELECT count(*) FROM public.fixture_powerhub_user_scope)<>0 THEN
-    RAISE EXCEPTION 'INACTIVE_PLATFORM_ACCOUNT_RECEIVED_TENANT_BYPASS';
+     OR powerhub_private.current_user_id() IS NOT NULL
+     OR private.powerhub_current_user_id() IS NOT NULL
+     OR (SELECT count(*) FROM public.fixture_powerhub_user_scope)<>0
+     OR (SELECT count(*) FROM public.fixture_powerhub_current_user_scope)<>0
+     OR (SELECT count(*) FROM public.fixture_private_current_user_scope)<>0 THEN
+    RAISE EXCEPTION 'INACTIVE_PLATFORM_ACCOUNT_RECEIVED_TENANT_OR_SELF_SCOPE';
   END IF;
 END
 $assert_inactive_account$;
+
+-- Active accounts retain their own-row access through both legacy identity helpers.
+SELECT set_config('test.auth_uid','11111111-1111-4111-8111-111111111111',false);
+DO $assert_active_user_identity$
+BEGIN
+  IF powerhub_private.current_user_id() IS DISTINCT FROM 1
+     OR private.powerhub_current_user_id() IS DISTINCT FROM 1
+     OR (SELECT count(*) FROM public.fixture_powerhub_current_user_scope)<>1
+     OR (SELECT count(*) FROM public.fixture_private_current_user_scope)<>1 THEN
+    RAISE EXCEPTION 'ACTIVE_ACCOUNT_SELF_SCOPE_WAS_NOT_PRESERVED';
+  END IF;
+END
+$assert_active_user_identity$;
 
 -- Ordinary members retain only the tenant(s) in their active membership list.
 SELECT set_config('test.auth_uid','99999999-9999-4999-8999-999999999999',false);
