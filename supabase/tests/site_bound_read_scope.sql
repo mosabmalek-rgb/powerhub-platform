@@ -289,7 +289,8 @@ CREATE POLICY meters_scope_guard ON public.meters AS RESTRICTIVE
   FOR ALL TO authenticated USING (private.powerhub_has_tenant_access(tenant_id))
   WITH CHECK (private.powerhub_has_tenant_access(tenant_id));
 
-\ir ../migrations/20261105094000_powerhub_site_bound_read_scope.sql
+\ir ../migrations/20261105192742_powerhub_tenant_access_active_user_guard.sql
+\ir ../migrations/20261105192804_powerhub_site_bound_read_scope_forward_reconcile.sql
 
 DO $assertions$
 BEGIN
