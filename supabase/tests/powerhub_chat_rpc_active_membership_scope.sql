@@ -378,13 +378,16 @@ $support_scope$;
 -- cannot read internal-note receipts even when they participate in the ticket.
 SELECT set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
 DO $tenant_scope$
-DECLARE v_notification_id bigint;
+DECLARE v_notification_id bigint; v_internal_receipt_updated_at timestamptz;
 BEGIN
   IF (SELECT count(*) FROM public.chat_receipts_for_message(500))<>1
      OR (SELECT count(*) FROM public.chat_receipts_for_message(501))<>2
      OR (SELECT count(*) FROM public.chat_receipts_for_message(502))<>0 THEN
     RAISE EXCEPTION 'TENANT_RECEIPT_VISIBILITY_SCOPE_BROKEN';
   END IF;
+  SELECT updated_at INTO v_internal_receipt_updated_at
+  FROM public.chat_message_receipts WHERE message_id=502 AND user_id=1;
+  IF v_internal_receipt_updated_at IS NULL THEN RAISE EXCEPTION 'INTERNAL_RECEIPT_FIXTURE_MISSING'; END IF;
   BEGIN
     PERFORM private.chat_mark_read(502);
     RAISE EXCEPTION 'TENANT_MARK_READ_INTERNAL_NOTE_ALLOWED';
@@ -399,7 +402,8 @@ BEGIN
     IF SQLERRM='TENANT_MARK_READ_UP_TO_INTERNAL_NOTE_ALLOWED' THEN RAISE; END IF;
     IF SQLERRM<>'FORBIDDEN' THEN RAISE; END IF;
   END;
-  IF EXISTS(SELECT 1 FROM public.chat_message_receipts WHERE message_id=502 AND user_id=1) THEN
+  IF (SELECT updated_at FROM public.chat_message_receipts WHERE message_id=502 AND user_id=1)
+       IS DISTINCT FROM v_internal_receipt_updated_at THEN
     RAISE EXCEPTION 'TENANT_INTERNAL_NOTE_RECEIPT_SIDE_EFFECT';
   END IF;
   IF private.chat_current_user_id()<>1 THEN
