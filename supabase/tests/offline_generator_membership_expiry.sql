@@ -116,7 +116,7 @@ CREATE TABLE public.offline_sync_operations (
   client_operation_id text NOT NULL,
   operation_type text NOT NULL,
   entity_type text NOT NULL,
-  entity_id text NOT NULL,
+  entity_id bigint NOT NULL,
   response jsonb NOT NULL,
   UNIQUE (user_id, client_operation_id)
 );

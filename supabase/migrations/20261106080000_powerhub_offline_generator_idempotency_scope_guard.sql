@@ -159,7 +159,7 @@ begin
    if v_operation.operation_type <> 'generator_create' then raise exception 'GENERATOR_OPERATION_TYPE_CONFLICT'; end if;
    if v_operation.tenant_id <> v_tenant_id or v_operation.site_id <> p_site_id
       or v_operation.entity_type <> 'generator'
-      or v_operation.entity_id is distinct from (v_operation.response->>'id') then
+      or v_operation.entity_id IS DISTINCT FROM (v_operation.response->>'id')::bigint then
      raise exception 'GENERATOR_OPERATION_SCOPE_CONFLICT';
    end if;
    return query select (v_operation.response->>'id')::bigint,coalesce(v_operation.response->>'name',''),true;
@@ -173,7 +173,7 @@ exception when unique_violation then
  if found and v_operation.operation_type='generator_create' then
    if v_operation.tenant_id <> v_tenant_id or v_operation.site_id <> p_site_id
       or v_operation.entity_type <> 'generator'
-      or v_operation.entity_id is distinct from (v_operation.response->>'id') then
+      or v_operation.entity_id IS DISTINCT FROM (v_operation.response->>'id')::bigint then
      raise exception 'GENERATOR_OPERATION_SCOPE_CONFLICT';
    end if;
    return query select (v_operation.response->>'id')::bigint,coalesce(v_operation.response->>'name',''),true;
@@ -223,7 +223,7 @@ begin
     end if;
     if v_operation.tenant_id <> v_tenant_id or v_operation.site_id <> p_site_id
        or v_operation.entity_type <> 'generator'
-       or v_operation.entity_id is distinct from p_generator_id::text
+       or v_operation.entity_id IS DISTINCT FROM p_generator_id
        or (v_operation.response->>'id') is distinct from p_generator_id::text then
       raise exception 'GENERATOR_OPERATION_SCOPE_CONFLICT';
     end if;
@@ -284,7 +284,7 @@ exception when unique_violation then
   if found and v_operation.operation_type='generator_update' then
     if v_operation.tenant_id <> v_tenant_id or v_operation.site_id <> p_site_id
        or v_operation.entity_type <> 'generator'
-       or v_operation.entity_id is distinct from p_generator_id::text
+       or v_operation.entity_id IS DISTINCT FROM p_generator_id
        or (v_operation.response->>'id') is distinct from p_generator_id::text then
       raise exception 'GENERATOR_OPERATION_SCOPE_CONFLICT';
     end if;
