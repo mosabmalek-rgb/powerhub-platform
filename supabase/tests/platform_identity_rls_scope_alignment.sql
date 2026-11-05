@@ -146,7 +146,7 @@ FOR SELECT TO authenticated
 USING (user_id=private.powerhub_current_user_id());
 
 \ir ../migrations/20261101084156_powerhub_platform_identity_rls_alignment.sql
-\ir ../migrations/20261105215524_powerhub_current_user_active_identity_guard.sql
+\ir ../migrations/20261105220147_powerhub_current_user_active_identity_guard.sql
 
 DO $assert_helper_contract$
 BEGIN
