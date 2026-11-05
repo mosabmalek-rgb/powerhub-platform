@@ -112,7 +112,7 @@ begin
     and (
       v_search is null
       or tx.description ilike '%' || v_search_pattern || '%' escape E'\\'
-      or tx.transaction_type ilike '%' || v_search || '%'
+      or tx.transaction_type ilike '%' || v_search_pattern || '%' escape E'\\'
       or case tx.transaction_type
         when 'collection' then 'تحصيل'
         when 'deposit' then 'إيداع'
@@ -120,13 +120,13 @@ begin
         when 'transfer_in' then 'تحويل وارد'
         when 'transfer_out' then 'تحويل صادر'
         else tx.transaction_type
-      end ilike '%' || v_search || '%'
-      or tx.id::text ilike '%' || v_search || '%'
-      or coalesce(tx.reference_no, '') ilike '%' || v_search || '%'
-      or coalesce(tx.related_payment_id::text, '') ilike '%' || v_search || '%'
-      or coalesce(tx.related_account_id::text, '') ilike '%' || v_search || '%'
-      or coalesce(counterpart.name, case when tx.related_account_id is not null then 'حساب #' || tx.related_account_id::text else '' end) ilike '%' || v_search || '%'
-      or to_char(tx.occurred_at at time zone 'Asia/Gaza', 'YYYY-MM-DD') ilike '%' || v_search || '%'
+      end ilike '%' || v_search_pattern || '%' escape E'\\'
+      or tx.id::text ilike '%' || v_search_pattern || '%' escape E'\\'
+      or coalesce(tx.reference_no, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+      or coalesce(tx.related_payment_id::text, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+      or coalesce(tx.related_account_id::text, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+      or coalesce(counterpart.name, case when tx.related_account_id is not null then 'حساب #' || tx.related_account_id::text else '' end) ilike '%' || v_search_pattern || '%' escape E'\\'
+      or to_char(tx.occurred_at at time zone 'Asia/Gaza', 'YYYY-MM-DD') ilike '%' || v_search_pattern || '%' escape E'\\'
     );
 
   with page_plus as materialized (
@@ -148,6 +148,7 @@ begin
     left join public.company_accounts counterpart
       on counterpart.tenant_id = tx.tenant_id
      and counterpart.id = tx.related_account_id
+     and counterpart.is_active = true
     where tx.tenant_id = p_tenant_id
       and tx.account_id = p_account_id
       and (p_branch_id is null or tx.site_id = p_branch_id)
@@ -158,8 +159,8 @@ begin
       and (p_transaction_type is null or tx.transaction_type = p_transaction_type)
       and (
         v_search is null
-        or tx.description ilike '%' || v_search || '%'
-        or tx.transaction_type ilike '%' || v_search || '%'
+        or tx.description ilike '%' || v_search_pattern || '%' escape E'\\'
+        or tx.transaction_type ilike '%' || v_search_pattern || '%' escape E'\\'
         or case tx.transaction_type
           when 'collection' then 'تحصيل'
           when 'deposit' then 'إيداع'
@@ -167,13 +168,13 @@ begin
           when 'transfer_in' then 'تحويل وارد'
           when 'transfer_out' then 'تحويل صادر'
           else tx.transaction_type
-        end ilike '%' || v_search || '%'
-        or tx.id::text ilike '%' || v_search || '%'
-        or coalesce(tx.reference_no, '') ilike '%' || v_search || '%'
-        or coalesce(tx.related_payment_id::text, '') ilike '%' || v_search || '%'
-        or coalesce(tx.related_account_id::text, '') ilike '%' || v_search || '%'
-        or coalesce(counterpart.name, case when tx.related_account_id is not null then 'حساب #' || tx.related_account_id::text else '' end) ilike '%' || v_search || '%'
-        or to_char(tx.occurred_at at time zone 'Asia/Gaza', 'YYYY-MM-DD') ilike '%' || v_search || '%'
+        end ilike '%' || v_search_pattern || '%' escape E'\\'
+        or tx.id::text ilike '%' || v_search_pattern || '%' escape E'\\'
+        or coalesce(tx.reference_no, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+        or coalesce(tx.related_payment_id::text, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+        or coalesce(tx.related_account_id::text, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+        or coalesce(counterpart.name, case when tx.related_account_id is not null then 'حساب #' || tx.related_account_id::text else '' end) ilike '%' || v_search_pattern || '%' escape E'\\'
+        or to_char(tx.occurred_at at time zone 'Asia/Gaza', 'YYYY-MM-DD') ilike '%' || v_search_pattern || '%' escape E'\\'
       )
       and (
         p_cursor_at is null
