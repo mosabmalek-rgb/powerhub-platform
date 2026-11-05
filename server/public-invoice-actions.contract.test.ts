@@ -631,4 +631,13 @@ describe("public invoice and inquiry actions", () => {
     expect(migration.toLowerCase()).toContain("receipt_image_retention_until=v_retention_until");
   });
 
+
+  it("requires the Staging portal invoice share-link reconciliation to bind portal tenant to the selected site", () => {
+    const migration = read("supabase/migrations/20261105230419_powerhub_subscriber_portal_invoice_share_link_tenant_scope_reconciliation.sql");
+    expect(migration).toContain("create or replace function public.powerhub_create_portal_invoice_share_link");
+    expect(migration).toContain("revoke all on function public.powerhub_create_portal_invoice_share_link");
+    expect(migration).toContain("grant execute on function public.powerhub_create_portal_invoice_share_link");
+    expect((migration.match(/and settings\.tenant_id = site\.tenant_id/g) ?? []).length).toBe(2);
+  });
+
 });
