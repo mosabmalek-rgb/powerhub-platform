@@ -1370,4 +1370,67 @@ begin
 end;
 $company_account_history_page_test$;
 
+
+-- Isolated scale benchmark: 100k ledger rows, first page and keyset continuation.
+-- Timing is emitted for review; no fragile wall-clock threshold is enforced in CI.
+do $company_account_history_scale_benchmark$
+declare
+  v_page jsonb;
+  v_cursor_at timestamptz;
+  v_cursor_id bigint;
+  v_started timestamptz;
+  v_first_page_ms numeric;
+  v_next_page_ms numeric;
+begin
+  insert into public.account_transactions(
+    id,tenant_id,account_id,site_id,transaction_type,amount,description,reference_no,occurred_at
+  )
+  select
+    100000 + g,
+    1,
+    98001,
+    case when g % 2 = 0 then 10 else 20 end,
+    case when g % 3 = 0 then 'withdrawal' else 'collection' end,
+    1,
+    'Synthetic scale benchmark movement',
+    'HIST-SCALE-' || g::text,
+    timestamptz '2026-11-01 00:00:00+00' + g * interval '1 second'
+  from generate_series(1,100000) g;
+
+  v_started := clock_timestamp();
+  v_page := public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,p_limit=>10
+  );
+  v_first_page_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
+
+  if (v_page->>'total_count')::bigint <> 100007
+     or jsonb_array_length(v_page->'items') <> 10
+     or v_page->>'has_next' is distinct from 'true'
+     or v_page->>'next_cursor_at' is null
+     or v_page->>'next_cursor_id' is null then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_100K_FIRST_PAGE_FAILED: %',v_page;
+  end if;
+
+  v_cursor_at := (v_page->>'next_cursor_at')::timestamptz;
+  v_cursor_id := (v_page->>'next_cursor_id')::bigint;
+
+  v_started := clock_timestamp();
+  v_page := public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
+    p_cursor_at=>v_cursor_at,p_cursor_id=>v_cursor_id,p_limit=>10
+  );
+  v_next_page_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
+
+  if v_page->'total_count' is distinct from 'null'::jsonb
+     or jsonb_array_length(v_page->'items') <> 10
+     or v_page->>'has_next' is distinct from 'true'
+     or v_page->'balance_timeline' is distinct from 'null'::jsonb then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_100K_CONTINUATION_FAILED: %',v_page;
+  end if;
+
+  raise notice 'COMPANY_ACCOUNT_HISTORY_100K_BENCHMARK first_page_ms=% continuation_page_ms=% rows=100000',
+    round(v_first_page_ms,2),round(v_next_page_ms,2);
+end;
+$company_account_history_scale_benchmark$;
+
 select 'COMPANY_ACCOUNT_HISTORY_PAGE_OK' as result;
