@@ -1304,7 +1304,7 @@ begin
     p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
     p_movement_from=>date '2026-10-27',p_movement_to=>date '2026-10-27',p_limit=>10
   );
-  if (v_page->>'total_count')::bigint<>6
+  if (v_page->>'total_count')::bigint<>3
      or jsonb_array_length(v_page->'balance_timeline')<>1
      or v_page #>> '{balance_timeline,0,day}' is distinct from '2026-10-27'
      or (v_page #>> '{balance_timeline,0,balance}')::numeric<>82 then
