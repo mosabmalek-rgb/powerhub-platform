@@ -114,6 +114,7 @@ create table public.inventory_warehouses (
 \ir ../migrations/20261011230708_powerhub_company_account_balance_rollup_20261012.sql
 \ir ../migrations/20261105141835_powerhub_company_account_history_chart_balance_reuse.sql
 \ir ../migrations/20261105174347_powerhub_account_history_chart_materialized_aggregate.sql
+\ir ../migrations/20261105191500_powerhub_company_account_history_trigram_search.sql
 create table public.inventory_stock_movements (
  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
  generator_id bigint, movement_type text not null, quantity numeric(14,3) not null, unit_cost numeric(14,4) not null default 0,
@@ -1143,7 +1144,8 @@ declare
 begin
   insert into public.company_accounts(
     id,tenant_id,name,account_type,opening_balance,is_active
-  ) values (98001,1,'Keyset history test','cash',50,true);
+  ) values (98001,1,'Keyset history test','cash',50,true),
+    (98002,1,'History counterpart match','cash',0,true);
   insert into public.company_account_sites(tenant_id,account_id,site_id)
     values (1,98001,10),(1,98001,20);
 
@@ -1156,6 +1158,10 @@ begin
     (98104,1,98001,20,'transfer_out',3,'Branch two transfer','HIST-98104',timestamptz '2026-10-27 11:00:00+00'),
     (98105,1,98001,10,'withdrawal',2,'Latest withdrawal','HIST-98105',timestamptz '2026-10-27 12:00:00+00'),
     (98106,1,98001,20,'transfer_in',5,'Branch two transfer in','HIST-98106',timestamptz '2026-10-27 13:00:00+00');
+
+  update public.account_transactions
+     set related_account_id=98002
+   where tenant_id=1 and id=98104;
 
   -- Branch 10 returns only its three movements, while balance_after includes
   -- movements from both linked branches in the shared account ledger.
@@ -1274,6 +1280,60 @@ begin
     raise exception 'COMPANY_ACCOUNT_HISTORY_LITERAL_WILDCARD_SEARCH_FAILED: %',v_page;
   end if;
 
+
+  -- Indexed search preserves reference, partial ID, date, counterpart,
+  -- and literal-percent searches while keeping the current branch boundary.
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,p_search=>'HIST-98103',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>1
+     or v_page #>> '{items,0,id}' is distinct from '98103' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_REFERENCE_SEARCH_FAILED: %',v_page;
+  end if;
+
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,p_search=>'9810',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>3
+     or jsonb_array_length(v_page->'items')<>3 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_PARTIAL_ID_SEARCH_FAILED: %',v_page;
+  end if;
+
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,p_search=>'2026-10-27',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>3
+     or jsonb_array_length(v_page->'items')<>3 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_DATE_SEARCH_FAILED: %',v_page;
+  end if;
+
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>20,
+    p_search=>'History counterpart match',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>1
+     or v_page #>> '{items,0,id}' is distinct from '98104' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_COUNTERPART_SEARCH_FAILED: %',v_page;
+  end if;
+
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,p_search=>'100%',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>1
+     or v_page #>> '{items,0,id}' is distinct from '98101' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_INDEXED_LITERAL_PERCENT_SEARCH_FAILED: %',v_page;
+  end if;
+
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>10,
+    p_search=>'PH-SEARCH-NO-MATCH-20261105',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>0
+     or jsonb_array_length(v_page->'items')<>0 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_NO_MATCH_SEARCH_FAILED: %',v_page;
+  end if;
+
+
   -- The UTC from/to filter is inclusive and intentionally suppresses running
   -- balances because rows outside the requested top-level date window are absent.
   v_page:=public.powerhub_company_account_history_page(
@@ -1390,6 +1450,33 @@ begin
   if to_regclass('public.account_transactions_tenant_account_history_balance_idx') is not null then
     raise exception 'COMPANY_ACCOUNT_HISTORY_DUPLICATE_BALANCE_INDEX_REMAINS';
   end if;
+
+  if to_regclass('public.account_transactions_search_document_trgm_idx') is null
+     or not exists(select 1 from pg_extension where extname='pg_trgm') then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_SEARCH_INDEX_MISSING';
+  end if;
+  if has_function_privilege(
+       'anon',
+       'private.powerhub_account_transaction_search_document(text,text,bigint,text,bigint,bigint,timestamptz)',
+       'EXECUTE'
+     )
+     or has_function_privilege(
+       'authenticated',
+       'private.powerhub_account_transaction_search_document(text,text,bigint,text,bigint,bigint,timestamptz)',
+       'EXECUTE'
+     )
+     or not has_function_privilege(
+       'service_role',
+       'private.powerhub_account_transaction_search_document(text,text,bigint,text,bigint,bigint,timestamptz)',
+       'EXECUTE'
+     )
+     or has_function_privilege(
+       'authenticated',
+       'private.powerhub_company_account_history_search_matches(bigint,bigint,text)',
+       'EXECUTE'
+     ) then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_SEARCH_HELPER_ACL_FAILED';
+  end if;
 end;
 $company_account_history_page_test$;
 
@@ -1408,6 +1495,7 @@ declare
   v_first_page_ms numeric;
   v_next_page_ms numeric;
   v_rollup_ms numeric;
+  v_search_ms numeric;
   v_rollup_balance numeric;
 begin
   insert into public.account_transactions(
@@ -1449,6 +1537,18 @@ begin
   end if;
 
   v_started := clock_timestamp();
+  v_page := public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=98001,p_branch_id=>null,
+    p_search=>'HIST-SCALE-123456',p_limit=>10
+  );
+  v_search_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
+  if (v_page->>'total_count')::bigint<>1
+     or jsonb_array_length(v_page->'items')<>1
+     or v_page #>> '{items,0,reference_no}' is distinct from 'HIST-SCALE-123456' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_SEARCH_FAILED: %',v_page;
+  end if;
+
+  v_started := clock_timestamp();
   select rollup.balance
     into v_rollup_balance
   from public.powerhub_company_account_balance_rollup(1::bigint,array[98001]::bigint[]) rollup
@@ -1481,8 +1581,8 @@ begin
     raise exception 'COMPANY_ACCOUNT_HISTORY_250K_CONTINUATION_FAILED: %',v_page;
   end if;
 
-  raise notice 'COMPANY_ACCOUNT_HISTORY_250K_BENCHMARK first_page_ms=% continuation_page_ms=% balance_rollup_ms=% rows=250000',
-    round(v_first_page_ms,2),round(v_next_page_ms,2),round(v_rollup_ms,2);
+  raise notice 'COMPANY_ACCOUNT_HISTORY_250K_BENCHMARK first_page_ms=% continuation_page_ms=% balance_rollup_ms=% search_ms=% rows=250000',
+    round(v_first_page_ms,2),round(v_next_page_ms,2),round(v_rollup_ms,2),round(v_search_ms,2);
 end;
 $company_account_history_scale_benchmark$;
 
