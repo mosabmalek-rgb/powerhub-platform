@@ -13,6 +13,31 @@ CREATE TABLE public.account_transactions(
   transaction_type text NOT NULL,amount numeric(14,2) NOT NULL,occurred_at timestamptz NOT NULL,
   related_payment_id bigint,related_expense_id bigint,related_supplier_payment_id bigint,related_supplier_return_id bigint
 );
+
+\ir ../migrations/20261105153000_powerhub_account_transaction_site_date_index.sql
+
+DO $site_date_index$
+DECLARE
+  v_definition text;
+  v_predicate text;
+BEGIN
+  SELECT pg_get_indexdef(index_row.indexrelid),pg_get_expr(index_row.indpred,index_row.indrelid)
+    INTO v_definition,v_predicate
+  FROM pg_index index_row
+  JOIN pg_class index_name ON index_name.oid=index_row.indexrelid
+  WHERE index_name.relname='account_transactions_tenant_site_occurred_idx'
+    AND index_row.indrelid='public.account_transactions'::regclass
+    AND index_row.indisvalid
+    AND index_row.indnkeyatts=4;
+
+  IF v_definition IS NULL
+     OR v_definition NOT LIKE '%(tenant_id, site_id, occurred_at DESC, id DESC)%'
+     OR position('site_id IS NOT NULL' in coalesce(v_predicate,''))=0 THEN
+    RAISE EXCEPTION 'ACCOUNT_TRANSACTION_SITE_DATE_INDEX_DEFINITION_INVALID: % / %',v_definition,v_predicate;
+  END IF;
+END
+$site_date_index$;
+
 CREATE TABLE public.payments(
   id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,amount numeric(14,2) NOT NULL,
   invoice_applied_amount numeric(14,2) NOT NULL,subscriber_credit_amount numeric(14,2) NOT NULL,
