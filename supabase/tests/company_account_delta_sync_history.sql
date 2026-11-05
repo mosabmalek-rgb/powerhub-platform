@@ -113,7 +113,7 @@ create table public.inventory_warehouses (
 \ir ../migrations/20261105134349_20261105104500_powerhub_company_account_history_paging.sql
 \ir ../migrations/20261011230708_powerhub_company_account_balance_rollup_20261012.sql
 \ir ../migrations/20261105141835_powerhub_company_account_history_chart_balance_reuse.sql
-\ir ../migrations/20261105170000_powerhub_account_history_chart_materialized_aggregate.sql
+\ir ../migrations/20261105174347_powerhub_account_history_chart_materialized_aggregate.sql
 create table public.inventory_stock_movements (
  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
  generator_id bigint, movement_type text not null, quantity numeric(14,3) not null, unit_cost numeric(14,4) not null default 0,
