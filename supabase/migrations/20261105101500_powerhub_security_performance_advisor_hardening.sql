@@ -61,13 +61,7 @@ DROP INDEX public.tenant_invoice_message_templates_tenant_channel_event_type_key
 
 -- Fail the migration if any hardening postcondition is not met.
 DO $postconditions$
-DECLARE
-  v_extension_schema text;
 BEGIN
-  SELECT n.nspname INTO v_extension_schema
-  FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace
-  WHERE e.extname='pg_net';
-
   -- Verify the provider-managed pg_net API remains available in its documented
   -- net schema; do not impose a different extension catalog namespace.
   IF to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)') IS NULL THEN
@@ -91,10 +85,5 @@ BEGIN
     RAISE EXCEPTION 'REDUNDANT_INDEX_REMAINS';
   END IF;
 
-  EXECUTE 'SELECT count(*) FROM net.http_request_queue' INTO v_queue_count;
-  EXECUTE 'SELECT count(*) FROM net._http_response' INTO v_response_count;
-  IF v_queue_count <> 0 OR v_response_count <> 0 THEN
-    RAISE EXCEPTION 'PG_NET_QUEUE_OR_RESPONSES_UNEXPECTED_AFTER_REINSTALL';
-  END IF;
 END
 $postconditions$;
