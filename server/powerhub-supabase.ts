@@ -1353,61 +1353,62 @@ export async function listSupabaseCompanyAccountHistoryPage(input: {
   };
 }
 
-export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; from?: Date | null; to?: Date | null }) {
+export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number }) {
   const admin = supabaseAdmin();
-  let { data: accountRows, error: accountsError } = await admin.from("company_accounts")
+  const { data: accountRows, error: accountsError } = await admin.from("company_accounts")
     .select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
     .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
   if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة من Supabase." });
-  // Dashboard reads must remain read-only: do not create default financial accounts as a side effect.
-  // An empty result means the tenant has not configured any company accounts yet.
+
+  // Load only account metadata and exact balances here. The ledger is fetched
+  // separately by keyset page after an account is selected.
   const accountIds = (accountRows ?? []).map((row) => Number(row.id));
   const siteLinksQuery = accountIds.length
     ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds)
     : null;
   if (siteLinksQuery && input.branchId !== undefined) siteLinksQuery.eq("site_id", input.branchId);
-  const readTransactionsPage = accountIds.length
-    ? (from: number, to: number) => {
-      let query = admin.from("account_transactions")
-        .select("id, tenant_id, account_id, site_id, transaction_type, amount, description, reference_no, related_payment_id, related_account_id, created_by_user_id, occurred_at, created_at")
-        .eq("tenant_id", input.tenantId).in("account_id", accountIds)
-        .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z")
-        .lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z");
-      if (input.branchId !== undefined) query = query.eq("site_id", input.branchId);
-      return query.order("occurred_at", { ascending: false }).order("id", { ascending: false }).range(from, to);
-    }
-    : null;
-  const [siteLinksResult, sitesResult, transactionRows, balancesResult] = await Promise.all([
+
+  const [siteLinksResult, sitesResult, balancesResult] = await Promise.all([
     siteLinksQuery ?? Promise.resolve({ data: [], error: null }),
     admin.from("sites").select("id, name").eq("tenant_id", input.tenantId),
-    readTransactionsPage
-      ? readSupabaseReportPages(readTransactionsPage, "تعذر تحميل سجل حركات حسابات الشركة من Supabase.")
-      : Promise.resolve([]),
     accountIds.length ? admin.rpc("powerhub_company_account_balance_rollup", { p_tenant_id: input.tenantId, p_account_ids: accountIds }) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (siteLinksResult.error || sitesResult.error || balancesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو أرصدة حسابات الشركة من Supabase." });
+  if (siteLinksResult.error || sitesResult.error || balancesResult.error) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات أو أرصدة حسابات الشركة من Supabase." });
+  }
+
   const balanceByAccountId = new Map<number, number>((balancesResult.data ?? []).map((row: { account_id: number | string; balance: number | string }) => [Number(row.account_id), Number(row.balance)]));
   const siteNameById = new Map((sitesResult.data ?? []).map((site) => [Number(site.id), site.name]));
   const linksByAccount = new Map<number, Array<{ accountId: number; siteId: number; siteName: string }>>();
   for (const link of siteLinksResult.data ?? []) {
-    const accountId = Number(link.account_id); const siteId = Number(link.site_id);
+    const accountId = Number(link.account_id);
+    const siteId = Number(link.site_id);
     linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), { accountId, siteId, siteName: siteNameById.get(siteId) ?? "فرع" }]);
   }
-  const transactionsByAccount = new Map<number, SupabaseAccountTransaction[]>();
-  for (const row of transactionRows) {
-    const accountId = Number(row.account_id);
-    const transaction: SupabaseAccountTransaction = { id: Number(row.id), siteId: row.site_id === null ? null : Number(row.site_id), tenantId: Number(row.tenant_id), accountId, transactionType: row.transaction_type, amount: String(row.amount), description: row.description, referenceNo: row.reference_no, relatedPaymentId: row.related_payment_id === null ? null : Number(row.related_payment_id), relatedAccountId: row.related_account_id === null ? null : Number(row.related_account_id), createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), occurredAt: new Date(row.occurred_at), createdAt: new Date(row.created_at) };
-    transactionsByAccount.set(accountId, [...(transactionsByAccount.get(accountId) ?? []), transaction]);
-  }
+
   return (accountRows ?? []).flatMap((row) => {
-    const id = Number(row.id); const linkedSites = linksByAccount.get(id) ?? [];
-    if (input.branchId && !linkedSites.some((link) => link.siteId === input.branchId)) return [];
-    const transactions = transactionsByAccount.get(id) ?? [];
+    const id = Number(row.id);
+    const linkedSites = linksByAccount.get(id) ?? [];
+    if (input.branchId !== undefined && !linkedSites.some((link) => link.siteId === input.branchId)) return [];
     const balance = balanceByAccountId.get(id);
     if (balance === undefined || !Number.isFinite(balance)) {
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب الرصيد الكامل لحساب الشركة." });
     }
-    return [{ id, tenantId: Number(row.tenant_id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number, color: row.color, openingBalance: String(row.opening_balance), isActive: row.is_active, allowPaymentDocumentation: Boolean(row.allow_payment_documentation), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), linkedSites, balance, transactions }];
+    return [{
+      id,
+      tenantId: Number(row.tenant_id),
+      name: row.name,
+      accountType: row.account_type,
+      phoneNumber: row.phone_number,
+      color: row.color,
+      openingBalance: String(row.opening_balance),
+      isActive: row.is_active,
+      allowPaymentDocumentation: Boolean(row.allow_payment_documentation),
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+      linkedSites,
+      balance,
+    }];
   });
 }
 
