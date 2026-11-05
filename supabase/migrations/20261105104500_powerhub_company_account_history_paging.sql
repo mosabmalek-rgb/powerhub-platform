@@ -1,7 +1,10 @@
 -- Keep company-account balances and history summaries in Postgres while
 -- transferring only the requested keyset page to the browser.
+-- Cover the running-balance inputs so the historical balance aggregate can use
+-- an index-only scan after VACUUM, avoiding heap reads and a separate sort.
 create index if not exists account_transactions_tenant_account_history_idx
-  on public.account_transactions (tenant_id, account_id, occurred_at desc, id desc);
+  on public.account_transactions (tenant_id, account_id, occurred_at desc, id desc)
+  include (transaction_type, amount);
 
 create or replace function public.powerhub_company_account_history_page(
   p_tenant_id bigint,
@@ -172,36 +175,72 @@ begin
     order by tx.occurred_at desc, tx.id desc
     limit v_limit + 1
   ),
-  account_balance_steps as materialized (
+  page_rows_base as materialized (
+    select *
+    from page_plus
+    order by occurred_at desc, id desc
+    limit v_limit
+  ),
+  page_bounds as (
+    -- The page head/tail bound the small movement window needed to translate
+    -- the balance at the head into each row's historical balance. Include all
+    -- account movements in that window, not only rows visible in this branch.
+    select
+      (select p.occurred_at from page_rows_base p order by p.occurred_at desc, p.id desc limit 1) as head_at,
+      (select p.id from page_rows_base p order by p.occurred_at desc, p.id desc limit 1) as head_id,
+      (select p.occurred_at from page_rows_base p order by p.occurred_at asc, p.id asc limit 1) as tail_at,
+      (select p.id from page_rows_base p order by p.occurred_at asc, p.id asc limit 1) as tail_id
+  ),
+  balance_at_head as materialized (
+    select
+      v_opening_balance + coalesce(sum(
+        case
+          when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
+          else tx.amount
+        end
+      ), 0) as balance
+    from page_bounds bounds
+    left join public.account_transactions tx
+      on tx.tenant_id = p_tenant_id
+     and tx.account_id = p_account_id
+     and (tx.occurred_at, tx.id) <= (bounds.head_at, bounds.head_id)
+    where p_from is null
+      and p_to is null
+      and bounds.head_at is not null
+  ),
+  movement_steps as materialized (
     select
       tx.id,
-      v_opening_balance + sum(
+      coalesce(sum(
         case
           when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
           else tx.amount
         end
       ) over (
-        order by tx.occurred_at asc, tx.id asc
-        rows between unbounded preceding and current row
-      ) as balance_after
-    from public.account_transactions tx
-    where tx.tenant_id = p_tenant_id
-      and tx.account_id = p_account_id
-      and p_from is null
+        order by tx.occurred_at desc, tx.id desc
+        rows between unbounded preceding and 1 preceding
+      ), 0) as newer_delta
+    from page_bounds bounds
+    join public.account_transactions tx
+      on tx.tenant_id = p_tenant_id
+     and tx.account_id = p_account_id
+     and (tx.occurred_at, tx.id) <= (bounds.head_at, bounds.head_id)
+     and (tx.occurred_at, tx.id) >= (bounds.tail_at, bounds.tail_id)
+    where p_from is null
       and p_to is null
+      and bounds.head_at is not null
   ),
   page_rows as (
     select
-      page_plus.*,
+      page_rows_base.*,
       case
         when p_from is not null or p_to is not null then null
-        else account_balance_steps.balance_after
+        else balance_at_head.balance - movement_steps.newer_delta
       end as balance_after
-    from page_plus
-    left join account_balance_steps
-      on account_balance_steps.id = page_plus.id
-    order by page_plus.occurred_at desc, page_plus.id desc
-    limit v_limit
+    from page_rows_base
+    left join balance_at_head on true
+    left join movement_steps on movement_steps.id = page_rows_base.id
+    order by page_rows_base.occurred_at desc, page_rows_base.id desc
   )
   select
     coalesce(jsonb_agg(
