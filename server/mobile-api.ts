@@ -259,9 +259,17 @@ async function resolveMobileScope(userId: number, tenantId: number, allowPasswor
   const allBranches = permitted.some((profile) => profile.site_id === null);
   const { data: activeSites, error: sitesError } = await admin.from("sites").select("id").eq("tenant_id", tenantId).eq("status", "active");
   if (sitesError) throw new Error(`Supabase active site lookup failed: ${sitesError.message}`);
+  // A site-scoped staff profile is not sufficient by itself: disabled or
+  // removed sites must never remain reachable through an otherwise valid
+  // mobile session. Intersect every profile assignment with this tenant's
+  // currently active sites, just as the all-branches path already does.
+  const activeSiteIds = new Set((activeSites ?? []).map((site) => toNumber(site.id)));
   const branchIds = allBranches
-    ? (activeSites ?? []).map((site) => toNumber(site.id))
-    : Array.from(new Set(permitted.flatMap((profile) => profile.site_id ? [toNumber(profile.site_id)] : [])));
+    ? Array.from(activeSiteIds)
+    : Array.from(new Set(
+        permitted.flatMap((profile) => profile.site_id ? [toNumber(profile.site_id)] : [])
+          .filter((siteId) => activeSiteIds.has(siteId)),
+      ));
   if (!branchIds.length) return null;
   const { data: subscription, error: subscriptionError } = await admin.from("tenant_subscriptions")
     .select("status, ends_at")

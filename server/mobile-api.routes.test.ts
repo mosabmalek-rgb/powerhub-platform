@@ -9,6 +9,8 @@ const state = vi.hoisted(() => {
     rpc: vi.fn(),
     resolve: vi.fn(),
     distributionEnabled: false,
+    profileSiteIds: [12] as number[],
+    activeSiteIds: [12] as number[],
   };
 
   store.from = vi.fn((table: string) => {
@@ -74,6 +76,8 @@ describe("Mobile API subscribers route", () => {
     process.env.JWT_SECRET = JWT_SECRET;
     state.queries.length = 0;
     state.distributionEnabled = false;
+    state.profileSiteIds = [12];
+    state.activeSiteIds = [12];
     vi.mocked(consumeHttpRateLimit).mockReset().mockResolvedValue(true);
     state.from.mockClear();
     state.rpc.mockReset().mockResolvedValue({
@@ -91,9 +95,9 @@ describe("Mobile API subscribers route", () => {
       if (table === "tenant_members") return { data: { id: 1, expires_at: null }, error: null };
       if (table === "tenants") return { data: { id: 20, status: "active" }, error: null };
       if (table === "staff_profiles") {
-        return { data: [{ site_id: 12, role: "technician", permissions: ["recordReadings", "accessFieldApp"], suspension_started_at: null, suspension_ends_at: null }], error: null };
+        return { data: state.profileSiteIds.map((site_id: number) => ({ site_id, role: "technician", permissions: ["recordReadings", "accessFieldApp"], suspension_started_at: null, suspension_ends_at: null })), error: null };
       }
-      if (table === "sites") return { data: [{ id: 12 }], error: null };
+      if (table === "sites") return { data: state.activeSiteIds.map((id: number) => ({ id })), error: null };
       if (table === "tenant_subscriptions") return { data: { status: "active", ends_at: "2099-12-31T00:00:00.000Z" }, error: null };
       if (table === "mobile_api_sessions") return { data: { id: 101 }, error: null };
       if (table === "field_reading_distribution_settings") return { data: state.distributionEnabled ? { is_enabled: true } : null, error: null };
@@ -185,6 +189,20 @@ describe("Mobile API subscribers route", () => {
     expect(state.queries.some((query) => query.table === "subscribers")).toBe(false);
     const membershipQuery = state.queries.find((query) => query.table === "tenant_members");
     expect(membershipQuery?.filters).toContainEqual(["or", expect.stringMatching(/^expires_at\.is\.null,expires_at\.gt\..+$/)]);
+  });
+
+  it("denies a profile assignment to an inactive site before reading subscribers", async () => {
+    state.profileSiteIds = [12, 13];
+    state.activeSiteIds = [12];
+
+    const res = await callRoute({ branchId: "13", cursor: "0", limit: "2" }, await accessToken());
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.error.code).toBe("BRANCH_ACCESS_DENIED");
+    expect(state.queries.some((query) => query.table === "subscribers")).toBe(false);
+    const activeSitesQuery = state.queries.find((query) => query.table === "sites");
+    expect(activeSitesQuery?.filters).toContainEqual(["eq", "tenant_id", 20]);
+    expect(activeSitesQuery?.filters).toContainEqual(["eq", "status", "active"]);
   });
 
   it("returns server-derived cycle state and precision-safe readings only for the requested tenant and branch", async () => {
