@@ -443,7 +443,7 @@ BEGIN
     RAISE EXCEPTION 'ACTIVE_ACCOUNT_IDENTITY_RESOLUTION_FAILED';
   END IF;
   v_denied:=false;
-  BEGIN PERFORM private.chat_rate_support(103,5,'must fail');
+  BEGIN PERFORM private.chat_rate_support(103,5::smallint,'must fail');
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
