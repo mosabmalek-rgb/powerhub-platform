@@ -21,7 +21,8 @@ BEGIN
       ('access_invitations', 'tenant_id', 'site_id'),
       ('staff_profiles', 'tenant_id', 'site_id'),
       ('site_portal_settings', 'tenant_id', 'site_id'),
-      ('meters', 'tenant_id', 'subscriber_id')
+      ('meters', 'tenant_id', 'subscriber_id'),
+      ('meter_readings', 'tenant_id', 'subscriber_id')
     ) AS scoped(table_name, tenant_column, scope_column)
   LOOP
     IF to_regclass(format('public.%I', target.table_name)) IS NULL THEN
@@ -103,6 +104,23 @@ BEGIN
           AND private.powerhub_has_site_access(parent.tenant_id, parent.site_id)
       )
     );
+
+  -- Readings inherit their site scope from the subscriber they belong to.
+  DROP POLICY IF EXISTS meter_readings_subscriber_site_scope_read_guard ON public.meter_readings;
+  CREATE POLICY meter_readings_subscriber_site_scope_read_guard
+    ON public.meter_readings
+    AS RESTRICTIVE
+    FOR SELECT
+    TO authenticated
+    USING (
+      EXISTS (
+        SELECT 1
+        FROM public.subscribers parent
+        WHERE parent.tenant_id = meter_readings.tenant_id
+          AND parent.id = meter_readings.subscriber_id
+          AND private.powerhub_has_site_access(parent.tenant_id, parent.site_id)
+      )
+    );
 END
 $install_site_guards$;
 
@@ -128,7 +146,7 @@ BEGIN
   FOREACH target IN ARRAY ARRAY[
     'sites','subscribers','tariffs','complaints','collector_sessions',
     'mobile_sync_events','offline_sync_operations','access_invitations',
-    'staff_profiles','site_portal_settings','meters'
+    'staff_profiles','site_portal_settings','meters','meter_readings'
   ] LOOP
     IF NOT EXISTS (
       SELECT 1
@@ -140,6 +158,7 @@ BEGIN
         AND permissive = 'RESTRICTIVE'
         AND policyname = CASE
           WHEN target = 'meters' THEN 'meters_subscriber_site_scope_read_guard'
+          WHEN target = 'meter_readings' THEN 'meter_readings_subscriber_site_scope_read_guard'
           ELSE target || '_site_scope_read_guard'
         END
         AND coalesce(qual, '') <> ''
