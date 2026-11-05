@@ -453,6 +453,99 @@ $test_manual_campaign$;
 \ir ../migrations/20261015172000_powerhub_mobile_balance_due_message_variable.sql
 \ir ../migrations/20261016110000_powerhub_policy_aware_message_amount_display.sql
 
+-- Invoice period locks are evaluated at issuance time (issue_date defaults to now()),
+-- never at p_due_date. Cover both the canonical issuer and the mobile approval wrapper.
+\ir ../migrations/20261105161000_powerhub_invoice_period_lock_uses_issue_date.sql
+
+DO $invoice_issue_period_lock_assertions$
+DECLARE
+  v_future_start timestamptz := now() + interval '3 days';
+  v_future_end timestamptz := now() + interval '5 days';
+  v_current_start timestamptz := now() - interval '1 day';
+  v_current_end timestamptz := now() + interval '1 day';
+  v_issue_date timestamptz;
+  v_due_date timestamptz;
+BEGIN
+  INSERT INTO public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
+  VALUES
+    (1,10,'locked',v_future_start,v_future_end);
+
+  -- A due date inside a locked future period must not block an invoice issued now.
+  INSERT INTO public.meter_readings(
+    id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status
+  ) VALUES (1008,1,10,101,10,11,1,'approved');
+
+  PERFORM * FROM public.powerhub_issue_invoice_from_reading(
+    1,10,7,1008,12,'2026-08',v_future_start + interval '1 hour',0,NULL
+  );
+
+  SELECT issue_date,due_date INTO v_issue_date,v_due_date
+  FROM public.invoices WHERE tenant_id=1 AND site_id=10 AND reading_id=1008;
+
+  IF v_issue_date IS NULL
+     OR v_issue_date BETWEEN v_future_start AND v_future_end
+     OR v_due_date NOT BETWEEN v_future_start AND v_future_end THEN
+    RAISE EXCEPTION 'FUTURE_DUE_DATE_LOCKED_CANONICAL_INVOICE_ASSERTION_FAILED issue=% due=%',v_issue_date,v_due_date;
+  END IF;
+
+  -- The mobile wrapper must follow the same canonical issuance-date rule.
+  INSERT INTO public.meter_readings(
+    id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status
+  ) VALUES (1009,1,10,102,0,1,1,'pending_review');
+
+  PERFORM * FROM public.powerhub_approve_and_issue_mobile_reading(
+    1,10,7,1009,1,v_future_start + interval '2 hours','2026-09',0
+  );
+
+  SELECT issue_date,due_date INTO v_issue_date,v_due_date
+  FROM public.invoices WHERE tenant_id=1 AND site_id=10 AND reading_id=1009;
+
+  IF v_issue_date IS NULL
+     OR v_issue_date BETWEEN v_future_start AND v_future_end
+     OR v_due_date NOT BETWEEN v_future_start AND v_future_end THEN
+    RAISE EXCEPTION 'FUTURE_DUE_DATE_LOCKED_MOBILE_INVOICE_ASSERTION_FAILED issue=% due=%',v_issue_date,v_due_date;
+  END IF;
+
+  INSERT INTO public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
+  VALUES (1,10,'locked',v_current_start,v_current_end);
+
+  -- A current issuance must be blocked even when its due date is outside the lock.
+  INSERT INTO public.meter_readings(
+    id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status
+  ) VALUES (1010,1,10,103,10,11,1,'approved');
+
+  BEGIN
+    PERFORM * FROM public.powerhub_issue_invoice_from_reading(
+      1,10,7,1010,12,'2026-11',now() + interval '10 days',0,NULL
+    );
+    RAISE EXCEPTION 'CURRENT_ISSUANCE_LOCKED_CANONICAL_INVOICE_WAS_ALLOWED';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM <> 'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+  END;
+
+  IF EXISTS (SELECT 1 FROM public.invoices WHERE tenant_id=1 AND site_id=10 AND reading_id=1010) THEN
+    RAISE EXCEPTION 'CURRENT_ISSUANCE_LOCKED_CANONICAL_INVOICE_WAS_INSERTED';
+  END IF;
+
+  INSERT INTO public.meter_readings(
+    id,tenant_id,site_id,subscriber_id,previous_reading_value,reading_value,consumption_kwh,status
+  ) VALUES (1011,1,10,104,20,21,1,'pending_review');
+
+  BEGIN
+    PERFORM * FROM public.powerhub_approve_and_issue_mobile_reading(
+      1,10,7,1011,1,now() + interval '10 days','2026-11',0
+    );
+    RAISE EXCEPTION 'CURRENT_ISSUANCE_LOCKED_MOBILE_INVOICE_WAS_ALLOWED';
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN
+    IF SQLERRM <> 'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+  END;
+
+  IF EXISTS (SELECT 1 FROM public.invoices WHERE tenant_id=1 AND site_id=10 AND reading_id=1011) THEN
+    RAISE EXCEPTION 'CURRENT_ISSUANCE_LOCKED_MOBILE_INVOICE_WAS_INSERTED';
+  END IF;
+END
+$invoice_issue_period_lock_assertions$;
+
 do $sql_message_financial_assert$
 declare
   v_definition text;
