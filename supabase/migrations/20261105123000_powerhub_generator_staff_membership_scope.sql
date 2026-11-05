@@ -11,7 +11,8 @@ declare v_user_id bigint; v_tenant_id bigint; v_role text; v_allowed boolean; v_
 begin
  select u.id into v_user_id from public.users u where u.auth_user_id=auth.uid() and u.account_status='active' limit 1; if v_user_id is null then raise exception 'AUTH_USER_NOT_FOUND'; end if;
  select s.tenant_id into v_tenant_id from public.sites s where s.id=p_site_id and s.status <> 'archived'; if v_tenant_id is null then raise exception 'SITE_OUT_OF_SCOPE'; end if;
- select case when u.role='admin' then 'owner' else null end into v_role from public.users u where u.id=v_user_id;
+  -- Platform administrator identity does not grant tenant membership.
+  v_role := null;
  if v_role is null then select 'owner' into v_role from public.tenant_members m where m.tenant_id=v_tenant_id and m.user_id=v_user_id and m.role='owner' and m.is_active and m.membership_status='active' and (m.expires_at is null or m.expires_at > now()) limit 1; end if;
  if v_role is null then
    select p.role into v_role
@@ -67,9 +68,8 @@ begin
   from public.sites s
   where s.id=p_site_id and s.status <> 'archived';
   if v_tenant_id is null then raise exception 'SITE_OUT_OF_SCOPE'; end if;
-
-  select case when u.role='admin' then 'owner' else null end into v_role
-  from public.users u where u.id=v_user_id;
+  -- Platform administrator identity does not grant tenant membership.
+  v_role := null;
 
   if v_role is null then
     select 'owner' into v_role
