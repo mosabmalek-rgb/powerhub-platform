@@ -1348,7 +1348,7 @@ export async function listSupabaseCompanyAccountHistoryPage(input: {
     incomingTotal: Number(result.incoming_total ?? 0),
     outgoingTotal: Number(result.outgoing_total ?? 0),
     hasNext,
-    nextCursor: hasNext ? encodeHistoryCursor({ at: new Date(nextCursorAt!).toISOString(), id: nextCursorId }) : null,
+    nextCursor: hasNext ? encodeHistoryCursor({ at: nextCursorAt!, id: nextCursorId }) : null,
     balanceTimeline,
   };
 }
