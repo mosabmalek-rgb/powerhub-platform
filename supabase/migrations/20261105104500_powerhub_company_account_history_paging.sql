@@ -28,6 +28,7 @@ declare
   v_search text := nullif(btrim(p_search), '');
   v_search_pattern text;
   v_opening_balance numeric;
+  v_current_balance numeric;
   v_total_count bigint := 0;
   v_incoming_total numeric := 0;
   v_outgoing_total numeric := 0;
@@ -249,7 +250,26 @@ begin
       select min(daily_movements.movement_day) as movement_day from daily_movements
     ),
     opening_balance as (
-      select v_opening_balance as balance
+      select
+        v_opening_balance + coalesce(sum(
+          case
+            when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
+            else tx.amount
+          end
+        ) filter (
+          where first_day.movement_day is not null
+            and (tx.occurred_at at time zone 'Asia/Gaza')::date < first_day.movement_day
+        ), 0) as balance,
+        v_opening_balance + coalesce(sum(
+          case
+            when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
+            else tx.amount
+          end
+        ), 0) as current_balance
+      from first_day
+      left join public.account_transactions tx
+        on tx.tenant_id = p_tenant_id
+       and tx.account_id = p_account_id
     ),
     timeline as (
       select
@@ -259,16 +279,22 @@ begin
       from daily_movements
       cross join opening_balance
     )
-    select coalesce(jsonb_agg(
-      jsonb_build_object('day', timeline.movement_day::text, 'balance', timeline.balance)
-      order by timeline.movement_day
-    ), '[]'::jsonb)
-    into v_balance_timeline
-    from timeline;
+    select
+      coalesce(
+        jsonb_agg(
+          jsonb_build_object('day', timeline.movement_day::text, 'balance', timeline.balance)
+          order by timeline.movement_day
+        ) filter (where timeline.movement_day is not null),
+        '[]'::jsonb
+      ),
+      max(opening_balance.current_balance)
+    into v_balance_timeline, v_current_balance
+    from opening_balance
+    left join timeline on true;
   end if;
 
   if jsonb_array_length(v_balance_timeline) = 0 and p_branch_id is null and p_from is null and p_to is null and p_cursor_at is null then
-    v_balance_timeline := jsonb_build_array(jsonb_build_object('day', null, 'balance', v_opening_balance));
+    v_balance_timeline := jsonb_build_array(jsonb_build_object('day', null, 'balance', v_current_balance));
   end if;
 
   return jsonb_build_object(

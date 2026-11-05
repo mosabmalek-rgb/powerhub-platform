@@ -1292,6 +1292,38 @@ begin
     raise exception 'COMPANY_ACCOUNT_HISTORY_GAZA_LOCAL_DATE_FILTER_FAILED: %',v_page;
   end if;
 
+  -- A local-date chart range starts with the balance carried into its
+  -- first displayed day, including earlier movements on the shared account.
+  insert into public.account_transactions(
+    id,tenant_id,account_id,site_id,transaction_type,amount,description,reference_no,occurred_at
+  ) values (
+    98100,1,98001,10,'deposit',7,'Prior-day chart opening balance','HIST-98100',timestamptz '2026-10-26 15:00:00+00'
+  );
+
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
+    p_movement_from=>date '2026-10-27',p_movement_to=>date '2026-10-27',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>6
+     or jsonb_array_length(v_page->'balance_timeline')<>1
+     or v_page #>> '{balance_timeline,0,day}' is distinct from '2026-10-27'
+     or (v_page #>> '{balance_timeline,0,balance}')::numeric<>82 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_FILTERED_CHART_OPENING_BALANCE_FAILED: %',v_page;
+  end if;
+
+  -- A date range with no movements retains the actual current account balance.
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
+    p_movement_from=>date '2026-10-28',p_movement_to=>date '2026-10-28',p_limit=>10
+  );
+  if (v_page->>'total_count')::bigint<>0
+     or jsonb_array_length(v_page->'items')<>0
+     or jsonb_array_length(v_page->'balance_timeline')<>1
+     or v_page #>> '{balance_timeline,0,day}' is not null
+     or (v_page #>> '{balance_timeline,0,balance}')::numeric<>82 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_EMPTY_FILTER_CURRENT_BALANCE_FAILED: %',v_page;
+  end if;
+
   begin
     perform public.powerhub_company_account_history_page(
       p_tenant_id=>1,p_account_id=>98001,p_branch_id=>30,p_limit=>10
