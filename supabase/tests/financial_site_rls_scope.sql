@@ -56,6 +56,9 @@ CREATE TABLE public.supplier_payment_allocations(
 );
 CREATE TABLE public.subscriber_balance_ledger(id bigint PRIMARY KEY);
 CREATE TABLE public.employee_adjustment_repayments(id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,account_transaction_id bigint);
+CREATE TABLE public.generators(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,name text NOT NULL);
+CREATE TABLE public.inventory_warehouses(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,name text NOT NULL);
+CREATE TABLE public.inventory_stock_movements(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,warehouse_id bigint NOT NULL,quantity numeric NOT NULL);
 
 CREATE OR REPLACE FUNCTION private.powerhub_current_user_id()
 RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path=''
@@ -84,6 +87,7 @@ GRANT SELECT ON TABLE
  public.supplier_payment_allocations,public.company_accounts,public.company_account_sites
  TO authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT SELECT ON public.generators,public.inventory_warehouses,public.inventory_stock_movements TO authenticated;
 
 INSERT INTO public.users(id,auth_user_id,role,platform_role,account_status) VALUES
  (1,'00000000-0000-0000-0000-000000000001','user',NULL,'active'),
@@ -141,6 +145,9 @@ INSERT INTO public.supplier_purchase_receipt_lines VALUES(1,1,1,1),(2,1,2,2),(3,
 INSERT INTO public.supplier_purchase_return_lines VALUES(1,1,1,1),(2,1,2,2),(3,2,3,3);
 INSERT INTO public.supplier_payment_allocations VALUES
  (1,1,1,1,1),(2,1,2,2,2),(3,2,3,3,3);
+INSERT INTO public.generators VALUES (1,1,10,'Generator A'),(2,1,11,'Generator B'),(3,2,20,'Generator C');
+INSERT INTO public.inventory_warehouses VALUES (1,1,10,'Warehouse A'),(2,1,11,'Warehouse B'),(3,2,20,'Warehouse C');
+INSERT INTO public.inventory_stock_movements VALUES (1,1,10,1,10),(2,1,11,2,20),(3,2,20,3,30);
 
 DO $enable_rls$
 DECLARE t text;
@@ -153,11 +160,13 @@ BEGIN
  'payroll_adjustment_allocations','supplier_purchase_lines','supplier_purchase_receipt_lines',
  'supplier_purchase_return_lines','supplier_payment_allocations','subscriber_balance_ledger',
  'employee_adjustment_repayments'
+  ,'generators','inventory_warehouses','inventory_stock_movements'
  ] LOOP EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t); END LOOP;
 END
 $enable_rls$;
 
 \ir ../migrations/20261103195752_powerhub_financial_site_rls_scope.sql
+\ir ../migrations/20261105110000_powerhub_inventory_site_rls_scope.sql
 \ir ../migrations/20261104084749_20261103210000_powerhub_account_transaction_site_scope.sql
 \ir ../migrations/20261104191321_powerhub_account_transaction_account_id_scope_guard.sql
 
@@ -208,6 +217,9 @@ SET ROLE authenticated;
 DO $branch_a$
 BEGIN
  IF (SELECT count(*) FROM public.expenses)<>1 OR NOT EXISTS(SELECT 1 FROM public.expenses WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_EXPENSE_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.generators)<>1 OR NOT EXISTS(SELECT 1 FROM public.generators WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_GENERATOR_SITE_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.inventory_warehouses)<>1 OR NOT EXISTS(SELECT 1 FROM public.inventory_warehouses WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_WAREHOUSE_SITE_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.inventory_stock_movements)<>1 OR NOT EXISTS(SELECT 1 FROM public.inventory_stock_movements WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_STOCK_MOVEMENT_SITE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoices)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoices WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_INVOICE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.payments)<>1 OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_PAYMENT_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoice_lines)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoice_lines WHERE id=1) THEN RAISE EXCEPTION 'INVOICE_CHILD_SCOPE_FAILED'; END IF;
@@ -232,6 +244,9 @@ SET ROLE authenticated;
 DO $branch_b$
 BEGIN
  IF (SELECT count(*) FROM public.expenses)<>1 OR NOT EXISTS(SELECT 1 FROM public.expenses WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_EXPENSE_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.generators)<>1 OR NOT EXISTS(SELECT 1 FROM public.generators WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_GENERATOR_SITE_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.inventory_warehouses)<>1 OR NOT EXISTS(SELECT 1 FROM public.inventory_warehouses WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_WAREHOUSE_SITE_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.inventory_stock_movements)<>1 OR NOT EXISTS(SELECT 1 FROM public.inventory_stock_movements WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_STOCK_MOVEMENT_SITE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoices)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoices WHERE id=2) THEN RAISE EXCEPTION 'BRANCH_B_INVOICE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.company_accounts)<>3 OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=101) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=104) THEN RAISE EXCEPTION 'BRANCH_B_ACCOUNT_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.account_transactions)<>2 OR NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=2) OR NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=6) THEN RAISE EXCEPTION 'BRANCH_B_TRANSACTION_SITE_SCOPE_FAILED'; END IF;
@@ -244,6 +259,7 @@ SET ROLE authenticated;
 DO $owner$
 BEGIN
  IF (SELECT count(*) FROM public.expenses)<>2 THEN RAISE EXCEPTION 'OWNER_ALL_BRANCH_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.generators)<>2 OR (SELECT count(*) FROM public.inventory_warehouses)<>2 OR (SELECT count(*) FROM public.inventory_stock_movements)<>2 THEN RAISE EXCEPTION 'OWNER_INVENTORY_ALL_BRANCH_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.audit_logs)<>3 THEN RAISE EXCEPTION 'OWNER_TENANT_AUDIT_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.company_accounts)<>4 THEN RAISE EXCEPTION 'OWNER_ACCOUNT_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.account_transactions)<>5 THEN RAISE EXCEPTION 'OWNER_TRANSACTION_SCOPE_FAILED'; END IF;
@@ -294,6 +310,7 @@ SET ROLE authenticated;
 DO $platform_admin$
 BEGIN
  IF (SELECT count(*) FROM public.expenses)<>3 THEN RAISE EXCEPTION 'PLATFORM_ADMIN_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.generators)<>3 OR (SELECT count(*) FROM public.inventory_warehouses)<>3 OR (SELECT count(*) FROM public.inventory_stock_movements)<>3 THEN RAISE EXCEPTION 'PLATFORM_ADMIN_INVENTORY_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.account_transactions)<>6 THEN RAISE EXCEPTION 'PLATFORM_ADMIN_TRANSACTION_SCOPE_FAILED'; END IF;
 END
 $platform_admin$;
@@ -361,3 +378,10 @@ RESET ROLE;
 
 
 SELECT 'FINANCIAL_SITE_RLS_SCOPE_OK' AS result;
+SET ROLE anon;
+DO $anon_inventory$
+BEGIN
+ IF (SELECT count(*) FROM public.generators)<>0 OR (SELECT count(*) FROM public.inventory_warehouses)<>0 OR (SELECT count(*) FROM public.inventory_stock_movements)<>0 THEN RAISE EXCEPTION 'ANON_INVENTORY_READ_NOT_DENIED'; END IF;
+END
+$anon_inventory$;
+RESET ROLE;
