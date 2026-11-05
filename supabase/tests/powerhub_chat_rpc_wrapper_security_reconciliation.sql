@@ -171,7 +171,7 @@ END
 $trigger_grants_before$;
 
 \ir ../migrations/20261101225044_powerhub_chat_rpc_wrapper_security_reconciliation.sql
-\ir ../migrations/20261105150000_powerhub_chat_trigger_function_exec_revoke.sql
+\ir ../migrations/20261105150631_powerhub_chat_trigger_function_exec_revoke.sql
 
 
 DO $assert_acl$
