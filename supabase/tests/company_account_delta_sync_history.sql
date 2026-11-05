@@ -111,6 +111,7 @@ create table public.inventory_warehouses (
 \ir ../migrations/20261104084757_20261103210100_powerhub_company_account_delta_site_scope.sql
 \ir ../migrations/20261105102000_powerhub_account_transaction_tenant_recent_index.sql
 \ir ../migrations/20261105134349_20261105104500_powerhub_company_account_history_paging.sql
+\ir ../migrations/20261011230708_powerhub_company_account_balance_rollup_20261012.sql
 \ir ../migrations/20261105141835_powerhub_company_account_history_chart_balance_reuse.sql
 create table public.inventory_stock_movements (
  id bigint primary key, tenant_id bigint not null, site_id bigint not null, warehouse_id bigint not null, item_id bigint not null,
