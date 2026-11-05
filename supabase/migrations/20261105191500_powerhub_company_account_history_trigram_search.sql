@@ -1,6 +1,7 @@
 -- Accelerate company-account history searches without changing field-level semantics.
 -- A GIN candidate index is followed by exact original-field checks.
 create schema if not exists extensions;
+create schema if not exists private;
 create extension if not exists pg_trgm with schema extensions;
 
 create or replace function private.powerhub_account_transaction_search_document(
