@@ -174,7 +174,7 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon, service_role;
 
 \ir ../migrations/20261101113014_powerhub_generator_sync_require_tenant_membership.sql
 \ir ../migrations/20261105091623_powerhub_security_performance_advisor_hardening.sql
-\ir ../migrations/20261105123000_powerhub_generator_staff_membership_scope.sql
+\ir ../migrations/20261105204132_powerhub_generator_staff_membership_scope.sql
 
 DO $assert_security_performance_hardening$
 BEGIN
