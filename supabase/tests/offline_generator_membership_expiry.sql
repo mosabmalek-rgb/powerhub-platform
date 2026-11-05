@@ -10,6 +10,10 @@ END
 $roles$;
 
 CREATE SCHEMA IF NOT EXISTS auth;
+-- Supabase deploys private RPC helpers in a dedicated private schema.
+-- Create the same namespace in this disposable PostgreSQL fixture before
+-- applying migrations that define private, non-browser-callable helpers.
+CREATE SCHEMA IF NOT EXISTS private;
 CREATE OR REPLACE FUNCTION auth.uid()
 RETURNS uuid LANGUAGE sql STABLE AS $auth_uid$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
