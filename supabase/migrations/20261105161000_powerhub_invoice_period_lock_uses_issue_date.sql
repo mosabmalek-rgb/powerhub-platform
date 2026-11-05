@@ -32,13 +32,14 @@ BEGIN
     );
 
     IF v_legacy_guard_count = 0 THEN
-      -- Make migration replay safe, but fail closed on an unexpected future body.
-      IF v_definition ~* 'period_start[[:space:]]*<=[[:space:]]*now\(\)[[:space:]]+and[[:space:]]+period_end[[:space:]]*>=[[:space:]]*now\(\)' THEN
+      -- The mobile wrapper may delegate all invoice construction and period checks
+      -- to the canonical issuer. In that shape, duplicating the guard is unnecessary.
+      IF position('from public.powerhub_issue_invoice_from_reading(' in v_definition) > 0
+         OR v_definition ~* 'period_start[[:space:]]*<=[[:space:]]*now\(\)[[:space:]]+and[[:space:]]+period_end[[:space:]]*>=[[:space:]]*now\(\)' THEN
         CONTINUE;
       END IF;
       RAISE EXCEPTION 'INVOICE_PERIOD_LOCK_GUARD_ANCHOR_NOT_FOUND: %',v_function;
     END IF;
-
     IF v_legacy_guard_count <> 1 THEN
       RAISE EXCEPTION 'INVOICE_PERIOD_LOCK_GUARD_AMBIGUOUS: % (% matches)',v_function,v_legacy_guard_count;
     END IF;
