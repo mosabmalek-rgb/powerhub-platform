@@ -377,6 +377,121 @@ begin
 end;
 $company_account_test$;
 
+
+-- Verify that the bounded previous-window candidate set is equivalent to the
+-- original full-history definition for insert, update, and delete boundaries.
+create temp table company_account_delta_window_base (
+  id bigint primary key,
+  account_id bigint not null,
+  occurred_at timestamptz not null
+) on commit drop;
+insert into company_account_delta_window_base(id,account_id,occurred_at)
+select 10000+g, 700+(g%2),
+       timestamptz '2024-01-01 00:00:00+00' + g*interval '1 second'
+from generate_series(1,1002) g;
+create temp table company_account_delta_window_current
+  (like company_account_delta_window_base including all)
+on commit drop;
+
+do $company_account_delta_window_equivalence$
+declare
+  v_scenario text;
+  v_new_id bigint;
+  v_old_id bigint;
+  v_old_account_id bigint;
+  v_old_occurred_at timestamptz;
+  v_original_ids bigint[];
+  v_bounded_ids bigint[];
+begin
+  foreach v_scenario in array array[
+    'insert_newest',
+    'update_old_row_evicted',
+    'update_old_row_reenters',
+    'delete_newest'
+  ] loop
+    truncate company_account_delta_window_current;
+    insert into company_account_delta_window_current
+      select * from company_account_delta_window_base;
+
+    v_new_id:=null;
+    v_old_id:=null;
+    v_old_account_id:=null;
+    v_old_occurred_at:=null;
+
+    if v_scenario='insert_newest' then
+      insert into company_account_delta_window_current values
+        (12000,701,timestamptz '2024-01-02 00:00:00+00');
+      v_new_id:=12000;
+    elsif v_scenario='update_old_row_evicted' then
+      select account_id,occurred_at into v_old_account_id,v_old_occurred_at
+      from company_account_delta_window_current where id=10001;
+      v_old_id:=10001;
+      v_new_id:=10001;
+      update company_account_delta_window_current
+        set account_id=701,occurred_at=timestamptz '2024-01-03 00:00:00+00'
+        where id=v_new_id;
+    elsif v_scenario='update_old_row_reenters' then
+      select account_id,occurred_at into v_old_account_id,v_old_occurred_at
+      from company_account_delta_window_current where id=11002;
+      v_old_id:=11002;
+      v_new_id:=11002;
+      update company_account_delta_window_current
+        set account_id=700,occurred_at=timestamptz '2023-12-30 00:00:00+00'
+        where id=v_new_id;
+    elsif v_scenario='delete_newest' then
+      select account_id,occurred_at into v_old_account_id,v_old_occurred_at
+      from company_account_delta_window_current where id=11002;
+      v_old_id:=11002;
+      delete from company_account_delta_window_current where id=v_old_id;
+    end if;
+
+    with original_candidates as (
+      select tx.id,tx.account_id,tx.occurred_at
+      from company_account_delta_window_current tx
+      where tx.id is distinct from v_new_id
+      union all
+      select v_old_id,v_old_account_id,v_old_occurred_at
+      where v_old_id is not null
+    ),
+    original_window as (
+      select candidate.id
+      from original_candidates candidate
+      order by candidate.occurred_at desc,candidate.id desc
+      limit 1000
+    )
+    select array_agg(id order by id) into v_original_ids
+    from original_window;
+
+    with bounded_candidates as (
+      (
+        select tx.id,tx.account_id,tx.occurred_at
+        from company_account_delta_window_current tx
+        where tx.id is distinct from v_new_id
+        order by tx.occurred_at desc,tx.id desc
+        limit 1000
+      )
+      union all
+      select v_old_id,v_old_account_id,v_old_occurred_at
+      where v_old_id is not null
+    ),
+    bounded_window as (
+      select candidate.id
+      from bounded_candidates candidate
+      order by candidate.occurred_at desc,candidate.id desc
+      limit 1000
+    )
+    select array_agg(id order by id) into v_bounded_ids
+    from bounded_window;
+
+    if v_original_ids is distinct from v_bounded_ids
+       or cardinality(v_bounded_ids)<>1000 then
+      raise exception 'COMPANY_ACCOUNT_DELTA_WINDOW_MISMATCH scenario=% original_count=% bounded_count=%',
+        v_scenario,cardinality(v_original_ids),cardinality(v_bounded_ids);
+    end if;
+  end loop;
+end
+$company_account_delta_window_equivalence$;
+
 -- Updating an existing branch link must remove the old scoped copy, publish
 -- the new scoped copy, and refresh the tenant-wide feed without a full reload.
 do $company_account_link_move_test$
