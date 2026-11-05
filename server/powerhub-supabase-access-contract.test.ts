@@ -47,6 +47,24 @@ describe("Inventory catalog Delta authorization boundary", () => {
   });
 });
 
+describe("Staff profile server-access boundary", () => {
+  it("must reject archived profiles and suspended profiles in the base site resolver", () => {
+    const start = powerhubSupabaseSource.indexOf("async function resolveSupabaseSiteAccessDetails");
+    const end = powerhubSupabaseSource.indexOf("export async function resolveSupabaseSiteAccess(", start);
+    const helper = powerhubSupabaseSource.slice(start, end);
+    expect(helper).toContain('.is("archived_at", null)');
+    expect(helper).toContain("isSuspended(new Date()");
+  });
+
+  it("must omit archived and suspended profiles from the accessible-site list", () => {
+    const start = powerhubSupabaseSource.indexOf("export async function listSupabaseAccessibleSites");
+    const end = powerhubSupabaseSource.indexOf("export async function listSupabaseSubscribers", start);
+    const helper = powerhubSupabaseSource.slice(start, end);
+    expect(helper).toContain('.is("archived_at", null)');
+    expect(helper).toContain("isSuspended(new Date()");
+  });
+});
+
 describe("All-branch staff authorization boundary", () => {
   it("must exclude archived and currently suspended global staff profiles", () => {
     const start = powerhubSupabaseSource.indexOf("export async function requireSupabaseAllBranchesRole");

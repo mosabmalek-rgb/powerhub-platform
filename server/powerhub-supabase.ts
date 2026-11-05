@@ -178,8 +178,9 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
 
   const staffProfilesStartedAt = performance.now();
   const { data: profiles, error: profileError } = await admin.from("staff_profiles")
-    .select("id, role, permissions, custom_role_id, suspension_started_at, suspension_ends_at, site_id")
-    .eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true);
+    .select("id, role, permissions, custom_role_id, archived_at, suspension_started_at, suspension_ends_at, site_id")
+    .eq("tenant_id", site.tenantId).eq("user_id", userId)
+    .eq("is_active", true).is("archived_at", null);
   staffProfilesMs = Math.round(performance.now() - staffProfilesStartedAt);
   if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيين المستخدم في Supabase." });
   const profile = (profiles ?? []).find((item) => Number(item.site_id) === siteId) ?? (profiles ?? []).find((item) => item.site_id === null);
@@ -322,10 +323,16 @@ export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmi
   const validMemberships = (memberships ?? []).filter((member) => isTenantMembershipUnexpired(member));
   const activeTenantIds = new Set(validMemberships.map((member) => Number(member.tenant_id)));
   const ownerTenantIds = validMemberships.filter((member) => member.role === "owner").map((member) => Number(member.tenant_id));
-  const { data: profiles, error: profilesError } = await admin.from("staff_profiles").select("site_id,tenant_id")
-    .eq("user_id", userId).eq("is_active", true);
+  const { data: profiles, error: profilesError } = await admin.from("staff_profiles")
+    .select("site_id,tenant_id,archived_at,suspension_started_at,suspension_ends_at")
+    .eq("user_id", userId).eq("is_active", true).is("archived_at", null);
   if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيينات الفروع من Supabase." });
-  const assignedSiteIds = (profiles ?? []).filter((profile) => activeTenantIds.has(Number(profile.tenant_id))).map((profile) => profile.site_id).filter((id): id is number => id !== null).map(Number);
+  const assignedSiteIds = (profiles ?? [])
+    .filter((profile) => activeTenantIds.has(Number(profile.tenant_id)))
+    .filter((profile) => !isSuspended(new Date(), dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at)))
+    .map((profile) => profile.site_id)
+    .filter((id): id is number => id !== null)
+    .map(Number);
   const requestedIds = Array.from(new Set(assignedSiteIds));
   const [ownedResult, assignedResult] = await Promise.all([
     ownerTenantIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").in("tenant_id", ownerTenantIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
