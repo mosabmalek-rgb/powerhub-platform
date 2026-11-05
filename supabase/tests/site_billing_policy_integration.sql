@@ -455,7 +455,7 @@ $test_manual_campaign$;
 
 -- Invoice period locks are evaluated at issuance time (issue_date defaults to now()),
 -- never at p_due_date. Cover both the canonical issuer and the mobile approval wrapper.
-\ir ../migrations/20261105161000_powerhub_invoice_period_lock_uses_issue_date.sql
+\ir ../migrations/20261105162317_powerhub_invoice_period_lock_uses_issue_date.sql
 
 DO $invoice_issue_period_lock_assertions$
 DECLARE
