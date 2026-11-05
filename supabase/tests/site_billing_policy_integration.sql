@@ -465,10 +465,12 @@ DECLARE
   v_current_end timestamptz := now() + interval '1 day';
   v_issue_date timestamptz;
   v_due_date timestamptz;
+  v_future_lock_id bigint;
+  v_current_lock_id bigint;
 BEGIN
   INSERT INTO public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
-  VALUES
-    (1,10,'locked',v_future_start,v_future_end);
+  VALUES (1,10,'locked',v_future_start,v_future_end)
+  RETURNING id INTO v_future_lock_id;
 
   -- A due date inside a locked future period must not block an invoice issued now.
   INSERT INTO public.meter_readings(
@@ -507,7 +509,8 @@ BEGIN
   END IF;
 
   INSERT INTO public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
-  VALUES (1,10,'locked',v_current_start,v_current_end);
+  VALUES (1,10,'locked',v_current_start,v_current_end)
+  RETURNING id INTO v_current_lock_id;
 
   -- A current issuance must be blocked even when its due date is outside the lock.
   INSERT INTO public.meter_readings(
@@ -543,6 +546,9 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.invoices WHERE tenant_id=1 AND site_id=10 AND reading_id=1011) THEN
     RAISE EXCEPTION 'CURRENT_ISSUANCE_LOCKED_MOBILE_INVOICE_WAS_INSERTED';
   END IF;
+
+  -- These locks exist only to exercise issuance-time checks; keep later billing tests independent.
+  DELETE FROM public.financial_settlements WHERE id IN (v_future_lock_id,v_current_lock_id);
 END
 $invoice_issue_period_lock_assertions$;
 
