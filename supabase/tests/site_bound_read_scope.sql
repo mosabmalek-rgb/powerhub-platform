@@ -213,7 +213,7 @@ GRANT EXECUTE ON FUNCTION private.powerhub_has_site_access(bigint,bigint) TO aut
 GRANT SELECT ON TABLE
   public.sites,public.subscribers,public.tariffs,public.complaints,public.collector_sessions,
   public.mobile_sync_events,public.offline_sync_operations,public.access_invitations,
-  public.staff_profiles,public.site_portal_settings,public.meters,public.meter_readings,public.mobile_api_sessions,public.tenant_scope_probe
+  public.staff_profiles,public.site_portal_settings,public.meters,public.meter_readings,public.mobile_api_sessions,public.tenant_scope_probe,
   public.staff_profile_capability_overrides,public.staff_profile_permission_audit
  TO authenticated,anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
