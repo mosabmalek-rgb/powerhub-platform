@@ -364,6 +364,7 @@ BEGIN
   IF (SELECT count(*) FROM public.subscribers)<>2 THEN RAISE EXCEPTION 'OWNER_SUBSCRIBER_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.tariffs)<>2 THEN RAISE EXCEPTION 'OWNER_TARIFF_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.complaints)<>2 THEN RAISE EXCEPTION 'OWNER_COMPLAINT_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.meters)<>2 THEN RAISE EXCEPTION 'OWNER_METER_SCOPE_FAILED'; END IF;
 END
 $owner$;
 RESET ROLE;
@@ -372,8 +373,7 @@ SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000006'
 SET ROLE authenticated;
 DO $global_profile$
 BEGIN
-  IF (SELECT count(*) FROM public.sites)<>2 OR (SELECT count(*) FROM public.subscribers)<>2
-     THEN
+  IF (SELECT count(*) FROM public.sites)<>2 OR (SELECT count(*) FROM public.subscribers)<>2 THEN
     RAISE EXCEPTION 'GLOBAL_STAFF_PROFILE_ALL_BRANCH_SCOPE_FAILED';
   END IF;
 END
