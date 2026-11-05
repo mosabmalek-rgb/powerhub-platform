@@ -336,7 +336,7 @@ BEGIN
   IF (SELECT array_agg(id ORDER BY id) FROM public.access_invitations) IS DISTINCT FROM ARRAY[160::bigint] THEN RAISE EXCEPTION 'BRANCH_A_INVITATION_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.site_portal_settings) IS DISTINCT FROM ARRAY[170::bigint] THEN RAISE EXCEPTION 'BRANCH_A_PORTAL_SETTINGS_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.meters) IS DISTINCT FROM ARRAY[180::bigint] THEN RAISE EXCEPTION 'BRANCH_A_METER_PARENT_SCOPE_FAILED'; END IF;
-  IF (SELECT array_agg(id ORDER BY id) FROM public.staff_profiles) IS DISTINCT FROM ARRAY[1::bigint] THEN RAISE EXCEPTION 'BRANCH_A_STAFF_PROFILE_SCOPE_FAILED'; END IF;
+  IF (SELECT array_agg(id ORDER BY id) FROM public.staff_profiles) IS DISTINCT FROM ARRAY[1::bigint,3::bigint] THEN RAISE EXCEPTION 'BRANCH_A_STAFF_PROFILE_SCOPE_FAILED'; END IF;
 END
 $branch_a$;
 RESET ROLE;
@@ -382,7 +382,8 @@ SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000006'
 SET ROLE authenticated;
 DO $global_profile$
 BEGIN
-  IF (SELECT count(*) FROM public.sites)<>2 OR (SELECT count(*) FROM public.subscribers)<>2 THEN
+  IF (SELECT count(*) FROM public.sites)<>2 OR (SELECT count(*) FROM public.subscribers)<>2
+     OR (SELECT count(*) FROM public.staff_profiles)<>4 THEN
     RAISE EXCEPTION 'GLOBAL_STAFF_PROFILE_ALL_BRANCH_SCOPE_FAILED';
   END IF;
 END
