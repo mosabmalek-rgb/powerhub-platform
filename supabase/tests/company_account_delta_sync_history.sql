@@ -1536,17 +1536,6 @@ begin
     raise exception 'COMPANY_ACCOUNT_HISTORY_250K_FIRST_PAGE_OR_CHART_FAILED: %',v_page;
   end if;
 
-  v_started := clock_timestamp();
-  v_page := public.powerhub_company_account_history_page(
-    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
-    p_search=>'HIST-SCALE-123456',p_limit=>10
-  );
-  v_search_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
-  if (v_page->>'total_count')::bigint<>1
-     or jsonb_array_length(v_page->'items')<>1
-     or v_page #>> '{items,0,reference_no}' is distinct from 'HIST-SCALE-123456' then
-    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_SEARCH_FAILED: %',v_page;
-  end if;
 
   v_started := clock_timestamp();
   select rollup.balance
@@ -1579,6 +1568,18 @@ begin
      or v_page->>'has_next' is distinct from 'true'
      or v_page->'balance_timeline' is distinct from 'null'::jsonb then
     raise exception 'COMPANY_ACCOUNT_HISTORY_250K_CONTINUATION_FAILED: %',v_page;
+  end if;
+
+  v_started := clock_timestamp();
+  v_page := public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
+    p_search=>'HIST-SCALE-123456',p_limit=>10
+  );
+  v_search_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
+  if (v_page->>'total_count')::bigint<>1
+     or jsonb_array_length(v_page->'items')<>1
+     or v_page #>> '{items,0,reference_no}' is distinct from 'HIST-SCALE-123456' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_SEARCH_FAILED: %',v_page;
   end if;
 
   raise notice 'COMPANY_ACCOUNT_HISTORY_250K_BENCHMARK first_page_ms=% continuation_page_ms=% balance_rollup_ms=% search_ms=% rows=250000',
