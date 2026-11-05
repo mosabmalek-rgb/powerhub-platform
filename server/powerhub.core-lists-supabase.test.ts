@@ -390,16 +390,13 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.readings.list({ siteId: 10 })).resolves.toMatchObject([{ reading: { id: 60, consumptionKwh: "10", readingAt: expect.any(Date) }, subscriber: { id: 30, fullName: "مشترك الاختبار" } }]);
     await expect(caller.invoices.list({ siteId: 10 })).resolves.toMatchObject([{ id: 70, invoiceNo: "MAIN-202608-0001", totalAmount: "100", issueDate: expect.any(Date) }]);
     await expect(caller.payments.list({ siteId: 10 })).resolves.toMatchObject([{ payment: { id: 81, amount: "25", paidAt: expect.any(Date), receiptImageUrl: null }, subscriber: { id: 30 }, invoiceNo: "MAIN-202608-0001" }]);
-    await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90, balance: 125, linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }], transactions: [{ id: 91, occurredAt: expect.any(Date) }] }]);
-    expect(state.orderCalls.filter((call) => call.table === "account_transactions").slice(-2)).toEqual([
-      { table: "account_transactions", column: "occurred_at", options: { ascending: false } },
-      { table: "account_transactions", column: "id", options: { ascending: false } },
-    ]);
+    await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90, balance: 125, linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }] }]);
+    expect(state.orderCalls.some((call) => call.table === "account_transactions")).toBe(false);
     await expect(caller.expenses.list({ siteId: 10 })).resolves.toMatchObject([{ id: 80, category: "fuel", amount: "15", occurredAt: expect.any(Date) }]);
     await expect(caller.dashboard.summary({ siteId: 10 })).resolves.toEqual({ subscribers: 1, generators: { active: 1, maintenance: 0 }, financial: { invoiced: 100, collected: 25, outstanding: 75, expenses: 15, operatingProfit: 10 }, energyKwh: 10, failedNotifications: 1 });
   });
 
-  it("loads the complete company-account history in ordered PostgREST pages beyond 1,000 rows", async () => {
+  it("loads company-account history lazily through keyset pages beyond 1,000 rows", async () => {
     state.tables.account_transactions = Array.from({ length: 1001 }, (_, index) => ({
       id: 1001 - index,
       tenant_id: 20,
@@ -417,13 +414,34 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     }));
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     const accounts = await caller.companyAccounts.list({ siteId: 10 });
-    expect(accounts[0].transactions).toHaveLength(1001);
-    expect(accounts[0].transactions[0]).toMatchObject({ id: 1001, siteId: 10 });
-    expect(accounts[0].transactions[1000]).toMatchObject({ id: 1, siteId: 10 });
-    expect(state.orderCalls.filter((call) => call.table === "account_transactions").slice(-2)).toEqual([
-      { table: "account_transactions", column: "occurred_at", options: { ascending: false } },
-      { table: "account_transactions", column: "id", options: { ascending: false } },
-    ]);
+    expect(accounts[0]).toMatchObject({ id: 90, balance: 1101 });
+    expect(accounts[0]).not.toHaveProperty("transactions");
+    expect(state.orderCalls.some((call) => call.table === "account_transactions")).toBe(false);
+
+    const allRows: Array<{ id: number; siteId: number; balanceAfter: number | null }> = [];
+    let cursor: string | undefined;
+    let pageCount = 0;
+    do {
+      const page = await caller.companyAccounts.history({
+        siteId: 10,
+        accountId: 90,
+        limit: 200,
+        cursor,
+      });
+      pageCount += 1;
+      allRows.push(...page.items);
+      expect(page.totalCount).toBe(1001);
+      expect(page.incomingTotal).toBe(1001);
+      expect(page.outgoingTotal).toBe(0);
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+
+    expect(pageCount).toBe(6);
+    expect(allRows).toHaveLength(1001);
+    expect(allRows[0]).toMatchObject({ id: 1001, siteId: 10, balanceAfter: 1101 });
+    expect(allRows[200]).toMatchObject({ id: 801, siteId: 10 });
+    expect(allRows[1000]).toMatchObject({ id: 1, siteId: 10, balanceAfter: 101 });
+    expect(state.rpcCalls.filter((call) => call.name === "powerhub_company_account_history_page")).toHaveLength(6);
   });
 
   it("يعالج رسائل SMS المؤجلة ضمن الفرع عبر حجز Supabase دون الوصول إلى MySQL", async () => {
