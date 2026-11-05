@@ -1392,7 +1392,8 @@ end;
 $company_account_history_page_test$;
 
 
--- Isolated scale benchmark: 100k ledger rows, first page and keyset continuation.
+-- Isolated scale benchmark: 250k ledger rows, first page, keyset continuation,
+-- daily chart, and a separately computed account-balance rollup.
 -- Timing is emitted for review; no fragile wall-clock threshold is enforced in CI.
 ALTER TABLE public.account_transactions DISABLE TRIGGER powerhub_delta_sync_account_transactions;
 
@@ -1404,6 +1405,8 @@ declare
   v_started timestamptz;
   v_first_page_ms numeric;
   v_next_page_ms numeric;
+  v_rollup_ms numeric;
+  v_rollup_balance numeric;
 begin
   insert into public.account_transactions(
     id,tenant_id,account_id,site_id,transaction_type,amount,description,reference_no,occurred_at
@@ -1418,7 +1421,7 @@ begin
     'Synthetic scale benchmark movement',
     'HIST-SCALE-' || g::text,
     timestamptz '2026-11-01 00:00:00+00' + g * interval '1 second'
-  from generate_series(1,100000) g;
+  from generate_series(1,250000) g;
   EXECUTE 'ANALYZE public.account_transactions';
 
   v_started := clock_timestamp();
@@ -1427,12 +1430,36 @@ begin
   );
   v_first_page_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
 
-  if (v_page->>'total_count')::bigint <> 100007
+  if (v_page->>'total_count')::bigint <> 250007
      or jsonb_array_length(v_page->'items') <> 10
      or v_page->>'has_next' is distinct from 'true'
      or v_page->>'next_cursor_at' is null
-     or v_page->>'next_cursor_id' is null then
-    raise exception 'COMPANY_ACCOUNT_HISTORY_100K_FIRST_PAGE_FAILED: %',v_page;
+     or v_page->>'next_cursor_id' is null
+     or jsonb_array_length(v_page->'balance_timeline') <> 5
+     or v_page #>> '{balance_timeline,0,day}' is distinct from '2026-10-26'
+     or (v_page #>> '{balance_timeline,0,balance}')::numeric <> 57
+     or v_page #>> '{balance_timeline,1,day}' is distinct from '2026-10-27'
+     or (v_page #>> '{balance_timeline,1,balance}')::numeric <> 82
+     or v_page #>> '{balance_timeline,4,day}' is distinct from '2026-11-03'
+     or (v_page #>> '{balance_timeline,4,balance}')::numeric <> 83416
+     or (v_page #>> '{items,0,balance_after}')::numeric <> 83416 then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_FIRST_PAGE_OR_CHART_FAILED: %',v_page;
+  end if;
+
+  v_started := clock_timestamp();
+  select rollup.balance
+    into v_rollup_balance
+  from public.powerhub_company_account_balance_rollup(1,array[98001]::bigint[]) rollup
+  where rollup.account_id=98001;
+  v_rollup_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
+
+  if v_rollup_balance is distinct from 83416
+     or v_rollup_balance is distinct from (v_page #>> '{items,0,balance_after}')::numeric
+     or v_rollup_balance is distinct from (v_page #>> '{balance_timeline,4,balance}')::numeric then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_BALANCE_ROLLUP_MISMATCH: rollup=%, page=%, chart=%',
+      v_rollup_balance,
+      v_page #>> '{items,0,balance_after}',
+      v_page #>> '{balance_timeline,4,balance}';
   end if;
 
   v_cursor_at := (v_page->>'next_cursor_at')::timestamptz;
@@ -1449,11 +1476,11 @@ begin
      or jsonb_array_length(v_page->'items') <> 10
      or v_page->>'has_next' is distinct from 'true'
      or v_page->'balance_timeline' is distinct from 'null'::jsonb then
-    raise exception 'COMPANY_ACCOUNT_HISTORY_100K_CONTINUATION_FAILED: %',v_page;
+    raise exception 'COMPANY_ACCOUNT_HISTORY_250K_CONTINUATION_FAILED: %',v_page;
   end if;
 
-  raise notice 'COMPANY_ACCOUNT_HISTORY_100K_BENCHMARK first_page_ms=% continuation_page_ms=% rows=100000',
-    round(v_first_page_ms,2),round(v_next_page_ms,2);
+  raise notice 'COMPANY_ACCOUNT_HISTORY_250K_BENCHMARK first_page_ms=% continuation_page_ms=% balance_rollup_ms=% rows=250000',
+    round(v_first_page_ms,2),round(v_next_page_ms,2),round(v_rollup_ms,2);
 end;
 $company_account_history_scale_benchmark$;
 
