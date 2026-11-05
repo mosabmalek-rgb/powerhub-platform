@@ -28,7 +28,6 @@ declare
   v_search text := nullif(btrim(p_search), '');
   v_search_pattern text;
   v_opening_balance numeric;
-  v_balance numeric;
   v_total_count bigint := 0;
   v_incoming_total numeric := 0;
   v_outgoing_total numeric := 0;
@@ -76,58 +75,47 @@ begin
     raise exception 'ACCOUNT_SITE_OUT_OF_SCOPE' using errcode = '42501';
   end if;
 
-  -- The account balance remains tenant-wide even when the visible history is
-  -- narrowed to one linked branch.
-  select v_opening_balance + coalesce(sum(
-    case
-      when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
-      else tx.amount
-    end
-  ), 0)
-    into v_balance
-  from public.account_transactions tx
-  where tx.tenant_id = p_tenant_id
-    and tx.account_id = p_account_id;
-
-  -- Aggregate matching rows in the database. This preserves the former full
-  -- result summary without loading every movement into the browser.
-  select
-    count(*),
-    coalesce(sum(case when tx.transaction_type in ('collection', 'deposit', 'transfer_in') then tx.amount else 0 end), 0),
-    coalesce(sum(case when tx.transaction_type in ('withdrawal', 'transfer_out') then tx.amount else 0 end), 0)
-    into v_total_count, v_incoming_total, v_outgoing_total
-  from public.account_transactions tx
-  left join public.company_accounts counterpart
-    on counterpart.tenant_id = tx.tenant_id
-   and counterpart.id = tx.related_account_id
-   and counterpart.is_active = true
-  where tx.tenant_id = p_tenant_id
-    and tx.account_id = p_account_id
-    and (p_branch_id is null or tx.site_id = p_branch_id)
-    and (p_from is null or tx.occurred_at >= p_from)
-    and (p_to is null or tx.occurred_at <= p_to)
-    and (p_movement_from is null or (tx.occurred_at at time zone 'Asia/Gaza')::date >= p_movement_from)
-    and (p_movement_to is null or (tx.occurred_at at time zone 'Asia/Gaza')::date <= p_movement_to)
-    and (p_transaction_type is null or tx.transaction_type = p_transaction_type)
-    and (
-      v_search is null
-      or tx.description ilike '%' || v_search_pattern || '%' escape E'\\'
-      or tx.transaction_type ilike '%' || v_search_pattern || '%' escape E'\\'
-      or case tx.transaction_type
-        when 'collection' then 'تحصيل'
-        when 'deposit' then 'إيداع'
-        when 'withdrawal' then 'سحب'
-        when 'transfer_in' then 'تحويل وارد'
-        when 'transfer_out' then 'تحويل صادر'
-        else tx.transaction_type
-      end ilike '%' || v_search_pattern || '%' escape E'\\'
-      or tx.id::text ilike '%' || v_search_pattern || '%' escape E'\\'
-      or coalesce(tx.reference_no, '') ilike '%' || v_search_pattern || '%' escape E'\\'
-      or coalesce(tx.related_payment_id::text, '') ilike '%' || v_search_pattern || '%' escape E'\\'
-      or coalesce(tx.related_account_id::text, '') ilike '%' || v_search_pattern || '%' escape E'\\'
-      or coalesce(counterpart.name, case when tx.related_account_id is not null then 'حساب #' || tx.related_account_id::text else '' end) ilike '%' || v_search_pattern || '%' escape E'\\'
-      or to_char(tx.occurred_at at time zone 'Asia/Gaza', 'YYYY-MM-DD') ilike '%' || v_search_pattern || '%' escape E'\\'
-    );
+  if p_cursor_at is null then
+    -- Aggregate matching rows in the database. This preserves the former full
+    -- result summary without loading every movement into the browser.
+    select
+      count(*),
+      coalesce(sum(case when tx.transaction_type in ('collection', 'deposit', 'transfer_in') then tx.amount else 0 end), 0),
+      coalesce(sum(case when tx.transaction_type in ('withdrawal', 'transfer_out') then tx.amount else 0 end), 0)
+      into v_total_count, v_incoming_total, v_outgoing_total
+    from public.account_transactions tx
+    left join public.company_accounts counterpart
+      on counterpart.tenant_id = tx.tenant_id
+     and counterpart.id = tx.related_account_id
+     and counterpart.is_active = true
+    where tx.tenant_id = p_tenant_id
+      and tx.account_id = p_account_id
+      and (p_branch_id is null or tx.site_id = p_branch_id)
+      and (p_from is null or tx.occurred_at >= p_from)
+      and (p_to is null or tx.occurred_at <= p_to)
+      and (p_movement_from is null or (tx.occurred_at at time zone 'Asia/Gaza')::date >= p_movement_from)
+      and (p_movement_to is null or (tx.occurred_at at time zone 'Asia/Gaza')::date <= p_movement_to)
+      and (p_transaction_type is null or tx.transaction_type = p_transaction_type)
+      and (
+        v_search is null
+        or tx.description ilike '%' || v_search_pattern || '%' escape E'\\'
+        or tx.transaction_type ilike '%' || v_search_pattern || '%' escape E'\\'
+        or case tx.transaction_type
+          when 'collection' then 'تحصيل'
+          when 'deposit' then 'إيداع'
+          when 'withdrawal' then 'سحب'
+          when 'transfer_in' then 'تحويل وارد'
+          when 'transfer_out' then 'تحويل صادر'
+          else tx.transaction_type
+        end ilike '%' || v_search_pattern || '%' escape E'\\'
+        or tx.id::text ilike '%' || v_search_pattern || '%' escape E'\\'
+        or coalesce(tx.reference_no, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+        or coalesce(tx.related_payment_id::text, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+        or coalesce(tx.related_account_id::text, '') ilike '%' || v_search_pattern || '%' escape E'\\'
+        or coalesce(counterpart.name, case when tx.related_account_id is not null then 'حساب #' || tx.related_account_id::text else '' end) ilike '%' || v_search_pattern || '%' escape E'\\'
+        or to_char(tx.occurred_at at time zone 'Asia/Gaza', 'YYYY-MM-DD') ilike '%' || v_search_pattern || '%' escape E'\\'
+      );
+  end if;
 
   with page_plus as materialized (
     select
@@ -183,25 +171,34 @@ begin
     order by tx.occurred_at desc, tx.id desc
     limit v_limit + 1
   ),
+  account_balance_steps as materialized (
+    select
+      tx.id,
+      v_opening_balance + sum(
+        case
+          when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
+          else tx.amount
+        end
+      ) over (
+        order by tx.occurred_at asc, tx.id asc
+        rows between unbounded preceding and current row
+      ) as balance_after
+    from public.account_transactions tx
+    where tx.tenant_id = p_tenant_id
+      and tx.account_id = p_account_id
+      and p_from is null
+      and p_to is null
+  ),
   page_rows as (
     select
       page_plus.*,
       case
         when p_from is not null or p_to is not null then null
-        else v_balance - coalesce((
-          select sum(
-            case
-              when newer.transaction_type in ('withdrawal', 'transfer_out') then -newer.amount
-              else newer.amount
-            end
-          )
-          from public.account_transactions newer
-          where newer.tenant_id = p_tenant_id
-            and newer.account_id = p_account_id
-            and (newer.occurred_at, newer.id) > (page_plus.occurred_at, page_plus.id)
-        ), 0)
+        else account_balance_steps.balance_after
       end as balance_after
     from page_plus
+    left join account_balance_steps
+      on account_balance_steps.id = page_plus.id
     order by page_plus.occurred_at desc, page_plus.id desc
     limit v_limit
   )
@@ -233,7 +230,7 @@ begin
   -- The chart is an aggregate daily series and is intentionally omitted for a
   -- single-branch view, where the shared account balance also includes hidden
   -- branch movements. It is also hidden for an explicit top-level UTC window.
-  if p_branch_id is null and p_from is null and p_to is null then
+  if p_branch_id is null and p_from is null and p_to is null and p_cursor_at is null then
     with daily_movements as (
       select
         (tx.occurred_at at time zone 'Asia/Gaza')::date as movement_day,
@@ -252,16 +249,7 @@ begin
       select min(daily_movements.movement_day) as movement_day from daily_movements
     ),
     opening_balance as (
-      select v_balance - coalesce(sum(case
-        when tx.transaction_type in ('withdrawal', 'transfer_out') then -tx.amount
-        else tx.amount
-      end), 0) as balance
-      from first_day
-      left join public.account_transactions tx
-        on tx.tenant_id = p_tenant_id
-       and tx.account_id = p_account_id
-       and first_day.movement_day is not null
-       and (tx.occurred_at at time zone 'Asia/Gaza')::date >= first_day.movement_day
+      select v_opening_balance as balance
     ),
     timeline as (
       select
@@ -279,19 +267,19 @@ begin
     from timeline;
   end if;
 
-  if jsonb_array_length(v_balance_timeline) = 0 and p_branch_id is null and p_from is null and p_to is null then
-    v_balance_timeline := jsonb_build_array(jsonb_build_object('day', null, 'balance', v_balance));
+  if jsonb_array_length(v_balance_timeline) = 0 and p_branch_id is null and p_from is null and p_to is null and p_cursor_at is null then
+    v_balance_timeline := jsonb_build_array(jsonb_build_object('day', null, 'balance', v_opening_balance));
   end if;
 
   return jsonb_build_object(
     'items', v_items,
-    'total_count', v_total_count,
-    'incoming_total', v_incoming_total,
-    'outgoing_total', v_outgoing_total,
+    'total_count', case when p_cursor_at is null then v_total_count else null end,
+    'incoming_total', case when p_cursor_at is null then v_incoming_total else null end,
+    'outgoing_total', case when p_cursor_at is null then v_outgoing_total else null end,
     'has_next', v_has_next,
     'next_cursor_at', case when v_has_next then v_next_cursor_at else null end,
     'next_cursor_id', case when v_has_next then v_next_cursor_id else null end,
-    'balance_timeline', v_balance_timeline
+    'balance_timeline', case when p_cursor_at is null then v_balance_timeline else null end
   );
 end;
 $function$;

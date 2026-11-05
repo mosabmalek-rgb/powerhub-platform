@@ -280,33 +280,36 @@ const state = vi.hoisted(() => {
           Number(row.tenant_id) === Number(input.p_tenant_id) && Number(row.id) === Number(input.p_account_id)
         );
         const fullBalance = Number(account?.opening_balance ?? 0) + allMovements.reduce((total, row) => total + sign(row), 0);
-        const items = pageRows.map((row) => {
-          const rowAt = Date.parse(String(row.occurred_at));
-          const newerNet = allMovements.filter((candidate) => {
-            const candidateAt = Date.parse(String(candidate.occurred_at));
-            return candidateAt > rowAt || (candidateAt === rowAt && Number(candidate.id) > Number(row.id));
-          }).reduce((total, candidate) => total + sign(candidate), 0);
-          return {
-            ...row,
-            balance_after: input.p_from || input.p_to ? null : fullBalance - newerNet,
-          };
-        });
+        const balanceAfterById = new Map<number, number>();
+        let cumulativeNet = 0;
+        for (const movement of [...allMovements].sort((left, right) =>
+          Date.parse(String(left.occurred_at)) - Date.parse(String(right.occurred_at))
+          || Number(left.id) - Number(right.id)
+        )) {
+          cumulativeNet += sign(movement);
+          balanceAfterById.set(Number(movement.id), Number(account?.opening_balance ?? 0) + cumulativeNet);
+        }
+        const items = pageRows.map((row) => ({
+          ...row,
+          balance_after: input.p_from || input.p_to ? null : balanceAfterById.get(Number(row.id)) ?? null,
+        }));
         const incomingTotal = matching.filter((row) => ["collection", "deposit", "transfer_in"].includes(String(row.transaction_type)))
           .reduce((total, row) => total + Number(row.amount ?? 0), 0);
         const outgoingTotal = matching.filter((row) => ["withdrawal", "transfer_out"].includes(String(row.transaction_type)))
           .reduce((total, row) => total + Number(row.amount ?? 0), 0);
         const last = pageRows[pageRows.length - 1];
+        const includeSummary = cursorAt === null;
         return resolved({
           items,
-          total_count: matching.length,
-          incoming_total: incomingTotal,
-          outgoing_total: outgoingTotal,
+          total_count: includeSummary ? matching.length : null,
+          incoming_total: includeSummary ? incomingTotal : null,
+          outgoing_total: includeSummary ? outgoingTotal : null,
           has_next: hasNext,
           next_cursor_at: hasNext && last ? last.occurred_at : null,
           next_cursor_id: hasNext && last ? Number(last.id) : null,
-          balance_timeline: input.p_branch_id == null && !input.p_from && !input.p_to
+          balance_timeline: includeSummary && input.p_branch_id == null && !input.p_from && !input.p_to
             ? [{ day: "2026-08-31", balance: fullBalance }]
-            : [],
+            : null,
         });
       }
       if (name === "powerhub_create_tariff_idempotent") return resolved([{ tariff_id: 41, replayed: false }]);
@@ -501,9 +504,16 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       });
       pageCount += 1;
       allRows.push(...page.items);
-      expect(page.totalCount).toBe(1001);
-      expect(page.incomingTotal).toBe(1001);
-      expect(page.outgoingTotal).toBe(0);
+      if (pageCount === 1) {
+        expect(page.totalCount).toBe(1001);
+        expect(page.incomingTotal).toBe(1001);
+        expect(page.outgoingTotal).toBe(0);
+      } else {
+        expect(page.totalCount).toBeNull();
+        expect(page.incomingTotal).toBeNull();
+        expect(page.outgoingTotal).toBeNull();
+        expect(page.balanceTimeline).toEqual([]);
+      }
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
 

@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, ChevronDown, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards, Eye, EyeOff } from "lucide-react";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
-import { type ElementType, useDeferredValue, useMemo, useRef, useState } from "react";
+import { type ElementType, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -47,6 +47,13 @@ type PendingAccountAction = {
   targetAccountId?: number;
 };
 
+type CompanyAccountHistorySummary = {
+  totalCount: number;
+  incomingTotal: number;
+  outgoingTotal: number;
+  balanceTimeline: Array<{ day: string | null; balance: number }>;
+};
+
 export default function CompanyAccountsPage() {
   const { isAuthenticated, loading } = useAuth();
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
@@ -60,6 +67,7 @@ export default function CompanyAccountsPage() {
   const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
   const [transactionCursors, setTransactionCursors] = useState<string[]>([""]);
+  const [historySummary, setHistorySummary] = useState<CompanyAccountHistorySummary | null>(null);
   const [exportingTransactions, setExportingTransactions] = useState(false);
   const deferredTransactionSearch = useDeferredValue(transactionSearch);
   const [selected, setSelected] = useState<number | null>(null);
@@ -83,13 +91,15 @@ export default function CompanyAccountsPage() {
     { enabled: Boolean(siteId && isAuthenticated) },
   );
   const utils = trpc.useUtils();
-  const refreshAccounts = () => {
-    void utils.powerhub.companyAccounts.list.invalidate();
-    void utils.powerhub.companyAccounts.history.invalidate();
-  };
   const resetTransactionPagination = () => {
     setTransactionPage(1);
     setTransactionCursors([""]);
+    setHistorySummary(null);
+  };
+  const refreshAccounts = () => {
+    resetTransactionPagination();
+    void utils.powerhub.companyAccounts.list.invalidate();
+    void utils.powerhub.companyAccounts.history.invalidate();
   };
   const updateOpeningBalance = trpc.powerhub.companyAccounts.updateOpeningBalance.useMutation({ onSuccess: () => { toast.success("تم حفظ الرصيد الافتتاحي."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updateSites = trpc.powerhub.companyAccounts.updateSites.useMutation({ onSuccess: () => { toast.success("تم تحديث الفروع المرتبطة."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
@@ -151,23 +161,38 @@ export default function CompanyAccountsPage() {
     limit: 10,
   }, { enabled: Boolean(siteId && isAuthenticated && selectedAccount) });
 
+  useEffect(() => {
+    const page = historyQuery.data;
+    if (!historyCursor && page
+      && page.totalCount !== null
+      && page.incomingTotal !== null
+      && page.outgoingTotal !== null) {
+      setHistorySummary({
+        totalCount: page.totalCount,
+        incomingTotal: page.incomingTotal,
+        outgoingTotal: page.outgoingTotal,
+        balanceTimeline: page.balanceTimeline,
+      });
+    }
+  }, [historyCursor, historyQuery.data]);
+
   const transactionRows = historyQuery.data?.items ?? [];
   const transactionSummary = {
-    incoming: Number(historyQuery.data?.incomingTotal ?? 0),
-    outgoing: Number(historyQuery.data?.outgoingTotal ?? 0),
+    incoming: Number(historySummary?.incomingTotal ?? historyQuery.data?.incomingTotal ?? 0),
+    outgoing: Number(historySummary?.outgoingTotal ?? historyQuery.data?.outgoingTotal ?? 0),
   };
   const transactionNet = transactionSummary.incoming - transactionSummary.outgoing;
   const pageSize = 10;
-  const totalTransactions = Number(historyQuery.data?.totalCount ?? 0);
+  const totalTransactions = Number(historySummary?.totalCount ?? historyQuery.data?.totalCount ?? 0);
   const pageCount = Math.max(1, Math.ceil(totalTransactions / pageSize));
   const visibleTransactions = transactionRows;
   
-  const balanceTimeline = useMemo(() => (historyQuery.data?.balanceTimeline ?? []).map((row) => ({
+  const balanceTimeline = useMemo(() => (historySummary?.balanceTimeline ?? historyQuery.data?.balanceTimeline ?? []).map((row) => ({
     label: row.day
       ? new Date(String(row.day) + "T12:00:00Z").toLocaleDateString("ar", { timeZone: "Asia/Gaza", month: "short", day: "numeric" })
       : "الرصيد الحالي",
     balance: row.balance,
-  })), [historyQuery.data?.balanceTimeline]);
+  })), [historySummary?.balanceTimeline, historyQuery.data?.balanceTimeline]);
 
 
   if (loading || accounts.isLoading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;

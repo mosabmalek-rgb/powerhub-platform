@@ -1182,6 +1182,10 @@ begin
   if jsonb_array_length(v_page->'items')<>1
      or v_page #>> '{items,0,id}' is distinct from '98101'
      or (v_page #>> '{items,0,balance_after}')::numeric<>60
+     or v_page->'total_count' is distinct from 'null'::jsonb
+     or v_page->'incoming_total' is distinct from 'null'::jsonb
+     or v_page->'outgoing_total' is distinct from 'null'::jsonb
+     or v_page->'balance_timeline' is distinct from 'null'::jsonb
      or v_page->>'has_next' is distinct from 'false' then
     raise exception 'COMPANY_ACCOUNT_HISTORY_KEYSET_CONTINUATION_FAILED: %',v_page;
   end if;
@@ -1203,15 +1207,51 @@ begin
     raise exception 'COMPANY_ACCOUNT_HISTORY_SECOND_BRANCH_SCOPE_FAILED: %',v_page;
   end if;
 
-  -- All-branch view: daily chart closes at the full shared account balance.
+  -- First page returns the summary/chart; later keyset pages return only rows.
   v_page:=public.powerhub_company_account_history_page(
-    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,p_limit=>10
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,p_limit=>2
   );
   if (v_page->>'total_count')::bigint<>6
-     or jsonb_array_length(v_page->'items')<>6
+     or jsonb_array_length(v_page->'items')<>2
      or (v_page #>> '{balance_timeline,0,balance}')::numeric<>75
-     or v_page #>> '{balance_timeline,0,day}' is distinct from '2026-10-27' then
-    raise exception 'COMPANY_ACCOUNT_HISTORY_ALL_BRANCH_TOTALS_FAILED: %',v_page;
+     or v_page #>> '{balance_timeline,0,day}' is distinct from '2026-10-27'
+     or v_page #>> '{next_cursor_id}' is distinct from '98105' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_ALL_BRANCH_FIRST_PAGE_FAILED: %',v_page;
+  end if;
+
+  v_cursor_at:=(v_page->>'next_cursor_at')::timestamptz;
+  v_cursor_id:=(v_page->>'next_cursor_id')::bigint;
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
+    p_cursor_at=>v_cursor_at,p_cursor_id=>v_cursor_id,p_limit=>2
+  );
+  if v_page->'total_count' is distinct from 'null'::jsonb
+     or v_page->'incoming_total' is distinct from 'null'::jsonb
+     or v_page->'outgoing_total' is distinct from 'null'::jsonb
+     or v_page->'balance_timeline' is distinct from 'null'::jsonb
+     or jsonb_array_length(v_page->'items')<>2
+     or v_page #>> '{items,0,id}' is distinct from '98104'
+     or (v_page #>> '{items,0,balance_after}')::numeric<>72
+     or v_page #>> '{items,1,id}' is distinct from '98103'
+     or (v_page #>> '{items,1,balance_after}')::numeric<>75
+     or v_page->>'has_next' is distinct from 'true' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_ALL_BRANCH_SECOND_PAGE_FAILED: %',v_page;
+  end if;
+
+  v_cursor_at:=(v_page->>'next_cursor_at')::timestamptz;
+  v_cursor_id:=(v_page->>'next_cursor_id')::bigint;
+  v_page:=public.powerhub_company_account_history_page(
+    p_tenant_id=>1,p_account_id=>98001,p_branch_id=>null,
+    p_cursor_at=>v_cursor_at,p_cursor_id=>v_cursor_id,p_limit=>2
+  );
+  if v_page->'total_count' is distinct from 'null'::jsonb
+     or jsonb_array_length(v_page->'items')<>2
+     or v_page #>> '{items,0,id}' is distinct from '98102'
+     or (v_page #>> '{items,0,balance_after}')::numeric<>55
+     or v_page #>> '{items,1,id}' is distinct from '98101'
+     or (v_page #>> '{items,1,balance_after}')::numeric<>60
+     or v_page->>'has_next' is distinct from 'false' then
+    raise exception 'COMPANY_ACCOUNT_HISTORY_ALL_BRANCH_THIRD_PAGE_FAILED: %',v_page;
   end if;
 
   -- Arabic labels and literal wildcard characters retain the UI search contract.

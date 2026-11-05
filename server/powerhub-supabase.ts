@@ -1232,9 +1232,9 @@ export type SupabaseCompanyAccountHistoryItem = SupabaseAccountTransaction & {
 
 export type SupabaseCompanyAccountHistoryPage = {
   items: SupabaseCompanyAccountHistoryItem[];
-  totalCount: number;
-  incomingTotal: number;
-  outgoingTotal: number;
+  totalCount: number | null;
+  incomingTotal: number | null;
+  outgoingTotal: number | null;
   hasNext: boolean;
   nextCursor: string | null;
   balanceTimeline: Array<{ day: string | null; balance: number }>;
@@ -1344,9 +1344,9 @@ export async function listSupabaseCompanyAccountHistoryPage(input: {
 
   return {
     items,
-    totalCount: Number(result.total_count ?? 0),
-    incomingTotal: Number(result.incoming_total ?? 0),
-    outgoingTotal: Number(result.outgoing_total ?? 0),
+    totalCount: result.total_count == null ? null : Number(result.total_count),
+    incomingTotal: result.incoming_total == null ? null : Number(result.incoming_total),
+    outgoingTotal: result.outgoing_total == null ? null : Number(result.outgoing_total),
     hasNext,
     nextCursor: hasNext ? encodeHistoryCursor({ at: nextCursorAt!, id: nextCursorId }) : null,
     balanceTimeline,
