@@ -65,8 +65,8 @@ insert into public.users(id,auth_user_id,platform_role,account_status) values
 insert into public.tenant_members(tenant_id,user_id,is_active,membership_status,expires_at) values
   (10,1,true,'active',now()-interval '1 hour'),
   (20,1,true,'active',null),
-  (20,7,true,'active',null),
-  (20,8,true,'active',null);
+  (30,7,true,'active',null),
+  (30,8,true,'active',null);
 
 insert into public.sites(tenant_id) values(10),(20);
 
@@ -523,7 +523,7 @@ select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000007'
 set role authenticated;
 select (
   powerhub_private.current_tenant_ids() = '{}'::bigint[]
-  and not powerhub_private.has_tenant_access(20)
+  and not powerhub_private.has_tenant_access(30)
 ) as disabled_account_tenant_scope_ok \gset check_
 \if :check_disabled_account_tenant_scope_ok
 \else

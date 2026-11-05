@@ -49,6 +49,15 @@ CREATE TABLE public.site_portal_settings(id bigint PRIMARY KEY, tenant_id bigint
 CREATE TABLE public.meters(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, subscriber_id bigint NOT NULL);
 CREATE TABLE public.meter_readings(id bigint PRIMARY KEY, tenant_id bigint NOT NULL, subscriber_id bigint NOT NULL);
 CREATE TABLE public.tenant_scope_probe(id bigint PRIMARY KEY,tenant_id bigint NOT NULL);
+CREATE TABLE public.staff_profile_capability_overrides(
+  id bigint PRIMARY KEY,tenant_id bigint NOT NULL,profile_id bigint NOT NULL,
+  capability text NOT NULL,is_allowed boolean NOT NULL
+);
+CREATE TABLE public.staff_profile_permission_audit(
+  id bigint PRIMARY KEY,tenant_id bigint NOT NULL,profile_id bigint NOT NULL,
+  actor_user_id bigint,capability text NOT NULL,changed_at timestamptz NOT NULL DEFAULT now()
+);
+
 
 CREATE TABLE public.mobile_api_sessions(
   id bigint PRIMARY KEY,
@@ -205,7 +214,8 @@ GRANT SELECT ON TABLE
   public.sites,public.subscribers,public.tariffs,public.complaints,public.collector_sessions,
   public.mobile_sync_events,public.offline_sync_operations,public.access_invitations,
   public.staff_profiles,public.site_portal_settings,public.meters,public.meter_readings,public.mobile_api_sessions,public.tenant_scope_probe
-TO authenticated,anon;
+  public.staff_profile_capability_overrides,public.staff_profile_permission_audit
+ TO authenticated,anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
 INSERT INTO public.users(id,auth_user_id,role,platform_role,account_status) VALUES
@@ -236,6 +246,20 @@ INSERT INTO public.staff_profiles(id,tenant_id,user_id,site_id,role,is_active,ar
   (3,1,4,10,'manager',true,NULL,now()-interval '1 hour',now()+interval '1 hour'),
   (4,1,6,NULL,'accountant',true,NULL,NULL,NULL),
   (5,2,10,20,'manager',true,NULL,NULL,NULL);
+INSERT INTO public.staff_profile_capability_overrides(id,tenant_id,profile_id,capability,is_allowed) VALUES
+  (1,1,1,'manageTeam',true),(2,1,2,'manageTeam',false),(3,1,4,'viewAudit',true);
+INSERT INTO public.staff_profile_permission_audit(id,tenant_id,profile_id,actor_user_id,capability) VALUES
+  (1,1,1,2,'manageTeam'),(2,1,2,3,'manageTeam'),(3,1,4,6,'viewAudit');
+ALTER TABLE public.staff_profile_capability_overrides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.staff_profile_permission_audit ENABLE ROW LEVEL SECURITY;
+CREATE POLICY staff_profile_capability_overrides_tenant_read
+  ON public.staff_profile_capability_overrides FOR SELECT TO authenticated
+  USING (private.powerhub_has_tenant_access(tenant_id));
+CREATE POLICY staff_profile_permission_audit_tenant_read
+  ON public.staff_profile_permission_audit FOR SELECT TO authenticated
+  USING (private.powerhub_has_tenant_access(tenant_id));
+GRANT SELECT ON TABLE public.staff_profile_capability_overrides,public.staff_profile_permission_audit TO authenticated;
+
 
 INSERT INTO public.subscribers VALUES(100,1,10),(101,1,11),(200,2,20);
 INSERT INTO public.tariffs VALUES(110,1,10),(111,1,11),(210,2,20);
@@ -291,6 +315,7 @@ CREATE POLICY meters_scope_guard ON public.meters AS RESTRICTIVE
 
 \ir ../migrations/20261105192742_powerhub_tenant_access_active_user_guard.sql
 \ir ../migrations/20261105192804_powerhub_site_bound_read_scope_forward_reconcile.sql
+\ir ../migrations/20261105193856_powerhub_staff_profile_branch_scope.sql
 
 DO $assertions$
 BEGIN
@@ -343,6 +368,8 @@ BEGIN
   IF (SELECT array_agg(id ORDER BY id) FROM public.sites) IS DISTINCT FROM ARRAY[10::bigint] THEN RAISE EXCEPTION 'BRANCH_A_SITE_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.subscribers) IS DISTINCT FROM ARRAY[100::bigint] THEN RAISE EXCEPTION 'BRANCH_A_SUBSCRIBER_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.tenant_scope_probe) IS DISTINCT FROM ARRAY[1::bigint] THEN RAISE EXCEPTION 'TENANT_SCOPE_ACTIVE_MEMBER_READ_FAILED'; END IF;
+  IF (SELECT array_agg(profile_id ORDER BY profile_id) FROM public.staff_profile_capability_overrides) IS DISTINCT FROM ARRAY[1::bigint] THEN RAISE EXCEPTION 'BRANCH_A_STAFF_PERMISSION_OVERRIDE_SCOPE_FAILED'; END IF;
+  IF (SELECT array_agg(profile_id ORDER BY profile_id) FROM public.staff_profile_permission_audit) IS DISTINCT FROM ARRAY[1::bigint] THEN RAISE EXCEPTION 'BRANCH_A_STAFF_PERMISSION_AUDIT_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.tariffs) IS DISTINCT FROM ARRAY[110::bigint] THEN RAISE EXCEPTION 'BRANCH_A_TARIFF_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.complaints) IS DISTINCT FROM ARRAY[120::bigint] THEN RAISE EXCEPTION 'BRANCH_A_COMPLAINT_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.meters) IS DISTINCT FROM ARRAY[180::bigint] THEN RAISE EXCEPTION 'BRANCH_A_METER_PARENT_SCOPE_FAILED'; END IF;
@@ -357,6 +384,8 @@ DO $branch_b$
 BEGIN
   IF (SELECT array_agg(id ORDER BY id) FROM public.sites) IS DISTINCT FROM ARRAY[11::bigint] THEN RAISE EXCEPTION 'BRANCH_B_SITE_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.subscribers) IS DISTINCT FROM ARRAY[101::bigint] THEN RAISE EXCEPTION 'BRANCH_B_SUBSCRIBER_SCOPE_FAILED'; END IF;
+  IF (SELECT array_agg(profile_id ORDER BY profile_id) FROM public.staff_profile_capability_overrides) IS DISTINCT FROM ARRAY[2::bigint] THEN RAISE EXCEPTION 'BRANCH_B_STAFF_PERMISSION_OVERRIDE_SCOPE_FAILED'; END IF;
+  IF (SELECT array_agg(profile_id ORDER BY profile_id) FROM public.staff_profile_permission_audit) IS DISTINCT FROM ARRAY[2::bigint] THEN RAISE EXCEPTION 'BRANCH_B_STAFF_PERMISSION_AUDIT_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.tariffs) IS DISTINCT FROM ARRAY[111::bigint] THEN RAISE EXCEPTION 'BRANCH_B_TARIFF_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.complaints) IS DISTINCT FROM ARRAY[121::bigint] THEN RAISE EXCEPTION 'BRANCH_B_COMPLAINT_SCOPE_FAILED'; END IF;
   IF (SELECT array_agg(id ORDER BY id) FROM public.meters) IS DISTINCT FROM ARRAY[181::bigint] THEN RAISE EXCEPTION 'BRANCH_B_METER_PARENT_SCOPE_FAILED'; END IF;
@@ -371,6 +400,8 @@ DO $owner$
 BEGIN
   IF (SELECT array_agg(id ORDER BY id) FROM public.sites) IS DISTINCT FROM ARRAY[10::bigint,11::bigint] THEN RAISE EXCEPTION 'OWNER_SITES_ALL_BRANCH_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.subscribers)<>2 THEN RAISE EXCEPTION 'OWNER_SUBSCRIBER_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.staff_profile_capability_overrides)<>3 THEN RAISE EXCEPTION 'OWNER_STAFF_PERMISSION_OVERRIDE_SCOPE_FAILED'; END IF;
+  IF (SELECT count(*) FROM public.staff_profile_permission_audit)<>3 THEN RAISE EXCEPTION 'OWNER_STAFF_PERMISSION_AUDIT_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.tariffs)<>2 THEN RAISE EXCEPTION 'OWNER_TARIFF_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.complaints)<>2 THEN RAISE EXCEPTION 'OWNER_COMPLAINT_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.meters)<>2 THEN RAISE EXCEPTION 'OWNER_METER_SCOPE_FAILED'; END IF;
@@ -383,6 +414,7 @@ SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000006'
 SET ROLE authenticated;
 DO $global_profile$
 BEGIN
+  IF (SELECT count(*) FROM public.staff_profile_capability_overrides)<>3 OR (SELECT count(*) FROM public.staff_profile_permission_audit)<>3 THEN RAISE EXCEPTION 'GLOBAL_PROFILE_STAFF_PERMISSION_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.sites)<>2 OR (SELECT count(*) FROM public.subscribers)<>2 THEN
     RAISE EXCEPTION 'GLOBAL_STAFF_PROFILE_ALL_BRANCH_SCOPE_FAILED';
   END IF;
@@ -395,6 +427,7 @@ SET ROLE authenticated;
 DO $suspended$
 BEGIN
   IF (SELECT count(*) FROM public.subscribers)<>0 THEN RAISE EXCEPTION 'SUSPENDED_STAFF_MUST_NOT_READ_BRANCH'; END IF;
+  IF (SELECT count(*) FROM public.staff_profile_capability_overrides)<>0 OR (SELECT count(*) FROM public.staff_profile_permission_audit)<>0 THEN RAISE EXCEPTION 'SUSPENDED_STAFF_PERMISSION_READ_NOT_DENIED'; END IF;
 END
 $suspended$;
 RESET ROLE;
@@ -404,6 +437,7 @@ SET ROLE authenticated;
 DO $expired$
 BEGIN
   IF (SELECT count(*) FROM public.subscribers)<>0 THEN RAISE EXCEPTION 'EXPIRED_MEMBERSHIP_MUST_NOT_READ_BRANCH'; END IF;
+  IF (SELECT count(*) FROM public.staff_profile_capability_overrides)<>0 OR (SELECT count(*) FROM public.staff_profile_permission_audit)<>0 THEN RAISE EXCEPTION 'EXPIRED_MEMBER_PERMISSION_READ_NOT_DENIED'; END IF;
 END
 $expired$;
 RESET ROLE;
@@ -413,6 +447,7 @@ SET ROLE authenticated;
 DO $platform_support$
 BEGIN
   IF (SELECT count(*) FROM public.subscribers)<>0 THEN RAISE EXCEPTION 'PLATFORM_SUPPORT_MUST_NOT_BYPASS_TENANT_RLS'; END IF;
+  IF (SELECT count(*) FROM public.staff_profile_capability_overrides)<>0 OR (SELECT count(*) FROM public.staff_profile_permission_audit)<>0 THEN RAISE EXCEPTION 'PLATFORM_SUPPORT_PERMISSION_READ_NOT_DENIED'; END IF;
 END
 $platform_support$;
 RESET ROLE;
@@ -421,6 +456,7 @@ SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000008'
 SET ROLE authenticated;
 DO $platform_admin$
 BEGIN
+  IF (SELECT count(*) FROM public.staff_profile_capability_overrides)<>3 OR (SELECT count(*) FROM public.staff_profile_permission_audit)<>3 THEN RAISE EXCEPTION 'PLATFORM_ADMIN_STAFF_PERMISSION_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.sites)<>3 OR (SELECT count(*) FROM public.subscribers)<>3 THEN
     RAISE EXCEPTION 'PLATFORM_ADMIN_SCOPE_FAILED';
   END IF;
@@ -433,6 +469,7 @@ SET ROLE authenticated;
 DO $disabled$
 BEGIN
   IF (SELECT count(*) FROM public.subscribers)<>0 THEN RAISE EXCEPTION 'DISABLED_ACCOUNT_MUST_NOT_READ_BRANCH'; END IF;
+  IF (SELECT count(*) FROM public.staff_profile_capability_overrides)<>0 OR (SELECT count(*) FROM public.staff_profile_permission_audit)<>0 THEN RAISE EXCEPTION 'DISABLED_ACCOUNT_PERMISSION_READ_NOT_DENIED'; END IF;
   IF (SELECT count(*) FROM public.tenant_scope_probe)<>0 THEN RAISE EXCEPTION 'DISABLED_ACCOUNT_MUST_NOT_READ_TENANT_SCOPE'; END IF;
 END
 $disabled$;
