@@ -22,6 +22,7 @@ import { countUnconfirmedNeedsReviewPersistence, processNotificationById, proces
 import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { isActivePlatformAdmin } from "./platform-admin";
+import { activeTenantMembershipOrFilter } from "./tenant-membership-expiry";
 import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReading } from "./powerhub-mobile-approve-runtime";
 import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { COOKIE_NAME } from "../shared/const";
@@ -1932,7 +1933,8 @@ export const powerhubRouter = router({
       if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود." });
       const { data: membership, error: membershipError } = await admin.from("tenant_members")
         .select("role").eq("tenant_id", Number(site.tenant_id)).eq("user_id", ctx.user.id)
-        .eq("is_active", true).eq("membership_status", "active").maybeSingle();
+        .eq("is_active", true).eq("membership_status", "active")
+        .or(activeTenantMembershipOrFilter()).maybeSingle();
       if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية مساحة الاشتراك." });
       if (membership?.role !== "owner") return { isOwner: false as const, subscription: null };
       const { data: row, error } = await admin.from("tenant_subscriptions")

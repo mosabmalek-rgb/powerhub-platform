@@ -29,7 +29,7 @@ const state = vi.hoisted(() => {
       { id: 108, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "subscriber", entity_id: "30", action: "create", before_data: null, after_data: { subscriberNo: "MAIN-001" }, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
       { id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "meter_reading", entity_id: "60", action: "mobile_create", before_data: null, after_data: null, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
     ],
-    users: [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }], tenant_branch_settings: [],
+    users: [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active", expires_at: null }], tenant_subscriptions: [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }], tenant_branch_settings: [],
     tenant_owner_profiles: [{ tenant_id: 20, company_name: "شركة المولد", report_logo_key: null }],
     staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true, archived_at: null }],
     mobile_sync_events: [{ id: 110, tenant_id: 20, site_id: 10, user_id: 1, event_type: "sync_cycle", status: "success", synced_count: 2, retryable_count: 0, needs_review_count: 0, error_code: null, error_message: null, app_version: "1.0.0", device_label: "هاتف فني", occurred_at: "2026-08-03T00:00:00.000Z" }],
@@ -51,7 +51,25 @@ const state = vi.hoisted(() => {
         eq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] === value); return query; },
         in: (column: string, values: unknown[]) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || values.includes((row as Record<string, unknown>)[column])); return query; },
         gt: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => { const record = row as Record<string, unknown>; return !(column in record) || (record[column] != null && Number(record[column]) > Number(value)); }); return query; },
-        or: (expression: string) => { const match = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/); if (match) { const siteId = Number(match[1]); filteredRows = filteredRows.filter((row) => { const siteValue = (row as Record<string, unknown>).site_id; return siteValue === siteId || siteValue === null; }); } return query; },
+        or: (expression: string) => {
+          const siteMatch = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/);
+          if (siteMatch) {
+            const siteId = Number(siteMatch[1]);
+            filteredRows = filteredRows.filter((row) => {
+              const siteValue = (row as Record<string, unknown>).site_id;
+              return siteValue === siteId || siteValue === null;
+            });
+          }
+          const expiryMatch = expression.match(/^expires_at\.is\.null,expires_at\.gt\.(.+)$/);
+          if (expiryMatch) {
+            const nowMs = Date.parse(expiryMatch[1]);
+            filteredRows = filteredRows.filter((row) => {
+              const expiresAt = (row as Record<string, unknown>).expires_at;
+              return expiresAt == null || (typeof expiresAt === "string" && Date.parse(expiresAt) > nowMs);
+            });
+          }
+          return query;
+        },
         is: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => (row as Record<string, unknown>)[column] === value); return query; },
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
         order: (column: string, options?: unknown) => { orderCalls.push({ table, column, options }); return query; },
@@ -435,6 +453,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "meter_reading", entity_id: "60", action: "mobile_create", before_data: null, after_data: null, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
     ];
     state.tables.tenant_subscriptions = [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active", expires_at: null }];
     state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true, archived_at: null }];
     state.tables.tenants = [{ id: 20, plan: "professional", package_code: "professional" }];
     state.tables.platform_settings = [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }];
@@ -670,6 +689,33 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       collectors: [{ name: "محصل غير محدد", count: 1, amount: 25, grossAmount: 25, subscriberCreditAmount: 0 }],
       topDebtors: [{ subscriber: "مشترك الاختبار", subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001", balanceDue: 75 }],
       paymentDetails: [{ paymentNo: "PAY-202608-0001", grossAmount: 25, invoiceAppliedAmount: 25, subscriberCreditAmount: 0 }],
+    });
+  });
+
+  it("does not expose renewal details after the owner's tenant membership expires", async () => {
+    state.tables.tenant_members = [{
+      tenant_id: 20, user_id: 1, role: "owner", is_active: true,
+      membership_status: "active", expires_at: "2026-11-01T23:59:59.999Z",
+    }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", PlatformRole: "platform_admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+
+    await expect(caller.subscription.ownerRenewalStatus({ siteId: 10 })).resolves.toEqual({
+      isOwner: false,
+      subscription: null,
+    });
+    expect(state.orderCalls.some((call) => call.table === "tenant_subscriptions")).toBe(false);
+  });
+
+  it("keeps renewal status visible to an unexpired owner after the tenant subscription ends", async () => {
+    state.tables.tenant_subscriptions = [{
+      tenant_id: 20, package_code: "professional", status: "expired",
+      ends_at: "2026-11-01T00:00:00.000Z",
+    }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+
+    await expect(caller.subscription.ownerRenewalStatus({ siteId: 10 })).resolves.toMatchObject({
+      isOwner: true,
+      subscription: { status: "expired", packageCode: "professional" },
     });
   });
 
