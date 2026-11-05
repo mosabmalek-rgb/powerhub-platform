@@ -28,6 +28,7 @@ BEGIN
     v_legacy_guard_count := regexp_count(
       v_definition,
       'period_start[[:space:]]*<=[[:space:]]*p_due_date[[:space:]]+and[[:space:]]+period_end[[:space:]]*>=[[:space:]]*p_due_date',
+      1,
       'i'
     );
 
