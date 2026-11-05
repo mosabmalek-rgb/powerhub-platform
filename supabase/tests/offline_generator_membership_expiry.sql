@@ -62,11 +62,26 @@ CREATE TABLE public.staff_profiles (
   user_id bigint NOT NULL,
   is_active boolean NOT NULL DEFAULT true,
   site_id bigint,
-  permissions jsonb NOT NULL DEFAULT '[]'::jsonb,
+  permissions jsonb,
   role text NOT NULL,
+  custom_role_id bigint,
   archived_at timestamptz,
   suspension_started_at timestamptz,
   suspension_ends_at timestamptz
+);
+CREATE TABLE public.custom_permission_roles (
+  id bigint PRIMARY KEY, tenant_id bigint NOT NULL,
+  permissions jsonb NOT NULL DEFAULT '[]'::jsonb, is_active boolean NOT NULL DEFAULT true
+);
+CREATE TABLE public.staff_profile_capability_overrides (
+  tenant_id bigint NOT NULL, profile_id bigint NOT NULL,
+  capability text NOT NULL, is_allowed boolean NOT NULL,
+  PRIMARY KEY (tenant_id,profile_id,capability)
+);
+CREATE TABLE public.tenant_member_capability_overrides (
+  tenant_id bigint NOT NULL, user_id bigint NOT NULL,
+  capability text NOT NULL, is_allowed boolean NOT NULL,
+  PRIMARY KEY (tenant_id,user_id,capability)
 );
 CREATE TABLE public.platform_role_policies (
   role text NOT NULL,
@@ -120,27 +135,51 @@ INSERT INTO public.users(id,auth_user_id,account_status,role,platform_role) VALU
   (6,'60000000-0000-4000-8000-000000000006','active','member',NULL),
   (7,'70000000-0000-4000-8000-000000000007','active','member',NULL),
   (8,'80000000-0000-4000-8000-000000000008','active','member',NULL),
-  (9,'90000000-0000-4000-8000-000000000009','active','member',NULL);
+  (9,'90000000-0000-4000-8000-000000000009','active','member',NULL),
+  (10,'a0000000-0000-4000-8000-000000000010','active','member',NULL),
+  (11,'b0000000-0000-4000-8000-000000000011','active','member',NULL),
+  (12,'c0000000-0000-4000-8000-000000000012','active','member',NULL),
+  (13,'d0000000-0000-4000-8000-000000000013','active','member',NULL);
 INSERT INTO public.sites(id,tenant_id,status) VALUES
-  (30,30,'active'),(31,31,'active'),(32,32,'active'),(33,33,'active'),(34,34,'active');
+  (30,30,'active'),(31,31,'active'),(32,32,'active'),(33,33,'active'),(34,34,'active'),(35,35,'active'),(36,36,'active'),(37,37,'active'),(38,38,'active');
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
   (30,5,'member',true,'active',now()-interval '1 minute'),
   (31,6,'member',true,'suspended',now()+interval '1 day'),
   (32,7,'member',true,'active',now()+interval '1 day'),
   (33,8,'member',true,'active',now()+interval '1 day'),
-  (34,9,'member',true,'active',now()+interval '1 day');
+  (34,9,'member',true,'active',now()+interval '1 day'),
+  (35,10,'member',true,'active',now()+interval '1 day'),
+  (36,11,'member',true,'active',now()+interval '1 day'),
+  (37,12,'member',true,'active',now()+interval '1 day'),
+  (38,13,'member',true,'active',now()+interval '1 day');
 INSERT INTO public.staff_profiles(tenant_id,user_id,is_active,site_id,permissions,role,archived_at,suspension_started_at,suspension_ends_at) VALUES
   (30,5,true,30,'[]'::jsonb,'manager',NULL,NULL,NULL),
   (31,6,true,31,'[]'::jsonb,'manager',NULL,NULL,NULL),
   (32,7,true,32,'[]'::jsonb,'manager',now(),NULL,NULL),
   (33,8,true,33,'[]'::jsonb,'manager',NULL,now()-interval '1 hour',now()+interval '1 hour'),
-  (34,9,true,34,'[]'::jsonb,'manager',NULL,NULL,NULL);
+  (34,9,true,34,NULL,'manager',NULL,NULL,NULL),
+  (35,10,true,35,'[]'::jsonb,'manager',NULL,NULL,NULL),
+  (36,11,true,36,NULL,'viewer',NULL,NULL,NULL),
+  (37,12,true,37,NULL,'viewer',NULL,NULL,NULL),
+  (38,13,true,38,NULL,'manager',NULL,NULL,NULL);
 INSERT INTO public.generators(id,tenant_id,site_id,code,name,rated_capacity_kw,fuel_type,client_operation_id,updated_at) VALUES
   (303,30,30,'GEN-EXPIRED-STAFF','Expired staff fixture',100,'diesel','seed-expired-staff','2026-01-01T00:00:00Z'),
   (313,31,31,'GEN-SUSPENDED-MEMBERSHIP','Suspended member fixture',100,'diesel','seed-suspended-membership','2026-01-01T00:00:00Z'),
   (323,32,32,'GEN-ARCHIVED-PROFILE','Archived profile fixture',100,'diesel','seed-archived-profile','2026-01-01T00:00:00Z'),
   (333,33,33,'GEN-SUSPENDED-PROFILE','Suspended profile fixture',100,'diesel','seed-suspended-profile','2026-01-01T00:00:00Z'),
-  (343,34,34,'GEN-ACTIVE-STAFF','Active staff fixture',100,'diesel','seed-active-staff','2026-01-01T00:00:00Z');
+  (343,34,34,'GEN-ACTIVE-STAFF','Active staff fixture',100,'diesel','seed-active-staff','2026-01-01T00:00:00Z'),
+  (353,35,35,'GEN-EMPTY-PERMISSIONS','Explicit deny fixture',100,'diesel','seed-empty-permissions','2026-01-01T00:00:00Z'),
+  (363,36,36,'GEN-CUSTOM-ROLE','Custom role fixture',100,'diesel','seed-custom-role','2026-01-01T00:00:00Z'),
+  (373,37,37,'GEN-PROFILE-GRANT','Profile grant fixture',100,'diesel','seed-profile-grant','2026-01-01T00:00:00Z'),
+  (383,38,38,'GEN-PROFILE-DENY','Profile deny fixture',100,'diesel','seed-profile-deny','2026-01-01T00:00:00Z');
+
+INSERT INTO public.custom_permission_roles(id,tenant_id,permissions,is_active)
+VALUES (1101,36,'["manageGenerators"]'::jsonb,true);
+INSERT INTO public.staff_profile_capability_overrides(tenant_id,profile_id,capability,is_allowed)
+SELECT 37,id,'manageGenerators',true FROM public.staff_profiles WHERE tenant_id=37 AND user_id=12;
+INSERT INTO public.staff_profile_capability_overrides(tenant_id,profile_id,capability,is_allowed)
+SELECT 38,id,'manageGenerators',false FROM public.staff_profiles WHERE tenant_id=38 AND user_id=13;
+UPDATE public.staff_profiles SET custom_role_id=1101 WHERE tenant_id=36 AND user_id=11;
 
 -- Baseline ACL matches production's intended client entry points: authenticated
 -- may call; anon/PUBLIC cannot. CREATE OR REPLACE must preserve this boundary.
@@ -175,6 +214,7 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon, service_role;
 \ir ../migrations/20261101113014_powerhub_generator_sync_require_tenant_membership.sql
 \ir ../migrations/20261105091623_powerhub_security_performance_advisor_hardening.sql
 \ir ../migrations/20261105204132_powerhub_generator_staff_membership_scope.sql
+\ir ../migrations/20261105210000_powerhub_generator_rpc_effective_capability_scope.sql
 
 DO $assert_security_performance_hardening$
 BEGIN
@@ -336,7 +376,9 @@ BEGIN
       (5,30,303,'50000000-0000-4000-8000-000000000005','expired-membership'),
       (6,31,313,'60000000-0000-4000-8000-000000000006','suspended-membership'),
       (7,32,323,'70000000-0000-4000-8000-000000000007','archived-profile'),
-      (8,33,333,'80000000-0000-4000-8000-000000000008','active-suspension')
+      (8,33,333,'80000000-0000-4000-8000-000000000008','active-suspension'),
+      (10,35,353,'a0000000-0000-4000-8000-000000000010','explicit-empty-permissions'),
+      (13,38,383,'d0000000-0000-4000-8000-000000000013','profile-override-deny')
     ) AS cases(user_id,site_id,generator_id,auth_uid,case_name)
   LOOP
     PERFORM set_config('request.jwt.claim.sub',v_scenario.auth_uid,true);
@@ -382,6 +424,31 @@ BEGIN
   END IF;
 END
 $assert_staff_denials_left_no_side_effects$;
+
+-- Effective capability semantics: NULL inherits role/custom role, explicit [] denies,
+-- and per-profile overrides are applied last.
+SET ROLE authenticated;
+DO $assert_effective_generator_capability_resolution$
+DECLARE v_created record;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','b0000000-0000-4000-8000-000000000011',true);
+  SELECT * INTO v_created FROM public.powerhub_sync_generator_create(
+    36,'GEN-CUSTOM-ROLE-CREATE','Custom role allowed','SER-CUSTOM',100,'diesel','custom-role-create'
+  );
+  IF v_created.id IS NULL OR v_created.replayed THEN
+    RAISE EXCEPTION 'CUSTOM_ROLE_GENERATOR_CAPABILITY_NOT_HONORED';
+  END IF;
+
+  PERFORM set_config('request.jwt.claim.sub','c0000000-0000-4000-8000-000000000012',true);
+  SELECT * INTO v_created FROM public.powerhub_sync_generator_create(
+    37,'GEN-PROFILE-GRANT-CREATE','Profile override allowed','SER-GRANT',100,'diesel','profile-grant-create'
+  );
+  IF v_created.id IS NULL OR v_created.replayed THEN
+    RAISE EXCEPTION 'PROFILE_GENERATOR_GRANT_OVERRIDE_NOT_HONORED';
+  END IF;
+END
+$assert_effective_generator_capability_resolution$;
+RESET ROLE;
 
 -- Active site-scoped manager membership remains a supported positive path.
 SET ROLE authenticated;
