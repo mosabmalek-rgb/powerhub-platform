@@ -1834,6 +1834,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(branchAccounts).toMatchObject([{ id: 90, linkedSites: [{ siteId: 10 }], balance: 125 }]);
     expect(branchAccounts[0]).not.toHaveProperty("transactions");
     await expect(caller.companyAccounts.list({ siteId: 10, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.history({ siteId: 10, accountId: 90, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "حساب فرع 2", accountType: "cash", phoneNumber: "+970595123457", openingBalance: 0, siteIds: [11] })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل خارج النطاق", operationKey: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" })).rejects.toMatchObject({ code: "FORBIDDEN" });
