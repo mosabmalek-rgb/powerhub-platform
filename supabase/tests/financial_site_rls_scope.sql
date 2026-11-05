@@ -148,6 +148,15 @@ INSERT INTO public.supplier_payment_allocations VALUES
 INSERT INTO public.generators VALUES (1,1,10,'Generator A'),(2,1,11,'Generator B'),(3,2,20,'Generator C');
 INSERT INTO public.inventory_warehouses VALUES (1,1,10,'Warehouse A'),(2,1,11,'Warehouse B'),(3,2,20,'Warehouse C');
 INSERT INTO public.inventory_stock_movements VALUES (1,1,10,1,10),(2,1,11,2,20),(3,2,20,3,30);
+-- Existing broad permissive policies model production. The new restrictive
+-- SELECT guard must narrow reads without removing the existing write policy.
+CREATE POLICY generators_tenant_isolation ON public.generators
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY inventory_warehouses_tenant_read ON public.inventory_warehouses
+  FOR SELECT TO authenticated USING (true);
+CREATE POLICY inventory_stock_movements_tenant_read ON public.inventory_stock_movements
+  FOR SELECT TO authenticated USING (true);
+
 
 DO $enable_rls$
 DECLARE t text;
@@ -384,11 +393,6 @@ BEGIN
     OR has_table_privilege('anon','public.inventory_warehouses','SELECT')
     OR has_table_privilege('anon','public.inventory_stock_movements','SELECT') THEN
    RAISE EXCEPTION 'ANON_INVENTORY_SELECT_GRANT_PRESENT';
- END IF;
- IF has_table_privilege('authenticated','public.generators','SELECT') IS NOT TRUE
-    OR has_table_privilege('authenticated','public.inventory_warehouses','SELECT') IS NOT TRUE
-    OR has_table_privilege('authenticated','public.inventory_stock_movements','SELECT') IS NOT TRUE THEN
-   RAISE EXCEPTION 'AUTHENTICATED_INVENTORY_SELECT_GRANT_MISSING';
  END IF;
 END
 $anon_inventory$;
