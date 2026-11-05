@@ -1450,7 +1450,7 @@ begin
   v_started := clock_timestamp();
   select rollup.balance
     into v_rollup_balance
-  from public.powerhub_company_account_balance_rollup(1,array[98001]::bigint[]) rollup
+  from public.powerhub_company_account_balance_rollup(1::bigint,array[98001]::bigint[]) rollup
   where rollup.account_id=98001;
   v_rollup_ms := extract(epoch from (clock_timestamp()-v_started))*1000;
 
