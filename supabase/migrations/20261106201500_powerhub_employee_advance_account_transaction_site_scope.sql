@@ -202,7 +202,7 @@ begin
     jsonb_build_object('operationKey',p_operation_key,'payloadHash',v_hash));
   return query select v_adjustment_id,v_transaction_id,p_amount,false;
 end;
-$function$
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.powerhub_repay_employee_advance(p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_adjustment_id bigint, p_account_id bigint, p_amount numeric, p_payment_date date, p_reference_no text, p_notes text, p_operation_key text)
@@ -278,7 +278,7 @@ begin
     jsonb_build_object('operationKey',p_operation_key,'payloadHash',v_hash));
   return query select v_repayment_id,p_adjustment_id,v_remaining,v_transaction_id,false;
 end;
-$function$
+$function$;
 
 
 REVOKE ALL ON FUNCTION public.powerhub_issue_employee_advance(bigint,bigint,bigint,bigint,text,numeric,numeric,bigint,date,text,text)
