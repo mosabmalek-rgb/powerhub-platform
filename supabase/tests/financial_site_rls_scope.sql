@@ -208,6 +208,8 @@ $enable_rls$;
 \ir ../migrations/20261104084749_20261103210000_powerhub_account_transaction_site_scope.sql
 \ir ../migrations/20261104191321_powerhub_account_transaction_account_id_scope_guard.sql
 \ir ../migrations/20261104203029_powerhub_payroll_read_capability_rls.sql
+INSERT INTO public.staff_profile_capability_overrides(tenant_id,profile_id,capability,is_allowed)
+VALUES (1,1,'managePayroll',true);
 \ir ../migrations/20261106212249_powerhub_financial_capability_read_rls.sql
 \ir ../migrations/20261106213134_powerhub_financial_settlement_report_capability_only.sql
 \ir ../migrations/20261106213355_powerhub_company_account_capability_rls_helper.sql
