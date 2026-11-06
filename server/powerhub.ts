@@ -2409,7 +2409,7 @@ export const powerhubRouter = router({
       throw new TRPCError({ code:"INTERNAL_SERVER_ERROR", message:"تعذر تغيير دورة حياة المشترك." });
     }),
     securityDepositOverview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewFinancialReports");
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
       return getSupabaseSecurityDepositOverview(access.tenantId, input.siteId);
     }),
     securityDepositAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
@@ -2435,7 +2435,7 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(),
       subscriberId: z.number().int().positive(),
     })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewFinancialReports");
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
       return getSupabaseSubscriberAccountStatement(input.siteId, input.subscriberId);
     }),
     accountStatementHistoryPage: protectedProcedure.input(z.object({
