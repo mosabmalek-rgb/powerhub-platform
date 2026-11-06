@@ -4445,8 +4445,8 @@ export const powerhubRouter = router({
     list: protectedProcedure.input(siteScoped.extend({ branchId: z.number().int().positive().optional(), allBranches: z.boolean().optional() })).query(async ({ ctx, input }) => {
       const targetSiteId = input.branchId ?? input.siteId;
       const access = input.allBranches
-        ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"])
-        : await requireSupabaseSiteRole(ctx.user.id, targetSiteId, ["owner", "manager", "accountant", "viewer"]);
+        ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"], "viewFinancialReports")
+        : await requireSupabaseSiteRole(ctx.user.id, targetSiteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
       const { data, error } = await supabaseAdmin().from("financial_settlements")
         .select("id, tenant_id, site_id, period_start, period_end, total_collected, total_expenses, book_profit, actual_cash, difference, cash_opening_balance, cash_inflows, cash_outflows, book_cash_balance, ledger_reconciliation_status, ledger_snapshot, notes, status, created_by_user_id, approved_by_user_id, locked_at, created_at, updated_at")
         .eq("tenant_id", access.tenantId)
@@ -4586,7 +4586,7 @@ export const powerhubRouter = router({
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       paymentMethod: z.string().optional(),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
       const [allInvoices, paymentRows, expenseRows] = await Promise.all([
         listSupabaseReportInvoices({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
@@ -4647,7 +4647,7 @@ export const powerhubRouter = router({
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
-      const { tenantId } = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+      const { tenantId } = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports");
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
       const { data: siteRows, error: sitesError } = await supabaseAdmin().from("sites").select("id, name").eq("tenant_id", tenantId).neq("status", "archived");
       if (sitesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أفرع المستأجر من Supabase." });
@@ -5174,7 +5174,7 @@ export const powerhubRouter = router({
       if (from && Number.isNaN(from.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية غير صحيح." });
       if (to && Number.isNaN(to.getTime())) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ النهاية غير صحيح." });
       if (from && to && from > to) throw new TRPCError({ code: "BAD_REQUEST", message: "تاريخ البداية يجب أن يسبق تاريخ النهاية." });
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"]);
       const effectiveBranchId = await resolveCompanyAccountBranchScope(ctx.user.id, input.siteId, access, input.branchId);
       return listSupabaseCompanyAccounts({ tenantId: access.tenantId, branchId: effectiveBranchId, includeAllSiteLinks: access.role === "owner" });
     }),
@@ -5199,7 +5199,7 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "بداية فترة الحركات يجب أن تسبق نهايتها." });
       }
 
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "manageExpenses");
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"]);
       const effectiveBranchId = await resolveCompanyAccountBranchScope(ctx.user.id, input.siteId, access, input.branchId);
       if (effectiveBranchId !== undefined) {
         await requireCompanyAccountSiteScope(access, effectiveBranchId, [input.accountId]);
