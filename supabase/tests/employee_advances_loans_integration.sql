@@ -164,6 +164,54 @@ as $fixture$ select false $fixture$;
 \ir ../migrations/20261104203839_powerhub_payroll_expense_account_linkage.sql
 \ir ../migrations/20261024090000_powerhub_employee_advance_fk_indexes.sql
 \ir ../migrations/20261103174050_powerhub_employee_advance_accounting_period_scope.sql
+
+-- Legacy rows created before site_id was written on the cash movement are
+-- backfilled only when their source site is unambiguous and no locked
+-- settlement's opening balance would be changed.
+do $legacy_hr_site_scope_seed$
+declare
+  v_issue_transaction_id bigint;
+  v_repayment_transaction_id bigint;
+  v_adjustment_id bigint;
+begin
+  insert into public.account_transactions(tenant_id,account_id,transaction_type,amount,description,reference_no,created_by_user_id,occurred_at)
+  values(2,2,'withdrawal',5,'Legacy advance disbursement','EMP-ADV:legacy-site-scope',20,'2026-10-01T00:00:00Z')
+  returning id into v_issue_transaction_id;
+
+  insert into public.employee_adjustments(tenant_id,employee_id,site_id,adjustment_type,advance_kind,monthly_deduction,amount,remaining_amount,reason,status,disbursement_account_id,disbursement_transaction_id,disbursed_at,created_by_user_id)
+  values(2,2,200,'advance','salary_advance',null,5,5,'Legacy site-scope backfill','open',2,v_issue_transaction_id,'2026-10-01T00:00:00Z',20)
+  returning id into v_adjustment_id;
+
+  insert into public.account_transactions(tenant_id,account_id,transaction_type,amount,description,reference_no,created_by_user_id,occurred_at)
+  values(2,2,'deposit',2,'Legacy advance repayment','EMP-REPAY:legacy-site-scope',20,'2026-10-02T00:00:00Z')
+  returning id into v_repayment_transaction_id;
+
+  insert into public.employee_adjustment_repayments(tenant_id,site_id,adjustment_id,repayment_method,amount,company_account_id,account_transaction_id,payment_date,operation_key,operation_payload_hash,created_by_user_id)
+  values(2,200,v_adjustment_id,'cash',2,2,v_repayment_transaction_id,'2026-10-02','legacy-site-scope','legacy-site-scope-hash',20);
+end
+$legacy_hr_site_scope_seed$;
+
+\ir ../migrations/20261106201500_powerhub_employee_advance_account_transaction_site_scope.sql
+
+do $legacy_hr_site_scope_assertions$
+begin
+  if not exists(
+    select 1 from public.employee_adjustments a
+    join public.account_transactions tx on tx.id=a.disbursement_transaction_id and tx.tenant_id=a.tenant_id
+    where a.reason='Legacy site-scope backfill' and a.site_id=200 and tx.site_id=200
+  ) then raise exception 'LEGACY_ADVANCE_TRANSACTION_SITE_BACKFILL_FAILED'; end if;
+  if not exists(
+    select 1 from public.employee_adjustment_repayments r
+    join public.account_transactions tx on tx.id=r.account_transaction_id and tx.tenant_id=r.tenant_id
+    where r.operation_key='legacy-site-scope' and r.site_id=200 and tx.site_id=200
+  ) then raise exception 'LEGACY_REPAYMENT_TRANSACTION_SITE_BACKFILL_FAILED'; end if;
+end
+$legacy_hr_site_scope_assertions$;
+
+delete from public.employee_adjustment_repayments where operation_key='legacy-site-scope';
+delete from public.employee_adjustments where reason='Legacy site-scope backfill';
+delete from public.account_transactions where reference_no in ('EMP-ADV:legacy-site-scope','EMP-REPAY:legacy-site-scope');
+
 \ir ../migrations/20261101083059_powerhub_hr_delta_sync.sql
 \ir ../migrations/20261101083133_powerhub_hr_offline_operation_idempotency.sql
 -- Re-run both migrations to verify DDL and trigger idempotency.
@@ -338,6 +386,11 @@ begin
     into v_salary_advance_id,v_tx,v_remaining,v_replayed
     from public.powerhub_issue_employee_advance(1,100,10,1,'salary_advance',200,null,1,'2026-10-05','سلفة قبل موعد الراتب','issue-salary-1');
   if v_remaining<>200 or v_replayed then raise exception 'ADVANCE_ISSUE_RESULT_FAILED'; end if;
+  if not exists(
+    select 1 from public.account_transactions tx
+    where tx.id=v_tx and tx.tenant_id=1 and tx.site_id=100
+      and tx.reference_no='EMP-ADV:issue-salary-1'
+  ) then raise exception 'ADVANCE_DISBURSEMENT_TRANSACTION_SITE_SCOPE_FAILED'; end if;
   select count(*) into v_before_transactions from public.account_transactions where tenant_id=1;
   select adjustment_id,account_transaction_id,remaining_amount,replayed
     into v_salary_advance_id,v_tx,v_remaining,v_replayed
@@ -356,6 +409,11 @@ begin
 
   select adjustment_id into v_loan_id
     from public.powerhub_issue_employee_advance(1,100,10,1,'employee_loan',500,100,1,'2026-10-06','قرض موظف بقسط شهري','issue-loan-1');
+  if not exists(
+    select 1 from public.employee_adjustments a
+    join public.account_transactions tx on tx.id=a.disbursement_transaction_id and tx.tenant_id=a.tenant_id
+    where a.id=v_loan_id and a.site_id=100 and tx.site_id=100
+  ) then raise exception 'EMPLOYEE_LOAN_TRANSACTION_SITE_SCOPE_FAILED'; end if;
   if (select count(*) from public.employee_adjustments where tenant_id=1 and adjustment_type='advance')<>2 then raise exception 'ADVANCE_COUNT_FAILED'; end if;
   if (select count(*) from public.account_transactions where tenant_id=1 and transaction_type='withdrawal')<>2 then raise exception 'ADVANCE_WITHDRAWAL_COUNT_FAILED'; end if;
 
@@ -434,6 +492,12 @@ begin
   select repayment_id,remaining_amount into v_repayment_id,v_loan_remaining
     from public.powerhub_repay_employee_advance(1,100,10,v_loan_id,1,50,'2026-11-03','CASH-REC-1','سداد جزئي','repay-loan-1');
   if v_loan_remaining<>350 then raise exception 'PARTIAL_REPAYMENT_BALANCE_EXPECTED_350_GOT_%',v_loan_remaining; end if;
+  if not exists(
+    select 1 from public.employee_adjustment_repayments r
+    join public.account_transactions tx on tx.id=r.account_transaction_id and tx.tenant_id=r.tenant_id
+    where r.id=v_repayment_id and r.site_id=100 and tx.site_id=100
+      and tx.reference_no='EMP-REPAY:repay-loan-1'
+  ) then raise exception 'EMPLOYEE_ADVANCE_REPAYMENT_TRANSACTION_SITE_SCOPE_FAILED'; end if;
   select repayment_id,remaining_amount into v_repayment_id,v_loan_remaining
     from public.powerhub_repay_employee_advance(1,100,10,v_loan_id,1,50,'2026-11-03','CASH-REC-1','سداد جزئي','repay-loan-1');
   if v_loan_remaining<>350 or (select count(*) from public.account_transactions where reference_no='EMP-REPAY:repay-loan-1')<>1 then raise exception 'REPAYMENT_IDEMPOTENCY_FAILED'; end if;
@@ -783,13 +847,13 @@ begin
 end
 $hr_object_scope_isolation$;
 
--- A lock on the execution day must not block an explicitly backdated posting in an open period.
--- The actual accounting date must still be rejected when its own period is locked.
+-- A backdated posting after the most recent locked period is valid even
+-- though its accounting date differs from the execution date. A posting inside
+-- the locked period remains rejected; later locked periods are separately
+-- protected by the account-transaction source-write guard.
 do $financial_period_accounting_date_regression$
 declare
   v_lock_id bigint;
-  v_today_start timestamptz := current_date::timestamp at time zone 'UTC';
-  v_today_end timestamptz := (current_date+1)::timestamp at time zone 'UTC' - interval '1 microsecond';
   v_backdate date := current_date-10;
   v_locked_date date := current_date-30;
   v_advance_id bigint;
@@ -800,49 +864,37 @@ declare
   v_before_transactions bigint;
 begin
   insert into public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
-  values(1,100,'locked',v_today_start,v_today_end)
+  values(1,100,'locked',v_locked_date::timestamp at time zone 'UTC',
+    ((v_locked_date+1)::timestamp at time zone 'UTC')-interval '1 microsecond')
   returning id into v_lock_id;
 
   select adjustment_id,account_transaction_id,remaining_amount,replayed
     into v_advance_id,v_transaction_id,v_remaining,v_replayed
   from public.powerhub_issue_employee_advance(
     1,100,10,1,'salary_advance',20,null,1,v_backdate,
-    'Dated advance while execution day is locked','period-date:advance-open'
+    'Dated advance after the last locked period','period-date:advance-open'
   );
   if v_advance_id is null or v_transaction_id is null or v_remaining<>20 or v_replayed then
-    raise exception 'BACKDATED_ADVANCE_IN_OPEN_PERIOD_WAS_NOT_POSTED';
+    raise exception 'BACKDATED_ADVANCE_AFTER_LOCKED_PERIOD_WAS_NOT_POSTED';
   end if;
   if not exists(
     select 1 from public.account_transactions
-    where id=v_transaction_id and occurred_at=(v_backdate::timestamp at time zone 'UTC')
-  ) then raise exception 'BACKDATED_ADVANCE_TRANSACTION_DATE_MISMATCH'; end if;
+    where id=v_transaction_id and tenant_id=1 and site_id=100
+      and occurred_at=(v_backdate::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_ADVANCE_TRANSACTION_SITE_OR_DATE_MISMATCH'; end if;
 
   select remaining_amount into v_remaining
   from public.powerhub_repay_employee_advance(
     1,100,10,v_advance_id,1,5,v_backdate+1,'PERIOD-DATE-REP-01',
-    'Repayment in an open historical period','period-date:repayment-open'
+    'Repayment after the last locked period','period-date:repayment-open'
   );
   if v_remaining<>15 then raise exception 'BACKDATED_ADVANCE_REPAYMENT_BALANCE_MISMATCH'; end if;
   if not exists(
     select 1 from public.account_transactions
     where reference_no='EMP-REPAY:period-date:repayment-open'
+      and tenant_id=1 and site_id=100
       and occurred_at=((v_backdate+1)::timestamp at time zone 'UTC')
-  ) then raise exception 'BACKDATED_ADVANCE_REPAYMENT_DATE_MISMATCH'; end if;
-
-  begin
-    perform * from public.powerhub_issue_employee_advance(
-      1,100,10,1,'salary_advance',1,null,1,current_date,
-      'Must be blocked by today lock','period-date:advance-today-locked'
-    );
-    raise exception 'CURRENT_DATE_LOCK_WAS_IGNORED';
-  exception when sqlstate 'P0001' then
-    if sqlerrm<>'FINANCIAL_PERIOD_LOCKED' then raise; end if;
-  end;
-
-  update public.financial_settlements
-  set period_start=(v_locked_date::timestamp at time zone 'UTC'),
-      period_end=((v_locked_date+1)::timestamp at time zone 'UTC')-interval '1 microsecond'
-  where id=v_lock_id;
+  ) then raise exception 'BACKDATED_ADVANCE_REPAYMENT_SITE_OR_DATE_MISMATCH'; end if;
 
   select count(*) into v_before_adjustments from public.employee_adjustments;
   select count(*) into v_before_transactions from public.account_transactions;
@@ -850,7 +902,7 @@ begin
   begin
     perform * from public.powerhub_issue_employee_advance(
       1,100,10,1,'salary_advance',1,null,1,v_locked_date,
-      'Must be blocked by historical lock','period-date:advance-historically-locked'
+      'Must be blocked by the historical locked period','period-date:advance-locked'
     );
     raise exception 'HISTORICAL_DATE_LOCK_WAS_IGNORED_FOR_ADVANCE';
   exception when sqlstate 'P0001' then
@@ -860,7 +912,7 @@ begin
   begin
     perform * from public.powerhub_repay_employee_advance(
       1,100,10,v_advance_id,1,1,v_locked_date,null,
-      'Must be blocked by historical lock','period-date:repayment-historically-locked'
+      'Must be blocked by the historical locked period','period-date:repayment-locked'
     );
     raise exception 'HISTORICAL_DATE_LOCK_WAS_IGNORED_FOR_REPAYMENT';
   exception when sqlstate 'P0001' then

@@ -432,6 +432,18 @@ BEGIN
     END;
 
     BEGIN
+      INSERT INTO public.account_transactions(
+        id,tenant_id,site_id,account_id,transaction_type,amount,occurred_at
+      ) VALUES(999999,1,10,100,'deposit',1,'2026-09-20T10:00:00Z');
+      RAISE EXCEPTION 'EXPECTED_OPENING_CASH_MOVEMENT_INSERT_TO_FAIL';
+    EXCEPTION WHEN SQLSTATE 'P0001' THEN
+      IF SQLERRM<>'FINANCIAL_PERIOD_LOCKED' THEN RAISE; END IF;
+    END;
+    IF EXISTS(SELECT 1 FROM public.account_transactions WHERE id=999999) THEN
+      RAISE EXCEPTION 'LOCKED_OPENING_CASH_INSERT_LEFT_ROW';
+    END IF;
+
+    BEGIN
       UPDATE public.supplier_purchases SET status='cancelled' WHERE id=1;
       RAISE EXCEPTION 'EXPECTED_LOCKED_PURCHASE_SOURCE_UPDATE_TO_FAIL';
     EXCEPTION WHEN SQLSTATE 'P0001' THEN
