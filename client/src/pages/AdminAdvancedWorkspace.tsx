@@ -630,6 +630,7 @@ const policyCapabilities: Array<{ id: PowerCapability; label: string }> = [
   { id: "collectPayments", label: "التحصيل والدفعات" },
   { id: "approvePaymentDocumentation", label: "اعتماد توثيق الدفع الإلكتروني" },
   { id: "manageExpenses", label: "المصروفات" },
+  { id: "viewFinancialReports", label: "عرض التقارير والبيانات المالية" },
   { id: "managePayroll", label: "اعتماد وصرف الرواتب" },
   { id: "manageTeam", label: "إدارة الفريق" },
   { id: "manageMessaging", label: "المراسلات" },
