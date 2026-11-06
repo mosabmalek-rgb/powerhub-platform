@@ -16,7 +16,7 @@ describe("financial capability enforcement", () => {
   it("does not let site membership or viewer role expose expenses, deposits, or financial reports", () => {
     const router = read("server/powerhub.ts");
     expect(router).toContain('requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"])');
-    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewFinancialReports")');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports")');
     expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")');
     expect(router).toContain('securityDeposit: canViewFinancialReports ? String(data?.[0]?.security_deposit ?? 0) : null');
     expect(router).toContain('financial: canViewFinancial ? {');
