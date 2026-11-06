@@ -30,6 +30,20 @@ describe("financial capability enforcement", () => {
     expect(router).toContain('await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports")');
   });
 
+  it("authorizes payment receipt images by purpose so report-only viewers can access deposit receipts", () => {
+    const router = read("server/powerhub.ts");
+    const start = router.indexOf("getReceiptImage:");
+    const end = router.indexOf("    create: protectedProcedure", start);
+    const receiptRoute = router.slice(start, end);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(receiptRoute).toContain('requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"])');
+    expect(receiptRoute).toContain('const requiredCapability = ["security_deposit", "security_deposit_refund"].includes(payment.payment_purpose ?? "")');
+    expect(receiptRoute).toContain('? "viewFinancialReports" : "collectPayments"');
+    expect(receiptRoute).toContain("if (!access.allowedCapabilities.includes(requiredCapability))");
+    expect(receiptRoute).toContain('code: "FORBIDDEN"');
+  });
+
   it("applies capability checks to both financial Delta feeds and full snapshots", () => {
     const router = read("server/powerhub.ts");
     expect(router).toContain('const isFinancialDeltaEntity = ["invoices", "payments", "expenses", "company_accounts", "company_accounts_all"].includes(input.entityType)');

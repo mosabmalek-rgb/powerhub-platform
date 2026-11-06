@@ -3241,13 +3241,15 @@ export const powerhubRouter = router({
       return listSupabasePaymentPage(input.siteId, input, { includeSecurityDeposits: access.allowedCapabilities.includes("viewFinancialReports") });
     }),
     getReceiptImage: protectedProcedure.input(siteScoped.extend({ paymentId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "collectPayments");
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
       const { data: payment, error } = await supabaseAdmin().from("payments").select("id, receipt_image_key, payment_purpose")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.paymentId).maybeSingle();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صورة إيصال الدفع." });
       if (!payment?.receipt_image_key) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد صورة إيصال مرفقة بهذه الدفعة." });
-      if (["security_deposit", "security_deposit_refund"].includes(payment.payment_purpose ?? "")) {
-        await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
+      const requiredCapability = ["security_deposit", "security_deposit_refund"].includes(payment.payment_purpose ?? "")
+        ? "viewFinancialReports" : "collectPayments";
+      if (!access.allowedCapabilities.includes(requiredCapability)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية عرض إيصال هذه الدفعة." });
       }
       try { return { url: (await storageGet(payment.receipt_image_key)).url }; }
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "تعذر إنشاء رابط آمن لصورة الإيصال." }); }
