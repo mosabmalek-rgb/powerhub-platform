@@ -258,6 +258,22 @@ AS $function$ SELECT 0::bigint $function$;
 CREATE FUNCTION private.chat_rate_support(bigint,smallint,text)
 RETURNS public.chat_support_feedback LANGUAGE sql SECURITY DEFINER SET search_path TO ''
 AS $function$ SELECT NULL::public.chat_support_feedback $function$;
+
+-- Mirror the existing PostgREST wrapper contract: browser roles enter through
+-- this SECURITY DEFINER wrapper; the private implementation remains ungranted.
+CREATE FUNCTION public.chat_rate_support(
+  p_conversation_id bigint,
+  p_rating smallint,
+  p_comment text DEFAULT NULL::text
+)
+RETURNS public.chat_support_feedback
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  SELECT private.chat_rate_support($1,$2,$3);
+$function$;
+
 CREATE FUNCTION private.chat_reopen_support_conversation(bigint)
 RETURNS public.chat_conversations LANGUAGE sql SECURITY DEFINER SET search_path TO ''
 AS $function$ SELECT NULL::public.chat_conversations $function$;
@@ -297,14 +313,16 @@ REVOKE ALL ON FUNCTION private.chat_current_user_id(),
   private.chat_transition_conversation(bigint,text),
   private.chat_release_support(bigint)
 FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.chat_receipts_for_message(bigint),
+REVOKE ALL ON FUNCTION public.chat_rate_support(bigint,smallint,text),
+  public.chat_receipts_for_message(bigint),
   public.chat_ai_rate_message(bigint,text,text),
   public.powerhub_notification_list(integer),
   public.powerhub_notification_mark_all_read(),
   public.powerhub_notification_mark_read(bigint),
   public.powerhub_notification_unread_count()
 FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.chat_receipts_for_message(bigint),
+GRANT EXECUTE ON FUNCTION public.chat_rate_support(bigint,smallint,text),
+  public.chat_receipts_for_message(bigint),
   public.chat_ai_rate_message(bigint,text,text),
   public.powerhub_notification_list(integer),
   public.powerhub_notification_mark_all_read(),
@@ -383,14 +401,16 @@ INSERT INTO public.chat_conversations(
   (100,10,'assistant','AI_ACTIVE',1,NULL),
   (101,10,'support','SUPPORT_ACTIVE',1,NULL),
   (102,10,'support','RESOLVED',1,now()),
-  (103,10,'support','RESOLVED',4,now());
+  (103,10,'support','RESOLVED',4,now()),
+  (104,10,'support','RESOLVED',1,now());
 INSERT INTO public.chat_participants(conversation_id,tenant_id,user_id,participant_role) VALUES
   (100,10,1,'owner'),
   (100,10,3,'owner'),
   (101,10,1,'owner'),
   (101,10,5,'owner'),
   (102,10,1,'owner'),
-  (103,10,4,'owner');
+  (103,10,4,'owner'),
+  (104,10,1,'owner');
 INSERT INTO public.chat_messages(id,conversation_id,tenant_id,sender_user_id,sender_type,visibility,body,created_at) VALUES
   (500,100,10,1,'human','public','assistant conversation human message','2026-01-01T00:00:01Z'),
   (501,101,10,1,'human','public','support conversation public message','2026-01-01T00:00:02Z'),
@@ -551,11 +571,14 @@ BEGIN
     RAISE EXCEPTION 'ACTIVE_ACCOUNT_IDENTITY_RESOLUTION_FAILED';
   END IF;
   v_denied:=false;
-  BEGIN PERFORM private.chat_rate_support(103,5::smallint,'must fail');
+  BEGIN PERFORM public.chat_rate_support(103,5::smallint,'must fail');
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
   IF NOT v_denied THEN RAISE EXCEPTION 'SUSPENDED_MEMBERSHIP_SUPPORT_RATE_ALLOWED'; END IF;
+  IF EXISTS (SELECT 1 FROM public.chat_support_feedback WHERE conversation_id=103 AND user_id=4) THEN
+    RAISE EXCEPTION 'SUSPENDED_MEMBERSHIP_FEEDBACK_SIDE_EFFECT';
+  END IF;
 
   v_denied:=false;
   BEGIN PERFORM public.chat_reopen_support_conversation(103);
@@ -653,6 +676,16 @@ BEGIN
        IS DISTINCT FROM v_receipt_updated_at THEN
     RAISE EXCEPTION 'EXPIRED_MEMBER_RECEIPT_MUTATED';
   END IF;
+
+  v_denied:=false;
+  BEGIN PERFORM public.chat_rate_support(101,3::smallint,'expired membership');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'EXPIRED_MEMBER_SUPPORT_FEEDBACK_ALLOWED'; END IF;
+  IF EXISTS (SELECT 1 FROM public.chat_support_feedback WHERE conversation_id=101 AND user_id=5) THEN
+    RAISE EXCEPTION 'EXPIRED_MEMBER_FEEDBACK_SIDE_EFFECT';
+  END IF;
 END
 $expired_read_receipts$;
 
@@ -671,6 +704,16 @@ BEGIN
     IF SQLERRM='UNAUTHORIZED' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
   IF NOT v_denied THEN RAISE EXCEPTION 'DISABLED_ACCOUNT_AI_FEEDBACK_ALLOWED'; END IF;
+
+  v_denied:=false;
+  BEGIN PERFORM public.chat_rate_support(102,5::smallint,'inactive account');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='UNAUTHORIZED' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'DISABLED_ACCOUNT_SUPPORT_FEEDBACK_ALLOWED'; END IF;
+  IF EXISTS (SELECT 1 FROM public.chat_support_feedback WHERE conversation_id=102 AND user_id=3) THEN
+    RAISE EXCEPTION 'DISABLED_ACCOUNT_FEEDBACK_SIDE_EFFECT';
+  END IF;
 
   v_denied:=false;
   BEGIN PERFORM * FROM public.powerhub_notification_list(20);
@@ -768,10 +811,34 @@ $internal_delivery$;
 
 SELECT 'POWERHUB_CHAT_RLS_ACTIVE_ACCOUNT_AND_DELIVERY_SCOPE_ASSERTIONS_PASSED' AS result;
 
+-- A valid tenant participant can rate a resolved support ticket while the
+-- tenant's Support Chat feature is enabled.
+SELECT set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
+DO $tenant_feature_enabled_feedback$
+DECLARE
+  v_feedback public.chat_support_feedback;
+BEGIN
+  PERFORM set_config('test.powerhub_support_chat_enabled','true',true);
+  SELECT * INTO v_feedback
+  FROM public.chat_rate_support(104,4::smallint,'feature enabled');
+
+  IF v_feedback.id IS NULL
+     OR v_feedback.conversation_id<>104
+     OR v_feedback.tenant_id<>10
+     OR v_feedback.user_id<>1
+     OR v_feedback.rating<>4
+     OR v_feedback.comment<>'feature enabled' THEN
+    RAISE EXCEPTION 'ENABLED_SUPPORT_FEATURE_FEEDBACK_RESULT_MISMATCH';
+  END IF;
+  IF (SELECT count(*) FROM public.chat_support_feedback WHERE conversation_id=104 AND user_id=1)<>1 THEN
+    RAISE EXCEPTION 'ENABLED_SUPPORT_FEATURE_FEEDBACK_NOT_PERSISTED';
+  END IF;
+END
+$tenant_feature_enabled_feedback$;
+
 -- Tenant-facing conversation mutations must stop when Support Chat is disabled.
 -- Platform Support remains able to process legacy tickets under the platform
 -- capability, without inheriting the tenant's feature toggle.
-SELECT set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
 DO $tenant_feature_disabled_mutations$
 DECLARE
   v_denied boolean;
