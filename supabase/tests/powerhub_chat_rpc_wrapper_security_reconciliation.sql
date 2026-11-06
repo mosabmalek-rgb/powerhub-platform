@@ -173,6 +173,16 @@ $trigger_grants_before$;
 \ir ../migrations/20261101225044_powerhub_chat_rpc_wrapper_security_reconciliation.sql
 \ir ../migrations/20261105150631_powerhub_chat_trigger_function_exec_revoke.sql
 
+-- Reproduce the two direct private-function grants observed on Staging
+-- after the original wrapper reconciliation. The forward migration below
+-- must remove them without breaking public SECURITY DEFINER wrappers.
+GRANT EXECUTE ON FUNCTION
+  private.chat_create_conversation(bigint,text,text,text),
+  private.chat_mark_notification_read(bigint)
+TO authenticated;
+
+\ir ../migrations/20261106155820_powerhub_private_chat_rpc_acl_reconciliation.sql
+
 
 DO $assert_acl$
 DECLARE
