@@ -48,6 +48,7 @@ create table public.payments (
  payment_method text not null, transfer_from_account text, transfer_from_type text, transfer_to_account text,
  transfer_to_type text, reference_no text, receipt_image_key text, receipt_image_hash text,
  status text not null, collected_by_user_id bigint, collector_session_id bigint,
+ payment_purpose text not null default 'invoice_collection',
  paid_at timestamptz not null default now(), created_at timestamptz not null default now()
 );
 insert into public.tenants(id,name) values (1,'Tenant One'),(2,'Tenant Two');
@@ -62,9 +63,10 @@ values (501,1,10,101,'INV-TEST-501',date '2026-10-27',100,0,100,'issued');
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
 \ir ../migrations/20261101082439_powerhub_delta_invoice_history.sql
 \ir ../migrations/20261101082546_powerhub_delta_payment_history.sql
+\ir ../migrations/20261107101000_powerhub_payment_delta_purpose_projection.sql
 
 do $test$
-declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint;
+declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint; v_projection jsonb;
 begin
   v_snapshot := public.powerhub_get_sync_snapshot(1,10,'payments');
   if v_snapshot->>'status' is distinct from 'ok' or v_snapshot->>'snapshot_cursor' is distinct from '0'
@@ -82,6 +84,7 @@ begin
     or jsonb_array_length(v_snapshot->'rows') <> 1
     or v_snapshot #>> '{rows,0,id}' is distinct from '900'
     or v_snapshot #>> '{rows,0,payment,amount}' is distinct from '25'
+    or v_snapshot #>> '{rows,0,payment,payment_purpose}' is distinct from 'invoice_collection'
     or v_snapshot #>> '{rows,0,payment,has_receipt_image}' is distinct from 'true'
     or v_snapshot #> '{rows,0,payment,receipt_image_key}' is not null
     or v_snapshot #> '{rows,0,payment,receipt_image_hash}' is not null
@@ -94,6 +97,7 @@ begin
   if jsonb_array_length(v_delta->'changes') <> 1
     or v_delta #>> '{changes,0,operation}' is distinct from 'upsert'
     or v_delta #>> '{changes,0,row_data,payment,amount}' is distinct from '25'
+    or v_delta #>> '{changes,0,row_data,payment,payment_purpose}' is distinct from 'invoice_collection'
     or v_delta #> '{changes,0,row_data,payment,receipt_image_key}' is not null
      or v_delta #>> '{changes,0,row_data,subscriber,full_name}' is distinct from 'Subscriber One'
      or v_delta #>> '{changes,0,row_data,invoice_no}' is distinct from 'INV-TEST-501' then
@@ -143,6 +147,10 @@ begin
     raise exception 'Expected cross-tenant snapshot rejection';
   exception when others then if sqlerrm <> 'SITE_OUT_OF_SCOPE' then raise; end if; end;
 
+  insert into public.payments(id,tenant_id,site_id,subscriber_id,payment_no,amount,payment_method,status,payment_purpose,paid_at)
+  values (902,2,30,201,'PAY-902',75,'cash','completed','security_deposit',timestamptz '2026-10-27 12:00:00+00');
+  v_projection := public.powerhub_delta_sync_project_payment(2,30,902);
+  if v_projection #>> '{payment,payment_purpose}' is distinct from 'security_deposit' then raise exception 'PAYMENT_PURPOSE_PROJECTION_FAILED'; end if;
   if has_function_privilege('anon','public.powerhub_delta_sync_project_row(text,jsonb)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_capture_delta_sync_change()','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_pull_sync_delta(bigint,bigint,text,bigint,bigint,integer)','EXECUTE')

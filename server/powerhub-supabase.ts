@@ -987,11 +987,15 @@ export async function listSupabaseInvoicePage(siteId: number, input: { limit?: n
   return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: last.issueDate.toISOString(), id: last.id }) : null };
 }
 
-export async function listSupabasePayments(siteId: number) {
+const paymentPurposesVisibleToCollectors = ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"] as const;
+const paymentPurposesVisibleToFinancialReportReaders = [...paymentPurposesVisibleToCollectors, "security_deposit", "security_deposit_refund"] as const;
+
+export async function listSupabasePayments(siteId: number, options: { includeSecurityDeposits?: boolean } = {}) {
   const admin = supabaseAdmin();
+  const visiblePaymentPurposes = options.includeSecurityDeposits ? paymentPurposesVisibleToFinancialReportReaders : paymentPurposesVisibleToCollectors;
   const { data: paymentRows, error: paymentsError } = await admin.from("payments")
     .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, payment_purpose, invoice_applied_amount, subscriber_credit_amount, status, collected_by_user_id, collector_session_id, paid_at, created_at")
-    .eq("site_id", siteId).order("paid_at", { ascending: false });
+    .eq("site_id", siteId).in("payment_purpose", visiblePaymentPurposes).order("paid_at", { ascending: false });
   if (paymentsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الدفعات من Supabase." });
   const subscriberIds = Array.from(new Set((paymentRows ?? []).map((row) => Number(row.subscriber_id))));
   const invoiceIds = Array.from(new Set((paymentRows ?? []).flatMap((row) => row.invoice_id === null ? [] : [Number(row.invoice_id)])));
@@ -1021,12 +1025,13 @@ export async function listSupabasePayments(siteId: number) {
   }))).flat();
 }
 
-export async function listSupabasePaymentPage(siteId: number, input: { limit?: number; cursor?: string }): Promise<SupabaseHistoryPage<any>> {
+export async function listSupabasePaymentPage(siteId: number, input: { limit?: number; cursor?: string }, options: { includeSecurityDeposits?: boolean } = {}): Promise<SupabaseHistoryPage<any>> {
   const limit = historyLimit(input.limit);
   const cursor = decodeHistoryCursor(input.cursor);
+  const visiblePaymentPurposes = options.includeSecurityDeposits ? paymentPurposesVisibleToFinancialReportReaders : paymentPurposesVisibleToCollectors;
   let query = supabaseAdmin().from("payments")
     .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, payment_purpose, invoice_applied_amount, subscriber_credit_amount, status, collected_by_user_id, collector_session_id, paid_at, created_at")
-    .eq("site_id", siteId);
+    .eq("site_id", siteId).in("payment_purpose", visiblePaymentPurposes);
   if (cursor) query = query.or(`paid_at.lt.${cursor.at},and(paid_at.eq.${cursor.at},id.lt.${cursor.id})`);
   const { data: paymentRows, error } = await query.order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة الدفعات من Supabase." });

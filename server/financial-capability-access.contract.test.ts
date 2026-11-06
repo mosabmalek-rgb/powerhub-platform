@@ -64,4 +64,18 @@ describe("financial capability enforcement", () => {
     expect(access).toContain("permissions.filter((item) => item !== policyCapability)");
     expect(access).toContain("custom_permission_roles");
   });
+
+  it("separates security-deposit payment visibility from collection capability", () => {
+    const router = read("server/powerhub.ts");
+    const persistence = read("server/powerhub-supabase.ts");
+    const rls = read("supabase/migrations/20261107100000_powerhub_payment_security_deposit_rls.sql");
+    const projection = read("supabase/migrations/20261107101000_powerhub_payment_delta_purpose_projection.sql");
+    expect(router).toContain('includeSecurityDeposits: access.allowedCapabilities.includes("viewFinancialReports")');
+    expect(router).toContain('select("id, receipt_image_key, payment_purpose")');
+    expect(router).toContain('payment_purpose IN');
+    expect(persistence).toContain('paymentPurposesVisibleToCollectors = ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"]');
+    expect(persistence).toContain('.in("payment_purpose", visiblePaymentPurposes)');
+    expect(rls).toContain("security_deposit_refund");
+    expect(projection).toContain("'payment_purpose', p.payment_purpose");
+  });
 });

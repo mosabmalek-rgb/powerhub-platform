@@ -816,20 +816,24 @@ export const powerhubRouter = router({
         }
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تغييرات المزامنة التفاضلية." });
       }
-      if (!data || typeof data !== "object" || Array.isArray(data)) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة المزامنة التفاضلية غير صالحة." });
+      if (!data || typeof data !== "object" || Array.isArray(data)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة المزامنة التفاضلية غير صالحة." });
+      const response = data as { status: "ok" | "reset_required"; entity_type: string; current_cursor: string; retained_from_cursor: string; snapshot_cursor: string | null; through_cursor: string; next_cursor: string | null; has_more: boolean; changes: Array<{ cursor: string; entity_type: string; entity_id: string; operation: "upsert" | "delete"; row_data: Record<string, unknown> | null; changed_at: string }> };
+      if (input.entityType === "payments" && !access.allowedCapabilities.includes("viewFinancialReports")) {
+        const ids = Array.from(new Set(response.changes.filter(x => x.operation === "upsert").map(x => Number(x.entity_id)).filter(x => Number.isSafeInteger(x) && x > 0)));
+        if (ids.length) {
+          const { data: visible, error: visibilityError } = await supabaseAdmin().from("payments").select("id")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("id", ids)
+            .in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"]);
+          if (visibilityError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من أغراض الدفعات أثناء المزامنة." });
+          const visibleIds = new Set((visible ?? []).map(x => Number(x.id)));
+          response.changes = response.changes.map(change => {
+            if (change.operation !== "upsert") return change;
+            const id = Number(change.entity_id);
+            return Number.isSafeInteger(id) && visibleIds.has(id) ? change : { ...change, operation: "delete" as const, row_data: null };
+          });
+        }
       }
-      return data as {
-        status: "ok" | "reset_required";
-        entity_type: string;
-        current_cursor: string;
-        retained_from_cursor: string;
-        snapshot_cursor: string | null;
-        through_cursor: string;
-        next_cursor: string | null;
-        has_more: boolean;
-        changes: Array<{ cursor: string; entity_type: string; entity_id: string; operation: "upsert" | "delete"; row_data: Record<string, unknown> | null; changed_at: string }>;
-      };
+      return response;
     }),
     snapshot: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
@@ -906,12 +910,15 @@ export const powerhubRouter = router({
         }
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء لقطة المزامنة." });
       }
-      if (!data || typeof data !== "object" || Array.isArray(data) ||
-          !Array.isArray((data as { rows?: unknown }).rows) ||
-          typeof (data as { snapshot_cursor?: unknown }).snapshot_cursor !== "string") {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة لقطة المزامنة غير صالحة." });
-      }
-      return data as { status: "ok"; entity_type: string; snapshot_cursor: string; retained_from_cursor: string; rows: Array<Record<string, unknown>> };
+      if (!data || typeof data !== "object" || Array.isArray(data) || !Array.isArray((data as { rows?: unknown }).rows) || typeof (data as { snapshot_cursor?: unknown }).snapshot_cursor !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة لقطة المزامنة غير صالحة." });
+      const snapshot = data as { status: "ok"; entity_type: string; snapshot_cursor: string; retained_from_cursor: string; rows: Array<Record<string, unknown>> };
+      if (input.entityType === "payments" && !access.allowedCapabilities.includes("viewFinancialReports")) snapshot.rows = snapshot.rows.filter(row => {
+        const payment = row.payment;
+        if (!payment || typeof payment !== "object" || Array.isArray(payment)) return false;
+        const purpose = (payment as Record<string, unknown>).payment_purpose;
+        return purpose === "invoice_collection" || purpose === "invoice_collection_with_credit" || purpose === "subscriber_credit";
+      });
+      return snapshot;
     }),
   }),
   offlineNumbering: powerhubOfflineNumberingRouter,
@@ -3220,19 +3227,22 @@ export const powerhubRouter = router({
 
   payments: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
-      return listSupabasePayments(input.siteId);
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
+      return listSupabasePayments(input.siteId, { includeSecurityDeposits: access.allowedCapabilities.includes("viewFinancialReports") });
     }),
     page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional() })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
-      return listSupabasePaymentPage(input.siteId, input);
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
+      return listSupabasePaymentPage(input.siteId, input, { includeSecurityDeposits: access.allowedCapabilities.includes("viewFinancialReports") });
     }),
     getReceiptImage: protectedProcedure.input(siteScoped.extend({ paymentId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector"], "collectPayments");
-      const { data: payment, error } = await supabaseAdmin().from("payments").select("id, receipt_image_key")
+      const { data: payment, error } = await supabaseAdmin().from("payments").select("id, receipt_image_key, payment_purpose")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.paymentId).maybeSingle();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صورة إيصال الدفع." });
       if (!payment?.receipt_image_key) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد صورة إيصال مرفقة بهذه الدفعة." });
+      if (["security_deposit", "security_deposit_refund"].includes(payment.payment_purpose ?? "") && !access.permissions.includes("viewFinancialReports")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على إيصالات التأمين." });
+      }
       try { return { url: (await storageGet(payment.receipt_image_key)).url }; }
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "تعذر إنشاء رابط آمن لصورة الإيصال." }); }
     }),

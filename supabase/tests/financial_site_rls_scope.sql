@@ -48,7 +48,7 @@ CREATE TABLE public.audit_logs(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,s
 CREATE TABLE public.expenses(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,category text,reference_no text);
 CREATE TABLE public.financial_settlements(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
 CREATE TABLE public.invoices(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
-CREATE TABLE public.payments(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
+CREATE TABLE public.payments(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,payment_purpose text NOT NULL DEFAULT 'invoice_collection');
 CREATE TABLE public.employees(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
 CREATE TABLE public.employee_adjustments(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint,disbursement_transaction_id bigint);
 CREATE TABLE public.employee_attendance(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
@@ -156,7 +156,7 @@ INSERT INTO public.audit_logs(id,tenant_id,site_id,after_data) VALUES(1,1,10,'{"
 INSERT INTO public.expenses(id,tenant_id,site_id) VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.financial_settlements VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.invoices VALUES(1,1,10),(2,1,11),(3,2,20);
-INSERT INTO public.payments VALUES(1,1,10),(2,1,11),(3,2,20);
+INSERT INTO public.payments VALUES (1,1,10,'invoice_collection'),(2,1,11,'invoice_collection'),(3,2,20,'invoice_collection'),(4,1,10,'security_deposit'),(5,1,10,'security_deposit_refund'),(6,1,10,'subscriber_credit');
 INSERT INTO public.employees VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.employee_adjustments VALUES(1,1,10),(2,1,11),(3,2,20);
 INSERT INTO public.employee_attendance VALUES(1,1,10),(2,1,11),(3,2,20);
@@ -213,6 +213,7 @@ VALUES (1,1,'managePayroll',true);
 \ir ../migrations/20261106212249_powerhub_financial_capability_read_rls.sql
 \ir ../migrations/20261106213134_powerhub_financial_settlement_report_capability_only.sql
 \ir ../migrations/20261106213355_powerhub_company_account_capability_rls_helper.sql
+\ir ../migrations/20261107100000_powerhub_payment_security_deposit_rls.sql
 
 -- Updating account_id alone must invoke the site resolver and reject an account
 -- that is linked exclusively to a different branch.
@@ -265,7 +266,7 @@ BEGIN
   IF (SELECT count(*) FROM public.inventory_warehouses)<>1 OR NOT EXISTS(SELECT 1 FROM public.inventory_warehouses WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_WAREHOUSE_SITE_SCOPE_FAILED'; END IF;
   IF (SELECT count(*) FROM public.inventory_stock_movements)<>1 OR NOT EXISTS(SELECT 1 FROM public.inventory_stock_movements WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_STOCK_MOVEMENT_SITE_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoices)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoices WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_INVOICE_SCOPE_FAILED'; END IF;
- IF (SELECT count(*) FROM public.payments)<>1 OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=1) THEN RAISE EXCEPTION 'BRANCH_A_PAYMENT_SCOPE_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.payments)<>4 OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=1) OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=4) OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=5) OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=6) THEN RAISE EXCEPTION 'BRANCH_A_PAYMENT_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.invoice_lines)<>1 OR NOT EXISTS(SELECT 1 FROM public.invoice_lines WHERE id=1) THEN RAISE EXCEPTION 'INVOICE_CHILD_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.company_accounts)<>3 OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=100) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102) OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=104) THEN RAISE EXCEPTION 'COMPANY_ACCOUNT_BRANCH_SCOPE_FAILED'; END IF;
  IF (SELECT count(*) FROM public.account_transactions)<>2 OR NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=1) OR NOT EXISTS(SELECT 1 FROM public.account_transactions WHERE id=3) THEN RAISE EXCEPTION 'ACCOUNT_TRANSACTION_SITE_SCOPE_FAILED'; END IF;
@@ -471,9 +472,8 @@ SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000011'
 SET ROLE authenticated;
 DO $collector_finance$
 BEGIN
- IF (SELECT count(*) FROM public.invoices)<>1 OR (SELECT count(*) FROM public.payments)<>1 THEN
-   RAISE EXCEPTION 'COLLECTOR_MUST_READ_ONLY_COLLECTION_INVOICES_AND_PAYMENTS';
- END IF;
+ IF (SELECT count(*) FROM public.invoices)<>1 OR (SELECT count(*) FROM public.payments)<>2 OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=1 AND payment_purpose='invoice_collection') OR NOT EXISTS(SELECT 1 FROM public.payments WHERE id=6 AND payment_purpose='subscriber_credit') THEN RAISE EXCEPTION 'COLLECTOR_MUST_READ_ONLY_COLLECTION_INVOICES_AND_CREDIT'; END IF;
+ IF EXISTS(SELECT 1 FROM public.payments WHERE payment_purpose IN ('security_deposit','security_deposit_refund')) THEN RAISE EXCEPTION 'COLLECTOR_MUST_NOT_READ_SECURITY_DEPOSITS'; END IF;
  IF (SELECT count(*) FROM public.expenses)<>0
     OR (SELECT count(*) FROM public.financial_settlements)<>0
     OR (SELECT count(*) FROM public.company_accounts)<>0
@@ -522,7 +522,7 @@ SET ROLE authenticated;
 DO $explicit_financial_viewer$
 BEGIN
  IF (SELECT count(*) FROM public.invoices)<>1
-    OR (SELECT count(*) FROM public.payments)<>1
+    OR (SELECT count(*) FROM public.payments)<>4
     OR (SELECT count(*) FROM public.expenses)<>1
     OR (SELECT count(*) FROM public.financial_settlements)<>1 THEN
    RAISE EXCEPTION 'EXPLICIT_FINANCIAL_REPORT_VIEWER_GRANT_NOT_HONORED';
