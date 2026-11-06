@@ -20,6 +20,7 @@ describe("financial capability enforcement", () => {
     expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")');
     expect(router).toContain('securityDeposit: canViewFinancialReports ? String(data?.[0]?.security_deposit ?? 0) : null');
     expect(router).toContain('financial: canViewFinancial ? {');
+    expect(router).toContain('resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"])');
   });
 
   it("keeps collection credit visible without exposing the subscriber security deposit to collectors", () => {
