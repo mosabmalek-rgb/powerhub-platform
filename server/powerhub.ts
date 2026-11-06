@@ -5559,16 +5559,40 @@ export const powerhubRouter = router({
       if (input.status) query = query.eq("status", input.status);
       const { data, error } = await query.order("created_at", { ascending: false }).limit(500);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل السلف والخصومات من Supabase." });
+      const canReadPayrollEmployeeDetails = access.permissions.includes("managePayroll");
+      const employeeColumns = canReadPayrollEmployeeDetails
+        ? "id, tenant_id, site_id, linked_user_id, full_name, identity_no, phone, job_title, employment_status, contract_type, base_wage, hire_date, notes, created_at, updated_at"
+        : "id, tenant_id, site_id, full_name, job_title, employment_status";
       const employeeIds = Array.from(new Set((data ?? []).map((adjustment) => Number(adjustment.employee_id))));
-      const { data: people, error: peopleError } = employeeIds.length ? await supabaseAdmin().from("employees").select("id, tenant_id, site_id, linked_user_id, full_name, identity_no, phone, job_title, employment_status, contract_type, base_wage, hire_date, notes, created_at, updated_at").eq("tenant_id", access.tenantId).in("id", employeeIds) : { data: [], error: null };
+      const { data: people, error: peopleError } = employeeIds.length ? await supabaseAdmin().from("employees").select(employeeColumns).eq("tenant_id", access.tenantId).in("id", employeeIds) : { data: [], error: null };
       if (peopleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل موظفي السلف والخصومات من Supabase." });
       const peopleById = new Map((people ?? []).map((employee) => [Number(employee.id), employee]));
       return (data ?? []).flatMap((adjustment) => {
         const employee = peopleById.get(Number(adjustment.employee_id));
-        return employee ? [{
+        if (!employee) return [];
+        const employeeSummary = {
+          id: Number(employee.id),
+          tenantId: Number(employee.tenant_id),
+          siteId: employee.site_id === null ? null : Number(employee.site_id),
+          fullName: employee.full_name,
+          jobTitle: employee.job_title,
+          employmentStatus: employee.employment_status,
+        };
+        const payrollEmployeeDetails = canReadPayrollEmployeeDetails ? {
+          linkedUserId: employee.linked_user_id === null ? null : Number(employee.linked_user_id),
+          identityNo: employee.identity_no,
+          phone: employee.phone,
+          contractType: employee.contract_type,
+          baseWage: String(employee.base_wage),
+          hireDate: employee.hire_date ? new Date(employee.hire_date) : null,
+          notes: employee.notes,
+          createdAt: new Date(employee.created_at),
+          updatedAt: new Date(employee.updated_at),
+        } : {};
+        return [{
           adjustment: { id: Number(adjustment.id), tenantId: Number(adjustment.tenant_id), employeeId: Number(adjustment.employee_id), siteId: adjustment.site_id === null ? null : Number(adjustment.site_id), adjustmentType: adjustment.adjustment_type, amount: String(adjustment.amount), remainingAmount: String(adjustment.remaining_amount), reason: adjustment.reason, status: adjustment.status, createdByUserId: Number(adjustment.created_by_user_id), createdAt: new Date(adjustment.created_at), updatedAt: new Date(adjustment.updated_at) },
-          employee: { id: Number(employee.id), tenantId: Number(employee.tenant_id), siteId: employee.site_id === null ? null : Number(employee.site_id), linkedUserId: employee.linked_user_id === null ? null : Number(employee.linked_user_id), fullName: employee.full_name, identityNo: employee.identity_no, phone: employee.phone, jobTitle: employee.job_title, employmentStatus: employee.employment_status, contractType: employee.contract_type, baseWage: String(employee.base_wage), hireDate: employee.hire_date ? new Date(employee.hire_date) : null, notes: employee.notes, createdAt: new Date(employee.created_at), updatedAt: new Date(employee.updated_at) },
-        }] : [];
+          employee: { ...employeeSummary, ...payrollEmployeeDetails },
+        }];
       });
     }),
     createAdjustment: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), employeeId: z.number().int().positive(), adjustmentType: z.enum(["advance", "deduction"]), amount: z.number().positive().max(100000000), reason: z.string().trim().min(3).max(255) })).mutation(async ({ ctx, input }) => {

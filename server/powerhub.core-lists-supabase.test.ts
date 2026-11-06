@@ -1050,12 +1050,51 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.listEmployees({ siteId: 10, employmentStatus: "active" })).resolves.toMatchObject([{ id: 120, fullName: "محاسب الاختبار", baseWage: "1000" }]);
     await expect(caller.hr.listAdjustments({ siteId: 10, status: "open" })).resolves.toMatchObject([{
-      adjustment: { id: 121, employeeId: 120, amount: "100", remainingAmount: "100" }, employee: { id: 120, fullName: "محاسب الاختبار" },
+      adjustment: { id: 121, employeeId: 120, amount: "100", remainingAmount: "100" },
+      employee: { id: 120, fullName: "محاسب الاختبار", baseWage: "1000", phone: "0595000000", contractType: "monthly" },
     }]);
     await expect(caller.hr.listPayrollRuns({ siteId: 10, period: "2026-08" })).resolves.toMatchObject([{ id: 122, totalNet: "900", status: "draft" }]);
     await expect(caller.hr.getPayrollDetails({ siteId: 10, payrollRunId: 122 })).resolves.toMatchObject([{
       item: { id: 123, payrollRunId: 122, netAmount: "900" }, employee: { id: 120, fullName: "محاسب الاختبار", jobTitle: "accountant" },
     }]);
+  });
+
+  it("يحجب بيانات ملف الموظف الحساسة في listAdjustments عن مدير المصروفات دون managePayroll", async () => {
+    state.tables.users = [{ id: 2, role: "user", platform_role: "platform_user", account_status: "active" }];
+    state.tables.tenant_members = [{
+      tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active", expires_at: null,
+    }];
+    state.tables.staff_profiles = [{
+      id: 122, tenant_id: 20, user_id: 2, site_id: 10, role: "manager",
+      permissions: null, custom_role_id: null, is_active: true, archived_at: null,
+      suspension_started_at: null, suspension_ends_at: null,
+    }];
+
+    const managerCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
+    const managerAccess = await managerCaller.staff.myAccess({ siteId: 10 });
+    expect(managerAccess.permissions).toContain("manageExpenses");
+    expect(managerAccess.permissions).not.toContain("managePayroll");
+
+    const managerRows = await managerCaller.hr.listAdjustments({ siteId: 10, status: "open" });
+    expect(managerRows).toHaveLength(1);
+    expect(managerRows[0].employee).toMatchObject({
+      id: 120, tenantId: 20, siteId: 10, fullName: "محاسب الاختبار",
+      jobTitle: "accountant", employmentStatus: "active",
+    });
+    for (const field of ["linkedUserId", "identityNo", "phone", "contractType", "baseWage", "hireDate", "notes", "createdAt", "updatedAt"]) {
+      expect(managerRows[0].employee).not.toHaveProperty(field);
+    }
+
+    // Positive control: an explicit managePayroll grant may read the full HR profile.
+    state.tables.staff_profiles = [{
+      id: 122, tenant_id: 20, user_id: 2, site_id: 10, role: "manager",
+      permissions: ["manageExpenses", "managePayroll"], custom_role_id: null,
+      is_active: true, archived_at: null, suspension_started_at: null, suspension_ends_at: null,
+    }];
+    const payrollManagerRows = await managerCaller.hr.listAdjustments({ siteId: 10, status: "open" });
+    expect(payrollManagerRows[0].employee).toMatchObject({
+      baseWage: "1000", phone: "0595000000", contractType: "monthly",
+    });
   });
 
   it("يعرض سجل الحضور وملخص الموارد البشرية من Supabase دون MySQL", async () => {
