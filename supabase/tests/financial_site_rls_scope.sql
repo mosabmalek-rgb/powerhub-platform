@@ -213,7 +213,7 @@ VALUES (1,1,'managePayroll',true);
 \ir ../migrations/20261106212249_powerhub_financial_capability_read_rls.sql
 \ir ../migrations/20261106213134_powerhub_financial_settlement_report_capability_only.sql
 \ir ../migrations/20261106213355_powerhub_company_account_capability_rls_helper.sql
-\ir ../migrations/20261107100000_powerhub_payment_security_deposit_rls.sql
+\ir ../migrations/20261106224854_powerhub_payment_security_deposit_rls.sql
 
 -- Updating account_id alone must invoke the site resolver and reject an account
 -- that is linked exclusively to a different branch.

@@ -68,8 +68,8 @@ describe("financial capability enforcement", () => {
   it("separates security-deposit payment visibility from collection capability", () => {
     const router = read("server/powerhub.ts");
     const persistence = read("server/powerhub-supabase.ts");
-    const rls = read("supabase/migrations/20261107100000_powerhub_payment_security_deposit_rls.sql");
-    const projection = read("supabase/migrations/20261107101000_powerhub_payment_delta_purpose_projection.sql");
+    const rls = read("supabase/migrations/20261106224854_powerhub_payment_security_deposit_rls.sql");
+    const projection = read("supabase/migrations/20261106224902_powerhub_payment_delta_purpose_projection.sql");
     expect(router).toContain('const canViewPaymentSecurityDeposits = input.entityType === "payments"');
     expect(router).toContain('resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"])');
     expect(router).toContain('select("id, receipt_image_key, payment_purpose")');

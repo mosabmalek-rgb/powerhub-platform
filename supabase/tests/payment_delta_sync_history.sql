@@ -63,7 +63,7 @@ values (501,1,10,101,'INV-TEST-501',date '2026-10-27',100,0,100,'issued');
 \ir ../migrations/20261024140000_powerhub_delta_sync_engine.sql
 \ir ../migrations/20261101082439_powerhub_delta_invoice_history.sql
 \ir ../migrations/20261101082546_powerhub_delta_payment_history.sql
-\ir ../migrations/20261107101000_powerhub_payment_delta_purpose_projection.sql
+\ir ../migrations/20261106224902_powerhub_payment_delta_purpose_projection.sql
 
 do $test$
 declare v_snapshot jsonb; v_delta jsonb; v_cursor bigint; v_projection jsonb;
