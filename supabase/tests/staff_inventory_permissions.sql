@@ -135,7 +135,7 @@ begin
   select count(*) into v_audit_count from public.staff_profile_permission_audit where tenant_id=10 and profile_id=101;
   select is_allowed into v_owner_denied from public.tenant_member_capability_overrides where tenant_id=10 and user_id=4 and capability='viewInventory';
   select is_allowed into v_owner_financial_denied from public.tenant_member_capability_overrides where tenant_id=10 and user_id=4 and capability='viewFinancialReports';
-  select count(*) into v_owner_audit_count from public.tenant_member_permission_audit where tenant_id=10 and user_id=4 and capability='viewInventory';
+  select count(*) into v_owner_audit_count from public.tenant_member_permission_audit where tenant_id=10 and user_id=4;
   if v_allowed is distinct from true then raise exception 'INDIVIDUAL_PERMISSION_GRANT_FAILED'; end if;
   if v_denied is distinct from false then raise exception 'INDIVIDUAL_PERMISSION_DENY_FAILED'; end if;
   if v_supplier_view is distinct from true then raise exception 'SUPPLIER_DIRECTORY_PERMISSION_GRANT_FAILED'; end if;
