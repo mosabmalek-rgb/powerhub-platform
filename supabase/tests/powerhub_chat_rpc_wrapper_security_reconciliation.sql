@@ -181,7 +181,7 @@ GRANT EXECUTE ON FUNCTION
   private.chat_mark_notification_read(bigint)
 TO authenticated;
 
-\ir ../migrations/20261106155820_powerhub_private_chat_rpc_acl_reconciliation.sql
+\ir ../migrations/20261106160501_powerhub_private_chat_rpc_acl_reconciliation.sql
 
 
 DO $assert_acl$
