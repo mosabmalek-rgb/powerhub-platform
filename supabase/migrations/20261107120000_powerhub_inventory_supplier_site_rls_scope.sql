@@ -32,11 +32,11 @@ BEGIN
       RAISE EXCEPTION 'INVENTORY_SUPPLIER_SITE_SCOPE_RLS_DISABLED: %', target.table_name;
     END IF;
     IF EXISTS (
-      SELECT 1 FROM unnest(target.required_columns) required_column
+      SELECT 1 FROM unnest(target.required_columns) AS required_columns(column_name)
       WHERE NOT EXISTS (
         SELECT 1 FROM pg_attribute a
         WHERE a.attrelid=to_regclass(format('public.%I',target.table_name))
-          AND a.attname=required_column AND a.attnum>0 AND NOT a.attisdropped
+          AND a.attname=required_columns.column_name AND a.attnum>0 AND NOT a.attisdropped
       )
     ) THEN
       RAISE EXCEPTION 'INVENTORY_SUPPLIER_SITE_SCOPE_COLUMN_MISSING: %', target.table_name;
@@ -112,11 +112,9 @@ CREATE POLICY supplier_payment_allocations_site_scope_read_guard
     SELECT 1 FROM public.supplier_payments payment
     JOIN public.supplier_purchases purchase
       ON purchase.tenant_id=payment.tenant_id
-    JOIN public.supplier_payment_allocations allocation
-      ON allocation.tenant_id=payment.tenant_id
-     AND allocation.payment_id=payment.id
-     AND allocation.purchase_id=purchase.id
-    WHERE allocation.id=supplier_payment_allocations.id
+     AND purchase.id=supplier_payment_allocations.purchase_id
+    WHERE payment.tenant_id=supplier_payment_allocations.tenant_id
+      AND payment.id=supplier_payment_allocations.payment_id
       AND payment.site_id=purchase.site_id
       AND private.powerhub_has_site_access(payment.tenant_id,payment.site_id)
   ));
