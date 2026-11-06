@@ -3240,8 +3240,8 @@ export const powerhubRouter = router({
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).eq("id", input.paymentId).maybeSingle();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صورة إيصال الدفع." });
       if (!payment?.receipt_image_key) throw new TRPCError({ code: "NOT_FOUND", message: "لا توجد صورة إيصال مرفقة بهذه الدفعة." });
-      if (["security_deposit", "security_deposit_refund"].includes(payment.payment_purpose ?? "") && !access.permissions.includes("viewFinancialReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على إيصالات التأمين." });
+      if (["security_deposit", "security_deposit_refund"].includes(payment.payment_purpose ?? "")) {
+        await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
       }
       try { return { url: (await storageGet(payment.receipt_image_key)).url }; }
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "تعذر إنشاء رابط آمن لصورة الإيصال." }); }
