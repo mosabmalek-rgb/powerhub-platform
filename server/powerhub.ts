@@ -4007,8 +4007,12 @@ export const powerhubRouter = router({
       const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([
         readSupabaseReportPages((from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds).is("archived_at", null).order("id", { ascending: true }).range(from, to), "تعذر تحميل المشتركين لملخص جميع الأفرع من Supabase."),
         readSupabaseReportPages((from, to) => admin.from("generators").select("status").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المولدات لملخص جميع الأفرع من Supabase."),
-        readSupabaseReportPages((from, to) => admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", access.tenantId).in("site_id", branchIds).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to), "تعذر تحميل الفواتير لملخص جميع الأفرع من Supabase."),
-        readSupabaseReportPages((from, to) => admin.from("expenses").select("amount").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المصروفات لملخص جميع الأفرع من Supabase."),
+        canViewFinancial
+          ? readSupabaseReportPages((from, to) => admin.from("invoices").select("status, total_amount, paid_amount, balance_due, consumption_kwh").eq("tenant_id", access.tenantId).in("site_id", branchIds).neq("status", "cancelled").neq("status", "draft").order("id", { ascending: true }).range(from, to), "تعذر تحميل الفواتير لملخص جميع الأفرع من Supabase.")
+          : Promise.resolve([]),
+        canViewFinancial
+          ? readSupabaseReportPages((from, to) => admin.from("expenses").select("amount").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المصروفات لملخص جميع الأفرع من Supabase.")
+          : Promise.resolve([]),
       ]);
       const subscriberIds = subscriberRows.map((row) => Number(row.id)).filter(Number.isInteger);
       const notificationRows: Array<{ status: string }> = [];
