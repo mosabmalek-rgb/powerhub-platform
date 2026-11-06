@@ -1082,8 +1082,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
   it("requires inventory report permission before querying Phase D financial totals", async () => {
-    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"],
-      allowedCapabilities: ["manageFuelAndConsumption"] });
+    state.siteAccess.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.rpc.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.phaseDFinancialSummary;

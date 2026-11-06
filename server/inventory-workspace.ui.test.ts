@@ -250,7 +250,7 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("لا تُضاف كميات إلى المخزون حتى تسجيل الاستلام");
     expect(panel).toContain("canViewFinancials");
     expect(router).toContain("requirePurchaseReadAccess");
-    expect(router).toContain("resolveSupabaseSiteAccess(userId, siteId)");
+    expect(router).toContain("requireSupabaseSiteAnyCapability(userId, siteId");
     expect(router).toContain('"viewPurchases"');
     expect(router).toContain('"createPurchases"');
     expect(router).toContain('"approvePurchases"');
@@ -314,7 +314,7 @@ describe("inventory workspace UI contract", () => {
     expect(reports).toContain("exportingMoves");
     expect(reports).toContain("setTimeout");
     expect(reports).toContain('s.replace(/"/g');
-    expect(router).toContain('permissions.includes("viewInventoryReports")');
+    expect(router).toContain('allowedCapabilities.includes("viewInventoryReports")');
     expect(router).toContain("powerhub_inventory_list_stock_movement_report");
     expect(router).toContain("listInventoryReportWarehouses: protectedProcedure");
     expect(reports).toContain("listInventoryReportWarehouses.useQuery");
@@ -726,7 +726,8 @@ describe("inventory workspace UI contract", () => {
     const procedure = router.slice(start, end);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
-    expect(procedure).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageFuelAndConsumption")');
+    expect(procedure).toContain('resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["manageFuelAndConsumption", "viewInventoryReports"])');
+    expect(procedure).toContain('access.allowedCapabilities.includes("manageFuelAndConsumption")');
     expect(procedure).toContain("powerhub_inventory_record_fuel_fill");
     for (const finalAction of ["recordStockMovement", "postStocktake", "receivePurchase", "returnToSupplier"]) {
       expect(queue).not.toContain('"'+finalAction+'"');
