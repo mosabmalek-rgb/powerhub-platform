@@ -191,7 +191,7 @@ begin
 end
 $legacy_hr_site_scope_seed$;
 
-\ir ../migrations/20261106201500_powerhub_employee_advance_account_transaction_site_scope.sql
+\ir ../migrations/20261106203048_powerhub_employee_advance_account_transaction_site_scope.sql
 
 do $legacy_hr_site_scope_assertions$
 begin
