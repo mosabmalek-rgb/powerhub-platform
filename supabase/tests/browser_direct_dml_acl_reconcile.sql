@@ -238,6 +238,66 @@ BEGIN
 END
 $assert_acl$;
 
+DO $assert_ancillary_acl$
+DECLARE v_table record; v_before record;
+BEGIN
+ FOR v_table IN
+  SELECT c.oid,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='public' AND c.relkind IN ('r','p')
+ LOOP
+  IF has_table_privilege('anon',v_table.oid,'REFERENCES')
+     OR has_table_privilege('anon',v_table.oid,'TRIGGER')
+     OR has_table_privilege('anon',v_table.oid,'MAINTAIN')
+     OR has_table_privilege('authenticated',v_table.oid,'REFERENCES')
+     OR has_table_privilege('authenticated',v_table.oid,'TRIGGER')
+     OR has_table_privilege('authenticated',v_table.oid,'MAINTAIN')
+     OR EXISTS (
+       SELECT 1 FROM aclexplode(coalesce(
+         (SELECT c.relacl FROM pg_class c WHERE c.oid=v_table.oid),
+         acldefault('r',(SELECT c.relowner FROM pg_class c WHERE c.oid=v_table.oid))
+       )) a
+       WHERE a.grantee=0 AND a.privilege_type IN ('REFERENCES','TRIGGER','MAINTAIN')
+     ) THEN
+    RAISE EXCEPTION 'BROWSER_ANCILLARY_PRIVILEGE_REMAINS_ON_%',v_table.relname;
+  END IF;
+  SELECT * INTO v_before FROM service_role_ancillary_acl_before WHERE relname=v_table.relname;
+  IF NOT FOUND
+     OR has_table_privilege('service_role',v_table.oid,'REFERENCES') IS DISTINCT FROM v_before.refs
+     OR has_table_privilege('service_role',v_table.oid,'TRIGGER') IS DISTINCT FROM v_before.triggers
+     OR has_table_privilege('service_role',v_table.oid,'MAINTAIN') IS DISTINCT FROM v_before.maintain THEN
+    RAISE EXCEPTION 'SERVICE_ROLE_ANCILLARY_ACL_CHANGED_ON_%',v_table.relname;
+  END IF;
+ END LOOP;
+END
+$assert_ancillary_acl$;
+
+DO $assert_chat_support_direct_write_acl$
+DECLARE v_table text; v_oid oid;
+BEGIN
+ FOREACH v_table IN ARRAY ARRAY[
+  'chat_support_categories','chat_support_feedback','chat_support_quick_replies',
+  'chat_support_sla_policies','chat_support_tags'
+ ] LOOP
+  v_oid:=to_regclass('public.'||v_table);
+  IF NOT has_table_privilege('authenticated',v_oid,'SELECT')
+     OR has_table_privilege('authenticated',v_oid,'INSERT')
+     OR has_table_privilege('authenticated',v_oid,'UPDATE')
+     OR has_table_privilege('authenticated',v_oid,'DELETE')
+     OR has_table_privilege('authenticated',v_oid,'TRUNCATE')
+     OR has_table_privilege('anon',v_oid,'INSERT')
+     OR has_table_privilege('anon',v_oid,'UPDATE')
+     OR has_table_privilege('anon',v_oid,'DELETE')
+     OR has_table_privilege('anon',v_oid,'TRUNCATE')
+     OR NOT has_table_privilege('service_role',v_oid,'INSERT')
+     OR NOT has_table_privilege('service_role',v_oid,'UPDATE')
+     OR NOT has_table_privilege('service_role',v_oid,'DELETE')
+     OR NOT has_table_privilege('service_role',v_oid,'TRUNCATE') THEN
+    RAISE EXCEPTION 'CHAT_SUPPORT_DIRECT_WRITE_ACL_CONTRACT_FAILED_ON_%',v_table;
+  END IF;
+ END LOOP;
+END
+$assert_chat_support_direct_write_acl$;
+
 -- These three Staging-only tables are absent from Production. The conditional
 -- migration must skip them cleanly when the same forward migration is replayed.
 DROP TABLE public.emergency_requests;
