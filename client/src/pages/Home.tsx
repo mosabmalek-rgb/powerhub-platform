@@ -157,12 +157,11 @@ export function WorkspaceHome() {
     writeCachedTenantAccess(user?.id, siteId, accessQuery.data);
   }, [accessQuery.data, accessQuery.error, accessQuery.isError, siteId, sitesAccessDenied, user?.id]);
   const dashboardScopeDenied = sitesAccessDenied || isExplicitAuthorizationDenial(accessQuery.error);
-  // The API intentionally restricts the financial overview to these roles. Do not
-  // fire a known-forbidden query for technicians/collectors and misreport that as
-  // a dashboard data-loading failure.
-  const canViewFinancialOverview = !dashboardScopeDenied && Boolean(
-    accessQuery.data && ["owner", "manager", "accountant", "viewer"].includes(accessQuery.data.role),
-  );
+  // Financial reports require the explicit capability, not site membership or role labels.
+  const canViewFinancialOverview = !dashboardScopeDenied &&
+    Boolean(accessQuery.data?.permissions?.includes("viewFinancialReports"));
+  const canViewOperationalKpis = !dashboardScopeDenied &&
+    Boolean(accessQuery.data && ["owner", "manager", "accountant", "viewer"].includes(accessQuery.data.role));
   const smsQuotaQuery = trpc.powerhub.messaging.smsQuota.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
   const smsCreditPackagesQuery = trpc.powerhub.messaging.smsCreditPackages.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 60_000 });
   const branchPolicyQuery = trpc.powerhub.sites.branchPolicy.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && accessQuery.data?.role === "owner" && !dashboardScopeDenied && !user?.mustChangePassword) });
@@ -255,7 +254,7 @@ export function WorkspaceHome() {
   }, { enabled: periodKpiBaseEnabled, staleTime: 30_000, refetchOnWindowFocus: false });
   const activeSubscribersKpiQuery = trpc.powerhub.dashboard.activeSubscribersKpi.useQuery(
     { siteId: siteId ?? 0, scope: selectedScope },
-    { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 30_000 },
+    { enabled: Boolean(isAuthenticated && siteId && canViewOperationalKpis && !dashboardRevisionDenied && !user?.mustChangePassword), staleTime: 30_000 },
   );
   const financialKpiEnabled = Boolean(isAuthenticated && siteId && canViewFinancialOverview && !dashboardRevisionDenied && !user?.mustChangePassword);
   const expensesKpiQuery = trpc.powerhub.dashboard.financialKpi.useQuery(
@@ -318,7 +317,7 @@ export function WorkspaceHome() {
     expensesKpiQuery.error, netCashKpiQuery.error, currentArrearsKpiQuery.error,
   ]);
 
-  const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && !user?.mustChangePassword), staleTime: 30_000 });
+  const companyAccountsQuery = trpc.powerhub.companyAccounts.list.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && canViewFinancialOverview && !user?.mustChangePassword), staleTime: 30_000 });
   const requestUpgrade = trpc.powerhub.subscription.requestUpgrade.useMutation({ onSuccess: (result) => { void upgradeRequestQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب ترقية قيد المتابعة بالفعل." : `تم إرسال طلب الترقية إلى باقة ${result.requestedPackageCode}.`); }, onError: (error) => toast.error(error.message) });
   const requestAddon = trpc.powerhub.subscription.requestAddon.useMutation({ onSuccess: async (result) => { await addonRequestsQuery.refetch(); toast.success(result.alreadyRequested ? "لديك طلب إضافة قيد المتابعة بالفعل." : "تم إرسال طلب الإضافة إلى إدارة PowerHub."); }, onError: (error) => toast.error(error.message) });
   // A persisted financial snapshot is display-only and must never substitute for a verified role.
@@ -366,7 +365,7 @@ export function WorkspaceHome() {
       !query.data || value === null || value === undefined ? "—" : number(value, fractionDigits);
   const activeSubscriberMetric = accessQuery.isLoading || (activeSubscribersKpiQuery.isLoading && powerHubReachable)
     ? "…"
-    : !canViewFinancialOverview || dashboardRevisionDenied || isExplicitAuthorizationDenial(activeSubscribersKpiQuery.error) ||
+    : !canViewOperationalKpis || dashboardRevisionDenied || isExplicitAuthorizationDenial(activeSubscribersKpiQuery.error) ||
       !activeSubscribersKpiQuery.data || activeSubscribersKpiQuery.data.value === null ||
       activeSubscribersKpiQuery.data.value === undefined
       ? "—" : number(activeSubscribersKpiQuery.data.value);
