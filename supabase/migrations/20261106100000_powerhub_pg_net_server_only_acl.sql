@@ -1,0 +1,40 @@
+-- pg_net is a server-side HTTP transport, not a browser API.
+-- The extension is intentionally left installed in its current schema; this
+-- migration only restricts callers and the queue/response objects it owns.
+REVOKE ALL ON SCHEMA net FROM PUBLIC, anon, authenticated;
+GRANT USAGE ON SCHEMA net TO service_role;
+
+-- pg_net functions execute with the caller's privileges in the deployed
+-- extension version. Keep the complete API and its internal helpers available
+-- to trusted server code, but not to browser roles through inherited PUBLIC ACLs.
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA net
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA net TO service_role;
+
+-- The HTTP request queue and retained responses are internal transport state.
+-- Service-role server code may collect results; browser roles get no direct DML.
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA net
+  FROM PUBLIC, anon, authenticated;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA net TO service_role;
+
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA net
+  FROM PUBLIC, anon, authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA net TO service_role;
+
+-- pg_net objects are owned by supabase_admin on Supabase. Protect objects
+-- created by later extension upgrades from inheriting PostgreSQL's PUBLIC
+-- EXECUTE/table defaults, while preserving the trusted service-role path.
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
+  GRANT EXECUTE ON FUNCTIONS TO service_role;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
+  REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
+  GRANT ALL PRIVILEGES ON TABLES TO service_role;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
+  REVOKE ALL PRIVILEGES ON SEQUENCES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
+  GRANT USAGE, SELECT ON SEQUENCES TO service_role;
