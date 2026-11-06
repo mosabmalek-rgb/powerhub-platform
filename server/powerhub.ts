@@ -5560,11 +5560,8 @@ export const powerhubRouter = router({
       const { data, error } = await query.order("created_at", { ascending: false }).limit(500);
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل السلف والخصومات من Supabase." });
       const canReadPayrollEmployeeDetails = access.permissions.includes("managePayroll");
-      const employeeColumns = canReadPayrollEmployeeDetails
-        ? "id, tenant_id, site_id, linked_user_id, full_name, identity_no, phone, job_title, employment_status, contract_type, base_wage, hire_date, notes, created_at, updated_at"
-        : "id, tenant_id, site_id, full_name, job_title, employment_status";
       const employeeIds = Array.from(new Set((data ?? []).map((adjustment) => Number(adjustment.employee_id))));
-      const { data: people, error: peopleError } = employeeIds.length ? await supabaseAdmin().from("employees").select(employeeColumns).eq("tenant_id", access.tenantId).in("id", employeeIds) : { data: [], error: null };
+      const { data: people, error: peopleError } = employeeIds.length ? await supabaseAdmin().from("employees").select("id, tenant_id, site_id, linked_user_id, full_name, identity_no, phone, job_title, employment_status, contract_type, base_wage, hire_date, notes, created_at, updated_at").eq("tenant_id", access.tenantId).in("id", employeeIds) : { data: [], error: null };
       if (peopleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل موظفي السلف والخصومات من Supabase." });
       const peopleById = new Map((people ?? []).map((employee) => [Number(employee.id), employee]));
       return (data ?? []).flatMap((adjustment) => {
