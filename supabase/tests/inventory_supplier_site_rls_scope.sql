@@ -50,7 +50,7 @@ BEGIN
     'supplier_payment_allocations','supplier_ledger_entries'
   ] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',target);
-    EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (tenant_id IN (SELECT tenant_id FROM public.site_memberships WHERE user_id=nullif(current_setting(''request.jwt.claim.user_id'',true),'''')::bigint AND is_active))',target,target||'_tenant_read');
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (tenant_id IN (SELECT tenant_id FROM public.site_memberships WHERE user_id=nullif(current_setting(''request.jwt.claim.user_id'',true),'''')::bigint AND is_active))',target||'_tenant_read',target);
     EXECUTE format('GRANT SELECT ON public.%I TO authenticated',target);
   END LOOP;
 END
