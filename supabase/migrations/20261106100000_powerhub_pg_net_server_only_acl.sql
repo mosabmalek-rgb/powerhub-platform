@@ -21,20 +21,3 @@ REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA net
   FROM PUBLIC, anon, authenticated;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA net TO service_role;
 
--- pg_net objects are owned by supabase_admin on Supabase. Protect objects
--- created by later extension upgrades from inheriting PostgreSQL's PUBLIC
--- EXECUTE/table defaults, while preserving the trusted service-role path.
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
-  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
-  GRANT EXECUTE ON FUNCTIONS TO service_role;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
-  REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, anon, authenticated;
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
-  GRANT ALL PRIVILEGES ON TABLES TO service_role;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
-  REVOKE ALL PRIVILEGES ON SEQUENCES FROM PUBLIC, anon, authenticated;
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA net
-  GRANT USAGE, SELECT ON SEQUENCES TO service_role;
