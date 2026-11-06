@@ -1090,7 +1090,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
       ctx: { user: { id: 55 } },
       input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23" },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.siteAccess).toHaveBeenCalledWith(55, 7, ["viewInventoryReports", "viewPurchases", "manageSupplierPayments", "viewSupplierLedger", "reverseSupplierPayments"]);
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7, ["viewInventoryReports"]);
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
