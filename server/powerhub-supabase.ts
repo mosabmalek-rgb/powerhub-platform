@@ -359,15 +359,19 @@ export async function requireSupabaseAllBranchesRole(
           capability: item.capability, is_allowed: Boolean(item.is_allowed),
         }))
       : [];
-    const permissions = applyStaffCapabilityOverrides(allCapabilities, memberOverrides);
+    let permissions = applyStaffCapabilityOverrides(allCapabilities, memberOverrides);
+    const policyCapability = capability ?? "viewFinancialReports";
     if (capability && !permissions.includes(capability)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على هذه البيانات لجميع الأفرع." });
     }
-    if (capability) {
+    if (permissions.includes(policyCapability)) {
       const { data: policy, error } = await admin.from("platform_role_policies")
-        .select("is_allowed").eq("role", "owner").eq("capability", capability).maybeSingle();
+        .select("is_allowed").eq("role", "owner").eq("capability", policyCapability).maybeSingle();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
-      if (policy && !policy.is_allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+      if (policy && !policy.is_allowed) {
+        if (capability) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+        permissions = permissions.filter((item) => item !== policyCapability);
+      }
     }
     return { tenantId: access.tenantId, role: "owner" as const, permissions };
   }
@@ -397,14 +401,18 @@ export async function requireSupabaseAllBranchesRole(
   permissions = applyStaffCapabilityOverrides(permissions, (overrides ?? []).map((item) => ({
     capability: item.capability, is_allowed: Boolean(item.is_allowed),
   })));
+  const policyCapability = capability ?? "viewFinancialReports";
   if (capability && !permissions.includes(capability)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على هذه البيانات لجميع الأفرع." });
   }
-  if (capability) {
+  if (permissions.includes(policyCapability)) {
     const { data: policy, error } = await admin.from("platform_role_policies")
-      .select("is_allowed").eq("role", role).eq("capability", capability).maybeSingle();
+      .select("is_allowed").eq("role", role).eq("capability", policyCapability).maybeSingle();
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
-    if (policy && !policy.is_allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+    if (policy && !policy.is_allowed) {
+      if (capability) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+      permissions = permissions.filter((item) => item !== policyCapability);
+    }
   }
   return { tenantId: access.tenantId, role, permissions };
 }
