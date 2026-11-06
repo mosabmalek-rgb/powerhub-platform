@@ -177,9 +177,28 @@ AS $function$
     AND tm.membership_status='active'
     AND (tm.expires_at IS NULL OR tm.expires_at>now())
 $function$;
-CREATE OR REPLACE FUNCTION private.chat_feature_enabled_for_tenant(bigint,text)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
-AS $function$ SELECT true $function$;
+CREATE OR REPLACE FUNCTION private.chat_feature_enabled_for_tenant(
+  p_tenant_id bigint,
+  p_conversation_type text
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  SELECT CASE p_conversation_type
+    WHEN 'support' THEN coalesce(
+      nullif(pg_catalog.current_setting('test.powerhub_support_chat_enabled', true), '')::boolean,
+      true
+    )
+    WHEN 'assistant' THEN coalesce(
+      nullif(pg_catalog.current_setting('test.powerhub_ai_assistant_enabled', true), '')::boolean,
+      true
+    )
+    ELSE false
+  END;
+$function$;
 CREATE OR REPLACE FUNCTION private.chat_rls_can_select_conversation(bigint,bigint)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO ''
 AS $function$ SELECT false $function$;
@@ -714,3 +733,70 @@ $internal_delivery$;
 
 SELECT 'POWERHUB_CHAT_RLS_ACTIVE_ACCOUNT_AND_DELIVERY_SCOPE_ASSERTIONS_PASSED' AS result;
 
+-- Tenant-facing conversation mutations must stop when Support Chat is disabled.
+-- Platform Support remains able to process legacy tickets under the platform
+-- capability, without inheriting the tenant's feature toggle.
+SELECT set_config('request.jwt.claim.sub','11111111-1111-4111-8111-111111111111',false);
+DO $tenant_feature_disabled_mutations$
+DECLARE
+  v_denied boolean;
+BEGIN
+  PERFORM set_config('test.powerhub_support_chat_enabled','false',true);
+  PERFORM set_config('test.powerhub_ai_assistant_enabled','true',true);
+
+  v_denied:=false;
+  BEGIN
+    PERFORM private.chat_reopen_support_conversation(102);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='CHAT_FEATURE_DISABLED' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'DISABLED_SUPPORT_FEATURE_ALLOWED_TENANT_REOPEN';
+  END IF;
+
+  v_denied:=false;
+  BEGIN
+    PERFORM private.chat_transition_conversation(102,'SUPPORT_ACTIVE');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='CHAT_FEATURE_DISABLED' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'DISABLED_SUPPORT_FEATURE_ALLOWED_TENANT_TRANSITION';
+  END IF;
+
+  -- Escalating an Assistant conversation still requires the separate
+  -- Support Chat entitlement, even while the Assistant entitlement is enabled.
+  v_denied:=false;
+  BEGIN
+    PERFORM private.chat_transition_conversation(100,'SUPPORT_PENDING');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='CHAT_FEATURE_DISABLED' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'DISABLED_SUPPORT_FEATURE_ALLOWED_ASSISTANT_ESCALATION';
+  END IF;
+
+  IF (SELECT status FROM public.chat_conversations WHERE id=102)<>'RESOLVED'
+     OR (SELECT status FROM public.chat_conversations WHERE id=100)<>'AI_ACTIVE' THEN
+    RAISE EXCEPTION 'DISABLED_CHAT_FEATURE_MUTATION_LEFT_SIDE_EFFECT';
+  END IF;
+END
+$tenant_feature_disabled_mutations$;
+
+SELECT set_config('request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false);
+DO $platform_support_feature_override$
+BEGIN
+  PERFORM set_config('test.powerhub_support_chat_enabled','false',true);
+  PERFORM private.chat_transition_conversation(101,'RESOLVED');
+  IF (SELECT status FROM public.chat_conversations WHERE id=101)<>'RESOLVED' THEN
+    RAISE EXCEPTION 'PLATFORM_SUPPORT_CANNOT_RESOLVE_LEGACY_TICKET_WHEN_FEATURE_DISABLED';
+  END IF;
+
+  PERFORM private.chat_reopen_support_conversation(102);
+  IF (SELECT status FROM public.chat_conversations WHERE id=102)<>'SUPPORT_ACTIVE' THEN
+    RAISE EXCEPTION 'PLATFORM_SUPPORT_CANNOT_REOPEN_LEGACY_TICKET_WHEN_FEATURE_DISABLED';
+  END IF;
+END
+$platform_support_feature_override$;
+
+SELECT 'CHAT_FEATURE_ENTITLEMENT_MUTATION_GUARDS_ASSERTIONS_PASSED' AS result;
