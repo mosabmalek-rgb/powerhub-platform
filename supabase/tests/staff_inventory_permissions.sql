@@ -99,6 +99,7 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021085524_powerhub_supplier_directory_view_permission.sql
 \ir ../migrations/20261022200000_powerhub_owner_capability_overrides.sql
 \ir ../migrations/20261106212904_powerhub_admin_financial_report_capability.sql
+\ir ../migrations/20261106213946_powerhub_financial_report_capability_constraint_allowlist.sql
 
 set role service_role;
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'manageInventoryItems',true);
