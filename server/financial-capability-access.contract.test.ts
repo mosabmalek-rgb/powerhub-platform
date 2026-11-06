@@ -77,5 +77,7 @@ describe("financial capability enforcement", () => {
     expect(persistence).toContain('.in("payment_purpose", visiblePaymentPurposes)');
     expect(rls).toContain("security_deposit_refund");
     expect(projection).toContain("'payment_purpose', p.payment_purpose");
+    expect(router).toContain('resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"])');
+    expect(router).toContain('!canViewPaymentSecurityDeposits');
   });
 });

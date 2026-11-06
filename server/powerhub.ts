@@ -793,6 +793,9 @@ export const powerhubRouter = router({
                 : input.entityType === "inventory_stocktakes"
                   ? await requireDeltaStocktakeReadAccess(ctx.user.id, input.siteId)
                   : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType as keyof typeof readRolesByEntity]], inventoryCapability);
+      const canViewPaymentSecurityDeposits = input.entityType === "payments"
+        && (await resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"]))
+          .allowedCapabilities.includes("viewFinancialReports");
       const afterCursor = input.afterCursor === null ? null : BigInt(input.afterCursor).toString();
       const throughCursor = input.throughCursor == null ? null : BigInt(input.throughCursor).toString();
       const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"].includes(input.entityType);
@@ -818,7 +821,7 @@ export const powerhubRouter = router({
       }
       if (!data || typeof data !== "object" || Array.isArray(data)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة المزامنة التفاضلية غير صالحة." });
       const response = data as { status: "ok" | "reset_required"; entity_type: string; current_cursor: string; retained_from_cursor: string; snapshot_cursor: string | null; through_cursor: string; next_cursor: string | null; has_more: boolean; changes: Array<{ cursor: string; entity_type: string; entity_id: string; operation: "upsert" | "delete"; row_data: Record<string, unknown> | null; changed_at: string }> };
-      if (input.entityType === "payments" && !access.allowedCapabilities.includes("viewFinancialReports")) {
+      if (input.entityType === "payments" && !canViewPaymentSecurityDeposits) {
         const ids = Array.from(new Set(response.changes.filter(x => x.operation === "upsert").map(x => Number(x.entity_id)).filter(x => Number.isSafeInteger(x) && x > 0)));
         if (ids.length) {
           const { data: visible, error: visibilityError } = await supabaseAdmin().from("payments").select("id")
@@ -893,6 +896,9 @@ export const powerhubRouter = router({
                 : input.entityType === "inventory_stocktakes"
                   ? await requireDeltaStocktakeReadAccess(ctx.user.id, input.siteId)
                   : await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...readRolesByEntity[input.entityType as keyof typeof readRolesByEntity]], inventoryCapability);
+      const canViewPaymentSecurityDeposits = input.entityType === "payments"
+        && (await resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"]))
+          .allowedCapabilities.includes("viewFinancialReports");
       const inventoryCatalogEntity = ["inventory_items", "inventory_item_units", "suppliers", "inventory_warehouses", "inventory_stock_movements", "inventory_stocktakes", "inventory_purchase_headers", "inventory_purchase_receipt_headers", "inventory_supplier_return_headers"].includes(input.entityType);
       const operationalDeltaEntity = input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans";
       const fuelMaintenanceDeltaEntity = input.entityType === "fuel_events" ||
@@ -912,7 +918,7 @@ export const powerhubRouter = router({
       }
       if (!data || typeof data !== "object" || Array.isArray(data) || !Array.isArray((data as { rows?: unknown }).rows) || typeof (data as { snapshot_cursor?: unknown }).snapshot_cursor !== "string") throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة لقطة المزامنة غير صالحة." });
       const snapshot = data as { status: "ok"; entity_type: string; snapshot_cursor: string; retained_from_cursor: string; rows: Array<Record<string, unknown>> };
-      if (input.entityType === "payments" && !access.allowedCapabilities.includes("viewFinancialReports")) snapshot.rows = snapshot.rows.filter(row => {
+      if (input.entityType === "payments" && !canViewPaymentSecurityDeposits) snapshot.rows = snapshot.rows.filter(row => {
         const payment = row.payment;
         if (!payment || typeof payment !== "object" || Array.isArray(payment)) return false;
         const purpose = (payment as Record<string, unknown>).payment_purpose;
