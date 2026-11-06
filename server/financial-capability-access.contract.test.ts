@@ -29,11 +29,19 @@ describe("financial capability enforcement", () => {
     expect(router).toContain('await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewFinancialReports")');
   });
 
-  it("applies capability checks to financial Delta feeds", () => {
+  it("applies capability checks to both financial Delta feeds and full snapshots", () => {
     const router = read("server/powerhub.ts");
-    expect(router).toContain("const isFinancialDeltaEntity = [\"invoices\", \"payments\", \"expenses\", \"company_accounts\", \"company_accounts_all\"].includes(input.entityType)");
+    expect(router).toContain("const isFinancialDeltaEntity = [\\"invoices\\", \\"payments\\", \\"expenses\\", \\"company_accounts\\", \\"company_accounts_all\\"].includes(input.entityType)");
     expect(router).toContain('["manageExpenses", "viewFinancialReports"]');
     expect(router).toContain('["collectPayments", "viewFinancialReports"]');
+    expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")');
+  });
+
+  it("guards complete financial reports and settlement statements", () => {
+    const router = read("server/powerhub.ts");
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports")');
+    expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")');
+    expect(router).toContain('requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"])');
   });
 
   it("keeps role defaults least-privilege and supports explicit financial report grants", () => {
