@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
-import { requireSupabaseSiteRole, resolveSupabaseSiteAccess } from "./powerhub-supabase";
+import { requireSupabaseSiteAnyCapability, requireSupabaseSiteRole, resolveSupabaseSiteCapabilityAccess } from "./powerhub-supabase";
 import { supabaseAdmin } from "./supabase-admin";
 
 const roles = ["owner", "manager", "accountant", "collector", "technician", "viewer"] as const;
@@ -278,57 +278,52 @@ function mapFuelDatabaseError(error: { code?: string; message?: string } | null,
 }
 
 async function requireFuelReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const canManageFuel = access.permissions.includes("manageFuelAndConsumption");
-  const canViewFuelReports = access.permissions.includes("viewInventoryReports");
-  if (!canManageFuel && !canViewFuelReports) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجلات الوقود أو تقاريره." });
-  }
+  const access = await requireSupabaseSiteAnyCapability(userId, siteId, [
+    "manageFuelAndConsumption", "viewInventoryReports",
+  ]);
+  const canManageFuel = access.allowedCapabilities.includes("manageFuelAndConsumption");
+  const canViewFuelReports = access.allowedCapabilities.includes("viewInventoryReports");
   return { ...access, canManageFuel, canViewFuelReports };
 }
 
 async function requirePurchaseReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const canManageSupplierPayments = access.permissions.includes("manageSupplierPayments");
-  const canViewFinancials = access.permissions.includes("viewPurchases") || canManageSupplierPayments;
-  const canAdjustInventory = access.permissions.includes("adjustInventory");
-  if (!canViewFinancials && !access.permissions.includes("receiveInventory") && !canAdjustInventory) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض المشتريات أو تنفيذ استلام أو مرتجع مخزني." });
-  }
+  const access = await requireSupabaseSiteAnyCapability(userId, siteId, [
+    "viewPurchases", "manageSupplierPayments", "receiveInventory", "adjustInventory",
+  ]);
+  const canManageSupplierPayments = access.allowedCapabilities.includes("manageSupplierPayments");
+  const canViewFinancials = access.allowedCapabilities.includes("viewPurchases") || canManageSupplierPayments;
   return { ...access, canViewFinancials, canManageSupplierPayments };
 }
 
 async function requirePurchaseReceiptHistoryReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const allowed = access.permissions.includes("viewPurchases") ||
-    access.permissions.includes("receiveInventory") || access.permissions.includes("adjustInventory");
-  if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجل الاستلام." });
-  return access;
+  return requireSupabaseSiteAnyCapability(userId, siteId, [
+    "viewPurchases", "receiveInventory", "adjustInventory",
+  ]);
 }
 
 async function requireSupplierReturnHistoryReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const allowed = access.permissions.includes("viewPurchases") ||
-    access.permissions.includes("manageSupplierPayments") || access.permissions.includes("adjustInventory");
-  if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجل مرتجعات المورد." });
-  return access;
+  return requireSupabaseSiteAnyCapability(userId, siteId, [
+    "viewPurchases", "manageSupplierPayments", "adjustInventory",
+  ]);
 }
 
 async function requireStockReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  if (!access.permissions.includes("viewInventory") && !access.permissions.includes("viewInventoryReports")) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض أرصدة المخزون وحركاته." });
-  }
-  return access;
+  return requireSupabaseSiteAnyCapability(userId, siteId, ["viewInventory", "viewInventoryReports"]);
 }
 
 async function requireStocktakeReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const canReadStocktakes = access.permissions.includes("viewStocktakes")
-    || access.permissions.includes("manageStocktakes")
-    || access.permissions.includes("approveStocktakes");
-  if (!canReadStocktakes) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض جلسات الجرد." });
+  return requireSupabaseSiteAnyCapability(userId, siteId, [
+    "viewStocktakes", "manageStocktakes", "approveStocktakes",
+  ]);
+}
+
+async function requirePhaseDFinancialReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteCapabilityAccess(userId, siteId, [
+    "viewInventoryReports", "viewPurchases", "manageSupplierPayments",
+    "viewSupplierLedger", "reverseSupplierPayments",
+  ]);
+  if (!access.allowedCapabilities.includes("viewInventoryReports")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون المالية." });
   }
   return access;
 }
@@ -355,7 +350,7 @@ export const powerhubInventoryRouter = router({
         p_site_id: input.siteId,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أرصدة المخزون." });
-      if (access.permissions.includes("viewInventoryReports")) return data ?? [];
+      if (access.allowedCapabilities.includes("viewInventoryReports")) return data ?? [];
       return (data ?? []).map((row: InventoryStockOverviewRow) => {
         const { stock_value: _stockValue, average_unit_cost: _averageUnitCost, ...visible } = row;
         return visible;
@@ -372,7 +367,7 @@ export const powerhubInventoryRouter = router({
         p_limit: input.limit,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل حركات المخزون." });
-      if (access.permissions.includes("viewInventoryReports")) return data ?? [];
+      if (access.allowedCapabilities.includes("viewInventoryReports")) return data ?? [];
       return (data ?? []).map((row: InventoryStockMovementRow) => {
         const { unit_cost: _unitCost, total_cost_amount: _totalCostAmount, ...visible } = row;
         return visible;
@@ -383,7 +378,7 @@ export const powerhubInventoryRouter = router({
     .input(z.object({ siteId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
       const access = await requireStockReadAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
+      if (!access.allowedCapabilities.includes("viewInventoryReports")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون." });
       }
       const { data, error } = await supabaseAdmin().from("inventory_warehouses")
@@ -416,7 +411,7 @@ export const powerhubInventoryRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const access = await requireStockReadAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
+      if (!access.allowedCapabilities.includes("viewInventoryReports")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض أو تصدير تقارير المخزون." });
       }
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stock_movement_report", {
@@ -1385,9 +1380,9 @@ export const powerhubInventoryRouter = router({
       const access = await requireStocktakeReadAccess(ctx.user.id, input.siteId);
       return {
         tenantId: access.tenantId,
-        canViewStocktakes: access.permissions.includes("viewStocktakes"),
-        canManageStocktakes: access.permissions.includes("manageStocktakes"),
-        canApproveStocktakes: access.permissions.includes("approveStocktakes"),
+        canViewStocktakes: access.allowedCapabilities.includes("viewStocktakes"),
+        canManageStocktakes: access.allowedCapabilities.includes("manageStocktakes"),
+        canApproveStocktakes: access.allowedCapabilities.includes("approveStocktakes"),
       };
     }),
 
@@ -1548,10 +1543,7 @@ export const powerhubInventoryRouter = router({
       if (spanDays > 365) issue.addIssue({ code: z.ZodIssueCode.custom, path: ["toDate"], message: "لا يمكن أن يتجاوز نطاق التقرير 366 يومًا." });
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون المالية." });
-      }
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["viewInventoryReports"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_summary", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
         p_from_date: input.fromDate, p_to_date: input.toDate,
@@ -1560,11 +1552,11 @@ export const powerhubInventoryRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي للمخزون والمشتريات." });
       }
       const row = data[0] as Record<string, unknown>;
-      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
-        access.permissions.includes("manageSupplierPayments");
-      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
-        access.permissions.includes("manageSupplierPayments") ||
-        access.permissions.includes("reverseSupplierPayments");
+      const canViewPurchaseFinancials = access.allowedCapabilities.includes("viewPurchases") ||
+        access.allowedCapabilities.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.allowedCapabilities.includes("viewSupplierLedger") ||
+        access.allowedCapabilities.includes("manageSupplierPayments") ||
+        access.allowedCapabilities.includes("reverseSupplierPayments");
       return {
         purchaseInvoiceCount: canViewPurchaseFinancials ? Number(row.purchase_invoice_count ?? 0) : null,
         purchaseInvoiceAmount: canViewPurchaseFinancials ? Number(row.purchase_invoice_amount ?? 0) : null,
@@ -1599,15 +1591,12 @@ export const powerhubInventoryRouter = router({
       }
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تفاصيل التقارير المالية." });
-      }
-      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
-        access.permissions.includes("manageSupplierPayments");
-      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
-        access.permissions.includes("manageSupplierPayments") ||
-        access.permissions.includes("reverseSupplierPayments");
+      const access = await requirePhaseDFinancialReadAccess(ctx.user.id, input.siteId);
+      const canViewPurchaseFinancials = access.allowedCapabilities.includes("viewPurchases") ||
+        access.allowedCapabilities.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.allowedCapabilities.includes("viewSupplierLedger") ||
+        access.allowedCapabilities.includes("manageSupplierPayments") ||
+        access.allowedCapabilities.includes("reverseSupplierPayments");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_details", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
         p_from_date: input.fromDate, p_to_date: input.toDate, p_limit: input.limit + 1,
@@ -2109,10 +2098,7 @@ export const powerhubInventoryRouter = router({
       message: "تاريخ بداية التقرير يجب ألا يتجاوز تاريخ نهايته.",
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقرير استهلاك الوقود." });
-      }
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["viewInventoryReports"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_report", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
         p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
@@ -2139,10 +2125,7 @@ export const powerhubInventoryRouter = router({
       }
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقرير استهلاك الوقود." });
-      }
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["viewInventoryReports"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_report_period", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_period_type: input.periodType,
         p_anchor_date: input.anchorDate ?? null, p_from_date: input.fromDate ?? null,
@@ -2170,10 +2153,7 @@ export const powerhubInventoryRouter = router({
       }
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تكلفة استهلاك الوقود من المخزون." });
-      }
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["viewInventoryReports"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_cost_report_period", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_period_type: input.periodType,
         p_anchor_date: input.anchorDate ?? null, p_from_date: input.fromDate ?? null,
@@ -2272,7 +2252,10 @@ export const powerhubInventoryRouter = router({
       message: "مستوى الخزان بعد التعبئة لا يجوز أن يقل عن المستوى المسجل قبلها.", path: ["levelAfterLiters"],
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageFuelAndConsumption");
+      const access = await resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["manageFuelAndConsumption", "viewInventoryReports"]);
+      if (!access.allowedCapabilities.includes("manageFuelAndConsumption")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+      }
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_fuel_fill", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_generator_id: input.generatorId, p_fuel_item_id: input.fuelItemId,
@@ -2283,7 +2266,7 @@ export const powerhubInventoryRouter = router({
         p_notes: input.notes || null, p_operation_key: input.operationKey,
       });
       if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر تسجيل تعبئة الوقود واحتساب تكلفة الصرف للمولد.");
-      if (access.permissions.includes("viewInventoryReports")) return data[0];
+      if (access.allowedCapabilities.includes("viewInventoryReports")) return data[0];
       const { total_cost_amount: _totalCost, ...withoutCost } = data[0];
       return withoutCost;
     }),

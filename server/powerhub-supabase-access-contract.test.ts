@@ -9,6 +9,7 @@ const source = readFileSync(join(here, "_core", "trpc.ts"), "utf8");
 const legacyAdminSource = readFileSync(join(here, "admin-runtime.ts"), "utf8");
 const powerhubRouterSource = readFileSync(join(here, "powerhub.ts"), "utf8");
 const powerhubSupabaseSource = readFileSync(join(here, "powerhub-supabase.ts"), "utf8");
+const inventoryRouterSource = readFileSync(join(here, "powerhub-inventory-router.ts"), "utf8");
 
 describe("Platform-admin authorization boundary", () => {
   it("must require active account status and an allowed platform role", () => {
@@ -74,5 +75,32 @@ describe("All-branch staff authorization boundary", () => {
     expect(helper).toContain("suspension_started_at");
     expect(helper).toContain("suspension_ends_at");
     expect(helper).toContain("isSuspended(new Date()");
+  });
+});
+
+describe("Platform role policy consistency for inventory reads", () => {
+  it("uses policy-filtered capability resolution instead of the unfiltered site resolver", () => {
+    expect(powerhubSupabaseSource).toContain("export async function resolveSupabaseSiteCapabilityAccess");
+    expect(powerhubSupabaseSource).toContain("export async function requireSupabaseSiteAnyCapability");
+    expect(powerhubSupabaseSource).toContain('.in("capability", grantedCapabilities)');
+    expect(inventoryRouterSource).not.toContain("resolveSupabaseSiteAccess");
+    expect(inventoryRouterSource).toContain("requireSupabaseSiteAnyCapability");
+    expect(inventoryRouterSource).toContain("resolveSupabaseSiteCapabilityAccess");
+  });
+
+  it("fails closed when policy lookup errors and preserves the active platform-admin bypass", () => {
+    const start = powerhubSupabaseSource.indexOf("export async function resolveSupabaseSiteCapabilityAccess");
+    const end = powerhubSupabaseSource.indexOf("export async function requireSupabaseSiteAnyCapability", start);
+    const resolver = powerhubSupabaseSource.slice(start, end);
+    expect(resolver).toContain('if (error) {');
+    expect(resolver).toContain('code: "INTERNAL_SERVER_ERROR"');
+    expect(resolver).toContain("if (access.isPlatformAdmin) return { ...access, allowedCapabilities: capabilities }");
+    expect(resolver).toContain("resolveSupabaseSiteAccessDetails(userId, siteId)");
+  });
+
+  it("uses policy-filtered capabilities for sensitive inventory and fuel projections", () => {
+    expect(inventoryRouterSource).toContain('access.allowedCapabilities.includes("viewInventoryReports")');
+    expect(inventoryRouterSource).toContain('access.allowedCapabilities.includes("viewPurchases")');
+    expect(inventoryRouterSource).toContain('access.allowedCapabilities.includes("viewSupplierLedger")');
   });
 });

@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, powerCapabilityLabels, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
+import { getPolicyAllowedCapabilities } from "./powerhub-role-policy";
 import { recordTenantSearchMetric } from "./tenant-search-telemetry";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
@@ -266,6 +267,53 @@ export async function requireSupabaseSiteCapabilities(userId: number, siteId: nu
     }
   }
   return access;
+}
+
+export async function resolveSupabaseSiteCapabilityAccess(
+  userId: number,
+  siteId: number,
+  requestedCapabilities: PowerCapability[],
+) {
+  const capabilities = Array.from(new Set(requestedCapabilities));
+  if (!capabilities.length) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد صلاحية واحدة على الأقل." });
+  }
+
+  const access = await resolveSupabaseSiteAccessDetails(userId, siteId);
+  if (access.isPlatformAdmin) return { ...access, allowedCapabilities: capabilities };
+
+  const grantedCapabilities = capabilities.filter((capability) => access.permissions.includes(capability));
+  if (!grantedCapabilities.length) return { ...access, allowedCapabilities: [] };
+
+  const { data: policies, error } = await supabaseAdmin().from("platform_role_policies")
+    .select("capability,is_allowed")
+    .eq("role", access.role)
+    .in("capability", grantedCapabilities);
+  if (error) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
+  }
+
+  return {
+    ...access,
+    allowedCapabilities: getPolicyAllowedCapabilities(capabilities, access.permissions, policies ?? []),
+  };
+}
+
+export async function requireSupabaseSiteAnyCapability(
+  userId: number,
+  siteId: number,
+  capabilities: PowerCapability[],
+) {
+  const access = await resolveSupabaseSiteCapabilityAccess(userId, siteId, capabilities);
+  if (access.allowedCapabilities.length) return access;
+
+  const hasGrantedCapability = capabilities.some((capability) => access.permissions.includes(capability));
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: hasGrantedCapability
+      ? "كل الصلاحيات المطلوبة مقيّدة بسياسة المنصة للدور الحالي."
+      : "لا تملك أيّاً من الصلاحيات المطلوبة.",
+  });
 }
 
 export async function requireSupabaseAccessibleSiteIds(
