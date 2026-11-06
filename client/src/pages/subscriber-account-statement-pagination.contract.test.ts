@@ -97,6 +97,6 @@ describe("subscriber account statement complete-history contract", () => {
     const procedure = router.slice(start, end);
     expect(procedure).toContain("z.enum([\"invoices\", \"payments\", \"readings\"])");
     expect(procedure).toContain("z.number().int().min(1).max(100).default(20)");
-    expect(procedure).toContain("requireSupabaseSiteRole(ctx.user.id, input.siteId");
+    expect(procedure).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports")');
   });
 });

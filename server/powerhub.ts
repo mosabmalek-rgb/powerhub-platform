@@ -2445,7 +2445,7 @@ export const powerhubRouter = router({
       cursor: z.string().trim().min(1).max(512).optional(),
       limit: z.number().int().min(1).max(100).default(20),
     })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
       return listSupabaseSubscriberAccountStatementHistoryPage(input.siteId, input.subscriberId, input.section, input);
     }),
     quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
