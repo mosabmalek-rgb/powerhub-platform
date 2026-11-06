@@ -102,6 +102,25 @@ CREATE POLICY test_tenant_access ON public.tweet_sms_report_snapshots FOR ALL TO
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 CREATE POLICY test_tenant_access ON public.users FOR ALL TO PUBLIC USING (true) WITH CHECK (true);
 
+CREATE TABLE public.chat_support_categories (id bigint PRIMARY KEY, is_active boolean NOT NULL DEFAULT true);
+CREATE TABLE public.chat_support_feedback (id bigint PRIMARY KEY, user_id bigint NOT NULL);
+CREATE TABLE public.chat_support_quick_replies (id bigint PRIMARY KEY, is_active boolean NOT NULL DEFAULT true);
+CREATE TABLE public.chat_support_sla_policies (id bigint PRIMARY KEY, priority text NOT NULL);
+CREATE TABLE public.chat_support_tags (id bigint PRIMARY KEY, is_active boolean NOT NULL DEFAULT true);
+ALTER TABLE public.chat_support_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_support_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_support_quick_replies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_support_sla_policies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_support_tags ENABLE ROW LEVEL SECURITY;
+CREATE POLICY chat_support_test_read ON public.chat_support_categories FOR SELECT TO authenticated USING (true);
+CREATE POLICY chat_support_test_read ON public.chat_support_feedback FOR SELECT TO authenticated USING (true);
+CREATE POLICY chat_support_test_read ON public.chat_support_quick_replies FOR SELECT TO authenticated USING (true);
+CREATE POLICY chat_support_test_read ON public.chat_support_sla_policies FOR SELECT TO authenticated USING (true);
+CREATE POLICY chat_support_test_read ON public.chat_support_tags FOR SELECT TO authenticated USING (true);
+GRANT ALL PRIVILEGES ON TABLE public.chat_support_categories,public.chat_support_feedback,
+ public.chat_support_quick_replies,public.chat_support_sla_policies,public.chat_support_tags
+TO PUBLIC,anon,authenticated,service_role;
+
 -- Reproduce the broad staging ACL found by the live environment comparison.
 GRANT ALL PRIVILEGES ON TABLE
   public.access_invitations,
@@ -137,9 +156,19 @@ GRANT ALL PRIVILEGES ON TABLE
 TO PUBLIC, anon, authenticated, service_role;
 
 \ir ../migrations/20261101083404_powerhub_browser_direct_dml_acl_reconcile.sql
+CREATE TEMP TABLE service_role_ancillary_acl_before AS
+SELECT c.relname,
+ has_table_privilege('service_role',c.oid,'REFERENCES') AS refs,
+ has_table_privilege('service_role',c.oid,'TRIGGER') AS triggers,
+ has_table_privilege('service_role',c.oid,'MAINTAIN') AS maintain
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind IN ('r','p');
+
+\ir ../migrations/20261106162600_powerhub_browser_table_ancillary_acl_reconciliation.sql
 
 -- Re-run the forward-only reconciliation to assert idempotency.
 \ir ../migrations/20261101083404_powerhub_browser_direct_dml_acl_reconcile.sql
+\ir ../migrations/20261106162600_powerhub_browser_table_ancillary_acl_reconciliation.sql
 
 DO $assert_acl$
 DECLARE
