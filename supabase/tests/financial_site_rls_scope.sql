@@ -210,6 +210,7 @@ $enable_rls$;
 \ir ../migrations/20261104203029_powerhub_payroll_read_capability_rls.sql
 \ir ../migrations/20261106212249_powerhub_financial_capability_read_rls.sql
 \ir ../migrations/20261106213134_powerhub_financial_settlement_report_capability_only.sql
+\ir ../migrations/20261106213355_powerhub_company_account_capability_rls_helper.sql
 
 -- Updating account_id alone must invoke the site resolver and reject an account
 -- that is linked exclusively to a different branch.
@@ -536,6 +537,10 @@ BEGIN
  IF has_function_privilege('anon','private.powerhub_has_site_capability(bigint,bigint,text)','EXECUTE')
     OR NOT has_function_privilege('authenticated','private.powerhub_has_site_capability(bigint,bigint,text)','EXECUTE') THEN
    RAISE EXCEPTION 'FINANCIAL_CAPABILITY_HELPER_ACL_FAILED';
+ END IF;
+ IF has_function_privilege('anon','private.powerhub_has_company_account_capability(bigint,bigint,text)','EXECUTE')
+    OR NOT has_function_privilege('authenticated','private.powerhub_has_company_account_capability(bigint,bigint,text)','EXECUTE') THEN
+   RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_HELPER_ACL_FAILED';
  END IF;
  IF has_table_privilege('anon','public.invoices','SELECT')
     OR has_table_privilege('anon','public.payments','SELECT')
