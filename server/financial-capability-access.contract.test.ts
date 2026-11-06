@@ -32,7 +32,7 @@ describe("financial capability enforcement", () => {
 
   it("applies capability checks to both financial Delta feeds and full snapshots", () => {
     const router = read("server/powerhub.ts");
-    expect(router).toContain("const isFinancialDeltaEntity = [\\"invoices\\", \\"payments\\", \\"expenses\\", \\"company_accounts\\", \\"company_accounts_all\\"].includes(input.entityType)");
+    expect(router).toContain('const isFinancialDeltaEntity = ["invoices", "payments", "expenses", "company_accounts", "company_accounts_all"].includes(input.entityType)');
     expect(router).toContain('["manageExpenses", "viewFinancialReports"]');
     expect(router).toContain('["collectPayments", "viewFinancialReports"]');
     expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")');
