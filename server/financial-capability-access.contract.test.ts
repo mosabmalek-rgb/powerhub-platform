@@ -27,7 +27,7 @@ describe("financial capability enforcement", () => {
     const router = read("server/powerhub.ts");
     expect(router).toContain('["collectPayments", "viewFinancialReports"]');
     expect(router).toContain('securityDeposit: canViewFinancialReports ? String(data?.[0]?.security_deposit ?? 0) : null');
-    expect(router).toContain('await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewFinancialReports")');
+    expect(router).toContain('await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports")');
   });
 
   it("applies capability checks to both financial Delta feeds and full snapshots", () => {
