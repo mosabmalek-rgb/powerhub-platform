@@ -326,6 +326,40 @@ TO authenticated;
 \ir ../migrations/20261105130000_powerhub_chat_receipt_recipient_privacy.sql
 \ir ../migrations/20261105144757_powerhub_staging_chat_membership_and_receipt_scope_reconciliation.sql
 
+-- Model the two PostgREST-exposed RPC wrappers. The wrapper is the only
+-- browser-callable entry point; the SECURITY DEFINER implementation stays
+-- private and ungranted to browser roles.
+CREATE FUNCTION public.chat_reopen_support_conversation(p_conversation_id bigint)
+RETURNS public.chat_conversations
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  SELECT private.chat_reopen_support_conversation(p_conversation_id);
+$function$;
+
+CREATE FUNCTION public.chat_transition_conversation(p_conversation_id bigint,p_next_status text)
+RETURNS public.chat_conversations
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  SELECT private.chat_transition_conversation(p_conversation_id,p_next_status);
+$function$;
+
+REVOKE ALL ON FUNCTION
+  public.chat_reopen_support_conversation(bigint),
+  public.chat_transition_conversation(bigint,text)
+FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION
+  public.chat_reopen_support_conversation(bigint),
+  public.chat_transition_conversation(bigint,text)
+TO authenticated,service_role;
+
+-- Exercise the forward migration in this isolated database before asserting
+-- tenant feature entitlement and the platform-support exception.
+\ir ../migrations/20261106165223_powerhub_chat_feature_entitlement_mutation_guards.sql
+
 INSERT INTO public.users(id,auth_user_id,account_status,platform_role) VALUES
   (1,'11111111-1111-4111-8111-111111111111','active',NULL),
   (2,'22222222-2222-4222-8222-222222222222','active','platform_support'),
@@ -406,7 +440,7 @@ BEGIN
   IF NOT v_denied THEN RAISE EXCEPTION 'SUPPORT_MARK_READ_UP_TO_ASSISTANT_ALLOWED'; END IF;
 
   v_denied:=false;
-  BEGIN PERFORM private.chat_transition_conversation(100,'SUPPORT_PENDING');
+  BEGIN PERFORM public.chat_transition_conversation(100,'SUPPORT_PENDING');
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='NOT_SUPPORT_CONVERSATION' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
@@ -424,7 +458,7 @@ BEGIN
 
   PERFORM private.chat_mark_read(501);
   PERFORM private.chat_mark_read_up_to(101,501);
-  PERFORM private.chat_transition_conversation(101,'RESOLVED');
+  PERFORM public.chat_transition_conversation(101,'RESOLVED');
   PERFORM private.chat_release_support(101);
   IF (SELECT status FROM public.chat_support_assignments WHERE conversation_id=101)<>'released' THEN
     RAISE EXCEPTION 'SUPPORT_RELEASE_DID_NOT_SUCCEED';
@@ -523,14 +557,14 @@ BEGIN
   IF NOT v_denied THEN RAISE EXCEPTION 'SUSPENDED_MEMBERSHIP_SUPPORT_RATE_ALLOWED'; END IF;
 
   v_denied:=false;
-  BEGIN PERFORM private.chat_reopen_support_conversation(103);
+  BEGIN PERFORM public.chat_reopen_support_conversation(103);
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
   IF NOT v_denied THEN RAISE EXCEPTION 'SUSPENDED_MEMBERSHIP_SUPPORT_REOPEN_ALLOWED'; END IF;
 
   v_denied:=false;
-  BEGIN PERFORM private.chat_transition_conversation(103,'SUPPORT_ACTIVE');
+  BEGIN PERFORM public.chat_transition_conversation(103,'SUPPORT_ACTIVE');
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='FORBIDDEN' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
@@ -746,7 +780,7 @@ BEGIN
 
   v_denied:=false;
   BEGIN
-    PERFORM private.chat_reopen_support_conversation(102);
+    PERFORM public.chat_reopen_support_conversation(102);
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='CHAT_FEATURE_DISABLED' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
@@ -756,7 +790,7 @@ BEGIN
 
   v_denied:=false;
   BEGIN
-    PERFORM private.chat_transition_conversation(102,'SUPPORT_ACTIVE');
+    PERFORM public.chat_transition_conversation(102,'SUPPORT_ACTIVE');
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='CHAT_FEATURE_DISABLED' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
@@ -768,7 +802,7 @@ BEGIN
   -- Support Chat entitlement, even while the Assistant entitlement is enabled.
   v_denied:=false;
   BEGIN
-    PERFORM private.chat_transition_conversation(100,'SUPPORT_PENDING');
+    PERFORM public.chat_transition_conversation(100,'SUPPORT_PENDING');
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='CHAT_FEATURE_DISABLED' THEN v_denied:=true; ELSE RAISE; END IF;
   END;
@@ -787,12 +821,14 @@ SELECT set_config('request.jwt.claim.sub','22222222-2222-4222-8222-222222222222'
 DO $platform_support_feature_override$
 BEGIN
   PERFORM set_config('test.powerhub_support_chat_enabled','false',true);
-  PERFORM private.chat_transition_conversation(101,'RESOLVED');
-  IF (SELECT status FROM public.chat_conversations WHERE id=101)<>'RESOLVED' THEN
-    RAISE EXCEPTION 'PLATFORM_SUPPORT_CANNOT_RESOLVE_LEGACY_TICKET_WHEN_FEATURE_DISABLED';
+  -- Conversation 101 was already resolved by the preceding Support Center
+  -- scope test; closing it is the next valid Support transition.
+  PERFORM public.chat_transition_conversation(101,'CLOSED');
+  IF (SELECT status FROM public.chat_conversations WHERE id=101)<>'CLOSED' THEN
+    RAISE EXCEPTION 'PLATFORM_SUPPORT_CANNOT_CLOSE_LEGACY_TICKET_WHEN_FEATURE_DISABLED';
   END IF;
 
-  PERFORM private.chat_reopen_support_conversation(102);
+  PERFORM public.chat_reopen_support_conversation(102);
   IF (SELECT status FROM public.chat_conversations WHERE id=102)<>'SUPPORT_ACTIVE' THEN
     RAISE EXCEPTION 'PLATFORM_SUPPORT_CANNOT_REOPEN_LEGACY_TICKET_WHEN_FEATURE_DISABLED';
   END IF;
