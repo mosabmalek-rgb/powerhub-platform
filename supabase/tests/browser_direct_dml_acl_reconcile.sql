@@ -164,11 +164,11 @@ SELECT c.relname,
 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
 WHERE n.nspname='public' AND c.relkind IN ('r','p');
 
-\ir ../migrations/20261106162600_powerhub_browser_table_ancillary_acl_reconciliation.sql
+\ir ../migrations/20261106165222_powerhub_browser_table_ancillary_acl_reconciliation.sql
 
 -- Re-run the forward-only reconciliation to assert idempotency.
 \ir ../migrations/20261101083404_powerhub_browser_direct_dml_acl_reconcile.sql
-\ir ../migrations/20261106162600_powerhub_browser_table_ancillary_acl_reconciliation.sql
+\ir ../migrations/20261106165222_powerhub_browser_table_ancillary_acl_reconciliation.sql
 
 DO $assert_acl$
 DECLARE
@@ -316,4 +316,4 @@ BEGIN
 END
 $assert_optional_tables$;
 
-SELECT 'browser direct DML ACL reconciliation passed for 30 tenant-scoped tables and 3 absent production tables' AS result;
+SELECT 'browser ACL reconciliation passed for 30 tenant-scoped tables, 5 Support Center tables, and 3 absent optional tables' AS result;
