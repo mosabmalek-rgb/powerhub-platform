@@ -70,9 +70,10 @@ describe("financial capability enforcement", () => {
     const persistence = read("server/powerhub-supabase.ts");
     const rls = read("supabase/migrations/20261107100000_powerhub_payment_security_deposit_rls.sql");
     const projection = read("supabase/migrations/20261107101000_powerhub_payment_delta_purpose_projection.sql");
-    expect(router).toContain('includeSecurityDeposits: access.allowedCapabilities.includes("viewFinancialReports")');
+    expect(router).toContain('const canViewPaymentSecurityDeposits = input.entityType === "payments"');
+    expect(router).toContain('resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"])');
     expect(router).toContain('select("id, receipt_image_key, payment_purpose")');
-    expect(router).toContain('payment_purpose IN');
+    expect(router).toContain('.in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"])');
     expect(persistence).toContain('paymentPurposesVisibleToCollectors = ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"]');
     expect(persistence).toContain('.in("payment_purpose", visiblePaymentPurposes)');
     expect(rls).toContain("security_deposit_refund");
