@@ -18,6 +18,7 @@ const capabilitySchema = z.enum([
   "collectPayments",
   "approvePaymentDocumentation",
   "manageExpenses",
+  "viewFinancialReports",
   "managePayroll",
   "manageTeam",
   "manageMessaging",
