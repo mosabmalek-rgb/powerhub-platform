@@ -23,7 +23,20 @@ CREATE TABLE public.sites(id bigint PRIMARY KEY,tenant_id bigint NOT NULL);
 CREATE TABLE public.staff_profiles(
  id bigint PRIMARY KEY,tenant_id bigint NOT NULL,user_id bigint NOT NULL,site_id bigint,
  role text NOT NULL,is_active boolean NOT NULL DEFAULT true,archived_at timestamptz,
- suspension_started_at timestamptz,suspension_ends_at timestamptz
+ suspension_started_at timestamptz,suspension_ends_at timestamptz,
+ permissions jsonb,custom_role_id bigint
+);
+CREATE TABLE public.custom_permission_roles(
+ id bigint PRIMARY KEY,tenant_id bigint NOT NULL,permissions jsonb NOT NULL,is_active boolean NOT NULL DEFAULT true
+);
+CREATE TABLE public.tenant_member_capability_overrides(
+ tenant_id bigint NOT NULL,user_id bigint NOT NULL,capability text NOT NULL,is_allowed boolean NOT NULL
+);
+CREATE TABLE public.staff_profile_capability_overrides(
+ tenant_id bigint NOT NULL,profile_id bigint NOT NULL,capability text NOT NULL,is_allowed boolean NOT NULL
+);
+CREATE TABLE public.platform_role_policies(
+ role text NOT NULL,capability text NOT NULL,is_allowed boolean NOT NULL
 );
 CREATE TABLE public.company_accounts(id bigint PRIMARY KEY,tenant_id bigint NOT NULL);
 CREATE TABLE public.company_account_sites(
@@ -117,6 +130,19 @@ INSERT INTO public.staff_profiles(id,tenant_id,user_id,site_id,role,is_active,ar
  (3,1,4,10,'manager',true,NULL,now()-interval '1 hour',now()+interval '1 hour'),
  (4,1,6,NULL,'accountant',true,NULL,NULL,NULL),
  (5,2,10,20,'manager',true,NULL,NULL,NULL);
+INSERT INTO public.users(id,auth_user_id,role,platform_role,account_status) VALUES
+ (11,'00000000-0000-0000-0000-000000000011','user',NULL,'active'),
+ (12,'00000000-0000-0000-0000-000000000012','user',NULL,'active'),
+ (13,'00000000-0000-0000-0000-000000000013','user',NULL,'active'),
+ (14,'00000000-0000-0000-0000-000000000014','user',NULL,'active');
+INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
+ (1,11,'member',true,'active',NULL),(1,12,'member',true,'active',NULL),
+ (1,13,'member',true,'active',NULL),(1,14,'member',true,'active',NULL);
+INSERT INTO public.staff_profiles(id,tenant_id,user_id,site_id,role,is_active,archived_at,suspension_started_at,suspension_ends_at,permissions) VALUES
+ (11,1,11,10,'collector',true,NULL,NULL,NULL,NULL),
+ (12,1,12,10,'viewer',true,NULL,NULL,NULL,NULL),
+ (13,1,13,10,'technician',true,NULL,NULL,NULL,NULL),
+ (14,1,14,10,'viewer',true,NULL,NULL,NULL,'["viewFinancialReports"]'::jsonb);
 
 INSERT INTO public.company_accounts(id,tenant_id) VALUES(100,1),(101,1),(102,1),(103,2),(104,1);
 INSERT INTO public.company_account_sites(id,tenant_id,account_id,site_id) VALUES
@@ -178,6 +204,8 @@ $enable_rls$;
 \ir ../migrations/20261105085222_powerhub_inventory_site_rls_scope.sql
 \ir ../migrations/20261104084749_20261103210000_powerhub_account_transaction_site_scope.sql
 \ir ../migrations/20261104191321_powerhub_account_transaction_account_id_scope_guard.sql
+\ir ../migrations/20261104203029_powerhub_payroll_read_capability_rls.sql
+\ir ../migrations/20261106212249_powerhub_financial_capability_read_rls.sql
 
 -- Updating account_id alone must invoke the site resolver and reject an account
 -- that is linked exclusively to a different branch.
@@ -430,3 +458,85 @@ BEGIN
  END LOOP;
 END
 $inventory_write_boundary$;
+
+-- Financial visibility is independent from branch membership and collection capability.
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000011',false);
+SET ROLE authenticated;
+DO $collector_finance$
+BEGIN
+ IF (SELECT count(*) FROM public.invoices)<>1 OR (SELECT count(*) FROM public.payments)<>1 THEN
+   RAISE EXCEPTION 'COLLECTOR_MUST_READ_ONLY_COLLECTION_INVOICES_AND_PAYMENTS';
+ END IF;
+ IF (SELECT count(*) FROM public.expenses)<>0
+    OR (SELECT count(*) FROM public.financial_settlements)<>0
+    OR (SELECT count(*) FROM public.company_accounts)<>0
+    OR (SELECT count(*) FROM public.company_account_sites)<>0
+    OR (SELECT count(*) FROM public.account_transactions)<>0 THEN
+   RAISE EXCEPTION 'COLLECTOR_FINANCIAL_LEDGER_ACCESS_NOT_DENIED';
+ END IF;
+END
+$collector_finance$;
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000012',false);
+SET ROLE authenticated;
+DO $viewer_finance$
+BEGIN
+ IF (SELECT count(*) FROM public.invoices)<>0
+    OR (SELECT count(*) FROM public.payments)<>0
+    OR (SELECT count(*) FROM public.expenses)<>0
+    OR (SELECT count(*) FROM public.financial_settlements)<>0
+    OR (SELECT count(*) FROM public.company_accounts)<>0
+    OR (SELECT count(*) FROM public.account_transactions)<>0 THEN
+   RAISE EXCEPTION 'VIEWER_MUST_NOT_READ_FINANCIAL_DATA_BY_SITE_MEMBERSHIP';
+ END IF;
+END
+$viewer_finance$;
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000013',false);
+SET ROLE authenticated;
+DO $technician_finance$
+BEGIN
+ IF (SELECT count(*) FROM public.invoices)<>0
+    OR (SELECT count(*) FROM public.payments)<>0
+    OR (SELECT count(*) FROM public.expenses)<>0
+    OR (SELECT count(*) FROM public.financial_settlements)<>0
+    OR (SELECT count(*) FROM public.company_accounts)<>0
+    OR (SELECT count(*) FROM public.account_transactions)<>0 THEN
+   RAISE EXCEPTION 'TECHNICIAN_MUST_NOT_READ_FINANCIAL_DATA_BY_SITE_MEMBERSHIP';
+ END IF;
+END
+$technician_finance$;
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000014',false);
+SET ROLE authenticated;
+DO $explicit_financial_viewer$
+BEGIN
+ IF (SELECT count(*) FROM public.invoices)<>1
+    OR (SELECT count(*) FROM public.payments)<>1
+    OR (SELECT count(*) FROM public.expenses)<>1
+    OR (SELECT count(*) FROM public.financial_settlements)<>1 THEN
+   RAISE EXCEPTION 'EXPLICIT_FINANCIAL_REPORT_VIEWER_GRANT_NOT_HONORED';
+ END IF;
+ IF (SELECT count(*) FROM public.account_transactions)<>2 THEN
+   RAISE EXCEPTION 'EXPLICIT_FINANCIAL_REPORT_VIEWER_LEDGER_SCOPE_FAILED';
+ END IF;
+END
+$explicit_financial_viewer$;
+RESET ROLE;
+
+DO $financial_capability_acl$
+BEGIN
+ IF has_function_privilege('anon','private.powerhub_has_site_capability(bigint,bigint,text)','EXECUTE')
+    OR NOT has_function_privilege('authenticated','private.powerhub_has_site_capability(bigint,bigint,text)','EXECUTE') THEN
+   RAISE EXCEPTION 'FINANCIAL_CAPABILITY_HELPER_ACL_FAILED';
+ END IF;
+ IF has_table_privilege('anon','public.invoices','SELECT')
+    OR has_table_privilege('anon','public.payments','SELECT')
+    OR has_table_privilege('anon','public.expenses','SELECT') THEN
+   RAISE EXCEPTION 'ANON_FINANCIAL_SELECT_GRANT_PRESENT';
+ END IF;
+END
+$financial_capability_acl$;
