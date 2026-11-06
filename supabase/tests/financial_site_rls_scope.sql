@@ -134,15 +134,18 @@ INSERT INTO public.users(id,auth_user_id,role,platform_role,account_status) VALU
  (11,'00000000-0000-0000-0000-000000000011','user',NULL,'active'),
  (12,'00000000-0000-0000-0000-000000000012','user',NULL,'active'),
  (13,'00000000-0000-0000-0000-000000000013','user',NULL,'active'),
- (14,'00000000-0000-0000-0000-000000000014','user',NULL,'active');
+ (14,'00000000-0000-0000-0000-000000000014','user',NULL,'active'),
+ (15,'00000000-0000-0000-0000-000000000015','user',NULL,'active');
 INSERT INTO public.tenant_members(tenant_id,user_id,role,is_active,membership_status,expires_at) VALUES
  (1,11,'member',true,'active',NULL),(1,12,'member',true,'active',NULL),
- (1,13,'member',true,'active',NULL),(1,14,'member',true,'active',NULL);
+ (1,13,'member',true,'active',NULL),(1,14,'member',true,'active',NULL),
+ (1,15,'member',true,'active',NULL);
 INSERT INTO public.staff_profiles(id,tenant_id,user_id,site_id,role,is_active,archived_at,suspension_started_at,suspension_ends_at,permissions) VALUES
  (11,1,11,10,'collector',true,NULL,NULL,NULL,NULL),
  (12,1,12,10,'viewer',true,NULL,NULL,NULL,NULL),
  (13,1,13,10,'technician',true,NULL,NULL,NULL,NULL),
- (14,1,14,10,'viewer',true,NULL,NULL,NULL,'["viewFinancialReports"]'::jsonb);
+ (14,1,14,10,'viewer',true,NULL,NULL,NULL,'["viewFinancialReports"]'::jsonb),
+ (15,1,15,10,'manager',true,NULL,NULL,NULL,'["manageExpenses"]'::jsonb);
 
 INSERT INTO public.company_accounts(id,tenant_id) VALUES(100,1),(101,1),(102,1),(103,2),(104,1);
 INSERT INTO public.company_account_sites(id,tenant_id,account_id,site_id) VALUES
@@ -540,3 +543,19 @@ BEGIN
  END IF;
 END
 $financial_capability_acl$;
+
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000015',false);
+SET ROLE authenticated;
+DO $expense_manager_finance$
+BEGIN
+ IF (SELECT count(*) FROM public.expenses)<>1 THEN
+   RAISE EXCEPTION 'MANAGE_EXPENSES_SHOULD_ALLOW_EXPENSE_READ';
+ END IF;
+ IF (SELECT count(*) FROM public.financial_settlements)<>0
+    OR (SELECT count(*) FROM public.invoices)<>0
+    OR (SELECT count(*) FROM public.payments)<>0 THEN
+   RAISE EXCEPTION 'MANAGE_EXPENSES_MUST_NOT_IMPLY_FINANCIAL_REPORT_VISIBILITY';
+ END IF;
+END
+$expense_manager_finance$;
+RESET ROLE;
