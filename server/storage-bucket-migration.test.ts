@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const migrationPath = path.resolve(
-  "supabase/migrations/20261106150000_powerhub_private_storage_bucket_limits.sql",
+  "supabase/migrations/20261106154120_powerhub_private_storage_bucket_limits.sql",
 );
 const migration = readFileSync(migrationPath, "utf8");
 
