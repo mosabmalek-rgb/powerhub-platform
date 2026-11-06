@@ -359,6 +359,7 @@ TO authenticated,service_role;
 -- Exercise the forward migration in this isolated database before asserting
 -- tenant feature entitlement and the platform-support exception.
 \ir ../migrations/20261106191850_powerhub_chat_feature_entitlement_mutation_guards.sql
+\ir ../migrations/20261106200000_powerhub_chat_feedback_feature_entitlement_guard.sql
 
 INSERT INTO public.users(id,auth_user_id,account_status,platform_role) VALUES
   (1,'11111111-1111-4111-8111-111111111111','active',NULL),
@@ -796,6 +797,20 @@ BEGIN
   END;
   IF NOT v_denied THEN
     RAISE EXCEPTION 'DISABLED_SUPPORT_FEATURE_ALLOWED_TENANT_TRANSITION';
+  END IF;
+
+  -- Feedback is a tenant-facing mutation and must obey the same entitlement.
+  v_denied:=false;
+  BEGIN
+    PERFORM public.chat_rate_support(102,5::smallint,'feature disabled');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='CHAT_FEATURE_DISABLED' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN
+    RAISE EXCEPTION 'DISABLED_SUPPORT_FEATURE_ALLOWED_TENANT_FEEDBACK';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.chat_support_feedback WHERE conversation_id=102 AND user_id=1) THEN
+    RAISE EXCEPTION 'DISABLED_SUPPORT_FEATURE_FEEDBACK_SIDE_EFFECT';
   END IF;
 
   -- Escalating an Assistant conversation still requires the separate
