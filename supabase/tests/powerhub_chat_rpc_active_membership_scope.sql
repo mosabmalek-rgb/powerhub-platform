@@ -377,7 +377,7 @@ TO authenticated,service_role;
 -- Exercise the forward migration in this isolated database before asserting
 -- tenant feature entitlement and the platform-support exception.
 \ir ../migrations/20261106191850_powerhub_chat_feature_entitlement_mutation_guards.sql
-\ir ../migrations/20261106200000_powerhub_chat_feedback_feature_entitlement_guard.sql
+\ir ../migrations/20261106195128_powerhub_chat_feedback_feature_entitlement_guard.sql
 
 INSERT INTO public.users(id,auth_user_id,account_status,platform_role) VALUES
   (1,'11111111-1111-4111-8111-111111111111','active',NULL),
