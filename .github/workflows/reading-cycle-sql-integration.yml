@@ -575,6 +575,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_storage_image_retention_atomicity_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_storage_image_retention_atomicity_test --set ON_ERROR_STOP=1 --file supabase/tests/powerhub_storage_image_retention_atomicity.sql
 
+      - name: Verify private Storage objects enforce tenant isolation and deny direct browser mutations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_storage_object_rls_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_storage_object_rls_test --set ON_ERROR_STOP=1 --file supabase/tests/storage_object_rls_isolation.sql
+
       - name: Verify subscriber portal invoice share links enforce tenant/site identity, payment entitlement, invoice status, and service-only ACLs
         env:
           PGPASSWORD: postgres
