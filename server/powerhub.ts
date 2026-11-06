@@ -3972,7 +3972,7 @@ export const powerhubRouter = router({
     summary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const [access, capabilityAccess] = await Promise.all([
         requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]),
-        resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports", "manageExpenses"]),
+        resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"]),
       ]);
       const summary = await getSupabaseDashboardSummary(input.siteId, access.tenantId);
       return capabilityAccess.allowedCapabilities.length
@@ -3981,7 +3981,7 @@ export const powerhubRouter = router({
     }),
     allBranchesSummary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
-      const canViewFinancial = access.permissions.includes("viewFinancialReports") || access.permissions.includes("manageExpenses");
+      const canViewFinancial = access.permissions.includes("viewFinancialReports");
       const admin = supabaseAdmin();
       const aggregate = await admin.rpc("powerhub_dashboard_operational_summary", { p_tenant_id: access.tenantId, p_site_id: null });
       if (!aggregate.error) {
