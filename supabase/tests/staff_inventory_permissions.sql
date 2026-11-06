@@ -154,7 +154,7 @@ do $tenant_rls$
 declare v_count integer;
 begin
   select count(*) into v_count from public.staff_profile_capability_overrides;
-  if v_count <> 3 then raise exception 'TENANT_ISOLATION_FAILED expected=3 visible=%',v_count; end if;
+  if v_count <> 4 then raise exception 'TENANT_ISOLATION_FAILED expected=4 visible=%',v_count; end if;
   begin
     insert into public.staff_profile_capability_overrides(tenant_id,profile_id,capability,is_allowed)
     values (10,101,'manageSuppliers',true);
