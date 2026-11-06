@@ -30,7 +30,7 @@ import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { powerhubInventoryRouter } from "./powerhub-inventory-router";
 import { powerhubMaintenanceRouter } from "./powerhub-maintenance-router";
 import { powerhubOfflineNumberingRouter } from "./powerhub-offline-numbering";
-import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, getSupabaseSecurityDepositOverview, listSupabaseSubscriberAccountStatementHistoryPage, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, listSupabaseCompanyAccountHistoryPage, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, writeSupabaseAudit } from "./powerhub-supabase";
+import { getSupabaseDashboardSummary, getSupabaseFinancialOverview, readSupabaseReportPages, listSupabaseReportInvoices, listSupabaseReportPayments, listSupabaseReportExpenses, listSupabaseReportSubscribers, getSupabaseOwnerSubscriberQuota, getSupabaseSite, listSupabaseAccessibleSites, getSupabaseSubscriberAccountStatement, getSupabaseSecurityDepositOverview, listSupabaseSubscriberAccountStatementHistoryPage, listSupabaseSubscriberDirectoryPage, listSupabaseCompanyAccounts, listSupabaseCompanyAccountHistoryPage, requireSupabaseAccessibleSiteIds, listSupabaseExpensePage, listSupabaseExpenses, listSupabaseGenerators, listSupabaseInvoicePage, listSupabaseInvoices, listSupabasePaymentPage, listSupabasePayments, listSupabaseReadingPage, listSupabaseReadings, listSupabaseSubscribers, listSupabaseTariffs, listSupabaseTariffPriceHistory, recordSupabaseQuotaAlert, recordSupabaseSubscriberQuotaAlert, requireSupabaseAllBranchesRole, requireSupabaseSiteAnyCapability, requireSupabaseSiteCapabilities, requireSupabaseSiteRole, resolveSupabaseSiteAccess, resolveSupabaseSiteCapabilityAccess, writeSupabaseAudit } from "./powerhub-supabase";
 
 const createRoles = rolesWith("issueInvoices");
 
@@ -768,8 +768,18 @@ export const powerhubRouter = router({
         input.entityType === "hr_employee_advances" || input.entityType === "hr_payroll_runs";
       const isFuelMaintenanceEntity = input.entityType === "fuel_events" ||
         input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
-      const access = isHrDeltaEntity
-        ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs")
+      const isFinancialDeltaEntity = ["invoices", "payments", "expenses", "company_accounts", "company_accounts_all"].includes(input.entityType);
+      const financialDeltaCapabilities: PowerCapability[] = input.entityType === "invoices"
+        ? ["issueInvoices", "collectPayments", "viewFinancialReports"]
+        : input.entityType === "payments"
+          ? ["collectPayments", "viewFinancialReports"]
+          : ["manageExpenses", "viewFinancialReports"];
+      const access = isFinancialDeltaEntity
+        ? input.entityType === "company_accounts_all"
+          ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"], "viewFinancialReports")
+          : await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, financialDeltaCapabilities)
+        : isHrDeltaEntity
+          ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs")
         : isFuelMaintenanceEntity
           ? await requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, input.entityType)
           : input.entityType === "company_accounts_all"
@@ -2389,7 +2399,7 @@ export const powerhubRouter = router({
       throw new TRPCError({ code:"INTERNAL_SERVER_ERROR", message:"تعذر تغيير دورة حياة المشترك." });
     }),
     securityDepositOverview: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewFinancialReports");
       return getSupabaseSecurityDepositOverview(access.tenantId, input.siteId);
     }),
     securityDepositAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
@@ -2400,18 +2410,22 @@ export const powerhubRouter = router({
       siteId: z.number().int().positive(),
       subscriberId: z.number().int().positive(),
     })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_balance_snapshot", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_subscriber_id: input.subscriberId,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل رصيد المشترك الدائن والتأمين." });
-      return { availableCredit: String(data?.[0]?.available_credit ?? 0), securityDeposit: String(data?.[0]?.security_deposit ?? 0) };
+      const canViewFinancialReports = access.allowedCapabilities.includes("viewFinancialReports");
+      return {
+        availableCredit: String(data?.[0]?.available_credit ?? 0),
+        securityDeposit: canViewFinancialReports ? String(data?.[0]?.security_deposit ?? 0) : null,
+      };
     }),
     accountStatement: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       subscriberId: z.number().int().positive(),
     })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant"], "viewFinancialReports");
       return getSupabaseSubscriberAccountStatement(input.siteId, input.subscriberId);
     }),
     accountStatementHistoryPage: protectedProcedure.input(z.object({
@@ -2421,7 +2435,7 @@ export const powerhubRouter = router({
       cursor: z.string().trim().min(1).max(512).optional(),
       limit: z.number().int().min(1).max(100).default(20),
     })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
       return listSupabaseSubscriberAccountStatementHistoryPage(input.siteId, input.subscriberId, input.section, input);
     }),
     quota: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
@@ -3067,11 +3081,11 @@ export const powerhubRouter = router({
 
   invoices: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["issueInvoices", "collectPayments", "viewFinancialReports"]);
       return listSupabaseInvoices(input.siteId);
     }),
     page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional() })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["issueInvoices", "collectPayments", "viewFinancialReports"]);
       return listSupabaseInvoicePage(input.siteId, input);
     }),
     createFromReading: protectedProcedure.input(z.object({
@@ -3196,11 +3210,11 @@ export const powerhubRouter = router({
 
   payments: router({
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
       return listSupabasePayments(input.siteId);
     }),
     page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional() })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);
+      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"]);
       return listSupabasePaymentPage(input.siteId, input);
     }),
     getReceiptImage: protectedProcedure.input(siteScoped.extend({ paymentId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
@@ -3868,7 +3882,7 @@ export const powerhubRouter = router({
 
   expenses: router({
     filterAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"]);
       const { data: links, error: linksError } = await supabaseAdmin()
         .from("company_account_sites")
         .select("account_id")
@@ -3889,11 +3903,11 @@ export const powerhubRouter = router({
       return (accounts ?? []).map((account) => ({ id: Number(account.id), name: account.name, accountType: account.account_type }));
     }),
     list: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"]);
       return listSupabaseExpenses(input.siteId);
     }),
     page: protectedProcedure.input(siteScoped.extend({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().max(500).optional(), startDate: paymentDocumentationDateKeySchema.optional(), endDate: paymentDocumentationDateKeySchema.optional(), companyAccountId: z.number().int().positive().optional() }).refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, { message: "تاريخ بداية الفترة يجب ألا يتجاوز نهايتها." })).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"]);
       return listSupabaseExpensePage(input.siteId, input, access.tenantId);
     }),
     create: protectedProcedure.input(z.object({
@@ -3946,11 +3960,21 @@ export const powerhubRouter = router({
 
   dashboard: router({
     summary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]);
-      return getSupabaseDashboardSummary(input.siteId, access.tenantId);
+      const [access, capabilityAccess] = await Promise.all([
+        requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "technician", "viewer"]),
+        resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports", "manageExpenses"]),
+      ]);
+      const summary = await getSupabaseDashboardSummary(input.siteId, access.tenantId);
+      return capabilityAccess.allowedCapabilities.length
+        ? summary
+        : { ...summary, financial: null };
     }),
     allBranchesSummary: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+      const [access, capabilityAccess] = await Promise.all([
+        requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]),
+        resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports", "manageExpenses"]),
+      ]);
+      const canViewFinancial = capabilityAccess.allowedCapabilities.length > 0;
       const admin = supabaseAdmin();
       const aggregate = await admin.rpc("powerhub_dashboard_operational_summary", { p_tenant_id: access.tenantId, p_site_id: null });
       if (!aggregate.error) {
@@ -3962,11 +3986,11 @@ export const powerhubRouter = router({
           branchCount: Number(result.branchCount ?? 0),
           subscribers: Number(result.subscribers ?? 0),
           generators: { active: Number(generators?.active ?? 0), maintenance: Number(generators?.maintenance ?? 0) },
-          financial: {
+          financial: canViewFinancial ? {
             invoiced: Number(financial?.invoiced ?? 0), collected: Number(financial?.collected ?? 0),
             outstanding: Number(financial?.outstanding ?? 0), expenses: Number(financial?.expenses ?? 0),
             operatingProfit: Number(financial?.operatingProfit ?? 0),
-          },
+          } : null,
           energyKwh: Number(result.energyKwh ?? 0),
           failedNotifications: Number(result.failedNotifications ?? 0),
         };
@@ -3979,7 +4003,7 @@ export const powerhubRouter = router({
       const { data: branchRows, error: branchesError } = await admin.from("sites").select("id").eq("tenant_id", access.tenantId).neq("status", "archived");
       if (branchesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل فروع المستأجر من Supabase." });
       const branchIds = (branchRows ?? []).map((branch) => Number(branch.id));
-      if (!branchIds.length) return { branchCount: 0, subscribers: 0, generators: { active: 0, maintenance: 0 }, financial: { invoiced: 0, collected: 0, outstanding: 0, expenses: 0, operatingProfit: 0 }, energyKwh: 0, failedNotifications: 0 };
+      if (!branchIds.length) return { branchCount: 0, subscribers: 0, generators: { active: 0, maintenance: 0 }, financial: canViewFinancial ? { invoiced: 0, collected: 0, outstanding: 0, expenses: 0, operatingProfit: 0 } : null, energyKwh: 0, failedNotifications: 0 };
       const [subscriberRows, generatorRows, invoiceRows, expenseRows] = await Promise.all([
         readSupabaseReportPages((from, to) => admin.from("subscribers").select("id, service_status").eq("tenant_id", access.tenantId).in("site_id", branchIds).is("archived_at", null).order("id", { ascending: true }).range(from, to), "تعذر تحميل المشتركين لملخص جميع الأفرع من Supabase."),
         readSupabaseReportPages((from, to) => admin.from("generators").select("status").eq("tenant_id", access.tenantId).in("site_id", branchIds).order("id", { ascending: true }).range(from, to), "تعذر تحميل المولدات لملخص جميع الأفرع من Supabase."),
@@ -4012,7 +4036,7 @@ export const powerhubRouter = router({
         branchCount: branchIds.length,
         subscribers: subscriberRows.filter((row) => row.service_status === "active").length,
         generators: { active: generatorRows.filter((row) => row.status === "active").length, maintenance: generatorRows.filter((row) => row.status === "maintenance").length },
-        financial: { invoiced: invoiceTotals.invoiced, collected: invoiceTotals.paid, outstanding: invoiceTotals.outstanding, expenses: expensesTotal, operatingProfit: invoiceTotals.paid - expensesTotal },
+        financial: canViewFinancial ? { invoiced: invoiceTotals.invoiced, collected: invoiceTotals.paid, outstanding: invoiceTotals.outstanding, expenses: expensesTotal, operatingProfit: invoiceTotals.paid - expensesTotal } : null,
         energyKwh: invoiceTotals.energy,
         failedNotifications: notificationRows.filter((row) => row.status === "failed").length,
       };
@@ -4055,11 +4079,11 @@ export const powerhubRouter = router({
       let tenantId: number;
       let siteIds: number[];
       if (input.scope === "branch") {
-        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
         tenantId = access.tenantId;
         siteIds = [input.siteId];
       } else {
-        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports");
         tenantId = access.tenantId;
         const { data, error } = await supabaseAdmin().from("sites")
           .select("id")
@@ -4095,7 +4119,7 @@ export const powerhubRouter = router({
       let tenantId: number;
       let siteRows: Array<{ id: number; name: string }>;
       if (input.scope === "branch") {
-        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
         tenantId = access.tenantId;
         const { data, error } = await supabaseAdmin().from("sites")
           .select("id, name")
@@ -4106,7 +4130,7 @@ export const powerhubRouter = router({
         if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الفرع لمؤشر الفترة." });
         siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
       } else {
-        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports");
         tenantId = access.tenantId;
         const { data, error } = await supabaseAdmin().from("sites")
           .select("id, name")
@@ -4273,12 +4297,12 @@ export const powerhubRouter = router({
       scope: z.enum(["branch", "all"]).default("branch"),
       includeDetails: z.boolean().default(true),
     })).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
       if (input.scope === "branch") {
         const site = await getSupabaseSite(input.siteId);
         return getSupabaseFinancialOverview(site, input.includeDetails);
       }
-      const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+      const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports");
       const admin = supabaseAdmin();
       const aggregate = await admin.rpc("powerhub_dashboard_financial_overview", {
         p_tenant_id: access.tenantId, p_site_id: null, p_now: new Date().toISOString(),
@@ -4331,7 +4355,7 @@ export const powerhubRouter = router({
       let tenantId: number;
       let siteRows: Array<{ id: number; name: string }>;
       if (input.scope === "branch") {
-        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"]);
+        const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
         tenantId = access.tenantId;
         const { data, error } = await supabaseAdmin().from("sites")
           .select("id, name")
@@ -4342,7 +4366,7 @@ export const powerhubRouter = router({
         if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات الفرع لمؤشرات الفترة." });
         siteRows = (data ?? []).map((row) => ({ id: Number(row.id), name: String(row.name ?? "فرع غير محدد") }));
       } else {
-        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"]);
+        const access = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports");
         tenantId = access.tenantId;
         const { data, error } = await supabaseAdmin().from("sites")
           .select("id, name")
