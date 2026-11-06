@@ -864,13 +864,23 @@ export const powerhubRouter = router({
         input.entityType === "hr_employee_advances" || input.entityType === "hr_payroll_runs";
       const isFuelMaintenanceEntity = input.entityType === "fuel_events" ||
         input.entityType === "maintenance_work_orders" || input.entityType.startsWith("maintenance_work_order_parts:");
-      const access = isHrDeltaEntity
-        ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs")
-        : isFuelMaintenanceEntity
-          ? await requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, input.entityType)
-          : input.entityType === "company_accounts_all"
-          ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant"])
-          : input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans"
+      const isFinancialDeltaEntity = ["invoices", "payments", "expenses", "company_accounts", "company_accounts_all"].includes(input.entityType);
+      const financialDeltaCapabilities: PowerCapability[] = input.entityType === "invoices"
+        ? ["issueInvoices", "collectPayments", "viewFinancialReports"]
+        : input.entityType === "payments"
+          ? ["collectPayments", "viewFinancialReports"]
+          : ["manageExpenses", "viewFinancialReports"];
+      const access = isFinancialDeltaEntity
+        ? input.entityType === "company_accounts_all"
+          ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")
+          : await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, financialDeltaCapabilities)
+        : isHrDeltaEntity
+          ? await requireDeltaHrReadAccess(ctx.user.id, input.siteId, input.entityType as "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs")
+          : isFuelMaintenanceEntity
+            ? await requireDeltaFuelMaintenanceReadAccess(ctx.user.id, input.siteId, input.entityType)
+            : input.entityType === "company_accounts_all"
+              ? await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")
+              : input.entityType === "fuel_readings" || input.entityType === "maintenance_preventive_plans"
             ? await requireDeltaOperationalReadAccess(ctx.user.id, input.siteId, input.entityType as "fuel_readings" | "maintenance_preventive_plans")
             : input.entityType === "inventory_purchase_receipt_headers" || input.entityType === "inventory_supplier_return_headers"
               ? await requireDeltaPurchaseChildHistoryReadAccess(ctx.user.id, input.siteId, input.entityType)
