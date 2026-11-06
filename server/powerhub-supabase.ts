@@ -346,15 +346,21 @@ export async function requireSupabaseAllBranchesRole(
   const { data: user, error: userError } = await admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle();
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
   if (isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status })) {
-    return { tenantId: access.tenantId, role: "owner" as const };
+    return { tenantId: access.tenantId, role: "owner" as const, permissions: access.permissions };
   }
   const { data: membership, error: membershipError } = await admin.from("tenant_members")
-    .select("role,expires_at")
+    .select("role,expires_at,tenant_member_capability_overrides(capability,is_allowed)")
     .eq("tenant_id", access.tenantId).eq("user_id", userId).eq("is_active", true)
     .eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle();
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
   if (membership?.role === "owner" && isTenantMembershipUnexpired(membership)) {
-    if (capability && !access.permissions.includes(capability)) {
+    const memberOverrides = Array.isArray((membership as any).tenant_member_capability_overrides)
+      ? (membership as any).tenant_member_capability_overrides.map((item: { capability: string; is_allowed: boolean }) => ({
+          capability: item.capability, is_allowed: Boolean(item.is_allowed),
+        }))
+      : [];
+    const permissions = applyStaffCapabilityOverrides(allCapabilities, memberOverrides);
+    if (capability && !permissions.includes(capability)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على هذه البيانات لجميع الأفرع." });
     }
     if (capability) {
@@ -363,7 +369,7 @@ export async function requireSupabaseAllBranchesRole(
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
       if (policy && !policy.is_allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
     }
-    return { tenantId: access.tenantId, role: "owner" as const };
+    return { tenantId: access.tenantId, role: "owner" as const, permissions };
   }
   const { data: profile, error: profileError } = await admin.from("staff_profiles")
     .select("id, role, permissions, custom_role_id, archived_at, suspension_started_at, suspension_ends_at")
@@ -375,34 +381,33 @@ export async function requireSupabaseAllBranchesRole(
   }
   const role = asPowerRole(profile.role);
   if (!allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  let permissions = profile.permissions !== null && profile.permissions !== undefined
+    ? asPermissions(profile.permissions)
+    : defaultCapabilitiesForRole(role);
+  if ((profile.permissions === null || profile.permissions === undefined) && profile.custom_role_id) {
+    const { data: customRole, error } = await admin.from("custom_permission_roles")
+      .select("permissions").eq("id", profile.custom_role_id).eq("tenant_id", access.tenantId)
+      .eq("is_active", true).maybeSingle();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة للتعيين العام." });
+    permissions = asPermissions(customRole?.permissions);
+  }
+  const { data: overrides, error: overridesError } = await admin.from("staff_profile_capability_overrides")
+    .select("capability,is_allowed").eq("tenant_id", access.tenantId).eq("profile_id", profile.id);
+  if (overridesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استثناءات صلاحيات التعيين العام." });
+  permissions = applyStaffCapabilityOverrides(permissions, (overrides ?? []).map((item) => ({
+    capability: item.capability, is_allowed: Boolean(item.is_allowed),
+  })));
+  if (capability && !permissions.includes(capability)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على هذه البيانات لجميع الأفرع." });
+  }
   if (capability) {
-    let permissions = profile.permissions !== null && profile.permissions !== undefined
-      ? asPermissions(profile.permissions)
-      : defaultCapabilitiesForRole(role);
-    if ((profile.permissions === null || profile.permissions === undefined) && profile.custom_role_id) {
-      const { data: customRole, error } = await admin.from("custom_permission_roles")
-        .select("permissions").eq("id", profile.custom_role_id).eq("tenant_id", access.tenantId)
-        .eq("is_active", true).maybeSingle();
-      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة للتعيين العام." });
-      permissions = asPermissions(customRole?.permissions);
-    }
-    const { data: overrides, error: overridesError } = await admin.from("staff_profile_capability_overrides")
-      .select("capability,is_allowed").eq("tenant_id", access.tenantId).eq("profile_id", profile.id);
-    if (overridesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استثناءات صلاحيات التعيين العام." });
-    permissions = applyStaffCapabilityOverrides(permissions, (overrides ?? []).map((item) => ({
-      capability: item.capability, is_allowed: Boolean(item.is_allowed),
-    })));
-    if (!permissions.includes(capability)) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على هذه البيانات لجميع الأفرع." });
-    }
     const { data: policy, error } = await admin.from("platform_role_policies")
       .select("is_allowed").eq("role", role).eq("capability", capability).maybeSingle();
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
     if (policy && !policy.is_allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
   }
-  return { tenantId: access.tenantId, role };
+  return { tenantId: access.tenantId, role, permissions };
 }
-
 export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmin: boolean): Promise<SupabaseSite[]> {
   const admin = supabaseAdmin();
   if (isPlatformAdmin) {
