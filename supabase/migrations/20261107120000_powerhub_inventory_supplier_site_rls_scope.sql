@@ -11,13 +11,13 @@ BEGIN
 
   FOR target IN
     SELECT * FROM (VALUES
-      ('supplier_purchases', ARRAY['tenant_id','site_id']::text[]),
+      ('supplier_purchases', ARRAY['tenant_id','site_id','supplier_id']::text[]),
       ('supplier_purchase_lines', ARRAY['tenant_id','purchase_id']::text[]),
       ('supplier_purchase_receipts', ARRAY['tenant_id','site_id']::text[]),
       ('supplier_purchase_receipt_lines', ARRAY['tenant_id','receipt_id','purchase_id']::text[]),
-      ('supplier_payments', ARRAY['tenant_id','site_id']::text[]),
-      ('supplier_payment_allocations', ARRAY['tenant_id','payment_id','purchase_id']::text[]),
-      ('supplier_ledger_entries', ARRAY['tenant_id','site_id']::text[])
+      ('supplier_payments', ARRAY['tenant_id','site_id','supplier_id']::text[]),
+      ('supplier_payment_allocations', ARRAY['tenant_id','payment_id','purchase_id','supplier_ledger_entry_id']::text[]),
+      ('supplier_ledger_entries', ARRAY['tenant_id','site_id','supplier_id','entry_type','purchase_id','supplier_payment_id']::text[])
     ) AS scoped(table_name, required_columns)
   LOOP
     IF to_regclass(format('public.%I', target.table_name)) IS NULL THEN
@@ -88,19 +88,51 @@ CREATE POLICY supplier_purchase_receipt_lines_site_scope_read_guard
       AND private.powerhub_has_site_access(receipt.tenant_id,receipt.site_id)
   ));
 
+-- Detail rows inherit visibility from the invoice or the original opening-payable
+-- ledger entry. The payment, target document, tenant, supplier and branch must agree.
 DROP POLICY IF EXISTS supplier_payment_allocations_site_scope_read_guard ON public.supplier_payment_allocations;
 CREATE POLICY supplier_payment_allocations_site_scope_read_guard
   ON public.supplier_payment_allocations AS RESTRICTIVE FOR SELECT TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM public.supplier_payments payment
-    JOIN public.supplier_purchases purchase
-      ON purchase.tenant_id=payment.tenant_id
-     AND purchase.id=supplier_payment_allocations.purchase_id
+    SELECT 1
+    FROM public.supplier_payments payment
     WHERE payment.tenant_id=supplier_payment_allocations.tenant_id
       AND payment.id=supplier_payment_allocations.payment_id
-      AND payment.site_id=purchase.site_id
       AND private.powerhub_has_site_access(payment.tenant_id,payment.site_id)
+      AND (
+        (
+          supplier_payment_allocations.purchase_id IS NOT NULL
+          AND supplier_payment_allocations.supplier_ledger_entry_id IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM public.supplier_purchases purchase
+            WHERE purchase.tenant_id=supplier_payment_allocations.tenant_id
+              AND purchase.id=supplier_payment_allocations.purchase_id
+              AND purchase.site_id=payment.site_id
+              AND purchase.supplier_id=payment.supplier_id
+              AND private.powerhub_has_site_access(purchase.tenant_id,purchase.site_id)
+          )
+        )
+        OR
+        (
+          supplier_payment_allocations.purchase_id IS NULL
+          AND supplier_payment_allocations.supplier_ledger_entry_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM public.supplier_ledger_entries opening
+            WHERE opening.tenant_id=supplier_payment_allocations.tenant_id
+              AND opening.id=supplier_payment_allocations.supplier_ledger_entry_id
+              AND opening.site_id=payment.site_id
+              AND opening.supplier_id=payment.supplier_id
+              AND opening.entry_type='opening_balance'
+              AND opening.purchase_id IS NULL
+              AND opening.supplier_payment_id IS NULL
+              AND private.powerhub_has_site_access(opening.tenant_id,opening.site_id)
+          )
+        )
+      )
   ));
+
 
 DO $assertions$
 DECLARE target text;
