@@ -168,7 +168,9 @@ jobs:
             cp -- "$source_file" "$target_file"
           fi
 
-      - name: Validate trusted release scripts and migration history
+      - name: Validate trusted release scripts and complete pinned source inventory
+        env:
+          POWERHUB_MIGRATION_DIR: ${{ github.workspace }}/migration-source/supabase/migrations
         run: |
           node --check scripts/check-supabase-migration-files.mjs
           node --check scripts/supabase-migration-file.mjs
@@ -183,6 +185,7 @@ jobs:
 
       - name: Apply exactly one migration with matching ledger version
         env:
+          POWERHUB_MIGRATION_DIR: ${{ github.workspace }}/migration-source/supabase/migrations
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           MIGRATION_PATH: ${{ inputs.migration_path }}

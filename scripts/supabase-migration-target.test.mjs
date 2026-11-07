@@ -3,7 +3,14 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveSupabaseMigrationFile } from "./supabase-migration-file.mjs";
-import { assertSupabaseMigrationTarget, classifySupabaseMigrationHistory, parseSupabaseMigrationHistoryRows, SUPABASE_PROJECT_BY_TARGET } from "./supabase-migration-target.mjs";
+import {
+  assertSupabaseMigrationTarget,
+  assertSupabaseMigrationFileInventory,
+  assertSupabaseMigrationReleaseVersionIsUnique,
+  classifySupabaseMigrationHistory,
+  parseSupabaseMigrationHistoryRows,
+  SUPABASE_PROJECT_BY_TARGET,
+} from "./supabase-migration-target.mjs";
 
 function directUri(projectRef, suffix = "") {
   return `postgresql://postgres:secret%2Fpassword@db.${projectRef}.supabase.co:5432/postgres${suffix}`;
@@ -146,6 +153,83 @@ describe("Supabase migration history reconciliation guard", () => {
   });
 });
 
+
+
+
+
+const pinnedHistoricalMigrationFiles = [
+  "0010_fix_subscriber_create_rpc_ambiguity.sql",
+  "0010_powerhub_update_subscriber_rpc.sql",
+  "0060_admin_subscription_upgrade_enrichment_rpc.sql",
+  "0060_powerhub_request_owner_access_recovery.sql",
+  "20260916190000_enforce_subscriber_phone_required.sql",
+  "20260916190000_powerhub_owner_subscription_main_site.sql",
+  "20260922123000_powerhub_unified_field_user_guard.sql",
+  "20260922123000_powerhub_unified_field_user_policy.sql",
+  "20260926123000_powerhub_advanced_dashboard_synchronization.sql",
+  "20260926123000_powerhub_upgrade_review_hardening.sql",
+  "20261013170000_powerhub_fix_sms_claim_tenant_id_ambiguity.sql",
+  "20261013170000_powerhub_unified_message_history_filters.sql",
+];
+
+describe("Supabase migration source inventory guard", () => {
+  it("accepts only the exact pinned historical collision groups", () => {
+    expect(assertSupabaseMigrationFileInventory([
+      ...pinnedHistoricalMigrationFiles,
+      "20261107120000_powerhub_inventory_supplier_site_rls_scope.sql",
+    ])).toEqual({
+      fileCount: 13,
+      uniqueVersionCount: 7,
+      historicalCollisionCount: 6,
+    });
+  });
+
+  it("rejects a new duplicate 14-digit version anywhere in the source inventory", () => {
+    expect(() => assertSupabaseMigrationFileInventory([
+      ...pinnedHistoricalMigrationFiles,
+      "20261107120000_new_migration_a.sql",
+      "20261107120000_new_migration_b.sql",
+    ])).toThrow(/Unapproved duplicate migration version 20261107120000/i);
+  });
+
+  it("rejects deletion or renaming of a pinned historical collision member", () => {
+    const changedInventory = pinnedHistoricalMigrationFiles.filter(
+      (filename) => filename !== "20260916190000_enforce_subscriber_phone_required.sql",
+    );
+    expect(() => assertSupabaseMigrationFileInventory(changedInventory))
+      .toThrow(/Pinned historical migration collision 20260916190000 changed/i);
+  });
+
+  it("rejects malformed filenames in the complete local inventory", () => {
+    expect(() => assertSupabaseMigrationFileInventory([
+      ...pinnedHistoricalMigrationFiles,
+      "not-a-versioned-migration.sql",
+    ])).toThrow(/Invalid migration filename/i);
+  });
+
+  it("blocks releasing any candidate whose version is shared by another local file", () => {
+    const candidate = "20260916190000_enforce_subscriber_phone_required.sql";
+    expect(() => assertSupabaseMigrationReleaseVersionIsUnique({
+      filename: candidate,
+      migrationFiles: pinnedHistoricalMigrationFiles,
+    })).toThrow(/cannot be released while local files share version 20260916190000/i);
+  });
+
+  it("accepts a selected candidate only when it is present and its version is unique", () => {
+    const candidate = "20261107120000_powerhub_inventory_supplier_site_rls_scope.sql";
+    expect(assertSupabaseMigrationReleaseVersionIsUnique({
+      filename: candidate,
+      migrationFiles: [...pinnedHistoricalMigrationFiles, candidate],
+    })).toBe("20261107120000");
+  });
+
+  it("rejects a selected migration absent from the validated source inventory", () => {
+    expect(() => assertSupabaseMigrationReleaseVersionIsUnique({
+      filename: "20261107120000_missing.sql",
+      migrationFiles: pinnedHistoricalMigrationFiles,
+    })).toThrow(/not present in the validated source inventory/i);
+  });
+});
 
 
 describe("Supabase migration release file path guard", () => {

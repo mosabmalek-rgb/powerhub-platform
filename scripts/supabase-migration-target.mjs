@@ -3,6 +3,123 @@ export const SUPABASE_PROJECT_BY_TARGET = Object.freeze({
   production: "vvcdiqcyhaloxesvpppc",
 });
 
+const PINNED_HISTORICAL_MIGRATION_VERSION_COLLISIONS = new Map([
+  ["0010", [
+    "0010_fix_subscriber_create_rpc_ambiguity.sql",
+    "0010_powerhub_update_subscriber_rpc.sql",
+  ]],
+  ["0060", [
+    "0060_admin_subscription_upgrade_enrichment_rpc.sql",
+    "0060_powerhub_request_owner_access_recovery.sql",
+  ]],
+  ["20260916190000", [
+    "20260916190000_enforce_subscriber_phone_required.sql",
+    "20260916190000_powerhub_owner_subscription_main_site.sql",
+  ]],
+  ["20260922123000", [
+    "20260922123000_powerhub_unified_field_user_guard.sql",
+    "20260922123000_powerhub_unified_field_user_policy.sql",
+  ]],
+  ["20260926123000", [
+    "20260926123000_powerhub_advanced_dashboard_synchronization.sql",
+    "20260926123000_powerhub_upgrade_review_hardening.sql",
+  ]],
+  ["20261013170000", [
+    "20261013170000_powerhub_fix_sms_claim_tenant_id_ambiguity.sql",
+    "20261013170000_powerhub_unified_message_history_filters.sql",
+  ]],
+]);
+
+function sortedMigrationNames(names) {
+  return [...names].sort();
+}
+
+/**
+ * Validate the complete local migration inventory. Historical duplicate
+ * versions are permitted only while their exact, reviewed filenames remain
+ * pinned; every new or altered collision fails closed.
+ */
+export function assertSupabaseMigrationFileInventory(filenames) {
+  if (!Array.isArray(filenames)) {
+    throw new Error("Migration file inventory must be an array.");
+  }
+
+  const byVersion = new Map();
+  for (const filename of filenames) {
+    if (typeof filename !== "string") {
+      throw new Error("Migration inventory contains a non-string filename.");
+    }
+    const match = filename.match(/^(\d+)_([a-zA-Z0-9_]+)\.sql$/);
+    if (!match) {
+      throw new Error("Invalid migration filename in local inventory: " + filename);
+    }
+    const version = match[1];
+    const group = byVersion.get(version) ?? [];
+    group.push(filename);
+    byVersion.set(version, group);
+  }
+
+  for (const [version, names] of byVersion) {
+    if (names.length < 2) continue;
+    const expected = PINNED_HISTORICAL_MIGRATION_VERSION_COLLISIONS.get(version);
+    if (!expected || JSON.stringify(sortedMigrationNames(names)) !== JSON.stringify(sortedMigrationNames(expected))) {
+      throw new Error(
+        "Unapproved duplicate migration version " + version + ": " +
+        names.join(", ") +
+        ". Only exact pinned historical collisions may remain until explicit reconciliation.",
+      );
+    }
+  }
+
+  for (const [version, expected] of PINNED_HISTORICAL_MIGRATION_VERSION_COLLISIONS) {
+    const actual = byVersion.get(version) ?? [];
+    if (JSON.stringify(sortedMigrationNames(actual)) !== JSON.stringify(sortedMigrationNames(expected))) {
+      throw new Error(
+        "Pinned historical migration collision " + version +
+        " changed. Review and explicitly reconcile its source and database history before editing these filenames.",
+      );
+    }
+  }
+
+  return {
+    fileCount: filenames.length,
+    uniqueVersionCount: byVersion.size,
+    historicalCollisionCount: PINNED_HISTORICAL_MIGRATION_VERSION_COLLISIONS.size,
+  };
+}
+
+/**
+ * A selected migration can never be released while any other local file uses
+ * the same version, including files in a pinned historical collision group.
+ */
+export function assertSupabaseMigrationReleaseVersionIsUnique({ filename, migrationFiles }) {
+  if (typeof filename !== "string" || !Array.isArray(migrationFiles)) {
+    throw new Error("Migration release uniqueness check requires a filename and migration file inventory.");
+  }
+
+  const match = filename.match(/^(\d+)_([a-zA-Z0-9_]+)\.sql$/);
+  if (!match) {
+    throw new Error("Migration release candidate must have a numeric version and SQL filename.");
+  }
+  if (!migrationFiles.includes(filename)) {
+    throw new Error("Selected migration is not present in the validated source inventory.");
+  }
+
+  const version = match[1];
+  const collisions = migrationFiles.filter(
+    (entry) => entry !== filename && entry.startsWith(version + "_"),
+  );
+  if (collisions.length) {
+    throw new Error(
+      "Migration " + filename + " cannot be released while local files share version " +
+      version + ": " + collisions.join(", "),
+    );
+  }
+
+  return version;
+}
+
+
 /**
  * Validate the selected release target against both independent secrets and
  * the actual direct-database URI. Never print the URI or its credentials.

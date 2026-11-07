@@ -5,12 +5,15 @@ import {
   assertSupabaseMigrationTarget,
   classifySupabaseMigrationHistory,
   parseSupabaseMigrationHistoryRows,
+  assertSupabaseMigrationFileInventory,
+  assertSupabaseMigrationReleaseVersionIsUnique,
   SUPABASE_PROJECT_BY_TARGET,
 } from "./supabase-migration-target.mjs";
 import { resolveSupabaseMigrationFile } from "./supabase-migration-file.mjs";
 
 const [requestedPath, target] = process.argv.slice(2);
 const migrationRoot = path.resolve("supabase/migrations");
+const migrationInventoryRoot = path.resolve(process.env.POWERHUB_MIGRATION_DIR ?? migrationRoot);
 
 function fail(message) {
   console.error(`Supabase migration release blocked: ${message}`);
@@ -45,9 +48,14 @@ try {
   fail(error instanceof Error ? error.message : "Supabase database target validation failed");
 }
 
-const migrations = (await readdir(migrationRoot)).filter((entry) => entry.endsWith(".sql"));
-const collisions = migrations.filter((entry) => entry !== filename && entry.startsWith(`${version}_`));
-if (collisions.length) fail(`version ${version} already belongs to another file: ${collisions.join(", ")}`);
+let migrations;
+try {
+  migrations = (await readdir(migrationInventoryRoot)).filter((entry) => entry.endsWith(".sql"));
+  assertSupabaseMigrationFileInventory(migrations);
+  assertSupabaseMigrationReleaseVersionIsUnique({ filename, migrationFiles: migrations });
+} catch (error) {
+  fail(error instanceof Error ? error.message : "local migration inventory validation failed");
+}
 
 const sql = await readFile(absolutePath, "utf8");
 if (!sql.trim()) fail("migration is empty");

@@ -854,3 +854,30 @@ The same live inspection confirmed that Staging's \`private.powerhub_has_platfor
 - SECURITY DEFINER, empty search_path, postgres ownership, authenticated EXECUTE, and no anon/PUBLIC EXECUTE remain intact.
 
 The test is added to the PostgreSQL Integration workflow. It has not yet run on a CI SHA at the time of this ledger entry. No live Staging or Production changes were made; migration history remains untouched and all seven newer migrations remain unapplied pending explicit review/approval.
+
+
+---
+
+## 23. Local migration-version inventory and protected release-source validation — 7 November 2026
+
+### Findings at source HEAD \`ee957aad1503cfc2490fe14f0c866a9441c532a8\`
+
+- The verified recursive Git tree contains 579 SQL migration files: 502 canonical 14-digit versioned files and 77 older numeric-version files. The previously reported 502 count remains the canonical inventory used for the 502-versus-424 reconciliation; GitHub comparison confirms no migration file changed between \`850144da0b8b7234f440a92da0739cc9f3142628\` and \`ee957...\`.
+- Four additional 14-digit duplicate-version groups were inspected by file content, blob SHA, and Git path history: \`20260916190000\`, \`20260922123000\`, \`20260926123000\`, and \`20261013170000\`. Each pair contains distinct SQL behavior, not duplicate file content.
+- Two older numeric-version collision groups, \`0010\` and \`0060\`, also exist.
+- \`scripts/check-supabase-migration-files.mjs\` already pinned the exact six historical groups. Their filenames were deliberately left unchanged; timestamps derived from commit times alone would not prove migration-release order or historical database state.
+
+### Release-workflow gap and hardening
+
+The protected release workflow uses trusted scripts from \`main\` and checks out a PR source at its immutable SHA. Before this follow-up, it copied only the selected SQL file into the trusted workspace and ran the local inventory checker there. That meant an unselected migration in the same source PR could share a version without being inspected by the release inventory pass.
+
+This follow-up closes that gap in source control:
+- \`assertSupabaseMigrationFileInventory\` is shared by the local checker and release runner. It validates the full source tree, permits only the exact pinned six historical groups, and rejects every new or altered collision.
+- \`assertSupabaseMigrationReleaseVersionIsUnique\` blocks a selected candidate if any other local file shares its version, even if the collision is one of the pinned historical groups.
+- \`POWERHUB_MIGRATION_DIR\` points the checker and release runner to the complete immutable \`migration-source/supabase/migrations\` directory in the protected workflow.
+- The release runner requires the selected migration to exist in that validated source inventory.
+- Regression coverage verifies the pinned legacy groups, unknown duplicate versions, modified pinned groups, malformed names, missing candidates, and candidate-version uniqueness.
+
+### Safety boundary
+
+No migration filename or timestamp was rewritten. No \`db push\`, \`apply_migration\`, SQL DDL, ACL/RLS change, or migration-history write was executed. Staging remains at 424 recorded migrations with latest version \`20261106224902\`; Production remains untouched. The new code and documentation still require the five CI gates on their resulting commit SHA before this hardening is considered verified. The seven post-Staging migrations remain subject to separate content/dependency review and explicit Staging approval.
