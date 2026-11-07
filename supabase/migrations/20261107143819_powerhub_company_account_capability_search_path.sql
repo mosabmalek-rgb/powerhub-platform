@@ -58,4 +58,52 @@ DECLARE
   v_owner oid;
 BEGIN
   IF v_oid IS NULL THEN
-    RAISE E...[truncated]
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_POSTFLIGHT_FUNCTION_MISSING';
+  END IF;
+
+  SELECT p.prosecdef,p.proconfig,p.proowner
+    INTO v_prosecdef,v_proconfig,v_owner
+  FROM pg_catalog.pg_proc AS p
+  WHERE p.oid=v_oid;
+
+  IF NOT v_prosecdef THEN
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_POSTFLIGHT_NOT_SECURITY_DEFINER';
+  END IF;
+
+  IF v_proconfig IS DISTINCT FROM ARRAY['search_path=""']::text[] THEN
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_SEARCH_PATH_NOT_EMPTY';
+  END IF;
+
+  IF pg_catalog.pg_get_userbyid(v_owner) <> 'postgres' THEN
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_POSTFLIGHT_OWNER_CHANGED';
+  END IF;
+
+  IF pg_catalog.has_function_privilege('anon',v_oid,'EXECUTE') THEN
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_ANON_EXECUTE_PRESENT';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc AS routine
+    CROSS JOIN LATERAL pg_catalog.aclexplode(
+      COALESCE(
+        routine.proacl,
+        pg_catalog.acldefault('f',routine.proowner)
+      )
+    ) AS acl
+    WHERE routine.oid=v_oid
+      AND acl.grantee=0
+      AND acl.privilege_type='EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_PUBLIC_EXECUTE_PRESENT';
+  END IF;
+
+  IF NOT pg_catalog.has_function_privilege('authenticated',v_oid,'EXECUTE') THEN
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_AUTHENTICATED_EXECUTE_MISSING';
+  END IF;
+
+  IF NOT pg_catalog.has_function_privilege('service_role',v_oid,'EXECUTE') THEN
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_SERVICE_EXECUTE_MISSING';
+  END IF;
+END
+$postflight$;
