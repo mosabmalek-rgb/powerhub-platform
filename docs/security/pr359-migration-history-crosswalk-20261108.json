@@ -889,7 +889,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260915092826",
@@ -898,7 +898,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260915092826",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260915104500_chat_support_users_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 1167,
+              "stored_chars": 952
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_staging_compatibility_v1",
@@ -916,7 +933,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260916084611",
@@ -925,7 +942,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260916084611",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260916130000_chat_staging_compatibility_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 4252,
+              "stored_chars": 2757
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "powerhub_field_user_guards",
@@ -943,7 +977,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260919104522",
@@ -959,7 +993,24 @@
           "source_same_sha": false,
           "source_same_version": false
         }
-      ]
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260919104522",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260919140000_powerhub_field_user_guards.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 2344,
+              "stored_chars": 2004
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "powerhub_platform_support_role_reconciliation",
@@ -977,7 +1028,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260922093834",
@@ -986,7 +1037,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260922093834",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260922190500_powerhub_platform_support_role_reconciliation.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 5848,
+              "stored_chars": 1897
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "powerhub_optional_generator_capacity",
@@ -1004,7 +1072,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20261023145139",
@@ -1020,7 +1088,24 @@
           "source_same_sha": false,
           "source_same_version": false
         }
-      ]
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261023145139",
+          "comparison": "COMMENT_LINES_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260926150000_powerhub_optional_generator_capacity.sql",
+              "comparison": "COMMENT_LINES_NORMALIZED",
+              "source_chars": 810,
+              "stored_chars": 754
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "powerhub_reading_opening_baseline_save_fix",
@@ -1038,7 +1123,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20261010161951",
@@ -1060,7 +1145,38 @@
           "source_same_sha": false,
           "source_same_version": false
         }
-      ]
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261010161951",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261010170000_powerhub_reading_opening_baseline_save_fix.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 5038,
+              "stored_chars": 4657
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        },
+        {
+          "staging_version": "20261010170812",
+          "comparison": "COMMENT_LINES_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261010170000_powerhub_reading_opening_baseline_save_fix.sql",
+              "comparison": "COMMENT_LINES_NORMALIZED",
+              "source_chars": 5038,
+              "stored_chars": 5036
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "powerhub_unified_message_history_filters",
@@ -1078,7 +1194,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20261013152202",
@@ -1087,7 +1203,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261013152202",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261013170000_powerhub_unified_message_history_filters.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 10188,
+              "stored_chars": 10188
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "powerhub_manual_sms_history_scope",
@@ -1105,7 +1238,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20261019103200",
@@ -1114,7 +1247,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261019103200",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261019120000_powerhub_manual_sms_history_scope.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 2799,
+              "stored_chars": 1661
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "powerhub_owner_capability_overrides",
@@ -1132,7 +1282,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20261022112108",
@@ -1148,7 +1298,24 @@
           "source_same_sha": true,
           "source_same_version": false
         }
-      ]
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261022112108",
+          "comparison": "COMMENT_LINES_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261022200000_powerhub_owner_capability_overrides.sql",
+              "comparison": "COMMENT_LINES_NORMALIZED",
+              "source_chars": 7636,
+              "stored_chars": 7559
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     }
   ],
   "evidence_refresh_date": "2026-11-08",
