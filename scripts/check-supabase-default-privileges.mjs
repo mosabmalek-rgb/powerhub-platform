@@ -270,13 +270,114 @@ function extractDefaultAclOwners(statement) {
   return match ? match[1].split(",").map(normalizeRoleIdentifier) : [];
 }
 
+function stripSqlCommentsPreservingQuotedText(sql) {
+  let output = "";
+  let state = "normal";
+  let dollarTag = "";
+  let blockDepth = 0;
+
+  for (let i = 0; i < sql.length; i += 1) {
+    const char = sql[i];
+    const next = sql[i + 1];
+
+    if (state === "line-comment") {
+      if (char === "\n") {
+        output += "\n";
+        state = "normal";
+      } else {
+        output += " ";
+      }
+      continue;
+    }
+
+    if (state === "block-comment") {
+      if (char === "/" && next === "*") {
+        output += "  ";
+        i += 1;
+        blockDepth += 1;
+      } else if (char === "*" && next === "/") {
+        output += "  ";
+        i += 1;
+        blockDepth -= 1;
+        if (blockDepth === 0) state = "normal";
+      } else {
+        output += char === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+
+    if (state === "single-quote" || state === "double-quote") {
+      output += char;
+      if (char === (state === "single-quote" ? "'" : '"')) {
+        if (next === char) {
+          output += next;
+          i += 1;
+        } else {
+          state = "normal";
+        }
+      } else if (char === "\\\\" && next !== undefined) {
+        output += next;
+        i += 1;
+      }
+      continue;
+    }
+
+    if (state === "dollar-quote") {
+      if (sql.startsWith(dollarTag, i)) {
+        output += dollarTag;
+        i += dollarTag.length - 1;
+        state = "normal";
+      } else {
+        output += char;
+      }
+      continue;
+    }
+
+    if (char === "-" && next === "-") {
+      output += "  ";
+      i += 1;
+      state = "line-comment";
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      output += "  ";
+      i += 1;
+      state = "block-comment";
+      blockDepth = 1;
+      continue;
+    }
+    if (char === "'") {
+      output += char;
+      state = "single-quote";
+      continue;
+    }
+    if (char === '"') {
+      output += char;
+      state = "double-quote";
+      continue;
+    }
+    if (char === "$") {
+      const match = sql.slice(i).match(/^\\$[A-Za-z_][A-Za-z0-9_]*\\$|^\\$\\$/);
+      if (match) {
+        dollarTag = match[0];
+        output += dollarTag;
+        i += dollarTag.length - 1;
+        state = "dollar-quote";
+        continue;
+      }
+    }
+    output += char;
+  }
+
+  return output;
+}
+
 function hasDynamicDefaultPrivilegeAlter(statement) {
-  // SQL inside DO/PLpgSQL dollar-quoted bodies is not a top-level statement.
-  // A dynamic EXECUTE can nevertheless run ALTER DEFAULT PRIVILEGES. Fail
-  // closed when an executable body combines EXECUTE and that command, rather
-  // than silently masking a real dynamic DDL path.
-  return /\bEXECUTE\b/i.test(statement) &&
-    /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(statement);
+  // Preserve executable DO/PLpgSQL bodies and quoted EXECUTE payloads, but
+  // remove comments so examples/documentation cannot trigger a false positive.
+  const executable = stripSqlCommentsPreservingQuotedText(statement);
+  return /\bEXECUTE\s+(?:format\s*\()?/i.test(executable) &&
+    /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(executable);
 }
 
 export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
