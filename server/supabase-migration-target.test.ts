@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveSupabaseMigrationFile } from "../scripts/supabase-migration-file.mjs";
-import { assertSupabaseMigrationTarget, classifySupabaseMigrationHistory, SUPABASE_PROJECT_BY_TARGET } from "../scripts/supabase-migration-target.mjs";
+import { assertSupabaseMigrationTarget, classifySupabaseMigrationHistory, parseSupabaseMigrationHistoryRows, SUPABASE_PROJECT_BY_TARGET } from "../scripts/supabase-migration-target.mjs";
 
 function directUri(projectRef, suffix = "") {
   return `postgresql://postgres:secret%2Fpassword@db.${projectRef}.supabase.co:5432/postgres${suffix}`;
@@ -72,6 +72,25 @@ describe("Supabase migration release target guard", () => {
 });
 
 
+describe("Supabase migration history row parser", () => {
+  it("parses every psql ledger row using LF and CRLF separators", () => {
+    const first = "20261107150951|powerhub_public_default_privilege_hardening";
+    const second = "20261106224902|powerhub_payment_delta_purpose_projection";
+    const expected = [
+      { version: "20261107150951", name: "powerhub_public_default_privilege_hardening" },
+      { version: "20261106224902", name: "powerhub_payment_delta_purpose_projection" },
+    ];
+    expect(parseSupabaseMigrationHistoryRows(first + "\n" + second)).toEqual(expected);
+    expect(parseSupabaseMigrationHistoryRows(first + "\r\n" + second + "\r\n")).toEqual(expected);
+    expect(parseSupabaseMigrationHistoryRows("")).toEqual([]);
+  });
+
+  it("rejects malformed rows rather than silently accepting partial history", () => {
+    expect(() => parseSupabaseMigrationHistoryRows("bad-version|migration")).toThrow(/14-digit version/i);
+    expect(() => parseSupabaseMigrationHistoryRows("20261107150951|migration|extra")).toThrow(/unexpected row/i);
+  });
+});
+
 describe("Supabase migration history reconciliation guard", () => {
   it("treats an exact version/name record as already applied", () => {
     expect(classifySupabaseMigrationHistory({
@@ -117,11 +136,13 @@ describe("Supabase migration history reconciliation guard", () => {
   });
 
   it("rejects malformed migration release identifiers", () => {
-    expect(() => classifySupabaseMigrationHistory({
-      version: "latest",
-      name: "powerhub_public_default_privilege_hardening",
-      records: [],
-    })).toThrow(/valid 14-digit version/i);
+    for (const version of ["latest", "2026110715095", "202611071509510", "2026110715095a"]) {
+      expect(() => classifySupabaseMigrationHistory({
+        version,
+        name: "powerhub_public_default_privilege_hardening",
+        records: [],
+      })).toThrow(/valid 14-digit version/i);
+    }
   });
 });
 

@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import {
   assertSupabaseMigrationTarget,
   classifySupabaseMigrationHistory,
+  parseSupabaseMigrationHistoryRows,
   SUPABASE_PROJECT_BY_TARGET,
 } from "./supabase-migration-target.mjs";
 import { resolveSupabaseMigrationFile } from "./supabase-migration-file.mjs";
@@ -78,15 +79,7 @@ function psql(query) {
 const existingRows = psql(
   `select version || '|' || coalesce(name, '') from supabase_migrations.schema_migrations where version = '${version}' or name = '${name}' order by version`,
 );
-const existingRecords = existingRows
-  ? existingRows.split(/\\r?\\n/).filter(Boolean).map((row) => {
-      const separator = row.indexOf("|");
-      return {
-        version: row.slice(0, separator),
-        name: row.slice(separator + 1),
-      };
-    })
-  : [];
+const existingRecords = parseSupabaseMigrationHistoryRows(existingRows);
 
 let migrationHistoryState;
 try {

@@ -817,3 +817,25 @@ Commit: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
 أضيفت اختبارات للحالات الفعلية التي كشفها Staging، بما فيها إعادة إصدار `powerhub_fuel_event_append_only_acl` وتكرار `powerhub_image_retention_metadata`.
 
 لم تُطبق أي Migration على Staging أو Production أثناء هذا التدقيق.
+
+
+---
+
+## 21. إصلاح التحقق من تاريخ الترحيلات وقراءة سجل الإطلاق — 7 نوفمبر 2026
+
+### السبب الجذري
+كشف CI على Commit \`8b613f435bf9365c24b6d5796dca150b3336642b\` أن Regex التحقق في \`classifySupabaseMigrationHistory\` كان مزدوج الهروب، فرفض الإصدارات الصحيحة ذات 14 رقماً. أظهر سجل GitHub خمس حالات فشل من أصل 15 اختباراً لهذه العلة. نجحت بوابة PostgreSQL Integration وSecurity وAdmin Guard وSBOM على ذلك SHA.
+
+### مشكلة قارئ السجل
+أظهر فحص \`release-supabase-migration.mjs\` أن Regex تقسيم مخرجات \`psql\` كان مزدوج الهروب أيضاً؛ ما قد يدمج عدة سجلات في صف واحد ويضعف كشف الأسماء المكررة أو اختلاف timestamp.
+
+### التصحيح
+- تصحيح Regex الإصدار إلى \`/^\\d{14}$/\`.
+- إضافة \`parseSupabaseMigrationHistoryRows\` لتقسيم LF وCRLF ورفض الصفوف المشوهة Fail-closed.
+- استخدام المحلل المشترك داخل أداة الإطلاق.
+- إضافة اختبارات للسجلات المتعددة والمخرجات الفارغة والصفوف المشوهة.
+- توسيع اختبارات معرفات الإصدار غير الصحيحة.
+- إدراج اختبارات \`scripts/**/*.test.mjs\` في Vitest وتشغيل ملف الحماية ضمن \`scripts/run-tests.mjs\`.
+
+### حدود التنفيذ
+لم تُطبق أي Migration على Staging أو Production، ولم تتغير ACL أو RLS أو بيانات. نتائج CI على Commit الإصلاح الجديد مطلوبة قبل اعتماد المرحلة. PR #359 يبقى OPEN وDRAFT وNOT MERGED.

@@ -31,6 +31,7 @@ function runVitest(paths) {
 }
 
 runVitest(["server"]);
+runVitest(["scripts/supabase-migration-target.test.mjs"]);
 runVitest(["client/src/components"]);
 runVitest(["client/src/lib", "client/src/contexts", "client/src/hooks"]);
 

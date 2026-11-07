@@ -51,11 +51,31 @@ export function assertSupabaseMigrationTarget({ target, projectRef, databaseUrl 
 
 
 /**
+ * Parse tuples-only psql output without collapsing multiple migration records.
+ * Malformed rows fail closed so history drift cannot be silently ignored.
+ */
+export function parseSupabaseMigrationHistoryRows(output) {
+  if (typeof output !== "string") throw new Error("Migration history query output must be a string.");
+  if (output.trim() === "") return [];
+  return output.split(/\r?\n/).filter((row) => row.length > 0).map((row) => {
+    const separator = row.indexOf("|");
+    if (separator <= 0 || row.indexOf("|", separator + 1) !== -1) {
+      throw new Error("Migration history query returned an unexpected row.");
+    }
+    const version = row.slice(0, separator);
+    if (!/^\d{14}$/.test(version)) {
+      throw new Error("Migration history query returned a row with an invalid 14-digit version.");
+    }
+    return { version, name: row.slice(separator + 1) };
+  });
+}
+
+/**
  * Classify one migration against the live migration ledger.
  * A matching name under another timestamp is drift, not permission to replay.
  */
 export function classifySupabaseMigrationHistory({ version, name, records }) {
-  if (!/^\\d{14}$/.test(version) || !/^[a-z0-9_]+$/.test(name)) {
+  if (!/^\d{14}$/.test(version) || !/^[a-z0-9_]+$/.test(name)) {
     throw new Error("Migration history lookup requires a valid 14-digit version and snake_case name.");
   }
   if (!Array.isArray(records)) {
