@@ -183,7 +183,8 @@ describe("fuel and maintenance Delta boundaries", () => {
       router.indexOf("async function requireDeltaPurchaseChildHistoryReadAccess"),
     );
     expect(maintenanceReadGuard).toContain('requireSupabaseSiteRole(userId, siteId, ["owner", "manager", "technician"], "manageMaintenance")');
-    expect(maintenanceGuardSource).toContain('requireSupabaseSiteRole(userId, siteId, [...maintenanceRoles], "manageMaintenance")');
+    expect(maintenanceGuardSource).toContain("resolveSupabaseSiteCapabilityAccess(userId, siteId, [");
+    expect(maintenanceGuardSource).toContain('"manageMaintenance", "issueInventory", "viewInventoryReports", "manageExpenses"');
   });
 });
 
