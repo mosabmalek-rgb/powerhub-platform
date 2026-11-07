@@ -263,11 +263,20 @@ function extractGrantedRoles(statement) {
   return match[1].split(",").map(normalizeRoleIdentifier);
 }
 
-function extractDefaultAclOwner(statement) {
+function extractDefaultAclOwners(statement) {
   const match = statement.match(
-    /\bFOR\s+(?:ROLE|USER)\s+("(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)/i,
+    /\bFOR\s+(?:ROLE|USER)\s+((?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)(?:\s*,\s*(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*))*)/i,
   );
-  return match ? normalizeRoleIdentifier(match[1]) : null;
+  return match ? match[1].split(",").map(normalizeRoleIdentifier) : [];
+}
+
+function hasDynamicDefaultPrivilegeAlter(statement) {
+  // SQL inside DO/PLpgSQL dollar-quoted bodies is not a top-level statement.
+  // A dynamic EXECUTE can nevertheless run ALTER DEFAULT PRIVILEGES. Fail
+  // closed when an executable body combines EXECUTE and that command, rather
+  // than silently masking a real dynamic DDL path.
+  return /\\bEXECUTE\\b/i.test(statement) &&
+    /\\bALTER\\s+DEFAULT\\s+PRIVILEGES\\b/i.test(statement);
 }
 
 export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
@@ -275,11 +284,21 @@ export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
   const sourcePath = filePath || "<sql>";
 
   for (const statement of splitSqlStatements(sql)) {
+    if (hasDynamicDefaultPrivilegeAlter(statement)) {
+      findings.push({
+        filePath: sourcePath,
+        message:
+          "Dynamic SQL must not execute ALTER DEFAULT PRIVILEGES. Use reviewed, static, object-specific ACL statements instead.",
+        statement,
+      });
+      continue;
+    }
+
     const executableStatement = stripNonExecutableSql(statement);
     if (!/\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(executableStatement)) continue;
 
-    const owner = extractDefaultAclOwner(executableStatement);
-    if (owner === "supabase_admin") {
+    const owners = extractDefaultAclOwners(executableStatement);
+    if (owners.includes("supabase_admin")) {
       findings.push({
         filePath: sourcePath,
         message:

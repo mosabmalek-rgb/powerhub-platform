@@ -53,6 +53,29 @@ describe("Supabase default-privileges migration guard", () => {
     expect(findings[0].message).toContain("Supabase-managed supabase_admin");
   });
 
+  it("detects supabase_admin in a multi-owner ALTER DEFAULT PRIVILEGES statement", () => {
+    const findings = findDangerousDefaultPrivilegeGrants([
+      "ALTER DEFAULT PRIVILEGES FOR ROLE postgres, supabase_admin IN SCHEMA public",
+      "  REVOKE ALL ON TABLES FROM anon, authenticated;",
+    ].join("\n"), "multi-owner-managed-role.sql");
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("Supabase-managed supabase_admin");
+  });
+
+  it("rejects dynamic EXECUTE of ALTER DEFAULT PRIVILEGES inside a DO block", () => {
+    const findings = findDangerousDefaultPrivilegeGrants([
+      "DO $body$",
+      "BEGIN",
+      "  EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO anon';",
+      "END;",
+      "$body$;",
+    ].join("\n"), "dynamic-default-acl.sql");
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("Dynamic SQL");
+  });
+
   it("does not flag object-level grants or SQL examples inside comments", () => {
     const findings = findDangerousDefaultPrivilegeGrants([
       "-- ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO anon;",
