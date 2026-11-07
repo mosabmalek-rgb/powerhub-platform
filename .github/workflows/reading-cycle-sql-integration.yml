@@ -41,6 +41,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
 
+      - name: Verify release-tool ledger SQL round-trip on PostgreSQL 17
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: supabase_migration_ledger_payload_test
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres supabase_migration_ledger_payload_test
+          node scripts/test-supabase-migration-ledger-payload.mjs
+
       - name: Verify subscriber balance ledger credit/deposit source constraints
         env:
           PGPASSWORD: postgres
