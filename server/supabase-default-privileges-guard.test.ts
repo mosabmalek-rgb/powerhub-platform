@@ -60,7 +60,7 @@ describe("Supabase default-privileges migration guard", () => {
     expect(findings).toEqual([]);
   });
 
-  it("does not split default-privilege-looking text inside a dollar-quoted body", () => {
+  it("does not flag default-privilege-looking text inside dollar-quoted bodies", () => {
     const findings = findDangerousDefaultPrivilegeGrants([
       "DO $body$",
       "BEGIN",
@@ -70,6 +70,15 @@ describe("Supabase default-privileges migration guard", () => {
       "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public",
       "  REVOKE ALL ON TABLES FROM anon, authenticated;",
     ].join("\n"), "dollar-body.sql");
+
+    expect(findings).toEqual([]);
+  });
+
+  it("does not flag dangerous text embedded in a quoted SQL literal", () => {
+    const findings = findDangerousDefaultPrivilegeGrants(
+      "SELECT 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO anon;';",
+      "quoted-literal.sql",
+    );
 
     expect(findings).toEqual([]);
   });

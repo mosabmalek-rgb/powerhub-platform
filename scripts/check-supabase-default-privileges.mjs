@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const migrationDir = "supabase/migrations";
-const forbiddenClientRoles = new Set(["public", "anon", "authenticated"]);
+const forbiddenClientRoles = new Set(["PUBLIC", "anon", "authenticated");
 
 function isQuotedIdentifier(token) {
   return token.startsWith('"') && token.endsWith('"');
@@ -13,13 +13,13 @@ function isQuotedIdentifier(token) {
 function normalizeRoleIdentifier(token) {
   const value = token.trim();
   if (isQuotedIdentifier(value)) return value.slice(1, -1).replaceAll('""', '"');
-  return value.toLowerCase();
+  const normalized = value.toLowerCase();
+  return normalized === "public" ? "PUBLIC" : normalized;
 }
 
 /**
  * Split SQL without splitting on semicolons inside strings, quoted identifiers,
- * dollar-quoted function bodies, or comments. Comments are discarded so examples
- * in comments cannot trigger the policy.
+ * dollar-quoted function bodies, or comments.
  */
 export function splitSqlStatements(sql) {
   const statements = [];
@@ -63,11 +63,9 @@ export function splitSqlStatements(sql) {
       if (char === "'" && next === "'") {
         current += next;
         i += 1;
-      } else if (char === "\\") {
-        if (next !== undefined) {
-          current += next;
-          i += 1;
-        }
+      } else if (char === "\\" && next !== undefined) {
+        current += next;
+        i += 1;
       } else if (char === "'") {
         state = "normal";
       }
@@ -148,6 +146,115 @@ export function splitSqlStatements(sql) {
   return statements;
 }
 
+/**
+ * Keep SQL identifiers and keywords but mask comments, ordinary string literals,
+ * and dollar-quoted bodies. This prevents SQL examples inside DO/function bodies
+ * or dynamic SQL strings from being mistaken for top-level migration statements.
+ */
+export function stripNonExecutableSql(sql) {
+  let output = "";
+  let state = "normal";
+  let dollarTag = "";
+  let blockDepth = 0;
+
+  const mask = (value) => value.replace(/[^\n]/g, " ");
+
+  for (let i = 0; i < sql.length; i += 1) {
+    const char = sql[i];
+    const next = sql[i + 1];
+
+    if (state === "line-comment") {
+      if (char === "\n") {
+        output += "\n";
+        state = "normal";
+      } else {
+        output += " ";
+      }
+      continue;
+    }
+
+    if (state === "block-comment") {
+      if (char === "/" && next === "*") {
+        output += "  ";
+        i += 1;
+        blockDepth += 1;
+      } else if (char === "*" && next === "/") {
+        output += "  ";
+        i += 1;
+        blockDepth -= 1;
+        if (blockDepth === 0) state = "normal";
+      } else {
+        output += char === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+
+    if (state === "single-quote") {
+      if (char === "'" && next === "'") {
+        output += "  ";
+        i += 1;
+      } else if (char === "\\" && next !== undefined) {
+        output += mask(char + next);
+        i += 1;
+      } else if (char === "'") {
+        output += " ";
+        state = "normal";
+      } else {
+        output += char === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+
+    if (state === "dollar-quote") {
+      if (sql.startsWith(dollarTag, i)) {
+        output += mask(dollarTag);
+        i += dollarTag.length - 1;
+        state = "normal";
+      } else {
+        output += char === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+
+    if (char === "-" && next === "-") {
+      output += "  ";
+      i += 1;
+      state = "line-comment";
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      output += "  ";
+      i += 1;
+      state = "block-comment";
+      blockDepth = 1;
+      continue;
+    }
+
+    if (char === "'") {
+      output += " ";
+      state = "single-quote";
+      continue;
+    }
+
+    if (char === "$") {
+      const match = sql.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/);
+      if (match) {
+        dollarTag = match[0];
+        output += mask(dollarTag);
+        i += dollarTag.length - 1;
+        state = "dollar-quote";
+        continue;
+      }
+    }
+
+    // Double-quoted identifiers remain visible to the role-name parser.
+    output += char;
+  }
+
+  return output;
+}
+
 function extractGrantedRoles(statement) {
   const match = statement.match(
     /\bTO\s+((?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)(?:\s*,\s*(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*))*)/i,
@@ -168,9 +275,10 @@ export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
   const sourcePath = filePath || "<sql>";
 
   for (const statement of splitSqlStatements(sql)) {
-    if (!/\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(statement)) continue;
+    const executableStatement = stripNonExecutableSql(statement);
+    if (!/\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(executableStatement)) continue;
 
-    const owner = extractDefaultAclOwner(statement);
+    const owner = extractDefaultAclOwner(executableStatement);
     if (owner === "supabase_admin") {
       findings.push({
         filePath: sourcePath,
@@ -181,8 +289,8 @@ export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
       continue;
     }
 
-    if (!/\bGRANT\b/i.test(statement)) continue;
-    const forbidden = extractGrantedRoles(statement).filter((role) =>
+    if (!/\bGRANT\b/i.test(executableStatement)) continue;
+    const forbidden = extractGrantedRoles(executableStatement).filter((role) =>
       forbiddenClientRoles.has(role),
     );
     if (forbidden.length > 0) {
