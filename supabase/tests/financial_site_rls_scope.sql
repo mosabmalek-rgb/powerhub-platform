@@ -214,11 +214,9 @@ VALUES (1,1,'managePayroll',true);
 \ir ../migrations/20261106213134_powerhub_financial_settlement_report_capability_only.sql
 \ir ../migrations/20261106213355_powerhub_company_account_capability_rls_helper.sql
 
--- Exercise the company-account capability helper under the strict empty search_path
--- required for SECURITY DEFINER functions. This is an isolated PostgreSQL fixture;
--- it does not alter the hosted Staging helper or its migration history.
-ALTER FUNCTION private.powerhub_has_company_account_capability(bigint,bigint,text)
-  SET search_path TO '';
+-- Apply the same forward-only migration that will ship with the application,
+-- rather than hardening the function manually only inside this test fixture.
+\ir ../migrations/20261107143819_powerhub_company_account_capability_search_path.sql
 
 DO $company_account_capability_security_context$
 DECLARE

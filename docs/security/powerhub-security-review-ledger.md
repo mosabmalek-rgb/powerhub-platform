@@ -679,3 +679,37 @@ Commit: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
 - لا تُنقل نتيجة `05b9a132` أو أي SHA سابق إلى SHA الإصلاح.
 - يظل تضييق `search_path` محصوراً في الاختبار المعزول حتى وجود Migration أمامية مستقلة ومراجعة؛ لم تتغير Staging أو Production.
 - PR #359 يبقى OPEN + DRAFT + NOT MERGED.
+
+
+---
+
+## 17. تقوية search_path لمساعد صلاحيات الحساب المالي — 7 نوفمبر 2026
+
+### التغيير المصدرّي
+
+- أُنشئت Migration أمامية بواسطة الأمر الرسمي Supabase CLI: supabase migration new powerhub_company_account_capability_search_path.
+- اسم الملف: 20261107143819_powerhub_company_account_capability_search_path.sql.
+- تثبّت الدالة private.powerhub_has_company_account_capability(bigint,bigint,text) على search_path = ''.
+- يتضمن الترحيل فحوصاً قبلية وبعدية تثبت وجود الدالة، وكونها SECURITY DEFINER، واحتفاظها بالمالك postgres، ومنع anon وPUBLIC EXECUTE، واستمرار EXECUTE لـauthenticated وservice_role.
+- لا يعيد الترحيل إنشاء الدالة ولا يغيّر جسمها أو مالكها أو صلاحياتها؛ يضبط إعداد الدالة فقط.
+
+### ربط اختبار الانحدار بالترحيل الفعلي
+
+- يستورد supabase/tests/financial_site_rls_scope.sql ملف Migration الجديد باستخدام \ir.
+- أُزيل ALTER FUNCTION اليدوي السابق من الاختبار حتى لا ينجح الاختبار دون تنفيذ ملف الشحن الفعلي.
+- تستمر اختبارات عزل الفرع والحسابات المشتركة وصلاحيات مدير المصروفات والعارض المالي بعد تطبيق الترحيل في قاعدة الاختبار المعزولة.
+
+### حدود التحقق والبيئات
+
+- لم تُطبق Migration على Staging أو Production في هذا التغيير.
+- آخر سجل Staging مؤكد قبل التطبيق ما زال 20261106224902؛ والملف الجديد موجود في PR فقط إلى أن يجتاز CI وتُراجع مطابقة ترحيلات Staging.
+- لم تُجرَ حركات مالية أو رسائل SMS أو عمليات حذف.
+- يجب ربط نتائج البوابات الخمس بالـSHA الجديد فقط. لا تُنقل نتائج ac1545ac08a84bc01322243aebf5ee4151463920 إلى Commit هذا الإصلاح.
+
+### نتيجة التحقق المحلي بعد التغيير
+
+- اكتمل اختبار supabase/tests/financial_site_rls_scope.sql بنجاح على قاعدة PostgreSQL مؤقتة جديدة باستخدام PostgreSQL 18، وظهرت علامة FINANCIAL_SITE_RLS_SCOPE_OK.
+- شمل الاختبار استيراد Migration الجديدة فعلياً، ثم تشغيل اختبارات RLS للحسابات والفروع والمستخدمين ذوي القدرات المالية.
+- أُعيد تشغيل ملف Migration منفرداً بعد الاختبار بنجاح؛ ضبط search_path قابل لإعادة التطبيق دون تغيير ACL.
+- تحقق Catalog النهائي من المالك postgres، وSECURITY DEFINER = true، وsearch_path = ""، ومنع anon وPUBLIC EXECUTE، واستمرار authenticated وservice_role.
+- هذا تحقق محلي على PostgreSQL 18؛ بوابة GitHub على PostgreSQL 17 مطلوبة على SHA النهائي ولا تُعد ناجحة بعد.
