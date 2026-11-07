@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const migrationDir = "supabase/migrations";
-const forbiddenClientRoles = new Set(["PUBLIC", "anon", "authenticated");
+const forbiddenClientRoles = new Set(["public", "anon", "authenticated"]);
 
 function isQuotedIdentifier(token) {
   return token.startsWith('"') && token.endsWith('"');
@@ -298,7 +298,7 @@ export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
         filePath: sourcePath,
         message:
           "Default privileges must not grant to " +
-          [...new Set(forbidden)].join(", ") +
+          [...new Set(forbidden)].map((role) => role === "public" ? "PUBLIC" : role).join(", ") +
           ". Apply reviewed, object-specific GRANT/REVOKE and RLS instead.",
         statement,
       });

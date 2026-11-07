@@ -73,7 +73,16 @@ BEGIN
   IF NOT has_function_privilege('anon', 'public.default_privileges_postgres_function()', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.default_privileges_postgres_function()', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.default_privileges_postgres_function()', 'EXECUTE')
-     OR has_function_privilege('PUBLIC', 'public.default_privileges_postgres_function()', 'EXECUTE') THEN
+     OR EXISTS (
+       SELECT 1
+       FROM pg_catalog.pg_proc AS p
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))
+       ) AS acl
+       WHERE p.oid = 'public.default_privileges_postgres_function()'::regprocedure
+         AND acl.grantee = 0
+         AND acl.privilege_type = 'EXECUTE'
+     ) THEN
     RAISE EXCEPTION 'POSTGRES_FUNCTION_DEFAULT_ACL_FIXTURE_NOT_REPRODUCED';
   END IF;
 END
