@@ -77,31 +77,19 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
--- Schema-specific default ACLs are additive to global defaults. Remove any
--- explicit schema-level PUBLIC EXECUTE grants too; otherwise they would
--- survive the global revoke above. Existing function ACLs remain untouched.
-DO $revoke_schema_public_execute$
-DECLARE
-  v_schema text;
-BEGIN
-  FOR v_schema IN
-    SELECT DISTINCT namespace.nspname
-    FROM pg_catalog.pg_default_acl AS defaults
-    JOIN pg_catalog.pg_namespace AS namespace
-      ON namespace.oid=defaults.defaclnamespace
-    CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
-    WHERE defaults.defaclrole='postgres'::regrole
-      AND defaults.defaclobjtype='f'
-      AND acl.grantee=0
-      AND acl.privilege_type='EXECUTE'
-  LOOP
-    EXECUTE format(
-      'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA %I REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC',
-      v_schema
-    );
-  END LOOP;
-END
-$revoke_schema_public_execute$;
+-- Schema-specific default ACLs are additive to global defaults. Remove
+-- explicit PUBLIC EXECUTE grants with static, reviewed statements. Existing
+-- function ACLs remain untouched.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA extensions
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA pg_catalog
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA information_schema
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 DO $postflight$
 BEGIN
