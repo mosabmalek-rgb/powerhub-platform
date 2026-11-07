@@ -624,6 +624,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres financial_anon_acl_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_anon_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_anonymous_acl_hardening.sql
 
+      - name: Verify PostgreSQL default privileges cannot leak access through future public objects
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres default_privileges_acl_guard_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname default_privileges_acl_guard_test --set ON_ERROR_STOP=1 --file supabase/tests/default_privileges_acl_guard.sql
+
       - name: Verify notification RPC user ownership and JWT boundaries
         env:
           PGPASSWORD: postgres
