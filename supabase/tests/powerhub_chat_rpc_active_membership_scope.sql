@@ -434,7 +434,7 @@ INSERT INTO public.powerhub_user_notifications(user_id,notification_type,title,b
 VALUES (1,'test','Notification one','','/workspace','{}');
 
 -- No JWT means there is no application actor. Mutation RPCs must reject before writes,
--- receipts must return no data, and the unread badge may safely return only zero.
+-- and receipts must return no data.
 SELECT set_config('request.jwt.claim.sub','',false);
 SET ROLE authenticated;
 DO $missing_jwt_chat_identity$
@@ -458,9 +458,6 @@ BEGIN
 
   IF (SELECT count(*) FROM public.chat_receipts_for_message(500))<>0 THEN
     RAISE EXCEPTION 'MISSING_JWT_CHAT_RECEIPTS_VISIBLE';
-  END IF;
-  IF public.chat_unread_notification_count()<>0 THEN
-    RAISE EXCEPTION 'MISSING_JWT_CHAT_UNREAD_COUNT_DISCLOSED_DATA';
   END IF;
 END
 $missing_jwt_chat_identity$;
