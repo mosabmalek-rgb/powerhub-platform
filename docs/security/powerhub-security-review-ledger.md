@@ -971,3 +971,10 @@ A read-only exact-content comparison was completed for the 91 same-name / differ
 - The 41 Version + Name matches with differing SQL and 12 rows with unavailable SQL remain separate open cohorts.
 
 No historical row was altered. No Staging or Production migration was applied. No DDL, ACL/RLS, data, storage, SMS, or financial operation was performed. PR #359 remains Draft and unmerged.
+
+
+## 2026-11-07 — Release-runner migration-payload write-path correction
+
+A read-only catalog inspection confirmed that the nullable `statements text[]` column has no default and no trigger on `supabase_migrations.schema_migrations`. The previous custom release runner inserted only `version` and `name`, which would create future history entries without their SQL payload and make later hash verification fail closed despite being released by this tool.
+
+The runner now persists the exact source SQL into `statements` through a Base64-encoded UTF-8 value decoded in the same atomic PostgreSQL transaction. Regression tests cover quotes, backslashes, Arabic text, LF/CRLF and invalid inputs. The existing 12 historical rows with unavailable payloads remain unresolved; they are not backfilled or rewritten. No Staging/Production migration or schema change was applied. CI must pass on the new source HEAD before this correction is accepted.

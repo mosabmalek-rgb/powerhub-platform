@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   assertSupabaseMigrationTarget,
+  buildSupabaseMigrationLedgerInsert,
   classifySupabaseMigrationHistory,
   computeSupabaseMigrationContentSha256,
   parseSupabaseMigrationHistoryRows,
@@ -135,8 +136,7 @@ BEGIN
 END
 $powerhub_release_guard$;
 ${sql}
-INSERT INTO supabase_migrations.schema_migrations (version, name)
-VALUES ('${version}', '${name}');
+${buildSupabaseMigrationLedgerInsert({ version, name, sql })}
 COMMIT;
 `;
 

@@ -181,6 +181,26 @@ export function computeSupabaseMigrationContentSha256(sql) {
 }
 
 /**
+ * Build a safe ledger INSERT that preserves the exact UTF-8 SQL payload.
+ * Base64 avoids SQL string-literal escaping ambiguities (quotes, backslashes,
+ * CRLF/LF and non-ASCII text) while retaining the source bytes on PostgreSQL.
+ */
+export function buildSupabaseMigrationLedgerInsert({ version, name, sql }) {
+  if (!/^\d{14}$/.test(version) || !/^[a-z0-9_]+$/.test(name)) {
+    throw new Error("Migration ledger insert requires a valid 14-digit version and snake_case name.");
+  }
+  if (typeof sql !== "string" || sql.trim() === "") {
+    throw new Error("Migration ledger insert requires non-empty SQL content.");
+  }
+
+  const sqlBase64 = Buffer.from(sql, "utf8").toString("base64");
+  return [
+    "INSERT INTO supabase_migrations.schema_migrations (version, name, statements)",
+    `VALUES ('${version}', '${name}', ARRAY[convert_from(decode('${sqlBase64}', 'base64'), 'UTF8')]);`,
+  ].join("\n");
+}
+
+/**
  * Parse tuples-only psql output without collapsing multiple migration records.
  * The third column is a SHA-256 hash of the exact retained SQL payload, or
  * "unavailable" for legacy rows whose statements array is NULL/empty.

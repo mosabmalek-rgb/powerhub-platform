@@ -349,3 +349,12 @@ The 64 exact payload rows include two matching executions of `powerhub_chat_feat
 ### Execution boundary
 
 All comparisons were read-only. No `apply_migration`, `db push`, DDL, history-row update, ACL/RLS change, storage deletion, SMS, financial operation, or Production operation was performed. Staging remains at 424 history rows (latest recorded version `20261106224902`). The release guard remains fail-closed for same-name / different-version cases.
+
+
+## Release-runner ledger-payload persistence fix — 7 November 2026
+
+A read-only Staging catalog inspection found that `supabase_migrations.schema_migrations.statements` is nullable, has no default expression, and has no non-internal trigger that populates it. The release runner previously inserted only `version` and `name`; a migration released through that runner would therefore be recorded without its SQL payload, and a later exact-content verification would correctly fail closed as “payload unavailable”.
+
+The runner is corrected to build its ledger INSERT with the third `statements` column populated from a Base64-encoded UTF-8 representation of the exact source SQL, decoded by PostgreSQL using `convert_from(decode(...), 'base64'), 'UTF8'`. This avoids unsafe or ambiguous SQL literal escaping for apostrophes, backslashes, mixed line endings, and non-ASCII SQL text. The migration SQL and history insert remain inside the same transaction.
+
+Regression coverage asserts exact UTF-8 payload persistence for quotes, backslashes, Arabic text, LF and CRLF, and rejects malformed identifiers / empty SQL. This is source-code and test-only. It does not backfill the 12 existing Staging rows whose historical statements are unavailable, does not modify any history row, and does not apply any migration. Staging remains at 424 history rows, latest `20261106224902`.

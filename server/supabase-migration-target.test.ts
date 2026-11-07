@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveSupabaseMigrationFile } from "../scripts/supabase-migration-file.mjs";
-import { assertSupabaseMigrationTarget, classifySupabaseMigrationHistory, computeSupabaseMigrationContentSha256, parseSupabaseMigrationHistoryRows, SUPABASE_PROJECT_BY_TARGET } from "../scripts/supabase-migration-target.mjs";
+import { assertSupabaseMigrationTarget, buildSupabaseMigrationLedgerInsert, classifySupabaseMigrationHistory, computeSupabaseMigrationContentSha256, parseSupabaseMigrationHistoryRows, SUPABASE_PROJECT_BY_TARGET } from "../scripts/supabase-migration-target.mjs";
 
 function directUri(projectRef, suffix = "") {
   return `postgresql://postgres:secret%2Fpassword@db.${projectRef}.supabase.co:5432/postgres${suffix}`;
@@ -71,6 +71,34 @@ describe("Supabase migration release target guard", () => {
   });
 });
 
+
+describe("Supabase migration ledger SQL payload persistence", () => {
+  it("stores exact UTF-8 SQL safely, including quotes, backslashes, Arabic text and mixed line endings", () => {
+    const sql = "select 'quoted';\n-- path \\ segment\nselect 'مرحبا';\r\n";
+    const encoded = Buffer.from(sql, "utf8").toString("base64");
+    expect(buildSupabaseMigrationLedgerInsert({
+      version: "20261107150951",
+      name: "powerhub_public_default_privilege_hardening",
+      sql,
+    })).toBe(
+      "INSERT INTO supabase_migrations.schema_migrations (version, name, statements)\n" +
+      "VALUES ('20261107150951', 'powerhub_public_default_privilege_hardening', " +
+      "ARRAY[convert_from(decode('" + encoded + "', 'base64'), 'UTF8')]);",
+    );
+  });
+
+  it("rejects malformed identifiers and empty SQL", () => {
+    expect(() => buildSupabaseMigrationLedgerInsert({
+      version: "latest", name: "valid_name", sql: "select 1;",
+    })).toThrow(/valid 14-digit version/i);
+    expect(() => buildSupabaseMigrationLedgerInsert({
+      version: "20261107150951", name: "Invalid-Name", sql: "select 1;",
+    })).toThrow(/snake_case name/i);
+    expect(() => buildSupabaseMigrationLedgerInsert({
+      version: "20261107150951", name: "valid_name", sql: "   ",
+    })).toThrow(/non-empty SQL/i);
+  });
+});
 
 describe("Supabase migration history row parser", () => {
   it("parses rows with exact retained SQL SHA-256 values using LF and CRLF", () => {
