@@ -215,6 +215,124 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.from).not.toHaveBeenCalled();
   });
 
+  it("requires branch-scoped supplier-payment access before reading payment history", async () => {
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.from.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listSupplierPaymentHistory;
+
+    await expect(query._def.resolver({
+      ctx: { user: { id: 81 } }, input: { siteId: 7, limit: 50 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(state.access).toHaveBeenCalledWith(81, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.from).not.toHaveBeenCalled();
+  });
+
+  it("loads payment document references only from the selected branch and matching supplier", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    const paymentRows = [{
+      id: 501, tenant_id: 44, site_id: 7, supplier_id: 4, company_account_id: 100,
+      amount: "10.00", payment_date: "2026-11-07", status: "posted",
+    }];
+    const allocationRows = [
+      { payment_id: 501, purchase_id: 92, supplier_ledger_entry_id: null, amount: "4.00" },
+      { payment_id: 501, purchase_id: null, supplier_ledger_entry_id: 300, amount: "6.00" },
+    ];
+    const dataByTable: Record<string, { data: any[]; error: null }> = {
+      supplier_payments: { data: paymentRows, error: null },
+      supplier_payment_allocations: { data: allocationRows, error: null },
+      suppliers: { data: [{ id: 4, name: "Supplier A", supplier_code: "SUP-4" }], error: null },
+      company_accounts: { data: [{ id: 100, name: "Main Account", account_type: "cash" }], error: null },
+      supplier_purchases: { data: [{
+        id: 92, tenant_id: 44, site_id: 7, supplier_id: 4, purchase_number: "PUR-92",
+      }], error: null },
+      supplier_ledger_entries: { data: [{
+        id: 300, tenant_id: 44, site_id: 7, supplier_id: 4, entry_type: "opening_balance",
+        purchase_id: null, supplier_payment_id: null, reference_no: "OPEN-300", description: null,
+      }], error: null },
+    };
+    const queries = new Map<string, any>();
+    state.from.mockReset().mockImplementation((table: string) => {
+      const query: any = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        in: vi.fn().mockReturnThis(),
+        is: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+        then: (resolve: (value: any) => unknown, reject?: (reason: unknown) => unknown) =>
+          Promise.resolve(dataByTable[table] ?? { data: [], error: null }).then(resolve, reject),
+      };
+      queries.set(table, query);
+      return query;
+    });
+
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listSupplierPaymentHistory;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 82 } }, input: { siteId: 7, limit: 50 },
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].allocations).toEqual([
+      {
+        purchase_id: 92, supplier_ledger_entry_id: null, amount: 4,
+        document_type: "purchase_invoice", document_reference: "PUR-92",
+      },
+      {
+        purchase_id: null, supplier_ledger_entry_id: 300, amount: 6,
+        document_type: "opening_balance", document_reference: "OPEN-300",
+      },
+    ]);
+    expect(queries.get("supplier_purchases").eq).toHaveBeenCalledWith("tenant_id", 44);
+    expect(queries.get("supplier_purchases").eq).toHaveBeenCalledWith("site_id", 7);
+    expect(queries.get("supplier_purchases").in).toHaveBeenCalledWith("supplier_id", [4]);
+    expect(queries.get("supplier_ledger_entries").eq).toHaveBeenCalledWith("tenant_id", 44);
+    expect(queries.get("supplier_ledger_entries").eq).toHaveBeenCalledWith("site_id", 7);
+    expect(queries.get("supplier_ledger_entries").in).toHaveBeenCalledWith("supplier_id", [4]);
+    expect(queries.get("supplier_ledger_entries").eq).toHaveBeenCalledWith("entry_type", "opening_balance");
+    expect(queries.get("supplier_ledger_entries").is).toHaveBeenCalledWith("purchase_id", null);
+    expect(queries.get("supplier_ledger_entries").is).toHaveBeenCalledWith("supplier_payment_id", null);
+  });
+
+  it("fails closed when a payment allocation resolves to a different supplier's purchase", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    const dataByTable: Record<string, { data: any[]; error: null }> = {
+      supplier_payments: { data: [
+        { id: 501, tenant_id: 44, site_id: 7, supplier_id: 4, company_account_id: 100, amount: "5.00", status: "posted" },
+        { id: 502, tenant_id: 44, site_id: 7, supplier_id: 5, company_account_id: 100, amount: "5.00", status: "posted" },
+      ], error: null },
+      supplier_payment_allocations: { data: [
+        { payment_id: 501, purchase_id: 93, supplier_ledger_entry_id: null, amount: "5.00" },
+      ], error: null },
+      suppliers: { data: [{ id: 4, name: "Supplier A" }, { id: 5, name: "Supplier B" }], error: null },
+      company_accounts: { data: [{ id: 100, name: "Main Account", account_type: "cash" }], error: null },
+      supplier_purchases: { data: [{
+        id: 93, tenant_id: 44, site_id: 7, supplier_id: 5, purchase_number: "OTHER-SUPPLIER-INVOICE",
+      }], error: null },
+      supplier_ledger_entries: { data: [], error: null },
+    };
+    state.from.mockReset().mockImplementation((table: string) => {
+      const query: any = {
+        select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), in: vi.fn().mockReturnThis(),
+        is: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(),
+        then: (resolve: (value: any) => unknown, reject?: (reason: unknown) => unknown) =>
+          Promise.resolve(dataByTable[table] ?? { data: [], error: null }).then(resolve, reject),
+      };
+      return query;
+    });
+
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listSupplierPaymentHistory;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 83 } }, input: { siteId: 7, limit: 50 },
+    })).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "تعذر التحقق من ارتباط أحد تخصيصات دفعات الموردين بمستنده وفرعه.",
+    });
+  });
+
   it("requires manageSupplierPayments before calling the atomic supplier-payment RPC", async () => {
     state.rpc.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));

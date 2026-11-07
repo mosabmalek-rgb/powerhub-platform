@@ -1691,10 +1691,17 @@ export const powerhubInventoryRouter = router({
       const openingEntryIds = [...new Set(allocations.filter((row) => row.supplier_ledger_entry_id != null).map((row) => Number(row.supplier_ledger_entry_id)))];
       const [purchaseResult, openingResult] = await Promise.all([
         purchaseIds.length
-          ? supabaseAdmin().from("supplier_purchases").select("id,purchase_number").eq("tenant_id", access.tenantId).in("id", purchaseIds)
+          ? supabaseAdmin().from("supplier_purchases")
+            .select("id,tenant_id,site_id,supplier_id,purchase_number")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+            .in("supplier_id", supplierIds).in("id", purchaseIds)
           : Promise.resolve({ data: [], error: null }),
         openingEntryIds.length
-          ? supabaseAdmin().from("supplier_ledger_entries").select("id,reference_no,description").eq("tenant_id", access.tenantId).in("id", openingEntryIds)
+          ? supabaseAdmin().from("supplier_ledger_entries")
+            .select("id,tenant_id,site_id,supplier_id,entry_type,purchase_id,supplier_payment_id,reference_no,description")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+            .in("supplier_id", supplierIds).in("id", openingEntryIds)
+            .eq("entry_type", "opening_balance").is("purchase_id", null).is("supplier_payment_id", null)
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (purchaseResult.error || openingResult.error) {
@@ -1704,6 +1711,7 @@ export const powerhubInventoryRouter = router({
       const accounts = new Map((accountResult.data ?? []).map((row) => [Number(row.id), row]));
       const purchases = new Map((purchaseResult.data ?? []).map((row) => [Number(row.id), row]));
       const openingEntries = new Map((openingResult.data ?? []).map((row) => [Number(row.id), row]));
+      const paymentsById = new Map(payments.map((payment) => [Number(payment.id), payment]));
       const allocationsByPayment = new Map<number, Array<{
         purchase_id: number | null;
         supplier_ledger_entry_id: number | null;
@@ -1711,19 +1719,54 @@ export const powerhubInventoryRouter = router({
         document_type: "purchase_invoice" | "opening_balance";
         document_reference: string;
       }>>();
+      const invalidAllocationError = () => new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "تعذر التحقق من ارتباط أحد تخصيصات دفعات الموردين بمستنده وفرعه.",
+      });
       for (const row of allocations) {
         const paymentId = Number(row.payment_id);
+        const payment = paymentsById.get(paymentId);
         const isPurchase = row.purchase_id != null;
-        const purchase = isPurchase ? purchases.get(Number(row.purchase_id)) : undefined;
-        const opening = row.supplier_ledger_entry_id != null ? openingEntries.get(Number(row.supplier_ledger_entry_id)) : undefined;
+        const isOpeningBalance = row.supplier_ledger_entry_id != null;
+        if (!payment || isPurchase === isOpeningBalance) throw invalidAllocationError();
+
+        const allocationAmount = Number(row.amount);
+        if (!Number.isFinite(allocationAmount) || allocationAmount <= 0) throw invalidAllocationError();
+
+        let documentReference: string;
+        if (isPurchase) {
+          const purchase = purchases.get(Number(row.purchase_id));
+          if (!purchase ||
+            Number(purchase.tenant_id) !== access.tenantId ||
+            Number(purchase.site_id) !== input.siteId ||
+            Number(purchase.supplier_id) !== Number(payment.supplier_id)) {
+            throw invalidAllocationError();
+          }
+          documentReference = purchase.purchase_number ?? "فاتورة مشتريات";
+        } else {
+          const opening = openingEntries.get(Number(row.supplier_ledger_entry_id));
+          if (!opening ||
+            Number(opening.tenant_id) !== access.tenantId ||
+            Number(opening.site_id) !== input.siteId ||
+            Number(opening.supplier_id) !== Number(payment.supplier_id) ||
+            opening.entry_type !== "opening_balance" ||
+            opening.purchase_id != null ||
+            opening.supplier_payment_id != null) {
+            throw invalidAllocationError();
+          }
+          documentReference = opening.reference_no ?? opening.description ?? "رصيد افتتاحي";
+        }
+
         const entry = {
           purchase_id: row.purchase_id == null ? null : Number(row.purchase_id),
           supplier_ledger_entry_id: row.supplier_ledger_entry_id == null ? null : Number(row.supplier_ledger_entry_id),
-          amount: Number(row.amount),
+          amount: allocationAmount,
           document_type: (isPurchase ? "purchase_invoice" : "opening_balance") as "purchase_invoice" | "opening_balance",
-          document_reference: purchase?.purchase_number ?? opening?.reference_no ?? opening?.description ?? "رصيد افتتاحي",
+          document_reference: documentReference,
         };
-        allocationsByPayment.set(paymentId, [...(allocationsByPayment.get(paymentId) ?? []), entry]);
+        const paymentAllocations = allocationsByPayment.get(paymentId) ?? [];
+        paymentAllocations.push(entry);
+        allocationsByPayment.set(paymentId, paymentAllocations);
       }
       return payments.map((payment) => ({
         id: Number(payment.id),
