@@ -404,3 +404,69 @@ Commit: `f5c3da174cd5ec498acdc14cf7fb08928af1757f`.
 ### نقطة الاستكمال بعد هذا التوثيق
 
 آخر SHA للكود قبل Commit التوثيق هذا هو `f5c3da174cd5ec498acdc14cf7fb08928af1757f`. تحديث هذا الملف سيولد SHA جديداً ويستلزم إعادة تشغيل البوابات الخمس عليه وفق سياسة المشروع. تبقى مراجعة أجسام SECURITY DEFINER وسلاسل الاستدعاء واختبارات تجاوز الصلاحيات عملاً منفصلاً؛ نجاح بوابات DEFAULT PRIVILEGES لا يعني إغلاق ذلك النطاق.
+
+
+---
+
+## 12. اختبار عزل الحسابات المالية ومراجعة هوية دعم المنصة — 7 نوفمبر 2026
+
+### توسيع اختبار الحسابات المالية
+
+Commit: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
+
+تم تعديل `supabase/tests/financial_site_rls_scope.sql` فقط، دون تعديل migration أو قاعدة حية. أضيفت تأكيدات سلبية/إيجابية لقراءتي الحسابات عبر صلاحيتين مستقلتين:
+
+- `viewFinancialReports`: يرى الحسابات 100 و102 و104 فقط، ولا يرى الحسابين 101 و103، ولا يرى روابط الفروع الأخرى.
+- `manageExpenses` وحدها: النطاق نفسه للحسابات وروابط الفروع، ولا تمنح تلقائياً قراءة التسويات أو الفواتير أو المدفوعات.
+
+التشغيل على SHA نفسه:
+
+| الفحص | Run ID | النتيجة |
+|---|---:|---|
+| PowerHub CI | 42373981190 | SUCCESS |
+| Reading Cycle PostgreSQL Integration | 42373981160 | SUCCESS |
+| PowerHub Security | 42373981168 | SUCCESS |
+| Supabase Admin Guard | 42373981140 | SUCCESS |
+| PowerHub SBOM | 42373981141 | SUCCESS |
+
+تفاصيل الوظائف:
+- TypeScript وRun tests وBuild production artifacts: SUCCESS.
+- PostgreSQL: جميع الخطوات SUCCESS. خطوة `Verify branch-scoped financial RLS, shared accounts, child rows, and privileged identities` انتهت برسالة `FINANCIAL_SITE_RLS_SCOPE_OK`.
+- CodeQL وDependency Review وDependency Audit: SUCCESS.
+- Supabase runtime migration guards: SUCCESS.
+- CycloneDX generation وcoverage/license validation: SUCCESS.
+- لا توجد خطوات فاشلة أو متخطاة في هذه التشغيلات.
+
+### مراجعة مساعد هوية دعم المنصة
+
+تمت قراءة تعريف `private.powerhub_has_platform_capability(text)` وACL وسياسات RLS ذات الصلة في Staging، ومقارنته مع `server/platform-admin.ts`.
+
+نتيجة المقارنة:
+- عقد الخادم `isActivePlatformSupport` يتطلب `users.role = 'admin'`، و`account_status = 'active'`، و`platform_role = 'platform_support'`.
+- تعريف مساعد قاعدة البيانات المفحوص يتحقق من `auth.uid()` وحالة الحساب ودور المنصة، لكنه لا يتحقق من `users.role = 'admin'`.
+- هذا اختلاف حقيقي في مصدر قرار التفويض، وقد يسمح لحساب عادي يحمل `platform_role='platform_support'` بالمرور إلى مسار RLS عند وجود capability مسموح، بينما يرفضه الخادم.
+- لقطة Staging عند الفحص: لا توجد حسابات نشطة غير admin تحمل `platform_support`؛ أي إن الاختلاف وقائي ولم يُثبت وجود حساب حالي متأثر.
+- لا يوجد دليل على استغلال أو وصول غير مصرح به حدث فعلاً.
+
+### ما تم التحقق منه قبل اقتراح التغيير
+
+- مساعد الحسابات المالية `private.powerhub_has_company_account_capability` استُخدم في سياسة RLS واحدة فقط لجدول `company_accounts`.
+- لا توجد دوال أخرى في public/private تستدعي هذا المساعد.
+- `authenticated` لا يملك CREATE على مخططي public/private.
+- جميع المساعدات الـ47 القابلة للتنفيذ بواسطة authenticated لها `search_path` مثبت في لقطة Staging، ولا توجد ACL مباشرة لـanon أو PUBLIC ضمن هذه المجموعة.
+- لا تغيير حي على الدوال أو ACL أو بيانات Staging.
+
+### الإجراء المتبقي — P1
+
+يلزم إنشاء migration أمامية جديدة تستبدل `private.powerhub_has_platform_capability(text)` وتضيف شرط `u.role='admin'` مع إبقاء `auth.uid()` و`account_status='active'` وACL و`search_path` الحاليين، ثم توسيع `supabase/tests/chat_support_admin_capability_scope.sql` ليشمل حالة سلبية: حساب `role='user'` مع `platform_role='platform_support'` يجب أن يُرفض. ويجب في المقابل أن يظل حساب platform_support النشط ذي `role='admin'` مسموحاً بالوصول المخصص للدعم.
+
+لم تُنشأ migration ولم تُطبق على Staging أو Production حتى الآن. أداة Supabase CLI غير مثبتة في بيئة التنفيذ المحلية الحالية، لذلك لم أختلق timestamp لاسم migration ولم أعدل ملفاً تاريخياً. يجب إنشاء الملف بالأمر الرسمي `supabase migration new <name>` بعد توفير CLI، ثم فحصه في قاعدة PostgreSQL المعزولة قبل أي قرار بشأن Staging. Production خارج النطاق.
+
+### الحالة ونقطة المتابعة
+
+- الحسابات المالية المشتركة/المقيدة: اختبارات إضافية ناجحة على SHA `5d5d243`.
+- mismatch هوية platform_support: `REQUIRES_FIX` — لم يُصلح بعد.
+- عدم وجود حساب Staging نشط من نوع non-admin/platform_support: مثبت في لقطة القراءة وقت الفحص فقط، ولا يغلق فجوة الكود.
+- آخر SHA كود اجتاز الفحوص الخمسة: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
+- PR #359: OPEN + DRAFT + NOT MERGED.
+- لم يحدث تطبيق migration أو تغيير ACL أو كتابة مالية أو إرسال SMS أو حذف ملفات حقيقية.
