@@ -11,8 +11,9 @@ The working tree was clean before this work. No remote history was rewritten.
 
 GitHub API calls were attempted using existing authentication. Both `gh pr view`
 and a fresh HTTPS REST request to `api.github.com` were denied with HTTP 403
-by the network proxy. Consequently the current PR draft/open/mergeability and
-same-SHA Actions results are **UNVERIFIED**, not green based on the handoff.
+by the network proxy. At that initial inspection the PR draft/open/mergeability and
+same-SHA Actions results were **UNVERIFIED**, not green based on the handoff.
+The later direct GitHub HTML verification below supersedes that initial status.
 The handoff's successful Actions links remain historical evidence only.
 No GitHub PR state mutation, merge, workflow dispatch or deployment was requested.
 
@@ -188,4 +189,29 @@ exact database creation and invocation commands.
 - Migration inventory/runtime boundary checks: PASS (579 SQL files, 502 canonical 14-digit files, six pinned historical collision groups).
 - PostgreSQL 17.11: five seven-migration fixtures, three financial fixtures, 13 adverse catalog cases, production-builder concurrency/rollback tests and >128 KiB UTF-8 payload/hash round-trip: PASS.
 - `git diff --check` and Node syntax checks for changed/new release test scripts: PASS.
-- Same-SHA GitHub Actions remain unverified until network access is restored; local success is not reported as CI success.
+- At the time of the implementation commit, GitHub API access was blocked; subsequent direct HTML verification is recorded below. Local checks were not substituted for CI.
+
+## Subsequent direct GitHub verification — immutable implementation SHA
+
+The API remained blocked, but the ordinary GitHub web checks page was accessible.
+Its embedded route state confirmed head
+`f9f32ee223e54033292fce535f4c3aaccde2f269`, PR state `DRAFT`, and every listed
+job successful at 2026-11-08 01:15 Asia/Hebron (2026-11-07 23:15 UTC).
+The checks page was explicitly selected with that full SHA. Pull-request runs:
+
+- [PowerHub CI — success](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/42424000780).
+- [PowerHub Security — CodeQL, dependency audit/review success](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/42424000773).
+- [Supabase Admin Guard — success](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/42424000826).
+- [Reading Cycle PostgreSQL Integration — success](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/42424000828).
+
+The corresponding push runs and SBOM also succeeded; they were not counted as
+additional independent test coverage. The former baseline `83633d7c` was selected
+separately and its four handoff pull-request runs were freshly confirmed successful.
+No PR mutation was needed. The API limitation remains relevant to authenticated
+log/re-run operations, but does not block reading these verified UI conclusions.
+
+The separately prepared [application/recovery package](pr359-staging-security-recovery-20261108.md)
+and [read-only catalog SQL](sql/pr359-security-readonly-preflight.sql) preserve the
+no-live-writes boundary. The SQL was executed on a synthetic database only.
+Any later documentation commit needs its own same-SHA verification; the links
+above assert only the immutable implementation SHA, not a moving branch tip.

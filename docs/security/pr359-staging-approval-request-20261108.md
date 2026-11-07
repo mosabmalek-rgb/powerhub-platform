@@ -10,8 +10,11 @@ See [engineering verification](pr359-engineering-verification-20261108.md) for
 the fetched `83633d7c` baseline, immutable seven-file hashes, actual disposable
 PostgreSQL results and release-race repair. The older conflict statement below
 is a historical snapshot: the current fetched branch includes current `main`.
-GitHub mergeability/draft state and same-SHA CI are not freshly verified because
-the API is blocked. No fresh live database evidence is available. Approval
+Direct GitHub HTML subsequently confirmed Draft state and green same-SHA CI
+on implementation commit `f9f32ee2`; exact run links are in that verification.
+The API remains blocked and mergeability was not independently refreshed. See the [application/recovery package](pr359-staging-security-recovery-20261108.md)
+for read-only preflight SQL, locking risks and recovery boundaries.
+No fresh live database evidence is available. Approval
 remains blocked; this follow-up does not authorize any database application.
 
 ## Scope
