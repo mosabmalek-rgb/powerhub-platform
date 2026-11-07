@@ -5,12 +5,14 @@ import { TRPCError } from "@trpc/server";
 
 const state = vi.hoisted(() => ({
   access: vi.fn(),
+  capabilityAccess: vi.fn(),
   from: vi.fn(),
   rpc: vi.fn(),
 }));
 
 vi.mock("./powerhub-supabase", () => ({
   requireSupabaseSiteRole: state.access,
+  resolveSupabaseSiteCapabilityAccess: state.capabilityAccess,
 }));
 
 vi.mock("./supabase-admin", () => ({
@@ -40,6 +42,7 @@ describe("PowerHub maintenance router capability denials", () => {
       state.from.mockClear();
       state.rpc.mockClear();
       state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+      state.capabilityAccess.mockReset().mockResolvedValue({ tenantId: 20, allowedCapabilities: [] });
 
       const { powerhubMaintenanceRouter } = await import("./powerhub-maintenance-router");
       const route = (powerhubMaintenanceRouter as any)._def.record[procedure];
@@ -47,7 +50,16 @@ describe("PowerHub maintenance router capability denials", () => {
       await expect(route._def.resolver({ ctx: { user: { id: 701 } }, input }))
         .rejects.toMatchObject({ code: "FORBIDDEN" });
 
-      expect(state.access).toHaveBeenCalledWith(701, input.siteId, expect.any(Array), capability);
+      const usesEffectivePolicy = [
+        "listGenerators", "listWorkOrders", "listPreventivePlans", "listParts", "addPart", "transitionWorkOrder",
+      ].includes(procedure);
+      if (usesEffectivePolicy) {
+        expect(state.capabilityAccess).toHaveBeenCalledWith(701, input.siteId, expect.arrayContaining([capability]));
+        expect(state.access).not.toHaveBeenCalled();
+      } else {
+        expect(state.access).toHaveBeenCalledWith(701, input.siteId, expect.any(Array), capability);
+        expect(state.capabilityAccess).not.toHaveBeenCalled();
+      }
       expect(state.from).not.toHaveBeenCalled();
       expect(state.rpc).not.toHaveBeenCalled();
     },
@@ -64,7 +76,8 @@ describe("PowerHub maintenance router capability denials", () => {
     for (const { procedure, input } of readCases) {
       state.from.mockClear();
       state.rpc.mockClear();
-      state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+      state.access.mockReset();
+      state.capabilityAccess.mockReset().mockResolvedValue({ tenantId: 20, allowedCapabilities: [] });
 
       const { powerhubMaintenanceRouter } = await import("./powerhub-maintenance-router");
       const route = (powerhubMaintenanceRouter as any)._def.record[procedure];
@@ -72,8 +85,10 @@ describe("PowerHub maintenance router capability denials", () => {
       await expect(route._def.resolver({ ctx: { user: { id: 701 } }, input }))
         .rejects.toMatchObject({ code: "FORBIDDEN" });
 
-      expect(state.access).toHaveBeenNthCalledWith(1, 701, input.siteId, expect.any(Array), "viewInventory");
-      expect(state.access).toHaveBeenNthCalledWith(2, 701, input.siteId, expect.any(Array), "manageMaintenance");
+      expect(state.capabilityAccess).toHaveBeenCalledWith(701, input.siteId, [
+        "viewInventory", "manageMaintenance", "viewInventoryReports", "manageExpenses",
+      ]);
+      expect(state.access).not.toHaveBeenCalled();
       expect(state.from).not.toHaveBeenCalled();
       expect(state.rpc).not.toHaveBeenCalled();
     }
@@ -104,7 +119,10 @@ describe("PowerHub maintenance router capability denials", () => {
   it("requires issueInventory in addition to manageMaintenance before adding a part", async () => {
     state.from.mockClear();
     state.rpc.mockClear();
-    state.access.mockReset().mockResolvedValue({ tenantId: 20, permissions: ["manageMaintenance"] });
+    state.access.mockReset();
+    state.capabilityAccess.mockReset().mockResolvedValue({
+      tenantId: 20, allowedCapabilities: ["manageMaintenance"],
+    });
 
     const { powerhubMaintenanceRouter } = await import("./powerhub-maintenance-router");
     const route = (powerhubMaintenanceRouter as any)._def.record.addPart;
@@ -114,7 +132,10 @@ describe("PowerHub maintenance router capability denials", () => {
       input: { siteId: 7, workOrderId: 8, itemId: 4, warehouseId: 5, quantity: 1, operationKey: "maint:part:02" },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-    expect(state.access).toHaveBeenCalledWith(701, 7, expect.any(Array), "manageMaintenance");
+    expect(state.capabilityAccess).toHaveBeenCalledWith(701, 7, [
+      "manageMaintenance", "issueInventory", "viewInventoryReports", "manageExpenses",
+    ]);
+    expect(state.access).not.toHaveBeenCalled();
     expect(state.from).not.toHaveBeenCalled();
     expect(state.rpc).not.toHaveBeenCalled();
   });
@@ -127,7 +148,10 @@ describe("PowerHub maintenance router capability denials", () => {
     async ({ action, laborCost, externalServiceCost }) => {
       state.from.mockClear();
       state.rpc.mockClear();
-      state.access.mockReset().mockResolvedValue({ tenantId: 20, permissions: ["manageMaintenance"] });
+      state.access.mockReset();
+      state.capabilityAccess.mockReset().mockResolvedValue({
+        tenantId: 20, allowedCapabilities: ["manageMaintenance"],
+      });
 
       const { powerhubMaintenanceRouter } = await import("./powerhub-maintenance-router");
       const route = (powerhubMaintenanceRouter as any)._def.record.transitionWorkOrder;
@@ -141,7 +165,10 @@ describe("PowerHub maintenance router capability denials", () => {
         },
       })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-      expect(state.access).toHaveBeenCalledWith(701, 7, expect.any(Array), "manageMaintenance");
+      expect(state.capabilityAccess).toHaveBeenCalledWith(701, 7, [
+        "manageMaintenance", "issueInventory", "viewInventoryReports", "manageExpenses",
+      ]);
+      expect(state.access).not.toHaveBeenCalled();
       expect(state.rpc).not.toHaveBeenCalled();
       expect(state.from).not.toHaveBeenCalled();
     },
@@ -149,8 +176,8 @@ describe("PowerHub maintenance router capability denials", () => {
   it("tracks the secondary permissions that gate stock issue and maintenance cost posting", () => {
     const testSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.test.ts"), "utf8");
     const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-maintenance-router.ts"), "utf8");
-    expect(routerSource).toContain('!access.permissions.includes("issueInventory")');
-    expect(routerSource).toContain('!access.permissions.includes("manageExpenses")');
+    expect(routerSource).toContain('!access.allowedCapabilities.includes("issueInventory")');
+    expect(routerSource).toContain('!access.allowedCapabilities.includes("manageExpenses")');
     expect(testSource).toContain("requires issueInventory in addition to manageMaintenance before adding a part");
     expect(testSource).toContain("denies $action cost changes without manageExpenses");
     expect(testSource).toContain('{ action: "complete", laborCost: 75 }');
