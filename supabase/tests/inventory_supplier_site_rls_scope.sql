@@ -234,6 +234,21 @@ END
 $other_tenant$;
 RESET ROLE;
 
+-- Simulate historical column-level browser grants that a table-level REVOKE
+-- alone cannot clear. The security migration must remove both grants without
+-- disturbing the authorized service_role route.
+GRANT SELECT (name) ON TABLE public.suppliers TO authenticated;
+GRANT SELECT (purchase_id) ON TABLE public.supplier_purchase_lines TO anon;
+
+DO $column_grant_preflight$
+BEGIN
+  IF NOT has_column_privilege('authenticated','public.suppliers','name','SELECT')
+     OR NOT has_column_privilege('anon','public.supplier_purchase_lines','purchase_id','SELECT') THEN
+    RAISE EXCEPTION 'SUPPLIER_COLUMN_GRANT_FIXTURE_NOT_ESTABLISHED';
+  END IF;
+END
+$column_grant_preflight$;
+
 \ir ../migrations/20261107150000_powerhub_supplier_browser_read_acl_revoke.sql
 
 -- All supplier-domain reads are mediated by capability-checked server routes.
