@@ -211,7 +211,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260913184631",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "REVOKE grantee order: source PUBLIC, anon, authenticated vs historical anon, authenticated, PUBLIC",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "platform_capability_resolver",
@@ -255,7 +264,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100129",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical platform_role/capability table checks differ; source contains additional DDL",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_foundation_v1",
@@ -299,7 +317,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100040",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal (comments and formatting differ)",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_rls_security_v1",
@@ -343,7 +370,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100140",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical chat participant SELECT policy predicate differs; inspect current RLS before equivalence",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_realtime_authorization_v1",
@@ -387,7 +423,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100205",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_realtime_authorization_v1_harden",
@@ -431,7 +476,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100355",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_performance_indexes_v1",
@@ -695,7 +749,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914102451",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Message receipts access policy: source checks message sender; historical SQL checks support conversation",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_realtime_receipts_notifications_v1",
@@ -783,7 +846,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914102950",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical function has additional v_count logic, source differs",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_notification_rpc_security_hardening_v2",
@@ -871,7 +943,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260915092746",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_support_users_v1",
@@ -915,7 +996,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260915092826",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "chat_staging_compatibility_v1",
@@ -959,7 +1049,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260916084611",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "powerhub_field_user_guards",
@@ -1010,7 +1109,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260919104522",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical v_plan identifier vs source v_package_code; additional contract comparison required",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "powerhub_platform_support_role_reconciliation",
@@ -1054,7 +1162,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260922093834",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Source includes additional platform-access RPC definitions absent from historical ledger body",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "powerhub_optional_generator_capacity",
@@ -1176,7 +1293,23 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20261010161951",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "First archived version lacks tenant/subscriber-scoped idempotency lookup now present in source",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        },
+        {
+          "staging_version": "20261010170812",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Second archived version token stream equals source",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "powerhub_unified_message_history_filters",
@@ -1220,7 +1353,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20261013152202",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historic cycle end + interval '1 millisecond'; source + interval '1 microsecond'; Staging current live function uses microsecond",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "powerhub_manual_sms_history_scope",
@@ -1264,7 +1406,16 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20261019103200",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical and source DO blocks locate/patch messaging-history function through different logic",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ]
     },
     {
       "name": "powerhub_owner_capability_overrides",
@@ -1320,5 +1471,12 @@
   ],
   "evidence_refresh_date": "2026-11-08",
   "evidence_source": "Supabase read-only SQL: supabase_migrations.schema_migrations name/version/statements SHA-256",
-  "evidence_boundary": "Name presence and stored SQL hash only; does not establish historical equivalent effects or current object postconditions. Original outcome NOT_PROVEN remains."
+  "evidence_boundary": "Name presence and stored SQL hash only; does not establish historical equivalent effects or current object postconditions. Original outcome NOT_PROVEN remains.",
+  "lexical_difference_review": {
+    "staging_ledger_rows_reviewed": 17,
+    "token_stream_matches": 7,
+    "token_stream_differences": 10,
+    "scope": "Follow-up for sixteen DIFFERENT_SQL comparisons. Token stream comparison ignores whitespace and comments but retains SQL literals and operator tokens; differences are historical and may be superseded by later migrations. Stage/Prod catalog proof pending for most.",
+    "verified_catalog_spot_check": "Staging public.powerhub_unified_messaging_history now includes 1 microsecond; historical archived SQL specified 1 millisecond."
+  }
 }
