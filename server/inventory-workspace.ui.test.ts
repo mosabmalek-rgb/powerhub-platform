@@ -923,4 +923,18 @@ describe("inventory workspace UI contract", () => {
     expect(integration).toContain("CROSS_TENANT_FUEL_COST_REPORT_WAS_ACCEPTED");
   });
 
+
+  it("redacts maintenance costs unless the caller has report or expense access", () => {
+    const router = read("server/powerhub-maintenance-router.ts");
+    const panel = read("client/src/components/InventoryMaintenancePanel.tsx");
+    expect(router).toContain('permissions.includes("viewInventoryReports") || permissions.includes("manageExpenses")');
+    expect(router).toContain("unit_cost: null, total_cost_amount: null");
+    expect(router).toContain("labor_cost: null, external_service_cost: null, parts_cost: null, total_cost_amount: null");
+    expect(router).toContain("total_cost_amount: null");
+    expect(router).toContain("canViewMaintenanceCosts(access.permissions)");
+    expect(panel).toContain("const canViewMaintenanceCosts = canViewMaintenanceReport || canManageExpenses;");
+    expect(panel).toContain('...(canViewMaintenanceCosts ? ["تكلفة القطع","التكلفة الإجمالية"] : [])');
+    expect(panel).toContain('...(canViewMaintenanceCosts ? ["تكلفة الوحدة","الإجمالي"] : [])');
+  });
+
 });

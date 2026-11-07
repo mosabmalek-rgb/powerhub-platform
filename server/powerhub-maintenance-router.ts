@@ -18,6 +18,9 @@ async function requireMaintenanceReadAccess(userId: number, siteId: number) {
 }
 
 const operationKey = z.string().trim().min(8).max(180);
+const canViewMaintenanceCosts = (permissions: readonly string[]) =>
+  permissions.includes("viewInventoryReports") || permissions.includes("manageExpenses");
+
 const isDateOnly = (value: string) => {
   if (value.length !== 10 || value[4] !== "-" || value[7] !== "-") return false;
   const digits = value.slice(0, 4) + value.slice(5, 7) + value.slice(8, 10);
@@ -70,8 +73,8 @@ type MaintenancePartListRow = {
   warehouse_id: number;
   warehouse_name: string;
   quantity: number;
-  unit_cost: number;
-  total_cost_amount: number;
+  unit_cost: number | null;
+  total_cost_amount: number | null;
   stock_movement_id: number;
   issued_at: string;
   notes: string | null;
@@ -99,12 +102,28 @@ type MaintenanceWorkOrderListRow = {
   operating_hours_at_open: number | null;
   operating_hours_at_close: number | null;
   downtime_minutes: number;
-  labor_cost: number;
-  external_service_cost: number;
-  parts_cost: number;
-  total_cost_amount: number;
+  labor_cost: number | null;
+  external_service_cost: number | null;
+  parts_cost: number | null;
+  total_cost_amount: number | null;
   created_by_user_id: number | null;
 };
+type MaintenanceAddPartResultRow = {
+  part_id: number;
+  stock_movement_id: number;
+  quantity: number;
+  unit_cost: number;
+  total_cost_amount: number;
+  replayed: boolean;
+};
+type MaintenanceTransitionResultRow = {
+  work_order_id: number;
+  work_order_number: string;
+  status: string;
+  total_cost_amount: number;
+  replayed: boolean;
+};
+
 const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> => {
   const { data, error } = await supabaseAdmin().rpc(name, args);
   if (error) {
@@ -184,10 +203,13 @@ export const powerhubMaintenanceRouter = router({
     limit: z.number().int().min(1).max(200).default(50),
   })).query(async ({ ctx, input }) => {
     const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
-    return rpc<MaintenanceWorkOrderListRow[]>("powerhub_maintenance_list_work_orders", {
+    const rows = await rpc<MaintenanceWorkOrderListRow[]>("powerhub_maintenance_list_work_orders", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId,
       p_generator_id: input.generatorId ?? null, p_status: input.status ?? null, p_limit: input.limit,
     });
+    return canViewMaintenanceCosts(access.permissions) ? rows : rows.map((row) => ({
+      ...row, labor_cost: null, external_service_cost: null, parts_cost: null, total_cost_amount: null,
+    }));
   }),
   listPreventivePlans: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive().optional(),
@@ -205,9 +227,12 @@ export const powerhubMaintenanceRouter = router({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
   })).query(async ({ ctx, input }) => {
     const access = await requireMaintenanceReadAccess(ctx.user.id, input.siteId);
-    return rpc<MaintenancePartListRow[]>("powerhub_maintenance_list_parts", {
+    const rows = await rpc<MaintenancePartListRow[]>("powerhub_maintenance_list_parts", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_work_order_id: input.workOrderId,
     });
+    return canViewMaintenanceCosts(access.permissions) ? rows : rows.map((row) => ({
+      ...row, unit_cost: null, total_cost_amount: null,
+    }));
   }),
   createWorkOrder: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive(),
@@ -238,11 +263,14 @@ export const powerhubMaintenanceRouter = router({
   })).mutation(async ({ ctx, input }) => {
     const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
     if (!access.permissions.includes("issueInventory")) throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية صرف المخزون لاستخدام قطع الغيار." });
-    return rpc("powerhub_maintenance_add_part", {
+    const result = await rpc<MaintenanceAddPartResultRow[]>("powerhub_maintenance_add_part", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
       p_work_order_id: input.workOrderId, p_item_id: input.itemId, p_warehouse_id: input.warehouseId,
       p_quantity: input.quantity, p_notes: input.notes ?? null, p_operation_key: input.operationKey,
     });
+    return canViewMaintenanceCosts(access.permissions) ? result : result.map((row) => ({
+      ...row, unit_cost: null, total_cost_amount: null,
+    }));
   }),
   reopenCompletedWorkOrder: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
@@ -269,7 +297,7 @@ export const powerhubMaintenanceRouter = router({
         && !access.permissions.includes("manageExpenses")) {
       throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية إدارة المصروفات لاعتماد تكاليف الإغلاق." });
     }
-    return rpc("powerhub_maintenance_transition_work_order", {
+    const result = await rpc<MaintenanceTransitionResultRow[]>("powerhub_maintenance_transition_work_order", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
       p_work_order_id: input.workOrderId, p_action: input.action, p_work_summary: input.workSummary ?? null,
       p_meter_hours_close: input.meterHoursClose ?? null, p_downtime_minutes: input.downtimeMinutes ?? null,
@@ -277,6 +305,9 @@ export const powerhubMaintenanceRouter = router({
       p_external_service_cost: input.externalServiceCost ?? (input.action === "correct_completion" ? null : 0),
       p_reason: input.reason ?? null, p_operation_key: input.operationKey,
     });
+    return canViewMaintenanceCosts(access.permissions) ? result : result.map((row) => ({
+      ...row, total_cost_amount: null,
+    }));
   }),
   createPreventivePlan: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), generatorId: z.number().int().positive(),
