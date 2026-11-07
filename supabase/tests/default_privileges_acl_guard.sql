@@ -341,9 +341,9 @@ BEGIN
 
   IF has_function_privilege('anon','extensions.default_privileges_future_extension_function()','EXECUTE')
      OR has_function_privilege('authenticated','extensions.default_privileges_future_extension_function()','EXECUTE')
-     OR has_function_privilege('anon','storage.default_privileges_future_storage_function()','EXECUTE')
-     OR has_function_privilege('authenticated','storage.default_privileges_future_storage_function()','EXECUTE')
-     OR has_function_privilege('service_role','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR NOT has_function_privilege('anon','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR NOT has_function_privilege('service_role','storage.default_privileges_future_storage_function()','EXECUTE')
      OR EXISTS (
        SELECT 1 FROM pg_catalog.pg_proc p
        CROSS JOIN LATERAL pg_catalog.aclexplode(
