@@ -940,7 +940,7 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("const canViewMaintenanceCosts = safeOrders.some((order) => order.total_cost_amount !== null);");
     expect(panel).toContain("const canViewMaintenancePartCosts = safeParts.some((part) => part.total_cost_amount !== null);");
     expect(panel).toContain('...(canViewMaintenanceCosts ? ["تكلفة القطع","التكلفة الإجمالية"] : [])');
-    expect(panel).toContain('...(canViewMaintenanceCosts ? ["تكلفة الوحدة","الإجمالي"] : [])');
+    expect(panel).toContain('...(canViewMaintenancePartCosts ? ["تكلفة الوحدة","الإجمالي"] : [])');
   });
 
 });
