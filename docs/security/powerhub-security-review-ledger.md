@@ -839,3 +839,18 @@ Commit: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
 
 ### حدود التنفيذ
 لم تُطبق أي Migration على Staging أو Production، ولم تتغير ACL أو RLS أو بيانات. نتائج CI على Commit الإصلاح الجديد مطلوبة قبل اعتماد المرحلة. PR #359 يبقى OPEN وDRAFT وNOT MERGED.
+
+
+---
+
+## 22. Staging migration-history reconciliation and platform-support identity guard — 7 November 2026
+
+A read-only comparison of the recursive Git tree at \`850144da0b8b7234f440a92da0739cc9f3142628\` against the live Staging migration ledger (\`iyuryuhaylhisjfcrwkz\`) recorded 502 local migration files and 424 Staging rows: 179 exact Version+Name matches, 91 same-name/different-version candidates, 232 local files with neither exact name nor matching version (225 at/before the Staging head and 7 newer), and 150 Staging rows / 149 unique names without an exact local filename match. Five duplicate-name groups were identified. This supersedes the earlier working estimate of 95 drift cases. A separate detailed report is stored at \`docs/security/powerhub-staging-migration-reconciliation-20261107.md\`.
+
+The same live inspection confirmed that Staging's \`private.powerhub_has_platform_capability(text)\` still lacked the active \`users.role='admin'\` identity predicate, while the new migration \`20261107130443_powerhub_platform_support_identity_role_guard\` adds it. A new disposable PostgreSQL regression test now imports that exact migration and asserts:
+- active platform support/admin and finance capability grants continue to work;
+- a non-admin member with \`platform_role='platform_support'\` is denied;
+- inactive admins, unallowlisted roles, and ungranted capabilities are denied;
+- SECURITY DEFINER, empty search_path, postgres ownership, authenticated EXECUTE, and no anon/PUBLIC EXECUTE remain intact.
+
+The test is added to the PostgreSQL Integration workflow. It has not yet run on a CI SHA at the time of this ledger entry. No live Staging or Production changes were made; migration history remains untouched and all seven newer migrations remain unapplied pending explicit review/approval.
