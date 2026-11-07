@@ -315,7 +315,7 @@ function stripSqlCommentsPreservingQuotedText(sql) {
         } else {
           state = "normal";
         }
-      } else if (char === "\\\\" && next !== undefined) {
+      } else if (char === "\\" && next !== undefined) {
         output += next;
         i += 1;
       }
@@ -357,7 +357,7 @@ function stripSqlCommentsPreservingQuotedText(sql) {
       continue;
     }
     if (char === "$") {
-      const match = sql.slice(i).match(/^\\$[A-Za-z_][A-Za-z0-9_]*\\$|^\\$\\$/);
+      const match = sql.slice(i).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/);
       if (match) {
         dollarTag = match[0];
         output += dollarTag;
