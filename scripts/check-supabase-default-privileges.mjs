@@ -275,8 +275,8 @@ function hasDynamicDefaultPrivilegeAlter(statement) {
   // A dynamic EXECUTE can nevertheless run ALTER DEFAULT PRIVILEGES. Fail
   // closed when an executable body combines EXECUTE and that command, rather
   // than silently masking a real dynamic DDL path.
-  return /\\bEXECUTE\\b/i.test(statement) &&
-    /\\bALTER\\s+DEFAULT\\s+PRIVILEGES\\b/i.test(statement);
+  return /\bEXECUTE\b/i.test(statement) &&
+    /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(statement);
 }
 
 export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
