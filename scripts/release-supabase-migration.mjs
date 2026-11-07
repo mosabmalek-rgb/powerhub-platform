@@ -91,11 +91,11 @@ const existingRows = psql(
      case
        when statements is null
          or cardinality(statements) = 0
-         or nullif(array_to_string(statements, E'\\n'), '') is null
+         or nullif(array_to_string(statements, E'\n'), '') is null
        then 'unavailable'
        else encode(
          extensions.digest(
-           convert_to(array_to_string(statements, E'\\n'), 'UTF8'),
+           convert_to(array_to_string(statements, E'\n'), 'UTF8'),
            'sha256'
          ),
          'hex'
