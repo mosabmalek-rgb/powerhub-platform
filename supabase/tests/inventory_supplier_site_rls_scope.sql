@@ -1,6 +1,8 @@
 \set ON_ERROR_STOP on
 
-DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $;
 CREATE SCHEMA IF NOT EXISTS private;
 CREATE TABLE public.site_memberships(
   user_id bigint NOT NULL, tenant_id bigint NOT NULL, site_id bigint,
@@ -57,14 +59,20 @@ DECLARE target text;
 BEGIN
   FOREACH target IN ARRAY ARRAY[
     'supplier_purchases','supplier_purchase_lines','supplier_purchase_receipts',
-    'supplier_purchase_receipt_lines','supplier_purchase_returns',
-    'supplier_purchase_return_lines','supplier_payments',
+    'supplier_purchase_receipt_lines','supplier_payments',
     'supplier_payment_allocations','supplier_ledger_entries'
   ] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',target);
     EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (private.powerhub_has_tenant_access(tenant_id))',target||'_tenant_read',target);
     EXECUTE format('GRANT SELECT ON public.%I TO authenticated',target);
+    EXECUTE format('GRANT ALL ON public.%I TO service_role',target);
   END LOOP;
+  -- Supplier return rows contain refunds and account details; browser roles
+  -- must continue to use the scoped server RPC rather than direct table reads.
+  ALTER TABLE public.supplier_purchase_returns ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE public.supplier_purchase_return_lines ENABLE ROW LEVEL SECURITY;
+  REVOKE ALL ON public.supplier_purchase_returns,public.supplier_purchase_return_lines FROM PUBLIC,anon,authenticated;
+  GRANT ALL ON public.supplier_purchase_returns,public.supplier_purchase_return_lines TO service_role;
 END
 $setup$;
 GRANT USAGE ON SCHEMA public,private TO authenticated;
@@ -72,6 +80,27 @@ GRANT EXECUTE ON FUNCTION private.powerhub_has_site_access(bigint,bigint) TO aut
 GRANT EXECUTE ON FUNCTION private.powerhub_has_tenant_access(bigint) TO authenticated;
 
 \ir ../migrations/20261107120000_powerhub_inventory_supplier_site_rls_scope.sql
+
+-- Return tables intentionally remain unreadable to browser roles.
+DO $return_acl$
+BEGIN
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.supplier_purchase_returns'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.supplier_purchase_return_lines'::regclass) THEN
+    RAISE EXCEPTION 'SUPPLIER_RETURN_RLS_DISABLED';
+  END IF;
+  IF has_table_privilege('authenticated','public.supplier_purchase_returns','SELECT')
+     OR has_table_privilege('authenticated','public.supplier_purchase_return_lines','SELECT')
+     OR has_table_privilege('anon','public.supplier_purchase_returns','SELECT')
+     OR has_table_privilege('anon','public.supplier_purchase_return_lines','SELECT') THEN
+    RAISE EXCEPTION 'SUPPLIER_RETURN_BROWSER_READ_GRANT_PRESENT';
+  END IF;
+  IF NOT has_table_privilege('service_role','public.supplier_purchase_returns','SELECT')
+     OR NOT has_table_privilege('service_role','public.supplier_purchase_return_lines','SELECT') THEN
+    RAISE EXCEPTION 'SUPPLIER_RETURN_SERVICE_READ_GRANT_MISSING';
+  END IF;
+END
+$return_acl$;
+
 
 -- A branch member must not see same-tenant records from another branch, or
 -- any records from a different tenant, including child rows reached by direct API.
@@ -82,8 +111,7 @@ DECLARE target text; visible bigint;
 BEGIN
   FOREACH target IN ARRAY ARRAY[
     'supplier_purchases','supplier_purchase_lines','supplier_purchase_receipts',
-    'supplier_purchase_receipt_lines','supplier_purchase_returns',
-    'supplier_purchase_return_lines','supplier_payments',
+    'supplier_purchase_receipt_lines','supplier_payments',
     'supplier_payment_allocations','supplier_ledger_entries'
   ] LOOP
     EXECUTE format('SELECT count(*) FROM public.%I',target) INTO visible;
@@ -101,8 +129,7 @@ DECLARE target text; visible bigint;
 BEGIN
   FOREACH target IN ARRAY ARRAY[
     'supplier_purchases','supplier_purchase_lines','supplier_purchase_receipts',
-    'supplier_purchase_receipt_lines','supplier_purchase_returns',
-    'supplier_purchase_return_lines','supplier_payments',
+    'supplier_purchase_receipt_lines','supplier_payments',
     'supplier_payment_allocations','supplier_ledger_entries'
   ] LOOP
     EXECUTE format('SELECT count(*) FROM public.%I',target) INTO visible;
@@ -120,8 +147,7 @@ DECLARE target text; visible bigint;
 BEGIN
   FOREACH target IN ARRAY ARRAY[
     'supplier_purchases','supplier_purchase_lines','supplier_purchase_receipts',
-    'supplier_purchase_receipt_lines','supplier_purchase_returns',
-    'supplier_purchase_return_lines','supplier_payments',
+    'supplier_purchase_receipt_lines','supplier_payments',
     'supplier_payment_allocations','supplier_ledger_entries'
   ] LOOP
     EXECUTE format('SELECT count(*) FROM public.%I',target) INTO visible;

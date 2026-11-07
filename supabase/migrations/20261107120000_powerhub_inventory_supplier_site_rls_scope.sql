@@ -1,6 +1,6 @@
 -- Restrict direct authenticated reads of branch-bound supplier and purchasing
 -- records. Tenant-wide catalogs (items and suppliers) intentionally stay tenant-wide.
--- All operational API reads continue through server-side handlers and scoped RPCs.
+-- Supplier returns remain service-role-only and are read through scoped server RPCs.
 DO $preflight$
 DECLARE
   target record;
@@ -15,7 +15,6 @@ BEGIN
       ('supplier_purchase_lines', ARRAY['tenant_id','purchase_id']::text[]),
       ('supplier_purchase_receipts', ARRAY['tenant_id','site_id']::text[]),
       ('supplier_purchase_receipt_lines', ARRAY['tenant_id','receipt_id','purchase_id']::text[]),
-      ('supplier_purchase_returns', ARRAY['tenant_id','site_id']::text[]),
       ('supplier_purchase_return_lines', ARRAY['tenant_id','return_id','purchase_id']::text[]),
       ('supplier_payments', ARRAY['tenant_id','site_id']::text[]),
       ('supplier_payment_allocations', ARRAY['tenant_id','payment_id','purchase_id']::text[]),
@@ -52,7 +51,6 @@ BEGIN
   FOREACH target IN ARRAY ARRAY[
     'supplier_purchases',
     'supplier_purchase_receipts',
-    'supplier_purchase_returns',
     'supplier_payments',
     'supplier_ledger_entries'
   ] LOOP
@@ -91,20 +89,6 @@ CREATE POLICY supplier_purchase_receipt_lines_site_scope_read_guard
       AND private.powerhub_has_site_access(receipt.tenant_id,receipt.site_id)
   ));
 
-DROP POLICY IF EXISTS supplier_purchase_return_lines_site_scope_read_guard ON public.supplier_purchase_return_lines;
-CREATE POLICY supplier_purchase_return_lines_site_scope_read_guard
-  ON public.supplier_purchase_return_lines AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (EXISTS (
-    SELECT 1 FROM public.supplier_purchase_returns returned
-    JOIN public.supplier_purchases purchase
-      ON purchase.tenant_id=returned.tenant_id AND purchase.id=returned.purchase_id
-    WHERE returned.tenant_id=supplier_purchase_return_lines.tenant_id
-      AND returned.id=supplier_purchase_return_lines.return_id
-      AND purchase.id=supplier_purchase_return_lines.purchase_id
-      AND returned.site_id=purchase.site_id
-      AND private.powerhub_has_site_access(returned.tenant_id,returned.site_id)
-  ));
-
 DROP POLICY IF EXISTS supplier_payment_allocations_site_scope_read_guard ON public.supplier_payment_allocations;
 CREATE POLICY supplier_payment_allocations_site_scope_read_guard
   ON public.supplier_payment_allocations AS RESTRICTIVE FOR SELECT TO authenticated
@@ -125,7 +109,6 @@ BEGIN
   FOREACH target IN ARRAY ARRAY[
     'supplier_purchases','supplier_purchase_lines',
     'supplier_purchase_receipts','supplier_purchase_receipt_lines',
-    'supplier_purchase_returns','supplier_purchase_return_lines',
     'supplier_payments','supplier_payment_allocations','supplier_ledger_entries'
   ] LOOP
     IF NOT EXISTS (
