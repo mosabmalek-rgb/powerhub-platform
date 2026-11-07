@@ -511,6 +511,7 @@ $inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022221000_powerhub_fuel_alert_settings_and_evaluator.sql
 \ir ../migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql
 \ir ../migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql
+\ir ../migrations/20261107130000_powerhub_inventory_phase_d_supplier_allocation_scope.sql
 \ir ../migrations/20261023130000_powerhub_inventory_phase_d_schema_cache_reload.sql
 \ir ../migrations/20261023183000_powerhub_supplier_types_and_purchase_payment_mode.sql
 
@@ -4723,6 +4724,70 @@ begin
   end;
 end;
 $phase_d_financial_details_assertions$;
+
+-- Phase D financial exports must reject a payment linked to another branch or supplier.
+do $phase_d_supplier_allocation_scope_regression$
+declare
+  v_other_supplier_id bigint;
+  v_cross_site_purchase_id bigint;
+  v_same_site_other_supplier_purchase_id bigint;
+  v_related_reference text;
+begin
+  select related_reference into v_related_reference
+  from public.powerhub_inventory_phase_d_financial_details(
+    10,100,current_date-1,current_date+1,50,null,null,null,true,true
+  )
+  where event_type='supplier_payment' and event_id=1;
+  if coalesce(v_related_reference,'') not like '%PO-10-001%' then
+    raise exception 'PHASE_D_VALID_SUPPLIER_ALLOCATION_REFERENCE_MISSING: %',v_related_reference;
+  end if;
+
+  insert into public.suppliers(tenant_id,supplier_code,name,created_by_user_id)
+  values (10,'PHASE-D-OTHER-SUPPLIER','Phase D other supplier',1)
+  returning id into v_other_supplier_id;
+
+  insert into public.supplier_purchases(
+    tenant_id,site_id,supplier_id,warehouse_id,purchase_number,status,operation_key,created_by_user_id
+  ) values (
+    10,101,1,1,'PO-PHASE-D-CROSS-SITE','draft','phase-d:cross-site-allocation',1
+  ) returning id into v_cross_site_purchase_id;
+
+  insert into public.supplier_purchases(
+    tenant_id,site_id,supplier_id,warehouse_id,purchase_number,status,operation_key,created_by_user_id
+  ) values (
+    10,100,v_other_supplier_id,1,'PO-PHASE-D-OTHER-SUPPLIER','draft','phase-d:other-supplier-allocation',1
+  ) returning id into v_same_site_other_supplier_purchase_id;
+
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,1,v_cross_site_purchase_id,1.00);
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-1,current_date+1,50,null,null,null,true,true
+    ) where event_type='supplier_payment' and event_id=1;
+    raise exception 'PHASE_D_CROSS_SITE_SUPPLIER_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=1 and purchase_id=v_cross_site_purchase_id;
+
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,1,v_same_site_other_supplier_purchase_id,1.00);
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-1,current_date+1,50,null,null,null,true,true
+    ) where event_type='supplier_payment' and event_id=1;
+    raise exception 'PHASE_D_OTHER_SUPPLIER_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=1 and purchase_id=v_same_site_other_supplier_purchase_id;
+
+  delete from public.supplier_purchases where tenant_id=10 and id in (v_cross_site_purchase_id,v_same_site_other_supplier_purchase_id);
+  delete from public.suppliers where tenant_id=10 and id=v_other_supplier_id;
+end;
+$phase_d_supplier_allocation_scope_regression$;
 
 do $supplier_ledger_revision_assertions$
 declare

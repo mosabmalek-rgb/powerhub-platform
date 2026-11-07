@@ -1257,11 +1257,19 @@ export const powerhubInventoryRouter = router({
         const paymentIds = [...allocationByPayment.keys()];
         if (paymentIds.length) {
           const { data: paymentRows, error: paymentError } = await supabaseAdmin().from("supplier_payments")
-            .select("id,amount,payment_date,reference_no,company_account_id,account_transaction_id,posted_at,status,reversal_reason")
-            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("id", paymentIds)
+            .select("id,supplier_id,amount,payment_date,reference_no,company_account_id,account_transaction_id,posted_at,status,reversal_reason")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+            .eq("supplier_id", purchase.supplier_id).in("id", paymentIds)
             .order("payment_date", { ascending: false }).order("id", { ascending: false });
           if (paymentError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دفعات المورد." });
           const visiblePayments = paymentRows ?? [];
+          if (visiblePayments.length !== paymentIds.length ||
+            visiblePayments.some((payment) => Number(payment.supplier_id) !== Number(purchase.supplier_id))) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "تعذر التحقق من ارتباط دفعات فاتورة المشتريات بالمورد والفرع المحددين.",
+            });
+          }
           const accountIds = [...new Set(visiblePayments.map((payment) => Number(payment.company_account_id)))];
           const { data: accountRows, error: accountError } = accountIds.length
             ? await supabaseAdmin().from("company_accounts").select("id,name")
