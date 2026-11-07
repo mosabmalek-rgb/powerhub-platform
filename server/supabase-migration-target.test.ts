@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveSupabaseMigrationFile } from "../scripts/supabase-migration-file.mjs";
-import { assertSupabaseMigrationTarget, classifySupabaseMigrationHistory, parseSupabaseMigrationHistoryRows, SUPABASE_PROJECT_BY_TARGET } from "../scripts/supabase-migration-target.mjs";
+import { assertSupabaseMigrationTarget, classifySupabaseMigrationHistory, computeSupabaseMigrationContentSha256, parseSupabaseMigrationHistoryRows, SUPABASE_PROJECT_BY_TARGET } from "../scripts/supabase-migration-target.mjs";
 
 function directUri(projectRef, suffix = "") {
   return `postgresql://postgres:secret%2Fpassword@db.${projectRef}.supabase.co:5432/postgres${suffix}`;
@@ -73,46 +73,65 @@ describe("Supabase migration release target guard", () => {
 
 
 describe("Supabase migration history row parser", () => {
-  it("parses every psql ledger row using LF and CRLF separators", () => {
-    const first = "20261107150951|powerhub_public_default_privilege_hardening";
-    const second = "20261106224902|powerhub_payment_delta_purpose_projection";
+  it("parses rows with exact retained SQL SHA-256 values using LF and CRLF", () => {
+    const sql1 = "select 1;\n";
+    const sql2 = "select 2;\n";
+    const first = "20261107150951|powerhub_public_default_privilege_hardening|" + computeSupabaseMigrationContentSha256(sql1);
+    const second = "20261106224902|powerhub_payment_delta_purpose_projection|" + computeSupabaseMigrationContentSha256(sql2);
     const expected = [
-      { version: "20261107150951", name: "powerhub_public_default_privilege_hardening" },
-      { version: "20261106224902", name: "powerhub_payment_delta_purpose_projection" },
+      { version: "20261107150951", name: "powerhub_public_default_privilege_hardening", contentSha: computeSupabaseMigrationContentSha256(sql1) },
+      { version: "20261106224902", name: "powerhub_payment_delta_purpose_projection", contentSha: computeSupabaseMigrationContentSha256(sql2) },
     ];
     expect(parseSupabaseMigrationHistoryRows(first + "\n" + second)).toEqual(expected);
     expect(parseSupabaseMigrationHistoryRows(first + "\r\n" + second + "\r\n")).toEqual(expected);
+    expect(parseSupabaseMigrationHistoryRows("20261107150951|powerhub_public_default_privilege_hardening|unavailable")[0].contentSha).toBe("unavailable");
     expect(parseSupabaseMigrationHistoryRows("")).toEqual([]);
   });
 
   it("rejects malformed rows rather than silently accepting partial history", () => {
-    expect(() => parseSupabaseMigrationHistoryRows("bad-version|migration")).toThrow(/14-digit version/i);
-    expect(() => parseSupabaseMigrationHistoryRows("20261107150951|migration|extra")).toThrow(/unexpected row/i);
+    const digest = computeSupabaseMigrationContentSha256("select 1;");
+    expect(() => parseSupabaseMigrationHistoryRows("bad-version|migration|" + digest)).toThrow(/14-digit version/i);
+    expect(() => parseSupabaseMigrationHistoryRows("20261107150951|migration")).toThrow(/unexpected row/i);
+    expect(() => parseSupabaseMigrationHistoryRows("20261107150951|migration|bad-digest")).toThrow(/SHA-256/i);
   });
 });
 
 describe("Supabase migration history reconciliation guard", () => {
-  it("treats an exact version/name record as already applied", () => {
-    expect(classifySupabaseMigrationHistory({
-      version: "20261107150951",
-      name: "powerhub_public_default_privilege_hardening",
-      records: [{ version: "20261107150951", name: "powerhub_public_default_privilege_hardening" }],
-    })).toBe("already-applied");
+  const candidate = {
+    version: "20261107150951",
+    name: "powerhub_public_default_privilege_hardening",
+    contentSha: computeSupabaseMigrationContentSha256("select 1;\n"),
+  };
+  const stored = (version, name, sql = "select 1;\n") => ({
+    version, name, contentSha: computeSupabaseMigrationContentSha256(sql),
+  });
+
+  it("treats only an exact version/name/content record as already applied", () => {
+    expect(classifySupabaseMigrationHistory({ ...candidate, records: [stored(candidate.version, candidate.name)] }))
+      .toBe("already-applied");
   });
 
   it("allows a migration only when neither its version nor name exists", () => {
     expect(classifySupabaseMigrationHistory({
-      version: "20261107150951",
-      name: "powerhub_public_default_privilege_hardening",
-      records: [{ version: "20261106224902", name: "powerhub_payment_delta_purpose_projection" }],
+      ...candidate, records: [stored("20261106224902", "powerhub_payment_delta_purpose_projection")],
     })).toBe("not-applied");
+  });
+
+  it("blocks exact identity with changed stored SQL", () => {
+    expect(() => classifySupabaseMigrationHistory({
+      ...candidate, records: [stored(candidate.version, candidate.name, "select 2;\n")],
+    })).toThrow(/different SQL content/i);
+  });
+
+  it("blocks exact identity when the stored SQL payload is unavailable", () => {
+    expect(() => classifySupabaseMigrationHistory({
+      ...candidate, records: [{ version: candidate.version, name: candidate.name, contentSha: "unavailable" }],
+    })).toThrow(/payload is unavailable/i);
   });
 
   it("blocks a version already recorded under a different name", () => {
     expect(() => classifySupabaseMigrationHistory({
-      version: "20261107150951",
-      name: "powerhub_public_default_privilege_hardening",
-      records: [{ version: "20261107150951", name: "another_migration" }],
+      ...candidate, records: [stored(candidate.version, "another_migration")],
     })).toThrow(/different name/i);
   });
 
@@ -120,7 +139,8 @@ describe("Supabase migration history reconciliation guard", () => {
     expect(() => classifySupabaseMigrationHistory({
       version: "20261022211000",
       name: "powerhub_fuel_event_append_only_acl",
-      records: [{ version: "20261022131742", name: "powerhub_fuel_event_append_only_acl" }],
+      contentSha: computeSupabaseMigrationContentSha256("select 1;\n"),
+      records: [stored("20261022131742", "powerhub_fuel_event_append_only_acl")],
     })).toThrow(/already recorded under version/i);
   });
 
@@ -128,24 +148,23 @@ describe("Supabase migration history reconciliation guard", () => {
     expect(() => classifySupabaseMigrationHistory({
       version: "20261101210000",
       name: "powerhub_image_retention_metadata",
+      contentSha: computeSupabaseMigrationContentSha256("select 1;\n"),
       records: [
-        { version: "20261101200609", name: "powerhub_image_retention_metadata" },
-        { version: "20261102171227", name: "powerhub_image_retention_metadata" },
+        stored("20261101200609", "powerhub_image_retention_metadata"),
+        stored("20261102171227", "powerhub_image_retention_metadata"),
       ],
     })).toThrow(/appears more than once/i);
   });
 
-  it("rejects malformed migration release identifiers", () => {
+  it("rejects malformed migration identifiers and missing content hashes", () => {
     for (const version of ["latest", "2026110715095", "202611071509510", "2026110715095a"]) {
-      expect(() => classifySupabaseMigrationHistory({
-        version,
-        name: "powerhub_public_default_privilege_hardening",
-        records: [],
-      })).toThrow(/valid 14-digit version/i);
+      expect(() => classifySupabaseMigrationHistory({ ...candidate, version, records: [] }))
+        .toThrow(/valid 14-digit version/i);
     }
+    expect(() => classifySupabaseMigrationHistory({ ...candidate, contentSha: "bad-hash", records: [] }))
+      .toThrow(/SHA-256 hash/i);
   });
 });
-
 
 
 describe("Supabase migration release file path guard", () => {
