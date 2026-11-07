@@ -775,3 +775,10 @@ Commit: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
 - آخر سجل Staging مؤكد هو `20261106224902` بإجمالي 424 ترحيلاً.
 - لم تتغير Production أو إعدادات Supabase الحية، ولم تُرسل رسائل SMS أو تُنشأ حركات مالية أو تُحذف ملفات.
 - يلزم تشغيل PostgreSQL Integration على PostgreSQL 17 والبوابات الخمس كاملةً على SHA النهائي قبل اعتبار تغيير المصدر متحققاً.
+
+
+### معالجة تعارض فحص الحماية في Commit اللاحق
+
+كشف أول تشغيل CI بعد إضافة المرحلة الثانية أن بوابة `check-supabase-default-privileges.mjs` تمنع أي `GRANT EXECUTE ON FUNCTIONS TO PUBLIC` ضمن `ALTER DEFAULT PRIVILEGES`، بما في ذلك مخططات الامتدادات والنظام. لذلك أُلغي استثناء إعادة المنح للمخططات `extensions` و`storage` و`pg_catalog` و`information_schema`.
+
+التصميم المصحح يسحب `PUBLIC EXECUTE` من الافتراضي العام لمالك `postgres)، ثم يكتشف ويسحب أي منح `PUBLIC EXECUTE` على مستوى المخطط لجميع مخططاته. لا تُعدّل ACL للدوال الموجودة، وتبقى `service_role` وصلاحيات الكائنات الحالية منفصلة. عُدّل اختبار الانحدار ليثبت أن الدوال المستقبلية في `extensions` و`storage` لا تحصل على `PUBLIC/anon/authenticated EXECUTE`، بدلاً من مطالبة الترحيل بإعادة المنح التي تمنعها بوابة الأمان.

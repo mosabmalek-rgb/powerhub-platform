@@ -4,11 +4,9 @@
 -- Supabase-managed supabase_admin defaults are not modified here. Its public
 -- defaults remain a separately monitored provider-managed boundary.
 --
--- PUBLIC EXECUTE is a global PostgreSQL function default. Revoke it globally,
--- then restore the existing effective behavior for postgres-created functions
--- in provider/system schemas (extensions, storage, pg_catalog and
--- information_schema). Do not restore it in public, private, or
--- powerhub_private.
+-- PUBLIC EXECUTE is a global PostgreSQL function default. Revoke it
+-- globally and remove any schema-specific PUBLIC EXECUTE defaults as well.
+-- No future postgres-owned function receives PUBLIC EXECUTE in any schema.
 
 DO $preflight$
 BEGIN
@@ -79,23 +77,31 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
--- Preserve the pre-migration effective PUBLIC EXECUTE behavior for functions
--- created by postgres in these provider/extension schemas. This keeps the
--- global hardening from becoming an unrelated extensions/storage behavior
--- change. The public application schema receives no such exception.
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA extensions
-  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage
-  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
-
--- PostgreSQL system routines created by postgres must retain their built-in
--- PUBLIC EXECUTE behavior; these schemas are not the application's exposed API.
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA pg_catalog
-  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA information_schema
-  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+-- Schema-specific default ACLs are additive to global defaults. Remove any
+-- explicit schema-level PUBLIC EXECUTE grants too; otherwise they would
+-- survive the global revoke above. Existing function ACLs remain untouched.
+DO $revoke_schema_public_execute$
+DECLARE
+  v_schema text;
+BEGIN
+  FOR v_schema IN
+    SELECT DISTINCT namespace.nspname
+    FROM pg_catalog.pg_default_acl AS defaults
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid=defaults.defaclnamespace
+    CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
+    WHERE defaults.defaclrole='postgres'::regrole
+      AND defaults.defaclobjtype='f'
+      AND acl.grantee=0
+      AND acl.privilege_type='EXECUTE'
+  LOOP
+    EXECUTE format(
+      'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA %I REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC',
+      v_schema
+    );
+  END LOOP;
+END
+$revoke_schema_public_execute$;
 
 DO $postflight$
 BEGIN
@@ -159,44 +165,16 @@ BEGIN
     RAISE EXCEPTION 'POWERHUB_PUBLIC_FUNCTION_EXECUTE_DEFAULT_REMAINS';
   END IF;
 
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1
     FROM pg_catalog.pg_default_acl AS defaults
     CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
     WHERE defaults.defaclrole='postgres'::regrole
-      AND defaults.defaclnamespace='extensions'::regnamespace
-      AND defaults.defaclobjtype='f'
-      AND acl.grantee=0
-      AND acl.privilege_type='EXECUTE'
-  ) OR NOT EXISTS (
-    SELECT 1
-    FROM pg_catalog.pg_default_acl AS defaults
-    CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
-    WHERE defaults.defaclrole='postgres'::regrole
-      AND defaults.defaclnamespace='storage'::regnamespace
-      AND defaults.defaclobjtype='f'
-      AND acl.grantee=0
-      AND acl.privilege_type='EXECUTE'
-  ) OR NOT EXISTS (
-    SELECT 1
-    FROM pg_catalog.pg_default_acl AS defaults
-    CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
-    WHERE defaults.defaclrole='postgres'::regrole
-      AND defaults.defaclnamespace='pg_catalog'::regnamespace
-      AND defaults.defaclobjtype='f'
-      AND acl.grantee=0
-      AND acl.privilege_type='EXECUTE'
-  ) OR NOT EXISTS (
-    SELECT 1
-    FROM pg_catalog.pg_default_acl AS defaults
-    CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
-    WHERE defaults.defaclrole='postgres'::regrole
-      AND defaults.defaclnamespace='information_schema'::regnamespace
       AND defaults.defaclobjtype='f'
       AND acl.grantee=0
       AND acl.privilege_type='EXECUTE'
   ) THEN
-    RAISE EXCEPTION 'POWERHUB_PROVIDER_OR_SYSTEM_FUNCTION_DEFAULTS_NOT_PRESERVED';
+    RAISE EXCEPTION 'POWERHUB_POSTGRES_PUBLIC_FUNCTION_DEFAULT_REMAINS';
   END IF;
 END
 $postflight$;

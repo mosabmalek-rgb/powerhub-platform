@@ -292,8 +292,8 @@ USING (
   tenant_id = NULLIF(current_setting('powerhub.test_tenant_id',true),'')::bigint
 );
 
--- Future functions created by postgres in extensions/storage keep the
--- pre-migration PUBLIC behavior; private application helpers do not.
+-- Future functions created by postgres in provider/system schemas
+-- must also remain closed to PUBLIC after the global default revoke.
 CREATE FUNCTION extensions.default_privileges_future_extension_function()
 RETURNS text LANGUAGE sql AS $function$ SELECT 'extension'; $function$;
 CREATE FUNCTION storage.default_privileges_future_storage_function()
@@ -339,12 +339,12 @@ BEGIN
     RAISE EXCEPTION 'FUTURE_PUBLIC_SERVICE_ROLE_DEFAULT_GRANTS_MISSING';
   END IF;
 
-  IF NOT has_function_privilege('anon','extensions.default_privileges_future_extension_function()','EXECUTE')
-     OR NOT has_function_privilege('authenticated','extensions.default_privileges_future_extension_function()','EXECUTE')
-     OR NOT has_function_privilege('anon','storage.default_privileges_future_storage_function()','EXECUTE')
-     OR NOT has_function_privilege('authenticated','storage.default_privileges_future_storage_function()','EXECUTE')
-     OR NOT has_function_privilege('service_role','storage.default_privileges_future_storage_function()','EXECUTE')
-     OR NOT EXISTS (
+  IF has_function_privilege('anon','extensions.default_privileges_future_extension_function()','EXECUTE')
+     OR has_function_privilege('authenticated','extensions.default_privileges_future_extension_function()','EXECUTE')
+     OR has_function_privilege('anon','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR has_function_privilege('authenticated','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR has_function_privilege('service_role','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR EXISTS (
        SELECT 1 FROM pg_catalog.pg_proc p
        CROSS JOIN LATERAL pg_catalog.aclexplode(
          COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
@@ -352,7 +352,7 @@ BEGIN
        WHERE p.oid='extensions.default_privileges_future_extension_function()'::regprocedure
          AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
      )
-     OR NOT EXISTS (
+     OR EXISTS (
        SELECT 1 FROM pg_catalog.pg_proc p
        CROSS JOIN LATERAL pg_catalog.aclexplode(
          COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
@@ -360,7 +360,7 @@ BEGIN
        WHERE p.oid='storage.default_privileges_future_storage_function()'::regprocedure
          AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
      ) THEN
-    RAISE EXCEPTION 'PROVIDER_SCHEMA_FUNCTION_DEFAULTS_CHANGED';
+    RAISE EXCEPTION 'PROVIDER_SCHEMA_PUBLIC_FUNCTION_DEFAULT_REMAINS';
   END IF;
 
   IF NOT has_table_privilege('anon','public.default_privileges_managed_owner_future_fixture','SELECT')
