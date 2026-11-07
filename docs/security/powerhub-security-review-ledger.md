@@ -470,3 +470,98 @@ Commit: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
 - آخر SHA كود اجتاز الفحوص الخمسة: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
 - PR #359: OPEN + DRAFT + NOT MERGED.
 - لم يحدث تطبيق migration أو تغيير ACL أو كتابة مالية أو إرسال SMS أو حذف ملفات حقيقية.
+
+
+---
+
+## 13. إغلاق فشل تضمين Migration وتثبيت هوية مسؤول الدعم — 7 نوفمبر 2026
+
+### الرأس الذي خضع للتحقق
+
+- Commit الكود: `55add4243f17d05a478c4114be2bf9a92eac4b56`.
+- الرسالة: `fix(test): correct psql migration include escaping`.
+- PR #359: OPEN + DRAFT + NOT MERGED.
+- الفرع: `feat/auth-local-first-single-pr`.
+- فحص Commit يثبت أن التغيير في هذا الالتزام اقتصر على ملف الاختبار `supabase/tests/chat_support_admin_capability_scope.sql`.
+
+### تشخيص PostgreSQL وإغلاق سبب الفشل
+
+- التشغيل السابق الفاشل: [Reading Cycle PostgreSQL Integration #42375647918](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/42375647918).
+- الخطوة: #80، اختبار Support Center admin RPCs.
+- رسالة PostgreSQL الفعلية: `psql:supabase/tests/chat_support_admin_capability_scope.sql:84: error: invalid command \\\\\\\\ `.
+- السبب: أمر تضمين psql كُتب بشرطتي backslash (`\\ir`) بينما صيغة psql الصحيحة تتطلب شرطة واحدة (`\ir`).
+- إصلاح Commit `55add4243f17d05a478c4114be2bf9a92eac4b56`: تصحيح الأمر فقط، دون حذف الاختبار أو تغيير أي Assertion أو تخفيف ACL/RLS.
+- التحقق من Diff Commit يؤكد أن السطر تغير من `\\ir ../migrations/20261107130443_powerhub_platform_support_identity_role_guard.sql` إلى `\ir ../migrations/20261107130443_powerhub_platform_support_identity_role_guard.sql`.
+
+### تثبيت إصلاح هوية platform_support
+
+تم التحقق من الملفين على Commit `55add424`:
+
+- Migration: `supabase/migrations/20261107130443_powerhub_platform_support_identity_role_guard.sql`.
+- Regression: `supabase/tests/chat_support_admin_capability_scope.sql`.
+
+المساعد `private.powerhub_has_platform_capability(text)` يشترط الآن جميع ما يلي:
+- الهوية مستمدة من `auth.uid()`.
+- `users.role = 'admin'`.
+- `account_status = 'active'`.
+- `platform_role` ضمن القائمة المسموحة: `platform_owner` و`platform_admin` و`finance_admin` و`platform_support`.
+- وجود سياسة capability صريحة ومسموحة للدور والقدرة المطلوبة.
+
+ضوابط الدالة بقيت صريحة:
+- `SECURITY DEFINER`.
+- `search_path = ''`.
+- المالك `postgres`.
+- لا EXECUTE لـ`anon` أو `PUBLIC`.
+- EXECUTE لـ`authenticated` يبقى قائماً لأنه مطلوب لاستدعاء مساعد RLS؛ ولا يُسحب جماعياً.
+
+اختبار الانحدار يتضمن:
+- رفض حساب عادي يحمل `platform_role='platform_support'` عند فحص capability.
+- رفضه قراءة بيانات مركز الدعم غير النشطة أو إعدادات الدعم.
+- رفض RPC الإداري له.
+- السماح لحساب دعم حقيقي ذي `role='admin'` وحالة نشطة، مع التحقق من هوية منفذ العملية.
+- رفض حساب الدعم الموقوف.
+- رفض هوية JWT المفقودة ورفض anon وعدم السماح بكتابة مباشرة على جداول الإعدادات.
+
+**هذا التحديث يحل التعارض التاريخي في القسم 12:** وصف `REQUIRES_FIX` وعبارة «لم تُنشأ migration» كانا يعكسان الحالة السابقة قبل إضافة Migration والاختبار. الحالة الحالية للكود هي `FIXED` ومختبرة في PostgreSQL المعزول، وليست مجرد توصية.
+
+### البوابات الخمس على SHA واحد
+
+كل تشغيل أدناه اكتمل `completed / success`، ورأس كل تشغيل يطابق SHA `55add4243f17d05a478c4114be2bf9a92eac4b56`:
+
+| الفحص | Run ID | النتيجة |
+|---|---:|---|
+| Reading Cycle PostgreSQL Integration | 42376148889 | SUCCESS |
+| PowerHub CI | 42376148814 | SUCCESS |
+| PowerHub Security | 42376148916 | SUCCESS |
+| Supabase Admin Guard | 42376148848 | SUCCESS |
+| PowerHub SBOM | 42376148816 | SUCCESS |
+
+تفاصيل PostgreSQL Integration:
+- الوظيفة `Execute reading-cycle migration and assertions`: SUCCESS.
+- #50 مساعدات هوية المنصة وحدود مسؤول المستأجر: SUCCESS.
+- #51 تهيئة مسؤول المنصة المعتمد: SUCCESS.
+- #52 نقل مسؤول المنصة: SUCCESS.
+- #80 `Verify Support Center admin RPCs enforce manageSupportChat without direct table writes`: SUCCESS.
+- #87 اختبار DEFAULT PRIVILEGES: SUCCESS.
+- #89 `Verify platform-support capability requires active admin identity`: SUCCESS.
+- لا توجد خطوات فاشلة في الوظيفة.
+
+تفاصيل PowerHub Security:
+- Dependency Audit: SUCCESS.
+- Dependency Review: SUCCESS.
+- CodeQL analysis: SUCCESS.
+- لا تُسجل هذه النتائج بوصفها SKIPPED؛ الوظائف الثلاث اكتملت بنجاح في التشغيل الحالي.
+
+### حدود الإثبات وسلامة البيئات
+
+- نجاح PostgreSQL هو تنفيذ للاختبارات على قاعدة PostgreSQL مؤقتة/معزولة في CI.
+- لا يُعد ذلك إثباتاً لتطبيق Migration الهوية على Staging أو Production؛ لا يوجد ضمن هذه البوابة ما يثبت تطبيقاً حياً، ولا يجوز استنتاجه من نجاح الاختبار.
+- لم يحدث في هذه المرحلة تعديل لبيانات Production أو حركات مالية أو SMS أو حذف ملفات حقيقية.
+- لا تغيير في حالة PR: يبقى OPEN + DRAFT + NOT MERGED.
+- لم يستخدم Force Push ولم يحدث دمج.
+
+### نقطة المتابعة بعد Commit التوثيق
+
+- آخر SHA كود اجتاز البوابات الخمس قبل تحديث هذا السجل: `55add4243f17d05a478c4114be2bf9a92eac4b56`.
+- إضافة هذا الملحق إلى السجل تنشئ Commit توثيقياً جديداً؛ لذلك يجب إعادة تشغيل البوابات المطلوبة وربط نتائجها بالـSHA الجديد قبل اعتباره رأساً متحققاً.
+- مراجعة بقية أجسام SECURITY DEFINER وسلاسل الاستدعاء، وفحص DEFAULT PRIVILEGES الفعلي، والتدقيق المالي والأداء والقبول الحقيقي Offline/Browser ما زالت أعمالاً مستقلة ولم تُغلق بهذا التحديث.
