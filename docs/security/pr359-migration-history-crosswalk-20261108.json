@@ -19,8 +19,20 @@
       "staging_row": null,
       "production_row": null,
       "stored_sql_sha256": null,
-      "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "schema_postconditions": {
+        "staging": {
+          "verified_on": "2026-11-08",
+          "result": "PASS",
+          "evidence": "public.generators.client_operation_id is text; generators_client_operation_id_key is a UNIQUE partial btree index on client_operation_id WHERE client_operation_id IS NOT NULL"
+        },
+        "production": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_STATE_MATCHES",
+          "historical_attribution": "NOT_PROVEN",
+          "evidence": "public.generators.client_operation_id is text; generators_client_operation_id_key is a UNIQUE partial btree index on client_operation_id WHERE client_operation_id IS NOT NULL"
+        }
+      },
+      "reason": "Staging: archived statement body equals source SQL after removing source comments, but migration version differs; required live catalog postconditions pass. Production: equivalent current catalog objects/ACL observed, but no ledger row under this migration name, so historical attribution and release replay status remain NOT_PROVEN. Overall outcome held NOT_PROVEN pending environment-specific release crosswalk.",
       "staging_rows": [
         {
           "version": "20260909163702",
@@ -29,7 +41,15 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_outcome": "PROVEN_APPLIED_WITH_DIFFERENT_VERSION",
+      "production_outcome": "NOT_PROVEN",
+      "staging_sql_evidence": {
+        "historical_record_version": "20260909163702",
+        "method": "Compare stored single statement with source file body after stripping leading SQL comment-only lines",
+        "exact_body_match": true,
+        "source_file_version": "20260909170000"
+      }
     },
     {
       "name": "powerhub_revoke_legacy_generator_rpc_execute",
@@ -46,8 +66,20 @@
       "staging_row": null,
       "production_row": null,
       "stored_sql_sha256": null,
-      "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "schema_postconditions": {
+        "staging": {
+          "verified_on": "2026-11-08",
+          "result": "PASS",
+          "evidence": "The two exact legacy public.powerhub_create_generator(...) and public.powerhub_update_generator(...) RPCs are present; anon and authenticated lack EXECUTE, service_role retains EXECUTE"
+        },
+        "production": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_STATE_MATCHES",
+          "historical_attribution": "NOT_PROVEN",
+          "evidence": "The two exact legacy public.powerhub_create_generator(...) and public.powerhub_update_generator(...) RPCs are present; anon and authenticated lack EXECUTE, service_role retains EXECUTE"
+        }
+      },
+      "reason": "Staging: archived statement body equals source SQL after removing source comments, but migration version differs; required live catalog postconditions pass. Production: equivalent current catalog objects/ACL observed, but no ledger row under this migration name, so historical attribution and release replay status remain NOT_PROVEN. Overall outcome held NOT_PROVEN pending environment-specific release crosswalk.",
       "staging_rows": [
         {
           "version": "20260910174124",
@@ -56,7 +88,15 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_outcome": "PROVEN_APPLIED_WITH_DIFFERENT_VERSION",
+      "production_outcome": "NOT_PROVEN",
+      "staging_sql_evidence": {
+        "historical_record_version": "20260910174124",
+        "method": "Compare stored single statement with source file body after stripping leading SQL comment-only lines",
+        "exact_body_match": true,
+        "source_file_version": "20260910130000"
+      }
     },
     {
       "name": "admin_subscription_upgrade_enrichment_rpc",
