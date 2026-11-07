@@ -172,19 +172,42 @@ END
 $assert_direct_acl$;
 
 -- No JWT identity must never fall back to a caller-supplied user identifier.
+-- Exercise every browser-callable RPC, including mutations, with a missing JWT.
 SELECT set_config('request.jwt.claim.sub','',false);
 SET ROLE authenticated;
 DO $missing_jwt$
+DECLARE
+  v record;
+  v_denied boolean;
 BEGIN
-  BEGIN
-    PERFORM public.powerhub_notification_unread_count();
-    RAISE EXCEPTION 'MISSING_JWT_NOTIFICATION_ACCESS_ALLOWED';
-  EXCEPTION WHEN SQLSTATE '42501' THEN
-    IF SQLERRM<>'UNAUTHORIZED' THEN RAISE; END IF;
-  END;
+  FOR v IN
+    SELECT * FROM (VALUES
+      ('list','SELECT public.powerhub_notification_list(100)'),
+      ('unread_count','SELECT public.powerhub_notification_unread_count()'),
+      ('mark_read','SELECT public.powerhub_notification_mark_read(1001)'),
+      ('mark_all_read','SELECT public.powerhub_notification_mark_all_read()')
+    ) AS calls(name,sql)
+  LOOP
+    v_denied:=false;
+    BEGIN
+      EXECUTE v.sql;
+    EXCEPTION WHEN SQLSTATE '42501' THEN
+      IF SQLERRM='UNAUTHORIZED' THEN v_denied:=true; ELSE RAISE; END IF;
+    END;
+    IF NOT v_denied THEN
+      RAISE EXCEPTION 'MISSING_JWT_NOTIFICATION_RPC_ALLOWED: %',v.name;
+    END IF;
+  END LOOP;
 END
 $missing_jwt$;
 RESET ROLE;
+DO $missing_jwt_no_side_effects$
+BEGIN
+  IF (SELECT count(*) FROM public.powerhub_user_notifications WHERE read_at IS NOT NULL)<>0 THEN
+    RAISE EXCEPTION 'MISSING_JWT_NOTIFICATION_MUTATION_LEFT_SIDE_EFFECT';
+  END IF;
+END
+$missing_jwt_no_side_effects$;
 
 -- User B cannot list or mark any of User A's notifications.
 SELECT set_config('request.jwt.claim.sub','20000000-0000-4000-8000-000000000020',false);
@@ -257,13 +280,28 @@ $assert_final_state$;
 
 SET ROLE anon;
 DO $anon_denied$
+DECLARE
+  v record;
+  v_denied boolean;
 BEGIN
-  BEGIN
-    PERFORM public.powerhub_notification_unread_count();
-    RAISE EXCEPTION 'ANON_NOTIFICATION_RPC_WAS_ALLOWED';
-  EXCEPTION WHEN insufficient_privilege THEN
-    NULL;
-  END;
+  FOR v IN
+    SELECT * FROM (VALUES
+      ('list','SELECT public.powerhub_notification_list(100)'),
+      ('unread_count','SELECT public.powerhub_notification_unread_count()'),
+      ('mark_read','SELECT public.powerhub_notification_mark_read(1001)'),
+      ('mark_all_read','SELECT public.powerhub_notification_mark_all_read()')
+    ) AS calls(name,sql)
+  LOOP
+    v_denied:=false;
+    BEGIN
+      EXECUTE v.sql;
+    EXCEPTION WHEN insufficient_privilege THEN
+      v_denied:=true;
+    END;
+    IF NOT v_denied THEN
+      RAISE EXCEPTION 'ANON_NOTIFICATION_RPC_WAS_ALLOWED: %',v.name;
+    END IF;
+  END LOOP;
 END
 $anon_denied$;
 RESET ROLE;

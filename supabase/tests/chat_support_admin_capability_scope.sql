@@ -264,6 +264,58 @@ BEGIN
 END
 $acl_contract$;
 
+-- A missing JWT identity must fail as UNAUTHORIZED for every privileged RPC.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '', true);
+DO $missing_jwt_denials$
+DECLARE v record; v_denied boolean;
+BEGIN
+  FOR v IN
+    SELECT * FROM (VALUES
+      ('snapshot','SELECT public.chat_support_admin_snapshot()'),
+      ('save_settings','SELECT public.chat_support_admin_save_settings(300,1440)'),
+      ('upsert_category','SELECT public.chat_support_admin_upsert_category(''billing'',''Billing'',NULL,10,60,10,true)'),
+      ('upsert_quick_reply','SELECT public.chat_support_admin_upsert_quick_reply(''billing-help'',''Billing help'',''A response'',NULL,true)'),
+      ('upsert_sla','SELECT public.chat_support_admin_upsert_sla(''normal'',1.250)'),
+      ('upsert_tag','SELECT public.chat_support_admin_upsert_tag(''urgent'',''Urgent'',''#FF0000',true)')
+    ) AS calls(name,sql)
+  LOOP
+    v_denied:=false;
+    BEGIN EXECUTE v.sql;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM='UNAUTHORIZED' THEN v_denied:=true; ELSE RAISE; END IF;
+    END;
+    IF NOT v_denied THEN RAISE EXCEPTION 'MISSING_JWT_SUPPORT_ADMIN_RPC_ALLOWED: %',v.name; END IF;
+  END LOOP;
+END
+$missing_jwt_denials$;
+RESET ROLE;
+
+-- Anonymous callers must not reach any of the authenticated support RPC wrappers.
+SET LOCAL ROLE anon;
+DO $anonymous_denials$
+DECLARE v record; v_denied boolean;
+BEGIN
+  FOR v IN
+    SELECT * FROM (VALUES
+      ('snapshot','SELECT public.chat_support_admin_snapshot()'),
+      ('save_settings','SELECT public.chat_support_admin_save_settings(300,1440)'),
+      ('upsert_category','SELECT public.chat_support_admin_upsert_category(''billing'',''Billing'',NULL,10,60,10,true)'),
+      ('upsert_quick_reply','SELECT public.chat_support_admin_upsert_quick_reply(''billing-help'',''Billing help'',''A response'',NULL,true)'),
+      ('upsert_sla','SELECT public.chat_support_admin_upsert_sla(''normal'',1.250)'),
+      ('upsert_tag','SELECT public.chat_support_admin_upsert_tag(''urgent'',''Urgent'',''#FF0000',true)')
+    ) AS calls(name,sql)
+  LOOP
+    v_denied:=false;
+    BEGIN EXECUTE v.sql;
+    EXCEPTION WHEN insufficient_privilege THEN v_denied:=true;
+    END;
+    IF NOT v_denied THEN RAISE EXCEPTION 'ANON_SUPPORT_ADMIN_RPC_ALLOWED: %',v.name; END IF;
+  END LOOP;
+END
+$anonymous_denials$;
+RESET ROLE;
+
 -- A normal active tenant identity must be denied before the function reaches
 -- input validation or any table write.
 SET LOCAL ROLE authenticated;

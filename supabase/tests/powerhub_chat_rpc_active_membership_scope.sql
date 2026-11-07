@@ -433,6 +433,76 @@ INSERT INTO public.chat_support_assignments(
 INSERT INTO public.powerhub_user_notifications(user_id,notification_type,title,body,target_path,metadata)
 VALUES (1,'test','Notification one','','/workspace','{}');
 
+-- No JWT means there is no application actor. Mutation RPCs must reject before writes,
+-- receipts must return no data, and the unread badge may safely return only zero.
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE authenticated;
+DO $missing_jwt_chat_identity$
+DECLARE v_denied boolean;
+BEGIN
+  v_denied:=false;
+  BEGIN
+    PERFORM public.chat_ai_rate_message(505,'positive',NULL);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='UNAUTHORIZED' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'MISSING_JWT_AI_FEEDBACK_ALLOWED'; END IF;
+
+  v_denied:=false;
+  BEGIN
+    PERFORM public.chat_rate_support(102,5::smallint,'missing JWT');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='UNAUTHORIZED' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'MISSING_JWT_SUPPORT_FEEDBACK_ALLOWED'; END IF;
+
+  IF (SELECT count(*) FROM public.chat_receipts_for_message(500))<>0 THEN
+    RAISE EXCEPTION 'MISSING_JWT_CHAT_RECEIPTS_VISIBLE';
+  END IF;
+  IF public.chat_unread_notification_count()<>0 THEN
+    RAISE EXCEPTION 'MISSING_JWT_CHAT_UNREAD_COUNT_DISCLOSED_DATA';
+  END IF;
+END
+$missing_jwt_chat_identity$;
+RESET ROLE;
+
+DO $missing_jwt_chat_no_side_effects$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.chat_bot_feedback WHERE message_id=505)
+     OR EXISTS (SELECT 1 FROM public.chat_support_feedback) THEN
+    RAISE EXCEPTION 'MISSING_JWT_CHAT_FEEDBACK_LEFT_SIDE_EFFECT';
+  END IF;
+END
+$missing_jwt_chat_no_side_effects$;
+
+SET ROLE anon;
+DO $anon_chat_feedback_denied$
+DECLARE v_denied boolean;
+BEGIN
+  v_denied:=false;
+  BEGIN
+    PERFORM public.chat_ai_rate_message(505,'positive',NULL);
+  EXCEPTION WHEN insufficient_privilege THEN v_denied:=true;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'ANON_AI_FEEDBACK_RPC_ALLOWED'; END IF;
+
+  v_denied:=false;
+  BEGIN
+    PERFORM public.chat_rate_support(102,5::smallint,'anon');
+  EXCEPTION WHEN insufficient_privilege THEN v_denied:=true;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'ANON_SUPPORT_FEEDBACK_RPC_ALLOWED'; END IF;
+
+  v_denied:=false;
+  BEGIN
+    PERFORM public.chat_receipts_for_message(500);
+  EXCEPTION WHEN insufficient_privilege THEN v_denied:=true;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'ANON_CHAT_RECEIPTS_RPC_ALLOWED'; END IF;
+END
+$anon_chat_feedback_denied$;
+RESET ROLE;
+
 -- Support may see receipt metadata only on Support Center conversations.
 SELECT set_config('request.jwt.claim.sub','22222222-2222-4222-8222-222222222222',false);
 DO $support_scope$

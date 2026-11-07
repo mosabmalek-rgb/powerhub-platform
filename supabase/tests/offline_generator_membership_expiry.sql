@@ -288,6 +288,73 @@ BEGIN
 END
 $assert_acl$;
 
+-- A database role without a JWT identity is not an application actor. Both
+-- sync mutation RPCs reject before touching generators or the idempotency outbox.
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE authenticated;
+DO $missing_jwt_generator_denials$
+DECLARE v_denied boolean;
+BEGIN
+  v_denied:=false;
+  BEGIN
+    PERFORM * FROM public.powerhub_sync_generator_create(
+      20,'GEN-NO-JWT-CREATE','Must be denied','SER-NO-JWT',100,'diesel','no-jwt-create'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='AUTH_USER_NOT_FOUND' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'MISSING_JWT_GENERATOR_CREATE_ALLOWED'; END IF;
+
+  v_denied:=false;
+  BEGIN
+    PERFORM * FROM public.powerhub_sync_generator_update(
+      20,202,'Must be denied',100,25,1,'active',
+      '2026-01-01T00:00:00Z'::timestamptz,'no-jwt-update'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='AUTH_USER_NOT_FOUND' THEN v_denied:=true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'MISSING_JWT_GENERATOR_UPDATE_ALLOWED'; END IF;
+END
+$missing_jwt_generator_denials$;
+RESET ROLE;
+
+SET ROLE anon;
+DO $anon_generator_denials$
+DECLARE v_denied boolean;
+BEGIN
+  v_denied:=false;
+  BEGIN
+    PERFORM * FROM public.powerhub_sync_generator_create(
+      20,'GEN-ANON-CREATE','Must be denied','SER-ANON',100,'diesel','anon-create'
+    );
+  EXCEPTION WHEN insufficient_privilege THEN v_denied:=true;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'ANON_GENERATOR_CREATE_ALLOWED'; END IF;
+
+  v_denied:=false;
+  BEGIN
+    PERFORM * FROM public.powerhub_sync_generator_update(
+      20,202,'Must be denied',100,25,1,'active',
+      '2026-01-01T00:00:00Z'::timestamptz,'anon-update'
+    );
+  EXCEPTION WHEN insufficient_privilege THEN v_denied:=true;
+  END;
+  IF NOT v_denied THEN RAISE EXCEPTION 'ANON_GENERATOR_UPDATE_ALLOWED'; END IF;
+END
+$anon_generator_denials$;
+RESET ROLE;
+
+DO $assert_no_jwt_generator_side_effects$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.generators WHERE code IN ('GEN-NO-JWT-CREATE','GEN-ANON-CREATE'))
+     OR EXISTS (SELECT 1 FROM public.offline_sync_operations WHERE client_operation_id IN
+       ('no-jwt-create','no-jwt-update','anon-create','anon-update')) THEN
+    RAISE EXCEPTION 'UNAUTHORIZED_GENERATOR_CALL_LEFT_SIDE_EFFECT';
+  END IF;
+END
+$assert_no_jwt_generator_side_effects$;
+
 SELECT set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',false);
 SET ROLE authenticated;
 DO $assert_expired_membership_denied$

@@ -227,7 +227,15 @@ BEGIN
     END IF;
     IF has_function_privilege('anon',v_oid,'EXECUTE')
        OR NOT has_function_privilege('authenticated',v_oid,'EXECUTE')
-       OR NOT has_function_privilege('service_role',v_oid,'EXECUTE') THEN
+       OR NOT has_function_privilege('service_role',v_oid,'EXECUTE')
+       OR EXISTS (
+         SELECT 1
+         FROM aclexplode(coalesce(
+           (SELECT proacl FROM pg_proc WHERE oid=v_oid),
+           acldefault('f',(SELECT proowner FROM pg_proc WHERE oid=v_oid))
+         )) a
+         WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+       ) THEN
       RAISE EXCEPTION 'PUBLIC_CHAT_RPC_ACL_MISMATCH: %',v_signature;
     END IF;
   END LOOP;
@@ -238,6 +246,31 @@ BEGIN
      OR has_function_privilege('authenticated','private.chat_assert_support_admin()','EXECUTE') THEN
     RAISE EXCEPTION 'PRIVATE_CHAT_IMPLEMENTATION_EXECUTE_GRANT_REMAINS';
   END IF;
+
+  -- Notification implementations are private too. Their public wrappers are
+  -- the only supported browser entry points; service_role does not need direct
+  -- access to these implementation helpers.
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.chat_mark_notification_read(bigint)',
+    'private.chat_mark_all_notifications_read()',
+    'private.chat_unread_notification_count()'
+  ] LOOP
+    v_oid:=to_regprocedure(v_signature);
+    IF v_oid IS NULL
+       OR has_function_privilege('anon',v_oid,'EXECUTE')
+       OR has_function_privilege('authenticated',v_oid,'EXECUTE')
+       OR has_function_privilege('service_role',v_oid,'EXECUTE')
+       OR EXISTS (
+         SELECT 1
+         FROM aclexplode(coalesce(
+           (SELECT proacl FROM pg_proc WHERE oid=v_oid),
+           acldefault('f',(SELECT proowner FROM pg_proc WHERE oid=v_oid))
+         )) a
+         WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+       ) THEN
+      RAISE EXCEPTION 'PRIVATE_CHAT_NOTIFICATION_IMPLEMENTATION_CALLABLE: %',v_signature;
+    END IF;
+  END LOOP;
 END
 $assert_acl$;
 
@@ -305,13 +338,51 @@ RESET ROLE;
 
 SET ROLE anon;
 DO $anonymous_runtime$
+DECLARE
+  v record;
+  v_denied boolean;
 BEGIN
-  BEGIN
-    EXECUTE 'SELECT public.chat_send_message(1,''body'',''11111111-1111-4111-8111-111111111111'',NULL)';
-    RAISE EXCEPTION 'ANONYMOUS_CHAT_RPC_WAS_ALLOWED';
-  EXCEPTION WHEN insufficient_privilege THEN
-    NULL;
-  END;
+  FOR v IN
+    SELECT * FROM (VALUES
+      ('chat_assign_support','SELECT public.chat_assign_support(1,2)'),
+      ('chat_create_conversation','SELECT public.chat_create_conversation(10,''assistant'',NULL,''normal'')'),
+      ('chat_mark_delivered','SELECT public.chat_mark_delivered(100)'),
+      ('chat_mark_notification_read','SELECT public.chat_mark_notification_read(1)'),
+      ('chat_mark_read','SELECT public.chat_mark_read(100)'),
+      ('chat_mark_read_up_to','SELECT public.chat_mark_read_up_to(1,100)'),
+      ('chat_rate_support','SELECT public.chat_rate_support(1::bigint,5::smallint,NULL::text)'),
+      ('chat_receipts_for_message','SELECT public.chat_receipts_for_message(100)'),
+      ('chat_release_support','SELECT public.chat_release_support(1)'),
+      ('chat_reopen_support_conversation','SELECT public.chat_reopen_support_conversation(1)'),
+      ('chat_send_internal_note','SELECT public.chat_send_internal_note(1,''note'',''11111111-1111-4111-8111-111111111111'')'),
+      ('chat_send_message','SELECT public.chat_send_message(1,''body'',''11111111-1111-4111-8111-111111111111'',NULL)'),
+      ('chat_set_conversation_tags','SELECT public.chat_set_conversation_tags(1,ARRAY[1]::bigint[])'),
+      ('chat_support_admin_save_settings','SELECT public.chat_support_admin_save_settings(1,60)'),
+      ('chat_support_admin_snapshot','SELECT public.chat_support_admin_snapshot()'),
+      ('chat_support_admin_upsert_category','SELECT public.chat_support_admin_upsert_category(''general'',''General'',NULL,5,30,1,true)'),
+      ('chat_support_admin_upsert_quick_reply','SELECT public.chat_support_admin_upsert_quick_reply(''hello'',''Hello'',''Hi'',NULL,true)'),
+      ('chat_support_admin_upsert_sla','SELECT public.chat_support_admin_upsert_sla(''normal'',1.0)'),
+      ('chat_support_admin_upsert_tag','SELECT public.chat_support_admin_upsert_tag(''tag'',''Tag'',''#777777'',true)'),
+      ('chat_support_metrics','SELECT public.chat_support_metrics(now()-interval ''1 day'',now())'),
+      ('chat_support_queue','SELECT public.chat_support_queue(NULL,NULL,NULL,NULL,NULL,50,0)'),
+      ('chat_support_set_metadata','SELECT public.chat_support_set_metadata(1,NULL,NULL,NULL)'),
+      ('chat_support_users','SELECT public.chat_support_users()'),
+      ('chat_ticket_timeline','SELECT public.chat_ticket_timeline(1)'),
+      ('chat_transition_conversation','SELECT public.chat_transition_conversation(1,''SUPPORT_ACTIVE'')'),
+      ('chat_mark_all_notifications_read','SELECT public.chat_mark_all_notifications_read()'),
+      ('chat_unread_notification_count','SELECT public.chat_unread_notification_count()')
+    ) AS calls(name,sql)
+  LOOP
+    v_denied:=false;
+    BEGIN
+      EXECUTE v.sql;
+    EXCEPTION WHEN insufficient_privilege THEN
+      v_denied:=true;
+    END;
+    IF NOT v_denied THEN
+      RAISE EXCEPTION 'ANONYMOUS_CHAT_RPC_WAS_ALLOWED: %',v.name;
+    END IF;
+  END LOOP;
 END
 $anonymous_runtime$;
 RESET ROLE;
