@@ -1,8 +1,8 @@
 \set ON_ERROR_STOP on
 
-DO $ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $;
-DO $ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $;
-DO $ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $role_anon$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $role_anon$;
+DO $role_authenticated$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $role_authenticated$;
+DO $role_service$ BEGIN CREATE ROLE service_role NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $role_service$;
 CREATE SCHEMA IF NOT EXISTS private;
 CREATE TABLE public.site_memberships(
   user_id bigint NOT NULL, tenant_id bigint NOT NULL, site_id bigint,
