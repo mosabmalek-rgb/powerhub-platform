@@ -14,10 +14,12 @@ if (!/^\d+$/.test(process.env.PGPORT)) {
   throw new Error("PGPORT must be numeric.");
 }
 
-// Preserve non-ASCII UTF-8, SQL single quotes, literal backslashes, mixed
-// LF/CRLF line endings, and a final newline byte-for-byte.
+// Deliberately exceed Linux's 128 KiB per-argument boundary once Base64
+// encoding and SQL framing are included. The payload also covers UTF-8,
+// SQL quotes, literal backslashes, mixed LF/CRLF and a final newline.
 const sql =
   "-- PowerHub migration-ledger payload round-trip: مرحبا\r\n" +
+  "-- large source payload: " + "x".repeat(120_000) + "\r\n" +
   "SELECT 'quoted: ''single quote''; backslash: \\\\';\n" +
   "SELECT 'LF line';\r\n" +
   "-- final source line\r\n";
@@ -75,9 +77,9 @@ const args = [
   "--port", process.env.PGPORT,
   "--username", process.env.PGUSER,
   "--dbname", process.env.PGDATABASE,
-  "--command", query,
 ];
 const result = spawnSync("psql", args, {
+  input: query,
   encoding: "utf8",
   env: process.env,
   maxBuffer: 1024 * 1024,
@@ -94,4 +96,4 @@ if (!result.stdout.includes("POWERHUB_MIGRATION_LEDGER_PAYLOAD_POSTGRES_ROUND_TR
   throw new Error("PostgreSQL did not return the migration-ledger round-trip success marker.");
 }
 
-console.log("PostgreSQL 17 preserved the exact UTF-8 migration SQL payload and SHA-256.");
+console.log("PostgreSQL 17 preserved a >128 KiB UTF-8 migration SQL payload and SHA-256 over stdin.");

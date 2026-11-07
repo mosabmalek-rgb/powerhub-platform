@@ -358,3 +358,10 @@ A read-only Staging catalog inspection found that `supabase_migrations.schema_mi
 The runner is corrected to build its ledger INSERT with the third `statements` column populated from a Base64-encoded UTF-8 representation of the exact source SQL, decoded by PostgreSQL using `convert_from(decode(...), 'base64'), 'UTF8'`. This avoids unsafe or ambiguous SQL literal escaping for apostrophes, backslashes, mixed line endings, and non-ASCII SQL text. The migration SQL and history insert remain inside the same transaction.
 
 Regression coverage asserts exact UTF-8 payload persistence for quotes, backslashes, Arabic text, LF and CRLF, and rejects malformed identifiers / empty SQL. A PostgreSQL 17 integration test now executes the generated INSERT against a disposable `schema_migrations` table, reads back the exact `text[]` payload, and verifies the stored SHA-256 before rolling back the test transaction. This is source-code and test-only. It does not backfill the 12 existing Staging rows whose historical statements are unavailable, does not modify any history row, and does not apply any migration. Staging remains at 424 history rows, latest `20261106224902`.
+
+
+## Large-migration psql transport hardening — 7 November 2026
+
+The repository's largest canonical SQL migration is 94,039 bytes. The release runner's atomic SQL transaction now contains both the migration text and its Base64-encoded `statements` ledger payload; passing that whole transaction as one `psql --command` argument can exceed Linux's per-argument size ceiling on large migrations. The runner now sends the transaction over the child process standard input instead of a single argv value. The PostgreSQL 17 round-trip regression fixture was expanded to a 120,000-byte source payload so the combined SQL and Base64 statement exceeds that boundary, then verifies exact UTF-8 text and SHA-256 inside a rolled-back transaction.
+
+Source-only correction and disposable PostgreSQL test. No Staging history row, Production object, or live schema was changed.

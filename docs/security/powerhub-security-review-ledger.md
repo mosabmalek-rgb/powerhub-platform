@@ -978,3 +978,8 @@ No historical row was altered. No Staging or Production migration was applied. N
 A read-only catalog inspection confirmed that the nullable `statements text[]` column has no default and no trigger on `supabase_migrations.schema_migrations`. The previous custom release runner inserted only `version` and `name`, which would create future history entries without their SQL payload and make later hash verification fail closed despite being released by this tool.
 
 The runner now persists the exact source SQL into `statements` through a Base64-encoded UTF-8 value decoded in the same atomic PostgreSQL transaction. Regression tests cover quotes, backslashes, Arabic text, LF/CRLF and invalid inputs. A dedicated PostgreSQL 17 CI integration test now executes the generated INSERT in a disposable database and verifies exact payload and SHA-256 read-back, then rolls back. The existing 12 historical rows with unavailable payloads remain unresolved; they are not backfilled or rewritten. No Staging/Production migration or schema change was applied. CI must pass on the new source HEAD before this correction is accepted.
+
+
+## 2026-11-07 — Avoid argv size ceiling for large migration releases
+
+A maximum local migration size of 94,039 bytes was observed. The release runner's transaction now also contains the Base64-encoded SQL history payload, so a large release could exceed Linux's per-argument limit if passed in a single `psql --command` argument. The runner now supplies SQL on stdin. The PostgreSQL 17 disposable round-trip test uses a 120,000-byte migration body (before Base64 expansion), verifies exact UTF-8 payload and SHA-256, and rolls back. No live database was modified; CI must pass again on the new HEAD.

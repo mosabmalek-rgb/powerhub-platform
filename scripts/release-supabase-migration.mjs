@@ -72,8 +72,12 @@ if (/\b(?:CREATE|DROP)\s+INDEX\s+CONCURRENTLY\b|^\s*VACUUM\b/im.test(sql)) {
 function psql(query) {
   const result = spawnSync("psql", [
     "--no-psqlrc", "--no-password", "--set=ON_ERROR_STOP=1", "--tuples-only", "--no-align",
-    "--dbname", databaseUrl, "--command", query,
+    "--dbname", databaseUrl,
   ], {
+    // Feed SQL over stdin instead of one --command argv entry. The release
+    // transaction includes both the migration and its Base64 ledger payload;
+    // a large migration can exceed Linux's per-argument size limit.
+    input: query,
     encoding: "utf8",
     env: { ...process.env, PGSSLMODE: process.env.PGSSLMODE ?? "require", PGCONNECT_TIMEOUT: "15" },
     maxBuffer: 8 * 1024 * 1024,
