@@ -4,6 +4,17 @@
 
 This document is the release decision for the seven security migrations in PR #359. It is intentionally a gate record, not authorization to execute SQL. No Staging or Production database was modified while producing it.
 
+## Current verified release snapshot — 8 November 2026 (after Codex commits)
+
+- GitHub PR #359 HEAD: `40d010a3d9564d4c3fb59629e9f99cd90c340c96`; `OPEN / DRAFT / mergeable=true`, `behind main=0`. Prior `CONFLICTING` / not-mergeable claims below are archived historical evidence, **not the current gate**.
+- Four required PR workflow runs on this SHA are completed successfully (PowerHub CI, PostgreSQL Integration, PowerHub Security, Supabase Admin Guard). This is an immutable SHA observation, not blanket release approval.
+- Fresh read-only Supabase migration-ledger query: Staging 424 rows and Production 486 rows. None of the seven 7-November security migration versions is registered. Staging has the existing 20261105150631 Chat trigger EXECUTE revoke; Production does not.
+- Crosswalk name lookup: all 28 requested names are present in Staging (29 rows; `powerhub_reading_opening_baseline_save_fix` has two versions); six names are present in Production (six rows). Of the 29 Staging rows, **zero** retained SQL SHA-256 hashes match a source file in the crosswalk. Five of six Production rows also differ; the remaining `powerhub_owner_capability_overrides` has the same SQL SHA-256 as a source file but a **different version**. Do not classify any case as historically reconciled based on its name or hash alone.
+- The [crosswalk JSON](pr359-migration-history-crosswalk-20261108.json) now retains read-only observed `staging_rows` and `production_rows`; each `outcome` remains `NOT_PROVEN` pending version/name/SQL and object-level postconditions. No database writes were made for these observations.
+- **Approval remains BLOCKED** by 28 unresolved cases, SQL/version history differences, deployed consumer/API acceptance, security preflight and the required explicit user authorization; the former Git merge conflict is no longer a blocker.
+
+## Historical review snapshot (retained for audit; superseded where noted)
+
 ## Current source-only follow-up — 8 November 2026
 
 See [engineering verification](pr359-engineering-verification-20261108.md) for
@@ -64,7 +75,7 @@ The seven migrations are:
 
 ## Why approval is blocked
 
-1. The PR is still conflicting with `main`; the branch must first be reconciled without rewriting migration identity or merging the PR.
+1. [Historical blocker — resolved as of HEAD `40d010a3`] The PR had been conflicting with `main`. Current GitHub verifies `mergeable=true` and `behind main=0`; this is not a remaining release gate.
 2. The 28 version-drift groups remain `NOT_PROVEN` pending object-level postcondition evidence. They must not be silently classified as applied and must not be replayed.
 3. Production has a confirmed parity gap for the existing Chat trigger ACL migration. This must be handled through the normal canonical release sequence, not by an ad-hoc SQL patch or duplicate migration.
 4. The seven migrations have not yet received a live Staging apply and post-apply verification. CI success is necessary but not sufficient.
@@ -87,4 +98,4 @@ The seven migrations are:
 - No data, SMS, financial, storage, Auth, Cron, or `pg_net` operation.
 - No migration rename, replay, deletion, or manual history repair.
 
-**Decision:** keep the Staging release request blocked until the PR conflict and 28-case reconciliation gate are resolved. The seven migration files and their isolated tests are suitable for review, but the evidence does not authorize live application yet.
+**Decision (historical snapshot):** keep the Staging release request blocked until the PR conflict and 28-case reconciliation gate are resolved. The seven migration files and their isolated tests are suitable for review, but the evidence does not authorize live application yet.

@@ -20,7 +20,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260909163702",
+          "stored_sql_sha256": "49d8e5dcd62ad096b067e9d8e184388e729e329141d4e246da05b90e35588e06",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "powerhub_revoke_legacy_generator_rpc_execute",
@@ -38,7 +47,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260910174124",
+          "stored_sql_sha256": "3573908b9b41644dd8e81837c40bac0b8310806d9b58c4d144d7b1fb25225e1c",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "admin_subscription_upgrade_enrichment_rpc",
@@ -63,7 +81,23 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260913184618",
+          "stored_sql_sha256": "672c80e5d09a2781814ab40b72e966b4bc5641427617ea51c1f7d9ef55aa27c6",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20260914070201",
+          "stored_sql_sha256": "fc6215eb892947c079a963ce5482144bf40a609c4b4627dd30b77e03fba6d42f",
+          "source_same_sha": false,
+          "source_same_version": true
+        }
+      ]
     },
     {
       "name": "harden_admin_subscription_upgrade_enrichment_rpc_execute",
@@ -81,7 +115,23 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260913184631",
+          "stored_sql_sha256": "982717372d64d6a569b0ef580e00930e2a3774a047c0abea3b0b730d6e123642",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20260914070229",
+          "stored_sql_sha256": "f0ceedc1bdd9be0c24224797f160885a6e8b0b42482b7038692a6e95ae22e4a2",
+          "source_same_sha": false,
+          "source_same_version": true
+        }
+      ]
     },
     {
       "name": "platform_capability_resolver",
@@ -99,7 +149,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914100129",
+          "stored_sql_sha256": "9765db258722d8333e23e1cb6bb313b7353b6afcea795a4594c18925e82b4140",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_foundation_v1",
@@ -117,7 +176,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914100040",
+          "stored_sql_sha256": "4858d0f9b63524a1d89d75c77c03acacdfdc9bf1701ea6f477b720e80422a735",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_rls_security_v1",
@@ -135,7 +203,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914100140",
+          "stored_sql_sha256": "cea811687643726ae377083227195d9d8a8a3a66f8b5bd5f5829c88a78bd50b2",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_realtime_authorization_v1",
@@ -153,7 +230,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914100205",
+          "stored_sql_sha256": "55639b34a2eb81289aca71db26b58bf3495b1156b90bb6f7a92f07841bd4c606",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_realtime_authorization_v1_harden",
@@ -171,7 +257,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914100355",
+          "stored_sql_sha256": "d39d6910e3d130975c57060c1d24b93ea3d4667bd6b5ec4da9da760f853d2cd9",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_performance_indexes_v1",
@@ -189,7 +284,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914100509",
+          "stored_sql_sha256": "80a602701fb933f626929bb57bbbddd7beb2d3e13024241813673d9bdc77662c",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_storage_rls_v1",
@@ -207,7 +311,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914100844",
+          "stored_sql_sha256": "a9fce6d4b5200bbac8143b258a3261df4b5ac3b735173455a1d952146d2ff2ce",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_storage_grants_hardening_v1",
@@ -225,7 +338,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914100913",
+          "stored_sql_sha256": "22b1a1a99fa9e4fb37830a6a3e7e9ddd427a454351b695be61e1725b1c4a9321",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_write_boundary_v1",
@@ -243,7 +365,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914101018",
+          "stored_sql_sha256": "005c497e9cd9935e1d47d670ec20bf652b7b69cda266d8dd877c7d53f0aa21c2",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_write_boundary_v1_fix",
@@ -261,7 +392,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914101124",
+          "stored_sql_sha256": "dbc9703dee8d1ec99380a48a7b081124888fd950336c234100a094c3b6ee0d6b",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_receipts_notifications_v1",
@@ -279,7 +419,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914102451",
+          "stored_sql_sha256": "ab69e900dee6b6d666fe0ea27a627467df577d8fc12cfa62051feb774c7dfe01",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_realtime_receipts_notifications_v1",
@@ -297,7 +446,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914102745",
+          "stored_sql_sha256": "31262c0ad084fddbddc444c02ce98d8a395b2253b22f2c16fdb772beab616e75",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_mark_read_up_to_v1",
@@ -315,7 +473,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914102950",
+          "stored_sql_sha256": "1457fb5222ebec7f37bf9c43e50777723a4bab36db05148ddbf3b2d04f187ed6",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_notification_rpc_security_hardening_v2",
@@ -333,7 +500,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260914122600",
+          "stored_sql_sha256": "61cf80e8961357d06a0001475befe3b5e597bc048f1cb60257e9055668eb8d60",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_support_operator_v1",
@@ -351,7 +527,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260915092746",
+          "stored_sql_sha256": "dcd106029195cc88e4232a785e937d760c760a6f27948f8960aea7e0a3e3cf71",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_support_users_v1",
@@ -369,7 +554,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260915092826",
+          "stored_sql_sha256": "d31526a535e25f4fac6f51fd3eaa611c346501fdca8bd1db35d3de0631e67d62",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "chat_staging_compatibility_v1",
@@ -387,7 +581,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260916084611",
+          "stored_sql_sha256": "4deb002fc8df471118adf4ae652c7e2788925f0a84273caf067ba2a1233263d8",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "powerhub_field_user_guards",
@@ -405,7 +608,23 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260919104522",
+          "stored_sql_sha256": "044c943a70e616148fcaef463c5afa1e4310df46c7a8a3773d9944e193cd1795",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20260919104450",
+          "stored_sql_sha256": "91c4d32dc6f28390dd0c5c798e52107382c84650c853538b670060962013dde8",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ]
     },
     {
       "name": "powerhub_platform_support_role_reconciliation",
@@ -423,7 +642,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20260922093834",
+          "stored_sql_sha256": "d535cf308de7ef465441377bbda32b3c7620aa7cf1ee04f4553ad9d54185ca98",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "powerhub_optional_generator_capacity",
@@ -441,7 +669,23 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20261023145139",
+          "stored_sql_sha256": "a28374673f8bacc070bbe68fdd8da573586aa19b50dca4499f2b4ebecafda0dc",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20260926101141",
+          "stored_sql_sha256": "ada48b416fb645cd9c1b96ce05fd34850c7f031a0e21bd9a08260fc2448d5369",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ]
     },
     {
       "name": "powerhub_reading_opening_baseline_save_fix",
@@ -459,7 +703,29 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20261010161951",
+          "stored_sql_sha256": "7eb488171cd5241ebca443c01682d2ecd49eba3cab1be3b114fe847295cbbe7e",
+          "source_same_sha": false,
+          "source_same_version": false
+        },
+        {
+          "version": "20261010170812",
+          "stored_sql_sha256": "bd7a4f56e985add3213806581233fa807d8943e664b7fdfeb1afb73ad557768c",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20261010172426",
+          "stored_sql_sha256": "319a856ddd1a8ced8cc9eda38748c9eb8e8a3fd47f2a9939ddc835a7bfc6a1b7",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ]
     },
     {
       "name": "powerhub_unified_message_history_filters",
@@ -477,7 +743,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20261013152202",
+          "stored_sql_sha256": "37b5f822cb0bc61ee4ea25148ff8e45eb5d899c74bdef3d218341b6fdae6879e",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "powerhub_manual_sms_history_scope",
@@ -495,7 +770,16 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20261019103200",
+          "stored_sql_sha256": "5a409502fdc133eb582309a8657c83bb3e93a2a7e495680d1cd68cf45670079f",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": []
     },
     {
       "name": "powerhub_owner_capability_overrides",
@@ -513,7 +797,26 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "staging_rows": [
+        {
+          "version": "20261022112108",
+          "stored_sql_sha256": "ef6e93fcb0ab0df1387d613186ef87ba054ed888e48bc52e239ffdcaaf7b2276",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20261022120035",
+          "stored_sql_sha256": "1afff61c8378add214cad58bccb57399c420ebeb4a257e36f8c0102c39e5f55c",
+          "source_same_sha": true,
+          "source_same_version": false
+        }
+      ]
     }
-  ]
+  ],
+  "evidence_refresh_date": "2026-11-08",
+  "evidence_source": "Supabase read-only SQL: supabase_migrations.schema_migrations name/version/statements SHA-256",
+  "evidence_boundary": "Name presence and stored SQL hash only; does not establish historical equivalent effects or current object postconditions. Original outcome NOT_PROVEN remains."
 }
