@@ -10,20 +10,17 @@ for (const name of requiredEnvironment) {
     throw new Error("Missing PostgreSQL integration-test environment variable: " + name);
   }
 }
-if (!/^\\d+$/.test(process.env.PGPORT)) {
+if (!/^\d+$/.test(process.env.PGPORT)) {
   throw new Error("PGPORT must be numeric.");
 }
 
-// Include non-ASCII UTF-8, SQL single quotes, backslashes, both line-ending
-// styles, and the final newline. The database must preserve every byte.
-const sql = [
-  "-- PowerHub migration-ledger payload round-trip: مرحبا",
-  "SELECT 'quoted: ''single quote''; backslash: \\\\';",
-  "SELECT 'LF line';",
-  "SELECT 'CRLF line';",
-  "-- final source line",
-  "",
-].join("\\r\\n").replace("SELECT 'LF line';\\r\\n", "SELECT 'LF line';\\n");
+// Preserve non-ASCII UTF-8, SQL single quotes, literal backslashes, mixed
+// LF/CRLF line endings, and a final newline byte-for-byte.
+const sql =
+  "-- PowerHub migration-ledger payload round-trip: مرحبا\r\n" +
+  "SELECT 'quoted: ''single quote''; backslash: \\\\';\n" +
+  "SELECT 'LF line';\r\n" +
+  "-- final source line\r\n";
 
 const version = "20991231235959";
 const name = "powerhub_migration_ledger_payload_round_trip";
@@ -33,6 +30,8 @@ const insert = buildSupabaseMigrationLedgerInsert({ version, name, sql });
 
 const query = [
   "BEGIN;",
+  "CREATE SCHEMA extensions;",
+  "CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;",
   "CREATE SCHEMA supabase_migrations;",
   "CREATE TABLE supabase_migrations.schema_migrations (",
   "  version text PRIMARY KEY,",
@@ -46,7 +45,7 @@ const query = [
   "  actual_sql text;",
   "  actual_statements text[];",
   "BEGIN",
-  "  SELECT statements, array_to_string(statements, E'\\\\n')",
+  "  SELECT statements, array_to_string(statements, E'\\n')",
   "    INTO actual_statements, actual_sql",
   "  FROM supabase_migrations.schema_migrations",
   "  WHERE version = '" + version + "' AND name = '" + name + "';",
@@ -64,7 +63,7 @@ const query = [
   "$powerhub_payload_assert$;",
   "ROLLBACK;",
   "SELECT 'POWERHUB_MIGRATION_LEDGER_PAYLOAD_POSTGRES_ROUND_TRIP_OK';",
-].join("\\n");
+].join("\n");
 
 const args = [
   "--no-psqlrc",
