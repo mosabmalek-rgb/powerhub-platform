@@ -530,6 +530,17 @@ BEGIN
  IF (SELECT count(*) FROM public.account_transactions)<>2 THEN
    RAISE EXCEPTION 'EXPLICIT_FINANCIAL_REPORT_VIEWER_LEDGER_SCOPE_FAILED';
  END IF;
+ IF (SELECT count(*) FROM public.company_accounts)<>3
+    OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=100 AND tenant_id=1)
+    OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102 AND tenant_id=1)
+    OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=104 AND tenant_id=1)
+    OR EXISTS(SELECT 1 FROM public.company_accounts WHERE id IN (101,103)) THEN
+   RAISE EXCEPTION 'EXPLICIT_FINANCIAL_REPORT_VIEWER_COMPANY_ACCOUNT_SCOPE_FAILED';
+ END IF;
+ IF (SELECT count(*) FROM public.company_account_sites)<>2
+    OR EXISTS(SELECT 1 FROM public.company_account_sites WHERE site_id<>10) THEN
+   RAISE EXCEPTION 'EXPLICIT_FINANCIAL_REPORT_VIEWER_ACCOUNT_SITE_MAPPING_SCOPE_FAILED';
+ END IF;
 END
 $explicit_financial_viewer$;
 RESET ROLE;
@@ -563,6 +574,17 @@ BEGIN
     OR (SELECT count(*) FROM public.invoices)<>0
     OR (SELECT count(*) FROM public.payments)<>0 THEN
    RAISE EXCEPTION 'MANAGE_EXPENSES_MUST_NOT_IMPLY_FINANCIAL_REPORT_VISIBILITY';
+ END IF;
+ IF (SELECT count(*) FROM public.company_accounts)<>3
+    OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=100 AND tenant_id=1)
+    OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=102 AND tenant_id=1)
+    OR NOT EXISTS(SELECT 1 FROM public.company_accounts WHERE id=104 AND tenant_id=1)
+    OR EXISTS(SELECT 1 FROM public.company_accounts WHERE id IN (101,103)) THEN
+   RAISE EXCEPTION 'EXPENSE_MANAGER_COMPANY_ACCOUNT_SCOPE_FAILED';
+ END IF;
+ IF (SELECT count(*) FROM public.company_account_sites)<>2
+    OR EXISTS(SELECT 1 FROM public.company_account_sites WHERE site_id<>10) THEN
+   RAISE EXCEPTION 'EXPENSE_MANAGER_ACCOUNT_SITE_MAPPING_SCOPE_FAILED';
  END IF;
 END
 $expense_manager_finance$;
