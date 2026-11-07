@@ -15,29 +15,43 @@ END
 $roles$;
 
 ALTER ROLE service_role BYPASSRLS;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE SCHEMA IF NOT EXISTS storage;
 GRANT USAGE, CREATE ON SCHEMA public TO supabase_admin;
+GRANT USAGE, CREATE ON SCHEMA extensions, storage TO postgres;
 
--- Reproduce the Staging pg_default_acl shape for postgres-owned public objects.
+-- Reproduce the live Staging defaults for postgres-owned public objects.
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT ALL PRIVILEGES ON TABLES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT ALL PRIVILEGES ON SEQUENCES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+
+-- Reproduce the separate postgres-owned storage defaults. The migration must
+-- preserve their effective behavior while changing public application defaults.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage
+  GRANT ALL PRIVILEGES ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage
+  GRANT ALL PRIVILEGES ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
+-- Negative control: a schema-scoped REVOKE cannot remove PostgreSQL's global
+-- PUBLIC EXECUTE baseline. The forward migration must revoke it globally.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 -- Model objects created under the Supabase-managed extension owner. This is
 -- intentionally a test-only simulation; application migrations must not try
--- ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin.
+-- ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin. Its built-in PUBLIC
+-- function default is left intact, just as on the hosted Staging project.
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
   GRANT ALL PRIVILEGES ON TABLES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
   GRANT ALL PRIVILEGES ON SEQUENCES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin
-  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 -- Validate the actual PostgreSQL catalog rows created by ALTER DEFAULT PRIVILEGES.
 -- This is intentionally a positive-control fixture: the check must detect every
@@ -80,20 +94,23 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- Function EXECUTE is globally granted to PUBLIC by PostgreSQL unless
-  -- explicitly revoked. Confirm the fixture's global and public-schema defaults
-  -- do not reintroduce that inherited endpoint exposure.
-  IF EXISTS (
-    SELECT 1
-    FROM pg_catalog.pg_default_acl AS defaults
-    CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
-    WHERE defaults.defaclrole IN ('postgres'::regrole, 'supabase_admin'::regrole)
-      AND defaults.defaclobjtype = 'f'
-      AND defaults.defaclnamespace IN (0, 'public'::regnamespace)
-      AND acl.grantee = 0
-      AND acl.privilege_type = 'EXECUTE'
-  ) THEN
-    RAISE EXCEPTION 'DEFAULT_ACL_PUBLIC_FUNCTION_EXECUTE_WAS_NOT_REVOKED';
+  -- A schema-level REVOKE does not cancel PostgreSQL's global function
+  -- default. This positive control proves the original exposure exists.
+  IF NOT EXISTS (
+       SELECT 1
+       FROM pg_catalog.aclexplode(
+         pg_catalog.acldefault('f','postgres'::regrole)
+       ) AS acl
+       WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     )
+     OR NOT EXISTS (
+       SELECT 1
+       FROM pg_catalog.aclexplode(
+         pg_catalog.acldefault('f','supabase_admin'::regrole)
+       ) AS acl
+       WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'BUILTIN_PUBLIC_FUNCTION_DEFAULT_BASELINE_NOT_REPRODUCED';
   END IF;
 END
 $default_acl_catalog_detection$;
@@ -132,7 +149,7 @@ BEGIN
   IF NOT has_function_privilege('anon', 'public.default_privileges_postgres_function()', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.default_privileges_postgres_function()', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.default_privileges_postgres_function()', 'EXECUTE')
-     OR EXISTS (
+     OR NOT EXISTS (
        SELECT 1
        FROM pg_catalog.pg_proc AS p
        CROSS JOIN LATERAL pg_catalog.aclexplode(
@@ -177,11 +194,205 @@ BEGIN
      OR NOT has_table_privilege('anon', 'public.default_privileges_managed_owner_fixture', 'SELECT')
      OR NOT has_table_privilege('authenticated', 'public.default_privileges_managed_owner_fixture', 'DELETE')
      OR NOT has_sequence_privilege('anon', 'public.default_privileges_managed_owner_sequence', 'USAGE')
-     OR NOT has_function_privilege('authenticated', 'public.default_privileges_managed_owner_function()', 'EXECUTE') THEN
+     OR NOT has_function_privilege('authenticated', 'public.default_privileges_managed_owner_function()', 'EXECUTE')
+     OR NOT EXISTS (
+       SELECT 1
+       FROM pg_catalog.pg_proc AS p
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         COALESCE(p.proacl, pg_catalog.acldefault('f',p.proowner))
+       ) AS acl
+       WHERE p.oid='public.default_privileges_managed_owner_function()'::regprocedure
+         AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     ) THEN
     RAISE EXCEPTION 'SUPABASE_ADMIN_DEFAULT_ACL_INHERITANCE_NOT_DETECTED';
   END IF;
 END
 $managed_owner_detection$;
+
+-- Apply the exact forward migration. Existing objects created above must keep
+-- their current ACLs; only objects created after this point use the new defaults.
+\ir ../migrations/20261107150951_powerhub_public_default_privilege_hardening.sql
+
+-- Snapshot all postgres default ACLs after the first application, then replay
+-- the same migration to prove it is idempotent and introduces no ACL drift.
+CREATE TEMP TABLE powerhub_default_acl_repeat_snapshot AS
+SELECT defaclrole, defaclnamespace, defaclobjtype, defaclacl::text AS acl
+FROM pg_catalog.pg_default_acl
+WHERE defaclrole='postgres'::regrole;
+
+\ir ../migrations/20261107150951_powerhub_public_default_privilege_hardening.sql
+
+DO $migration_replay_idempotency$
+BEGIN
+  IF EXISTS (
+    SELECT defaclrole, defaclnamespace, defaclobjtype, acl
+    FROM pg_temp.powerhub_default_acl_repeat_snapshot
+    EXCEPT
+    SELECT defaclrole, defaclnamespace, defaclobjtype, defaclacl::text
+    FROM pg_catalog.pg_default_acl
+    WHERE defaclrole='postgres'::regrole
+  ) OR EXISTS (
+    SELECT defaclrole, defaclnamespace, defaclobjtype, defaclacl::text
+    FROM pg_catalog.pg_default_acl
+    WHERE defaclrole='postgres'::regrole
+    EXCEPT
+    SELECT defaclrole, defaclnamespace, defaclobjtype, acl
+    FROM pg_temp.powerhub_default_acl_repeat_snapshot
+  ) THEN
+    RAISE EXCEPTION 'POWERHUB_DEFAULT_PRIVILEGE_MIGRATION_REPLAY_CHANGED_ACL';
+  END IF;
+END
+$migration_replay_idempotency$;
+
+DROP TABLE pg_temp.powerhub_default_acl_repeat_snapshot;
+
+DO $existing_object_acl_preserved$
+BEGIN
+  IF NOT has_table_privilege('anon','public.default_privileges_postgres_fixture','SELECT')
+     OR NOT has_table_privilege('authenticated','public.default_privileges_postgres_fixture','SELECT')
+     OR NOT has_sequence_privilege('anon','public.default_privileges_postgres_sequence','USAGE')
+     OR NOT has_function_privilege('anon','public.default_privileges_postgres_function()','EXECUTE')
+     OR NOT EXISTS (
+       SELECT 1
+       FROM pg_catalog.pg_proc p
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+       ) acl
+       WHERE p.oid='public.default_privileges_postgres_function()'::regprocedure
+         AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'DEFAULT_PRIVILEGE_MIGRATION_CHANGED_EXISTING_OBJECT_ACL';
+  END IF;
+END
+$existing_object_acl_preserved$;
+
+-- New public objects are closed to browser roles by default. A future feature
+-- must explicitly grant only the necessary access and pair it with RLS.
+CREATE TABLE public.default_privileges_future_fixture (
+  id bigint PRIMARY KEY,
+  tenant_id bigint NOT NULL,
+  payload text NOT NULL
+);
+CREATE SEQUENCE public.default_privileges_future_sequence;
+CREATE FUNCTION public.default_privileges_future_function()
+RETURNS text
+LANGUAGE sql
+AS $function$
+  SELECT 'future-public';
+$function$;
+INSERT INTO public.default_privileges_future_fixture(id,tenant_id,payload)
+VALUES (1,10,'tenant ten'),(2,20,'tenant twenty');
+
+GRANT SELECT ON TABLE public.default_privileges_future_fixture TO authenticated;
+ALTER TABLE public.default_privileges_future_fixture ENABLE ROW LEVEL SECURITY;
+CREATE POLICY default_privileges_future_tenant_read
+ON public.default_privileges_future_fixture
+FOR SELECT TO authenticated
+USING (
+  tenant_id = NULLIF(current_setting('powerhub.test_tenant_id',true),'')::bigint
+);
+
+-- Future functions created by postgres in extensions/storage keep the
+-- pre-migration PUBLIC behavior; private application helpers do not.
+CREATE FUNCTION extensions.default_privileges_future_extension_function()
+RETURNS text LANGUAGE sql AS $function$ SELECT 'extension'; $function$;
+CREATE FUNCTION storage.default_privileges_future_storage_function()
+RETURNS text LANGUAGE sql AS $function$ SELECT 'storage'; $function$;
+
+-- Verify the provider-managed supabase_admin defaults were not changed.
+SET ROLE supabase_admin;
+CREATE TABLE public.default_privileges_managed_owner_future_fixture (id bigint PRIMARY KEY);
+CREATE FUNCTION public.default_privileges_managed_owner_future_function()
+RETURNS text LANGUAGE sql AS $function$ SELECT 'managed-owner-future'; $function$;
+RESET ROLE;
+
+DO $future_acl_contract$
+BEGIN
+  IF has_table_privilege('anon','public.default_privileges_future_fixture','SELECT')
+     OR has_table_privilege('authenticated','public.default_privileges_future_fixture','INSERT')
+     OR has_table_privilege('authenticated','public.default_privileges_future_fixture','UPDATE')
+     OR has_table_privilege('authenticated','public.default_privileges_future_fixture','DELETE')
+     OR has_sequence_privilege('anon','public.default_privileges_future_sequence','USAGE')
+     OR has_sequence_privilege('authenticated','public.default_privileges_future_sequence','USAGE')
+     OR has_function_privilege('anon','public.default_privileges_future_function()','EXECUTE')
+     OR has_function_privilege('authenticated','public.default_privileges_future_function()','EXECUTE')
+     OR EXISTS (
+       SELECT 1 FROM pg_catalog.pg_proc p
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+       ) acl
+       WHERE p.oid='public.default_privileges_future_function()'::regprocedure
+         AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'FUTURE_PUBLIC_BROWSER_DEFAULT_PRIVILEGE_REMAINS';
+  END IF;
+
+  IF NOT has_table_privilege('authenticated','public.default_privileges_future_fixture','SELECT')
+     OR NOT has_table_privilege('service_role','public.default_privileges_future_fixture','SELECT')
+     OR NOT has_table_privilege('service_role','public.default_privileges_future_fixture','INSERT')
+     OR NOT has_table_privilege('service_role','public.default_privileges_future_fixture','UPDATE')
+     OR NOT has_table_privilege('service_role','public.default_privileges_future_fixture','DELETE')
+     OR NOT has_sequence_privilege('service_role','public.default_privileges_future_sequence','USAGE')
+     OR NOT has_sequence_privilege('service_role','public.default_privileges_future_sequence','SELECT')
+     OR NOT has_sequence_privilege('service_role','public.default_privileges_future_sequence','UPDATE')
+     OR NOT has_function_privilege('service_role','public.default_privileges_future_function()','EXECUTE') THEN
+    RAISE EXCEPTION 'FUTURE_PUBLIC_SERVICE_ROLE_DEFAULT_GRANTS_MISSING';
+  END IF;
+
+  IF NOT has_function_privilege('anon','extensions.default_privileges_future_extension_function()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','extensions.default_privileges_future_extension_function()','EXECUTE')
+     OR NOT has_function_privilege('anon','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR NOT has_function_privilege('service_role','storage.default_privileges_future_storage_function()','EXECUTE')
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_proc p
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+       ) acl
+       WHERE p.oid='extensions.default_privileges_future_extension_function()'::regprocedure
+         AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_proc p
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+       ) acl
+       WHERE p.oid='storage.default_privileges_future_storage_function()'::regprocedure
+         AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'PROVIDER_SCHEMA_FUNCTION_DEFAULTS_CHANGED';
+  END IF;
+
+  IF NOT has_table_privilege('anon','public.default_privileges_managed_owner_future_fixture','SELECT')
+     OR NOT has_table_privilege('authenticated','public.default_privileges_managed_owner_future_fixture','SELECT')
+     OR NOT has_function_privilege('anon','public.default_privileges_managed_owner_future_function()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.default_privileges_managed_owner_future_function()','EXECUTE')
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_proc p
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))
+       ) acl
+       WHERE p.oid='public.default_privileges_managed_owner_future_function()'::regprocedure
+         AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'SUPABASE_ADMIN_MANAGED_DEFAULTS_WERE_CHANGED';
+  END IF;
+END
+$future_acl_contract$;
+
+SET ROLE authenticated;
+SELECT set_config('powerhub.test_tenant_id','10',false);
+DO $future_tenant_isolation$
+DECLARE
+  v_rows bigint;
+BEGIN
+  SELECT count(*) INTO v_rows FROM public.default_privileges_future_fixture;
+  IF v_rows<>1 THEN
+    RAISE EXCEPTION 'FUTURE_DEFAULT_ACL_RLS_SCOPE_FAILED: expected=1 actual=%',v_rows;
+  END IF;
+END
+$future_tenant_isolation$;
+RESET ROLE;
 
 -- The application-owned objects are repaired at object scope. Authenticated
 -- retains only the intended RLS-protected read; server-side service_role keeps
