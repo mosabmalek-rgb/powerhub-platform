@@ -340,3 +340,67 @@ PowerHub Security: Dependency review وCodeQL وDependency audit جميعها SU
 - Production: لم يتغير.
 - مراجعة سلسلة الاستدعاء العابرة للواجهات: قيد الاستكمال.
 - لا Migration جديدة مطلوبة لهذه البوابة حتى الآن.
+
+
+---
+
+## 11. تثبيت إصلاح DEFAULT PRIVILEGES — 7 نوفمبر 2026
+
+### التسلسل التشخيصي
+
+- SHA الفاشل: `153b11c35dfd5c0210e0e2625a2665891ad06f22`.
+- Run الفشل: [PowerHub CI #42371852475](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/42371852475).
+- الوظيفة الوحيدة الفاشلة: `TypeScript, tests, and production build`.
+- الخطوة الفاشلة: `Validate versioned Supabase migration release tooling`.
+- سجل الخطوة يثبت السبب الدقيق: `SyntaxError: Invalid regular expression ... Unterminated group` في `scripts/check-supabase-default-privileges.mjs`. لم يكن فشل ترحيل أو اتصال بقاعدة البيانات.
+
+### إصلاح Regex الأساسي ونتائجه
+
+Commit: `2baf2ee0da69ba69c67fa30a175fcb124d8f9465`.
+
+أُعيدت كتابة regex بعلامات هروب JavaScript صحيحة، بحيث لا تختلط كلمة ACL `REVOKE EXECUTE ON FUNCTIONS` مع PL/pgSQL dynamic `EXECUTE`.
+
+البوابات الخمس جميعها SUCCESS على SHA نفسه:
+
+| الفحص | Run ID | النتيجة |
+|---|---:|---|
+| PowerHub CI | 42372207180 | SUCCESS |
+| Reading Cycle PostgreSQL Integration | 42372207228 | SUCCESS |
+| PowerHub Security | 42372207197 | SUCCESS |
+| Supabase Admin Guard | 42372207212 | SUCCESS |
+| PowerHub SBOM | 42372207213 | SUCCESS |
+
+تفاصيل التحقق: فحص إصدار/ترحيل Supabase، TypeScript، الاختبارات، وبناء الإنتاج نجحت. اختبارات PostgreSQL المعزولة نجحت كلها، ومنها الخطوة #87 الخاصة بمنع تسرب default privileges إلى كائنات public المستقبلية. وظائف CodeQL وDependency Review وDependency Audit نجحت. حارس Supabase وCycloneDX SBOM نجحا. لا توجد خطوة فاشلة أو متخطاة في قوائم الوظائف التي راجعتها.
+
+### توسيع اكتشاف Dynamic SQL ونتائجه
+
+Commit: `f5c3da174cd5ec498acdc14cf7fb08928af1757f`.
+
+أضيف كشف أوسع لعبارات PL/pgSQL الديناميكية التي قد تستخدم متغيراً أو تعبير dollar-quoted، دون حصر المطابقة في `EXECUTE '...'` أو `EXECUTE format(...)` فقط. أضيف اختباران للانحدار:
+- `EXECUTE command_text` مع متغير PL/pgSQL.
+- `EXECUTE $sql$...$sql$` مع تعبير dollar-quoted.
+
+البوابات الخمس جميعها SUCCESS على SHA نفسه:
+
+| الفحص | Run ID | النتيجة |
+|---|---:|---|
+| PowerHub CI | 42372794523 | SUCCESS |
+| Reading Cycle PostgreSQL Integration | 42372794593 | SUCCESS |
+| PowerHub Security | 42372794512 | SUCCESS |
+| Supabase Admin Guard | 42372794548 | SUCCESS |
+| PowerHub SBOM | 42372794534 | SUCCESS |
+
+تفاصيل الوظائف: `Validate versioned Supabase migration release tooling`، TypeScript، الاختبارات، وبناء الإنتاج كلها SUCCESS؛ PostgreSQL migration/assertions وجميع خطوات التكامل، بما فيها #87، SUCCESS؛ CodeQL وDependency Review وDependency Audit كلها SUCCESS؛ Supabase migration guard tests وCycloneDX generation/coverage/license validation كلها SUCCESS. لم تظهر خطوات فاشلة أو متخطاة في هذه التشغيلات.
+
+### حدود الإثبات والسلامة
+
+- نتائج كل SHA أعلاه مستقلة، ولا تُنقل إلى Commit لاحق.
+- فشل #42371852475 مغلق على مستوى إصلاحه: SHA #2baf2ee0 اجتاز جميع البوابات الخمس، ثم SHA #f5c3da17 اجتازها أيضاً.
+- اختبار PostgreSQL يعمل على قاعدة معزولة مؤقتة؛ لا يثبت وحده تعديل `pg_default_acl` الحي.
+- لم تُطبق أي Migration أو تعديلات ACL/DEFAULT PRIVILEGES على Staging أو Production بسبب هذين الإصلاحين.
+- لم يحدث أي تعديل مالي، أو إرسال SMS، أو حذف بيانات/ملفات حقيقية.
+- PR #359 ما زال OPEN + DRAFT + NOT MERGED، ولا Force Push أو دمج.
+
+### نقطة الاستكمال بعد هذا التوثيق
+
+آخر SHA للكود قبل Commit التوثيق هذا هو `f5c3da174cd5ec498acdc14cf7fb08928af1757f`. تحديث هذا الملف سيولد SHA جديداً ويستلزم إعادة تشغيل البوابات الخمس عليه وفق سياسة المشروع. تبقى مراجعة أجسام SECURITY DEFINER وسلاسل الاستدعاء واختبارات تجاوز الصلاحيات عملاً منفصلاً؛ نجاح بوابات DEFAULT PRIVILEGES لا يعني إغلاق ذلك النطاق.
