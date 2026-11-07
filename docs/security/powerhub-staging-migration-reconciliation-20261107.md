@@ -23,7 +23,7 @@
 
 Staging latest recorded version at snapshot: \`20261106224902\` (\`powerhub_payment_delta_purpose_projection\`).
 
-The 91 name matches are not proof that the local SQL bytes equal the SQL previously executed in Staging. They are identity candidates only. No migration-content checksum is stored in the Supabase migration ledger, so equivalence requires source/history evidence and schema assertions.
+The 91 name matches are not proof that the local SQL bytes equal the SQL previously executed in Staging. The ledger has no dedicated checksum column, but the live supabase_migrations.schema_migrations table does retain statements and rollback arrays. This follow-up reads the stored SQL payloads for the five duplicate-name groups and compares their bytes, normalized content, function bodies, and live postconditions. The original 91-candidate inventory still requires the same direct statement-to-source comparison; it must not be inferred from name/version alone.
 
 ## 2. Version drift
 
@@ -146,3 +146,80 @@ The release workflow checks out trusted release scripts from \`main\`, checks ou
 No historical filename or timestamp was changed. Git path-commit dates and distinct SQL contents establish that the paired files are separate source changes, but do not by themselves prove which timestamp should replace the shared version or whether equivalent SQL was executed under another historical Staging/Production identity. Assigning new timestamps without the complete historical release ledger and schema evidence would risk replaying already-applied SQL. The four groups remain pinned and unreleasable by candidate-version guard until an evidence-backed reconciliation decides their final disposition.
 
 Staging remains at 424 ledger rows, latest \`20261106224902\`; no migration was applied, no migration-history row was inserted or rewritten, and Production was not modified during this follow-up.
+
+
+## 10. Direct Staging SQL evidence for the five duplicate-name groups — 7 November 2026
+
+### Ledger capability and method correction
+
+The earlier sections compared only version and name. A later read-only inspection of the live supabase_migrations.schema_migrations catalog found these columns:
+
+- version text
+- name text
+- statements text[]
+- rollback text[]
+- created_by text
+- idempotency_key text
+
+There is no dedicated migration checksum column, but the statements array stores the SQL payload. The checks below used the live SQL text itself, its server-computed MD5 fingerprint and byte length, direct equality/normalized equality against GitHub files, function-body equality against pg_proc.prosrc, and current schema postconditions. No SQL payload was written back and no history row was changed.
+
+### Reconciled evidence
+
+| Staging name | Version | Stored SQL bytes | MD5 of stored SQL | Comparison / finding |
+|---|---:|---:|---|---|
+| powerhub_chat_helpdesk_v2 | 20260922090008 | 9 | ccb5b4481bced39454dca6d845601d54 | The entire stored statement is select 1;; it is not the Helpdesk migration. |
+| powerhub_chat_helpdesk_v2 | 20260922090208 | 61,340 | a009aaa8c8cfa095335a8824611988d6 | Byte-for-byte equal to current Git file 20260922180000_powerhub_chat_helpdesk_v2.sql (blob 6c8f87cd2c62338d00becbed70a9489bf0f5cf5a). Git history shows the file was corrected through several commits immediately before this Staging execution. |
+| powerhub_reading_opening_baseline_save_fix | 20261010161951 | 4,657 | b84cce66740522b1915bce44fb39cb60 | Earlier function revision; not the current live function body. |
+| powerhub_reading_opening_baseline_save_fix | 20261010170812 | 5,036 | df6d9de5bf8b5df4f9cb8f11d787f580 | Distinct corrected revision. Its powerhub_create_reading body matches both the current Git migration function body and live pg_proc.prosrc exactly. |
+| staging_restore_powerhub_submit_payment_documentation_source_destination_support_v2 | 20261012174547 | 6,831 | 8d3b1ce3cfd644c0121f59cd8a7c54f8 | Earlier implementation of the payment-documentation RPC restore. |
+| staging_restore_powerhub_submit_payment_documentation_source_destination_support_v2 | 20261012174856 | 6,955 | a0968072e376081061869d4a0927e545 | Distinct corrected implementation; adds a branch/site scope check for account mappings. The live function retains that check and also contains a later audit-role extension, so its current body is newer than either historical payload. |
+| powerhub_image_retention_metadata | 20261101200609 | 733 | 1a2c6ab45e987ea533f6c48d2cee3068 | SQL is normalized-identical to the second row and current Git source; one trailing-byte difference only. |
+| powerhub_image_retention_metadata | 20261102171227 | 734 | 99abb28cc30bc4e48c274a76a55ca268 | Byte-for-byte equal to current Git file 20261101210000_powerhub_image_retention_metadata.sql (blob 9fd0925c6072f663dbf5075f0ce4ce2a917e0ce6). |
+| powerhub_chat_feature_entitlements | 20261101210557 | 21,410 | 80250e35d839835158c1b544a6f7013e | Byte-for-byte equal to current Git file 20261101223000_powerhub_chat_feature_entitlements.sql (blob 870d0c1cf1cf4a4c5541882c3d2f0f80d2cb5d5c). |
+| powerhub_chat_feature_entitlements | 20261102171243 | 21,410 | 80250e35d839835158c1b544a6f7013e | Exact same SQL payload as the preceding row and the current Git file. |
+
+### Per-group decisions and live postconditions
+
+#### A. Chat Helpdesk v2
+
+The first duplicate row is a 9-byte no-op (select 1;). The second row is the complete Helpdesk migration and matches the current Git source exactly. The Helpdesk tables, ticket/metadata columns, message-visibility column, and support-scoped RLS policies are present in Staging. The current stored bodies of private.chat_support_set_metadata, private.chat_send_internal_note, public.chat_support_set_metadata, public.chat_send_internal_note, public.chat_reopen_support_conversation, and public.chat_set_conversation_tags were compared with the source; the matching wrappers/helpers are present, while a later replacement of the private reopen helper is treated as subsequent runtime evolution rather than evidence against the historical row.
+
+**Runtime follow-up:** the Staging cron.job table currently contains only powerhub_reconcile_expired_field_readers and powerhub-subscription-lifecycle. It does not contain powerhub_chat_sla. The SLA/auto-close functions exist, but the expected PostgreSQL cron schedule is absent in this Staging snapshot. This does not rule out a separately managed scheduler; verify the actual scheduler before claiming automated SLA processing is active.
+
+#### B. Reading opening-baseline save fix
+
+The two statements are different revisions. The later statement tightens idempotency lookup by requiring the matching tenant and subscriber, and adds the opening-baseline reading as a fallback previous value when no approved operational reading exists. The later stored function body matches the current Git migration and the live public.powerhub_create_reading body exactly. The live routine is SECURITY INVOKER, owned by postgres, with search_path=public, pg_temp. The separate single-reading-per-cycle trigger is also present in the current table catalog.
+
+**Decision:** the later revision is the current effective function body; retain both historical rows unchanged. Do not replay either statement.
+
+#### C. Payment-documentation source/destination support
+
+The two stored CREATE OR REPLACE FUNCTION bodies differ. The later revision adds an explicit check that, when a destination account has site mappings for the tenant, the selected destination account must be mapped to the request's site. The live function contains that site check. Its current body also includes a later audit extension for actor_tenant_role, so it should not be represented as byte-identical to either October 12 payload.
+
+The live public.powerhub_submit_payment_documentation function is SECURITY INVOKER, owned by postgres, pins search_path=public, pg_temp, and has only postgres and service_role in its function ACL. The live table has a non-null destination_account_id and the documented payment-method constraint. The later 20261012190000_powerhub_payment_documentation_source_destination_type_support.sql is a separate follow-on patch; its expected cash-versus-electronic account-type guard is present in the live function.
+
+**Decision:** both historical payloads are distinguishable; the second contains the tighter site-scope condition and the live body has subsequent audit-role evolution. Keep history unchanged and do not replay either stored payload.
+
+#### D. Image-retention metadata
+
+The two stored statements are equal after line-ending/trailing-whitespace normalization; the second is byte-for-byte equal to the current Git migration. The live chat_message_attachments.storage_deleted_at column and index exist, as do payment_documentation_requests.receipt_image_retention_until and receipt_image_deleted_at, together with the claim/finish retention RPCs.
+
+The Staging PostgreSQL cron catalog currently has no job whose name contains retention/image. This only establishes the absence of a pg_cron entry in Staging; it does not establish the absence of a Vercel Cron or Edge Function scheduler. Verify the Staging scheduler path and its execution logs separately before declaring cleanup operational.
+
+**Decision:** the duplicate records represent the same normalized metadata SQL. Preserve both ledger rows; no DDL replay or history rewrite is needed.
+
+#### E. Chat and AI feature entitlements
+
+Both stored statements are byte-for-byte identical to each other and to the current Git migration. Live feature_catalog rows for support_chat and powerhub_ai_assistant are active, use capability type and server enforcement. Both feature keys have addon policies for all five package codes (10 package-policy rows). The live private.chat_feature_enabled_for_tenant body matches the source, uses SECURITY DEFINER with an empty search_path, and the feature resolver is SECURITY INVOKER.
+
+There are currently zero tenant_feature_controls rows for these two feature keys in Staging. This means the catalog/package defaults are present, but no explicit per-tenant override is currently recorded for these features in this database snapshot; it does not mean the control mechanism is absent.
+
+**Decision:** these are two executions of the same SQL payload. Preserve both rows and do not replay the migration.
+
+### Reconciliation outcome
+
+- The five duplicate-name groups are now content-classified from the actual SQL stored in Staging, rather than inferred from names or timestamps.
+- Three groups contain distinct revisions (powerhub_reading_opening_baseline_save_fix, payment-documentation restore, and Chat Helpdesk's no-op versus full migration); two groups are exact/normalized replays (powerhub_image_retention_metadata and powerhub_chat_feature_entitlements).
+- No historical version was deleted, rewritten, or renumbered. The release classifier must continue rejecting ambiguous same-name candidates rather than silently treating duplicate ledger rows as a clean migration identity; no mass history repair is justified.
+- The remaining 91 same-name/different-version candidates still require this same direct statements payload comparison against the 91 local SQL files. The five groups above do not close those 91 cases.
+- All queries were read-only. No apply_migration, db push, DDL, data mutation, ACL/RLS change, storage deletion, SMS, or financial operation was performed. Staging remains at 424 ledger rows with latest version 20261106224902; Production was not accessed or modified in this reconciliation.

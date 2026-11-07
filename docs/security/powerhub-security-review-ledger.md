@@ -881,3 +881,34 @@ This follow-up closes that gap in source control:
 ### Safety boundary
 
 No migration filename or timestamp was rewritten. No \`db push\`, \`apply_migration\`, SQL DDL, ACL/RLS change, or migration-history write was executed. Staging remains at 424 recorded migrations with latest version \`20261106224902\`; Production remains untouched. The new code and documentation still require the five CI gates on their resulting commit SHA before this hardening is considered verified. The seven post-Staging migrations remain subject to separate content/dependency review and explicit Staging approval.
+
+
+---
+
+## 24. Staging migration SQL payloads — duplicate-name groups resolved by stored statements — 7 November 2026
+
+A read-only catalog inspection found that supabase_migrations.schema_migrations includes statements text[], rollback text[], created_by, and idempotency_key. Although there is no dedicated checksum column, the SQL statements themselves are retained. The five duplicate-name groups were re-evaluated using statement byte lengths, server-computed MD5 fingerprints, exact/normalized Git source comparisons, live pg_proc.prosrc, and schema postconditions.
+
+### Confirmed stored-payload classifications
+
+| Name | Versions | Evidence | Result |
+|---|---|---|---|
+| powerhub_chat_helpdesk_v2 | 20260922090008 / 20260922090208 | First payload is exactly select 1; (9 bytes); second is 61,340 bytes and byte-for-byte equals the current Git migration. | No-op entry followed by the complete migration. |
+| powerhub_reading_opening_baseline_save_fix | 20261010161951 / 20261010170812 | Two distinct payloads (4,657 / 5,036 bytes). The later function body matches both current Git source and live powerhub_create_reading. It adds tenant+subscriber-scoped idempotency lookup and opening-baseline previous-value fallback. | Later revision is the current effective function body. |
+| staging_restore_powerhub_submit_payment_documentation_source_destination_support_v2 | 20261012174547 / 20261012174856 | Two distinct payloads (6,831 / 6,955 bytes). Later version adds the destination-account site-mapping guard. Live function includes it plus a subsequent actor_tenant_role audit extension. | Distinct restore revisions; live function is later than both. |
+| powerhub_image_retention_metadata | 20261101200609 / 20261102171227 | 733 / 734 bytes; normalized SQL identical; second payload exactly equals current Git migration. | Same normalized metadata SQL replayed. |
+| powerhub_chat_feature_entitlements | 20261101210557 / 20261102171243 | Both 21,410 bytes, same MD5, and each is byte-for-byte equal to current Git migration. | Exact SQL replay. |
+
+### Runtime observations
+
+- Chat Helpdesk tables, columns, support RLS policies and core helper functions are present. However, Staging's cron.job currently contains only powerhub_reconcile_expired_field_readers and powerhub-subscription-lifecycle; there is no powerhub_chat_sla job. SLA/auto-close functions exist, but Staging's PostgreSQL SLA schedule is not active in this snapshot. Check non-Postgres schedulers separately.
+- Reading creation remains SECURITY INVOKER, owner postgres, with pinned search_path=public, pg_temp; current function source matches the later stored migration body.
+- Payment documentation submission remains SECURITY INVOKER, owner postgres, with pinned search_path=public, pg_temp; its ACL is limited to postgres and service_role. The live function includes destination site-scope validation and later tenant-role audit attribution.
+- Image-retention metadata columns/index and claim/finish RPCs exist. There is no matching retention/image pg_cron job in Staging; Vercel/Edge scheduling was not ruled out by this SQL-only inspection.
+- Chat/AI feature catalog rows are active and server-enforced, with 10 add-on package-policy entries. There are no explicit tenant_feature_controls override rows for those feature keys in the current Staging snapshot.
+
+### Decision and scope
+
+The five duplicate-name groups are content-classified without rewriting their version history. Existing release guards should continue rejecting same-name duplicate candidates rather than silently treating duplicate ledger rows as a clean migration identity. The other 91 same-name/different-version candidates remain open and must be checked against their own stored statements payloads.
+
+No SQL was applied, no row in schema_migrations was changed, no ACL/RLS or business data was changed, no retention deletion was run, no real SMS/financial operation was created, and Production was not accessed or modified. Staging remains at 424 rows, latest 20261106224902. The five CI gates must be rerun on the documentation commit SHA.
