@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveSupabaseMigrationFile } from "./supabase-migration-file.mjs";
-import { assertSupabaseMigrationTarget, SUPABASE_PROJECT_BY_TARGET } from "./supabase-migration-target.mjs";
+import { assertSupabaseMigrationTarget, classifySupabaseMigrationHistory, SUPABASE_PROJECT_BY_TARGET } from "./supabase-migration-target.mjs";
 
 function directUri(projectRef, suffix = "") {
   return `postgresql://postgres:secret%2Fpassword@db.${projectRef}.supabase.co:5432/postgres${suffix}`;
@@ -70,6 +70,61 @@ describe("Supabase migration release target guard", () => {
     })).toThrow("not a valid PostgreSQL");
   });
 });
+
+
+describe("Supabase migration history reconciliation guard", () => {
+  it("treats an exact version/name record as already applied", () => {
+    expect(classifySupabaseMigrationHistory({
+      version: "20261107150951",
+      name: "powerhub_public_default_privilege_hardening",
+      records: [{ version: "20261107150951", name: "powerhub_public_default_privilege_hardening" }],
+    })).toBe("already-applied");
+  });
+
+  it("allows a migration only when neither its version nor name exists", () => {
+    expect(classifySupabaseMigrationHistory({
+      version: "20261107150951",
+      name: "powerhub_public_default_privilege_hardening",
+      records: [{ version: "20261106224902", name: "powerhub_payment_delta_purpose_projection" }],
+    })).toBe("not-applied");
+  });
+
+  it("blocks a version already recorded under a different name", () => {
+    expect(() => classifySupabaseMigrationHistory({
+      version: "20261107150951",
+      name: "powerhub_public_default_privilege_hardening",
+      records: [{ version: "20261107150951", name: "another_migration" }],
+    })).toThrow(/different name/i);
+  });
+
+  it("blocks a migration name already recorded under a different timestamp", () => {
+    expect(() => classifySupabaseMigrationHistory({
+      version: "20261022211000",
+      name: "powerhub_fuel_event_append_only_acl",
+      records: [{ version: "20261022131742", name: "powerhub_fuel_event_append_only_acl" }],
+    })).toThrow(/already recorded under version/i);
+  });
+
+  it("blocks duplicate migration names in a drifted ledger", () => {
+    expect(() => classifySupabaseMigrationHistory({
+      version: "20261101210000",
+      name: "powerhub_image_retention_metadata",
+      records: [
+        { version: "20261101200609", name: "powerhub_image_retention_metadata" },
+        { version: "20261102171227", name: "powerhub_image_retention_metadata" },
+      ],
+    })).toThrow(/appears more than once/i);
+  });
+
+  it("rejects malformed migration release identifiers", () => {
+    expect(() => classifySupabaseMigrationHistory({
+      version: "latest",
+      name: "powerhub_public_default_privilege_hardening",
+      records: [],
+    })).toThrow(/valid 14-digit version/i);
+  });
+});
+
 
 
 describe("Supabase migration release file path guard", () => {

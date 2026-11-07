@@ -48,3 +48,39 @@ export function assertSupabaseMigrationTarget({ target, projectRef, databaseUrl 
 
   return { projectRef: expectedProjectRef, hostname: parsed.hostname };
 }
+
+
+/**
+ * Classify one migration against the live migration ledger.
+ * A matching name under another timestamp is drift, not permission to replay.
+ */
+export function classifySupabaseMigrationHistory({ version, name, records }) {
+  if (!/^\\d{14}$/.test(version) || !/^[a-z0-9_]+$/.test(name)) {
+    throw new Error("Migration history lookup requires a valid 14-digit version and snake_case name.");
+  }
+  if (!Array.isArray(records)) {
+    throw new Error("Migration history records must be an array.");
+  }
+
+  const sameVersion = records.filter((record) => record.version === version);
+  const sameName = records.filter((record) => record.name === name);
+
+  if (sameVersion.length > 1) {
+    throw new Error(`Migration version "${version}" appears more than once in the database ledger.`);
+  }
+  if (sameName.length > 1) {
+    const versions = sameName.map((record) => record.version).sort().join(", ");
+    throw new Error(`Migration name "${name}" appears more than once in the database ledger (versions: ${versions}); reconcile history before releasing it.`);
+  }
+  if (sameVersion.length === 1) {
+    if (sameVersion[0].name !== name) {
+      throw new Error(`Ledger version "${version}" already exists with a different name ("${sameVersion[0].name}").`);
+    }
+    return "already-applied";
+  }
+  if (sameName.length === 1) {
+    throw new Error(`Migration name "${name}" is already recorded under version "${sameName[0].version}", but this file uses "${version}". Reconcile migration history instead of replaying it.`);
+  }
+
+  return "not-applied";
+}

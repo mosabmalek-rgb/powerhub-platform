@@ -1,7 +1,11 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { assertSupabaseMigrationTarget, SUPABASE_PROJECT_BY_TARGET } from "./supabase-migration-target.mjs";
+import {
+  assertSupabaseMigrationTarget,
+  classifySupabaseMigrationHistory,
+  SUPABASE_PROJECT_BY_TARGET,
+} from "./supabase-migration-target.mjs";
 import { resolveSupabaseMigrationFile } from "./supabase-migration-file.mjs";
 
 const [requestedPath, target] = process.argv.slice(2);
@@ -71,13 +75,31 @@ function psql(query) {
   return result.stdout.trim();
 }
 
-const existing = psql(
-  `select 'APPLIED:' || coalesce(name, '<null>') from supabase_migrations.schema_migrations where version = '${version}'`,
+const existingRows = psql(
+  `select version || '|' || coalesce(name, '') from supabase_migrations.schema_migrations where version = '${version}' or name = '${name}' order by version`,
 );
-if (existing) {
-  if (existing !== `APPLIED:${name}`) {
-    fail(`ledger version ${version} exists with a different name (${existing}); investigate drift instead of editing the ledger manually`);
-  }
+const existingRecords = existingRows
+  ? existingRows.split(/\\r?\\n/).filter(Boolean).map((row) => {
+      const separator = row.indexOf("|");
+      return {
+        version: row.slice(0, separator),
+        name: row.slice(separator + 1),
+      };
+    })
+  : [];
+
+let migrationHistoryState;
+try {
+  migrationHistoryState = classifySupabaseMigrationHistory({
+    version,
+    name,
+    records: existingRecords,
+  });
+} catch (error) {
+  fail(error instanceof Error ? error.message : "migration history reconciliation failed");
+}
+
+if (migrationHistoryState === "already-applied") {
   console.log(`Migration ${version}_${name} is already recorded consistently; nothing changed.`);
   process.exit(0);
 }

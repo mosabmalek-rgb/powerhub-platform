@@ -782,3 +782,38 @@ Commit: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
 كشف أول تشغيل CI بعد إضافة المرحلة الثانية أن بوابة `check-supabase-default-privileges.mjs` تمنع أي `GRANT EXECUTE ON FUNCTIONS TO PUBLIC` ضمن `ALTER DEFAULT PRIVILEGES`، بما في ذلك مخططات الامتدادات والنظام. لذلك أُلغي استثناء إعادة المنح للمخططات `extensions` و`storage` و`pg_catalog` و`information_schema`.
 
 التصميم المصحح يسحب `PUBLIC EXECUTE` من الافتراضي العام لمالك `postgres`، ثم يستخدم أوامر `REVOKE` ثابتة ومراجَعة للمخططات `public` و`extensions` و`storage` و`pg_catalog` و`information_schema` لإزالة أي منح على مستوى المخطط، من دون SQL ديناميكي. لا تُعدّل ACL للدوال الموجودة، وتبقى منح `anon` و`authenticated` و`service_role` الصريحة والموجودة مسبقاً في إعدادات `storage` كما هي. عُدّل اختبار الانحدار ليثبت عدم منح `PUBLIC EXECUTE` للدوال المستقبلية في `extensions` و`storage`، مع المحافظة على منح `storage` الصريحة السابقة للأدوار، بدلاً من مطالبة الترحيل بإعادة منح `PUBLIC` التي تمنعها بوابة الأمان.
+
+
+---
+
+## 20. حماية أداة إطلاق الترحيلات من إعادة التنفيذ بسبب اختلاف timestamp — 7 نوفمبر 2026
+
+### نتيجة مطابقة سجل Staging مع الفرع
+
+أُعيدت مطابقة قائمة Staging (المشروع `iyuryuhaylhisjfcrwkz`) مع ملفات `supabase/migrations` على SHA `86298cdd31f2e7f753be546b6a9ed25039313520`:
+
+- 424 ترحيلاً مسجلاً في Staging، وآخر إصدار `20261106224902`.
+- 502 ملف Migration في الفرع.
+- 179 زوجاً متطابقاً تماماً (version + name).
+- 95 سجلاً يطابق اسم ملف محلياً لكن يختلف timestamp.
+- 150 اسماً مسجلاً في Staging لا يوجد له ملف يحمل الاسم نفسه في الفرع الحالي.
+- 5 أسماء مكررة داخل سجل Staging؛ منها `powerhub_image_retention_metadata` و`powerhub_chat_feature_entitlements`.
+- توجد 7 ملفات محلية بعد آخر إصدار Staging، ولم يظهر اسم أي منها في السجل؛ لا يعني ذلك الإذن بتطبيقها قبل مراجعة سلسلة الترحيلات.
+
+### فجوة أداة الإطلاق
+
+كانت `scripts/release-supabase-migration.mjs` تتحقق من تطابق الإصدار فقط. إذا سُجل Migration باسم معين تحت timestamp آخر، كان بإمكان إصدارها المحلي المختلف أن يمر من هذا الفحص ويحاول إعادة تنفيذ SQL، رغم أن الاسم نفسه موجود في Staging.
+
+### الحماية المضافة
+
+أضيفت `classifySupabaseMigrationHistory` إلى `scripts/supabase-migration-target.mjs`، وربطت بأداة الإطلاق. أصبحت الأداة تفحص كل السجلات المطابقة للإصدار **أو الاسم** وتتصرف كالتالي:
+
+- الزوج المتطابق تماماً: يعتبر مطبقاً ولا يعاد تنفيذه.
+- الإصدار نفسه باسم مختلف: يرفض الإطلاق.
+- الاسم نفسه بإصدار مختلف: يرفض الإطلاق ويطلب مطابقة السجل.
+- الاسم المكرر في السجل: يرفض الإطلاق حتى تتم تسوية التاريخ.
+- لا إصدار ولا اسم مطابقان: يسمح بالانتقال إلى بقية فحوص الإطلاق.
+
+أضيفت اختبارات للحالات الفعلية التي كشفها Staging، بما فيها إعادة إصدار `powerhub_fuel_event_append_only_acl` وتكرار `powerhub_image_retention_metadata`.
+
+لم تُطبق أي Migration على Staging أو Production أثناء هذا التدقيق.
