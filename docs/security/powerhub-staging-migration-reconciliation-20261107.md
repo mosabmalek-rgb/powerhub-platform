@@ -223,3 +223,62 @@ There are currently zero tenant_feature_controls rows for these two feature keys
 - No historical version was deleted, rewritten, or renumbered. The release classifier must continue rejecting ambiguous same-name candidates rather than silently treating duplicate ledger rows as a clean migration identity; no mass history repair is justified.
 - The remaining 91 same-name/different-version candidates still require this same direct statements payload comparison against the 91 local SQL files. The five groups above do not close those 91 cases.
 - All queries were read-only. No apply_migration, db push, DDL, data mutation, ACL/RLS change, storage deletion, SMS, or financial operation was performed. Staging remains at 424 ledger rows with latest version 20261106224902; Production was not accessed or modified in this reconciliation.
+
+
+## 11. Canonical migration payload reconciliation and exact-content release guard — 7 November 2026
+
+### Recomputed source and ledger inventory
+
+A fresh recursive-tree and direct-Staging SQL comparison was run at source HEAD `fd0e9149cf242bbc0f7ab2d185274db0cfcb5b60`. It deliberately uses only canonical 14-digit migration files for the numerical reconciliation and separately preserves the full legacy inventory rules.
+
+| Measure | Verified value |
+|---|---:|
+| Canonical local 14-digit SQL files | 502 |
+| Staging migration-ledger rows | 424 |
+| Exact Version + Name identities | 179 |
+| Same-name / different-version ledger rows against local names | 95 rows across 91 unique names |
+| Exact stored-SQL payload matches (at least one per local file) | 248 local files |
+| Exact payload match pairs (including multiple ledger replays) | 251 |
+| Exact Version + Name + SQL payload matches | 138 |
+| Local identities whose Version + Name exists but stored SQL differs | 41 |
+| Local SQL files with no exact payload match anywhere in Staging | 254 |
+| Staging rows with NULL/empty SQL payload | 12 |
+| Local files without identity or exact payload match | 214 (207 at/before the Staging head; 7 newer) |
+
+The payload fingerprint was calculated over the UTF-8 bytes reconstructed from the retained `statements text[]` (all 424 current rows have at most one statement element). This is a content comparison, not proof that an arbitrary unmatched migration has not already changed the live schema: migration history may contain older source revisions, later edits may supersede functions, and schema postconditions must be checked before any replay decision.
+
+The 41 exact-identity/content-drift rows and 12 rows with unavailable payloads must not be auto-classified as “already applied”. The 95 same-name/different-version rows are 91 unique candidate groups, not 95 distinct migrations. Historical timestamps and payloads remain untouched.
+
+### Seven newer source migrations
+
+All seven 14-digit migrations after the Staging head `20261106224902` remain unapplied in the ledger:
+
+- `20261107120000_powerhub_inventory_supplier_site_rls_scope.sql`
+- `20261107130000_powerhub_inventory_phase_d_supplier_allocation_scope.sql`
+- `20261107130443_powerhub_platform_support_identity_role_guard.sql`
+- `20261107140000_powerhub_inventory_supplier_payables_allocation_scope.sql`
+- `20261107143819_powerhub_company_account_capability_search_path.sql`
+- `20261107150000_powerhub_supplier_browser_read_acl_revoke.sql`
+- `20261107150951_powerhub_public_default_privilege_hardening.sql`
+
+Read-only review confirmed that Staging already has branch-aware SELECT RLS policies on supplier purchases, payment headers, purchase details, receipts, receipt details, payment allocations, and supplier ledger entries. The shared supplier catalogue intentionally has tenant-scoped visibility. Eight supplier tables still expose direct authenticated SELECT grants (the two supplier-return tables are already server-only); the proposed ACL migration removes those direct browser reads while preserving service-role SELECT for scoped server routes. Do not describe the existing seven branch RLS policies as absent.
+
+The live platform capability helper still lacks the additional `users.role='admin'` predicate present in the proposed identity guard. Staging has allow-policy rows for platform_admin and platform_support, but this read did not find a user row with `platform_role='platform_support'`; this is a latent identity-boundary inconsistency, not evidence of a currently active non-admin support account.
+
+Staging default ACL metadata also contains provider-managed `supabase_admin` defaults, including browser grants in several schemas. The proposed default-privilege migration explicitly leaves those provider-managed defaults untouched and hardens future objects created by `postgres`; its scope must not be represented as removing every default browser grant in the project.
+
+### Release-runner correction
+
+The prior release classifier accepted an exact Version + Name row without comparing its retained SQL. That was unsafe when a migration file had changed after its original execution. The runner now reads the SHA-256 of the stored `statements` payload and compares it with the SHA-256 of the exact UTF-8 source file:
+
+- Exact identity and exact SQL hash: return `already-applied`.
+- Exact identity but different SQL hash: fail closed and require source/schema reconciliation.
+- Exact identity but missing stored SQL payload: fail closed and require manual evidence.
+- Same name under another version, same version under another name, or duplicate ledger names: continue to fail closed.
+- No matching version or name: proceed to the existing atomic release guard only after all other release checks.
+
+This SHA-256 is computed at comparison time; no new database column, migration ledger update, DDL, or migration application is required. Regression tests cover exact-match, changed-payload, unavailable-payload, malformed digest, duplicate name/version, and UTF-8 byte hashing.
+
+### Execution boundary and remaining proof
+
+All Staging inspection above was read-only. No `apply_migration`, `db push`, DDL, data update, ACL/RLS change, storage deletion, SMS, or financial operation was performed. Production was not changed. The seven newer migrations remain unapplied pending their own dependency/postcondition tests and an explicit Staging release decision. CI must pass on the new implementation/documentation commit before this runner hardening is considered verified.

@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import {
   assertSupabaseMigrationTarget,
   classifySupabaseMigrationHistory,
+  computeSupabaseMigrationContentSha256,
   parseSupabaseMigrationHistoryRows,
   assertSupabaseMigrationFileInventory,
   assertSupabaseMigrationReleaseVersionIsUnique,
@@ -85,7 +86,24 @@ function psql(query) {
 }
 
 const existingRows = psql(
-  `select version || '|' || coalesce(name, '') from supabase_migrations.schema_migrations where version = '${version}' or name = '${name}' order by version`,
+  `select
+     version || '|' || coalesce(name, '') || '|' ||
+     case
+       when statements is null
+         or cardinality(statements) = 0
+         or nullif(array_to_string(statements, E'\\n'), '') is null
+       then 'unavailable'
+       else encode(
+         extensions.digest(
+           convert_to(array_to_string(statements, E'\\n'), 'UTF8'),
+           'sha256'
+         ),
+         'hex'
+       )
+     end
+   from supabase_migrations.schema_migrations
+   where version = '${version}' or name = '${name}'
+   order by version`,
 );
 const existingRecords = parseSupabaseMigrationHistoryRows(existingRows);
 
@@ -94,6 +112,7 @@ try {
   migrationHistoryState = classifySupabaseMigrationHistory({
     version,
     name,
+    contentSha: computeSupabaseMigrationContentSha256(sql),
     records: existingRecords,
   });
 } catch (error) {
@@ -101,7 +120,7 @@ try {
 }
 
 if (migrationHistoryState === "already-applied") {
-  console.log(`Migration ${version}_${name} is already recorded consistently; nothing changed.`);
+  console.log(`Migration ${version}_${name} is already recorded with matching SQL SHA-256; nothing changed.`);
   process.exit(0);
 }
 

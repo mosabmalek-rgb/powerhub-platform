@@ -912,3 +912,33 @@ A read-only catalog inspection found that supabase_migrations.schema_migrations 
 The five duplicate-name groups are content-classified without rewriting their version history. Existing release guards should continue rejecting same-name duplicate candidates rather than silently treating duplicate ledger rows as a clean migration identity. The other 91 same-name/different-version candidates remain open and must be checked against their own stored statements payloads.
 
 No SQL was applied, no row in schema_migrations was changed, no ACL/RLS or business data was changed, no retention deletion was run, no real SMS/financial operation was created, and Production was not accessed or modified. Staging remains at 424 rows, latest 20261106224902. The five CI gates must be rerun on the documentation commit SHA.
+
+
+---
+
+## 25. Exact SQL-content verification in the protected Supabase migration release runner — 7 November 2026
+
+### سبب التعديل
+
+أثبتت مقارنة Staging أن التطابق بين `version` و`name` لا يكفي لإعلان الترحيل مطبقاً: وُجدت 41 هوية محلية مطابقة في الإصدار والاسم بينما بصمة SQL المخزنة تختلف عن محتوى الملف الحالي. كما توجد 12 سجلاً في سجل Staging لا تحتوي على مصفوفة SQL قابلة للمقارنة. كان السلوك السابق يعيد `already-applied` اعتماداً على الهوية وحدها، فيتجاوز اختلاف المحتوى بصمت.
+
+### التصحيح
+
+- أضيف `computeSupabaseMigrationContentSha256` لحساب بصمة SHA-256 لبايتات UTF-8 الدقيقة للملف.
+- أصبح قارئ مخرجات `psql` يتوقع ثلاثة حقول: الإصدار، الاسم، وبصمة SQL المخزنة. السجل القديم الذي لا يحتوي على نص SQL يصنّف `unavailable` ولا يمنح قبولاً تلقائياً.
+- يجلب Release runner محتوى `statements text[]` من سجل الترحيلات، ويحسب بصمته على الخادم باستخدام `extensions.digest(..., 'sha256')`.
+- لا يعيد runner حالة `already-applied` إلا عند تطابق Version + Name + SHA-256 مع الملف المختار.
+- اختلاف النص أو غياب النص المخزن يمنع الإطلاق برسالة reconciliation واضحة؛ لا يعيد تشغيل SQL تلقائياً ولا يغير التاريخ.
+- بقيت فحوص الإصدار المكرر والاسم المكرر والـ advisory lock والمعاملة الذرية كما هي.
+
+### اختبارات الانحدار المضافة
+
+تغطي المطابقة التامة، اختلاف النص مع الهوية نفسها، غياب نص SQL التاريخي، SHA-256 لبايتات UTF-8، صفوف LF وCRLF، digest مشوهاً، إصداراً/اسماً مكرراً، والإصدار أو الاسم المسجل مسبقاً.
+
+### التحقق الحي والسياق
+
+في مراجعة Staging للقراءة فقط: 502 ملفاً قياسياً مقابل 424 سجلاً؛ 179 هوية Version + Name، منها 138 تطابقاً محتوياً، و41 اختلاف محتوى رغم تطابق الهوية؛ 95 سجل اختلاف إصدار عبر 91 اسماً؛ 248 ملفاً لها تطابق SQL محفوظ في أحد السجلات، بينما 254 لا يظهر نصها الحالي كتطابق حرفي. هذه مقاييس لمطابقة المصدر مع سجل التنفيذ، وليست تصريحاً بإعادة تشغيل الملفات غير المتطابقة.
+
+تم تصحيح الوصف السابق لسياسات الموردين: سياسات Site-scope موجودة بالفعل على سجلات الشراء والدفعات والتفاصيل والقيود، وكتالوج الموردين نفسه Tenant-scoped عمداً. المتبقي هو سحب القراءة المباشرة من المتصفح حيث ما زالت ممنوحة، مع إبقاء مسارات الخادم و`service_role`. كما أن دالة هوية قدرات المنصة في Staging لم تتضمن بعد شرط `users.role='admin'` الذي تضيفه Migration منفصلة.
+
+لا يوجد أي ترحيل مطبق على Staging أو Production في هذه الخطوة. PR #359 ما زالت OPEN وDRAFT وNOT MERGED. لا تعتمد هذه المرحلة قبل نجاح بوابات CI على SHA الناتج.

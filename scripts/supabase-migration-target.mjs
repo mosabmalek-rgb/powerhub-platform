@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export const SUPABASE_PROJECT_BY_TARGET = Object.freeze({
   staging: "iyuryuhaylhisjfcrwkz",
   production: "vvcdiqcyhaloxesvpppc",
@@ -168,25 +170,97 @@ export function assertSupabaseMigrationTarget({ target, projectRef, databaseUrl 
 
 
 /**
+ * Hash the exact UTF-8 SQL bytes using SHA-256. This is compared with the
+ * complete SQL payload retained in supabase_migrations.schema_migrations.
+ */
+export function computeSupabaseMigrationContentSha256(sql) {
+  if (typeof sql !== "string" || sql.trim() === "") {
+    throw new Error("Migration SQL content must be a non-empty string.");
+  }
+  return createHash("sha256").update(Buffer.from(sql, "utf8")).digest("hex");
+}
+
+/**
  * Parse tuples-only psql output without collapsing multiple migration records.
- * Malformed rows fail closed so history drift cannot be silently ignored.
+ * The third column is a SHA-256 hash of the exact retained SQL payload, or
+ * "unavailable" for legacy rows whose statements array is NULL/empty.
  */
 export function parseSupabaseMigrationHistoryRows(output) {
   if (typeof output !== "string") throw new Error("Migration history query output must be a string.");
   if (output.trim() === "") return [];
   return output.split(/\r?\n/).filter((row) => row.length > 0).map((row) => {
-    const separator = row.indexOf("|");
-    if (separator <= 0 || row.indexOf("|", separator + 1) !== -1) {
+    const fields = row.split("|");
+    if (fields.length !== 3) {
       throw new Error("Migration history query returned an unexpected row.");
     }
-    const version = row.slice(0, separator);
+    const [version, name, contentSha] = fields;
     if (!/^\d{14}$/.test(version)) {
       throw new Error("Migration history query returned a row with an invalid 14-digit version.");
     }
-    return { version, name: row.slice(separator + 1) };
+    if (!/^[a-z0-9_]+$/.test(name)) {
+      throw new Error("Migration history query returned a row with an invalid migration name.");
+    }
+    if (contentSha !== "unavailable" && !/^[a-f0-9]{64}$/.test(contentSha)) {
+      throw new Error("Migration history query returned an invalid SQL SHA-256 value.");
+    }
+    return { version, name, contentSha };
   });
 }
 
+/**
+ * Classify one migration against the live migration ledger.
+ * An exact version/name match is already applied only when the retained SQL
+ * bytes also match the checked-in migration. Missing or changed payloads fail
+ * closed and require an evidence-backed manual reconciliation.
+ */
+export function classifySupabaseMigrationHistory({ version, name, contentSha, records }) {
+  if (!/^\d{14}$/.test(version) || !/^[a-z0-9_]+$/.test(name)) {
+    throw new Error("Migration history lookup requires a valid 14-digit version and snake_case name.");
+  }
+  if (!/^[a-f0-9]{64}$/.test(contentSha)) {
+    throw new Error("Migration history lookup requires the SHA-256 hash of the selected SQL file.");
+  }
+  if (!Array.isArray(records)) {
+    throw new Error("Migration history records must be an array.");
+  }
+
+  for (const record of records) {
+    if (!record || !/^\d{14}$/.test(record.version) || !/^[a-z0-9_]+$/.test(record.name)) {
+      throw new Error("Migration history contains a malformed version/name record.");
+    }
+    if (record.contentSha !== "unavailable" && !/^[a-f0-9]{64}$/.test(record.contentSha)) {
+      throw new Error("Migration history contains a malformed stored SQL SHA-256 value.");
+    }
+  }
+
+  const sameVersion = records.filter((record) => record.version === version);
+  const sameName = records.filter((record) => record.name === name);
+
+  if (sameVersion.length > 1) {
+    throw new Error(`Migration version "${version}" appears more than once in the database ledger.`);
+  }
+  if (sameName.length > 1) {
+    const versions = sameName.map((record) => record.version).sort().join(", ");
+    throw new Error(`Migration name "${name}" appears more than once in the database ledger (versions: ${versions}); reconcile history before releasing it.`);
+  }
+  if (sameVersion.length === 1) {
+    if (sameVersion[0].name !== name) {
+      throw new Error(`Ledger version "${version}" already exists with a different name ("${sameVersion[0].name}").`);
+    }
+    if (sameVersion[0].contentSha === "unavailable") {
+      throw new Error(`Migration "${version}_${name}" is recorded but its stored SQL payload is unavailable; verify schema postconditions and reconcile history instead of assuming it is applied.`);
+    }
+    if (sameVersion[0].contentSha !== contentSha) {
+      throw new Error(`Migration "${version}_${name}" is recorded with different SQL content; reconcile the source and live schema instead of skipping or replaying it.`);
+    }
+    return "already-applied";
+  }
+  if (sameName.length === 1) {
+    throw new Error(`Migration name "${name}" is already recorded under version "${sameName[0].version}", but this file uses "${version}". Reconcile migration history instead of replaying it.`);
+  }
+
+  return "not-applied";
+}
 /**
  * Classify one migration against the live migration ledger.
  * A matching name under another timestamp is drift, not permission to replay.
