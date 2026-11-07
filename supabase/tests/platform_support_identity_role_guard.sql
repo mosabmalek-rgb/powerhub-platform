@@ -95,6 +95,31 @@ END
 $identity_assertions$;
 RESET ROLE;
 
+-- Reconcile twice, then prove a missing identity and a newly revoked account
+-- cannot reuse a previously successful capability decision.
+\ir ../migrations/20261107130443_powerhub_platform_support_identity_role_guard.sql
+SELECT set_config('request.jwt.claim.sub','',false);
+SET ROLE authenticated;
+DO $missing_identity$
+BEGIN
+ IF private.powerhub_has_platform_capability('manageSupportChat') IS DISTINCT FROM false THEN
+   RAISE EXCEPTION 'MISSING_PLATFORM_IDENTITY_WAS_AUTHORIZED';
+ END IF;
+END
+$missing_identity$;
+RESET ROLE;
+UPDATE public.users SET account_status='inactive' WHERE id=1;
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',false);
+SET ROLE authenticated;
+DO $revoked_identity$
+BEGIN
+ IF private.powerhub_has_platform_capability('manageSupportChat') IS DISTINCT FROM false THEN
+   RAISE EXCEPTION 'REVOKED_PLATFORM_IDENTITY_WAS_AUTHORIZED';
+ END IF;
+END
+$revoked_identity$;
+RESET ROLE;
+
 DO $catalog_assertions$
 DECLARE v_oid oid:=to_regprocedure('private.powerhub_has_platform_capability(text)');
 BEGIN

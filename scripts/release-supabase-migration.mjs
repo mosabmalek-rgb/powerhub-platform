@@ -3,7 +3,6 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   assertSupabaseMigrationTarget,
-  buildSupabaseMigrationLedgerInsert,
   classifySupabaseMigrationHistory,
   computeSupabaseMigrationContentSha256,
   parseSupabaseMigrationHistoryRows,
@@ -12,6 +11,7 @@ import {
   SUPABASE_PROJECT_BY_TARGET,
 } from "./supabase-migration-target.mjs";
 import { resolveSupabaseMigrationFile } from "./supabase-migration-file.mjs";
+import { buildSupabaseMigrationTransaction } from "./supabase-migration-transaction.mjs";
 
 const [requestedPath, target] = process.argv.slice(2);
 const migrationRoot = path.resolve("supabase/migrations");
@@ -129,20 +129,7 @@ if (migrationHistoryState === "already-applied") {
   process.exit(0);
 }
 
-const transaction = `
-BEGIN;
-SELECT pg_advisory_xact_lock(hashtextextended('powerhub:supabase:migration-release:v1', 0));
-DO $powerhub_release_guard$
-BEGIN
-  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '${version}') THEN
-    RAISE EXCEPTION 'POWERHUB_MIGRATION_VERSION_RACE';
-  END IF;
-END
-$powerhub_release_guard$;
-${sql}
-${buildSupabaseMigrationLedgerInsert({ version, name, sql })}
-COMMIT;
-`;
+const transaction = buildSupabaseMigrationTransaction({ version, name, sql });
 
 psql(transaction);
 console.log(`Applied ${filename} to ${target} and atomically recorded version ${version} / name ${name}.`);

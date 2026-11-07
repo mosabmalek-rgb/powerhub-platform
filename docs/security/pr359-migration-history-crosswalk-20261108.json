@@ -1,0 +1,519 @@
+{
+  "source_head": "83633d7c21fbd94cd6ac7e7187861589b52c1992",
+  "scope": "28 unresolved names from handoff; source metadata only, not an applied-state classification",
+  "canonical_14_digit_file_count": 502,
+  "all_sql_file_count": 579,
+  "records": [
+    {
+      "name": "powerhub_generator_offline_idempotency",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260909170000_powerhub_generator_offline_idempotency.sql",
+          "version": "20260909170000",
+          "sha256": "ce5013f7c1819dd83aa13a8fd91cc4e6d47605d6f52c59bbeef9a043b1e0e557",
+          "git_blob": "46b69a1e57759f4af6560739e29ebeb2674a2b93",
+          "last_source_commit": "dda9775e7600a16477bec5a4fb5cd36598e36507"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "powerhub_revoke_legacy_generator_rpc_execute",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260910130000_powerhub_revoke_legacy_generator_rpc_execute.sql",
+          "version": "20260910130000",
+          "sha256": "2792f7d51db779638f0259c301ee7caadcb2040cb01ed08b15a5587fce3c7054",
+          "git_blob": "8abe61e93104d81ef586b73c7f095478758c9b16",
+          "last_source_commit": "de3515967d634d7b16d40b0736bcdf9aada7302b"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "admin_subscription_upgrade_enrichment_rpc",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/0060_admin_subscription_upgrade_enrichment_rpc.sql",
+          "version": "0060",
+          "sha256": "d077ebe4ee36b72620cf30cf5b6c3a1e19b7bd51a75c3affc9761cf52b24388b",
+          "git_blob": "6a85063ea69f774295aa7979dab99798739abaa9",
+          "last_source_commit": "ba476d12c1da1dc989b59715f144fc6a0e65e9e9"
+        },
+        {
+          "path": "supabase/migrations/20260914070201_admin_subscription_upgrade_enrichment_rpc.sql",
+          "version": "20260914070201",
+          "sha256": "555f1a0fa2147a15079f5c6a1411a13a8aca816147df4745d22324a770c7881f",
+          "git_blob": "2b50328f16ef84cd802f37b262d986ec830b8d77",
+          "last_source_commit": "ba476d12c1da1dc989b59715f144fc6a0e65e9e9"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "harden_admin_subscription_upgrade_enrichment_rpc_execute",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914070229_harden_admin_subscription_upgrade_enrichment_rpc_execute.sql",
+          "version": "20260914070229",
+          "sha256": "e2efc5de616c13801441e26212d7a7e44c0c298e6aa529d933d63fcce9f90b62",
+          "git_blob": "88b0e453f5cc1419b1566ef5870cb2a3a2c30b63",
+          "last_source_commit": "ba476d12c1da1dc989b59715f144fc6a0e65e9e9"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "platform_capability_resolver",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914120000_platform_capability_resolver.sql",
+          "version": "20260914120000",
+          "sha256": "f4753a45c56af517644314e3a1c53aa5a365c330d5cf1825f3c3fde13e0e4c0f",
+          "git_blob": "27c2b9c990f9360e2ed59e20a8e96c8a6f8868f7",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_foundation_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914133000_chat_foundation_v1.sql",
+          "version": "20260914133000",
+          "sha256": "05a8d2c3cd78d183ed74230d2f0fa40ba0be15ef4f50f4f191b1ec539f330cdb",
+          "git_blob": "7e882ca1c5ab2d5fc3a057318103454bce7bdccd",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_rls_security_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914141000_chat_rls_security_v1.sql",
+          "version": "20260914141000",
+          "sha256": "775cad718983a9ad406991e50b003334ee77569fbbe410be929f8520b04d0476",
+          "git_blob": "c949795476a8722e4c1e6cee14f97d88f2504132",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_realtime_authorization_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914142000_chat_realtime_authorization_v1.sql",
+          "version": "20260914142000",
+          "sha256": "27e799b2fd9ecebb6117564a57f5d8901867378c12657734110b97497138f0f3",
+          "git_blob": "2597417aeab367c0c8d4cbb4304aba6eac1f34e4",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_realtime_authorization_v1_harden",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914144000_chat_realtime_authorization_v1_harden.sql",
+          "version": "20260914144000",
+          "sha256": "0c37a9adbc8088c471276dccdc866690270be00863913ed57ce9a8d0b0e03742",
+          "git_blob": "c6b7c2473974bff55b8a7243d0d2caa1257deb85",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_performance_indexes_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914145000_chat_performance_indexes_v1.sql",
+          "version": "20260914145000",
+          "sha256": "bb2d910c32ccd00cbb83fb1cb8fd15b68bd3f0175347b82da3d85f07f7601f0a",
+          "git_blob": "1d1b780e8d391bae0a65a959b8687c506dc2e019",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_storage_rls_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914150000_chat_storage_rls_v1.sql",
+          "version": "20260914150000",
+          "sha256": "356c864522f4c5a255aaf2dbb9ec422d9de19dd32bb460b4c44ef8a4b3bcd814",
+          "git_blob": "bafca7be844a93a52663bc8627df7263c928107c",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_storage_grants_hardening_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914150500_chat_storage_grants_hardening_v1.sql",
+          "version": "20260914150500",
+          "sha256": "c21e0c6530b66ccbe0f7f33781ae83c94f30705e309753a0c134d0ac0697b018",
+          "git_blob": "a7b540ecd52b0a75804498e215b433a480e1cb10",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_write_boundary_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914151500_chat_write_boundary_v1.sql",
+          "version": "20260914151500",
+          "sha256": "20f147ce85801c09cfcd78e16513d4677a0be04998c20774876092e713b4ae5e",
+          "git_blob": "ec8bc1da612b04f1f94ffa5ee477493f925f9d65",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_write_boundary_v1_fix",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914152000_chat_write_boundary_v1_fix.sql",
+          "version": "20260914152000",
+          "sha256": "bc60a1aa8bdf5615ec4317046d8261a57ad33e36f1d45a242700bcfc0eb20308",
+          "git_blob": "32b1c9912204d3083176669d8a6f7f900f1abeaa",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_receipts_notifications_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914154000_chat_receipts_notifications_v1.sql",
+          "version": "20260914154000",
+          "sha256": "73b110d059c695b60a0dc65f98cc0517d931e92f514bca97df662b2c452e8141",
+          "git_blob": "069b5674caadc42c45e9e5329cc5f39091d3caf6",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_realtime_receipts_notifications_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914155000_chat_realtime_receipts_notifications_v1.sql",
+          "version": "20260914155000",
+          "sha256": "58dfa09fe14f421d78da577ecbffee63a286745efbc350ced4696c6f2b47ee12",
+          "git_blob": "2a14d96acb584bfc7f5757b03c1e971b4d3ac1a4",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_mark_read_up_to_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914161000_chat_mark_read_up_to_v1.sql",
+          "version": "20260914161000",
+          "sha256": "7d7ab8d17e4b509d84d2e4ef77ef88645e30c2f00fb72d2ff0e90d344faaeb44",
+          "git_blob": "1514d698a74cf360fa600785ffcf68b802f687d4",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_notification_rpc_security_hardening_v2",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914164900_chat_notification_rpc_security_hardening_v2.sql",
+          "version": "20260914164900",
+          "sha256": "8e3d558d127ba2d6d60c0f7c3142ef2114626415845b5b5f6c2aef61889a7575",
+          "git_blob": "62ffe716a211ccd1168911a69da543ae17659536",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_support_operator_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260915103000_chat_support_operator_v1.sql",
+          "version": "20260915103000",
+          "sha256": "17bc7c685d97c09ea59dd85e53d07c337a4ba50244ef8ca86852862065320d5e",
+          "git_blob": "cf3e398adf81b20e62a929f90809549faa12ff61",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_support_users_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260915104500_chat_support_users_v1.sql",
+          "version": "20260915104500",
+          "sha256": "cdc1ca6b35e0f3286837b09e9baea262f7e0225e7b375f055fe97ac2ea75739e",
+          "git_blob": "9361732e81a3493ffbf6d8ee8bd0dd2ff9e95d9c",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "chat_staging_compatibility_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260916130000_chat_staging_compatibility_v1.sql",
+          "version": "20260916130000",
+          "sha256": "588872ed5ddd4edf17669634698c3ef816d6bfd78fa92e23cda7c96980e22eba",
+          "git_blob": "3b278257b047ca2f9331c3444482707590a79591",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "powerhub_field_user_guards",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260919140000_powerhub_field_user_guards.sql",
+          "version": "20260919140000",
+          "sha256": "43c03110f7438fa5c880d7983b5974fc6e125ada2392abf53353d41258a2ec1a",
+          "git_blob": "c1265857df9bee27216fa1831ca94d80fd29c884",
+          "last_source_commit": "f5130449325ecaccea7f570eb29756c4a66b1f8f"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "powerhub_platform_support_role_reconciliation",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260922190500_powerhub_platform_support_role_reconciliation.sql",
+          "version": "20260922190500",
+          "sha256": "135cafd29bf6ee8dd0a79adbbcc79d73be37ff287b04da1a5b1cba4b16d3d129",
+          "git_blob": "6020a96a5360b973919e516325fc4e2ffdbe0917",
+          "last_source_commit": "7670b2a983b1caf05bf0101577c4c28f3ca7f858"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "powerhub_optional_generator_capacity",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260926150000_powerhub_optional_generator_capacity.sql",
+          "version": "20260926150000",
+          "sha256": "af64c3e6a5c786762c847cbcbdb546000e7758b2b390cb177634d888297ed116",
+          "git_blob": "ae3dd9b10156135862fbb7125b3664ad503cc6b3",
+          "last_source_commit": "ea4efeb5f94c96de29cebe3837aba4bf0f4600bf"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "powerhub_reading_opening_baseline_save_fix",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20261010170000_powerhub_reading_opening_baseline_save_fix.sql",
+          "version": "20261010170000",
+          "sha256": "9b33e20c9bd0df03a0ebd1963ef7084089fd55b1c608f5e4650c6c77b7a77435",
+          "git_blob": "2c30dd2c65cc30539685ec5436dbed595411edec",
+          "last_source_commit": "908a512f087e274b848005a82f62fe58138ded9e"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "powerhub_unified_message_history_filters",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20261013170000_powerhub_unified_message_history_filters.sql",
+          "version": "20261013170000",
+          "sha256": "a8c254c7c8a85e44bdefb2e36335c6dafc502b4876998c4cfdaf56a267db2843",
+          "git_blob": "8d633a7c5186c9e636b271bcc600aa5de916feed",
+          "last_source_commit": "0b21e7c376819355fb34588f951bd5ff21d359fb"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "powerhub_manual_sms_history_scope",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20261019120000_powerhub_manual_sms_history_scope.sql",
+          "version": "20261019120000",
+          "sha256": "da045dd6f00ed7b0a5f39cb09d041a26bb39eab081b6d2515d46e3de146ccff0",
+          "git_blob": "4ba4e4add5550d7cac48a825d4b326621a90c427",
+          "last_source_commit": "a2463ed06caa0b14c66a88d22f4f5145510ded37"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    },
+    {
+      "name": "powerhub_owner_capability_overrides",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20261022200000_powerhub_owner_capability_overrides.sql",
+          "version": "20261022200000",
+          "sha256": "1afff61c8378add214cad58bccb57399c420ebeb4a257e36f8c0102c39e5f55c",
+          "git_blob": "3be7acf115fc765941b92cdf2d63b70f65f3a77f",
+          "last_source_commit": "6b182eb5a53f5c0b8fe47f8e266c03c4bb8bc29f"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "No live database connector or database bindings available in this session; previous report is historical evidence only."
+    }
+  ]
+}

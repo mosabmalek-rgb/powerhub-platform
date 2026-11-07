@@ -295,4 +295,71 @@ BEGIN
 END
 $server_only_acl$;
 
+-- Reapplying the final ACL phase must remain safe. Do not replay the earlier
+-- pre-revocation phase here: it explicitly requires the historical SELECT grant.
+\ir ../migrations/20261107150000_powerhub_supplier_browser_read_acl_revoke.sql
+
+GRANT USAGE ON SCHEMA public TO anon,service_role;
+SET ROLE anon;
+DO $anonymous_runtime_denial$
+DECLARE target text;
+BEGIN
+  FOREACH target IN ARRAY ARRAY[
+    'suppliers','supplier_purchases','supplier_purchase_lines',
+    'supplier_purchase_receipts','supplier_purchase_receipt_lines',
+    'supplier_payments','supplier_payment_allocations','supplier_ledger_entries',
+    'supplier_purchase_returns','supplier_purchase_return_lines'
+  ] LOOP
+    BEGIN
+      EXECUTE format('SELECT count(*) FROM public.%I',target);
+      RAISE EXCEPTION 'SUPPLIER_ANON_QUERY_WAS_NOT_DENIED: %',target;
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+END
+$anonymous_runtime_denial$;
+RESET ROLE;
+
+-- Even an owner with a valid tenant identity must go through server capability
+-- checks once the final ACL phase has run.
+SELECT set_config('request.jwt.claim.user_id','1',false);
+SET ROLE authenticated;
+DO $authenticated_runtime_denial$
+DECLARE target text;
+BEGIN
+  FOREACH target IN ARRAY ARRAY[
+    'suppliers','supplier_purchases','supplier_purchase_lines',
+    'supplier_purchase_receipts','supplier_purchase_receipt_lines',
+    'supplier_payments','supplier_payment_allocations','supplier_ledger_entries',
+    'supplier_purchase_returns','supplier_purchase_return_lines'
+  ] LOOP
+    BEGIN
+      EXECUTE format('SELECT count(*) FROM public.%I',target);
+      RAISE EXCEPTION 'SUPPLIER_AUTHENTICATED_QUERY_WAS_NOT_DENIED: %',target;
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+  END LOOP;
+END
+$authenticated_runtime_denial$;
+RESET ROLE;
+
+SET ROLE service_role;
+DO $service_runtime_positive_control$
+DECLARE target text; visible bigint;
+BEGIN
+  FOREACH target IN ARRAY ARRAY[
+    'suppliers','supplier_purchases','supplier_purchase_lines',
+    'supplier_purchase_receipts','supplier_purchase_receipt_lines',
+    'supplier_payments','supplier_payment_allocations','supplier_ledger_entries',
+    'supplier_purchase_returns','supplier_purchase_return_lines'
+  ] LOOP
+    EXECUTE format('SELECT count(*) FROM public.%I',target) INTO visible;
+    IF visible=0 THEN
+      RAISE EXCEPTION 'SUPPLIER_SERVICE_QUERY_POSITIVE_CONTROL_EMPTY: %',target;
+    END IF;
+  END LOOP;
+END
+$service_runtime_positive_control$;
+RESET ROLE;
+
 SELECT 'INVENTORY_SUPPLIER_SITE_RLS_AND_SERVER_ONLY_READ_OK' AS result;

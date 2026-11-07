@@ -4,6 +4,16 @@
 
 This document is the release decision for the seven security migrations in PR #359. It is intentionally a gate record, not authorization to execute SQL. No Staging or Production database was modified while producing it.
 
+## Current source-only follow-up — 8 November 2026
+
+See [engineering verification](pr359-engineering-verification-20261108.md) for
+the fetched `83633d7c` baseline, immutable seven-file hashes, actual disposable
+PostgreSQL results and release-race repair. The older conflict statement below
+is a historical snapshot: the current fetched branch includes current `main`.
+GitHub mergeability/draft state and same-SHA CI are not freshly verified because
+the API is blocked. No fresh live database evidence is available. Approval
+remains blocked; this follow-up does not authorize any database application.
+
 ## Scope
 
 Repository: `mosabmalek-rgb/powerhub-platform`
