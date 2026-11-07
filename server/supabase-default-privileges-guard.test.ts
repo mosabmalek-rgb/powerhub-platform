@@ -76,6 +76,34 @@ describe("Supabase default-privileges migration guard", () => {
     expect(findings[0].message).toContain("Dynamic SQL");
   });
 
+  it("rejects dynamic EXECUTE using a PL/pgSQL variable expression", () => {
+    const findings = findDangerousDefaultPrivilegeGrants([
+      "DO $body$",
+      "DECLARE",
+      "  command_text text := 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO anon';",
+      "BEGIN",
+      "  EXECUTE command_text;",
+      "END;",
+      "$body$;",
+    ].join("\n"), "dynamic-default-acl-variable.sql");
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("Dynamic SQL");
+  });
+
+  it("rejects dynamic EXECUTE using a dollar-quoted command expression", () => {
+    const findings = findDangerousDefaultPrivilegeGrants([
+      "DO $body$",
+      "BEGIN",
+      "  EXECUTE $sql$ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO anon$sql$;",
+      "END;",
+      "$body$;",
+    ].join("\n"), "dynamic-default-acl-dollar-quote.sql");
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("Dynamic SQL");
+  });
+
   it("does not flag object-level grants or SQL examples inside comments", () => {
     const findings = findDangerousDefaultPrivilegeGrants([
       "-- ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO anon;",

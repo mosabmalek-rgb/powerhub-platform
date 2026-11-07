@@ -373,12 +373,15 @@ function stripSqlCommentsPreservingQuotedText(sql) {
 }
 
 function hasDynamicDefaultPrivilegeAlter(statement) {
-  // The SQL privilege keyword in "REVOKE EXECUTE ON FUNCTIONS" is not
-  // procedural dynamic execution. Only flag executable SQL payload forms:
-  // EXECUTE '...'; EXECUTE E'...'; or EXECUTE format(...).
+  // In GRANT/REVOKE statements, the privilege keyword is followed by ON:
+  // GRANT/REVOKE EXECUTE ON FUNCTION(S) ...
+  // In PL/pgSQL, dynamic EXECUTE is followed by a command expression (literal,
+  // dollar-quoted string, format(), variable, concatenation, or other expression).
+  // Flag the latter whenever the same executable statement contains ALTER
+  // DEFAULT PRIVILEGES, without restricting detection to a few expression forms.
   const executable = stripSqlCommentsPreservingQuotedText(statement);
-  return /\bEXECUTE\s+(?:format\s*\(|(?:[eE]\s*)?')/i.test(executable) &&
-    /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(executable);
+  return /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(executable) &&
+    /\bEXECUTE\s+(?!ON\b)/i.test(executable);
 }
 export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
   const findings = [];
