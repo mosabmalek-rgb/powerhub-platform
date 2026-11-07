@@ -277,7 +277,7 @@ BEGIN
       ('upsert_category','SELECT public.chat_support_admin_upsert_category(''billing'',''Billing'',NULL,10,60,10,true)'),
       ('upsert_quick_reply','SELECT public.chat_support_admin_upsert_quick_reply(''billing-help'',''Billing help'',''A response'',NULL,true)'),
       ('upsert_sla','SELECT public.chat_support_admin_upsert_sla(''normal'',1.250)'),
-      ('upsert_tag','SELECT public.chat_support_admin_upsert_tag(''urgent'',''Urgent'',''#FF0000',true)')
+      ('upsert_tag','SELECT public.chat_support_admin_upsert_tag(''urgent'',''Urgent'',''#FF0000'',true)')
     ) AS calls(name,sql)
   LOOP
     v_denied:=false;
@@ -303,7 +303,7 @@ BEGIN
       ('upsert_category','SELECT public.chat_support_admin_upsert_category(''billing'',''Billing'',NULL,10,60,10,true)'),
       ('upsert_quick_reply','SELECT public.chat_support_admin_upsert_quick_reply(''billing-help'',''Billing help'',''A response'',NULL,true)'),
       ('upsert_sla','SELECT public.chat_support_admin_upsert_sla(''normal'',1.250)'),
-      ('upsert_tag','SELECT public.chat_support_admin_upsert_tag(''urgent'',''Urgent'',''#FF0000',true)')
+      ('upsert_tag','SELECT public.chat_support_admin_upsert_tag(''urgent'',''Urgent'',''#FF0000'',true)')
     ) AS calls(name,sql)
   LOOP
     v_denied:=false;
