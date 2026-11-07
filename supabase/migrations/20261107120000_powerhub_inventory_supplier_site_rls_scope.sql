@@ -15,7 +15,6 @@ BEGIN
       ('supplier_purchase_lines', ARRAY['tenant_id','purchase_id']::text[]),
       ('supplier_purchase_receipts', ARRAY['tenant_id','site_id']::text[]),
       ('supplier_purchase_receipt_lines', ARRAY['tenant_id','receipt_id','purchase_id']::text[]),
-      ('supplier_purchase_return_lines', ARRAY['tenant_id','return_id','purchase_id']::text[]),
       ('supplier_payments', ARRAY['tenant_id','site_id']::text[]),
       ('supplier_payment_allocations', ARRAY['tenant_id','payment_id','purchase_id']::text[]),
       ('supplier_ledger_entries', ARRAY['tenant_id','site_id']::text[])
