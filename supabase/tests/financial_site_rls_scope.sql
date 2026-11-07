@@ -232,7 +232,19 @@ BEGIN
           IS DISTINCT FROM ARRAY['search_path=""']::text[]
      OR pg_catalog.pg_get_userbyid((SELECT proowner FROM pg_catalog.pg_proc WHERE oid=v_oid)) <> 'postgres'
      OR has_function_privilege('anon',v_oid,'EXECUTE')
-     OR has_function_privilege('PUBLIC',v_oid,'EXECUTE')
+     OR EXISTS (
+       SELECT 1
+       FROM pg_catalog.pg_proc AS routine
+       CROSS JOIN LATERAL pg_catalog.aclexplode(
+         COALESCE(
+           routine.proacl,
+           pg_catalog.acldefault('f', routine.proowner)
+         )
+       ) AS acl
+       WHERE routine.oid = v_oid
+         AND acl.grantee = 0
+         AND acl.privilege_type = 'EXECUTE'
+     )
      OR NOT has_function_privilege('authenticated',v_oid,'EXECUTE')
      OR NOT has_function_privilege('service_role',v_oid,'EXECUTE') THEN
     RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_SEARCH_PATH_NOT_EMPTY_OR_ACL_CHANGED';

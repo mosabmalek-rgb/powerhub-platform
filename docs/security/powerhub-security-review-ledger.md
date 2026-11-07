@@ -642,3 +642,40 @@ Commit: `5d5d243de6d557bb387f35f3eb9a76eed8058316`.
 ### بوابة الإغلاق
 
 لا تُسجّل هذه الملاحظة على أنها إصلاح حي مكتمل. يغلق الاختبار المعزول جانب التوافق والسلوك، ويبقى التغيير الأمامي على Staging عملاً مستقلاً بموافقة وملف Migration رسمي. تُربط نتائج CI بالـSHA الجديد بعد اكتمال التشغيلات الخمس.
+
+
+---
+
+## 16. إصلاح فشل PostgreSQL في التحقق من PUBLIC EXECUTE — 7 نوفمبر 2026
+
+### التشغيل الفاشل والتشخيص
+
+- التشغيل: [Reading Cycle PostgreSQL Integration #42379474562](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/42379474562).
+- SHA: `b1ab4ff4cc6483726e96a6e4d98b2a5a9ef75fe5`.
+- الوظيفة: `Execute reading-cycle migration and assertions`.
+- الخطوة الفاشلة: `Verify branch-scoped financial RLS and hardened company-account capability context` (#61).
+- الرسالة الدقيقة: `psql:supabase/tests/financial_site_rls_scope.sql:241: ERROR: role "PUBLIC" does not exist`.
+- السبب: الاختبار مرر الكلمة `PUBLIC` إلى `has_function_privilege(text, ...)` كما لو كانت Role مسجلة. في PostgreSQL، `PUBLIC` ليس دوراً يمكن تمريره بهذه الطريقة؛ الامتياز الجماعي ممثل داخل ACL بالـgrantee OID = 0.
+
+### الإصلاح
+
+في `supabase/tests/financial_site_rls_scope.sql` تم استبدال استدعاء `has_function_privilege('PUBLIC',...)` بفحص صريح لـCatalog:
+- قراءة `pg_proc.proacl` للدالة المستهدفة.
+- استخدام `aclexplode(COALESCE(proacl, acldefault('f', proowner)))`.
+- رفض وجود أي صف يحمل `grantee = 0` و`privilege_type = 'EXECUTE'`.
+- الاستمرار في استخدام `has_function_privilege` للتحقق من الأدوار المسجلة فعلاً: `anon` و`authenticated` و`service_role`.
+
+هذا يجعل الاختبار يقرأ تمثيل PostgreSQL الحقيقي لـPUBLIC بدلاً من محاولة التعامل معه كـRole، مع إبقاء شرط عدم منح PUBLIC EXECUTE أقوى وأكثر دقة.
+
+### ما لم يكن سبباً للفشل
+
+- نجح تنفيذ `ALTER FUNCTION ... SET search_path TO ''` داخل قاعدة الاختبار المعزولة قبل بلوغ التأكيد الفاشل.
+- لا يثبت السجل أي خلل في دالة الصلاحيات نفسها أو في RLS أو في منطق عزل الحسابات.
+- الفشل كان في صياغة Assertion الاختبارية حصراً؛ لم يتم حذفها أو تجاوزها.
+
+### التحقق المطلوب
+
+- إعادة تشغيل PostgreSQL Integration والبوابات الخمس على Commit الإصلاح الجديد.
+- لا تُنقل نتيجة `05b9a132` أو أي SHA سابق إلى SHA الإصلاح.
+- يظل تضييق `search_path` محصوراً في الاختبار المعزول حتى وجود Migration أمامية مستقلة ومراجعة؛ لم تتغير Staging أو Production.
+- PR #359 يبقى OPEN + DRAFT + NOT MERGED.
