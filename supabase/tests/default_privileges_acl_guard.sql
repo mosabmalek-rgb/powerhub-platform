@@ -39,6 +39,65 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
+-- Validate the actual PostgreSQL catalog rows created by ALTER DEFAULT PRIVILEGES.
+-- This is intentionally a positive-control fixture: the check must detect every
+-- client-role/object-type/owner combination, not infer defaults only from one
+-- subsequently-created object.
+DO $default_acl_catalog_detection$
+DECLARE
+  v_expected record;
+BEGIN
+  FOR v_expected IN
+    SELECT *
+    FROM (VALUES
+      ('postgres', 'r', 'anon'),
+      ('postgres', 'r', 'authenticated'),
+      ('postgres', 'S', 'anon'),
+      ('postgres', 'S', 'authenticated'),
+      ('postgres', 'f', 'anon'),
+      ('postgres', 'f', 'authenticated'),
+      ('supabase_admin', 'r', 'anon'),
+      ('supabase_admin', 'r', 'authenticated'),
+      ('supabase_admin', 'S', 'anon'),
+      ('supabase_admin', 'S', 'authenticated'),
+      ('supabase_admin', 'f', 'anon'),
+      ('supabase_admin', 'f', 'authenticated')
+    ) AS expected(owner_name, object_type, grantee_name)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_default_acl AS defaults
+      CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
+      WHERE defaults.defaclrole = v_expected.owner_name::regrole
+        AND defaults.defaclnamespace = 'public'::regnamespace
+        AND defaults.defaclobjtype::text = v_expected.object_type
+        AND acl.grantee = v_expected.grantee_name::regrole
+        AND acl.privilege_type IS NOT NULL
+    ) THEN
+      RAISE EXCEPTION
+        'DEFAULT_ACL_CATALOG_ENTRY_NOT_DETECTED: owner=% object_type=% grantee=%',
+        v_expected.owner_name, v_expected.object_type, v_expected.grantee_name;
+    END IF;
+  END LOOP;
+
+  -- Function EXECUTE is globally granted to PUBLIC by PostgreSQL unless
+  -- explicitly revoked. Confirm the fixture's global and public-schema defaults
+  -- do not reintroduce that inherited endpoint exposure.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_default_acl AS defaults
+    CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
+    WHERE defaults.defaclrole IN ('postgres'::regrole, 'supabase_admin'::regrole)
+      AND defaults.defaclobjtype = 'f'
+      AND defaults.defaclnamespace IN (0, 'public'::regnamespace)
+      AND acl.grantee = 0
+      AND acl.privilege_type = 'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'DEFAULT_ACL_PUBLIC_FUNCTION_EXECUTE_WAS_NOT_REVOKED';
+  END IF;
+END
+$default_acl_catalog_detection$;
+
 CREATE TABLE public.default_privileges_postgres_fixture (
   id bigint PRIMARY KEY,
   tenant_id bigint NOT NULL,

@@ -624,7 +624,7 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres financial_anon_acl_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_anon_acl_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_anonymous_acl_hardening.sql
 
-      - name: Verify PostgreSQL default privileges cannot leak access through future public objects
+      - name: Verify default-privilege catalog detection and future-object ACL hardening
         env:
           PGPASSWORD: postgres
         run: |
