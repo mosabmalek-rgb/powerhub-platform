@@ -44,6 +44,10 @@ CREATE TABLE public.supplier_ledger_entries(
   supplier_id bigint NOT NULL,entry_type text NOT NULL,purchase_id bigint,supplier_payment_id bigint
 );
 
+CREATE TABLE public.suppliers(
+  id bigint PRIMARY KEY,tenant_id bigint NOT NULL,supplier_code text NOT NULL,name text NOT NULL
+);
+
 INSERT INTO public.site_memberships VALUES
  (1,10,NULL,'owner',true),(2,10,100,'member',true),(3,10,200,'member',true),(4,20,300,'member',true);
 
@@ -65,6 +69,10 @@ INSERT INTO public.supplier_ledger_entries VALUES
  (83,20,300,3000,'opening_balance',null,null),
  (84,10,100,9999,'opening_balance',null,null),
  (85,10,100,1000,'adjustment',null,null);
+INSERT INTO public.suppliers VALUES
+ (1000,10,'SUP-1000','Tenant 10 - Branch 100 Supplier'),
+ (2000,10,'SUP-2000','Tenant 10 - Branch 200 Supplier'),
+ (3000,20,'SUP-3000','Tenant 20 - Branch 300 Supplier');
 
 DO $setup$
 DECLARE target text;
@@ -79,6 +87,11 @@ BEGIN
     EXECUTE format('GRANT SELECT ON public.%I TO authenticated',target);
     EXECUTE format('GRANT ALL ON public.%I TO service_role',target);
   END LOOP;
+  ALTER TABLE public.suppliers ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY suppliers_tenant_read ON public.suppliers
+    FOR SELECT TO authenticated USING (private.powerhub_has_tenant_access(tenant_id));
+  GRANT SELECT ON public.suppliers TO authenticated;
+  GRANT ALL ON public.suppliers TO service_role;
   -- Supplier return rows contain refunds and account details; browser roles
   -- must continue to use the scoped server RPC rather than direct table reads.
   ALTER TABLE public.supplier_purchase_returns ENABLE ROW LEVEL SECURITY;
@@ -136,6 +149,9 @@ BEGIN
       RAISE EXCEPTION 'BRANCH_MEMBER_CROSS_SITE_OR_TENANT_READ: % expected=% actual=%',target,expected_visible,visible;
     END IF;
   END LOOP;
+  IF (SELECT count(*) FROM public.suppliers)<>2 THEN
+    RAISE EXCEPTION 'BRANCH_MEMBER_SUPPLIER_CATALOG_TENANT_SCOPE_FAILED';
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM public.supplier_payment_allocations
     WHERE id=74 AND purchase_id IS NULL AND supplier_ledger_entry_id=81
@@ -169,6 +185,9 @@ BEGIN
       RAISE EXCEPTION 'TENANT_OWNER_BRANCH_VISIBILITY_FAILED: % expected=% actual=%',target,expected_visible,visible;
     END IF;
   END LOOP;
+  IF (SELECT count(*) FROM public.suppliers)<>2 THEN
+    RAISE EXCEPTION 'TENANT_OWNER_SUPPLIER_CATALOG_SCOPE_FAILED';
+  END IF;
   IF (SELECT count(*) FROM public.supplier_payment_allocations
       WHERE id IN (74,75) AND purchase_id IS NULL AND supplier_ledger_entry_id IN (81,82))<>2
      OR EXISTS (
@@ -200,6 +219,9 @@ BEGIN
       RAISE EXCEPTION 'OTHER_TENANT_SCOPE_FAILED: % expected=% actual=%',target,expected_visible,visible;
     END IF;
   END LOOP;
+  IF (SELECT count(*) FROM public.suppliers)<>1 THEN
+    RAISE EXCEPTION 'OTHER_TENANT_SUPPLIER_CATALOG_SCOPE_FAILED';
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM public.supplier_payment_allocations
     WHERE id=76 AND purchase_id IS NULL AND supplier_ledger_entry_id=83
@@ -212,4 +234,50 @@ END
 $other_tenant$;
 RESET ROLE;
 
-SELECT 'INVENTORY_SUPPLIER_SITE_RLS_SCOPE_OK' AS result;
+\ir ../migrations/20261107150000_powerhub_supplier_browser_read_acl_revoke.sql
+
+-- All supplier-domain reads are mediated by capability-checked server routes.
+-- No table-level or column-level browser grant may expose supplier records via
+-- PostgREST; the service-role server path must remain intact.
+DO $server_only_acl$
+DECLARE
+  target text;
+  target_oid oid;
+BEGIN
+  FOREACH target IN ARRAY ARRAY[
+    'suppliers',
+    'supplier_purchases',
+    'supplier_purchase_lines',
+    'supplier_purchase_receipts',
+    'supplier_purchase_receipt_lines',
+    'supplier_payments',
+    'supplier_payment_allocations',
+    'supplier_ledger_entries',
+    'supplier_purchase_returns',
+    'supplier_purchase_return_lines'
+  ] LOOP
+    target_oid := to_regclass(format('public.%I', target));
+    IF has_table_privilege('anon', target_oid, 'SELECT')
+       OR has_any_column_privilege('anon', target_oid, 'SELECT')
+       OR has_table_privilege('authenticated', target_oid, 'SELECT')
+       OR has_any_column_privilege('authenticated', target_oid, 'SELECT') THEN
+      RAISE EXCEPTION 'SUPPLIER_BROWSER_DIRECT_READ_ALLOWED: %', target;
+    END IF;
+
+    IF has_table_privilege('anon', target_oid, 'INSERT')
+       OR has_table_privilege('anon', target_oid, 'UPDATE')
+       OR has_table_privilege('anon', target_oid, 'DELETE')
+       OR has_table_privilege('authenticated', target_oid, 'INSERT')
+       OR has_table_privilege('authenticated', target_oid, 'UPDATE')
+       OR has_table_privilege('authenticated', target_oid, 'DELETE') THEN
+      RAISE EXCEPTION 'SUPPLIER_BROWSER_DIRECT_WRITE_ALLOWED: %', target;
+    END IF;
+
+    IF NOT has_table_privilege('service_role', target_oid, 'SELECT') THEN
+      RAISE EXCEPTION 'SUPPLIER_SERVER_READ_NOT_PRESERVED: %', target;
+    END IF;
+  END LOOP;
+END
+$server_only_acl$;
+
+SELECT 'INVENTORY_SUPPLIER_SITE_RLS_AND_SERVER_ONLY_READ_OK' AS result;
