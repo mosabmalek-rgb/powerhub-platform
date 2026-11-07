@@ -475,6 +475,7 @@ $cycle_boundary_assertions$;
 \ir ../migrations/20261021220000_powerhub_inventory_movement_report_paging.sql
 \ir ../migrations/20261022120000_powerhub_inventory_entity_lifecycle.sql
 \ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
+\ir ../migrations/20261107140000_powerhub_inventory_supplier_payables_allocation_scope.sql
 \ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
 \ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
 \ir ../migrations/20261101083316_powerhub_inventory_trigger_acl_hardening.sql
@@ -4788,6 +4789,194 @@ begin
   delete from public.suppliers where tenant_id=10 and id=v_other_supplier_id;
 end;
 $phase_d_supplier_allocation_scope_regression$;
+
+-- Supplier aging applies posted allocations only when payment and document share tenant, branch and supplier.
+do $supplier_payables_aging_allocation_scope_regression$
+declare
+  v_scope_supplier_id bigint;
+  v_other_supplier_id bigint;
+  v_remote_warehouse_id bigint;
+  v_cross_site_purchase_id bigint;
+  v_wrong_supplier_purchase_id bigint;
+  v_opening_entry_id bigint;
+  v_other_supplier_opening_id bigint;
+  v_local_payment_id bigint;
+  v_remote_payment_id bigint;
+  v_remote_opening_payment_id bigint;
+  v_opening_payment_id bigint;
+  v_aging jsonb;
+  v_paid numeric(14,2);
+  v_outstanding numeric(14,2);
+begin
+  insert into public.suppliers(tenant_id,supplier_code,name,created_by_user_id)
+  values
+    (10,'AGING-SCOPE-SUP-01','Aging scope supplier',1),
+    (10,'AGING-SCOPE-SUP-02','Aging other supplier',1);
+  select id into v_scope_supplier_id from public.suppliers
+  where tenant_id=10 and supplier_code='AGING-SCOPE-SUP-01';
+  select id into v_other_supplier_id from public.suppliers
+  where tenant_id=10 and supplier_code='AGING-SCOPE-SUP-02';
+
+  select id into v_remote_warehouse_id from public.inventory_warehouses
+  where tenant_id=10 and site_id=101 order by id limit 1;
+  if v_remote_warehouse_id is null then
+    insert into public.inventory_warehouses(tenant_id,site_id,code,name,created_by_user_id)
+    values (10,101,'AGING-SCOPE-WH','Aging scope test warehouse',1)
+    returning id into v_remote_warehouse_id;
+  end if;
+
+  select ledger_entry_id into v_opening_entry_id
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_scope_supplier_id,10.00,current_date,
+    'AGING-SCOPE-OPEN-01','Aging allocation scope regression'
+  );
+  select ledger_entry_id into v_other_supplier_opening_id
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_other_supplier_id,10.00,current_date,
+    'AGING-SCOPE-OPEN-02','Different supplier opening payable'
+  );
+
+  -- A valid same-branch opening-balance allocation must still reduce the payable.
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    operation_key,operation_payload_hash,posted_by_user_id
+  ) values (
+    10,100,v_scope_supplier_id,1000,3.00,current_date,'posted',
+    'aging-scope:valid-opening',md5('aging-scope:valid-opening'),1
+  ) returning id into v_opening_payment_id;
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,supplier_ledger_entry_id,amount
+  ) values (10,v_opening_payment_id,null,v_opening_entry_id,3.00);
+
+  v_aging:=public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+  select (item.value->>'paid_amount')::numeric,(item.value->>'outstanding_amount')::numeric
+    into v_paid,v_outstanding
+  from jsonb_array_elements(v_aging->'rows') as item(value)
+  where item.value->>'document_type'='opening_balance'
+    and (item.value->>'document_id')::bigint=v_opening_entry_id;
+  if not found or v_paid is distinct from 3.00::numeric or v_outstanding is distinct from 7.00::numeric then
+    raise exception 'SUPPLIER_AGING_VALID_OPENING_ALLOCATION_MISMATCH paid=% outstanding=%',v_paid,v_outstanding;
+  end if;
+
+  insert into public.supplier_purchases(
+    tenant_id,site_id,supplier_id,warehouse_id,purchase_number,status,operation_key,created_by_user_id
+  ) values (
+    10,101,1,v_remote_warehouse_id,'AGING-CROSS-SITE','draft','aging-scope:cross-site-purchase',1
+  ) returning id into v_cross_site_purchase_id;
+  insert into public.supplier_purchases(
+    tenant_id,site_id,supplier_id,warehouse_id,purchase_number,status,operation_key,created_by_user_id
+  ) values (
+    10,100,v_scope_supplier_id,1,'AGING-WRONG-SUPPLIER','draft','aging-scope:wrong-supplier-purchase',1
+  ) returning id into v_wrong_supplier_purchase_id;
+
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    operation_key,operation_payload_hash,posted_by_user_id
+  ) values (
+    10,100,1,1000,2.00,current_date,'posted',
+    'aging-scope:local-payment',md5('aging-scope:local-payment'),1
+  ) returning id into v_local_payment_id;
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    operation_key,operation_payload_hash,posted_by_user_id
+  ) values (
+    10,101,1,1000,2.00,current_date,'posted',
+    'aging-scope:remote-payment',md5('aging-scope:remote-payment'),1
+  ) returning id into v_remote_payment_id;
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    operation_key,operation_payload_hash,posted_by_user_id
+  ) values (
+    10,101,v_scope_supplier_id,1000,2.00,current_date,'posted',
+    'aging-scope:remote-opening-payment',md5('aging-scope:remote-opening-payment'),1
+  ) returning id into v_remote_opening_payment_id;
+
+  -- Local payment linked to invoice in another branch.
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,v_local_payment_id,v_cross_site_purchase_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_CROSS_SITE_INVOICE_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_local_payment_id and purchase_id=v_cross_site_purchase_id;
+
+  -- Same-branch invoice linked to a different supplier's payment.
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,v_local_payment_id,v_wrong_supplier_purchase_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_WRONG_SUPPLIER_INVOICE_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_local_payment_id and purchase_id=v_wrong_supplier_purchase_id;
+
+  -- Remote payment linked to an invoice owned by this branch.
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,v_remote_payment_id,1,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_REMOTE_PAYMENT_TO_LOCAL_INVOICE_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_remote_payment_id and purchase_id=1;
+
+  -- Local payment linked to another supplier's opening balance.
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,supplier_ledger_entry_id,amount
+  ) values (10,v_local_payment_id,null,v_opening_entry_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_WRONG_SUPPLIER_OPENING_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_local_payment_id and supplier_ledger_entry_id=v_opening_entry_id;
+
+  -- Remote payment linked to this branch's opening payable.
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,supplier_ledger_entry_id,amount
+  ) values (10,v_remote_opening_payment_id,null,v_opening_entry_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_REMOTE_PAYMENT_TO_LOCAL_OPENING_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_remote_opening_payment_id and supplier_ledger_entry_id=v_opening_entry_id;
+
+  -- Local payment may not settle another supplier's opening balance.
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,supplier_ledger_entry_id,amount
+  ) values (10,v_local_payment_id,null,v_other_supplier_opening_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_OTHER_SUPPLIER_OPENING_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_local_payment_id and supplier_ledger_entry_id=v_other_supplier_opening_id;
+
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id in (v_local_payment_id,v_remote_payment_id,v_remote_opening_payment_id,v_opening_payment_id);
+  delete from public.supplier_payments
+  where tenant_id=10 and id in (v_local_payment_id,v_remote_payment_id,v_remote_opening_payment_id,v_opening_payment_id);
+  delete from public.supplier_purchases
+  where tenant_id=10 and id in (v_cross_site_purchase_id,v_wrong_supplier_purchase_id);
+  delete from public.inventory_warehouses
+  where tenant_id=10 and site_id=101 and id=v_remote_warehouse_id
+    and code='AGING-SCOPE-WH';
+end;
+$supplier_payables_aging_allocation_scope_regression$;
 
 do $supplier_ledger_revision_assertions$
 declare
