@@ -282,3 +282,70 @@ This SHA-256 is computed at comparison time; no new database column, migration l
 ### Execution boundary and remaining proof
 
 All Staging inspection above was read-only. No `apply_migration`, `db push`, DDL, data update, ACL/RLS change, storage deletion, SMS, or financial operation was performed. Production was not changed. The seven newer migrations remain unapplied pending their own dependency/postcondition tests and an explicit Staging release decision. CI must pass on the new implementation/documentation commit before this runner hardening is considered verified.
+
+
+## Exact stored-SQL comparison for the 91 version-drift groups — 7 November 2026
+
+### Scope and method
+
+- Source snapshot: PR branch `feat/auth-local-first-single-pr`, exact source HEAD `0eae37af485905028e32d342636fe11f8d8903ea`.
+- Staging snapshot: project `iyuryuhaylhisjfcrwkz`, read-only.
+- Re-enumerated all 502 canonical 14-digit local migration files and all 424 Staging migration-ledger rows.
+- Identified 91 unique local migration names whose local filename version differs from the version stored in Staging, represented by 95 ledger rows.
+- For every one of the 91 source files, fetched its exact UTF-8 content from the pinned PR branch and compared it directly with the reconstructed historical payload `array_to_string(statements, E'\\n')` for the same migration name in Staging. PostgreSQL SHA-256 fingerprints were also used as a cross-check.
+
+### Results
+
+| Result | Count |
+|---|---:|
+| Unique names with local-version / Staging-version mismatch | 91 |
+| Corresponding Staging ledger rows | 95 |
+| Names with at least one exact current-source / stored-payload match | 63 |
+| Exact matching ledger rows | 64 |
+| Names with no exact payload match in their corresponding rows | 28 |
+| Ledger rows in those 28 no-match groups | 29 |
+
+The 64 exact payload rows include two matching executions of `powerhub_chat_feature_entitlements`. The Chat Helpdesk and image-retention duplicate groups each have one row matching the current source and one older row that does not. The opening-baseline group has two distinct stored revisions, neither byte-identical to the current source.
+
+### The 28 groups still requiring schema-postcondition reconciliation
+
+- `powerhub_generator_offline_idempotency`
+- `powerhub_revoke_legacy_generator_rpc_execute`
+- `admin_subscription_upgrade_enrichment_rpc`
+- `harden_admin_subscription_upgrade_enrichment_rpc_execute`
+- `platform_capability_resolver`
+- `chat_foundation_v1`
+- `chat_rls_security_v1`
+- `chat_realtime_authorization_v1`
+- `chat_realtime_authorization_v1_harden`
+- `chat_performance_indexes_v1`
+- `chat_storage_rls_v1`
+- `chat_storage_grants_hardening_v1`
+- `chat_write_boundary_v1`
+- `chat_write_boundary_v1_fix`
+- `chat_receipts_notifications_v1`
+- `chat_realtime_receipts_notifications_v1`
+- `chat_mark_read_up_to_v1`
+- `chat_notification_rpc_security_hardening_v2`
+- `chat_support_operator_v1`
+- `chat_support_users_v1`
+- `chat_staging_compatibility_v1`
+- `powerhub_field_user_guards`
+- `powerhub_platform_support_role_reconciliation`
+- `powerhub_optional_generator_capacity`
+- `powerhub_reading_opening_baseline_save_fix`
+- `powerhub_unified_message_history_filters`
+- `powerhub_manual_sms_history_scope`
+- `powerhub_owner_capability_overrides`
+
+### Interpretation and release decision
+
+- The 63 exact payload matches establish that the same SQL text is retained in Staging under another version. They do **not** make the local Version + Name identity match, and they do not authorize rewriting the migration ledger or bypassing the release guard.
+- The 28 no-match groups are **not** classified as unapplied. Their historical SQL may have been revised, superseded, or represented by later schema changes. Each needs targeted live postcondition evidence (objects, function bodies, RLS policies, ACLs, indexes, triggers, and relevant data invariants) before deciding whether the current source is represented in the database.
+- Preserve every existing history row. Do not rename, renumber, delete, replay, or manually mark any of these migrations as applied.
+- This 91-group comparison is separate from the 41 exact Version + Name identities with SQL-content drift and the 12 rows whose historical SQL payload is unavailable. Those remain open.
+- The separately identified duplicate-name group `staging_restore_powerhub_submit_payment_documentation_source_destination_support_v2` has no same-named canonical local file and remains covered by its prior source/function-body reconciliation.
+
+### Execution boundary
+
+All comparisons were read-only. No `apply_migration`, `db push`, DDL, history-row update, ACL/RLS change, storage deletion, SMS, financial operation, or Production operation was performed. Staging remains at 424 history rows (latest recorded version `20261106224902`). The release guard remains fail-closed for same-name / different-version cases.

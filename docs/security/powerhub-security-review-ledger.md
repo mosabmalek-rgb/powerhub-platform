@@ -942,3 +942,32 @@ No SQL was applied, no row in schema_migrations was changed, no ACL/RLS or busin
 تم تصحيح الوصف السابق لسياسات الموردين: سياسات Site-scope موجودة بالفعل على سجلات الشراء والدفعات والتفاصيل والقيود، وكتالوج الموردين نفسه Tenant-scoped عمداً. المتبقي هو سحب القراءة المباشرة من المتصفح حيث ما زالت ممنوحة، مع إبقاء مسارات الخادم و`service_role`. كما أن دالة هوية قدرات المنصة في Staging لم تتضمن بعد شرط `users.role='admin'` الذي تضيفه Migration منفصلة.
 
 لا يوجد أي ترحيل مطبق على Staging أو Production في هذه الخطوة. PR #359 ما زالت OPEN وDRAFT وNOT MERGED. لا تعتمد هذه المرحلة قبل نجاح بوابات CI على SHA الناتج.
+
+
+## 2026-11-07 — release-guard CI and 91-group payload reconciliation
+
+### Final-head CI confirmation
+
+On source HEAD `0eae37af485905028e32d342636fe11f8d8903ea`, all five required GitHub Actions runs completed successfully:
+
+| Gate | Run ID | Result |
+|---|---:|---|
+| PowerHub CI | 42404659642 | SUCCESS |
+| Reading Cycle PostgreSQL Integration | 42404659627 | SUCCESS |
+| PowerHub Security | 42404659630 | SUCCESS |
+| PowerHub Supabase Admin Guard | 42404659675 | SUCCESS |
+| PowerHub SBOM | 42404659641 | SUCCESS |
+
+All five runs refer to the same HEAD SHA. This closes CI for that code commit only; subsequent commits require their own final-head verification.
+
+### Staging migration payload reconciliation
+
+A read-only exact-content comparison was completed for the 91 same-name / different-version groups: 502 canonical local migration files versus 424 Staging ledger rows. The 91 unique groups correspond to 95 ledger rows.
+
+- 63 unique groups have at least one exact SQL payload match under a different historical version (64 matching rows).
+- 28 unique groups, representing 29 rows, have no exact match to the current source SQL and remain open for live schema postcondition review.
+- The complete list of the 28 open names and method/results is recorded in `docs/security/powerhub-staging-migration-reconciliation-20261107.md`.
+- Exact text equality establishes payload provenance, not identity reconciliation or proof that every current schema postcondition still holds.
+- The 41 Version + Name matches with differing SQL and 12 rows with unavailable SQL remain separate open cohorts.
+
+No historical row was altered. No Staging or Production migration was applied. No DDL, ACL/RLS, data, storage, SMS, or financial operation was performed. PR #359 remains Draft and unmerged.
