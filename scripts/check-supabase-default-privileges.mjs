@@ -373,11 +373,12 @@ function stripSqlCommentsPreservingQuotedText(sql) {
 }
 
 function hasDynamicDefaultPrivilegeAlter(statement) {
-  // Preserve executable DO/PLpgSQL bodies and quoted EXECUTE payloads, but
-  // remove comments so examples/documentation cannot trigger a false positive.
+  // The SQL privilege keyword in "REVOKE EXECUTE ON FUNCTIONS" is not
+  // procedural dynamic execution. Only flag executable SQL payload forms:
+  // EXECUTE '...'; EXECUTE E'...'; or EXECUTE format(...).
   const executable = stripSqlCommentsPreservingQuotedText(statement);
-  return /\bEXECUTE\s+(?:format\s*\()?/i.test(executable) &&
-    /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(executable);
+  return /\\bEXECUTE\\s+(?:format\\s*\\(|(?:[eE]\\s*)?')/i.test(executable) &&
+    /\\bALTER\\s+DEFAULT\\s+PRIVILEGES\\b/i.test(executable);
 }
 
 export function findDangerousDefaultPrivilegeGrants(sql, filePath) {
