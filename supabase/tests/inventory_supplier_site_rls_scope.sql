@@ -17,6 +17,18 @@ AS $fn$
   );
 $fn$;
 
+-- Model the existing permissive tenant-level read policy without granting
+-- browser roles direct access to the membership table in this isolated fixture.
+CREATE OR REPLACE FUNCTION private.powerhub_has_tenant_access(target_tenant_id bigint)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,private
+AS $fn$
+  SELECT EXISTS(
+    SELECT 1 FROM public.site_memberships m
+    WHERE m.user_id=nullif(current_setting('request.jwt.claim.user_id',true),'')::bigint
+      AND m.tenant_id=target_tenant_id AND m.is_active
+  );
+$fn$;
+
 CREATE TABLE public.supplier_purchases(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL);
 CREATE TABLE public.supplier_purchase_lines(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,purchase_id bigint NOT NULL);
 CREATE TABLE public.supplier_purchase_receipts(id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,purchase_id bigint NOT NULL);
@@ -50,13 +62,14 @@ BEGIN
     'supplier_payment_allocations','supplier_ledger_entries'
   ] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',target);
-    EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (tenant_id IN (SELECT tenant_id FROM public.site_memberships WHERE user_id=nullif(current_setting(''request.jwt.claim.user_id'',true),'''')::bigint AND is_active))',target||'_tenant_read',target);
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (private.powerhub_has_tenant_access(tenant_id))',target||'_tenant_read',target);
     EXECUTE format('GRANT SELECT ON public.%I TO authenticated',target);
   END LOOP;
 END
 $setup$;
 GRANT USAGE ON SCHEMA public,private TO authenticated;
 GRANT EXECUTE ON FUNCTION private.powerhub_has_site_access(bigint,bigint) TO authenticated;
+GRANT EXECUTE ON FUNCTION private.powerhub_has_tenant_access(bigint) TO authenticated;
 
 \ir ../migrations/20261107120000_powerhub_inventory_supplier_site_rls_scope.sql
 
