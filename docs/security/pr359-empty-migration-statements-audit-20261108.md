@@ -45,7 +45,7 @@ These three have `statement_count=0`; they require their **own** source and cata
 
 ## Relationship to the 28-case crosswalk
 
-The separate `pr359-migration-history-crosswalk-20261108.json` now carries archived-SQL text comparisons for **all 26 previously outstanding cases**. Those 26 comprise 27 Staging ledger rows because `powerhub_reading_opening_baseline_save_fix` has two versions: 5 exact source-body matches after stripping comment-only lines, 3 formatting-normalized matches, 3 comment-line-and-format normalized matches, and **16 textual differences** that require deeper semantic/object-level inspection. Those labels are **textual evidence only**, not success classifications. The first two cases retain independent Staging catalog proof; production historical attribution remains unproven.
+The separate `pr359-migration-history-crosswalk-20261108.json` now carries archived-SQL text comparisons for **all 26 previously outstanding cases**. Those 26 comprise 27 Staging ledger rows because `powerhub_reading_opening_baseline_save_fix` has two versions: 5 exact source-body matches after stripping comment-only lines, 3 formatting-normalized matches, 3 comment-line-and-format normalized matches, and **16 textual differences** that require deeper semantic/object-level inspection. A second token-stream comparison of the 16 conservatively flagged cases found **7 token-identical archived records** and **10 genuinely different token sequences**, including the first of two reading-baseline versions. The older formatting-only labels are retained as preliminary evidence; the lexical follow-up is recorded per record in the crosswalk. Token identity is not catalog/behavior identity. The first two cases retain independent Staging catalog proof; production historical attribution remains unproven.
 
 ## Release decisions / remaining gates
 
@@ -53,3 +53,15 @@ The separate `pr359-migration-history-crosswalk-20261108.json` now carries archi
 2. For the 16 materially or syntactically different historical SQL records, review deltas, function definitions, RLS policies and grants individually; multiple versions may reflect genuine different source contents.
 3. For these twelve empty rows, finish behavior/trigger/index/policy checks and decide whether source is already represented by later migration effects.
 4. Keep the seven 7-November security migrations blocked from Staging application until preflight, deployed-consumer testing, remaining history reconciliation and **explicit user authorization**. CI green on a SHA is not migration-application approval.
+
+## Expanded live postcondition checks (8 November 2026)
+
+Both environments returned the **exact eleven expected named indices**, including UNIQUE partial indices for pending password reset intent, reached-once quota alerts, and one open tariff-price version. Catalog definitions of those eleven indices matched between Staging and Production. The `public.tariffs` table has the `powerhub_tariff_history_before_update` and `powerhub_tariff_history_after_write` triggers attached in both environments, in addition to the existing delta-sync trigger. The `subscriber_portal_attempts_service_role_only` policy is present with `USING (true)` / `WITH CHECK (true)` in both environments; table access is separately limited by ACL and RLS.
+
+The selected catalog probes are now: **5/5 tables**, **11/11 indices**, **19/19 functions**, **2/2 specifically expected tariff-history triggers**, and the targeted attempts policy in both environments. This remains an **object-presence/ACL/attachment review**, not proof of function-body equivalence, retry/concurrency behavior, or which historical migration produced the final state.
+
+### Material SQL differences discovered in the 28-case crosswalk
+
+In addition to benign grantee ordering and purely formatted SQL, the deeper token comparison found differences requiring specific release attention: historical Chat participant/receipt SELECT predicates, `chat_mark_read_up_to` logic, platform role/policy and field-user-guard definitions, original reading idempotency scope, and the messaging-history cycle-end interval. The archived messaging-history function uses `interval '1 millisecond'` where the source uses `interval '1 microsecond'`; the **current Staging function body** contains the microsecond value. The later, second archived `powerhub_reading_opening_baseline_save_fix` body matches the source at SQL-token level, whereas its earlier archived version does not.
+
+**Do not** treat an unchanged migration name as evidence that the earlier, different body has been reconciled. No schema migration history was altered in this review.
