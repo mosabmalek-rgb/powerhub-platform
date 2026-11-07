@@ -92,6 +92,9 @@ BEGIN
     RAISE EXCEPTION 'SEARCH_RAW_QUERY_OR_PII_COLUMN_PRESENT';
   END IF;
 
+  IF (SELECT count(*) FROM private.platform_admin_search_metrics_daily) <> 1 THEN
+    RAISE EXCEPTION 'SEARCH_DAILY_AGGREGATION_NOT_COALESCED';
+  END IF;
   IF NOT EXISTS (
     SELECT 1
     FROM pg_catalog.pg_constraint AS constraint_row
