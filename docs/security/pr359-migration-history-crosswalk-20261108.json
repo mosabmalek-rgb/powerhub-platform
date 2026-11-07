@@ -537,7 +537,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260914100913",
@@ -546,7 +546,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100913",
+          "comparison": "EXACT_BODY",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914150500_chat_storage_grants_hardening_v1.sql",
+              "comparison": "EXACT_BODY",
+              "source_chars": 272,
+              "stored_chars": 128
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_write_boundary_v1",
@@ -564,7 +581,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260914101018",
@@ -573,7 +590,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914101018",
+          "comparison": "FORMAT_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914151500_chat_write_boundary_v1.sql",
+              "comparison": "FORMAT_NORMALIZED",
+              "source_chars": 8708,
+              "stored_chars": 8707
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_write_boundary_v1_fix",
@@ -591,7 +625,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260914101124",
@@ -600,7 +634,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914101124",
+          "comparison": "EXACT_BODY",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914152000_chat_write_boundary_v1_fix.sql",
+              "comparison": "EXACT_BODY",
+              "source_chars": 1738,
+              "stored_chars": 1591
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_receipts_notifications_v1",
@@ -618,7 +669,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260914102451",
@@ -627,7 +678,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914102451",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914154000_chat_receipts_notifications_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 8878,
+              "stored_chars": 8393
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_realtime_receipts_notifications_v1",
@@ -645,7 +713,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260914102745",
@@ -654,7 +722,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914102745",
+          "comparison": "FORMAT_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914155000_chat_realtime_receipts_notifications_v1.sql",
+              "comparison": "FORMAT_NORMALIZED",
+              "source_chars": 2725,
+              "stored_chars": 2614
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_mark_read_up_to_v1",
@@ -672,7 +757,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260914102950",
@@ -681,7 +766,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914102950",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914161000_chat_mark_read_up_to_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 2574,
+              "stored_chars": 3128
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_notification_rpc_security_hardening_v2",
@@ -699,7 +801,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260914122600",
@@ -708,7 +810,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914122600",
+          "comparison": "EXACT_BODY",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914164900_chat_notification_rpc_security_hardening_v2.sql",
+              "comparison": "EXACT_BODY",
+              "source_chars": 1478,
+              "stored_chars": 1262
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_support_operator_v1",
@@ -726,7 +845,7 @@
       "production_row": null,
       "stored_sql_sha256": null,
       "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay.",
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
       "staging_rows": [
         {
           "version": "20260915092746",
@@ -735,7 +854,24 @@
           "source_same_version": false
         }
       ],
-      "production_rows": []
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260915092746",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260915103000_chat_support_operator_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 5413,
+              "stored_chars": 4595
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED"
     },
     {
       "name": "chat_support_users_v1",
