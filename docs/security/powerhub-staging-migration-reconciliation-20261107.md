@@ -365,3 +365,85 @@ Regression coverage asserts exact UTF-8 payload persistence for quotes, backslas
 The repository's largest canonical SQL migration is 94,039 bytes. The release runner's atomic SQL transaction now contains both the migration text and its Base64-encoded `statements` ledger payload; passing that whole transaction as one `psql --command` argument can exceed Linux's per-argument size ceiling on large migrations. The runner now sends the transaction over the child process standard input instead of a single argv value. The PostgreSQL 17 round-trip regression fixture was expanded to a 120,000-byte source payload so the combined SQL and Base64 statement exceeds that boundary, then verifies exact UTF-8 text and SHA-256 inside a rolled-back transaction.
 
 Source-only correction and disposable PostgreSQL test. No Staging history row, Production object, or live schema was changed.
+
+
+## 11. Production parity and provider-managed extension / advisor review — 7 November 2026
+
+### Pinned live snapshots
+
+All database inspection in this section was read-only and used the exact PR source HEAD \`b9778a29106709a5876a93af23e65ab26890b0d8\`.
+
+| Environment | Project | PostgreSQL | Migration rows | Latest recorded migration |
+|---|---|---:|---:|---|
+| Staging | \`iyuryuhaylhisjfcrwkz\` | 17.6.1.166 | 424 | \`20261106224902\` / \`powerhub_payment_delta_purpose_projection\` |
+| Production | \`vvcdiqcyhaloxesvpppc\` | 17.6.1.155 | 486 | \`20261026102654\` / \`powerhub_pin_subscription_lifecycle_search_path\` |
+
+The seven canonical PR migrations dated 7 November remain beyond the Staging ledger's latest version and beyond Production's latest version. This confirms they have not been recorded under their canonical names/versions in either environment; it does not exclude equivalent historical SQL under another name/version. Existing migration drift rules remain in force.
+
+### Offline generator RPC — Production parity blocker
+
+The current Staging definitions of \`public.powerhub_sync_generator_create\` and \`public.powerhub_sync_generator_update\` now use:
+
+- \`SECURITY DEFINER SET search_path = ''\`.
+- The shared \`private.powerhub_has_generator_management_access(tenant_id,site_id)\` guard.
+- Active, non-expired tenant membership and current staff-profile state.
+- The same NULL/inherit, explicit-empty deny, custom-role and per-profile override semantics as the server RBAC resolver.
+- Idempotency replay validation bound to tenant, site and generator identity.
+
+Production still has the older function bodies with \`search_path = public, pg_temp\`, direct role/profile checks and weaker replay-scope validation. The exact regression fixture \`supabase/tests/offline_generator_membership_expiry.sql\` imports the November migrations into disposable PostgreSQL and exercises missing-JWT denial, expired/suspended membership, archived and suspended staff profiles, explicit permission deny/grant overrides, cross-site replay denial, and positive active-owner paths. The same test runs in \`Reading Cycle PostgreSQL Integration\`.
+
+**Decision:** treat Production as behind the Staging authorization contract. Do not patch either live function manually. Before a Production release, reconcile the complete migration history and deploy the canonical migration sequence through the protected release runner, then verify the two function bodies and their ACLs on the exact resulting Production HEAD.
+
+### Seven 7-November migrations — test and dependency map
+
+| Migration | Existing disposable PostgreSQL coverage |
+|---|---|
+| \`20261107120000\` supplier site RLS | \`inventory_supplier_site_rls_scope.sql\` |
+| \`20261107130000\` Phase D supplier allocation | \`inventory_purchase_receiving_workflow.sql\` |
+| \`20261107130443\` platform support identity | \`platform_support_identity_role_guard.sql\` |
+| \`20261107140000\` supplier payables allocation | \`inventory_purchase_receiving_workflow.sql\` |
+| \`20261107143819\` company-account capability search path | \`financial_site_rls_scope.sql\` |
+| \`20261107150000\` supplier browser read ACL | \`inventory_supplier_site_rls_scope.sql\` |
+| \`20261107150951\` postgres default privileges | \`default_privileges_acl_guard.sql\` |
+
+All six test files are referenced by the PostgreSQL integration workflow; the large procurement workflow includes both Phase D and payables-allocation adversarial regressions. The seven source files have explicit preflight/postflight assertions. The separate release gate still requires source-payload/history reconciliation before any live apply.
+
+### pg_net ownership, scheduler and provider boundary
+
+Read-only catalog inspection confirms:
+
+- Both projects run pg_net 0.20.4 and have the provider-owned \`grant_pg_net_access()\` event trigger.
+- Staging has pg_net installed in \`public\`; Production has it in \`extensions\`. In both projects the extension owner is \`supabase_admin\`, not the application migration role.
+- The \`net\` schema, \`net.http_*\` routines and queue/response tables have provider-managed grants. The Supabase troubleshooting note documents why customer REVOKE attempts on these provider-owned pg_net objects may report that no privileges can be revoked.
+- The pg_net worker is running as \`postgres\` in both projects. Staging's request queue was empty and held six recent response rows. Production's queue was empty and held 360 response rows.
+- Production has three active PowerHub HTTP Cron jobs (invoice notifications, payment-documentation retention and subscriber retention). Across the last 24 hours, 1,442 executions were recorded with zero failed Cron runs. Staging has no active Cron job whose command calls \`net.http_*\`.
+
+**Decision:** do not REVOKE provider-owned pg_net ACLs, alter its event trigger, or relocate the extension as a routine PowerHub migration. Any change to API schema exposure must first be checked in the Supabase API configuration; SQL role grants alone do not prove that the \`net\` schema is exposed. Production scheduled jobs remain untouched.
+
+### Supabase Advisors — read-only triage
+
+| Advisor finding | Staging | Production | Triage |
+|---|---:|---:|---|
+| RLS enabled, no policies | 64 | 54 | No \`anon\` or \`authenticated\` SELECT/DML grant was found on any flagged table; service_role retains server access. These are server-only / deny-by-default objects, not evidence of a client read path. |
+| Authenticated SECURITY DEFINER RPCs in public | 34 | 17 | Staging public routines were checked for pinned search_path and browser ACLs. The 17 Production public routines have no anon/PUBLIC EXECUTE; two older generator sync RPCs retain non-empty search_path and require parity update. |
+| pg_net in public | 1 warning | 0 | Provider-managed extension placement; no relocation recommended. |
+| Leaked-password protection disabled | 1 warning | 1 warning | Remains a project Auth configuration action; the available database connector cannot inspect/change the Auth dashboard setting. |
+| Unindexed foreign keys | 236 | 179 | Broad database-wide performance inventory; do not add indexes without query-plan/workload review. |
+| Unused indexes | 143 | 153 | Do not drop automatically; usage statistics depend on workload window and may reset. |
+| Duplicate index | 0 | 1 | Production has two byte-for-byte identical partial btree indexes on \`notification_messages\`. The \`_reconciled\` index has 36,404 scans versus 5 on the older index. No live drop performed. |
+
+A targeted check of all supplier-domain foreign keys found zero unindexed foreign keys. Those nine supplier tables are small in Staging (roughly 80–208 kB each) with low row estimates; no additional index was justified for the new branch-read policies from this snapshot.
+
+The \`RLS enabled no policy\` Advisor is INFO, not proof of exposure. Supabase's API guidance states that GRANT controls whether a role can reach an object and RLS then controls which rows it can access. The live ACL check confirms the relevant browser grants are absent for the flagged tables.
+
+### Chat trigger ACL — Staging/Production difference
+
+Production retains PUBLIC/anon EXECUTE on three \`private\` Chat helper functions; two are bound to triggers and one is not currently trigger-bound. Staging has the later trigger-function EXECUTE revocation applied and reports no PUBLIC/anon/authenticated execution on those helpers. Production does not grant anon USAGE on \`private\`, but authenticated does. This is a genuine ACL parity difference; it is not classified as a confirmed external REST exploit because the private schema is not the default public Data API schema and no project-specific exposed-schema setting was available in the connector. Preserve the existing Staging revocation migration and include Production parity in the release review.
+
+### Health and performance decisions
+
+Both projects returned no Health Advisor findings. Do not auto-fix all 236/179 unindexed-FK or 143/153 unused-index warnings as a batch. The duplicate Production SMS index is a discrete cleanup candidate, but dropping it requires a separately reviewed, migration-based plan and a post-release check that the heavily used reconciled index remains valid.
+
+### Execution boundary
+
+This section did not apply migrations, mutate \`schema_migrations\`, change RLS/ACL, move extensions, alter Cron jobs, drop indexes, change Auth settings, deploy a Vercel preview, run real SMS/financial operations, or modify Production data/schema. PR #359 remains OPEN / DRAFT / NOT MERGED.

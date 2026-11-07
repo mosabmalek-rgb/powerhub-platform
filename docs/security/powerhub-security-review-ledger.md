@@ -983,3 +983,19 @@ The runner now persists the exact source SQL into `statements` through a Base64-
 ## 2026-11-07 — Avoid argv size ceiling for large migration releases
 
 A maximum local migration size of 94,039 bytes was observed. The release runner's transaction now also contains the Base64-encoded SQL history payload, so a large release could exceed Linux's per-argument limit if passed in a single `psql --command` argument. The runner now supplies SQL on stdin. The PostgreSQL 17 disposable round-trip test uses a 120,000-byte migration body (before Base64 expansion), verifies exact UTF-8 payload and SHA-256, and rolls back. No live database was modified; CI must pass again on the new HEAD.
+
+
+## 2026-11-07 — Production parity, pg_net ownership and Supabase Advisor triage
+
+On exact PR source HEAD \`b9778a29106709a5876a93af23e65ab26890b0d8\`, the live Staging and Production catalogs were compared read-only.
+
+- Staging remains 424 migration rows through \`20261106224902\`; Production remains 486 through \`20261026102654\`. Seven 7-November security migrations are not recorded by canonical version/name in either ledger. Equivalent historical SQL must still be ruled out through the stored-payload reconciliation process before release.
+- Production's \`powerhub_sync_generator_create/update\` function bodies are older than Staging: they retain \`search_path=public, pg_temp\` and omit the shared effective generator-capability helper and hardened replay-scope checks. The disposable \`offline_generator_membership_expiry.sql\` fixture covers the hardened contract and runs in PostgreSQL CI. Production is therefore a release-parity blocker, not an invitation to manually patch live functions.
+- pg_net 0.20.4 and its \`grant_pg_net_access()\` event trigger are Supabase-managed in both projects; extension objects are owned by \`supabase_admin\`. Do not try to REVOKE or relocate those objects as a PowerHub change. Production has three active HTTP Cron jobs; 1,442 Cron executions in the observed 24-hour window had zero failures.
+- Supabase Advisors report 64/54 RLS-enabled tables without policies (Staging/Production). A separate ACL audit found no anon/authenticated SELECT or DML grant on any of those tables; service_role access remains server-side. This is not evidence of a browser data leak.
+- The Advisor's 34/17 authenticated SECURITY DEFINER warnings (Staging/Production) were triaged against actual function ACLs and search_path. Production has two public generator RPCs with non-empty search_path; three separate private Chat routines retain provider-independent PUBLIC/anon EXECUTE in Production, while Staging's later revocation is effective.
+- Both projects flag leaked-password protection as disabled; changing that Auth setting requires project Auth configuration access not exposed through the current database action set.
+- Production has two byte-identical partial indexes for pending invoice SMS. The reconciled index has 36,404 scans versus 5 on the older twin. No index was dropped. Supplier-specific FK coverage is complete (zero unindexed FKs in the nine tables reviewed).
+- Both projects have no Health Advisor findings.
+
+No live DDL, migration history, ACL/RLS, Auth setting, pg_net configuration, Cron job, index, business data, SMS, finance, or Production object was changed. PR #359 remains Draft and unmerged. The full snapshot and links are in \`docs/security/powerhub-staging-migration-reconciliation-20261107.md\`.
