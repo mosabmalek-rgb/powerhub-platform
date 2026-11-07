@@ -1,25 +1,43 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "./_core/trpc";
-import { requireSupabaseSiteRole } from "./powerhub-supabase";
+import { requireSupabaseSiteRole, resolveSupabaseSiteCapabilityAccess } from "./powerhub-supabase";
 import { supabaseAdmin } from "./supabase-admin";
 
 const maintenanceRoles = ["owner", "manager", "technician"] as const;
 const readRoles = ["owner", "manager", "technician", "accountant", "viewer"] as const;
 async function requireMaintenanceReadAccess(userId: number, siteId: number) {
-  try {
-    return await requireSupabaseSiteRole(userId, siteId, [...readRoles], "viewInventory");
-  } catch (error) {
-    // A custom permission set may grant maintenance management without the general inventory-view capability.
-    // Preserve normal platform-policy checks and allow the explicit maintenance capability as the alternate read grant.
-    if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
-    return requireSupabaseSiteRole(userId, siteId, [...maintenanceRoles], "manageMaintenance");
+  // Resolve each alternative through the platform-policy layer. Checking the raw
+  // permission array alone would bypass a role-level denial for financial visibility.
+  const access = await resolveSupabaseSiteCapabilityAccess(userId, siteId, [
+    "viewInventory", "manageMaintenance", "viewInventoryReports", "manageExpenses",
+  ]);
+  if (!access.allowedCapabilities.includes("viewInventory") &&
+      !access.allowedCapabilities.includes("manageMaintenance")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية عرض بيانات الصيانة لهذا الفرع." });
   }
+  return {
+    ...access,
+    canViewMaintenanceCosts: access.allowedCapabilities.includes("viewInventoryReports") ||
+      access.allowedCapabilities.includes("manageExpenses"),
+  };
+}
+
+async function requireMaintenanceManageAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteCapabilityAccess(userId, siteId, [
+    "manageMaintenance", "issueInventory", "viewInventoryReports", "manageExpenses",
+  ]);
+  if (!access.allowedCapabilities.includes("manageMaintenance")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية إدارة أوامر الصيانة لهذا الفرع." });
+  }
+  return {
+    ...access,
+    canViewMaintenanceCosts: access.allowedCapabilities.includes("viewInventoryReports") ||
+      access.allowedCapabilities.includes("manageExpenses"),
+  };
 }
 
 const operationKey = z.string().trim().min(8).max(180);
-const canViewMaintenanceCosts = (permissions: readonly string[]) =>
-  permissions.includes("viewInventoryReports") || permissions.includes("manageExpenses");
 
 const isDateOnly = (value: string) => {
   if (value.length !== 10 || value[4] !== "-" || value[7] !== "-") return false;
@@ -207,7 +225,7 @@ export const powerhubMaintenanceRouter = router({
       p_tenant_id: access.tenantId, p_site_id: input.siteId,
       p_generator_id: input.generatorId ?? null, p_status: input.status ?? null, p_limit: input.limit,
     });
-    return canViewMaintenanceCosts(access.permissions) ? rows : rows.map((row) => ({
+    return access.canViewMaintenanceCosts ? rows : rows.map((row) => ({
       ...row, labor_cost: null, external_service_cost: null, parts_cost: null, total_cost_amount: null,
     }));
   }),
@@ -230,7 +248,7 @@ export const powerhubMaintenanceRouter = router({
     const rows = await rpc<MaintenancePartListRow[]>("powerhub_maintenance_list_parts", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_work_order_id: input.workOrderId,
     });
-    return canViewMaintenanceCosts(access.permissions) ? rows : rows.map((row) => ({
+    return access.canViewMaintenanceCosts ? rows : rows.map((row) => ({
       ...row, unit_cost: null, total_cost_amount: null,
     }));
   }),
@@ -261,14 +279,14 @@ export const powerhubMaintenanceRouter = router({
     itemId: z.number().int().positive(), warehouseId: z.number().int().positive(),
     quantity: z.number().positive().max(1000000), notes: z.string().max(1000).optional(), operationKey,
   })).mutation(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
-    if (!access.permissions.includes("issueInventory")) throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية صرف المخزون لاستخدام قطع الغيار." });
+    const access = await requireMaintenanceManageAccess(ctx.user.id, input.siteId);
+    if (!access.allowedCapabilities.includes("issueInventory")) throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية صرف المخزون لاستخدام قطع الغيار." });
     const result = await rpc<MaintenanceAddPartResultRow[]>("powerhub_maintenance_add_part", {
       p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
       p_work_order_id: input.workOrderId, p_item_id: input.itemId, p_warehouse_id: input.warehouseId,
       p_quantity: input.quantity, p_notes: input.notes ?? null, p_operation_key: input.operationKey,
     });
-    return canViewMaintenanceCosts(access.permissions) ? result : result.map((row) => ({
+    return access.canViewMaintenanceCosts ? result : result.map((row) => ({
       ...row, unit_cost: null, total_cost_amount: null,
     }));
   }),
@@ -291,10 +309,10 @@ export const powerhubMaintenanceRouter = router({
     externalServiceCost: z.number().min(0).max(1000000000).optional(),
     reason: z.string().max(500).optional(), operationKey,
   })).mutation(async ({ ctx, input }) => {
-    const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...maintenanceRoles], "manageMaintenance");
+    const access = await requireMaintenanceManageAccess(ctx.user.id, input.siteId);
     if (((input.action === "complete" && ((input.laborCost ?? 0) > 0 || (input.externalServiceCost ?? 0) > 0))
         || (input.action === "correct_completion" && (input.laborCost !== undefined || input.externalServiceCost !== undefined)))
-        && !access.permissions.includes("manageExpenses")) {
+        && !access.allowedCapabilities.includes("manageExpenses")) {
       throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية إدارة المصروفات لاعتماد تكاليف الإغلاق." });
     }
     const result = await rpc<MaintenanceTransitionResultRow[]>("powerhub_maintenance_transition_work_order", {
@@ -305,7 +323,7 @@ export const powerhubMaintenanceRouter = router({
       p_external_service_cost: input.externalServiceCost ?? (input.action === "correct_completion" ? null : 0),
       p_reason: input.reason ?? null, p_operation_key: input.operationKey,
     });
-    return canViewMaintenanceCosts(access.permissions) ? result : result.map((row) => ({
+    return access.canViewMaintenanceCosts ? result : result.map((row) => ({
       ...row, total_cost_amount: null,
     }));
   }),

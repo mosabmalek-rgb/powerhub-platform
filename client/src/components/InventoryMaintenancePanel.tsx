@@ -56,7 +56,6 @@ export default function InventoryMaintenancePanel({
 }: { siteId: number; isAuthenticated: boolean; canViewMaintenance: boolean; canViewMaintenanceReport: boolean; canManageMaintenance: boolean; canIssueInventory: boolean; canManageExpenses: boolean }) {
   const utils = trpc.useUtils();
   const auth = useAuth();
-  const canViewMaintenanceCosts = canViewMaintenanceReport || canManageExpenses;
   const [generatorId, setGeneratorId] = useState("");
   const [orderType, setOrderType] = useState<OrderType>("breakdown");
   const [preventivePlanId, setPreventivePlanId] = useState("");
@@ -177,6 +176,9 @@ export default function InventoryMaintenancePanel({
   const parts = trpc.powerhub.maintenance.listParts.useQuery({ siteId, workOrderId: Number(selectedPartsOrderId) || 0 }, { enabled: Boolean(siteId && isAuthenticated && canManageMaintenance && !ordersAuthorizationDenied && Number(selectedPartsOrderId) > 0), staleTime: 15_000 });
   const partsAuthorizationDenied = isExplicitAuthorizationDenial(parts.error);
   const safeParts = partsAuthorizationDenied || ordersAuthorizationDenied ? [] : (parts.data ?? []);
+  // Cost columns are shown only when the server returned non-null cost fields.
+  const canViewMaintenanceCosts = safeOrders.some((order) => order.total_cost_amount !== null);
+  const canViewMaintenancePartCosts = safeParts.some((part) => part.total_cost_amount !== null);
 
   const create = trpc.powerhub.maintenance.createWorkOrder.useMutation({
     onSuccess: async () => { toast.success("تم إنشاء أمر الصيانة."); setTitle(""); setDescription(""); setGeneratorId(""); setPreventivePlanId(""); setPriority("normal"); setOrderType("breakdown"); await Promise.all([utils.powerhub.maintenance.listWorkOrders.invalidate(), utils.powerhub.maintenance.listPreventivePlans.invalidate()]); },
@@ -533,7 +535,7 @@ export default function InventoryMaintenancePanel({
         <div className="flex items-end"><Button onClick={submitPart} disabled={addPart.isPending || !selectedPartsOrder || !openStatuses.includes(selectedPartsOrder.status) || !itemsForMaintenance.length || !(safeWarehouses.length)}>{addPart.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <PackagePlus className="ml-2 h-4 w-4" />} صرف وربط بالمخزون</Button></div>
       </div>
       {parts.error && parts.data && !partsAuthorizationDenied ? <p role="status" className="text-xs text-amber-700">تعذر تحديث سجل الصرف؛ تُعرض آخر القطع التي تم تحميلها لهذا الأمر.</p> : null}
-      {ordersAuthorizationDenied || partsAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية الوصول إلى أمر الصيانة أو قطع هذا الأمر؛ أُخفيت البيانات المحلية.</p> : parts.isLoading && !parts.data ? <p className="text-sm text-muted-foreground">جارٍ تحميل تفاصيل الصرف…</p> : parts.error && !parts.data ? <p role="alert" className="text-sm text-destructive">تعذر تحميل سجل الصرف ولا توجد نسخة متاحة في هذه الجلسة.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[650px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","المخزن","الكمية", ...(canViewMaintenanceCosts ? ["تكلفة الوحدة","الإجمالي"] : []),"وقت الصرف"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{safeParts.map((p) => <tr key={p.part_id} className="border-t"><td className="p-3">{p.item_name}</td><td className="p-3">{p.warehouse_name}</td><td className="p-3">{p.quantity}</td>{canViewMaintenanceCosts ? <><td className="p-3">{money(p.unit_cost)}</td><td className="p-3">{money(p.total_cost_amount)}</td></> : null}<td className="p-3">{new Date(p.issued_at).toLocaleString("ar-PS")}</td></tr>)}{!safeParts.length ? <tr><td className="p-4 text-center text-muted-foreground" colSpan={canViewMaintenanceCosts ? 6 : 4}>لا توجد قطع مصروفة لهذا الأمر.</td></tr> : null}</tbody></table></div>}
+      {ordersAuthorizationDenied || partsAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية الوصول إلى أمر الصيانة أو قطع هذا الأمر؛ أُخفيت البيانات المحلية.</p> : parts.isLoading && !parts.data ? <p className="text-sm text-muted-foreground">جارٍ تحميل تفاصيل الصرف…</p> : parts.error && !parts.data ? <p role="alert" className="text-sm text-destructive">تعذر تحميل سجل الصرف ولا توجد نسخة متاحة في هذه الجلسة.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[650px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","المخزن","الكمية", ...(canViewMaintenancePartCosts ? ["تكلفة الوحدة","الإجمالي"] : []),"وقت الصرف"].map((s) => <th key={s} className="p-3">{s}</th>)}</tr></thead><tbody>{safeParts.map((p) => <tr key={p.part_id} className="border-t"><td className="p-3">{p.item_name}</td><td className="p-3">{p.warehouse_name}</td><td className="p-3">{p.quantity}</td>{canViewMaintenancePartCosts ? <><td className="p-3">{money(p.unit_cost)}</td><td className="p-3">{money(p.total_cost_amount)}</td></> : null}<td className="p-3">{new Date(p.issued_at).toLocaleString("ar-PS")}</td></tr>)}{!safeParts.length ? <tr><td className="p-4 text-center text-muted-foreground" colSpan={canViewMaintenancePartCosts ? 6 : 4}>لا توجد قطع مصروفة لهذا الأمر.</td></tr> : null}</tbody></table></div>}
     </CardContent></Card>
       </DialogContent>
     </Dialog> : null}

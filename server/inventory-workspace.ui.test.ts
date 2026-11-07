@@ -927,12 +927,18 @@ describe("inventory workspace UI contract", () => {
   it("redacts maintenance costs unless the caller has report or expense access", () => {
     const router = read("server/powerhub-maintenance-router.ts");
     const panel = read("client/src/components/InventoryMaintenancePanel.tsx");
-    expect(router).toContain('permissions.includes("viewInventoryReports") || permissions.includes("manageExpenses")');
+    expect(router).toContain("resolveSupabaseSiteCapabilityAccess(userId, siteId, [");
+    expect(router).toContain('"viewInventory", "manageMaintenance", "viewInventoryReports", "manageExpenses"');
+    expect(router).toContain('access.allowedCapabilities.includes("viewInventoryReports") ||');
+    expect(router).toContain('access.allowedCapabilities.includes("manageExpenses")');
+    expect(router).toContain('access.allowedCapabilities.includes("issueInventory")');
+    expect(router).toContain('access.allowedCapabilities.includes("manageExpenses"))');
     expect(router).toContain("unit_cost: null, total_cost_amount: null");
     expect(router).toContain("labor_cost: null, external_service_cost: null, parts_cost: null, total_cost_amount: null");
     expect(router).toContain("total_cost_amount: null");
-    expect(router).toContain("canViewMaintenanceCosts(access.permissions)");
-    expect(panel).toContain("const canViewMaintenanceCosts = canViewMaintenanceReport || canManageExpenses;");
+    expect(router).not.toContain("canViewMaintenanceCosts(access.permissions)");
+    expect(panel).toContain("const canViewMaintenanceCosts = safeOrders.some((order) => order.total_cost_amount !== null);");
+    expect(panel).toContain("const canViewMaintenancePartCosts = safeParts.some((part) => part.total_cost_amount !== null);");
     expect(panel).toContain('...(canViewMaintenanceCosts ? ["تكلفة القطع","التكلفة الإجمالية"] : [])');
     expect(panel).toContain('...(canViewMaintenanceCosts ? ["تكلفة الوحدة","الإجمالي"] : [])');
   });
