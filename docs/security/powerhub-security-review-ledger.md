@@ -256,3 +256,87 @@ PowerHub Security: Dependency review وCodeQL وDependency audit جميعها SU
 
 **نقطة متابعة الكود عند إنشاء هذا السجل:** `2e3c5ad1336ea16ddf72ca62135343228d02f3fc`.  
 أي Commit يوثق السجل سيغيّر HEAD ويستلزم إعادة تشغيل الفحوص على الرأس الجديد وفق ضابط المشروع.
+
+
+---
+
+## 10. تحديث 7 نوفمبر 2026 — بوابة DEFAULT PRIVILEGES ونتائج HEAD
+
+**آخر SHA للكود قبل تحديث هذا السجل:**
+`c19968025ddbc8468d76d467e2b42ab1958396ae`
+
+الفرع ورأس PR #359 طابقا هذا الالتزام عند التحقق. حالة PR: OPEN + DRAFT + NOT MERGED.
+
+### بوابات CI على SHA c199680
+
+| الفحص | Run ID | النتيجة |
+|---|---:|---|
+| PowerHub CI | 42369924132 | SUCCESS |
+| Reading Cycle PostgreSQL Integration | 42369924145 | SUCCESS |
+| PowerHub Security | 42369924188 | SUCCESS |
+| Supabase Admin Guard | 42369924138 | SUCCESS |
+| PowerHub SBOM | 42369924165 | SUCCESS |
+
+تفاصيل الوظائف:
+- TypeScript, tests, production build: SUCCESS.
+- PostgreSQL migration and assertions: SUCCESS.
+- Dependency audit, dependency review, CodeQL: SUCCESS.
+- Supabase runtime migration guards: SUCCESS.
+- CycloneDX SBOM generation and validation: SUCCESS.
+
+هذه النتائج تخص SHA أعلاه حصراً، ولا تنتقل إلى أي Commit لاحق.
+
+### حارس DEFAULT PRIVILEGES
+
+أضيفت الملفات التالية إلى CI:
+- `scripts/check-supabase-default-privileges.mjs`
+- `server/supabase-default-privileges-guard.test.ts`
+- `supabase/tests/default_privileges_acl_guard.sql`
+
+كما رُبط الفحص الثابت بـPowerHub CI، وربطت محاكاة PostgreSQL المعزولة بـReading Cycle PostgreSQL Integration.
+
+الحارس الثابت:
+- يفحص ترحيلات SQL المتغيرة مقابل الفرع الأساسي.
+- يمنع منح DEFAULT PRIVILEGES إلى PUBLIC وanon وauthenticated.
+- يمنع تعديل defaults الخاصة بمالك Supabase المُدار `supabase_admin`.
+- لا يمنع منحاً صريحاً على كائن محدد، ولا يمنع REVOKE مدروساً.
+- يتجاهل التعليقات والنصوص الحرفية والأجسام dollar-quoted عند تحديد أوامر SQL الفعلية.
+
+اختبار PostgreSQL المعزول يحاكي inheritance غير الآمن للجداول والتسلسلات والدوال، ثم يثبت سحب ACL على مستوى الكائن، واستمرار صلاحيات الخدمة، وفعالية RLS على مستوى المستأجر.
+
+**حدود الإثبات:** هذا الحارس يمنع إدخال أوامر ALTER DEFAULT PRIVILEGES الخطرة في الترحيلات الجديدة، والاختبار يثبت سلوك ACL في قاعدة اختبار مؤقتة. لا يغير pg_default_acl الحي في Staging أو Production، ولا يثبت وحده أن كل كائن جديد في Staging أو Production سيُفحص تلقائياً بعد إنشائه. لا تزال هناك حاجة إلى فحص catalog دوري/وقائي للكائنات الفعلية الجديدة.
+
+### تصحيح نطاق جرد SECURITY DEFINER
+
+أعيد فحص Staging للتمييز بين الدوال المكشوفة للمستخدم المصادق وكل الدوال المملوكة لـSECURITY DEFINER:
+
+| المخطط | كل SECURITY DEFINER | القابلة للتنفيذ بواسطة authenticated |
+|---|---:|---:|
+| public | 295 | 34 |
+| private | 54 | 13 |
+| الإجمالي | 349 | 47 |
+
+جميع الدوال الـ47 القابلة للتنفيذ بواسطة authenticated لديها إعداد search_path مثبت في لقطة الفحص.
+
+الـ47 هي سطح الاستدعاء المباشر، وليست كل سلسلة التنفيذ. واجهات public البالغ عددها 34 تستدعي دوال private داخلية لا تمنح authenticated صلاحية EXECUTE مباشرة. لذلك يجب أن تشمل المراجعة أجسام الدوال الداخلية التي تستدعيها الواجهات، حتى لو لم تكن ضمن الـ47 مباشرة. لا يُسحب EXECUTE من هذه الدوال الداخلية جماعياً.
+
+### مراجعة سلسلة الاستدعاء — المرحلة الأولى
+
+تمت قراءة وفحص مجموعة من أجسام الدوال المرتبطة بالدردشة والدعم والإشعارات ومزامنة المولدات، بما فيها:
+- إنشاء المحادثة والتحقق من عضوية المستأجر وميزة الدردشة.
+- إرسال الرسائل، حدود الحجم، صلاحية المحادثة، reply target، Idempotency وحدود المعدل.
+- الملاحظات الداخلية وصلاحية manageSupportChat.
+- إسناد تذاكر الدعم وإدارة حالاتها وسجل الأحداث.
+- قراءة/تحديث إيصالات الرسائل والإشعارات وربطها بالمستخدم.
+- التحقق من صلاحية إدارة المولد حسب المستأجر والفرع والعضوية النشطة والملف الوظيفي والاستثناءات الفردية.
+
+لم ينتج عن هذه القراءة وحدها تصريح بإغلاق كل الدوال أو كل سلاسل الاستدعاء. يلزم استكمال مراجعة بقية الأجسام واختبارات bypass والعضوية المنتهية وعزل المستأجر والفرع لكل واجهة ذات أثر.
+
+### الحالة
+
+- حارس الترحيلات الثابت: مضاف إلى CI ومجتاز على SHA c199680.
+- اختبار ACL/RLS المعزول: مجتاز على SHA c199680.
+- تغيير إعدادات DEFAULT PRIVILEGES الحية: لم ينفذ.
+- Production: لم يتغير.
+- مراجعة سلسلة الاستدعاء العابرة للواجهات: قيد الاستكمال.
+- لا Migration جديدة مطلوبة لهذه البوابة حتى الآن.
