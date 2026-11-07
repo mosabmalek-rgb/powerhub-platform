@@ -213,6 +213,32 @@ VALUES (1,1,'managePayroll',true);
 \ir ../migrations/20261106212249_powerhub_financial_capability_read_rls.sql
 \ir ../migrations/20261106213134_powerhub_financial_settlement_report_capability_only.sql
 \ir ../migrations/20261106213355_powerhub_company_account_capability_rls_helper.sql
+
+-- Exercise the company-account capability helper under the strict empty search_path
+-- required for SECURITY DEFINER functions. This is an isolated PostgreSQL fixture;
+-- it does not alter the hosted Staging helper or its migration history.
+ALTER FUNCTION private.powerhub_has_company_account_capability(bigint,bigint,text)
+  SET search_path TO '';
+
+DO $company_account_capability_security_context$
+DECLARE
+  v_oid oid := to_regprocedure(
+    'private.powerhub_has_company_account_capability(bigint,bigint,text)'
+  );
+BEGIN
+  IF v_oid IS NULL
+     OR NOT (SELECT prosecdef FROM pg_catalog.pg_proc WHERE oid=v_oid)
+     OR (SELECT proconfig FROM pg_catalog.pg_proc WHERE oid=v_oid)
+          IS DISTINCT FROM ARRAY['search_path=""']::text[]
+     OR pg_catalog.pg_get_userbyid((SELECT proowner FROM pg_catalog.pg_proc WHERE oid=v_oid)) <> 'postgres'
+     OR has_function_privilege('anon',v_oid,'EXECUTE')
+     OR has_function_privilege('PUBLIC',v_oid,'EXECUTE')
+     OR NOT has_function_privilege('authenticated',v_oid,'EXECUTE')
+     OR NOT has_function_privilege('service_role',v_oid,'EXECUTE') THEN
+    RAISE EXCEPTION 'COMPANY_ACCOUNT_CAPABILITY_SEARCH_PATH_NOT_EMPTY_OR_ACL_CHANGED';
+  END IF;
+END
+$company_account_capability_security_context$;
 \ir ../migrations/20261106224854_powerhub_payment_security_deposit_rls.sql
 
 -- Updating account_id alone must invoke the site resolver and reject an account
