@@ -33,6 +33,16 @@ describe("Supabase default-privileges migration guard", () => {
     ]);
   });
 
+  it("rejects PUBLIC grants using PostgreSQL's uppercase PUBLIC role keyword", () => {
+    const findings = findDangerousDefaultPrivilegeGrants([
+      "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public",
+      "  GRANT EXECUTE ON FUNCTIONS TO PUBLIC;",
+    ].join("\n"), "public-role.sql");
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain("PUBLIC");
+  });
+
   it("rejects any attempt to edit Supabase-managed supabase_admin defaults", () => {
     const findings = findDangerousDefaultPrivilegeGrants([
       "ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public",

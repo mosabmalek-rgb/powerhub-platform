@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const migrationDir = "supabase/migrations";
-const forbiddenClientRoles = new Set(["public", "anon", "authenticated"]);
+const forbiddenClientRoles = new Set(["PUBLIC", "anon", "authenticated"]);
 
 function isQuotedIdentifier(token) {
   return token.startsWith('"') && token.endsWith('"');
