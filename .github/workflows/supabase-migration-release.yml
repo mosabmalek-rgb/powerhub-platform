@@ -124,8 +124,18 @@ jobs:
               echo "Release blocked: the pinned PR head must include the current main commit; merge current main into the PR and retry."
               exit 1
             fi
-            if ! jq -e --arg path "$MIGRATION_PATH" 'any(.files[]?; .filename == $path and (.status == "added" or .status == "renamed"))' <<< "$compare_json" >/dev/null; then
-              echo "Release blocked: the selected versioned migration path must be new relative to current main (added or renamed to a new path)."
+            # GitHub compare returns at most 300 changed files even when the PR
+            # contains more. PR #359 has >500 files and its newest migrations
+            # appear on page 5; checking compare_json.files silently rejects
+            # valid releases. Keep the ancestry gate above, but page through
+            # the PR's exact changed-file list and require an ADDED path.
+            if git cat-file -e "HEAD:$MIGRATION_PATH" 2>/dev/null; then
+              echo "Release blocked: selected PR migration already exists on trusted main."
+              exit 1
+            fi
+            pr_added_files="$(gh api --paginate --jq '.[] | select(.status == "added") | .filename' "repos/$GITHUB_REPOSITORY/pulls/$SOURCE_PR_NUMBER/files?per_page=100")"
+            if ! grep -Fxq -- "$MIGRATION_PATH" <<< "$pr_added_files"; then
+              echo "Release blocked: selected migration must be ADDED on the pinned open PR (all changed-file pages checked)."
               exit 1
             fi
           fi
