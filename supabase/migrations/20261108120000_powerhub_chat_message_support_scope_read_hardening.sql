@@ -115,11 +115,6 @@ USING (
   (
     user_id=powerhub_private.current_user_id()
     AND tenant_id=ANY(powerhub_private.current_tenant_ids())
-    AND EXISTS (
-      SELECT 1 FROM public.chat_conversations c
-      WHERE c.id=chat_support_feedback.conversation_id
-        AND c.tenant_id=chat_support_feedback.tenant_id
-    )
   )
   OR (
     private.powerhub_has_platform_capability('manageSupportChat')
