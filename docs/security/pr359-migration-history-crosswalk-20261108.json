@@ -120,8 +120,19 @@
       "staging_row": null,
       "production_row": null,
       "stored_sql_sha256": null,
-      "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "schema_postconditions": {
+        "staging": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_ACL_PASS_SOURCE_CONTRACT_DRIFT",
+          "evidence": "Live public.powerhub_admin_subscription_upgrade_requests() is postgres-owned SECURITY DEFINER, stable, search_path=public,pg_temp. anon/authenticated cannot EXECUTE; service_role can EXECUTE. Its TABLE return columns are current_package_code/requested_package_code, whereas the dated historical source file defines current_plan/requested_plan. Current definition joins subscription_upgrade_requests/tenants/tenant_owner_profiles and limits 300 rows. No invocation or data read performed."
+        },
+        "production": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_ACL_PASS_SOURCE_CONTRACT_DRIFT",
+          "evidence": "The same live SQL function signature/body and grants were observed in Production as Staging, including current_package_code/requested_package_code. Source return signature differs. Historical source execution and ledger attribution remain unproven; do not replay old CREATE OR REPLACE FUNCTION."
+        }
+      },
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof. Live 2026-11-08 postcondition review: both environments have the service-role-only SECDEF helper but return current_package_code/requested_package_code, not the older current_plan/requested_plan declared by the historical source. This is explicit contract drift, not proof of archived SQL execution, and historical replay must stay blocked.",
       "staging_rows": [
         {
           "version": "20260913184618",
@@ -160,7 +171,8 @@
           "scope": "SQL text only; not a catalog/ACL postcondition proof"
         }
       ],
-      "historical_sql_review": "COMPARED"
+      "historical_sql_review": "COMPARED",
+      "historical_contract_review": "LIVE_SOURCE_SIGNATURE_DRIFT_NO_REPLAY"
     },
     {
       "name": "harden_admin_subscription_upgrade_enrichment_rpc_execute",
@@ -177,8 +189,19 @@
       "staging_row": null,
       "production_row": null,
       "stored_sql_sha256": null,
-      "schema_postconditions": null,
-      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "schema_postconditions": {
+        "staging": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_ACL_PASS_SOURCE_CONTRACT_DRIFT",
+          "evidence": "Live public.powerhub_admin_subscription_upgrade_requests() is postgres-owned SECURITY DEFINER, stable, search_path=public,pg_temp. anon/authenticated cannot EXECUTE; service_role can EXECUTE. Its TABLE return columns are current_package_code/requested_package_code, whereas the dated historical source file defines current_plan/requested_plan. Current definition joins subscription_upgrade_requests/tenants/tenant_owner_profiles and limits 300 rows. No invocation or data read performed."
+        },
+        "production": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_ACL_PASS_SOURCE_CONTRACT_DRIFT",
+          "evidence": "The same live SQL function signature/body and grants were observed in Production as Staging, including current_package_code/requested_package_code. Source return signature differs. Historical source execution and ledger attribution remain unproven; do not replay old CREATE OR REPLACE FUNCTION."
+        }
+      },
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof. Live 2026-11-08 postcondition review: both environments have the service-role-only SECDEF helper but return current_package_code/requested_package_code, not the older current_plan/requested_plan declared by the historical source. This is explicit contract drift, not proof of archived SQL execution, and historical replay must stay blocked.",
       "staging_rows": [
         {
           "version": "20260913184631",
@@ -220,7 +243,8 @@
           "reviewed_on": "2026-11-08",
           "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
         }
-      ]
+      ],
+      "historical_contract_review": "LIVE_SOURCE_SIGNATURE_DRIFT_NO_REPLAY"
     },
     {
       "name": "platform_capability_resolver",
