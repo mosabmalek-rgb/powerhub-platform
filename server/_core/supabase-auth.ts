@@ -1,4 +1,5 @@
 import { ForbiddenError } from "@shared/_core/errors";
+import { createHash } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Request } from "express";
 import { syncSupabaseProfile, type SupabaseProfileUser } from "../supabase-profile";
@@ -46,8 +47,76 @@ const INVALID_ACCESS_TOKEN_ERROR_CODES = new Set([
 ]);
 
 const AUTH_UPSTREAM_TIMEOUT_MS = 3_500;
+const AUTH_CLAIMS_TIMEOUT_MS = 6_500;
+// A successful JWT verification can be reused briefly across a burst of
+// independent tRPC HTTP requests. Account status, membership, site permissions
+// and the single-device lease are NOT cached; they remain checked per request.
+// Never cache failed verification, and do not use the JWT as a permission source.
+const VERIFIED_CLAIMS_TTL_MS = 10_000;
+const VERIFIED_CLAIMS_MAX_ENTRIES = 256;
+type VerifiedAuthClaims = {
+  sub?: unknown; email?: unknown; role?: unknown; exp?: unknown;
+  user_metadata?: unknown;
+};
+const verifiedClaimsCache = new Map<string, { expiresAt: number; claims: VerifiedAuthClaims }>();
+const pendingClaimsChecks = new Map<string, Promise<VerifiedAuthClaims>>();
+function claimsCacheKey(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+function tokenClaimsAreFresh(claims: VerifiedAuthClaims, now = Date.now()) {
+  return typeof claims.exp === "number" && Number.isFinite(claims.exp) &&
+    claims.exp * 1000 > now;
+}
+async function getVerifiedSupabaseClaims(
+  authClient: ReturnType<typeof getSupabaseAuthClient>,
+  token: string,
+): Promise<VerifiedAuthClaims> {
+  const key = claimsCacheKey(token);
+  const now = Date.now();
+  const cached = verifiedClaimsCache.get(key);
+  if (cached && cached.expiresAt > now && tokenClaimsAreFresh(cached.claims, now)) {
+    return cached.claims;
+  }
+  if (cached) verifiedClaimsCache.delete(key);
+  const inflight = pendingClaimsChecks.get(key);
+  if (inflight) return inflight;
 
-async function withAuthUpstreamDeadline<T>(stage: string, operation: Promise<T>): Promise<T> {
+  const operation = (async () => {
+    const { data, error } = await withAuthUpstreamDeadline(
+      "supabase.getClaims", authClient.auth.getClaims(token), AUTH_CLAIMS_TIMEOUT_MS,
+    );
+    if (error) {
+      if (isDefinitiveSupabaseAccessTokenRejection(error)) {
+        throw ForbiddenError("Invalid Supabase access token");
+      }
+      throw Object.assign(new Error("Supabase Auth is temporarily unavailable"), {
+        authStage: "supabase.getClaims",
+      });
+    }
+    const claims = data?.claims as VerifiedAuthClaims | undefined;
+    if (!claims || !tokenClaimsAreFresh(claims)) {
+      throw ForbiddenError("Invalid Supabase access token");
+    }
+    const expiresAt = Math.min(Date.now() + VERIFIED_CLAIMS_TTL_MS, claims.exp as number * 1000);
+    verifiedClaimsCache.set(key, { expiresAt, claims });
+    if (verifiedClaimsCache.size > VERIFIED_CLAIMS_MAX_ENTRIES) {
+      for (const [cachedKey, item] of verifiedClaimsCache) {
+        if (item.expiresAt <= Date.now() || verifiedClaimsCache.size > VERIFIED_CLAIMS_MAX_ENTRIES) {
+          verifiedClaimsCache.delete(cachedKey);
+        }
+        if (verifiedClaimsCache.size <= VERIFIED_CLAIMS_MAX_ENTRIES) break;
+      }
+    }
+    return claims;
+  })();
+
+  pendingClaimsChecks.set(key, operation);
+  try { return await operation; } finally {
+    if (pendingClaimsChecks.get(key) === operation) pendingClaimsChecks.delete(key);
+  }
+}
+
+async function withAuthUpstreamDeadline<T>(stage: string, operation: Promise<T>, timeoutMs = AUTH_UPSTREAM_TIMEOUT_MS): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -55,9 +124,9 @@ async function withAuthUpstreamDeadline<T>(stage: string, operation: Promise<T>)
         name: "PowerHubAuthUpstreamTimeoutError",
         authStage: stage,
       });
-      console.warn("[PowerHub auth upstream timeout]", { stage, timeoutMs: AUTH_UPSTREAM_TIMEOUT_MS });
+      console.warn("[PowerHub auth upstream timeout]", { stage, timeoutMs });
       reject(error);
-    }, AUTH_UPSTREAM_TIMEOUT_MS);
+    }, timeoutMs);
   });
   try {
     return await Promise.race([operation, timeout]);
@@ -96,37 +165,26 @@ export async function authenticateSupabaseRequest(req: Pick<Request, "headers">)
   const { url, publishableKey } = getSupabasePublicConfig();
   const supabase = getSupabaseAuthClient(url, publishableKey);
   const authStartedAt = performance.now();
-  // getClaims validates the Supabase-issued JWT signature and expiry.
-  // With asymmetric signing it uses cached JWKS verification instead of sending
-  // a fresh /auth/v1/user request for every protected tRPC operation. With
-  // legacy HS256 it safely falls back to Supabase Auth's remote verification.
-  // Never use getSession() or unverified JWT decoding for authorization.
-  const { data, error } = await withAuthUpstreamDeadline("supabase.getClaims", supabase.auth.getClaims(authHeader.slice(7)));
-  const authMs = Math.round(performance.now() - authStartedAt);
-
-  if (error) {
-    const authError = error as { code?: unknown; status?: unknown; name?: unknown };
+  // getClaims verifies the token's signature and expiry. In legacy HS256
+  // projects the SDK calls /auth/v1/user; coalesce concurrent checks and reuse
+  // successful verifications for 10 seconds to avoid an Auth request storm.
+  // Authoritative database access and device checks are never memoized.
+  let claims: VerifiedAuthClaims;
+  try {
+    claims = await getVerifiedSupabaseClaims(supabase, authHeader.slice(7));
+  } catch (error) {
+    const authMs = Math.round(performance.now() - authStartedAt);
     if (authMs >= 500) {
       console.warn("[PowerHub auth latency]", {
-        stage: "supabase.getClaims",
-        durationMs: authMs,
-        errorName: typeof authError.name === "string" ? authError.name : undefined,
-        errorCode: typeof authError.code === "string" ? authError.code : undefined,
-        status: typeof authError.status === "number" ? authError.status : undefined,
+        stage: "supabase.getClaims", durationMs: authMs,
+        errorName: error instanceof Error ? error.name : undefined,
       });
     }
-    if (isDefinitiveSupabaseAccessTokenRejection(error)) {
-      throw ForbiddenError("Invalid Supabase access token");
-    }
-    // Auth timeouts, 429s and upstream faults must not masquerade as logout.
-    throw Object.assign(new Error("Supabase Auth is temporarily unavailable"), { authStage: "supabase.getClaims" });
+    throw error;
   }
+  const authMs = Math.round(performance.now() - authStartedAt);
 
-  const claims = data?.claims;
-  // A signed token without a real authenticated Supabase user and email is not
-  // a user session. Persisted account status, membership, and device checks
-  // remain authoritative on every protected request.
-  if (typeof claims?.sub !== "string" || !claims.sub ||
+  if (typeof claims.sub !== "string" || !claims.sub ||
       typeof claims.email !== "string" || !claims.email ||
       claims.role !== "authenticated") {
     throw ForbiddenError("Invalid Supabase access token");
