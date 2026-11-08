@@ -96,14 +96,19 @@ export async function authenticateSupabaseRequest(req: Pick<Request, "headers">)
   const { url, publishableKey } = getSupabasePublicConfig();
   const supabase = getSupabaseAuthClient(url, publishableKey);
   const authStartedAt = performance.now();
-  const { data, error } = await withAuthUpstreamDeadline("supabase.getUser", supabase.auth.getUser(authHeader.slice(7)));
+  // getClaims validates the Supabase-issued JWT signature and expiry.
+  // With asymmetric signing it uses cached JWKS verification instead of sending
+  // a fresh /auth/v1/user request for every protected tRPC operation. With
+  // legacy HS256 it safely falls back to Supabase Auth's remote verification.
+  // Never use getSession() or unverified JWT decoding for authorization.
+  const { data, error } = await withAuthUpstreamDeadline("supabase.getClaims", supabase.auth.getClaims(authHeader.slice(7)));
   const authMs = Math.round(performance.now() - authStartedAt);
 
   if (error) {
     const authError = error as { code?: unknown; status?: unknown; name?: unknown };
     if (authMs >= 500) {
       console.warn("[PowerHub auth latency]", {
-        stage: "supabase.getUser",
+        stage: "supabase.getClaims",
         durationMs: authMs,
         errorName: typeof authError.name === "string" ? authError.name : undefined,
         errorCode: typeof authError.code === "string" ? authError.code : undefined,
@@ -113,17 +118,28 @@ export async function authenticateSupabaseRequest(req: Pick<Request, "headers">)
     if (isDefinitiveSupabaseAccessTokenRejection(error)) {
       throw ForbiddenError("Invalid Supabase access token");
     }
-    // Do not turn a timeout, 429, or Supabase 5xx into a false logout.
-    throw new Error("Supabase Auth is temporarily unavailable");
+    // Auth timeouts, 429s and upstream faults must not masquerade as logout.
+    throw Object.assign(new Error("Supabase Auth is temporarily unavailable"), { authStage: "supabase.getClaims" });
   }
 
-  if (!data.user?.email) throw ForbiddenError("Invalid Supabase access token");
+  const claims = data?.claims;
+  // A signed token without a real authenticated Supabase user and email is not
+  // a user session. Persisted account status, membership, and device checks
+  // remain authoritative on every protected request.
+  if (typeof claims?.sub !== "string" || !claims.sub ||
+      typeof claims.email !== "string" || !claims.email ||
+      claims.role !== "authenticated") {
+    throw ForbiddenError("Invalid Supabase access token");
+  }
+  const metadata = claims.user_metadata;
+  const metadataName = metadata && typeof metadata === "object" && "name" in metadata &&
+    typeof metadata.name === "string" ? metadata.name : undefined;
 
   const profileStartedAt = performance.now();
   const user = await withAuthUpstreamDeadline("auth.profileSync", syncSupabaseProfile({
-    id: data.user.id,
-    email: data.user.email,
-    name: (data.user.user_metadata?.name as string | undefined) ?? data.user.email.split("@")[0],
+    id: claims.sub,
+    email: claims.email,
+    name: metadataName ?? claims.email.split("@")[0],
   }));
   const profileMs = Math.round(performance.now() - profileStartedAt);
   const totalMs = Math.round(performance.now() - startedAt);
