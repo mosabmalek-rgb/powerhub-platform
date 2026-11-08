@@ -196,7 +196,8 @@ export async function hydrateOfflineQueryCache(
 ) {
   let records: OfflineQueryRecord[] = [];
   try {
-    await pruneOfflineQueryCache(now);
+    // Hydrate first: expired/foreign records are rejected by isOfflineQueryRecordUsable.
+    // Pruning can be slow on a large IndexedDB and must not block the first paint.
     records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll());
   } catch {
     return 0;
@@ -227,6 +228,9 @@ export async function hydrateOfflineQueryCache(
       // Ignore individual corrupt entries; a future online response will replace them.
     }
   }
+  // Best-effort housekeeping after hydration. The active user's scope and
+  // TTL checks above still protect every record before exposing it in memory.
+  void pruneOfflineQueryCache(now).catch(() => undefined);
   return hydrated;
 }
 

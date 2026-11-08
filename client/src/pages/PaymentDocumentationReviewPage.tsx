@@ -53,6 +53,7 @@ export default function PaymentDocumentationReviewPage() {
   const { branchId: siteId } = useBranchFilter();
   const { user } = useAuth();
   const [status,setStatus]=useState<"pending"|"approved"|"rejected"|"all">("pending");
+  const [recipientAccountId,setRecipientAccountId]=useState("");
   const [period,setPeriod]=useState<"current_cycle"|"today"|"specific_day"|"date_range"|"all_time">("current_cycle");
   const [specificDate,setSpecificDate]=useState(()=>dateKeyInGaza());
   const [fromDate,setFromDate]=useState(()=>dateKeyInGaza());
@@ -67,14 +68,19 @@ export default function PaymentDocumentationReviewPage() {
   const access=trpc.powerhub.staff.myAccess.useQuery({siteId:siteId??0},{enabled:Boolean(siteId),staleTime:0,refetchOnMount:"always"});
   const accessDenied = forcedAccessDenial || (access.isError && isExplicitAuthorizationDenial(access.error));
   const canApprove = !accessDenied && can(access.data?.role,"approvePaymentDocumentation",access.data?.permissions);
+  const recipientAccounts = trpc.powerhub.paymentDocumentation.recipientAccounts.useQuery(
+    { siteId: siteId ?? 0 },
+    { enabled: Boolean(siteId && canApprove && canReachServer), staleTime: 60_000 },
+  );
   const dateFiltersReady = period === "specific_day" ? Boolean(specificDate) : period === "date_range" ? Boolean(fromDate && toDate && fromDate <= toDate) : true;
   const snapshotScope = paymentDocumentationApprovalSnapshotScope({
     status, period,
+    destinationAccountId: recipientAccountId ? Number(recipientAccountId) : undefined,
     specificDate: period === "specific_day" ? specificDate : undefined,
     fromDate: period === "date_range" ? fromDate : undefined,
     toDate: period === "date_range" ? toDate : undefined,
   });
-  const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && canReachServer && dateFiltersReady),retry:false,staleTime:15_000,refetchOnMount:"always",refetchInterval:false,refetchIntervalInBackground:false});
+  const requests=trpc.powerhub.paymentDocumentation.list.useQuery({ siteId:siteId??0, status, period, destinationAccountId:recipientAccountId?Number(recipientAccountId):undefined, specificDate:period==="specific_day"?specificDate:undefined, fromDate:period==="date_range"?fromDate:undefined, toDate:period==="date_range"?toDate:undefined },{enabled:Boolean(siteId && canApprove && canReachServer && dateFiltersReady),retry:false,staleTime:15_000,refetchOnMount:"always",refetchInterval:false,refetchIntervalInBackground:false});
   const approvalRevisionQuery = trpc.powerhub.paymentDocumentation.revision.useQuery(
     { siteId: siteId ?? 0 },
     {
@@ -304,6 +310,7 @@ export default function PaymentDocumentationReviewPage() {
     {!access.isLoading && !canApprove ? <Card className="border-rose-400/20 bg-rose-400/[.04]"><CardContent className="p-8 text-center"><p className="font-bold text-white">{accessDenied?"رفض الخادم صلاحية الوصول إلى مراجعة الدفع.":"لا تملك صلاحية اعتماد توثيق الدفع الإلكتروني."}</p><p className="mt-2 text-sm text-slate-400">{accessDenied?"أُخفيت لقطات المراجعة المحلية؛ بقيت العمليات المعلقة في مركز المزامنة للمراجعة.":"يمكن لمالك المولد منحك الصلاحية من إعدادات الحسابات الفرعية."}</p></CardContent></Card> : <>
     <div className="flex flex-wrap gap-2">{(["pending","approved","rejected","all"] as const).map(v=><Button key={v} variant={status===v?"default":"outline"} onClick={()=>setStatus(v)}>{v==="pending"?"قيد التحقق":v==="approved"?"معتمد":v==="rejected"?"مرفوض":"الكل"}</Button>)}</div>
     <Card className="border-white/10 bg-white/[.025]"><CardContent className="grid gap-3 p-4 md:grid-cols-3">
+      <div><Label htmlFor="payment-doc-recipient-account" className="text-slate-200">الحساب المحوّل إليه</Label><select id="payment-doc-recipient-account" aria-label="فلتر الحساب المحوّل إليه" value={recipientAccountId} onChange={(event)=>{setRecipientAccountId(event.target.value);setSelectedIds([]);}} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="">جميع الحسابات المستقبلة</option>{(recipientAccounts.data??[]).map((account)=><option key={account.id} value={account.id}>{account.name} · {formatAccountType(account.accountType)}{account.phoneNumber?" · "+account.phoneNumber:""}</option>)}</select>{recipientAccounts.isError?<p className="mt-1 text-xs text-amber-300">تعذر تحديث خيارات الحساب؛ يمكنك إعادة المحاولة بعد استعادة الاتصال.</p>:null}</div>
       <div><Label className="text-slate-300">الفترة الزمنية</Label><select value={period} onChange={e=>setPeriod(e.target.value as typeof period)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"><option value="current_cycle">هذه الدورة</option><option value="today">اليوم</option><option value="specific_day">يوم محدد</option><option value="date_range">فترة زمنية محددة</option><option value="all_time">كل الفترات</option></select></div>
       {period==="specific_day"&&<div><Label className="text-slate-300">اليوم</Label><input aria-label="اليوم المحدد" type="date" value={specificDate} onChange={e=>setSpecificDate(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"/></div>}
       {period==="date_range"&&<><div><Label className="text-slate-300">من تاريخ</Label><input aria-label="من تاريخ" type="date" value={fromDate} max={toDate||undefined} onChange={e=>setFromDate(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"/></div><div><Label className="text-slate-300">إلى تاريخ</Label><input aria-label="إلى تاريخ" type="date" value={toDate} min={fromDate||undefined} onChange={e=>setToDate(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-[#101722] px-3 text-sm text-white"/></div></>}

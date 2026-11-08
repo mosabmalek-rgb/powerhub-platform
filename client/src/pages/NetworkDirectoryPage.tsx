@@ -904,7 +904,7 @@ function SubscriberSecurityDepositOverview({ overview, loading, error, onRefresh
           </DialogHeader>
           <div className="min-h-0 overflow-auto rounded-lg border border-white/10">
             <table className="w-full min-w-[720px] text-right text-[11px]">
-              <thead className="sticky top-0 bg-[#202a38]"><tr>{["الرقم المرجعي","اسم المشترك","الهاتف","المبلغ المعتمد للتأمين","آخر حركة"].map((header) => <th key={header} scope="col" className="px-3 py-2">{header}</th>)}</tr></thead>
+              <thead className="sticky top-0 bg-[#263a51] text-white"><tr>{["الرقم المرجعي","اسم المشترك","الهاتف","المبلغ المعتمد للتأمين","آخر حركة"].map((header) => <th key={header} scope="col" className="border-b border-white/20 px-3 py-3 font-bold text-white">{header}</th>)}</tr></thead>
               <tbody>
                 {rows.map((item) => <tr key={item.subscriberId} className="border-t border-white/8">
                   <td className="px-3 py-2" dir="ltr">{item.subscriberNo}</td>

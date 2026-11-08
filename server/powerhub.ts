@@ -3546,9 +3546,47 @@ export const powerhubRouter = router({
           .map((invoice) => ({ ...invoice, lines: invoiceLinesById.get(Number(invoice.id)) ?? [] })),
       }));
     }),
+    // Accounts are listed independently of the limited request page, so filtering
+    // cannot omit an account that has older payment documentation requests.
+    // The same site capability and entitlement gate as paymentDocumentation.list
+    // applies; no company-account management permission is required.
+    recipientAccounts: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation");
+      await requirePaymentDocumentationFeature(access.tenantId);
+      const admin = supabaseAdmin();
+      const { data: accounts, error: accountsError } = await admin.from("company_accounts")
+        .select("id, name, account_type, phone_number")
+        .eq("tenant_id", access.tenantId)
+        .order("name", { ascending: true });
+      if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الحسابات المستقبلة." });
+      if (!accounts?.length) return [];
+      const { data: links, error: linksError } = await admin.from("company_account_sites")
+        .select("account_id, site_id")
+        .eq("tenant_id", access.tenantId)
+        .in("account_id", accounts.map((account) => account.id));
+      if (linksError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من فروع الحسابات المستقبلة." });
+      const linkedSiteIds = new Map<number, Set<number>>();
+      for (const link of links ?? []) {
+        const id = Number(link.account_id);
+        if (!linkedSiteIds.has(id)) linkedSiteIds.set(id, new Set());
+        linkedSiteIds.get(id)!.add(Number(link.site_id));
+      }
+      // Legacy unlinked accounts are tenant-wide, matching the existing list
+      // response; linked accounts must explicitly belong to the requested site.
+      return accounts.filter((account) => {
+        const linked = linkedSiteIds.get(Number(account.id));
+        return !linked?.size || linked.has(input.siteId);
+      }).map((account) => ({
+        id: Number(account.id),
+        name: String(account.name),
+        accountType: String(account.account_type),
+        phoneNumber: account.phone_number ? String(account.phone_number) : null,
+      }));
+    }),
     list: protectedProcedure.input(siteScoped.extend({
       status: z.enum(["pending","approved","rejected","all"]).default("pending"),
       period: z.enum(["current_cycle","today","specific_day","date_range","all_time"]).default("current_cycle"),
+      destinationAccountId: z.number().int().positive().optional(),
       specificDate: paymentDocumentationDateKeySchema.optional(),
       fromDate: paymentDocumentationDateKeySchema.optional(),
       toDate: paymentDocumentationDateKeySchema.optional(),
@@ -3584,6 +3622,9 @@ export const powerhubRouter = router({
         .select("id, tenant_id, site_id, subscriber_id, invoice_id, destination_account_id, invoice_no_snapshot, subscriber_name_snapshot, subscriber_no_snapshot, billing_period_snapshot, previous_reading_snapshot, current_reading_snapshot, consumption_kwh_snapshot, price_per_kwh_snapshot, consumption_value_snapshot, invoice_total_snapshot, invoice_balance_snapshot, payment_amount, payment_method, sender_phone, reference_no, receipt_image_key, receipt_image_hash, status, rejection_reason, submitted_by_user_id, reviewed_by_user_id, reviewed_at, payment_id, submitted_at, created_at, updated_at")
         .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).order("submitted_at", { ascending: false }).limit(200);
       if (input.status !== "all") query = query.eq("status", input.status);
+      // Filter at the database before the 200-row cap; a client-side filter
+      // would silently lose older matching requests.
+      if (input.destinationAccountId !== undefined) query = query.eq("destination_account_id", input.destinationAccountId);
 
       if (input.period === "current_cycle") {
         const cycleRow = Array.isArray(cycle?.data) ? cycle.data[0] : null;

@@ -7,6 +7,7 @@ export type PaymentDocumentationApprovalSnapshotScopeInput = {
   specificDate?: string;
   fromDate?: string;
   toDate?: string;
+  destinationAccountId?: number;
 };
 
 export type OfflinePaymentDocumentationApprovalSnapshot = {
@@ -51,6 +52,7 @@ export function paymentDocumentationApprovalSnapshotScope(
   return JSON.stringify({
     status: input.status,
     period: input.period,
+    ...(input.destinationAccountId ? { destinationAccountId: input.destinationAccountId } : {}),
     specificDate: input.period === "specific_day" ? input.specificDate ?? null : null,
     fromDate: input.period === "date_range" ? input.fromDate ?? null : null,
     toDate: input.period === "date_range" ? input.toDate ?? null : null,
