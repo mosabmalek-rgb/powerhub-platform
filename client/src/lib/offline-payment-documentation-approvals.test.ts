@@ -47,6 +47,30 @@ describe("payment-documentation offline approval snapshot scope", () => {
     expect(() => paymentDocumentationApprovalSnapshotKey(0, 3, baseScope, 10)).toThrow();
   });
 
+  it("isolates different destination accounts and retains the unfiltered legacy scope", () => {
+    const forAccount12 = paymentDocumentationApprovalSnapshotScope({
+      status: "pending", period: "date_range",
+      fromDate: "2026-10-01", toDate: "2026-10-29",
+      destinationAccountId: 12,
+    });
+    const forAccount13 = paymentDocumentationApprovalSnapshotScope({
+      status: "pending", period: "date_range",
+      fromDate: "2026-10-01", toDate: "2026-10-29",
+      destinationAccountId: 13,
+    });
+    expect(forAccount12).not.toBe(forAccount13);
+    expect(forAccount12).not.toBe(baseScope);
+    expect(paymentDocumentationApprovalSnapshotScope({
+      status: "pending", period: "date_range",
+      fromDate: "2026-10-01", toDate: "2026-10-29",
+    })).toBe(baseScope);
+    expect(filterPaymentDocumentationApprovalSnapshots([
+      snapshot({ snapshotScope: forAccount12, destinationAccountId: 12 }),
+      snapshot({ id: 11, snapshotScope: forAccount13, destinationAccountId: 13 }),
+    ], { userId: 7, siteId: 3, snapshotScope: forAccount12, now: 10_000 })
+      .map(row => row.destinationAccountId)).toEqual([12]);
+  });
+
   it("uses stable filter signatures and changes scope when status, period, or dates change", () => {
     expect(paymentDocumentationApprovalSnapshotScope({
       status: "pending",
