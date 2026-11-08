@@ -470,15 +470,16 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   };
 
   const wrapPage = (content: ReactNode) => embedded ? content : <DashboardLayout>{content}</DashboardLayout>;
+  const hasNoSites = !sitesQuery.data || sitesQuery.data.length === 0;
   if (loading) return wrapPage(<Loading />);
   if (!isAuthenticated) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
   if (!user) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
-  if (sitesQuery.isPending && !sitesQuery.data?.length) return wrapPage(<Loading />);
-  if (sitesQuery.isError && (sitesQuery.error?.data?.code === "UNAUTHORIZED" || sitesQuery.error?.data?.code === "FORBIDDEN" || !sitesQuery.data?.length)) return wrapPage(<Card role="alert" className="mx-auto mt-8 max-w-2xl border-amber-300/30 bg-amber-300/[.06]"><CardContent className="p-6 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-2 text-sm leading-6 text-slate-400">لم نتمكن من التحقق من بيانات الفرع الآن؛ هذا لا يعني أن بياناتك حُذفت.</p><Button type="button" variant="outline" className="mt-4 border-amber-300/30 text-amber-100" onClick={() => void sitesQuery.refetch()}>إعادة المحاولة</Button></CardContent></Card>);
+  if (sitesQuery.isPending && hasNoSites) return wrapPage(<Loading />);
+  if (sitesQuery.isError && (sitesQuery.error?.data?.code === "UNAUTHORIZED" || sitesQuery.error?.data?.code === "FORBIDDEN" || hasNoSites)) return wrapPage(<Card role="alert" className="mx-auto mt-8 max-w-2xl border-amber-300/30 bg-amber-300/[.06]"><CardContent className="p-6 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-2 text-sm leading-6 text-slate-400">لم نتمكن من التحقق من بيانات الفرع الآن؛ هذا لا يعني أن بياناتك حُذفت.</p><Button type="button" variant="outline" className="mt-4 border-amber-300/30 text-amber-100" onClick={() => void sitesQuery.refetch()}>إعادة المحاولة</Button></CardContent></Card>);
   // A temporary branch lookup failure must never be reported as an empty workspace.
-  if (!sitesQuery.data?.length && sitesQuery.isFetching) return wrapPage(<Loading />);
-  if (!sitesQuery.data?.length && !sitesQuery.isSuccess) return wrapPage(<Loading />);
-  if (!sitesQuery.data?.length) return wrapPage(<EmptySetup />);
+  if (hasNoSites && sitesQuery.isFetching) return wrapPage(<Loading />);
+  if (hasNoSites && !sitesQuery.isSuccess) return wrapPage(<Loading />);
+  if (hasNoSites) return wrapPage(<EmptySetup />);
   const title = kind === "subscribers" ? "المشتركون" : "المحطات والمولدات";
   const Icon = kind === "subscribers" ? UsersRound : Bolt;
   const pending = createSubscriber.isPending || updateSubscriber.isPending || createGenerator.isPending || updateGenerator.isPending;
