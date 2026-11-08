@@ -83,6 +83,8 @@ function psql(query) {
     maxBuffer: 8 * 1024 * 1024,
   });
   if (result.error || result.status !== 0) {
+    // Connection errors can echo malformed URI fragments, including password bytes.
+    if (result.status === 2) fail("psql connection failed safely; verify the protected database URI and network route.");
     const detail = (result.stderr || result.error?.message || "psql failed")
       .replaceAll(databaseUrl, "[redacted database URL]").trim().slice(-3000);
     fail(`psql failed safely (exit ${result.status ?? "unknown"}): ${detail}`);
@@ -133,3 +135,4 @@ const transaction = buildSupabaseMigrationTransaction({ version, name, sql });
 
 psql(transaction);
 console.log(`Applied ${filename} to ${target} and atomically recorded version ${version} / name ${name}.`);
+
