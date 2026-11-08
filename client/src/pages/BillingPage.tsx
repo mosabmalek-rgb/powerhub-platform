@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { startLogin } from "@/const";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { trpc } from "@/lib/trpc";
+import { readCachedWorkspaceSites } from "@/lib/workspace-sites-cache";
 import { copyTextSafely } from "@/lib/clipboard";
 import { filterInvoicesByPaymentStatus, invoiceStatusMeta, type PaymentStatusFilter, summarizeOutstandingInvoices } from "@/lib/invoice-collection-presentation";
 import { groupInvoiceSmsStatuses, invoiceSmsStatusLabel, isInvoiceSmsEligibleForNewQueue, type InvoiceSmsQueryState } from "@/lib/billing-notification-state";
@@ -88,7 +89,12 @@ export default function BillingPage() {
   const { isAuthenticated, loading, user } = useAuth();
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
-  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+    initialData: user?.id ? readCachedWorkspaceSites(user.id) ?? undefined : undefined,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
+  });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PaymentStatusFilter>("all");
   const [deliveryFilter, setDeliveryFilter] = useState<"all" | "unsent">("all");
@@ -286,6 +292,9 @@ export default function BillingPage() {
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><div className="mx-auto mt-12 max-w-xl rounded-[28px] border border-[#F5B800]/20 bg-[#111823] p-8 text-center shadow-panel"><ReceiptText className="mx-auto h-8 w-8 text-[#F5B800]" /><h1 className="mt-5 text-xl font-extrabold text-white">سجّل الدخول لإدارة الفواتير</h1><p className="mt-3 leading-7 text-slate-400">الفوترة والتحصيل عمليات مالية تتطلب حساباً مصرحاً له.</p><Button onClick={() => startLogin()} className="mt-6 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تسجيل الدخول</Button></div></DashboardLayout>;
+  if (sitesQuery.isPending && !sitesQuery.data?.length) return <DashboardLayout><div role="status" className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
+  if (sitesQuery.isError && (sitesQuery.error?.data?.code === "UNAUTHORIZED" || sitesQuery.error?.data?.code === "FORBIDDEN" || !sitesQuery.data?.length)) return <DashboardLayout><Card role="alert" className="mx-auto mt-12 max-w-xl border-amber-300/30 bg-[#111823]"><CardContent className="p-8 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-3 text-sm text-slate-400">تعذر التحقق من بيانات الفروع مؤقتاً؛ لم تُحذف بياناتك.</p><Button variant="outline" onClick={() => void sitesQuery.refetch()} className="mt-5">إعادة المحاولة</Button></CardContent></Card></DashboardLayout>;
+  if (!sitesQuery.data?.length && (sitesQuery.isFetching || !sitesQuery.isSuccess)) return <DashboardLayout><div role="status" className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!sitesQuery.data?.length) return <DashboardLayout><div className="mx-auto mt-12 max-w-xl rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center text-slate-400">أنشئ محطة أولاً لإدارة الفواتير.</div></DashboardLayout>;
 
   return <DashboardLayout><div className="space-y-6 pb-12"><header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><ReceiptText className="h-4 w-4" />الدورة المالية</div><h1 className="mt-1 text-2xl font-extrabold text-white">الفواتير</h1><p className="mt-2 text-sm text-slate-400">راجع الفواتير الصادرة، وفلاترها، وحالات السداد والإشعارات. تصدر الفاتورة تلقائياً بعد اعتماد القراءة وفق مسار التشغيل.</p></div><select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); resetInvoicePage(); setSelectedBulkSendId(null); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" key={site.id} value={site.id}>{site.name}</option>)}</select></header>
