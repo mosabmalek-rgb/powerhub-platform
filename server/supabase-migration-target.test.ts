@@ -9,6 +9,10 @@ function directUri(projectRef, suffix = "") {
   return `postgresql://postgres:secret%2Fpassword@db.${projectRef}.supabase.co:5432/postgres${suffix}`;
 }
 
+function poolerUri(projectRef, suffix = "") {
+  return `postgresql://postgres.${projectRef}:secret%40password@aws-0-us-east-1.pooler.supabase.com:5432/postgres${suffix}`;
+}
+
 describe("Supabase migration release target guard", () => {
   it("accepts the matching direct database URI for staging", () => {
     expect(assertSupabaseMigrationTarget({
@@ -19,6 +23,32 @@ describe("Supabase migration release target guard", () => {
       projectRef: SUPABASE_PROJECT_BY_TARGET.staging,
       hostname: `db.${SUPABASE_PROJECT_BY_TARGET.staging}.supabase.co`,
     });
+  });
+
+  it("accepts project-bound session pooler URIs for both targets", () => {
+    for (const target of ["staging", "production"]) {
+      const ref = SUPABASE_PROJECT_BY_TARGET[target];
+      expect(assertSupabaseMigrationTarget({
+        target, projectRef: ref, databaseUrl: poolerUri(ref, "?sslmode=require"),
+      })).toEqual({ projectRef: ref, hostname: "aws-0-us-east-1.pooler.supabase.com" });
+    }
+  });
+
+  it("rejects cross-project pooler credentials, transaction mode, and URI overrides", () => {
+    const ref = SUPABASE_PROJECT_BY_TARGET.staging;
+    const other = SUPABASE_PROJECT_BY_TARGET.production;
+    for (const uri of [
+      poolerUri(other),
+      poolerUri(ref).replace(`postgres.${ref}`, `postgres.${other}`),
+      poolerUri(ref).replace(":5432/", ":6543/"),
+      poolerUri(ref).replace("aws-0-us-east-1.pooler.supabase.com", "other.example.com"),
+      poolerUri(ref).replace("secret%40password", "secret@password"),
+      poolerUri(ref, "?host=other.example.com"),
+    ]) {
+      expect(() => assertSupabaseMigrationTarget({
+        target: "staging", projectRef: ref, databaseUrl: uri,
+      })).toThrow();
+    }
   });
 
   it("rejects URL options that disable TLS or permit an insecure fallback", () => {
@@ -49,7 +79,7 @@ describe("Supabase migration release target guard", () => {
       target: "staging",
       projectRef: SUPABASE_PROJECT_BY_TARGET.staging,
       databaseUrl: directUri(SUPABASE_PROJECT_BY_TARGET.production),
-    })).toThrow("SUPABASE_DB_URL host must match");
+    })).toThrow("SUPABASE_DB_URL host and username must match");
   });
 
   it("rejects non-postgres databases and malformed connection strings without leaking credentials", () => {
@@ -62,7 +92,7 @@ describe("Supabase migration release target guard", () => {
       target: "production",
       projectRef: SUPABASE_PROJECT_BY_TARGET.production,
       databaseUrl: "postgresql://secret-password",
-    })).toThrow("host must match");
+    })).toThrow("credentials must be percent-encoded");
     expect(() => assertSupabaseMigrationTarget({
       target: "production",
       projectRef: SUPABASE_PROJECT_BY_TARGET.production,
