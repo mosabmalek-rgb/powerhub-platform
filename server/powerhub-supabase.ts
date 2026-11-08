@@ -88,7 +88,7 @@ type SupabaseAccountTransaction = {
 
 export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
   const { data, error } = await supabaseAdmin().from("sites")
-    .select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)")
+    .select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!sites_tenant_id_fkey(name)")
     .eq("id", siteId).maybeSingle();
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفرع من Supabase." });
   if (!data) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
@@ -419,7 +419,7 @@ export async function requireSupabaseAllBranchesRole(
 export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmin: boolean): Promise<SupabaseSite[]> {
   const admin = supabaseAdmin();
   if (isPlatformAdmin) {
-    const { data, error } = await admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").order("created_at", { ascending: false });
+    const { data, error } = await admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!sites_tenant_id_fkey(name)").order("created_at", { ascending: false });
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع من Supabase." });
     return (data ?? []).map((site) => ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, invoiceDueHours: Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(site.invoice_due_days ?? 14) * 24))), createdAt: new Date(site.created_at) }));
   }
@@ -441,10 +441,18 @@ export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmi
     .map(Number);
   const requestedIds = Array.from(new Set(assignedSiteIds));
   const [ownedResult, assignedResult] = await Promise.all([
-    ownerTenantIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").in("tenant_id", ownerTenantIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-    requestedIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").in("id", requestedIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    ownerTenantIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!sites_tenant_id_fkey(name)").in("tenant_id", ownerTenantIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    requestedIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!sites_tenant_id_fkey(name)").in("id", requestedIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (ownedResult.error || assignedResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع المتاحة من Supabase." });
+  if (ownedResult.error || assignedResult.error) {
+    // Structured diagnostics only: never log user/tenant IDs, request headers or credentials.
+    console.error("[PowerHub sites PostgREST lookup failed]", {
+      stage: "accessible_sites",
+      ownedCode: ownedResult.error?.code ?? null,
+      assignedCode: assignedResult.error?.code ?? null,
+    });
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع المتاحة من Supabase." });
+  }
   return Array.from(new Map([...(ownedResult.data ?? []), ...(assignedResult.data ?? [])].map((site) => [Number(site.id), ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, invoiceDueHours: Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(site.invoice_due_days ?? 14) * 24))), createdAt: new Date(site.created_at) })])).values());
 }
 
