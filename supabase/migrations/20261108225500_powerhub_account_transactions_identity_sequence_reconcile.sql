@@ -40,7 +40,7 @@ DECLARE
   v_next bigint;
   v_expected_next bigint;
 BEGIN
-  SELECT pg_catalog.coalesce(pg_catalog.max(id),0)
+  SELECT coalesce(max(id),0)
     INTO v_max_id FROM public.account_transactions;
   SELECT last_value,is_called
     INTO v_last,v_is_called FROM public.account_transactions_id_seq;
@@ -49,7 +49,7 @@ BEGIN
   END IF;
 
   v_expected_next := CASE WHEN v_is_called THEN v_last+1 ELSE v_last END;
-  v_next := pg_catalog.greatest(v_expected_next,v_max_id+1);
+  v_next := greatest(v_expected_next,v_max_id+1);
   IF v_next > v_expected_next THEN
     EXECUTE pg_catalog.format(
       'ALTER SEQUENCE public.account_transactions_id_seq RESTART WITH %s',v_next
