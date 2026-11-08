@@ -46,41 +46,20 @@ jobs:
       - name: Install the exact locked dependency tree without lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Download checksum-pinned Syft with independent release mirror fallback
+      - name: Generate CycloneDX SBOM using digest-pinned official Syft image
         shell: bash
         run: |
           set -euo pipefail
-          # Official Syft v1.55.0 linux/amd64 archive SHA-256 from the release assets.
-          # Keep this digest pinned: an untrusted mirror must never control it.
-          version=1.55.0
-          archive="syft_${version}_linux_amd64.tar.gz"
-          expected_sha256="bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d"
-          official="https://github.com/anchore/syft/releases/download/v${version}/${archive}"
-          mirror="https://downloads.sourceforge.net/project/syft.mirror/v${version}/${archive}"
-          tmpdir="$(mktemp -d)"
-          trap 'rm -rf "$tmpdir"' EXIT
-          if ! curl --fail --location --silent --show-error \
-              --retry 2 --retry-all-errors --retry-delay 3 \
-              --connect-timeout 15 --max-time 120 \
-              --output "$tmpdir/$archive" "$official"; then
-            echo "::warning::Official Syft release download failed; trying independently checksum-verified mirror."
-            curl --fail --location --silent --show-error \
-              --retry 5 --retry-all-errors --retry-delay 4 \
-              --connect-timeout 15 --max-time 120 \
-              --output "$tmpdir/$archive" "$mirror"
-          fi
-          echo "$expected_sha256  $tmpdir/$archive" | sha256sum --check --status
-          tar -xzf "$tmpdir/$archive" -C "$tmpdir" syft
-          install -m 0755 "$tmpdir/syft" "$RUNNER_TEMP/syft"
-          "$RUNNER_TEMP/syft" version
-
-      - name: Generate CycloneDX SBOM
-        shell: bash
-        env:
-          SYFT_JAVASCRIPT_SEARCH_REMOTE_LICENSES: "true"
-        run: |
-          set -euo pipefail
-          "$RUNNER_TEMP/syft" scan dir:. -o cyclonedx-json=powerhub.cdx.json
+          # Official Anchore GHCR v1.55.0 multi-platform release manifest.
+          # Immutable digest avoids GitHub Releases 504s and tag drift.
+          image="ghcr.io/anchore/syft@sha256:4cc92b64ca74ffca4c94d4c8fcc01f217731375300be14d0b6eeb2e82eaa110a"
+          docker pull "$image"
+          docker run --rm "$image" version
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env SYFT_JAVASCRIPT_SEARCH_REMOTE_LICENSES=true \
+            --volume "$PWD:/workspace:ro" \
+            "$image" scan dir:/workspace -o cyclonedx-json > powerhub.cdx.json
           test -s powerhub.cdx.json
 
       - name: Validate SBOM coverage and license metadata
