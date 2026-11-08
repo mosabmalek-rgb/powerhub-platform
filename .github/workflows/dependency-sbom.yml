@@ -46,26 +46,30 @@ jobs:
       - name: Install the exact locked dependency tree without lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Download pinned Syft with bounded retries and checksum verification
+      - name: Download checksum-pinned Syft with independent release mirror fallback
         shell: bash
         run: |
           set -euo pipefail
-          version=1.54.0
+          # Official Syft v1.55.0 linux/amd64 archive SHA-256 from the release assets.
+          # Keep this digest pinned: an untrusted mirror must never control it.
+          version=1.55.0
           archive="syft_${version}_linux_amd64.tar.gz"
-          checksums="syft_${version}_checksums.txt"
-          base="https://github.com/anchore/syft/releases/download/v${version}"
+          expected_sha256="bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d"
+          official="https://github.com/anchore/syft/releases/download/v${version}/${archive}"
+          mirror="https://downloads.sourceforge.net/project/syft.mirror/v${version}/${archive}"
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
-          for filename in "$checksums" "$archive"; do
-            curl --fail --location --silent --show-error \
-              --retry 8 --retry-all-errors --retry-delay 4 \
+          if ! curl --fail --location --silent --show-error \
+              --retry 2 --retry-all-errors --retry-delay 3 \
               --connect-timeout 15 --max-time 120 \
-              --output "$tmpdir/$filename" "$base/$filename"
-          done
-          (
-            cd "$tmpdir"
-            grep -F "  $archive" "$checksums" | sha256sum --check --status
-          )
+              --output "$tmpdir/$archive" "$official"; then
+            echo "::warning::Official Syft release download failed; trying independently checksum-verified mirror."
+            curl --fail --location --silent --show-error \
+              --retry 5 --retry-all-errors --retry-delay 4 \
+              --connect-timeout 15 --max-time 120 \
+              --output "$tmpdir/$archive" "$mirror"
+          fi
+          echo "$expected_sha256  $tmpdir/$archive" | sha256sum --check --status
           tar -xzf "$tmpdir/$archive" -C "$tmpdir" syft
           install -m 0755 "$tmpdir/syft" "$RUNNER_TEMP/syft"
           "$RUNNER_TEMP/syft" version
