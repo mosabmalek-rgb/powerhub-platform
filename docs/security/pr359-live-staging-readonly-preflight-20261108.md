@@ -33,3 +33,11 @@ Target Supabase project: `iyuryuhaylhisjfcrwkz`.
 ## Change-control declaration
 
 This checkpoint is source documentation only. No merge, force push, database DDL/DML, schema_migrations repair, financial or SMS operations, or Vercel deployment was carried out by the verification.
+
+## Follow-up: exact supplier site-scope prerequisites (source HEAD `485b4bc6fff338bff7c172cb53c0f0e8787481a5`)
+
+- GitHub PR #359 remained `OPEN / DRAFT / mergeable`, with `behind main=0`; all four primary CI workflows for this exact SHA completed successfully.
+- Ran a **read-only** `pg_class` / `pg_attribute` comparison against the seven exact supplier tables and their required columns as listed by the **first** security migration's `$preflight$` block. Every table exists, all seven have RLS enabled, and the query returned an empty list of missing columns for every table.
+- Ran a **read-only** catalog dependency query: `private.powerhub_has_site_access(bigint,bigint)`, `public.users`, `private.platform_capability_policies`, `auth.uid()`, `private.powerhub_has_platform_capability(text)`, `private.powerhub_has_company_account_capability(bigint,bigint,text)`, `public.powerhub_enforce_field_user_quota()`, `public.powerhub_resolve_tenant_feature_policy(bigint,text)`, and `private.chat_rls_can_select_conversation(bigint,bigint)` all exist. All four specified `public.users` identity columns exist.
+- Re-read the forward-only Phase D financial-details and supplier-payables-aging migration sources: both guard allocation-to-supplier/site integrity and reject inconsistent references. These files have not been executed as part of this follow-up.
+- These checks are **prerequisite/catalog evidence**, not a test of SQL apply transactions, actual end-user credentials, object-level equivalence for the historical migration crosswalk, or a Staging release approval. The nine release candidates remain blocked pending the gates described above.
