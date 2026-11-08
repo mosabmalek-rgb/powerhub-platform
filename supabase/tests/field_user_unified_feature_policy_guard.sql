@@ -38,6 +38,9 @@ CREATE TABLE public.staff_profiles (
 );
 
 \ir ../migrations/20260922123000_powerhub_unified_field_user_policy.sql
+\ir ../migrations/20261108111500_powerhub_field_user_policy_guard_update_and_concurrency.sql
+\ir ../migrations/20261108111500_powerhub_field_user_policy_guard_update_and_concurrency.sql
+
 
 -- Service-owned trigger invocation is allowed; direct browser EXECUTE is not.
 DO $acl$
