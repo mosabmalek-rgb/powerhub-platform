@@ -114,6 +114,38 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.from).not.toHaveBeenCalled();
   });
 
+  it("routes authorized supplier-directory reads through the tenant-scoped admin client", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockClear();
+    const rows = [{ id: 9, tenant_id: 44, name: "Approved Supplier", is_active: true }];
+    const supplierQuery: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      or: vi.fn().mockReturnThis(),
+      then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+        Promise.resolve({ data: rows, error: null }).then(resolve, reject),
+    };
+    state.from.mockReset().mockReturnValue(supplierQuery);
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listSuppliers;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 22 } },
+      input: { siteId: 7, includeInactive: false, search: "Approved" },
+    });
+
+    expect(result).toEqual(rows);
+    expect(state.access).toHaveBeenCalledWith(22, 7, expect.any(Array), "viewSuppliers");
+    expect(state.from).toHaveBeenCalledWith("suppliers");
+    expect(supplierQuery.eq).toHaveBeenCalledWith("tenant_id", 44);
+    expect(supplierQuery.eq).toHaveBeenCalledWith("is_active", true);
+    expect(supplierQuery.order).toHaveBeenCalledWith("name", { ascending: true });
+    expect(supplierQuery.limit).toHaveBeenCalledWith(500);
+    expect(supplierQuery.or).toHaveBeenCalledWith("name.ilike.%Approved%,supplier_code.ilike.%Approved%,phone.ilike.%Approved%");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
   it("requires supplier-management capability before creating a supplier", async () => {
     state.from.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
