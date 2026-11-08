@@ -345,6 +345,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres canonical_tenant_rls_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname canonical_tenant_rls_test --set ON_ERROR_STOP=1 --file supabase/tests/canonical_tenant_rls_policy_reconcile.sql
 
+      - name: Verify field-user feature policy enforces disabled, ineligible, and per-tenant limits
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres field_user_feature_policy_guard_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname field_user_feature_policy_guard_test --set ON_ERROR_STOP=1 --file supabase/tests/field_user_unified_feature_policy_guard.sql
+
       - name: Verify chat RLS support access stays within support conversations
         env:
           PGPASSWORD: postgres
