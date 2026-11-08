@@ -20,6 +20,7 @@ import { executeReadyOperations, type SyncTransportResult } from "@/lib/offline-
 import { withOfflineSyncLock } from "@/lib/offline-sync-lock";
 import { removeOfflineConflict, upsertOfflineConflict } from "@/lib/offline-workspace-db";
 import { trpc } from "@/lib/trpc";
+import { readCachedWorkspaceSites } from "@/lib/workspace-sites-cache";
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { formatReportDate } from "@/lib/report-design-system";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
@@ -45,7 +46,12 @@ export default function MeterReadingsPage() {
   const { isAuthenticated, loading, user } = useAuth();
   const utils = trpc.useUtils();
   const reserveOfflineInvoiceNumbers = trpc.powerhub.offlineNumbering.reserve.useMutation();
-  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+    initialData: user?.id ? readCachedWorkspaceSites(user.id) ?? undefined : undefined,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
+  });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const [queuedReadings, setQueuedReadings] = useState<QueuedReading[]>([]);
   const { isOnline, reconnectGeneration } = usePowerHubConnectivity();
@@ -342,6 +348,9 @@ export default function MeterReadingsPage() {
 
   if (loading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><div className="mx-auto mt-12 max-w-xl rounded-[28px] border border-[#F5B800]/20 bg-[#111823] p-8 text-center shadow-panel"><Gauge className="mx-auto h-8 w-8 text-[#F5B800]" /><h1 className="mt-5 text-xl font-extrabold text-white">سجّل الدخول لتسجيل القراءات</h1><p className="mt-3 leading-7 text-slate-400">تحتاج قراءة المشترك وصورتها إلى مستخدم مصرح له وفرع محدد.</p><Button onClick={() => startLogin()} className="mt-6 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تسجيل الدخول</Button></div></DashboardLayout>;
+  if (sitesQuery.isPending && !sitesQuery.data?.length) return <DashboardLayout><div role="status" className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
+  if (sitesQuery.isError && (sitesQuery.error?.data?.code === "UNAUTHORIZED" || sitesQuery.error?.data?.code === "FORBIDDEN" || !sitesQuery.data?.length)) return <DashboardLayout><Card role="alert" className="mx-auto mt-12 max-w-xl border-amber-300/30 bg-[#111823]"><CardContent className="p-8 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-3 text-sm text-slate-400">تعذر التحقق من بيانات الفروع مؤقتاً؛ لم تُحذف بياناتك.</p><Button variant="outline" onClick={() => void sitesQuery.refetch()} className="mt-5">إعادة المحاولة</Button></CardContent></Card></DashboardLayout>;
+  if (!sitesQuery.data?.length && (sitesQuery.isFetching || !sitesQuery.isSuccess)) return <DashboardLayout><div role="status" className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!sitesQuery.data?.length) return <DashboardLayout><div className="mx-auto mt-12 max-w-xl rounded-[28px] border border-white/10 bg-[#111823] p-8 text-center shadow-panel"><h1 className="text-xl font-extrabold text-white">أنشئ فرعاً أولاً</h1><p className="mt-3 text-slate-400">المشتركون والقراءات مرتبطون بفرع الخدمة.</p><Button onClick={() => setLocation("/subscribers")} className="mt-6 bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">فتح المشتركين</Button></div></DashboardLayout>;
 
   return <DashboardLayout><div className="space-y-6 pb-12"><header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Gauge className="h-4 w-4" />قراءات المنصة</div><h1 className="mt-1 text-2xl font-extrabold text-white">إضافة قراءة</h1><p className="mt-2 text-sm text-slate-400">تُحفظ قراءة المنصة وتُعتمد وتصدر فاتورتها تلقائيًا؛ أما قراءات التطبيق الميداني فتُراجع جماعيًا من تبويب الميدان.</p></div><div className="flex items-center gap-3"><span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${isOnline ? "bg-emerald-400/10 text-emerald-300" : "bg-amber-400/10 text-amber-300"}`}>{isOnline ? <Wifi className="h-3.5 w-3.5" /> : <CloudOff className="h-3.5 w-3.5" />}{isOnline ? "متصل" : "دون اتصال"}</span><select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => setSiteId(Number(event.target.value))} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" key={site.id} value={site.id}>{site.name}</option>)}</select></div></header>
