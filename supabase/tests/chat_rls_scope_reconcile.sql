@@ -163,6 +163,29 @@ FOR SELECT TO authenticated USING (
 \ir ../migrations/20261101083627_powerhub_chat_rls_scope_reconcile.sql
 \ir ../migrations/20261101083656_powerhub_chat_support_conversation_scope_hardening.sql
 \ir ../migrations/20261101083656_powerhub_chat_support_conversation_scope_hardening.sql
+-- Reproduce Production's broader metadata policies after the earlier Staging
+-- reconciliation, so this forward migration must actually close the gap.
+DROP POLICY chat_conversation_tags_select_access ON public.chat_conversation_tags;
+CREATE POLICY chat_conversation_tags_select_access ON public.chat_conversation_tags
+FOR SELECT TO authenticated USING (
+  private.powerhub_has_platform_capability('manageSupportChat')
+  OR EXISTS (SELECT 1 FROM public.chat_participants cp
+    WHERE cp.conversation_id=chat_conversation_tags.conversation_id
+      AND cp.user_id=powerhub_private.current_user_id() AND cp.left_at IS NULL)
+);
+DROP POLICY chat_assignments_select_support_only ON public.chat_support_assignments;
+CREATE POLICY chat_assignments_select_support_only ON public.chat_support_assignments
+FOR SELECT TO authenticated USING (private.powerhub_has_platform_capability('manageSupportChat'));
+DROP POLICY chat_ticket_events_select_support ON public.chat_ticket_events;
+CREATE POLICY chat_ticket_events_select_support ON public.chat_ticket_events
+FOR SELECT TO authenticated USING (private.powerhub_has_platform_capability('manageSupportChat'));
+DROP POLICY chat_support_feedback_select_own_or_support ON public.chat_support_feedback;
+CREATE POLICY chat_support_feedback_select_own_or_support ON public.chat_support_feedback
+FOR SELECT TO authenticated USING (
+  user_id=powerhub_private.current_user_id()
+  OR private.powerhub_has_platform_capability('manageSupportChat')
+);
+
 \ir ../migrations/20261108120000_powerhub_chat_message_support_scope_read_hardening.sql
 \ir ../migrations/20261108120000_powerhub_chat_message_support_scope_read_hardening.sql
 
