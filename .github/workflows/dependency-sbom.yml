@@ -46,16 +46,38 @@ jobs:
       - name: Install the exact locked dependency tree without lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Download pinned Syft with bounded retries and checksum verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=1.54.0
+          archive="syft_${version}_linux_amd64.tar.gz"
+          checksums="syft_${version}_checksums.txt"
+          base="https://github.com/anchore/syft/releases/download/v${version}"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          for filename in "$checksums" "$archive"; do
+            curl --fail --location --silent --show-error \
+              --retry 8 --retry-all-errors --retry-delay 4 \
+              --connect-timeout 15 --max-time 120 \
+              --output "$tmpdir/$filename" "$base/$filename"
+          done
+          (
+            cd "$tmpdir"
+            grep -F "  $archive" "$checksums" | sha256sum --check --status
+          )
+          tar -xzf "$tmpdir/$archive" -C "$tmpdir" syft
+          install -m 0755 "$tmpdir/syft" "$RUNNER_TEMP/syft"
+          "$RUNNER_TEMP/syft" version
+
       - name: Generate CycloneDX SBOM
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        shell: bash
         env:
           SYFT_JAVASCRIPT_SEARCH_REMOTE_LICENSES: "true"
-        with:
-          path: .
-          format: cyclonedx-json
-          output-file: powerhub.cdx.json
-          upload-artifact: false
-          upload-release-assets: false
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/syft" scan dir:. -o cyclonedx-json=powerhub.cdx.json
+          test -s powerhub.cdx.json
 
       - name: Validate SBOM coverage and license metadata
         shell: bash
