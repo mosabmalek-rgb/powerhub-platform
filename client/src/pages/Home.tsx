@@ -558,6 +558,14 @@ export function WorkspaceHome() {
   if (!isAuthenticated) return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى تسجيل الدخول…</h1></div></main>;
   if (user?.mustChangePassword || user?.role === "admin") return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ فتح المساحة المصرح بها…</h1></div></main>;
 
+  // No site context is not equivalent to an empty tenant while the protected
+  // site lookup is pending or has failed. Avoid leaking siteId=0 into dashboard
+  // diagnostics or showing financial metrics as if they were confirmed empty.
+  if (!siteId && (sitesQuery.isPending || sitesQuery.isFetching)) return <DashboardLayout><div role="status" className="grid min-h-[55vh] place-items-center text-slate-400">جارٍ تحميل فروع حسابك وبيانات لوحة التحكم…</div></DashboardLayout>;
+  if (!siteId && sitesQuery.isError) return <DashboardLayout><Card role="alert" className="mx-auto mt-12 max-w-xl border-amber-300/30 bg-[#111823]"><CardContent className="p-8 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-3 text-sm text-slate-400">تعذر التحقق من فرع التشغيل حالياً؛ بياناتك لم تُحذف.</p><Button variant="outline" className="mt-5" onClick={() => void sitesQuery.refetch()}>إعادة المحاولة</Button></CardContent></Card></DashboardLayout>;
+  if (!siteId && !sitesQuery.isSuccess) return <DashboardLayout><div role="status" className="grid min-h-[55vh] place-items-center text-slate-400">جارٍ التحقق من فروع حسابك…</div></DashboardLayout>;
+  if (!siteId) return <DashboardLayout><Card className="mx-auto mt-12 max-w-xl border-white/10 bg-[#111823]"><CardContent className="p-8 text-center text-slate-400">لا توجد فروع متاحة لهذا الحساب حالياً.</CardContent></Card></DashboardLayout>;
+
   return <DashboardLayout><div className="space-y-6 pb-12">
     <header className="flex flex-col gap-5 rounded-[24px] border border-white/8 bg-[#111823]/75 p-5 shadow-panel backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-6">
       <div className="flex items-start gap-4"><div className="mt-0.5 lg:hidden"><PowerHubLogo compact /></div><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Zap className="h-4 w-4 fill-current" />مركز الأداء المالي</div><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">الفوترة والتحصيل تحت السيطرة</h1><p className="mt-2 text-sm text-slate-400">تابع المستحقات والتحصيل والمتأخرات وحالة الفروع من شاشة واحدة.</p></div></div>
