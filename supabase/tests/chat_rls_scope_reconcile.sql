@@ -368,7 +368,8 @@ BEGIN
      OR (SELECT count(*) FROM public.chat_bot_handoffs)<>0
      OR (SELECT count(*) FROM public.chat_message_attachments)<>0
      OR (SELECT count(*) FROM public.chat_messages)<>0
-     OR (SELECT count(*) FROM public.chat_conversation_tags)<>0 THEN
+     OR (SELECT count(*) FROM public.chat_conversation_tags)<>0
+     OR (SELECT count(*) FROM public.chat_support_feedback)<>0 THEN
     RAISE EXCEPTION 'CHAT_REVOKED_MEMBERSHIP_ACCESS_REMAINS';
   END IF;
 END
