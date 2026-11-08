@@ -16,6 +16,7 @@ import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter"
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { trpc } from "@/lib/trpc";
+import { readCachedWorkspaceSites } from "@/lib/workspace-sites-cache";
 import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search";
 import { enqueueOfflineSubscriberCreateWithNumber, enqueueOfflineWork } from "@/lib/offline-work-queue";
@@ -50,7 +51,12 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const reserveSubscriberNumbers = trpc.powerhub.offlineNumbering.reserve.useMutation();
-  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+    initialData: user?.id ? readCachedWorkspaceSites(user.id) ?? undefined : undefined,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
+  });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const routeSearchParams = useMemo(() => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search), []);
   const initialDebtorPeriod = useMemo(() => parseDashboardKpiPeriod(routeSearchParams.toString()), [routeSearchParams]);
@@ -467,7 +473,11 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   if (loading) return wrapPage(<Loading />);
   if (!isAuthenticated) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
   if (!user) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
-  if (sitesQuery.isError && !sitesQuery.data?.length) return wrapPage(<Card role="alert" className="mx-auto mt-8 max-w-2xl border-amber-300/30 bg-amber-300/[.06]"><CardContent className="p-6 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-2 text-sm leading-6 text-slate-400">لم نتمكن من التحقق من بيانات الفرع الآن؛ هذا لا يعني أن بياناتك حُذفت.</p><Button type="button" variant="outline" className="mt-4 border-amber-300/30 text-amber-100" onClick={() => void sitesQuery.refetch()}>إعادة المحاولة</Button></CardContent></Card>);
+  if (sitesQuery.isPending && !sitesQuery.data?.length) return wrapPage(<Loading />);
+  if (sitesQuery.isError && (sitesQuery.error?.data?.code === "UNAUTHORIZED" || sitesQuery.error?.data?.code === "FORBIDDEN" || !sitesQuery.data?.length)) return wrapPage(<Card role="alert" className="mx-auto mt-8 max-w-2xl border-amber-300/30 bg-amber-300/[.06]"><CardContent className="p-6 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-2 text-sm leading-6 text-slate-400">لم نتمكن من التحقق من بيانات الفرع الآن؛ هذا لا يعني أن بياناتك حُذفت.</p><Button type="button" variant="outline" className="mt-4 border-amber-300/30 text-amber-100" onClick={() => void sitesQuery.refetch()}>إعادة المحاولة</Button></CardContent></Card>);
+  // A temporary branch lookup failure must never be reported as an empty workspace.
+  if (!sitesQuery.data?.length && sitesQuery.isFetching) return wrapPage(<Loading />);
+  if (!sitesQuery.data?.length && !sitesQuery.isSuccess) return wrapPage(<Loading />);
   if (!sitesQuery.data?.length) return wrapPage(<EmptySetup />);
   const title = kind === "subscribers" ? "المشتركون" : "المحطات والمولدات";
   const Icon = kind === "subscribers" ? UsersRound : Bolt;
