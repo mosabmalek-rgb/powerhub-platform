@@ -67,12 +67,13 @@ BEGIN
       AND p.id <> coalesce(NEW.id, 0)
   ) INTO v_existing;
 
-  IF TG_OP = 'UPDATE'
-     AND OLD.tenant_id = NEW.tenant_id
-     AND OLD.user_id = NEW.user_id
-     AND OLD.role = 'technician'
-     AND OLD.is_active IS TRUE THEN
-    v_existing := true;
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.tenant_id = NEW.tenant_id
+       AND OLD.user_id = NEW.user_id
+       AND OLD.role = 'technician'
+       AND OLD.is_active IS TRUE THEN
+      v_existing := true;
+    END IF;
   END IF;
 
   IF NOT v_existing AND (
