@@ -92,7 +92,7 @@ describe("Supabase migration release target guard", () => {
       target: "production",
       projectRef: SUPABASE_PROJECT_BY_TARGET.production,
       databaseUrl: "postgresql://secret-password",
-    })).toThrow("credentials must be percent-encoded");
+    })).toThrow("host and username must match");
     expect(() => assertSupabaseMigrationTarget({
       target: "production",
       projectRef: SUPABASE_PROJECT_BY_TARGET.production,
