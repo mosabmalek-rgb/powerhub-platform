@@ -346,7 +346,7 @@ export default function CompanyAccountsPage() {
   };
 
   const exportTransactionsExcel = async () => {
-    if (!selectedAccount || totalTransactions === 0 || exportingTransactions) return;
+    if (!selectedAccount || exportingTransactions) return;
     setExportingTransactions(true);
     setExportProgress(0);
     try {
@@ -400,7 +400,7 @@ export default function CompanyAccountsPage() {
   };
 
   const exportTransactionsPdf = async () => {
-    if (!selectedAccount || totalTransactions === 0 || exportingTransactions) return;
+    if (!selectedAccount || exportingTransactions) return;
     // Open synchronously within the click gesture, before awaiting the ledger.
     // Native printing is paginated, text-selectable, and avoids html2canvas
     // allocating one enormous image for thousands of account transactions.
@@ -417,6 +417,8 @@ export default function CompanyAccountsPage() {
         return toast.error("لا توجد حركات مطابقة للتصدير.");
       }
       const accountNames = new Map(rows.map((account) => [account.id, account.name]));
+      const exportedIncoming = rowsForExport.reduce((total, row) => total + (isIncomingMovement(row.transactionType) ? Number(row.amount) || 0 : 0), 0);
+      const exportedOutgoing = rowsForExport.reduce((total, row) => total + (isOutgoingMovement(row.transactionType) ? Number(row.amount) || 0 : 0), 0);
       const body = rowsForExport.map((row) => {
         const amount = Number(row.amount) || 0;
         const counterpart = row.relatedAccountId
@@ -445,9 +447,9 @@ th{background:#233448;color:#fff;font-weight:bold}thead{display:table-header-gro
 tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
 @media print{body{margin:0}}
 </style></head><body><h1>${escapeHtml("كشف حركات حساب " + selectedAccount.name)}</h1>
-<p>عدد الحركات: ${rowsForExport.length.toLocaleString("ar")} · إجمالي الوارد: ${money(transactionSummary.incoming)} · إجمالي الصادر: ${money(transactionSummary.outgoing)}</p>
+<p>عدد الحركات: ${rowsForExport.length.toLocaleString("ar")} · إجمالي الوارد: ${money(exportedIncoming)} · إجمالي الصادر: ${money(exportedOutgoing)}</p>
 <table><thead><tr><th>التاريخ</th><th>رقم الحركة</th><th>المرجع</th><th>البيان</th><th>النوع</th><th>الحساب المقابل</th><th>وارد</th><th>صادر</th><th>الرصيد بعد الحركة</th></tr></thead>
-<tbody>${body}</tbody></table></body></html>`);
+<tbody>${body}</tbody></table><p>للحفظ PDF اختر «حفظ بتنسيق PDF» من نافذة الطباعة، أو اضغط Ctrl+P.</p></body></html>`);
       popup.document.close();
       popup.focus();
       popup.print();
@@ -608,7 +610,7 @@ tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
               </CardContent>
             </Card>
 
-            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات</h2><p className="mt-1 text-xs text-slate-500">يتم تحميل 10 حركات في كل صفحة؛ الملخص والرصيد بعد الحركة محسوبان في قاعدة البيانات.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={totalTransactions === 0 || exportingTransactions || historyQuery.isFetching} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "Excel"}</Button><Button size="sm" variant="outline" disabled={totalTransactions === 0 || exportingTransactions || historyQuery.isFetching} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "طباعة / PDF"}</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); resetTransactionPagination(); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
+            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات</h2><p className="mt-1 text-xs text-slate-500">يتم تحميل 10 حركات في كل صفحة؛ الملخص والرصيد بعد الحركة محسوبان في قاعدة البيانات.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!selectedAccount || exportingTransactions} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "Excel"}</Button><Button size="sm" variant="outline" disabled={!selectedAccount || exportingTransactions} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "طباعة / PDF"}</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); resetTransactionPagination(); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
 <label className="grid gap-1 text-xs text-slate-400"><span>بحث بالوصف أو رقم الحركة أو التاريخ</span><Input value={transactionSearch} onChange={(event) => { setTransactionSearch(event.target.value); resetTransactionPagination(); }} placeholder="ابحث في الحركات…" className="border-white/10 bg-[#0D1117] text-white" /></label>
 <label className="grid gap-1 text-xs text-slate-400"><span>من تاريخ</span><Input type="date" dir="ltr" value={movementFromDate} onChange={(event) => { setMovementFromDate(event.target.value); resetTransactionPagination(); }} className="border-white/10 bg-[#0D1117] text-white" /></label>

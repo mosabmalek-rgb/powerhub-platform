@@ -43,6 +43,9 @@ describe("financial UX follow-up regression contracts", () => {
     expect(accounts).toContain("fetchAllTransactionsForExport(5_000)");
     expect(accounts).toContain("window.open(\"\", \"_blank\")");
     expect(accounts).toContain("popup.print()");
+    expect(accounts).toContain("disabled={!selectedAccount || exportingTransactions}");
+    expect(accounts).toContain("const exportedIncoming = rowsForExport.reduce");
+    expect(accounts).toContain("const exportedOutgoing = rowsForExport.reduce");
     expect(accounts).not.toContain('await downloadReportHtmlAsPdf(root, "حركات-"');
   });
 });
