@@ -163,6 +163,8 @@ FOR SELECT TO authenticated USING (
 \ir ../migrations/20261101083627_powerhub_chat_rls_scope_reconcile.sql
 \ir ../migrations/20261101083656_powerhub_chat_support_conversation_scope_hardening.sql
 \ir ../migrations/20261101083656_powerhub_chat_support_conversation_scope_hardening.sql
+\ir ../migrations/20261108120000_powerhub_chat_message_support_scope_read_hardening.sql
+\ir ../migrations/20261108120000_powerhub_chat_message_support_scope_read_hardening.sql
 
 INSERT INTO public.users(id,auth_user_id,platform_role,account_status) VALUES
   (1,'11111111-1111-4111-8111-111111111111',NULL,'active'),
