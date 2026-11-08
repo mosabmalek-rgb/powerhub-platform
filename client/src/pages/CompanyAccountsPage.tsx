@@ -69,6 +69,7 @@ export default function CompanyAccountsPage() {
   const [transactionCursors, setTransactionCursors] = useState<string[]>([""]);
   const [historySummary, setHistorySummary] = useState<CompanyAccountHistorySummary | null>(null);
   const [exportingTransactions, setExportingTransactions] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
   const deferredTransactionSearch = useDeferredValue(transactionSearch);
   const [selected, setSelected] = useState<number | null>(null);
   const [managementExpanded, setManagementExpanded] = useState(false);
@@ -294,10 +295,22 @@ export default function CompanyAccountsPage() {
 
   const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(labels[row.accountType]??row.accountType)}</td><td>${escapeHtml(row.phoneNumber??"—")}</td><td>${escapeHtml(row.linkedSites.map(site=>site.siteName).join("، ")||"—")}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
 
-  const fetchAllTransactionsForExport = async () => {
+  const fetchAllTransactionsForExport = async (maximumRows = 50_000) => {
     if (!selectedAccount) return [];
+    if (totalTransactions > maximumRows) {
+      throw new Error(`يتجاوز عدد الحركات حد التصدير الآمن (${maximumRows.toLocaleString("ar")} حركة). حدد فترة زمنية أضيق.`);
+    }
+    // A valid cursor beyond the newest transaction skips the expensive first-page
+    // chart and count scans. The existing UI already fetched the authoritative
+    // summary, while the database still calculates every row's historical balance.
+    // This is a read-only keyset cursor; it does not change the underlying RPC.
+    const firstCursor = btoa(JSON.stringify({
+      at: "9999-12-31T23:59:59Z",
+      id: Number.MAX_SAFE_INTEGER,
+    })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
     const allRows: typeof transactionRows = [];
-    let cursor: string | undefined;
+    let cursor: string | undefined = firstCursor;
+    let pageNumber = 0;
     do {
       const page = await utils.powerhub.companyAccounts.history.fetch({
         siteId,
@@ -314,11 +327,20 @@ export default function CompanyAccountsPage() {
         cursor,
         limit: 200,
       });
+      if (!page.items.length && page.hasNext) throw new Error("أعاد الخادم صفحة فارغة مع وجود حركات إضافية؛ لم يُنشأ كشف ناقص.");
       allRows.push(...page.items);
-      cursor = page.nextCursor ?? undefined;
-      if (allRows.length > 50000) {
-        throw new Error("يتجاوز كشف الحركات حد التصدير الآمن البالغ 50 ألف حركة؛ استخدم فترة زمنية أضيق.");
+      if (allRows.length > maximumRows || (allRows.length === maximumRows && page.hasNext)) {
+        throw new Error(`تجاوز سجل الحساب حد التصدير الآمن (${maximumRows.toLocaleString("ar")} حركة)؛ حدد فترة أضيق.`);
       }
+      const nextCursor = page.nextCursor ?? undefined;
+      if (page.hasNext && (!nextCursor || nextCursor === cursor)) {
+        throw new Error("تعذر استكمال صفحات سجل الحركات؛ لم يُنشأ كشف ناقص.");
+      }
+      cursor = page.hasNext ? nextCursor : undefined;
+      pageNumber += 1;
+      setExportProgress(allRows.length);
+      // Yield between batches so the dashboard stays responsive while exporting.
+      if (pageNumber % 5 === 0) await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     } while (cursor);
     return allRows;
   };
@@ -326,6 +348,7 @@ export default function CompanyAccountsPage() {
   const exportTransactionsExcel = async () => {
     if (!selectedAccount || totalTransactions === 0 || exportingTransactions) return;
     setExportingTransactions(true);
+    setExportProgress(0);
     try {
       const rowsForExport = await fetchAllTransactionsForExport();
       if (!rowsForExport.length) return toast.error("لا توجد حركات مطابقة للتصدير.");
@@ -378,17 +401,29 @@ export default function CompanyAccountsPage() {
 
   const exportTransactionsPdf = async () => {
     if (!selectedAccount || totalTransactions === 0 || exportingTransactions) return;
+    // Open synchronously within the click gesture, before awaiting the ledger.
+    // Native printing is paginated, text-selectable, and avoids html2canvas
+    // allocating one enormous image for thousands of account transactions.
+    const popup = window.open("", "_blank");
+    if (!popup) return toast.error("اسمح بفتح نافذة تقرير الحركات ثم أعد المحاولة.");
+    popup.document.title = "جارٍ إعداد كشف حركات الحساب";
+    popup.document.body.textContent = "جارٍ تحميل الحركات من PowerHub…";
     setExportingTransactions(true);
+    setExportProgress(0);
     try {
-      const rowsForExport = await fetchAllTransactionsForExport();
-      if (!rowsForExport.length) return toast.error("لا توجد حركات مطابقة للتصدير.");
+      const rowsForExport = await fetchAllTransactionsForExport(5_000);
+      if (!rowsForExport.length) {
+        popup.close();
+        return toast.error("لا توجد حركات مطابقة للتصدير.");
+      }
+      const accountNames = new Map(rows.map((account) => [account.id, account.name]));
       const body = rowsForExport.map((row) => {
         const amount = Number(row.amount) || 0;
         const counterpart = row.relatedAccountId
-          ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? ("حساب #" + row.relatedAccountId)
+          ? accountNames.get(row.relatedAccountId) ?? ("حساب #" + row.relatedAccountId)
           : row.relatedPaymentId ? ("دفعة #" + row.relatedPaymentId) : "—";
         return "<tr><td>" + escapeHtml(new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" })) +
-          "</td><td>" + row.id +
+          "</td><td>" + escapeHtml(row.id) +
           "</td><td>" + escapeHtml(row.referenceNo ?? "—") +
           "</td><td>" + escapeHtml(row.description) +
           "</td><td>" + escapeHtml(movementLabels[row.transactionType] ?? row.transactionType) +
@@ -398,30 +433,33 @@ export default function CompanyAccountsPage() {
           "</td><td>" + (row.balanceAfter === null ? "—" : money(row.balanceAfter)) +
           "</td></tr>";
       }).join("");
-      const root = document.createElement("div");
-      root.dir = "rtl";
-      root.style.cssText = "position:fixed;left:-10000px;top:0;width:1400px;background:#fff;color:#101828;padding:36px;font-family:Arial,sans-serif";
-      root.innerHTML = "<h1 style=\"border-bottom:3px solid #F5B800;padding-bottom:14px\">كشف حركات حساب " + escapeHtml(selectedAccount.name) + "</h1>" +
-        "<p>عدد الحركات: " + rowsForExport.length.toLocaleString("ar") +
-        " · إجمالي الوارد: " + money(transactionSummary.incoming) +
-        " · إجمالي الصادر: " + money(transactionSummary.outgoing) + "</p>" +
-        "<table style=\"width:100%;border-collapse:collapse;text-align:right;font-size:12px\"><thead><tr style=\"background:#0D1117;color:#fff\">" +
-        "<th>التاريخ</th><th>رقم الحركة</th><th>المرجع</th><th>البيان</th><th>النوع</th><th>الحساب المقابل</th><th>وارد</th><th>صادر</th><th>الرصيد بعد الحركة</th>" +
-        "</tr></thead><tbody>" + body + "</tbody></table>";
-      document.body.appendChild(root);
-      try {
-        await downloadReportHtmlAsPdf(root, "حركات-" + selectedAccount.name + ".pdf", { landscape: true, title: "حركات حساب " + selectedAccount.name + " - PowerHub" });
-      } finally {
-        root.remove();
-      }
-      toast.success("تم تصدير " + rowsForExport.length.toLocaleString("ar") + " حركة إلى PDF.");
+      popup.document.open();
+      popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<title>${escapeHtml("حركات حساب " + selectedAccount.name)} - PowerHub</title>
+<style>
+*{box-sizing:border-box}body{font:11px Tahoma,Arial,sans-serif;color:#172033;margin:20px}
+h1{font-size:18px;margin:0 0 12px}p{margin:0 0 14px}
+table{width:100%;border-collapse:collapse;table-layout:auto}
+th,td{padding:5px;border:1px solid #8993a3;text-align:right;vertical-align:top;overflow-wrap:anywhere}
+th{background:#233448;color:#fff;font-weight:bold}thead{display:table-header-group}
+tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
+@media print{body{margin:0}}
+</style></head><body><h1>${escapeHtml("كشف حركات حساب " + selectedAccount.name)}</h1>
+<p>عدد الحركات: ${rowsForExport.length.toLocaleString("ar")} · إجمالي الوارد: ${money(transactionSummary.incoming)} · إجمالي الصادر: ${money(transactionSummary.outgoing)}</p>
+<table><thead><tr><th>التاريخ</th><th>رقم الحركة</th><th>المرجع</th><th>البيان</th><th>النوع</th><th>الحساب المقابل</th><th>وارد</th><th>صادر</th><th>الرصيد بعد الحركة</th></tr></thead>
+<tbody>${body}</tbody></table></body></html>`);
+      popup.document.close();
+      popup.focus();
+      popup.print();
+      toast.success("تم إعداد " + rowsForExport.length.toLocaleString("ar") + " حركة للطباعة أو الحفظ PDF.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "تعذر تصدير حركات الحساب إلى PDF.");
+      popup.close();
+      toast.error(error instanceof Error ? error.message : "تعذر إعداد تقرير حركات الحساب PDF.");
     } finally {
       setExportingTransactions(false);
+      setExportProgress(0);
     }
   };
-
 
   return (
     <DashboardLayout>
@@ -570,7 +608,7 @@ export default function CompanyAccountsPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات</h2><p className="mt-1 text-xs text-slate-500">يتم تحميل 10 حركات في كل صفحة؛ الملخص والرصيد بعد الحركة محسوبان في قاعدة البيانات.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={totalTransactions === 0 || exportingTransactions || historyQuery.isFetching} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">{exportingTransactions ? "جارٍ التصدير…" : "Excel"}</Button><Button size="sm" variant="outline" disabled={totalTransactions === 0 || exportingTransactions || historyQuery.isFetching} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">{exportingTransactions ? "جارٍ التصدير…" : "PDF"}</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); resetTransactionPagination(); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
+            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات</h2><p className="mt-1 text-xs text-slate-500">يتم تحميل 10 حركات في كل صفحة؛ الملخص والرصيد بعد الحركة محسوبان في قاعدة البيانات.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={totalTransactions === 0 || exportingTransactions || historyQuery.isFetching} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "Excel"}</Button><Button size="sm" variant="outline" disabled={totalTransactions === 0 || exportingTransactions || historyQuery.isFetching} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "PDF"}</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); resetTransactionPagination(); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
 <label className="grid gap-1 text-xs text-slate-400"><span>بحث بالوصف أو رقم الحركة أو التاريخ</span><Input value={transactionSearch} onChange={(event) => { setTransactionSearch(event.target.value); resetTransactionPagination(); }} placeholder="ابحث في الحركات…" className="border-white/10 bg-[#0D1117] text-white" /></label>
 <label className="grid gap-1 text-xs text-slate-400"><span>من تاريخ</span><Input type="date" dir="ltr" value={movementFromDate} onChange={(event) => { setMovementFromDate(event.target.value); resetTransactionPagination(); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
