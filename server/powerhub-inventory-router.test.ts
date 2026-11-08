@@ -173,6 +173,36 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.from).not.toHaveBeenCalled();
   });
 
+  it("stops purchase-detail hydration when the invoice is absent from the authorized tenant and site", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44,
+      canViewFinancials: true,
+      allowedCapabilities: ["viewPurchases"],
+    });
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockClear();
+    const purchaseQuery: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    };
+    state.from.mockReset().mockReturnValue(purchaseQuery);
+
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.getPurchase;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 45 } },
+      input: { siteId: 6, purchaseId: 92 },
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    expect(state.from).toHaveBeenCalledTimes(1);
+    expect(state.from).toHaveBeenCalledWith("supplier_purchases");
+    expect(purchaseQuery.eq).toHaveBeenCalledWith("tenant_id", 44);
+    expect(purchaseQuery.eq).toHaveBeenCalledWith("site_id", 6);
+    expect(purchaseQuery.eq).toHaveBeenCalledWith("id", 92);
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
   it("requires createPurchases before calling the purchase draft RPC", async () => {
     state.rpc.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
