@@ -514,7 +514,9 @@ describe("public invoice and inquiry actions", () => {
     const subscriptionCard = home.indexOf("<SubscriptionRenewalDashboardCard");
     const branchPerformance = home.indexOf("{selectedScope === \"all\" && <BranchPerformanceCard");
     expect(subscriptionCard).toBeGreaterThan(branchPerformance);
-    expect(subscriptionCard).toBeLessThan(home.indexOf("</div></DashboardLayout>;"));
+    // Earlier guarded returns may also close DashboardLayout. Compare against
+    // the main dashboard closing element, not the first guarded return.
+    expect(subscriptionCard).toBeLessThan(home.lastIndexOf("</div></DashboardLayout>;"));
 
     expect(review).toContain("staleTime:15_000");
     // Payment Documentation review now observes the opaque server revision
