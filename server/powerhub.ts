@@ -13,7 +13,7 @@ import { normalizeSettlementLedgerSnapshot } from "./financial-settlement-snapsh
 import { aggregateAuthorizedFinancialPositions, InvalidFinancialSnapshot, type SiteFinancialSnapshot } from "./financial-multi-site-position";
 import { financialTrendMonths } from "./financial-trend-months";
 import { reviewFinancialPayrollMonth, InvalidPayrollReview } from "./financial-payroll-review";
-import { summarizeAccrualComponents, InvalidAccrualComponents } from "./financial-accrual-components";
+import { summarizeAccrualComponents, summarizeInvoiceServiceCycleCoverage, isIssuedFinancialInvoiceStatus, InvalidAccrualComponents } from "./financial-accrual-components";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
@@ -4973,7 +4973,7 @@ export const powerhubRouter = router({
         listSupabaseReportExpenses({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
         financialReportInventoryConsumptionCosts({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
       ]);
-      const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
+      const invoiceRows = allInvoices.filter((invoice) => isIssuedFinancialInvoiceStatus(invoice.status) && invoice.issueDate >= start && invoice.issueDate < endExclusive);
       const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive && (!input.paymentMethod || input.paymentMethod === "all" || payment.paymentMethod === input.paymentMethod));
       const collectorsIds = Array.from(new Set(completedPayments.flatMap(({ payment }) => payment.collectedByUserId === null ? [] : [payment.collectedByUserId])));
       const [collectorRows, subscriberRows] = await Promise.all([
@@ -4990,8 +4990,17 @@ export const powerhubRouter = router({
       const grossCollected = completedPayments.reduce((sum, row) => sum + Number(row.payment.grossAmount), 0);
       const subscriberCreditCreated = completedPayments.reduce((sum, row) => sum + Number(row.payment.subscriberCreditAmount), 0);
       const periodExpenses = expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive);
+      let serviceCycleCoverage: ReturnType<typeof summarizeInvoiceServiceCycleCoverage>;
       let accrualComponents: ReturnType<typeof summarizeAccrualComponents>;
       try {
+        serviceCycleCoverage=summarizeInvoiceServiceCycleCoverage(
+          input.startDate,input.endDate,
+          invoiceRows.map(invoice=>({
+            status:invoice.status,issueDate:invoice.issueDate,
+            cycleStartAt:invoice.cycleStartAt,cycleEndAt:invoice.cycleEndAt,
+            totalAmount:invoice.totalAmount,
+          })),
+        );
         accrualComponents = summarizeAccrualComponents(
           allInvoices.map(invoice => ({
             status:invoice.status,totalAmount:invoice.totalAmount,taxAmount:invoice.taxAmount,
@@ -5044,7 +5053,7 @@ export const powerhubRouter = router({
         summary: { invoiced, collected, grossCollected, subscriberCreditCreated, outstanding, energyKwh,
           directExpenseTotal, nonOperatingExpenseTotal, inventoryConsumptionCost, expenseTotal,
           allExpenseTotal: expenseTotal + nonOperatingExpenseTotal, operatingProfit: collected - expenseTotal },
-        accrualComponents,
+        accrualComponents,serviceCycleCoverage,
         collectors, topDebtors, paymentDetails,
       };
     }),
@@ -5066,7 +5075,7 @@ export const powerhubRouter = router({
         listSupabaseReportExpenses({ tenantId, siteIds: branchIds, start, endExclusive }),
         financialReportInventoryConsumptionCosts({ tenantId, siteIds: branchIds, start, endExclusive }),
       ]);
-      const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
+      const invoiceRows = allInvoices.filter((invoice) => isIssuedFinancialInvoiceStatus(invoice.status) && invoice.issueDate >= start && invoice.issueDate < endExclusive);
       const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive);
       const subscribers = await listSupabaseReportSubscribers({ tenantId, siteIds: branchIds, subscriberIds: invoiceRows.map((invoice) => invoice.subscriberId) });
       const subscribersById = new Map(subscribers.map((subscriber) => [subscriber.id, subscriber]));
