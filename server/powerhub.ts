@@ -4993,7 +4993,7 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
       const {data,error}=await supabaseAdmin().from("financial_accrual_journals")
-        .select("id,period,debit_account,credit_account,amount,reason,status,created_by_user_id,approved_by_user_id,created_at,approved_at,reverses_journal_id")
+        .select("id,period,debit_account,credit_account,amount,reason,status,created_by_user_id,approved_by_user_id,created_at,approved_at,reverses_journal_id,void_reason,voided_at,voided_by_user_id")
         .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
         .eq("period",input.period).order("id",{ascending:false}).limit(201);
       if(error||!data||data.length>200)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
@@ -5006,6 +5006,9 @@ export const powerhubRouter = router({
         approvedByUserId:row.approved_by_user_id===null?null:Number(row.approved_by_user_id),
         reversesJournalId:row.reverses_journal_id===null?null:Number(row.reverses_journal_id),
         createdAt:String(row.created_at),approvedAt:row.approved_at===null?null:String(row.approved_at),
+        voidReason:row.void_reason===null?null:String(row.void_reason),
+        voidedAt:row.voided_at===null?null:String(row.voided_at),
+        voidedByUserId:row.voided_by_user_id===null?null:Number(row.voided_by_user_id),
       }));
     }),
     accrualJournalCreate: protectedProcedure.input(z.object({
@@ -5041,6 +5044,20 @@ export const powerhubRouter = router({
       });
       if(error||!data)throw new TRPCError({code:"BAD_REQUEST",
         message:"تعذر اعتماد القيد؛ يجب أن يعتمده مستخدم مخوّل مختلف عن منشئه."});
+      return data;
+    }),
+    accrualJournalVoid: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),journalId:z.number().int().positive(),
+      reason:z.string().trim().min(10).max(1000),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_journal_void",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_journal_id:input.journalId,p_user_id:ctx.user.id,p_reason:input.reason,
+      });
+      if(error||!data)throw new TRPCError({code:"BAD_REQUEST",
+        message:"تعذر إلغاء المسودة؛ القيد المعتمد يحتاج إلى قيد عكس."});
       return data;
     }),
     accrualJournalReverse: protectedProcedure.input(z.object({
