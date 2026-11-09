@@ -194,6 +194,10 @@ BEGIN
     OR (report->'sourceIntegrity'->>'driftedEntries')::int<>1
     OR (report->'sourceIntegrity'->>'invalidSources')::int<>1
  THEN RAISE EXCEPTION 'GL_CI_INTEGRITY_CHANGED_INVOICE_NOT_DETECTED: %',report->'sourceIntegrity'; END IF;
+ trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
+ IF (trial->'sourceCoverage'->'sourceIntegrity'->>'isClean')::boolean
+     IS DISTINCT FROM false
+ THEN RAISE EXCEPTION 'GL_CI_TRIAL_BALANCE_HIDES_SOURCE_DRIFT'; END IF;
  UPDATE public.invoices SET total_amount=110 WHERE id=301;
  report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
  IF (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
