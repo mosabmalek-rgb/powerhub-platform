@@ -157,10 +157,17 @@ BEGIN
  v_again:=public.powerhub_financial_gl_post_source(901,9101,'payroll',1401,9902);
  IF NOT (v_again->>'alreadyPosted')::boolean
  THEN RAISE EXCEPTION 'GL_CI_PAID_PAYROLL_ACCRUAL_REPLAY_FAILED'; END IF;
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'serviceRecognition'->>'missingGL')::int<>1
+    OR (report->'sources'->'serviceRecognition'->>'requiredInvoiceMonths')::int<>1
+ THEN RAISE EXCEPTION 'GL_CI_EARNED_REVENUE_MISSING_NOT_DETECTED: %',report; END IF;
  service:=public.powerhub_financial_gl_recognize_billed_service(
    901,9101,301,'2026-10',9902);
  retry:=public.powerhub_financial_gl_recognize_billed_service(
    901,9101,301,'2026-10',9902);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'serviceRecognition'->>'missingGL')::int<>0
+ THEN RAISE EXCEPTION 'GL_CI_EARNED_REVENUE_POSTED_NOT_RECONCILED: %',report; END IF;
  IF (service->>'amountMinor')::bigint<>10000
     OR (service->>'alreadyPosted')::boolean
     OR NOT (retry->>'alreadyPosted')::boolean
