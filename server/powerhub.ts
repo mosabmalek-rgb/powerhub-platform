@@ -4730,6 +4730,45 @@ export const powerhubRouter = router({
       };
     }),
 
+    cashFlow: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }).refine(input => input.startDate <= input.endDate, {
+      message: "يجب أن تكون بداية الفترة قبل نهايتها.",
+    })).query(async ({ ctx,input }) => {
+      const access = await requireSupabaseSiteRole(
+        ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"viewFinancialReports"
+      );
+      const { start,endExclusive } = reportDateRange(input.startDate,input.endDate);
+      const { data,error } = await supabaseAdmin().rpc("powerhub_financial_period_cash_flow", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+        p_period_start: start.toISOString(), p_period_end_exclusive: endExclusive.toISOString(),
+      });
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        console.error("[PowerHub] finance cash-flow aggregate failed",{code:error?.code??"INVALID_RESPONSE"});
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تحميل التدفق النقدي للفترة؛ تحقق من ترحيل التقرير واتصال الخادم."});
+      }
+      const result=data as Record<string,unknown>;
+      if (Number(result.scopeSiteId)!==input.siteId) {
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعارض نطاق الفرع في التدفق النقدي."});
+      }
+      const num=(key:string) => {
+        const v=Number(result[key]);
+        if (result[key]==null || !Number.isFinite(v)) throw new TRPCError({
+          code:"INTERNAL_SERVER_ERROR",message:"استعلام التدفق النقدي أعاد مبلغاً غير صالح."});
+        return v;
+      };
+      return {
+        externalCashIn:num("externalCashIn"),
+        externalCashOut:num("externalCashOut"),
+        netCashFlow:num("netCashFlow"),
+        internalTransferVolume:num("internalTransferVolume"),
+        transactionCount:num("transactionCount"),
+        scopeNotice:"site_attributed_only" as const,
+      };
+    }),
     range: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

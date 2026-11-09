@@ -31,3 +31,19 @@ describe("financial dashboard current position scope and performance contracts",
   expect(sql).toContain("TO service_role");
  });
 });
+
+describe("cash-flow movement scope and revenue independence",()=>{
+ const flow=readFileSync("supabase/migrations/20261109150000_powerhub_financial_period_cash_flow.sql","utf8");
+ it("excludes internal transfers, uses site/time boundaries, and does not equate deposits with revenue",()=>{
+  expect(flow).toContain("t.tenant_id=p_tenant_id AND t.site_id=p_site_id");
+  expect(flow).toContain("t.occurred_at>=p_period_start AND t.occurred_at<p_period_end_exclusive");
+  expect(flow).toContain("t.transaction_type IN ('collection','deposit')");
+  expect(flow).toContain("t.transaction_type='withdrawal'");
+  expect(flow).toContain("t.transaction_type='transfer_out'");
+  expect(flow).toContain("SECURITY INVOKER");
+  expect(flow).toContain("FROM PUBLIC,anon,authenticated");
+  expect(server).toContain('cashFlow: protectedProcedure');
+  expect(dashboard).toContain("التدفق النقدي خلال الفترة");
+  expect(dashboard).toContain("لا تشمل التحويلات بين حسابات الشركة");
+ });
+});
