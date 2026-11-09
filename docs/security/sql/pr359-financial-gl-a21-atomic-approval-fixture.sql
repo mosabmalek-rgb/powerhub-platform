@@ -5,7 +5,7 @@ BEGIN;
 DO $fixture$
 DECLARE
  t bigint;s bigint;a bigint;b bigint;other_t bigint;other_s bigint;
- j bigint;draft_id bigint;entry_id bigint;
+ j bigint;draft_id bigint;v_entry_id bigint;
  result jsonb;retry jsonb;
  rejected boolean:=false;
 BEGIN
@@ -44,11 +44,11 @@ BEGIN
    OR NOT (retry->>'glAlreadyPosted')::boolean
    OR result->>'glEntryId' IS DISTINCT FROM retry->>'glEntryId'
  THEN RAISE EXCEPTION 'GL_A21_RETRY_INCONSISTENT'; END IF;
- entry_id:=(result->>'glEntryId')::bigint;
- IF (SELECT count(*) FROM public.financial_gl_lines WHERE entry_id=entry_id)<>2
+ v_entry_id:=(result->>'glEntryId')::bigint;
+ IF (SELECT count(*) FROM public.financial_gl_lines WHERE entry_id=v_entry_id)<>2
  THEN RAISE EXCEPTION 'GL_A21_DUPLICATED_OR_MISSING_LINES'; END IF;
  IF (SELECT coalesce(sum(CASE WHEN side='debit' THEN amount ELSE -amount END),0)
-    FROM public.financial_gl_lines WHERE entry_id=entry_id)<>0
+    FROM public.financial_gl_lines WHERE entry_id=v_entry_id)<>0
  THEN RAISE EXCEPTION 'GL_A21_UNBALANCED'; END IF;
  rejected:=false;
  BEGIN
