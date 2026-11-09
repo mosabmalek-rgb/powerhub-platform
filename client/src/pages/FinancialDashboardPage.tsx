@@ -10,6 +10,7 @@ import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import AccrualAccountingPanel from "@/components/finance/AccrualAccountingPanel";
+import FinancialGLAuditPanel from "@/components/finance/FinancialGLAuditPanel";
 
 const format = (value: unknown) => Number(value ?? 0).toLocaleString("ar", { maximumFractionDigits: 2 });
 const iso = (date: Date) => {
@@ -101,6 +102,7 @@ export default function FinancialDashboardPage() {
     staleTime: 120_000, refetchOnWindowFocus: false,
   });
   const [showAccrualAccounting, setShowAccrualAccounting] = useState(false);
+  const [showGLAudit, setShowGLAudit] = useState(false);
   const [showAccrualBridge, setShowAccrualBridge] = useState(false);
   const [showServiceCycleBilling, setShowServiceCycleBilling] = useState(false);
   const serviceCycleBilling = trpc.powerhub.reports.serviceCycleBillingReview.useQuery({
@@ -494,6 +496,24 @@ export default function FinancialDashboardPage() {
         </Button>
       </div>
     </section>
+    <section aria-label="حالة اعتماد دفتر الأستاذ" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-white">تغطية دفتر الأستاذ ومطابقة الافتتاحية</h2>
+          <p className="mt-1 text-xs text-slate-400">
+            تقارير مصادر محاسبية تراكمية، مع فصل التوازن الرياضي عن صحة مستندات الافتتاحية ومطابقتها.
+          </p>
+        </div>
+        <Button size="sm" variant="outline" disabled={!siteId || !cycleRangeReady}
+          className="border-white/20 text-white"
+          onClick={() => setShowGLAudit(value => !value)}>
+          {showGLAudit ? "إخفاء تدقيق دفتر الأستاذ" : "فتح تدقيق دفتر الأستاذ"}
+        </Button>
+      </div>
+    </section>
+    {showGLAudit && siteId && cycleRangeReady ?
+      <FinancialGLAuditPanel key={`${siteId}-${endDate.slice(0,7)}`}
+        siteId={siteId} period={endDate.slice(0,7)} active={showGLAudit} /> : null}
     {showAccrualAccounting&&siteId&&cycleRangeReady?
       <AccrualAccountingPanel key={`${siteId}-${endDate.slice(0,7)}`}
         siteId={siteId} period={endDate.slice(0,7)} active={showAccrualAccounting}/>:null}
