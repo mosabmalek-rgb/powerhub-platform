@@ -22,7 +22,8 @@ describe("financial A2.2 opening accounting and A3 coverage release contract",()
   expect(opening).toContain("GL_OPENING_POSTED_CANNOT_VOID");
   expect(opening).toContain("GL_OPENING_PRIOR_POSTINGS");
   expect(opening).toContain("GL_OPENING_PERIOD_LOCKED");
-  expect(opening).not.toMatch(/INSERT\s+INTO\s+public\.financial_gl_opening_batches\s*\([^]*?\)\s*SELECT/i);
+  expect(opening).toContain("VALUES(p_tenant_id,p_site_id,p_as_of_date");
+  expect(opening).toContain("jsonb_array_length(p_lines),p_user_id");
  });
  it("serializes opening approvals with accrual ledger projection on the same site",()=>{
   expect(opening).toContain("'powerhub:gl-site:'||p_tenant_id||':'||p_site_id");
