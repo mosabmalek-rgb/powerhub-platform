@@ -129,6 +129,12 @@ BEGIN
         AND it.accounting_treatment='expense_on_issue')
   THEN RAISE EXCEPTION 'GL_STOCK_QUANTITY_COST_OR_CLASS_INVALID' USING ERRCODE='22023'; END IF;
   v_period:=to_char(stock.occurred_at AT TIME ZONE 'Asia/Gaza','YYYY-MM');
+  -- A paired warehouse transfer is NEVER an operating expense.
+  -- The associated adjustment_in is a location move, not an undo of usage.
+  IF stock.operation_key LIKE 'trf:%:out' OR
+     stock.operation_key LIKE 'trf:%:in' THEN
+    RAISE EXCEPTION 'GL_INTERNAL_STOCK_TRANSFER_NOT_AN_EXPENSE'
+      USING ERRCODE='22023'; END IF;
   IF stock.movement_type='issue' THEN
     v_lines:=jsonb_build_array(
       jsonb_build_object('code','5100','side','debit','amount',stock.total_cost_amount),
