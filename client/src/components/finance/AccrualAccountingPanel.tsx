@@ -91,7 +91,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
     const choice=pairs[Number(selectedPair)];
     const value=Number(amount);
     // Validate decimal input as text: 0.29 * 100 is not exactly 29 in IEEE-754.
-    if(!choice || !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,2})?$/.test(amount.trim()) ||
+    if(!choice || !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(amount.trim()) ||
       !Number.isFinite(value) || value<=0 || value>100000000000 ||
       reason.trim().length<10){
       toast.error("أدخل مبلغاً موجباً بمنزلتين عشريتين على الأكثر وسبباً واضحاً (10 أحرف على الأقل).");
