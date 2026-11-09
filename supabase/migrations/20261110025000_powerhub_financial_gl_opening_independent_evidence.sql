@@ -41,6 +41,7 @@ CREATE INDEX financial_gl_opening_evidence_scope_idx
 ALTER TABLE public.financial_gl_opening_evidence ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.financial_gl_opening_evidence FROM PUBLIC,anon,authenticated;
 GRANT SELECT,INSERT,UPDATE ON TABLE public.financial_gl_opening_evidence TO service_role;
+REVOKE ALL ON SEQUENCE public.financial_gl_opening_evidence_id_seq FROM PUBLIC,anon,authenticated;
 GRANT USAGE,SELECT ON SEQUENCE public.financial_gl_opening_evidence_id_seq TO service_role;
 CREATE POLICY financial_gl_opening_evidence_service
  ON public.financial_gl_opening_evidence
@@ -54,6 +55,9 @@ BEGIN
  IF TG_OP='DELETE' THEN
   RAISE EXCEPTION 'GL_OPENING_EVIDENCE_IMMUTABLE' USING ERRCODE='22023';
  END IF;
+ IF TG_OP='INSERT' AND NEW.review_status<>'pending' THEN
+  RAISE EXCEPTION 'GL_OPENING_EVIDENCE_REVIEW_REQUIRES_WORKFLOW'
+    USING ERRCODE='22023';END IF;
  IF TG_OP='UPDATE' THEN
   IF OLD.review_status<>'pending' OR NEW.review_status='pending'
     OR ROW(OLD.tenant_id,OLD.site_id,OLD.opening_id,OLD.opening_line_id,
@@ -84,11 +88,30 @@ BEGIN
     OR NEW.source_reference ILIKE 'STG-TEST-%'
  THEN RAISE EXCEPTION 'GL_OPENING_EVIDENCE_SOURCE_OR_SCOPE_INVALID'
    USING ERRCODE='22023'; END IF;
- IF NEW.review_status='verified' AND (
-   NEW.reviewed_by_user_id IS NULL
+ IF (v_line.account_code IN ('1010','1020')
+     AND NEW.source_kind<>'company_account_statement')
+ OR (v_line.account_code='1200'
+     AND NEW.source_kind<>'subscriber_receivable_statement')
+ OR (v_line.account_code='1300'
+     AND NEW.source_kind<>'inventory_valuation_statement')
+ OR (v_line.account_code='2300'
+     AND NEW.source_kind<>'supplier_statement')
+ OR (v_line.account_code='2400'
+     AND NEW.source_kind<>'payroll_liability_statement')
+ THEN RAISE EXCEPTION 'GL_OPENING_EVIDENCE_KIND_MISMATCH'
+   USING ERRCODE='22023';END IF;
+ IF NEW.review_status IN ('verified','rejected') AND
+   (NEW.reviewed_by_user_id IS NULL
    OR NEW.reviewed_by_user_id IN (NEW.prepared_by_user_id,
       v_batch.created_by_user_id,v_batch.approved_by_user_id)
- ) THEN RAISE EXCEPTION 'GL_OPENING_EVIDENCE_REVIEW_NOT_INDEPENDENT'
+   OR NOT EXISTS(SELECT 1 FROM public.tenant_members m
+       JOIN public.users u ON u.id=m.user_id
+       WHERE m.tenant_id=NEW.tenant_id
+        AND m.user_id=NEW.reviewed_by_user_id
+        AND m.is_active AND m.membership_status='active'
+        AND m.role IN ('owner','manager','accountant')
+        AND u.account_status='active'))
+ THEN RAISE EXCEPTION 'GL_OPENING_EVIDENCE_REVIEW_NOT_INDEPENDENT'
    USING ERRCODE='22023';END IF;
  RETURN NEW;
 END;
@@ -105,7 +128,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_opening_evidence_submit(
  p_side text,p_amount numeric,p_actor_id bigint
 ) RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY INVOKER
 SET search_path=pg_catalog,public,pg_temp AS $submit$
-DECLARE v_id bigint;
+DECLARE v_id bigint;v_existing record;
 BEGIN
  IF p_actor_id IS NULL OR NOT EXISTS(
   SELECT 1 FROM public.tenant_members m JOIN public.users u ON u.id=m.user_id
@@ -115,6 +138,25 @@ BEGIN
     AND u.account_status='active'
  ) THEN RAISE EXCEPTION 'GL_OPENING_EVIDENCE_ACTOR_FORBIDDEN'
    USING ERRCODE='22023';END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(
+   p_tenant_id::text||':gl-opening-evidence:'||p_site_id::text||':'||
+   p_line_id::text||':'||p_source_kind||':'||p_source_reference,0));
+ SELECT * INTO v_existing FROM public.financial_gl_opening_evidence e
+ WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
+   AND e.opening_id=p_opening_id AND e.opening_line_id=p_line_id
+   AND e.source_kind=p_source_kind
+   AND e.source_reference=btrim(p_source_reference)
+ FOR UPDATE;
+ IF FOUND THEN
+  IF v_existing.source_document_sha256 IS DISTINCT FROM p_document_sha256
+   OR v_existing.source_as_of_date IS DISTINCT FROM p_source_as_of_date
+   OR v_existing.supported_side IS DISTINCT FROM p_side
+   OR v_existing.supported_amount IS DISTINCT FROM p_amount
+   OR v_existing.prepared_by_user_id IS DISTINCT FROM p_actor_id
+  THEN RAISE EXCEPTION 'GL_OPENING_EVIDENCE_REPLAY_CONFLICT'
+    USING ERRCODE='23505';END IF;
+  RETURN v_existing.id;
+ END IF;
  INSERT INTO public.financial_gl_opening_evidence(
   tenant_id,site_id,opening_id,opening_line_id,source_kind,
   source_reference,source_document_sha256,source_as_of_date,
