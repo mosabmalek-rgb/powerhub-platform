@@ -100,12 +100,14 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
     const operationKey=requestKey??`accrual-${crypto.randomUUID()}`;
     setRequestKey(operationKey);
     try{
-      await create.mutateAsync({siteId,period,amount:value,reason:reason.trim(),
+      const result=await create.mutateAsync({siteId,period,amount:value,reason:reason.trim(),
         debitAccount:choice.debit as "1100"|"4100"|"2200"|"5100"|"2100"|"5300"|"1500"|"5400"|"1190"|"6100",
         creditAccount:choice.credit as "1100"|"4100"|"2200"|"5100"|"2100"|"5300"|"1500"|"5400"|"1190"|"6100",
         operationKey});
       setRequestKey(null);setAmount("");setReason("");setShowNew(false);
-      toast.success("حُفظ القيد مسودة؛ لن يؤثر في الأرصدة قبل اعتماد مستخدم مخوّل آخر.");
+      toast.success(result.status==="posted"
+        ? "القيد موجود ومعتمد بالفعل؛ لم يُنشأ قيد مكرر."
+        : "حُفظ القيد مسودة؛ لن يؤثر في الأرصدة قبل اعتماد مستخدم مخوّل آخر.");
       await refresh();
     }catch{toast.error("تعذر حفظ القيد. سيُستخدم مفتاح العملية نفسه عند إعادة المحاولة.");}
   };
