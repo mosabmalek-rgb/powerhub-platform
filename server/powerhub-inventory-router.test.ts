@@ -1500,7 +1500,7 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
     // These procedures have dedicated denial tests above the table-driven matrix.
     const individualDenialProcedures = [
       "recordStockMovement", "returnFromIssue", "correctStockMovement", "createItem",
-      "createSupplier", "createPurchase", "cancelPurchase", "reverseSupplierPayment",
+      "createSupplier", "createPurchase", "createWalkInPurchase", "cancelPurchase", "reverseSupplierPayment",
       "confirmPurchase", "recordSupplierPayment", "returnToSupplier", "transferStock",
       "receivePurchase", "upsertFuelAlertSettings", "recordFuelFill", "recordFuelReading",
     ] as const;
