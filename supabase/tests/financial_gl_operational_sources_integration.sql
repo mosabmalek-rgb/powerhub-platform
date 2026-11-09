@@ -16,12 +16,13 @@ CREATE TABLE public.payments(
 CREATE TABLE public.expenses(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,category text,
  occurred_at timestamptz,amount numeric,company_account_id bigint,
- expense_classification text
+ expense_classification text,reference_no text
 );
 CREATE TABLE public.payroll_runs(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,period text,status text,
  total_gross numeric,total_net numeric,total_deductions numeric,
- approved_by_user_id bigint,created_by_user_id bigint
+ approved_by_user_id bigint,created_by_user_id bigint,
+ paid_at timestamptz,paid_from_account_id bigint
 );
 CREATE TABLE public.payroll_items(
  payroll_run_id bigint,base_amount numeric,extra_amount numeric,
@@ -132,6 +133,30 @@ BEGIN
      OR v->>'entryId' IS DISTINCT FROM v_again->>'entryId'
    THEN RAISE EXCEPTION 'GL_CI_IDEMPOTENCY_FAILED % %',src,sid; END IF;
  END LOOP;
+ -- An approved payroll cost is distinct from its later net cash payout.
+ -- The legacy PAYROLL-<id> expense and linked withdrawal are settlement
+ -- evidence, not another gross or net wage expense.
+ UPDATE public.payroll_runs SET status='paid',
+    paid_at='2026-10-25T12:00:00Z',paid_from_account_id=601
+ WHERE id=1401 AND status='approved';
+ INSERT INTO public.expenses(id,tenant_id,site_id,category,occurred_at,
+    amount,company_account_id,expense_classification,reference_no)
+ VALUES(702,901,9101,'payroll','2026-10-25T12:00:00Z',
+    80,601,'operating','PAYROLL-1401');
+ INSERT INTO public.account_transactions(
+    id,tenant_id,site_id,occurred_at,reference_no,
+    related_expense_id,account_id,amount,transaction_type)
+ VALUES(504,901,9101,'2026-10-25T12:00:00Z','PAYROLL-1401',
+    702,601,80,'withdrawal');
+ v:=public.powerhub_financial_gl_post_source(901,9101,'payroll_payment',1401,9902);
+ v_again:=public.powerhub_financial_gl_post_source(901,9101,'payroll_payment',1401,9902);
+ IF (v->>'alreadyPosted')::boolean OR NOT (v_again->>'alreadyPosted')::boolean
+    OR v->>'entryId' IS DISTINCT FROM v_again->>'entryId'
+ THEN RAISE EXCEPTION 'GL_CI_PAYROLL_PAYOUT_IDEMPOTENCY'; END IF;
+ -- The accrual remains exactly replayable even after payroll transitions to paid.
+ v_again:=public.powerhub_financial_gl_post_source(901,9101,'payroll',1401,9902);
+ IF NOT (v_again->>'alreadyPosted')::boolean
+ THEN RAISE EXCEPTION 'GL_CI_PAID_PAYROLL_ACCRUAL_REPLAY_FAILED'; END IF;
  service:=public.powerhub_financial_gl_recognize_billed_service(
    901,9101,301,'2026-10',9902);
  retry:=public.powerhub_financial_gl_recognize_billed_service(
@@ -168,7 +193,7 @@ BEGIN
  IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_CROSS_TENANT_POSTED'; END IF;
  SELECT count(*),coalesce(sum(CASE WHEN side='debit' THEN amount ELSE -amount END),0)
  INTO count_entries,total_net FROM public.financial_gl_lines WHERE tenant_id=901 AND site_id=9101;
- IF count_entries<>24 OR total_net<>0
+ IF count_entries<>26 OR total_net<>0
  THEN RAISE EXCEPTION 'GL_CI_LINES_IMBALANCED lines=% net=%',count_entries,total_net; END IF;
  report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
  trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
