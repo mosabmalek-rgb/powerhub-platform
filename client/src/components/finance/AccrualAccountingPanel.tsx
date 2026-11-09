@@ -288,7 +288,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
                 setVoidTargetId(item.id);setReversalTargetId(null);setVoidReason("");
               }}>إلغاء المسودة</Button>:null}
             {item.status==="posted"&&!item.reversesJournalId&&!item.reversal?<Button size="sm" variant="outline"
-              className="text-white" disabled={busy || review.isError || (locked && reversalPeriod<=period)} onClick={()=>{
+              className="text-white" disabled={busy || review.isError} onClick={()=>{
                 setReversalTargetId(item.id);setVoidTargetId(null);
                 setReversalPeriod(period);setReversalReason("");
               }}>
