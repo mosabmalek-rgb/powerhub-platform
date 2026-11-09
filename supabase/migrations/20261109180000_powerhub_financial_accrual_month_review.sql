@@ -106,7 +106,9 @@ BEGIN
       COALESCE(SUM(CASE WHEN movement_type='return_from_issue'
         THEN -total_cost_amount ELSE total_cost_amount END)
         FILTER (WHERE accounting_treatment='expense_on_issue'
-          AND category IN ('fuel','oil','filter','maintenance_supply','spare_part')),0) AS cost,
+          AND ((category='fuel' AND movement_type='fuel_consumption') OR
+            (category IN ('oil','filter','maintenance_supply','spare_part') AND
+             movement_type IN ('issue','return_from_issue')))),0) AS cost,
       COUNT(*) FILTER (WHERE accounting_treatment IS NULL OR
         accounting_treatment NOT IN ('expense_on_issue','capital_asset','inventory_asset') OR
         (accounting_treatment='expense_on_issue' AND
