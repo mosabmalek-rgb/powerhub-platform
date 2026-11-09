@@ -41,8 +41,6 @@ BEGIN
     OR NEW.created_by_user_id IS DISTINCT FROM OLD.created_by_user_id
     OR NEW.created_at IS DISTINCT FROM OLD.created_at
     OR NEW.reverses_journal_id IS DISTINCT FROM OLD.reverses_journal_id
-    OR NEW.approved_by_user_id IS NULL
-    OR NEW.approved_by_user_id=NEW.created_by_user_id
     OR (NEW.status='posted' AND
       (NEW.approved_by_user_id IS NULL OR NEW.approved_by_user_id=NEW.created_by_user_id
         OR NEW.approved_at IS NULL OR NEW.voided_by_user_id IS NOT NULL OR NEW.voided_at IS NOT NULL
