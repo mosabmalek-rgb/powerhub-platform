@@ -12,6 +12,7 @@ import { buildDashboardPeriodMetrics } from "./dashboard-period-metrics";
 import { normalizeSettlementLedgerSnapshot } from "./financial-settlement-snapshot";
 import { aggregateAuthorizedFinancialPositions, InvalidFinancialSnapshot, type SiteFinancialSnapshot } from "./financial-multi-site-position";
 import { financialTrendMonths } from "./financial-trend-months";
+import { reviewFinancialPayrollMonth, InvalidPayrollReview } from "./financial-payroll-review";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
@@ -4843,6 +4844,50 @@ export const powerhubRouter = router({
         transactionCount:num("transactionCount"),
         scopeNotice:"site_attributed_only" as const,
       };
+    }),
+    payrollAccrualReview: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(
+        ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"viewFinancialReports"
+      );
+      // Scoped to one branch, one payroll month; no unbounded payroll or expense downloads.
+      const {data:runs,error:runError}=await supabaseAdmin().from("payroll_runs")
+        .select("id,period,status,total_gross,total_deductions,total_net")
+        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+        .eq("period",input.period).order("id",{ascending:true}).limit(201);
+      if(runError || !runs || runs.length>200){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر التحقق من كشوف الرواتب للفترة؛ لم يُعرض تقرير جزئي."});
+      }
+      const refs=runs.map(run=>`PAYROLL-${run.id}`);
+      let expenses:Array<{reference_no:string|null;amount:number|string}>=[];
+      if(refs.length){
+        const {data,error}=await supabaseAdmin().from("expenses")
+          .select("reference_no,amount").eq("tenant_id",access.tenantId)
+          .eq("site_id",input.siteId).eq("category","payroll")
+          .in("reference_no",refs).order("id",{ascending:true}).limit(201);
+        if(error || !data || data.length>200) {
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+            message:"تعذر مطابقة مصروفات الرواتب؛ لم يُعرض تقرير جزئي."});
+        }
+        expenses=data;
+      }
+      try {
+        return {
+          ...reviewFinancialPayrollMonth(input.period,runs,expenses),
+          scopeSiteId:input.siteId,
+          asOf:new Date().toISOString(),
+        };
+      } catch(error) {
+        if(error instanceof InvalidPayrollReview) {
+          console.error("[PowerHub] payroll review failed", {reason:error.message});
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+            message:"فشلت مطابقة كشوف الرواتب مع المصروفات؛ لا يمكن عرض ملخص مالي غير موثوق."});
+        }
+        throw error;
+      }
     }),
     cashFlowTrend: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
