@@ -70,6 +70,19 @@ CREATE TABLE public.account_transactions(
 \ir ../migrations/20261110020000_powerhub_financial_gl_accrual_source_coverage.sql
 \ir ../migrations/20261110021000_powerhub_financial_gl_prior_accrual_coverage.sql
 \ir ../migrations/20261110022000_powerhub_financial_gl_opening_evidence_gate.sql
+-- A18 source-custody fixture for real independent-review RPCs.
+ALTER TABLE public.users ADD COLUMN account_status text NOT NULL DEFAULT 'active';
+INSERT INTO public.users(id) VALUES(9903),(9904);
+CREATE TABLE public.tenant_members(
+ tenant_id bigint NOT NULL,user_id bigint NOT NULL,
+ is_active boolean NOT NULL,membership_status text NOT NULL,role text NOT NULL,
+ PRIMARY KEY(tenant_id,user_id));
+INSERT INTO public.tenant_members VALUES
+ (901,9901,true,'active','owner'),
+ (901,9902,true,'active','owner'),
+ (901,9903,true,'active','owner'),
+ (901,9904,true,'active','owner');
+\ir ../migrations/20261110025000_powerhub_financial_gl_opening_independent_evidence.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
@@ -115,6 +128,8 @@ DECLARE
  opening jsonb; posted jsonb; service jsonb; retry jsonb;
  src text; sid bigint; v jsonb; v_again jsonb; count_entries bigint;
  total_net numeric; report jsonb; trial jsonb; blocked boolean;
+ evidence_line bigint; evidence_id bigint; evidence_result jsonb;
+ evidence_actor bigint;
 BEGIN
  opening:=public.powerhub_financial_gl_opening_create(901,9101,9901,'2026-01-01',
  'CI-FINANCE-OPENING-901','Independent documented finance opening for source reconciliation',
@@ -429,6 +444,55 @@ BEGIN
    OR trial->>'accountingCertification'<>'NOT_CERTIFIED'
  THEN RAISE EXCEPTION 'GL_CI_A10_OPENING_EVIDENCE_FALSE_CERTIFICATION: %',
     report->'openingEvidenceAudit';END IF;
+ -- A18: independent evidence review must prove line-level match but still
+ -- block the assertion that a hash is a verified external source document.
+ FOR src,sid IN SELECT * FROM (VALUES
+    ('1010'::text,490::bigint),('1700',10),('3100',500)
+ ) AS sources(account_code,source_amount)
+ LOOP
+   SELECT l.id INTO evidence_line
+   FROM public.financial_gl_opening_lines l
+   WHERE l.opening_id=(opening->>'openingId')::bigint AND l.account_code=src;
+   IF evidence_line IS NULL THEN
+    RAISE EXCEPTION 'GL_CI_A18_OPENING_LINE_NOT_FOUND %',src;END IF;
+   evidence_id:=public.powerhub_financial_gl_opening_evidence_submit(
+     901,9101,(opening->>'openingId')::bigint,evidence_line,
+     CASE src WHEN '1010' THEN 'company_account_statement'
+       WHEN '3100' THEN 'equity_confirmation'
+       ELSE 'other_external_statement' END,
+     'CI-A18-REVIEWED-SOURCE-'||src,repeat('a',64),
+     '2026-01-01',CASE WHEN src='3100' THEN 'credit' ELSE 'debit' END,
+     sid,9904);
+   blocked:=false;
+   BEGIN
+     PERFORM public.powerhub_financial_gl_opening_evidence_review(
+       901,9101,evidence_id,9904,true,
+       'Attempted same-person document review');
+   EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true;END;
+   IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_A18_SELF_REVIEW_ACCEPTED';END IF;
+   evidence_result:=public.powerhub_financial_gl_opening_evidence_review(
+     901,9101,evidence_id,9903,true,
+     'Independent supporting document reviewed');
+   IF evidence_result->>'status'<>'verified'
+     OR (evidence_result->>'replayed')::boolean
+   THEN RAISE EXCEPTION 'GL_CI_A18_REVIEW_MISSING';END IF;
+   evidence_result:=public.powerhub_financial_gl_opening_evidence_review(
+     901,9101,evidence_id,9903,true,
+     'Independent supporting document reviewed');
+   IF (evidence_result->>'replayed')::boolean IS DISTINCT FROM true THEN
+     RAISE EXCEPTION 'GL_CI_A18_REVIEW_REPLAY_DUPLICATES';END IF;
+ END LOOP;
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF report->'openingEvidenceAudit'->'evidenceReview'->>'status'
+      <> 'EVIDENCE_ATTESTED_DOCUMENT_VERIFICATION_REQUIRED'
+ OR (report->'openingEvidenceAudit'->'evidenceReview'->>'allLinesAttested')::boolean
+    IS DISTINCT FROM true
+ OR (report->'openingEvidenceAudit'->>'sourceSubledgersIndependentlyVerified')::boolean
+    IS DISTINCT FROM false
+ OR (report->>'isOpeningReconciled')::boolean IS DISTINCT FROM false
+ OR report->>'accountingCertification'<>'NOT_CERTIFIED'
+ THEN RAISE EXCEPTION 'GL_CI_A18_FALSE_DOCUMENT_CUSTODY_CERTIFICATION: %',
+  report->'openingEvidenceAudit';END IF;
  -- A5 negative acceptance: a mathematically balanced but unapproved
  -- accrual journal projection must fail source integrity. A zero trial
  -- balance never substitutes for an authoritative approval document.
