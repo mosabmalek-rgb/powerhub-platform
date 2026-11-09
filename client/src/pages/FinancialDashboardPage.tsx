@@ -85,6 +85,12 @@ export default function FinancialDashboardPage() {
     enabled: Boolean(showCashComparison && previousCashPeriod && siteId && isAuthenticated && cycleRangeReady),
     staleTime: 60_000, refetchOnWindowFocus: false,
   });
+  // Cash-flow trend is optional and never fetched during ordinary dashboard navigation.
+  const [showCashTrend, setShowCashTrend] = useState(false);
+  const cashFlowTrend = trpc.powerhub.reports.cashFlowTrend.useQuery({ siteId, endDate }, {
+    enabled: Boolean(showCashTrend && siteId && isAuthenticated && endDate && startDate <= endDate && cycleRangeReady),
+    staleTime: 120_000, refetchOnWindowFocus: false,
+  });
   const report = trpc.powerhub.reports.range.useQuery({ siteId, startDate, endDate, paymentMethod }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && cycleRangeReady), staleTime: 60_000, refetchOnWindowFocus: false });
   const branding = trpc.powerhub.reportBranding.get.useQuery({ siteId }, { enabled: false, staleTime: 300_000 });
   const settlements = trpc.powerhub.settlements.list.useQuery({ siteId }, { enabled: false, staleTime: 300_000 });
@@ -395,6 +401,48 @@ export default function FinancialDashboardPage() {
                 <p className="mt-3 text-xs text-slate-300">التغير: {delta > 0 ? "+" : ""}{format(delta)} شيكل</p>
               </div>;
             })}
+          </div> : null}
+        </div> : null}
+      </div>
+      <div className="mt-4 border-t border-white/10 pt-4">
+        <Button size="sm" variant="outline" className="border-white/20 text-white"
+          disabled={!siteId || !endDate || !cycleRangeReady}
+          onClick={() => setShowCashTrend(value => !value)}>
+          <TrendingUp className="ml-2 h-4 w-4" />
+          {showCashTrend ? "إخفاء الاتجاه الشهري" : "عرض اتجاه التدفق خلال 6 أشهر"}
+        </Button>
+        {showCashTrend ? <div className="mt-4 space-y-3">
+          <p className="text-xs text-slate-300">
+            اتجاه الحركات النقدية المسندة للفرع، دون تحويلات الحسابات الداخلية. تُعرض الأشهر السابقة كاملة،
+            والشهر الأخير حتى تاريخ نهاية الفترة المختارة. الإيداعات ليست بالضرورة إيراداً، والاتجاه لا يمثل صافي الربح.
+          </p>
+          {cashFlowTrend.isLoading ? <p role="status" className="text-sm text-slate-300">جارٍ تحميل الاتجاهات الشهرية…</p> : null}
+          {cashFlowTrend.isError ? <div role="alert" className="text-sm text-rose-200">
+            تعذر التحقق من جميع الأشهر؛ لا تُعرض بيانات جزئية.
+            <Button size="sm" variant="outline" className="mr-2 text-white"
+              onClick={() => void cashFlowTrend.refetch()}>إعادة المحاولة</Button>
+          </div> : null}
+          {cashFlowTrend.data && !cashFlowTrend.isError ? <div className="overflow-x-auto">
+            <div className="grid min-w-[510px] grid-cols-6 gap-2" aria-label="مقارنة النقد الوارد والصادر خلال ستة أشهر">
+              {(() => {
+                const maxAmount = Math.max(1, ...cashFlowTrend.data.months.flatMap(month => [Math.abs(month.externalCashIn),Math.abs(month.externalCashOut)]));
+                return cashFlowTrend.data.months.map(month => <div key={month.month} className="rounded-lg border border-white/10 bg-[#0D1117] p-2 text-center">
+                  <p className="text-xs font-bold text-white">{month.month}</p>
+                  <p className="mt-1 text-[10px] text-slate-400">{month.endDate.slice(8)}/{month.endDate.slice(5,7)} حتى</p>
+                  <div className="mt-3 flex h-28 items-end justify-center gap-1" role="img"
+                    aria-label={`شهر ${month.month}: وارد ${format(month.externalCashIn)} وصادر ${format(month.externalCashOut)} شيكل`}>
+                    <div className="w-5 rounded-t bg-emerald-400" style={{height:`${Math.max(2,Math.abs(month.externalCashIn)/maxAmount*100)}%`}} />
+                    <div className="w-5 rounded-t bg-rose-400" style={{height:`${Math.max(2,Math.abs(month.externalCashOut)/maxAmount*100)}%`}} />
+                  </div>
+                  <div className="mt-2 space-y-1 text-[10px] text-slate-200">
+                    <p>وارد: {format(month.externalCashIn)}</p>
+                    <p>صادر: {format(month.externalCashOut)}</p>
+                    <p className="border-t border-white/10 pt-1 font-semibold">الصافي: {format(month.netCashFlow)}</p>
+                  </div>
+                </div>);
+              })()}
+            </div>
+            <p className="mt-2 text-xs text-slate-400">الأخضر: النقد الوارد · الوردي: النقد الصادر · القيم بالشيكل.</p>
           </div> : null}
         </div> : null}
       </div>
