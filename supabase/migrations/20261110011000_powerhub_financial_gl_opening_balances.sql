@@ -214,6 +214,8 @@ BEGIN
  THEN RAISE EXCEPTION 'GL_OPENING_REQUEST_INVALID' USING ERRCODE='22023'; END IF;
  v_period:=to_char(p_as_of_date,'YYYY-MM');
  PERFORM pg_advisory_xact_lock(hashtextextended(
+   'powerhub:gl-site:'||p_tenant_id||':'||p_site_id,0));
+ PERFORM pg_advisory_xact_lock(hashtextextended(
    'powerhub:gl-opening:'||p_tenant_id||':'||p_site_id,0));
  v_fingerprint:=encode(sha256(convert_to(jsonb_build_object(
   'tenantId',p_tenant_id,'siteId',p_site_id,'asOfDate',p_as_of_date,
@@ -290,6 +292,8 @@ BEGIN
  IF v_period IS NULL THEN RAISE EXCEPTION 'GL_OPENING_OUT_OF_SCOPE' USING ERRCODE='22023'; END IF;
  PERFORM pg_advisory_xact_lock(hashtextextended(
    'powerhub:accrual-period:'||p_tenant_id||':'||p_site_id||':'||v_period,0));
+ PERFORM pg_advisory_xact_lock(hashtextextended(
+   'powerhub:gl-site:'||p_tenant_id||':'||p_site_id,0));
  PERFORM pg_advisory_xact_lock(hashtextextended(
    'powerhub:gl-opening:'||p_tenant_id||':'||p_site_id,0));
  SELECT * INTO v_batch FROM public.financial_gl_opening_batches
