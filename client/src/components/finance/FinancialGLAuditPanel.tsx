@@ -39,9 +39,16 @@ const accountingBlockers = (raw: unknown): string[] => {
   if (integrity.isClean !== true) {
     problems.push("توجد قيود لا تجتاز تدقيق بصمة المصدر أو سطور القيد.");
   }
-  const tagged = numeric(historical.performanceFixtureTagged);
-  if (tagged !== null && tagged > 0) {
-    problems.push(`يوجد ${numberText(tagged)} حركة موسومة لاختبارات الأداء. لا يجوز تجاهلها أو إدخالها في أرباح معتمدة دون فصل موثق.`);
+  const current = object(sources.companyAccountMovements);
+  const tagged = (numeric(historical.performanceFixtureTagged) ?? 0)
+    + (numeric(current.performanceFixtureTagged) ?? 0);
+  const quarantined = (numeric(historical.quarantinedTestMovements) ?? 0)
+    + (numeric(current.quarantinedTestMovements) ?? 0);
+  const historicalAudit = object(historical.fixtureQuarantine);
+  const currentAudit = object(current.fixtureQuarantine);
+  const independentlyQualified = historicalAudit.verified === true || currentAudit.verified === true;
+  if (tagged > 0 && (!independentlyQualified || tagged !== quarantined)) {
+    problems.push(`يوجد ${numberText(tagged)} حركة موسومة لاختبارات الأداء دون فصل مكتمل ومتحقق؛ لا يجوز تجاهلها ضمن الأرباح.`);
   }
   if (coverage.accountingCertification !== "CERTIFIED") {
     problems.push("لم تصدر شهادة اعتماد محاسبي نهائي من النظام.");
@@ -68,6 +75,13 @@ export default function FinancialGLAuditPanel({
   const integrity = object(report.sourceIntegrity);
   const sources = object(report.sources);
   const prior = object(sources.priorOperationalSources);
+  const currentCash = object(sources.companyAccountMovements);
+  const taggedFixtures = (numeric(prior.performanceFixtureTagged) ?? 0)
+    + (numeric(currentCash.performanceFixtureTagged) ?? 0);
+  const quarantinedFixtures = (numeric(prior.quarantinedTestMovements) ?? 0)
+    + (numeric(currentCash.quarantinedTestMovements) ?? 0);
+  const verifiedFixtureQuarantine = object(prior.fixtureQuarantine).verified === true
+    || object(currentCash.fixtureQuarantine).verified === true;
   const opening = object(report.openingEvidenceAudit);
   const evidenceReview = object(opening.evidenceReview);
   const blockers = canShowCoverage ? accountingBlockers(report) : [];
@@ -98,12 +112,17 @@ export default function FinancialGLAuditPanel({
           {label:"مصادر وحركات غير مسوّاة",value:report.unreconciledSourceCount},
           {label:"قيود دُققت بصماتها",value:integrity.checkedEntries},
           {label:"قيود بمصادر أو بصمات غير صحيحة",value:(numeric(integrity.invalidSources) ?? 0)+(numeric(integrity.driftedEntries) ?? 0)+(numeric(integrity.unauditedEntries) ?? 0)},
-          {label:"حركات أداء اختبارية تاريخية",value:prior.performanceFixtureTagged},
+          {label:"حركات أداء اختبارية محددة",value:taggedFixtures},
         ] as const).map(item => <div key={item.label} className="rounded-md border border-white/10 p-3">
           <p className="text-xs text-slate-300">{item.label}</p>
           <strong className="mt-1 block text-xl text-white">{numberText(item.value)}</strong>
         </div>)}
       </div>
+      {taggedFixtures > 0 ? <p className="mt-3 text-xs text-slate-300">
+        حالة الحركات الاصطناعية: {verifiedFixtureQuarantine && taggedFixtures === quarantinedFixtures
+          ? `تم إثبات وعزل ${numberText(quarantinedFixtures)} حركة في فحص الأستاذ مع الاحتفاظ بالسجلات الأصلية وبصمتها، دون شهادة أرباح نهائية.`
+          : `يوجد ${numberText(taggedFixtures)} حركة تتطلب توثيق العزل ومراجعته قبل الاعتماد.`}
+      </p> : null}
       <p className="mt-3 text-xs text-slate-300">
         الافتتاحية: {report.isOpeningStructurallyPosted === true ? "منشورة بنيويًا" : "غير منشورة بنيويًا"}؛
         {" "}المطابقة المستقلة: {report.isOpeningReconciled === true && opening.accountBalancesMatchedToOpening === true ? "مثبتة" : "غير مثبتة"}؛
