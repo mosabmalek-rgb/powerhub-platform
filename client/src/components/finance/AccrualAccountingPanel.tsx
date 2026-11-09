@@ -56,6 +56,8 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const [reversalReason,setReversalReason]=useState("");
   const [reversalPeriod,setReversalPeriod]=useState(period);
   const [voidReason,setVoidReason]=useState("");
+  const [voidTargetId,setVoidTargetId]=useState<number|null>(null);
+  const [reversalTargetId,setReversalTargetId]=useState<number|null>(null);
   const [requestKey,setRequestKey]=useState<string|null>(null);
   const [evidence,setEvidence]=useState<Record<EvidenceKey,string>>(emptyEvidence);
   const [showEvidence,setShowEvidence]=useState(false);
@@ -123,7 +125,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
     try{
       await voidDraft.mutateAsync({siteId,journalId:id,reason:voidReason.trim()});
       toast.success("أُلغيت المسودة وسُجّل سبب الإلغاء دون حذف السجل.");
-      setVoidReason("");await refresh();
+      setVoidReason("");setVoidTargetId(null);await refresh();
     }catch{toast.error("تعذر إلغاء المسودة؛ لا يمكن إلغاء قيد معتمد دون قيد عكس.");}
   };
   const createReversal=async(id:number)=>{
@@ -135,7 +137,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
       await reverse.mutateAsync({siteId,journalId:id,period:reversalPeriod,
         reason:reversalReason.trim(),operationKey:`accrual-reverse-${id}-${reversalPeriod}`});
       toast.success(`أُنشئت مسودة العكس في ${reversalPeriod}؛ انتقل إلى ذلك الشهر لاعتمادها.`);
-      setReversalReason("");await refresh();
+      setReversalReason("");setReversalTargetId(null);await refresh();
     }catch{toast.error("تعذر إنشاء قيد عكس. تحقق من أن القيد معتمد ولم يُعكس سابقاً.");}
   };
   const loading=statement.isLoading||journals.isLoading;
@@ -282,29 +284,60 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
               disabled={busy || locked || review.isError} onClick={()=>void approve(item.id)}>اعتماد القيد</Button>:null}
             {item.status==="draft"?<Button size="sm" variant="outline"
               className="text-rose-200" disabled={busy || locked || review.isError}
-              onClick={()=>void voidJournal(item.id)}>إلغاء المسودة</Button>:null}
+              onClick={()=>{
+                setVoidTargetId(item.id);setReversalTargetId(null);setVoidReason("");
+              }}>إلغاء المسودة</Button>:null}
             {item.status==="posted"&&!item.reversesJournalId&&!item.reversal?<Button size="sm" variant="outline"
-              className="text-white" disabled={busy || review.isError || (locked && reversalPeriod<=period)} onClick={()=>void createReversal(item.id)}>
-              إنشاء قيد عكس
+              className="text-white" disabled={busy || review.isError || (locked && reversalPeriod<=period)} onClick={()=>{
+                setReversalTargetId(item.id);setVoidTargetId(null);
+                setReversalPeriod(period);setReversalReason("");
+              }}>
+              إعداد قيد عكس
             </Button>:null}
           </div>
+          {voidTargetId===item.id?<div className="mt-3 rounded-lg border border-rose-400/30 p-3">
+            <p className="text-xs text-rose-200">إلغاء مسودة القيد #{item.id} لا يحذف سجلها؛ يلزم ذكر السبب.</p>
+            <label className="mt-2 block text-xs text-slate-300">سبب الإلغاء
+              <Input value={voidReason} maxLength={1000}
+                onChange={e=>setVoidReason(e.target.value)}
+                className="mt-1 border-white/20 bg-[#0D1117] text-white"
+                placeholder="سبب إلغاء المسودة ورقم المستند"/>
+            </label>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="text-rose-200"
+                disabled={busy || locked || review.isError}
+                onClick={()=>void voidJournal(item.id)}>تأكيد إلغاء هذه المسودة</Button>
+              <Button size="sm" variant="ghost" disabled={busy}
+                onClick={()=>setVoidTargetId(null)}>تراجع</Button>
+            </div>
+          </div>:null}
+          {reversalTargetId===item.id?<div className="mt-3 rounded-lg border border-amber-400/30 p-3">
+            <p className="text-xs text-amber-200">
+              سيُنشأ قيد مدين/دائن معاكس للقيد #{item.id} بقيمة {n(item.amount)} شيكل.
+              يبقى مسودة حتى يعتمده مستخدم مخوّل آخر.
+            </p>
+            <label className="mt-2 block text-xs text-slate-300">شهر قيد العكس
+              <Input type="month" value={reversalPeriod}
+                onChange={e=>setReversalPeriod(e.target.value)}
+                className="mt-1 border-white/20 bg-[#0D1117] text-white"/>
+            </label>
+            <label className="mt-2 block text-xs text-slate-300">سبب العكس والمستند
+              <Input value={reversalReason} maxLength={1000}
+                onChange={e=>setReversalReason(e.target.value)}
+                className="mt-1 border-white/20 bg-[#0D1117] text-white"
+                placeholder="مرجع التسوية وسبب تصحيح القيد"/>
+            </label>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="text-white"
+                disabled={busy || review.isError || (locked && reversalPeriod<=period)}
+                onClick={()=>void createReversal(item.id)}>تأكيد إنشاء مسودة العكس</Button>
+              <Button size="sm" variant="ghost" disabled={busy}
+                onClick={()=>setReversalTargetId(null)}>تراجع</Button>
+            </div>
+          </div>:null}
         </div>)}
         {journals.data.length===0?<p className="text-xs text-slate-400">لا توجد قيود تسوية لهذا الشهر.</p>:null}
       </div>:null}
-      <label className="mt-3 block text-xs text-slate-300">سبب إلغاء مسودة (عند الحاجة)
-        <Input value={voidReason} onChange={e=>setVoidReason(e.target.value)}
-          maxLength={1000} className="mt-1 border-white/20 bg-[#0D1117] text-white"
-          placeholder="سبب إلغاء المسودة ورقم المستند"/>
-      </label>
-      <label className="mt-3 block text-xs text-slate-300">شهر قيد العكس
-        <Input type="month" value={reversalPeriod} onChange={e=>setReversalPeriod(e.target.value)}
-          className="mt-1 border-white/20 bg-[#0D1117] text-white"/>
-      </label>
-      <label className="mt-3 block text-xs text-slate-300">سبب عكس القيد (عند الحاجة)
-        <Input value={reversalReason} onChange={e=>setReversalReason(e.target.value)}
-          maxLength={1000} className="mt-1 border-white/20 bg-[#0D1117] text-white"
-          placeholder="سبب عكس القيد ورقم المستند المرجعي"/>
-      </label>
     </div>
   </section>;
 }
