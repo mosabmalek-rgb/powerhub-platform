@@ -66,6 +66,7 @@ CREATE TABLE public.account_transactions(
 \ir ../migrations/20261110016000_powerhub_financial_gl_source_coverage_operational.sql
 \ir ../migrations/20261110017000_powerhub_financial_gl_service_recognition.sql
 \ir ../migrations/20261110018000_powerhub_financial_gl_source_integrity_coverage.sql
+\ir ../migrations/20261110019000_powerhub_financial_gl_accrual_integrity.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
@@ -274,6 +275,34 @@ BEGIN
     OR (trial->>'difference')::numeric<>0
     OR trial->>'accountingCertification'<>'NOT_CERTIFIED'
  THEN RAISE EXCEPTION 'GL_CI_COVERAGE_MISMATCH: %',report; END IF;
+ -- A5 accrual/reversal integrity after previous exact line-count assertions.
+ -- Source and reverse are distinct posted documents; neither creates a
+ -- fabricated opening balance or a second payable.
+ PERFORM public.powerhub_financial_accrual_post_and_gl(901,9101,
+   public.powerhub_financial_accrual_journal_create(
+     901,9101,9901,'2026-09','5100','2100',13.75,
+     'Independent source-backed accrual integrity acceptance case',
+     'ci-a5-accrual-source-901'),9902);
+ SELECT id INTO sid FROM public.financial_accrual_journals j
+ WHERE j.tenant_id=901 AND j.site_id=9101
+   AND j.operation_key='ci-a5-accrual-source-901';
+ src:=public.powerhub_financial_accrual_journal_reverse(
+   901,9101,sid,9901,'2026-10',
+   'Reversal of source-backed accrual integrity acceptance case',
+   'ci-a5-accrual-reversal-901')::text;
+ PERFORM public.powerhub_financial_accrual_post_and_gl(
+   901,9101,src::bigint,9902);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
+    OR (report->'sourceIntegrity'->>'invalidSources')::int<>0
+    OR (report->'sourceIntegrity'->>'driftedEntries')::int<>0
+    OR (report->'sourceIntegrity'->>'unauditedEntries')::int<>0
+ THEN RAISE EXCEPTION 'GL_CI_ACCRUAL_AND_REVERSAL_SOURCE_INTEGRITY: %',
+   report->'sourceIntegrity'; END IF;
+ trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
+ IF (trial->>'difference')::numeric<>0 OR
+    trial->'sourceCoverage'->'sourceIntegrity'->>'isClean'<>'true'
+ THEN RAISE EXCEPTION 'GL_CI_ACCRUAL_REVERSAL_TRIAL_BALANCE'; END IF;
  SET CONSTRAINTS ALL IMMEDIATE;
 END;$assert$;
 ROLLBACK;
