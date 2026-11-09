@@ -58,6 +58,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const [voidReason,setVoidReason]=useState("");
   const [voidTargetId,setVoidTargetId]=useState<number|null>(null);
   const [reversalTargetId,setReversalTargetId]=useState<number|null>(null);
+  const [reversalOperationKey,setReversalOperationKey]=useState<string|null>(null);
   const [requestKey,setRequestKey]=useState<string|null>(null);
   const [evidence,setEvidence]=useState<Record<EvidenceKey,string>>(emptyEvidence);
   const [showEvidence,setShowEvidence]=useState(false);
@@ -134,10 +135,12 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
       toast.error("أدخل سبب عكس واضحاً وشهراً صحيحاً لا يسبق الشهر الأصلي.");return;
     }
     try{
+      const operationKey=reversalOperationKey??`accrual-reverse-${id}-${crypto.randomUUID()}`;
+      setReversalOperationKey(operationKey);
       await reverse.mutateAsync({siteId,journalId:id,period:reversalPeriod,
-        reason:reversalReason.trim(),operationKey:`accrual-reverse-${id}-${reversalPeriod}`});
+        reason:reversalReason.trim(),operationKey});
       toast.success(`أُنشئت مسودة العكس في ${reversalPeriod}؛ انتقل إلى ذلك الشهر لاعتمادها.`);
-      setReversalReason("");setReversalTargetId(null);await refresh();
+      setReversalReason("");setReversalTargetId(null);setReversalOperationKey(null);await refresh();
     }catch{toast.error("تعذر إنشاء قيد عكس. تحقق من أن القيد معتمد ولم يُعكس سابقاً.");}
   };
   const loading=statement.isLoading||journals.isLoading;
@@ -290,7 +293,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
             {item.status==="posted"&&!item.reversesJournalId&&!item.reversal?<Button size="sm" variant="outline"
               className="text-white" disabled={busy || review.isError} onClick={()=>{
                 setReversalTargetId(item.id);setVoidTargetId(null);
-                setReversalPeriod(period);setReversalReason("");
+                setReversalPeriod(period);setReversalReason("");setReversalOperationKey(null);
               }}>
               إعداد قيد عكس
             </Button>:null}
@@ -318,12 +321,12 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
             </p>
             <label className="mt-2 block text-xs text-slate-300">شهر قيد العكس
               <Input type="month" value={reversalPeriod}
-                onChange={e=>setReversalPeriod(e.target.value)}
+                onChange={e=>{setReversalPeriod(e.target.value);setReversalOperationKey(null);}}
                 className="mt-1 border-white/20 bg-[#0D1117] text-white"/>
             </label>
             <label className="mt-2 block text-xs text-slate-300">سبب العكس والمستند
               <Input value={reversalReason} maxLength={1000}
-                onChange={e=>setReversalReason(e.target.value)}
+                onChange={e=>{setReversalReason(e.target.value);setReversalOperationKey(null);}}
                 className="mt-1 border-white/20 bg-[#0D1117] text-white"
                 placeholder="مرجع التسوية وسبب تصحيح القيد"/>
             </label>
@@ -332,7 +335,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
                 disabled={busy || review.isError || (locked && reversalPeriod<=period)}
                 onClick={()=>void createReversal(item.id)}>تأكيد إنشاء مسودة العكس</Button>
               <Button size="sm" variant="ghost" disabled={busy}
-                onClick={()=>setReversalTargetId(null)}>تراجع</Button>
+                onClick={()=>{setReversalTargetId(null);setReversalOperationKey(null);}}>تراجع</Button>
             </div>
           </div>:null}
         </div>)}
