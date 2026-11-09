@@ -158,6 +158,27 @@ BEGIN
    IF v_lines<2 OR v_lines<>NEW.expected_line_count OR
       v_lines<>v_expected OR v_net<>0 THEN
      RAISE EXCEPTION 'GL_OPENING_POSTING_NOT_BALANCED' USING ERRCODE='23514'; END IF;
+   IF EXISTS(
+     SELECT account_code,side,amount,count(*) AS n
+     FROM public.financial_gl_opening_lines
+     WHERE opening_id=NEW.id AND tenant_id=NEW.tenant_id AND site_id=NEW.site_id
+     GROUP BY account_code,side,amount
+     EXCEPT
+     SELECT account_code,side,amount,count(*) AS n
+     FROM public.financial_gl_lines WHERE entry_id=v_e
+     GROUP BY account_code,side,amount
+   ) OR EXISTS(
+     SELECT account_code,side,amount,count(*) AS n
+     FROM public.financial_gl_lines WHERE entry_id=v_e
+     GROUP BY account_code,side,amount
+     EXCEPT
+     SELECT account_code,side,amount,count(*) AS n
+     FROM public.financial_gl_opening_lines
+     WHERE opening_id=NEW.id AND tenant_id=NEW.tenant_id AND site_id=NEW.site_id
+     GROUP BY account_code,side,amount
+   ) THEN
+     RAISE EXCEPTION 'GL_OPENING_GL_LINES_MISMATCH' USING ERRCODE='23514';
+   END IF;
  ELSIF v_e IS NOT NULL THEN
    RAISE EXCEPTION 'GL_OPENING_UNAPPROVED_GL_EXISTS' USING ERRCODE='23514';
  END IF;
