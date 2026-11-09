@@ -168,11 +168,10 @@ BEGIN
      END IF;
    ELSE
      -- A type not yet audited is never interpreted as a clean source.
-     -- Accrual adjustments remain separately audited in phase A1.
-     IF v_entry.source_type<>'accrual_adjustment' THEN
-       v_unverified:=v_unverified+1;
-       v_reason:='GL_SOURCE_TYPE_NOT_AUDITED';
-     END IF;
+     -- Until a matching source-specific verifier is installed, no posted
+     -- type (including earlier accrual adjustments) can be certified clean.
+     v_unverified:=v_unverified+1;
+     v_reason:='GL_SOURCE_TYPE_NOT_AUDITED';
    END IF;
    IF v_reason IS NOT NULL AND jsonb_array_length(v_samples)<12 THEN
      v_samples:=v_samples||jsonb_build_array(jsonb_build_object(
