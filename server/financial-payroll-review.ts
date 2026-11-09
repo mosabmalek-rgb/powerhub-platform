@@ -10,7 +10,13 @@ export type FinancialPayrollRun = {
   total_net: string | number;
 };
 export type FinancialPayrollExpense = {
-  reference_no: string | null; amount: string | number;
+  id:number; reference_no: string | null; amount: string | number;
+  company_account_id:number|null;
+};
+export type FinancialPayrollPayout = {
+  id:number; reference_no:string|null; amount:string|number;
+  account_id:number; related_expense_id:number|null;
+  transaction_type:string;
 };
 export class InvalidPayrollReview extends Error {
   constructor(reason:string){super(reason);this.name="InvalidPayrollReview";}
@@ -28,12 +34,13 @@ const cents = (value:unknown, field:string) => {
 };
 const toMoney=(amount:number)=>amount/100;
 export function reviewFinancialPayrollMonth(
-  period:string, runs:FinancialPayrollRun[], linkedExpenses:FinancialPayrollExpense[]
+  period:string, runs:FinancialPayrollRun[],
+  linkedExpenses:FinancialPayrollExpense[], linkedPayouts:FinancialPayrollPayout[]
 ) {
-  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || runs.length>200 || linkedExpenses.length>200){
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || runs.length>200 || linkedExpenses.length>200 || linkedPayouts.length>200){
     throw new InvalidPayrollReview("Invalid period or row bound");
   }
-  const ids=new Set<number>(), expenses=new Map<string,number>();
+  const ids=new Set<number>(), expenses=new Map<string,{id:number;amount:number;accountId:number|null}>(), payouts=new Map<string,{amount:number;accountId:number;expenseId:number|null}>();
   // The payout is a NET cash movement and must never be recognized as
   // a second wage cost on top of approved/paid GROSS payroll.
 
@@ -42,7 +49,25 @@ export function reviewFinancialPayrollMonth(
        expenses.has(expense.reference_no)){
       throw new InvalidPayrollReview("Unlinked or duplicate payroll expense");
     }
-    expenses.set(expense.reference_no,cents(expense.amount,"expense amount"));
+    if (!Number.isSafeInteger(expense.id) || expense.id<=0 || (expense.company_account_id!==null && (!Number.isSafeInteger(expense.company_account_id)||expense.company_account_id<=0))) {
+      throw new InvalidPayrollReview("Invalid expense identity");
+    }
+    expenses.set(expense.reference_no,{
+      id:expense.id,amount:cents(expense.amount,"expense amount"),accountId:expense.company_account_id
+    });
+  }
+  for(const payout of linkedPayouts){
+    if(typeof payout.reference_no!=="string" || !/^PAYROLL-\d+$/.test(payout.reference_no) ||
+      payouts.has(payout.reference_no) || payout.transaction_type!=="withdrawal" ||
+      !Number.isSafeInteger(payout.id) || payout.id<=0 ||
+      !Number.isSafeInteger(payout.account_id) || payout.account_id<=0 ||
+      (payout.related_expense_id!==null && (!Number.isSafeInteger(payout.related_expense_id)||payout.related_expense_id<=0))){
+      throw new InvalidPayrollReview("Invalid or duplicate payroll cash movement");
+    }
+    payouts.set(payout.reference_no,{
+      amount:cents(payout.amount,"payroll payout amount"),
+      accountId:payout.account_id,expenseId:payout.related_expense_id
+    });
   }
   const counts={draft:0,approved:0,paid:0,cancelled:0};
   const gross={draft:0,approved:0,paid:0};
@@ -74,25 +99,36 @@ export function reviewFinancialPayrollMonth(
     }
     const reference=`PAYROLL-${run.id}`;
     const actualExpense=expenses.get(reference);
+    const payout=payouts.get(reference);
     if(status==="paid"){
       if(actualExpense===undefined){
         reconciliationIssues.push("MISSING_NET_PAYROLL_EXPENSE");
-      } else if(Math.abs(actualExpense-totalNet)>1){
+      } else if(Math.abs(actualExpense.amount-totalNet)>1){
         reconciliationIssues.push("NET_PAYROLL_EXPENSE_MISMATCH");
-      } else matchingExpenseCents+=actualExpense;
-    } else if(actualExpense!==undefined){
-      reconciliationIssues.push("EXPENSE_FOR_UNPAID_OR_CANCELLED_PAYROLL");
+      }
+      if(payout===undefined){
+        reconciliationIssues.push("MISSING_PAYROLL_CASH_MOVEMENT");
+      } else if(
+        Math.abs(payout.amount-totalNet)>1 ||
+        payout.expenseId!==actualExpense?.id ||
+        payout.accountId!==actualExpense?.accountId
+      ){
+        reconciliationIssues.push("PAYROLL_CASH_MOVEMENT_MISMATCH");
+      }
+      if(actualExpense && payout &&
+        Math.abs(actualExpense.amount-totalNet)<=1 &&
+        Math.abs(payout.amount-totalNet)<=1 &&
+        payout.expenseId===actualExpense.id &&
+        payout.accountId===actualExpense.accountId){
+        matchingExpenseCents+=actualExpense.amount;
+      }
+    } else if(actualExpense!==undefined || payout!==undefined){
+      reconciliationIssues.push("PAYROLL_POSTING_BEFORE_PAYMENT");
     }
-    if (status==="approved" && totalNet===0 && totalGross>0) {
-      // Fully deducted runs are legitimate, but accrual classification
-      // remains a manual accounting decision until deduction kinds are reconciled.
-      reconciliationIssues.push("FULLY_DEDUCTED_APPROVED_PAYROLL_REQUIRES_REVIEW");
-    }
-
   }
-  for(const ref of expenses.keys()){
+  for(const ref of [...expenses.keys(),...payouts.keys()]){
     if(!ids.has(Number(ref.slice("PAYROLL-".length)))){
-      throw new InvalidPayrollReview("Payroll expense outside scoped month");
+      throw new InvalidPayrollReview("Payroll posting outside scoped month");
     }
   }
   const draftGross=toMoney(gross.draft);
