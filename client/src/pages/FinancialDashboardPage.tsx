@@ -9,6 +9,7 @@ import { BarChart3, CalendarRange, CircleDollarSign, Download, FileText, Loader2
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import AccrualAccountingPanel from "@/components/finance/AccrualAccountingPanel";
 
 const format = (value: unknown) => Number(value ?? 0).toLocaleString("ar", { maximumFractionDigits: 2 });
 const iso = (date: Date) => {
@@ -99,6 +100,7 @@ export default function FinancialDashboardPage() {
     enabled: Boolean(showCashTrend && siteId && isAuthenticated && endDate && startDate <= endDate && cycleRangeReady),
     staleTime: 120_000, refetchOnWindowFocus: false,
   });
+  const [showAccrualAccounting, setShowAccrualAccounting] = useState(false);
   const [showAccrualBridge, setShowAccrualBridge] = useState(false);
   const [showServiceCycleBilling, setShowServiceCycleBilling] = useState(false);
   const serviceCycleBilling = trpc.powerhub.reports.serviceCycleBillingReview.useQuery({
@@ -477,6 +479,24 @@ export default function FinancialDashboardPage() {
         {" "}{format(cashFlow.data.internalTransferVolume)} شيكل من التدفق الصافي.
       </p> : null}
     </section>
+    <section className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-white">قائمة الاستحقاق الشهرية والتسويات</h2>
+          <p className="mt-1 text-xs text-slate-300">
+            بيانات الشهر {endDate.slice(0,7)} · عرض اختياري لا يُحمّل عند فتح اللوحة
+          </p>
+        </div>
+        <Button size="sm" variant="outline" className="border-white/20 text-white"
+          disabled={!siteId||!cycleRangeReady}
+          onClick={()=>setShowAccrualAccounting(v=>!v)}>
+          {showAccrualAccounting?"إخفاء الاستحقاق الشهري":"فتح مراجعة الاستحقاق والتسويات"}
+        </Button>
+      </div>
+    </section>
+    {showAccrualAccounting&&siteId&&cycleRangeReady?
+      <AccrualAccountingPanel key={`${siteId}-${endDate.slice(0,7)}`}
+        siteId={siteId} period={endDate.slice(0,7)} active={showAccrualAccounting}/>:null}
     <section aria-labelledby="accrual-bridge-title" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
