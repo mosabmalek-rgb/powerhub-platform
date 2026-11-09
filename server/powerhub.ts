@@ -4888,6 +4888,15 @@ export const powerhubRouter = router({
         }
         return [key,value];
       })) as Record<(typeof adjustments)[number],number>;
+      for(const key of ["missingCycleCount","draftPayrollCount","uncompletedInvoiceCount",
+        "unclassifiedInventoryIssueCount","unreconciledPayrollPayoutCount"]){
+        const value=Number(result[key]);
+        if(result[key]===undefined || result[key]===null ||
+           !Number.isSafeInteger(value) || value<0){
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+            message:"مؤشرات جاهزية الإقفال غير صالحة أو غير مكتملة."});
+        }
+      }
       if(Number(result.scopeTenantId)!==access.tenantId ||
          Number(result.scopeSiteId)!==input.siteId ||
          result.period!==input.period ||
@@ -4907,6 +4916,7 @@ export const powerhubRouter = router({
         draftPayrollCount:Number(result.draftPayrollCount),
         uncompletedInvoiceCount:Number(result.uncompletedInvoiceCount),
         unclassifiedInventoryIssueCount:Number(result.unclassifiedInventoryIssueCount),
+        unreconciledPayrollPayoutCount:Number(result.unreconciledPayrollPayoutCount),
         purchaseGrossNotExpensed:Number(result.purchaseGrossNotExpensed),
         isFinalProfit:false as const,isCompleteAccrualStatement:false as const,
       };
