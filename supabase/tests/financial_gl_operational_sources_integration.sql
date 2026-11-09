@@ -346,6 +346,28 @@ BEGIN
  IF (report->'sources'->'priorAccrualAdjustments'->>'missingGL')::int<>0
    OR (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
  THEN RAISE EXCEPTION 'GL_CI_A7_PRIOR_ACCRUAL_RECONCILE_FAILED'; END IF;
+ -- A8: a September expense without GL must make the October cumulative
+ -- coverage incomplete even if the October source set itself has no gap.
+ INSERT INTO public.expenses(id,tenant_id,site_id,category,occurred_at,
+   amount,company_account_id,expense_classification)
+ VALUES(1702,901,9101,'maintenance','2026-09-17T12:00:00Z',19.50,601,'operating');
+ INSERT INTO public.account_transactions(
+   id,tenant_id,site_id,occurred_at,related_expense_id,account_id,
+   amount,transaction_type)
+ VALUES(1602,901,9101,'2026-09-17T12:00:00Z',1702,601,19.50,'withdrawal');
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
+ IF (report->'sources'->'priorOperationalSources'->>'expensesMissingGL')::int<>1
+    OR (report->'sources'->'priorOperationalSources'->>'unreconciledCount')::int<1
+    OR (trial->'sourceCoverage'->'sources'->'priorOperationalSources'
+       ->>'expensesMissingGL')::int<>1
+    OR (report->>'isSourceCoverageComplete')::boolean IS DISTINCT FROM false
+ THEN RAISE EXCEPTION 'GL_CI_A8_PRIOR_EXPENSE_GAP_HIDDEN: %',
+   report->'sources'->'priorOperationalSources'; END IF;
+ PERFORM public.powerhub_financial_gl_post_source(901,9101,'expense',1702,9902);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'priorOperationalSources'->>'expensesMissingGL')::int<>0
+ THEN RAISE EXCEPTION 'GL_CI_A8_PRIOR_EXPENSE_NOT_RECONCILED'; END IF;
  -- A5 negative acceptance: a mathematically balanced but unapproved
  -- accrual journal projection must fail source integrity. A zero trial
  -- balance never substitutes for an authoritative approval document.
