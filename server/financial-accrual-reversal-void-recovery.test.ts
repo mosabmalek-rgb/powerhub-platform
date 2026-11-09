@@ -24,5 +24,9 @@ describe("voided reversal draft recovery",()=>{
   expect(ui).toContain("setReversalOperationKey(operationKey)");
   expect(ui).toContain("accrual-reverse-${id}-${crypto.randomUUID()}");
   expect(ui).toContain("setReversalOperationKey(null)");
+  expect(ui).toContain("canLockReview");
+  expect(ui).toContain("closeBlockers");
+  expect(ui).toContain("unreconciledPayrollPayoutCount");
+  expect(ui).toContain("unclassifiedInventoryIssueCount");
  });
 });
