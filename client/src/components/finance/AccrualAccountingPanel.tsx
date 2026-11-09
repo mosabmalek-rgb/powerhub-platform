@@ -1,0 +1,181 @@
+import { useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+
+type AccountPair = { label:string; debit:string; credit:string; description:string };
+const pairs:AccountPair[]=[
+  {label:"إثبات إيراد خدمة مستحق",debit:"1100",credit:"4100",description:"مدين: إيراد غير مفوتر، دائن: إيرادات الخدمة"},
+  {label:"إلغاء إيراد غير مكتسب",debit:"4100",credit:"2200",description:"مدين: إيرادات الخدمة، دائن: الإيراد المؤجل"},
+  {label:"تحميل إيراد مؤجل مكتسب",debit:"2200",credit:"4100",description:"مدين: إيراد مؤجل، دائن: إيراد خدمة"},
+  {label:"تسوية مصروف تشغيلي مستحق",debit:"5100",credit:"2100",description:"مدين: مصروف تشغيلي، دائن: التزامات مستحقة"},
+  {label:"إهلاك أصل ثابت",debit:"5300",credit:"1500",description:"مدين: مصروف إهلاك، دائن: مجمع الإهلاك"},
+  {label:"مخصص ديون محتمل تحصيلها",debit:"5400",credit:"1190",description:"مدين: مصروف مخصص، دائن: مخصص ديون"},
+  {label:"مصروف غير تشغيلي مستحق",debit:"6100",credit:"2100",description:"مدين: مصروف غير تشغيلي، دائن: التزامات مستحقة"},
+];
+const n=(v:number)=>v.toLocaleString("ar",{minimumFractionDigits:0,maximumFractionDigits:2});
+export default function AccrualAccountingPanel({siteId,period,active}:{
+  siteId:number;period:string;active:boolean;
+}){
+  const utils=trpc.useUtils();
+  const statement=trpc.powerhub.reports.accrualMonthStatement.useQuery({siteId,period},{
+    enabled:active,staleTime:60000,refetchOnWindowFocus:false
+  });
+  const journals=trpc.powerhub.reports.accrualJournalList.useQuery({siteId,period},{
+    enabled:active,staleTime:60000,refetchOnWindowFocus:false
+  });
+  const create=trpc.powerhub.reports.accrualJournalCreate.useMutation();
+  const post=trpc.powerhub.reports.accrualJournalPost.useMutation();
+  const reverse=trpc.powerhub.reports.accrualJournalReverse.useMutation();
+  const [selectedPair,setSelectedPair]=useState("0");
+  const [amount,setAmount]=useState("");
+  const [reason,setReason]=useState("");
+  const [reversalReason,setReversalReason]=useState("");
+  const [requestKey,setRequestKey]=useState<string|null>(null);
+  const [showNew,setShowNew]=useState(false);
+  const refresh=async()=>{
+    await Promise.all([
+      utils.powerhub.reports.accrualMonthStatement.invalidate({siteId,period}),
+      utils.powerhub.reports.accrualJournalList.invalidate({siteId,period}),
+    ]);
+  };
+  const submit=async()=>{
+    const choice=pairs[Number(selectedPair)];
+    const value=Number(amount);
+    if(!choice || !Number.isFinite(value)||value<=0||Math.round(value*100)!==value*100 ||
+      reason.trim().length<10){
+      toast.error("أدخل مبلغاً موجباً بمنزلتين عشريتين على الأكثر وسبباً واضحاً (10 أحرف على الأقل).");
+      return;
+    }
+    const operationKey=requestKey??`accrual-${crypto.randomUUID()}`;
+    setRequestKey(operationKey);
+    try{
+      await create.mutateAsync({siteId,period,amount:value,reason:reason.trim(),
+        debitAccount:choice.debit as "1100"|"4100"|"2200"|"5100"|"2100"|"5300"|"1500"|"5400"|"1190"|"6100",
+        creditAccount:choice.credit as "1100"|"4100"|"2200"|"5100"|"2100"|"5300"|"1500"|"5400"|"1190"|"6100",
+        operationKey});
+      setRequestKey(null);setAmount("");setReason("");setShowNew(false);
+      toast.success("حُفظ القيد مسودة؛ لن يؤثر في الأرصدة قبل اعتماد مستخدم مخوّل آخر.");
+      await refresh();
+    }catch{toast.error("تعذر حفظ القيد. سيُستخدم مفتاح العملية نفسه عند إعادة المحاولة.");}
+  };
+  const approve=async(id:number)=>{
+    try{
+      await post.mutateAsync({siteId,journalId:id});
+      toast.success("اعتُمد قيد التسوية وأُدرج في ملخص الاستحقاق.");
+      await refresh();
+    }catch{toast.error("لم يُعتمد القيد. لا يجوز لمنشئ القيد اعتماده بنفسه.");}
+  };
+  const createReversal=async(id:number)=>{
+    if(reversalReason.trim().length<10){
+      toast.error("أدخل سبب عكس واضحاً لا يقل عن 10 أحرف.");return;
+    }
+    try{
+      await reverse.mutateAsync({siteId,journalId:id,period,
+        reason:reversalReason.trim(),operationKey:`accrual-reverse-${id}-${crypto.randomUUID()}`});
+      toast.success("أُنشئت مسودة عكس؛ تتطلب اعتماد مستخدم آخر.");
+      setReversalReason("");await refresh();
+    }catch{toast.error("تعذر إنشاء قيد عكس. تحقق من أن القيد معتمد ولم يُعكس سابقاً.");}
+  };
+  const loading=statement.isLoading||journals.isLoading;
+  const busy=create.isPending||post.isPending||reverse.isPending;
+  return <section aria-labelledby="monthly-accrual-review" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 id="monthly-accrual-review" className="text-lg font-bold text-white">الاستحقاق المحاسبي وتسويات الإقفال</h2>
+        <p className="mt-1 text-xs text-slate-300">الشهر {period} · تقرير اختياري، لا يؤثر في سرعة فتح اللوحة</p>
+      </div>
+      <Button size="sm" variant="outline" className="border-white/20 text-white"
+        onClick={()=>{void refresh();}} disabled={busy || !active}>تحديث المطابقة</Button>
+    </div>
+    {loading?<p role="status" className="mt-4 text-sm text-slate-300">جارٍ مراجعة مصادر الإيرادات والمصروفات والقيود…</p>:null}
+    {(statement.isError||journals.isError)?<p role="alert" className="mt-4 text-sm text-rose-200">
+      تعذر تحميل كامل مصادر الاستحقاق أو القيود. لا تُعرض نتائج قديمة باعتبارها مكتملة.
+    </p>:null}
+    {statement.data&&!statement.isError?<div className="mt-4 space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {([
+          {label:"فوترة الخدمة المكتملة دون الضريبة",v:statement.data.serviceBillingExTax},
+          {label:"تعديل الإيرادات المعتمد",v:statement.data.journalAdjustments.revenue},
+          {label:"الإيرادات الأولية بعد التعديلات",v:statement.data.revenueAfterAdjustments},
+          {label:"تكلفة التشغيل بعد التعديلات",v:statement.data.operatingCostsAfterAdjustments},
+          {label:"التكاليف غير التشغيلية",v:statement.data.nonOperatingCostsAfterAdjustments},
+          {label:"الرصيد الأولي بعد القيود",v:statement.data.provisionalNetAfterAdjustments},
+          {label:"مشتريات لا تُحمل تلقائياً كمصروف",v:statement.data.purchaseGrossNotExpensed},
+        ] as const).map(item=><div key={item.label} className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
+          <p className="text-xs text-slate-300">{item.label}</p>
+          <strong className="mt-2 block text-lg text-white">{n(item.v)} شيكل</strong>
+        </div>)}
+      </div>
+      <p className="rounded-lg border border-amber-400/20 p-3 text-xs text-amber-200">
+        هذا رصيد أولي غير معتمد كصافي ربح. يتطلب الإقفال التحقق من الخدمات غير المفوترة،
+        وفترات الاعتراف، والمخصصات، والإهلاك، والذمم، وكامل قيود اليومية.
+        لا تُحتسب المشتريات والسداد النقدي للرواتب كمصروف إضافي فوق الاستهلاك والأجور المعتمدة.
+      </p>
+      <div className="grid grid-cols-2 gap-3 text-xs text-slate-300 sm:grid-cols-4">
+        <p>مسودات الرواتب: {n(statement.data.draftPayrollCount)}</p>
+        <p>فواتير دورات غير مكتملة: {n(statement.data.uncompletedInvoiceCount)}</p>
+        <p>فواتير تفتقر للدورة: {n(statement.data.missingCycleCount)}</p>
+        <p>حركات مخزون غير مصنفة: {n(statement.data.unclassifiedInventoryIssueCount)}</p>
+        <p>قيود تسوية معتمدة: {n(statement.data.journalAdjustments.postedCount)}</p>
+        <p>قيود تسوية مسودة: {n(statement.data.journalAdjustments.draftCount)}</p>
+      </div>
+    </div>:null}
+    <div className="mt-5 border-t border-white/10 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-white">سجل قيود التسوية</h3>
+        <Button size="sm" variant="outline" className="border-white/20 text-white"
+          disabled={busy} onClick={()=>setShowNew(v=>!v)}>
+          {showNew?"إخفاء نموذج القيد":"إنشاء قيد تسوية"}
+        </Button>
+      </div>
+      {showNew?<div className="mt-3 grid gap-3 rounded-lg border border-white/10 p-3">
+        <label className="text-xs text-slate-300">نوع القيد
+          <select className="mt-1 w-full rounded-md border border-white/20 bg-[#0D1117] p-2 text-white"
+            value={selectedPair} onChange={e=>{setSelectedPair(e.target.value);setRequestKey(null);}}>
+            {pairs.map((v,i)=><option key={v.label} value={String(i)}>{v.label}</option>)}
+          </select>
+        </label>
+        <p className="text-xs text-slate-400">{pairs[Number(selectedPair)]?.description}</p>
+        <label className="text-xs text-slate-300">المبلغ بالشيكل
+          <Input type="number" min="0.01" step="0.01" value={amount}
+            onChange={e=>{setAmount(e.target.value);setRequestKey(null);}}
+            className="mt-1 border-white/20 bg-[#0D1117] text-white" placeholder="0.00"/>
+        </label>
+        <label className="text-xs text-slate-300">سبب القيد والمستند المرجعي
+          <Input value={reason} maxLength={1000}
+            onChange={e=>{setReason(e.target.value);setRequestKey(null);}}
+            className="mt-1 border-white/20 bg-[#0D1117] text-white" placeholder="وصف التسوية ورقم المستند"/>
+        </label>
+        <p className="text-xs text-amber-200">كل قيد متوازن تلقائياً (مدين = دائن) ويُحفظ مسودة. لا يمكن لمُنشئه اعتماده.</p>
+        <Button disabled={busy} size="sm" onClick={()=>void submit()}>حفظ مسودة القيد</Button>
+      </div>:null}
+      {journals.data&&!journals.isError?<div className="mt-3 space-y-2">
+        {journals.data.map(item=><div key={item.id} className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-white">
+            <span>#{item.id} · {item.status==="posted"?"معتمد":"مسودة"} · {n(item.amount)} شيكل</span>
+            <span>مدين {item.debitAccount} / دائن {item.creditAccount}</span>
+          </div>
+          <p className="mt-1 text-xs text-slate-300">{item.reason}</p>
+          <p className="mt-1 text-xs text-slate-500">أنشأه مستخدم #{item.createdByUserId} ·
+            {item.approvedByUserId===null?" ينتظر اعتماد مستخدم آخر":` اعتمده مستخدم #${item.approvedByUserId}`}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {item.status==="draft"?<Button size="sm" variant="outline" className="text-white"
+              disabled={busy} onClick={()=>void approve(item.id)}>اعتماد القيد</Button>:null}
+            {item.status==="posted"&&!item.reversesJournalId?<Button size="sm" variant="outline"
+              className="text-white" disabled={busy} onClick={()=>void createReversal(item.id)}>
+              إنشاء قيد عكس
+            </Button>:null}
+          </div>
+        </div>)}
+        {journals.data.length===0?<p className="text-xs text-slate-400">لا توجد قيود تسوية لهذا الشهر.</p>:null}
+      </div>:null}
+      <label className="mt-3 block text-xs text-slate-300">سبب عكس القيد (عند الحاجة)
+        <Input value={reversalReason} onChange={e=>setReversalReason(e.target.value)}
+          maxLength={1000} className="mt-1 border-white/20 bg-[#0D1117] text-white"
+          placeholder="سبب عكس القيد ورقم المستند المرجعي"/>
+      </label>
+    </div>
+  </section>;
+}
