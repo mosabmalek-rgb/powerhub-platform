@@ -83,6 +83,7 @@ INSERT INTO public.tenant_members VALUES
  (901,9903,true,'active','owner'),
  (901,9904,true,'active','owner');
 \ir ../migrations/20261110025000_powerhub_financial_gl_opening_independent_evidence.sql
+\ir ../migrations/20261110026000_powerhub_financial_staging_fixture_quarantine.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
