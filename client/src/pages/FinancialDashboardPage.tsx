@@ -511,6 +511,30 @@ export default function FinancialDashboardPage() {
             مسودات مستبعدة: {format(data.accrualComponents.excludedDraftCount)}،
             فواتير ملغاة مستبعدة: {format(data.accrualComponents.excludedCancelledCount)}.
           </p>
+          {data.serviceCycleCoverage ? <div className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
+            <p className="text-sm font-semibold text-white">مطابقة الفوترة مع فترة الخدمة</p>
+            <p className="mt-1 text-xs text-slate-400">
+              التحليل يشمل الفواتير الصادرة خلال الفترة المختارة فقط؛ لا يشمل فواتير أصدرت خارجها
+              وإن كانت خدماتها داخلها، ولا يوزع الإيرادات على أيام الخدمة.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {([
+                {label:"دورة داخل الفترة بالكامل",value:data.serviceCycleCoverage.withinPeriodCount},
+                {label:"دورة تعبر حدود الفترة",value:data.serviceCycleCoverage.crossBoundaryCount},
+                {label:"دورة خارج الفترة",value:data.serviceCycleCoverage.outsidePeriodCount},
+                {label:"دورة غير محددة",value:data.serviceCycleCoverage.missingCycleCount},
+                {label:"إصدار خارج دورة الخدمة",value:data.serviceCycleCoverage.issueDateOutsideCycleCount},
+                {label:"إصدار بشهر مختلف عن نهاية الدورة",value:data.serviceCycleCoverage.billedInOtherServiceMonthCount},
+              ] as const).map(x=><div key={x.label}><p className="text-xs text-slate-400">{x.label}</p><strong className="text-lg text-white">{format(x.value)}</strong></div>)}
+            </div>
+            {(data.serviceCycleCoverage.outsidePeriodCount>0 || data.serviceCycleCoverage.crossBoundaryCount>0 ||
+              data.serviceCycleCoverage.missingCycleCount>0) ? <p className="mt-3 text-xs text-amber-200">
+              توجد فواتير تحتاج مراجعة فترة الاستحقاق. إجمالي فواتير الدورات خارج الفترة:
+              {" "}{format(data.serviceCycleCoverage.outsidePeriodBilledGross)} شيكل؛
+              وإجمالي الدورات العابرة للحدود: {format(data.serviceCycleCoverage.crossBoundaryBilledGross)} شيكل.
+              هذه مبالغ فوترة إجمالية وليست إيرادات مستحقة محسوبة.
+            </p> : null}
+          </div> : null}
           {data.accrualComponents.unknownInvoiceCount > 0 ? <p role="alert" className="text-xs text-rose-200">
             توجد حالات فواتير غير معروفة ({format(data.accrualComponents.unknownInvoiceCount)}) لم تُحتسب؛ يلزم مراجعتها.
           </p> : null}
