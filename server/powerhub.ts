@@ -4846,6 +4846,145 @@ export const powerhubRouter = router({
         scopeNotice:"site_attributed_only" as const,
       };
     }),
+    // A month-scoped, SQL-aggregated accrual statement; never advertised as audited final profit.
+    accrualMonthStatement: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_month_statement",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+        p_as_of:new Date().toISOString(),
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data)){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تجميع الاستحقاق الشهري؛ تحقق من الترحيلات ومصادر القيود."});
+      }
+      const result=data as Record<string,unknown>;
+      const signedKeys=[
+        "serviceBillingExTax","operatingDirectExpenses","nonOperatingDirectExpenses",
+        "payrollGrossCost","inventoryConsumptionCost","revenueAfterAdjustments",
+        "operatingCostsAfterAdjustments","nonOperatingCostsAfterAdjustments",
+        "provisionalNetAfterAdjustments",
+      ] as const;
+      const numbers=Object.fromEntries(signedKeys.map(key=>{
+        const value=Number(result[key]);
+        if(result[key]===null||result[key]===undefined||!Number.isFinite(value)){
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+            message:"نتيجة الاستحقاق الشهري غير مكتملة."});
+        }
+        return [key,value];
+      })) as Record<(typeof signedKeys)[number],number>;
+      const journal=(result.journalAdjustments??{}) as Record<string,unknown>;
+      const adjustments=[
+        "revenue","operating","nonoperating","postedCount","draftCount",
+        "reversalCount","balancedDebits","balancedCredits",
+      ] as const;
+      const entries=Object.fromEntries(adjustments.map(key=>{
+        const value=Number(journal[key]);
+        if(journal[key]===null||journal[key]===undefined||!Number.isFinite(value)){
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"المجاميع المحاسبية للتسويات غير صالحة."});
+        }
+        return [key,value];
+      })) as Record<(typeof adjustments)[number],number>;
+      if(Number(result.scopeTenantId)!==access.tenantId ||
+         Number(result.scopeSiteId)!==input.siteId ||
+         result.period!==input.period ||
+         result.isFinalProfit!==false || result.isCompleteAccrualStatement!==false ||
+         Math.abs(entries.balancedDebits-entries.balancedCredits)>0.01 ||
+         Math.abs(numbers.revenueAfterAdjustments-numbers.serviceBillingExTax-entries.revenue)>0.01 ||
+         Math.abs(numbers.provisionalNetAfterAdjustments-
+           (numbers.revenueAfterAdjustments-numbers.operatingCostsAfterAdjustments-
+             numbers.nonOperatingCostsAfterAdjustments))>0.01){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"فشلت مطابقة الأرصدة أو نطاق الاستحقاق الشهري."});
+      }
+      return {
+        period:input.period,asOf:String(result.asOf),
+        ...numbers,journalAdjustments:entries,
+        missingCycleCount:Number(result.missingCycleCount),
+        draftPayrollCount:Number(result.draftPayrollCount),
+        uncompletedInvoiceCount:Number(result.uncompletedInvoiceCount),
+        unclassifiedInventoryIssueCount:Number(result.unclassifiedInventoryIssueCount),
+        purchaseGrossNotExpensed:Number(result.purchaseGrossNotExpensed),
+        isFinalProfit:false as const,isCompleteAccrualStatement:false as const,
+      };
+    }),
+    accrualJournalList: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().from("financial_accrual_journals")
+        .select("id,period,debit_account,credit_account,amount,reason,status,created_by_user_id,approved_by_user_id,created_at,approved_at,reverses_journal_id")
+        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+        .eq("period",input.period).order("id",{ascending:false}).limit(201);
+      if(error||!data||data.length>200)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر تحميل جميع قيود التسوية، أو تجاوزت القيود حد العرض الآمن."});
+      return data.map(row=>({
+        id:Number(row.id),period:String(row.period),
+        debitAccount:String(row.debit_account),creditAccount:String(row.credit_account),
+        amount:Number(row.amount),reason:String(row.reason),status:String(row.status),
+        createdByUserId:Number(row.created_by_user_id),
+        approvedByUserId:row.approved_by_user_id===null?null:Number(row.approved_by_user_id),
+        reversesJournalId:row.reverses_journal_id===null?null:Number(row.reverses_journal_id),
+        createdAt:String(row.created_at),approvedAt:row.approved_at===null?null:String(row.approved_at),
+      }));
+    }),
+    accrualJournalCreate: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      debitAccount:z.enum(["1100","4100","2200","5100","2100","5300","1500","5400","1190","6100"]),
+      creditAccount:z.enum(["1100","4100","2200","5100","2100","5300","1500","5400","1190","6100"]),
+      amount:z.number().positive().max(100000000000),
+      reason:z.string().trim().min(10).max(1000),
+      operationKey:z.string().trim().min(8).max(180),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_journal_create",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,
+        p_period:input.period,p_debit_account:input.debitAccount,
+        p_credit_account:input.creditAccount,p_amount:input.amount,
+        p_reason:input.reason,p_operation_key:input.operationKey,
+      });
+      if(error||!Number.isSafeInteger(Number(data))||Number(data)<=0)
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر حفظ مسودة قيد التسوية؛ تحقق من الحسابات والمبلغ أو مفتاح العملية."});
+      return {id:Number(data),status:"draft" as const};
+    }),
+    accrualJournalPost: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),journalId:z.number().int().positive(),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_journal_post",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_user_id:ctx.user.id,p_journal_id:input.journalId,
+      });
+      if(error||!data)throw new TRPCError({code:"BAD_REQUEST",
+        message:"تعذر اعتماد القيد؛ يجب أن يعتمده مستخدم مخوّل مختلف عن منشئه."});
+      return data;
+    }),
+    accrualJournalReverse: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),journalId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      reason:z.string().trim().min(10).max(1000),
+      operationKey:z.string().trim().min(8).max(180),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_journal_reverse",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_journal_id:input.journalId,p_user_id:ctx.user.id,p_period:input.period,
+        p_reason:input.reason,p_operation_key:input.operationKey,
+      });
+      if(error||!Number.isSafeInteger(Number(data))||Number(data)<=0)
+        throw new TRPCError({code:"BAD_REQUEST",message:"تعذر إنشاء قيد العكس؛ تحقق من الفترة والمراجعة السابقة."});
+      return {id:Number(data),status:"draft" as const};
+    }),
     payrollAccrualReview: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
