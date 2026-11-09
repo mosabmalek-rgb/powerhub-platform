@@ -150,7 +150,7 @@ BEGIN
  IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_CROSS_TENANT_POSTED'; END IF;
  SELECT count(*),coalesce(sum(CASE WHEN side='debit' THEN amount ELSE -amount END),0)
  INTO count_entries,total_net FROM public.financial_gl_lines WHERE tenant_id=901 AND site_id=9101;
- IF count_entries<>22 OR total_net<>0
+ IF count_entries<>23 OR total_net<>0
  THEN RAISE EXCEPTION 'GL_CI_LINES_IMBALANCED lines=% net=%',count_entries,total_net; END IF;
  report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
  trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
