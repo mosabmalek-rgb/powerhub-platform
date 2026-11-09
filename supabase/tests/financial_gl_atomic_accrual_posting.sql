@@ -32,7 +32,8 @@ CREATE TABLE public.invoices(
  total_amount numeric,tax_amount numeric
 );
 CREATE TABLE public.payments(
- id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,paid_at timestamptz
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,paid_at timestamptz,
+ amount numeric,invoice_applied_amount numeric,subscriber_credit_amount numeric
 );
 CREATE TABLE public.expenses(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,category text,occurred_at timestamptz
@@ -49,6 +50,7 @@ CREATE TABLE public.supplier_ledger_entries(
 CREATE TABLE public.account_transactions(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz,
  reference_no text,related_payment_id bigint,related_expense_id bigint,
+ account_id bigint,amount numeric,transaction_type text,
  related_supplier_payment_id bigint,related_supplier_return_id bigint,
  related_account_id bigint
 );
@@ -223,8 +225,8 @@ $trial$;
 BEGIN;
 INSERT INTO public.invoices(id,tenant_id,site_id,status,cycle_start_at,cycle_end_at,issue_date)
 VALUES(1,901,9101,'issued','2026-10-01T00:00:00Z','2026-10-31T00:00:00Z','2026-10-31T01:00:00Z');
-INSERT INTO public.payments(id,tenant_id,site_id,status,paid_at)
-VALUES(2,901,9101,'completed','2026-10-12T12:00:00Z');
+INSERT INTO public.payments(id,tenant_id,site_id,status,paid_at,amount,invoice_applied_amount,subscriber_credit_amount)
+VALUES(2,901,9101,'completed','2026-10-12T12:00:00Z',25,25,0);
 INSERT INTO public.expenses(id,tenant_id,site_id,category,occurred_at)
 VALUES(3,901,9101,'maintenance','2026-10-14T12:00:00Z');
 INSERT INTO public.payroll_runs(id,tenant_id,site_id,period,status)
@@ -244,6 +246,8 @@ BEGIN
     (r->'sources'->'invoices'->>'missingGL')::bigint<>1 OR
     (r->'sources'->'companyAccountMovements'->>'unclassified')::bigint<>1 OR
     (r->'sources'->'payroll'->>'drafts')::bigint<>1 OR
+    (r->'sources'->'payments'->>'withoutLinkedCollection')::bigint<>1 OR
+    (r->'sources'->'payments'->>'linkedCollectionMismatch')::bigint<>1 OR
     r->>'accountingCertification'<>'NOT_CERTIFIED'
  THEN RAISE EXCEPTION 'GL_SOURCE_COVERAGE_FALSE_PASS'; END IF;
 END;
@@ -280,3 +284,24 @@ END;
 $month$;
 ROLLBACK;
 SELECT 'PASS: Gaza monthly allocation, leap February, tax and missing cycle guard' AS acceptance;
+
+-- An actual linked collection must match payment amount, site and type.
+-- The unlinked candidate and the wrong-site candidate both fail source
+-- coverage without adding them as new earned revenue.
+BEGIN;
+INSERT INTO public.payments(id,tenant_id,site_id,status,paid_at,amount,invoice_applied_amount,subscriber_credit_amount)
+VALUES (20,901,9101,'completed','2026-10-12T12:00:00Z',100,100,0),
+       (21,901,9101,'completed','2026-10-12T12:00:00Z',40,40,0);
+INSERT INTO public.account_transactions
+(id,tenant_id,site_id,occurred_at,related_payment_id,amount,transaction_type)
+VALUES (30,901,9101,'2026-10-12T12:00:00Z',20,100,'collection'),
+       (31,901,9201,'2026-10-12T12:00:00Z',21,40,'collection');
+DO $payment_link$
+DECLARE r jsonb;
+BEGIN
+ r:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (r->'sources'->'payments'->>'linkedCollectionMismatch')::bigint<>1
+    OR (r->'sources'->'payments'->>'withoutLinkedCollection')::bigint<>0
+ THEN RAISE EXCEPTION 'GL_PAYMENT_SITE_LINK_MISMATCH_NOT_DETECTED'; END IF;
+END;$payment_link$;
+ROLLBACK;
