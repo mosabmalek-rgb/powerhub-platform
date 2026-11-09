@@ -28,7 +28,8 @@ CREATE TABLE public.financial_accrual_period_reviews(
 -- Isolated sources for coverage; real PostgreSQL migration logic, no mock RPC.
 CREATE TABLE public.invoices(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,
- cycle_start_at timestamptz,cycle_end_at timestamptz,issue_date timestamptz
+ cycle_start_at timestamptz,cycle_end_at timestamptz,issue_date timestamptz,
+ total_amount numeric,tax_amount numeric
 );
 CREATE TABLE public.payments(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,paid_at timestamptz
@@ -53,6 +54,7 @@ CREATE TABLE public.account_transactions(
 );
 \ir ../migrations/20261110012000_powerhub_financial_gl_source_coverage.sql
 \ir ../migrations/20261110013000_powerhub_financial_gl_trial_balance.sql
+\ir ../migrations/20261110014000_powerhub_financial_service_month_allocation.sql
 
 DO $permissions$
 DECLARE t text;
@@ -247,3 +249,34 @@ BEGIN
 END;
 $discrepancies$;
 ROLLBACK;
+
+
+BEGIN;
+INSERT INTO public.invoices(id,tenant_id,site_id,status,cycle_start_at,cycle_end_at,issue_date,total_amount,tax_amount)
+VALUES
+ (101,901,9101,'issued','2026-10-19T21:00:00Z','2026-11-19T21:59:59.999Z','2026-11-20T00:00:00Z',34.10,3.10),
+ (102,901,9101,'issued','2028-02-01T00:00:00Z','2028-02-29T12:00:00Z','2028-02-29T13:00:00Z',29.00,0);
+DO $month$
+DECLARE oct jsonb;nov jsonb;feb jsonb;denied boolean:=false;
+BEGIN
+ oct:=public.powerhub_financial_service_month_allocation(901,9101,'2026-10','2026-12-20T00:00:00Z');
+ nov:=public.powerhub_financial_service_month_allocation(901,9101,'2026-11','2026-12-20T00:00:00Z');
+ feb:=public.powerhub_financial_service_month_allocation(901,9101,'2028-02','2028-03-02T00:00:00Z');
+ IF (oct->>'monthlyServiceAllocationExTaxMinor')::bigint<>1200
+ OR (nov->>'monthlyServiceAllocationExTaxMinor')::bigint<>1900
+ OR (feb->>'monthlyServiceAllocationExTaxMinor')::bigint<>2900
+ OR (oct->>'monthlyServiceAllocationExTaxMinor')::bigint+
+    (nov->>'monthlyServiceAllocationExTaxMinor')::bigint<>3100
+ OR oct->>'recognitionPolicyVersion'<>'gaza-invoice-service-calendar-days-v1'
+ OR (feb->>'isEarnedRevenueCertified')::boolean
+ THEN RAISE EXCEPTION 'GL_A1_GAZA_RECOGNITION_ALLOCATION_WRONG'; END IF;
+ INSERT INTO public.invoices(id,tenant_id,site_id,status,cycle_start_at,cycle_end_at,issue_date,total_amount,tax_amount)
+ VALUES(103,901,9101,'issued',NULL,NULL,'2026-11-10T12:00:00Z',5.00,0);
+ BEGIN
+   PERFORM public.powerhub_financial_service_month_allocation(901,9101,'2026-11','2026-12-20T00:00:00Z');
+ EXCEPTION WHEN SQLSTATE '22023' THEN denied:=true; END;
+ IF NOT denied THEN RAISE EXCEPTION 'GL_A1_MISSING_SERVICE_CYCLE_SILENTLY_ACCEPTED'; END IF;
+END;
+$month$;
+ROLLBACK;
+SELECT 'PASS: Gaza monthly allocation, leap February, tax and missing cycle guard' AS acceptance;
