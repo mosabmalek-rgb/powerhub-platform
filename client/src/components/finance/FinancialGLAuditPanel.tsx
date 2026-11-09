@@ -90,7 +90,7 @@ export default function FinancialGLAuditPanel({
       ? <p role="alert" className="mt-4 text-sm text-rose-200">تعذر إكمال تدقيق المصادر. لن تُعرض نتيجة مخزنة أو جزئية كأنها مقبولة.</p> : null}
     {canShowCoverage ? <>
       <div role="status" className="mt-4 rounded-md border border-amber-400/30 p-3 text-sm text-amber-100">
-        **الحالة: غير معتمدة محاسبيًا.** توازن القيود لا يثبت مطابقة الافتتاحية ولا اكتمال المصادر.
+        <strong>الحالة: غير معتمدة محاسبيًا.</strong> توازن القيود لا يثبت مطابقة الافتتاحية ولا اكتمال المصادر.
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {([
