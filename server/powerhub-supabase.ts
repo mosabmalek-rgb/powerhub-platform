@@ -1100,6 +1100,8 @@ type SupabaseReportInvoice = {
   billingPeriod: string;
   issueDate: Date;
   dueDate: Date;
+  cycleStartAt: Date | null;
+  cycleEndAt: Date | null;
   totalAmount: number;
   taxAmount: number;
   paidAmount: number;
@@ -1173,8 +1175,8 @@ export async function listSupabaseReportInvoices(input: {
   const rows = await readSupabaseReportPages((from, to) => {
     let query: any = admin.from("invoices")
       .select(input.summaryOnly
-        ? "id, site_id, subscriber_id, issue_date, due_date, total_amount, tax_amount, balance_due, status"
-        : "id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, total_amount, tax_amount, paid_amount, balance_due, consumption_kwh, status")
+        ? "id, site_id, subscriber_id, issue_date, due_date, cycle_start_at, cycle_end_at, total_amount, tax_amount, balance_due, status"
+        : "id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, cycle_start_at, cycle_end_at, total_amount, tax_amount, paid_amount, balance_due, consumption_kwh, status")
       .eq("tenant_id", input.tenantId)
       .in("site_id", siteIds);
     if (input.billingPeriod) query = query.eq("billing_period", input.billingPeriod);
@@ -1189,6 +1191,8 @@ export async function listSupabaseReportInvoices(input: {
     billingPeriod: String(row.billing_period ?? ""),
     issueDate: new Date(row.issue_date),
     dueDate: new Date(row.due_date),
+    cycleStartAt: row.cycle_start_at ? new Date(row.cycle_start_at) : null,
+    cycleEndAt: row.cycle_end_at ? new Date(row.cycle_end_at) : null,
     totalAmount: Number(row.total_amount ?? 0),
     taxAmount: Number(row.tax_amount ?? 0),
     paidAmount: Number(row.paid_amount ?? 0),
