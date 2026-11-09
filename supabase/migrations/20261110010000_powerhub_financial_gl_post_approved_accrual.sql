@@ -58,6 +58,9 @@ BEGIN
  END IF;
  PERFORM pg_advisory_xact_lock(hashtextextended(
    'powerhub:accrual-period:'||p_tenant_id||':'||p_site_id||':'||v_period,0));
+ -- Shared site lock serializes the first GL posting against opening approval.
+ PERFORM pg_advisory_xact_lock(hashtextextended(
+   'powerhub:gl-site:'||p_tenant_id||':'||p_site_id,0));
  SELECT * INTO v_source FROM public.financial_accrual_journals j
  WHERE j.id=p_journal_id AND j.tenant_id=p_tenant_id AND j.site_id=p_site_id
  FOR SHARE;
