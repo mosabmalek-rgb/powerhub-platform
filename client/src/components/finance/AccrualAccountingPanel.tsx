@@ -54,6 +54,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const [amount,setAmount]=useState("");
   const [reason,setReason]=useState("");
   const [reversalReason,setReversalReason]=useState("");
+  const [reversalPeriod,setReversalPeriod]=useState(period);
   const [voidReason,setVoidReason]=useState("");
   const [requestKey,setRequestKey]=useState<string|null>(null);
   const [evidence,setEvidence]=useState<Record<EvidenceKey,string>>(emptyEvidence);
@@ -122,13 +123,14 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
     }catch{toast.error("تعذر إلغاء المسودة؛ لا يمكن إلغاء قيد معتمد دون قيد عكس.");}
   };
   const createReversal=async(id:number)=>{
-    if(reversalReason.trim().length<10){
-      toast.error("أدخل سبب عكس واضحاً لا يقل عن 10 أحرف.");return;
+    if(reversalReason.trim().length<10 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(reversalPeriod) ||
+      reversalPeriod<period){
+      toast.error("أدخل سبب عكس واضحاً وشهراً صحيحاً لا يسبق الشهر الأصلي.");return;
     }
     try{
-      await reverse.mutateAsync({siteId,journalId:id,period,
+      await reverse.mutateAsync({siteId,journalId:id,period:reversalPeriod,
         reason:reversalReason.trim(),operationKey:`accrual-reverse-${id}-${crypto.randomUUID()}`});
-      toast.success("أُنشئت مسودة عكس؛ تتطلب اعتماد مستخدم آخر.");
+      toast.success("أُنشئت مسودة العكس في الشهر المحدد؛ تتطلب اعتماد مستخدم آخر.");
       setReversalReason("");await refresh();
     }catch{toast.error("تعذر إنشاء قيد عكس. تحقق من أن القيد معتمد ولم يُعكس سابقاً.");}
   };
@@ -274,7 +276,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
               className="text-rose-200" disabled={busy || locked || review.isError}
               onClick={()=>void voidJournal(item.id)}>إلغاء المسودة</Button>:null}
             {item.status==="posted"&&!item.reversesJournalId?<Button size="sm" variant="outline"
-              className="text-white" disabled={busy || locked || review.isError} onClick={()=>void createReversal(item.id)}>
+              className="text-white" disabled={busy || review.isError || (locked && reversalPeriod<=period)} onClick={()=>void createReversal(item.id)}>
               إنشاء قيد عكس
             </Button>:null}
           </div>
@@ -285,6 +287,10 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
         <Input value={voidReason} onChange={e=>setVoidReason(e.target.value)}
           maxLength={1000} className="mt-1 border-white/20 bg-[#0D1117] text-white"
           placeholder="سبب إلغاء المسودة ورقم المستند"/>
+      </label>
+      <label className="mt-3 block text-xs text-slate-300">شهر قيد العكس
+        <Input type="month" value={reversalPeriod} onChange={e=>setReversalPeriod(e.target.value)}
+          className="mt-1 border-white/20 bg-[#0D1117] text-white"/>
       </label>
       <label className="mt-3 block text-xs text-slate-300">سبب عكس القيد (عند الحاجة)
         <Input value={reversalReason} onChange={e=>setReversalReason(e.target.value)}
