@@ -1101,6 +1101,7 @@ type SupabaseReportInvoice = {
   issueDate: Date;
   dueDate: Date;
   totalAmount: number;
+  taxAmount: number;
   paidAmount: number;
   balanceDue: number;
   consumptionKwh: number;
@@ -1127,7 +1128,7 @@ type SupabaseReportPayment = {
   };
 };
 
-type SupabaseReportExpense = { siteId: number; amount: number; occurredAt: Date; expenseClassification: "operating" | "non_operating" };
+type SupabaseReportExpense = { siteId: number; category: string; amount: number; occurredAt: Date; expenseClassification: "operating" | "non_operating" };
 type SupabaseReportSubscriber = { id: number; siteId: number; fullName: string; subscriberNo: string };
 
 export async function readSupabaseReportPages<T>(
@@ -1172,8 +1173,8 @@ export async function listSupabaseReportInvoices(input: {
   const rows = await readSupabaseReportPages((from, to) => {
     let query: any = admin.from("invoices")
       .select(input.summaryOnly
-        ? "id, site_id, subscriber_id, issue_date, due_date, total_amount, balance_due, status"
-        : "id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, total_amount, paid_amount, balance_due, consumption_kwh, status")
+        ? "id, site_id, subscriber_id, issue_date, due_date, total_amount, tax_amount, balance_due, status"
+        : "id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, total_amount, tax_amount, paid_amount, balance_due, consumption_kwh, status")
       .eq("tenant_id", input.tenantId)
       .in("site_id", siteIds);
     if (input.billingPeriod) query = query.eq("billing_period", input.billingPeriod);
@@ -1189,6 +1190,7 @@ export async function listSupabaseReportInvoices(input: {
     issueDate: new Date(row.issue_date),
     dueDate: new Date(row.due_date),
     totalAmount: Number(row.total_amount ?? 0),
+    taxAmount: Number(row.tax_amount ?? 0),
     paidAmount: Number(row.paid_amount ?? 0),
     balanceDue: Number(row.balance_due ?? 0),
     consumptionKwh: Number(row.consumption_kwh ?? 0),
@@ -1257,7 +1259,7 @@ export async function listSupabaseReportExpenses(input: {
   const admin = supabaseAdmin();
   const rows = await readSupabaseReportPages((from, to) =>
     admin.from("expenses")
-      .select("site_id, amount, occurred_at, expense_classification")
+      .select("site_id, category, amount, occurred_at, expense_classification")
       .eq("tenant_id", input.tenantId)
       .in("site_id", siteIds)
       .gte("occurred_at", input.start.toISOString())
@@ -1266,7 +1268,8 @@ export async function listSupabaseReportExpenses(input: {
       .range(from, to),
   "تعذر تحميل مصروفات الفترة المحددة من Supabase.");
   return rows.map((row: any) => ({
-    siteId: Number(row.site_id), amount: Number(row.amount ?? 0),
+    siteId: Number(row.site_id), category: String(row.category ?? ""),
+    amount: Number(row.amount ?? 0),
     occurredAt: new Date(row.occurred_at),
     expenseClassification: row.expense_classification === "non_operating" ? "non_operating" as const : "operating" as const,
   }));
