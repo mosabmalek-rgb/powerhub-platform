@@ -665,6 +665,37 @@ async function requireDeltaFuelMaintenanceReadAccess(
   }
 }
 
+async function financialReportInventoryConsumptionCosts(input: {
+  tenantId: number; siteIds: number[]; start: Date; endExclusive: Date;
+}): Promise<Map<number, number>> {
+  if (!input.siteIds.length) return new Map();
+  const { data, error } = await supabaseAdmin().rpc("powerhub_report_inventory_consumption_costs", {
+    p_tenant_id: input.tenantId,
+    p_site_ids: input.siteIds,
+    p_period_start: input.start.toISOString(),
+    p_period_end_exclusive: input.endExclusive.toISOString(),
+  });
+  // No silent fallback to 'expenses' only: doing so misstates the financial KPI.
+  if (error) {
+    console.error("[PowerHub] financial dashboard inventory expenses failed", {
+      code: error.code ?? "UNKNOWN",
+    });
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR",
+      message: "تعذر حساب مصروفات المخزون ضمن التقرير المالي؛ تحقّق من ترحيل قاعدة البيانات." });
+  }
+  const amounts = new Map<number, number>();
+  for (const row of data ?? []) {
+    const siteId = Number(row.site_id);
+    const amount = Number(row.inventory_consumption_cost);
+    if (!input.siteIds.includes(siteId) || !Number.isFinite(amount)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR",
+        message: "أعادت قاعدة البيانات تكلفة مخزون غير صالحة لنطاق التقرير." });
+    }
+    amounts.set(siteId, amount);
+  }
+  return amounts;
+}
+
 export const powerhubRouter = router({
   deltaSync: router({
     revisions: protectedProcedure.input(z.object({
@@ -4654,10 +4685,11 @@ export const powerhubRouter = router({
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports");
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
-      const [allInvoices, paymentRows, expenseRows] = await Promise.all([
+      const [allInvoices, paymentRows, expenseRows, inventoryConsumption] = await Promise.all([
         listSupabaseReportInvoices({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
         listSupabaseReportPayments({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
         listSupabaseReportExpenses({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
+        financialReportInventoryConsumptionCosts({ tenantId: access.tenantId, siteIds: [input.siteId], start, endExclusive }),
       ]);
       const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
       const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive && (!input.paymentMethod || input.paymentMethod === "all" || payment.paymentMethod === input.paymentMethod));
@@ -4675,7 +4707,9 @@ export const powerhubRouter = router({
       const collected = completedPayments.reduce((sum, row) => sum + Number(row.payment.invoiceAppliedAmount), 0);
       const grossCollected = completedPayments.reduce((sum, row) => sum + Number(row.payment.grossAmount), 0);
       const subscriberCreditCreated = completedPayments.reduce((sum, row) => sum + Number(row.payment.subscriberCreditAmount), 0);
-      const expenseTotal = expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive).reduce((sum, expense) => sum + expense.amount, 0);
+      const directExpenseTotal = expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive).reduce((sum, expense) => sum + expense.amount, 0);
+      const inventoryConsumptionCost = inventoryConsumption.get(input.siteId) ?? 0;
+      const expenseTotal = Math.round((directExpenseTotal + inventoryConsumptionCost) * 100) / 100;
       const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number; grossAmount: number; subscriberCreditAmount: number }>>((acc, row) => {
         const key = String(row.payment.collectedByUserId ?? 0);
         const entry = acc[key] ?? { name: collectorsById.get(row.payment.collectedByUserId ?? 0) ?? "محصل غير محدد", count: 0, amount: 0, grossAmount: 0, subscriberCreditAmount: 0 };
@@ -4704,7 +4738,8 @@ export const powerhubRouter = router({
       }));
       return {
         range: { startDate: input.startDate, endDate: input.endDate },
-        summary: { invoiced, collected, grossCollected, subscriberCreditCreated, outstanding, energyKwh, expenseTotal, operatingProfit: collected - expenseTotal },
+        summary: { invoiced, collected, grossCollected, subscriberCreditCreated, outstanding, energyKwh,
+          directExpenseTotal, inventoryConsumptionCost, expenseTotal, operatingProfit: collected - expenseTotal },
         collectors, topDebtors, paymentDetails,
       };
     }),
@@ -4719,11 +4754,12 @@ export const powerhubRouter = router({
       if (sitesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أفرع المستأجر من Supabase." });
       const branchRows = (siteRows ?? []).map((site) => ({ id: Number(site.id), name: site.name }));
       const branchIds = branchRows.map((branch) => branch.id);
-      if (!branchIds.length) return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: 0 }, summary: { invoiced: 0, collected: 0, grossCollected: 0, subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 }, collectors: [], topDebtors: [], branchSummaries: [], paymentDetails: [] };
-      const [allInvoices, paymentRows, expenseRows] = await Promise.all([
+      if (!branchIds.length) return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: 0 }, summary: { invoiced: 0, collected: 0, grossCollected: 0, subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, directExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, operatingProfit: 0 }, collectors: [], topDebtors: [], branchSummaries: [], paymentDetails: [] };
+      const [allInvoices, paymentRows, expenseRows, inventoryConsumption] = await Promise.all([
         listSupabaseReportInvoices({ tenantId, siteIds: branchIds, start, endExclusive }),
         listSupabaseReportPayments({ tenantId, siteIds: branchIds, start, endExclusive }),
         listSupabaseReportExpenses({ tenantId, siteIds: branchIds, start, endExclusive }),
+        financialReportInventoryConsumptionCosts({ tenantId, siteIds: branchIds, start, endExclusive }),
       ]);
       const invoiceRows = allInvoices.filter((invoice) => invoice.status !== "cancelled" && invoice.issueDate >= start && invoice.issueDate < endExclusive);
       const completedPayments = paymentRows.filter(({ payment }) => payment.status === "completed" && payment.paidAt >= start && payment.paidAt < endExclusive);
@@ -4732,7 +4768,7 @@ export const powerhubRouter = router({
       const branchNameById = new Map(branchRows.map((branch) => [branch.id, branch.name]));
       const branchSummaryById = new Map(branchRows.map((branch) => [branch.id, {
         siteId: branch.id, branchName: branch.name, invoiced: 0, collected: 0, grossCollected: 0,
-        subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0,
+        subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, directExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, operatingProfit: 0,
       }]));
       invoiceRows.forEach((invoice) => {
         const summary = branchSummaryById.get(invoice.siteId);
@@ -4751,16 +4787,24 @@ export const powerhubRouter = router({
       });
       expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive).forEach((expense) => {
         const summary = branchSummaryById.get(expense.siteId);
-        if (summary) summary.expenseTotal += expense.amount;
+        if (summary) summary.directExpenseTotal += expense.amount;
       });
-      const branchSummaries = Array.from(branchSummaryById.values()).map((summary) => ({ ...summary, operatingProfit: summary.collected - summary.expenseTotal }));
+      const branchSummaries = Array.from(branchSummaryById.values()).map((summary) => {
+        const inventoryConsumptionCost = inventoryConsumption.get(summary.siteId) ?? 0;
+        const expenseTotal = Math.round((summary.directExpenseTotal + inventoryConsumptionCost) * 100) / 100;
+        return { ...summary, inventoryConsumptionCost, expenseTotal,
+          operatingProfit: summary.collected - expenseTotal };
+      });
       const summary = branchSummaries.reduce((total, branch) => ({
         invoiced: total.invoiced + branch.invoiced, collected: total.collected + branch.collected,
         grossCollected: total.grossCollected + branch.grossCollected,
         subscriberCreditCreated: total.subscriberCreditCreated + branch.subscriberCreditCreated,
         outstanding: total.outstanding + branch.outstanding, energyKwh: total.energyKwh + branch.energyKwh,
+        directExpenseTotal: total.directExpenseTotal + branch.directExpenseTotal,
+        inventoryConsumptionCost: total.inventoryConsumptionCost + branch.inventoryConsumptionCost,
         expenseTotal: total.expenseTotal + branch.expenseTotal, operatingProfit: total.operatingProfit + branch.operatingProfit,
-      }), { invoiced: 0, collected: 0, grossCollected: 0, subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, expenseTotal: 0, operatingProfit: 0 });
+      }), { invoiced: 0, collected: 0, grossCollected: 0, subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0,
+        directExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, operatingProfit: 0 });
       const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number; grossAmount: number; subscriberCreditAmount: number }>>((acc, row) => {
         const key = String(row.payment.collectedByUserId ?? 0);
         const entry = acc[key] ?? { name: "محصل غير محدد", count: 0, amount: 0, grossAmount: 0, subscriberCreditAmount: 0 };
