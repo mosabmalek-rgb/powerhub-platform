@@ -268,6 +268,10 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
             <span>مدين {item.debitAccount} / دائن {item.creditAccount}</span>
           </div>
           <p className="mt-1 text-xs text-slate-300">{item.reason}</p>
+          {item.reversal?<p className="mt-1 text-xs text-amber-200">
+            قيد العكس #{item.reversal.id} في {item.reversal.period} ·
+            {item.reversal.status==="posted"?" معتمد":item.reversal.status==="void"?" مسودة عكس ملغاة":" ينتظر الاعتماد"}
+          </p>:null}
           {item.status==="void"?<p className="mt-1 text-xs text-rose-200">
             سبب الإلغاء: {item.voidReason??"غير متاح"}
           </p>:null}
@@ -279,7 +283,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
             {item.status==="draft"?<Button size="sm" variant="outline"
               className="text-rose-200" disabled={busy || locked || review.isError}
               onClick={()=>void voidJournal(item.id)}>إلغاء المسودة</Button>:null}
-            {item.status==="posted"&&!item.reversesJournalId?<Button size="sm" variant="outline"
+            {item.status==="posted"&&!item.reversesJournalId&&!item.reversal?<Button size="sm" variant="outline"
               className="text-white" disabled={busy || review.isError || (locked && reversalPeriod<=period)} onClick={()=>void createReversal(item.id)}>
               إنشاء قيد عكس
             </Button>:null}
