@@ -5072,7 +5072,9 @@ export const powerhubRouter = router({
     })).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageExpenses");
-      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_journal_post",{
+      // One database transaction: either both accrual approval and GL posting
+      // succeed or neither does. Never split this into two RPC calls.
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_post_and_gl",{
         p_tenant_id:access.tenantId,p_site_id:input.siteId,
         p_user_id:ctx.user.id,p_journal_id:input.journalId,
       });
