@@ -1,7 +1,4 @@
--- A5: reconcile approved accrual-adjustment GL entries with their immutable
--- authorization document, exact source hash, debit/credit lines, and reversal.
--- Forward-only. No change to posted GL, no backfill and no certification.
--- Replaces only the source-integrity function; 18000 coverage already calls it.
+-- A5: Audit approved accrual GL fingerprints and reversal links without modifying financial history.
 -- A4: fail-closed GL source integrity audit, with source evidence and actual GL lines.
 -- No backfill, no client execute, no journal mutation.
 -- Checks ALL posted through-period GL entries; only diagnostic samples are bounded.
@@ -86,7 +83,71 @@ BEGIN
      END IF;
    ELSIF v_entry.source_type='accrual_adjustment' THEN
      v_checked:=v_checked+1;
-     IF v_entry.source_id !~ '^[0-9]{1,18}
+     IF v_entry.source_id !~ '^[0-9]{1,18}$' OR v_entry.source_revision<>1 THEN
+       v_reason:='ACCRUAL_SOURCE_ID_OR_REVISION_INVALID';
+       v_invalid:=v_invalid+1;
+     ELSE
+       SELECT * INTO v_accrual FROM public.financial_accrual_journals j
+       WHERE j.id=v_entry.source_id::bigint
+         AND j.tenant_id=p_tenant_id AND j.site_id=p_site_id;
+       IF NOT FOUND OR v_accrual.status<>'posted'
+          OR v_accrual.approved_by_user_id IS NULL
+          OR v_accrual.created_by_user_id=v_accrual.approved_by_user_id
+          OR v_accrual.approved_at IS NULL
+          OR v_accrual.amount IS NULL OR v_accrual.amount<=0
+          OR v_accrual.amount<>round(v_accrual.amount,2)
+          OR v_accrual.debit_account=v_accrual.credit_account THEN
+         v_reason:='ACCRUAL_NOT_APPROVED_OR_MISSING';
+         v_invalid:=v_invalid+1;
+       ELSE
+         v_accrual_original_entry_id:=NULL;
+         IF v_accrual.reverses_journal_id IS NOT NULL THEN
+           SELECT o.id INTO v_accrual_original_entry_id
+           FROM public.financial_gl_entries o
+           WHERE o.tenant_id=p_tenant_id AND o.site_id=p_site_id
+             AND o.source_type='accrual_adjustment'
+             AND o.source_id=v_accrual.reverses_journal_id::text
+             AND o.source_revision=1;
+         END IF;
+         v_hash:=encode(sha256(convert_to(jsonb_build_object(
+            'tenantId',v_accrual.tenant_id,'siteId',v_accrual.site_id,
+            'journalId',v_accrual.id,'period',v_accrual.period,
+            'debit',v_accrual.debit_account,'credit',v_accrual.credit_account,
+            'amount',v_accrual.amount,'reason',v_accrual.reason,
+            'createdBy',v_accrual.created_by_user_id,
+            'approvedBy',v_accrual.approved_by_user_id,
+            'approvedAt',v_accrual.approved_at,
+            'reverses',v_accrual.reverses_journal_id
+         )::text,'UTF8')),'hex');
+         SELECT count(*),count(*) FILTER(WHERE
+            (l.account_code=v_accrual.debit_account
+              AND l.side='debit' AND l.amount=v_accrual.amount)
+            OR
+            (l.account_code=v_accrual.credit_account
+              AND l.side='credit' AND l.amount=v_accrual.amount))
+           INTO v_line_count,v_matching_lines
+         FROM public.financial_gl_lines l WHERE l.entry_id=v_entry.id;
+         IF v_accrual.reverses_journal_id IS NOT NULL
+           AND v_accrual_original_entry_id IS NULL THEN
+           v_reason:='ACCRUAL_REVERSAL_ORIGINAL_GL_MISSING';
+           v_invalid:=v_invalid+1;
+         ELSIF v_entry.source_fingerprint IS DISTINCT FROM v_hash
+           OR v_entry.period IS DISTINCT FROM v_accrual.period
+           OR v_entry.operation_key IS DISTINCT FROM
+              'gl:accrual:'||v_accrual.id||':v1'
+           OR v_entry.accounting_policy_version IS DISTINCT FROM
+              'accrual-approved-subledger-v1'
+           OR v_entry.posted_by_user_id IS DISTINCT FROM
+              v_accrual.approved_by_user_id
+           OR v_entry.reverses_entry_id IS DISTINCT FROM
+              v_accrual_original_entry_id
+           OR v_line_count<>2 OR v_matching_lines<>2 THEN
+           v_reason:='ACCRUAL_APPROVAL_FINGERPRINT_OR_LINES_CHANGED';
+           v_drifted:=v_drifted+1;
+         END IF;
+       END IF;
+     END IF;
+   ELSIF v_entry.source_type='service_recognition' THEN
      v_checked:=v_checked+1;
      IF v_entry.source_id !~ '^[0-9]{1,18}:[0-9]{4}-(0[1-9]|1[0-2])$'
         OR v_entry.source_revision<>1
@@ -199,4 +260,7 @@ REVOKE ALL ON FUNCTION public.powerhub_financial_gl_source_integrity(bigint,bigi
   FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_source_integrity(bigint,bigint,text)
   TO service_role;
+
+
+
 NOTIFY pgrst,'reload schema';
