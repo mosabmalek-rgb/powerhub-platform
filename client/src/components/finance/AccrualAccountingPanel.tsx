@@ -146,6 +146,17 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const loading=statement.isLoading||journals.isLoading;
   const busy=create.isPending||post.isPending||reverse.isPending||voidDraft.isPending||saveReview.isPending||lockReview.isPending;
   const locked=review.data?.status==="locked";
+  const closeBlockers=statement.data ? ([
+    {label:"مسيرات رواتب مسودة",count:statement.data.draftPayrollCount},
+    {label:"رواتب مدفوعة غير متطابقة مع قيود النقد",count:statement.data.unreconciledPayrollPayoutCount},
+    {label:"فواتير بلا دورة خدمة مكتملة البيانات",count:statement.data.missingCycleCount},
+    {label:"دورات خدمة لم تنتهِ بعد",count:statement.data.uncompletedInvoiceCount},
+    {label:"حركات مخزون غير مصنفة محاسبياً",count:statement.data.unclassifiedInventoryIssueCount},
+    {label:"قيود تسوية لم تُعتمد",count:statement.data.journalAdjustments.draftCount},
+  ] as const).filter(item=>item.count>0) : [];
+  const canLockReview=Boolean(review.data?.status==="draft" && statement.data &&
+    !statement.isLoading && !statement.isError && !review.isError &&
+    !review.isLoading && closeBlockers.length===0);
   return <section aria-labelledby="monthly-accrual-review" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -211,6 +222,14 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
           أعد المراجعة مستخدم #{review.data.preparedByUserId}، ويلزم اعتماد مستخدم آخر.
         </p>:null}
       </div>:null}
+      {closeBlockers.length>0?<div role="status" className="mt-3 rounded-lg border border-amber-400/30 p-3 text-xs text-amber-100">
+        <p className="font-semibold">لا يمكن إقفال الفترة قبل معالجة العناصر التالية:</p>
+        <ul className="mt-2 list-inside list-disc space-y-1">
+          {closeBlockers.map(blocker=><li key={blocker.label}>
+            {blocker.label}: {n(blocker.count)}
+          </li>)}
+        </ul>
+      </div>:null}
       {!locked&&!review.isError?<div className="mt-3 flex flex-wrap gap-2">
         <Button size="sm" variant="outline" disabled={busy} className="text-white"
           onClick={()=>{
@@ -221,7 +240,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
           }}>
           {showEvidence?"إخفاء مستندات المراجعة":"إعداد مستندات الإقفال"}
         </Button>
-        <Button size="sm" variant="outline" disabled={busy || review.data?.status!=="draft"} className="text-white"
+        <Button size="sm" variant="outline" disabled={busy || !canLockReview} className="text-white"
           onClick={()=>void signoff()}>اعتماد وإقفال المراجعة</Button>
       </div>:null}
       {showEvidence&&!locked?<div className="mt-3 grid gap-3 rounded-lg border border-white/10 p-3">
