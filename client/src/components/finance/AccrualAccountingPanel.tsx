@@ -90,7 +90,9 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const submit=async()=>{
     const choice=pairs[Number(selectedPair)];
     const value=Number(amount);
-    if(!choice || !Number.isFinite(value)||value<=0||Math.round(value*100)!==value*100 ||
+    // Validate decimal input as text: 0.29 * 100 is not exactly 29 in IEEE-754.
+    if(!choice || !/^(?:0|[1-9]\\d*)(?:\\.\\d{1,2})?$/.test(amount.trim()) ||
+      !Number.isFinite(value) || value<=0 || value>100000000000 ||
       reason.trim().length<10){
       toast.error("أدخل مبلغاً موجباً بمنزلتين عشريتين على الأكثر وسبباً واضحاً (10 أحرف على الأقل).");
       return;
@@ -129,8 +131,8 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
     }
     try{
       await reverse.mutateAsync({siteId,journalId:id,period:reversalPeriod,
-        reason:reversalReason.trim(),operationKey:`accrual-reverse-${id}-${crypto.randomUUID()}`});
-      toast.success("أُنشئت مسودة العكس في الشهر المحدد؛ تتطلب اعتماد مستخدم آخر.");
+        reason:reversalReason.trim(),operationKey:`accrual-reverse-${id}-${reversalPeriod}`});
+      toast.success(`أُنشئت مسودة العكس في ${reversalPeriod}؛ انتقل إلى ذلك الشهر لاعتمادها.`);
       setReversalReason("");await refresh();
     }catch{toast.error("تعذر إنشاء قيد عكس. تحقق من أن القيد معتمد ولم يُعكس سابقاً.");}
   };
