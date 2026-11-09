@@ -1,0 +1,169 @@
+-- Dedicated, disposable PostgreSQL 17 integration; original source and GL migrations.
+-- Tests real RPCs, source integrity, exactly-once retries, money, month boundaries.
+\set ON_ERROR_STOP on
+\ir financial_gl_two_session_setup.sql
+CREATE TABLE public.invoices(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,
+ cycle_start_at timestamptz,cycle_end_at timestamptz,issue_date timestamptz,
+ total_amount numeric,tax_amount numeric,credit_applied_amount numeric,
+ invoice_no text,subscriber_id bigint
+);
+CREATE TABLE public.payments(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,
+ paid_at timestamptz,amount numeric,invoice_applied_amount numeric,
+ subscriber_credit_amount numeric,invoice_id bigint
+);
+CREATE TABLE public.expenses(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,category text,
+ occurred_at timestamptz,amount numeric,company_account_id bigint,
+ expense_classification text
+);
+CREATE TABLE public.payroll_runs(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,period text,status text,
+ total_gross numeric,total_net numeric,total_deductions numeric,
+ approved_by_user_id bigint,created_by_user_id bigint
+);
+CREATE TABLE public.payroll_items(
+ payroll_run_id bigint,base_amount numeric,extra_amount numeric,
+ advance_deduction numeric,other_deduction numeric,net_amount numeric
+);
+CREATE TABLE public.inventory_items(
+ id bigint PRIMARY KEY,tenant_id bigint,accounting_treatment text
+);
+CREATE TABLE public.inventory_stock_movements(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz,
+ reference_no text,quantity numeric,unit_cost numeric,total_cost_amount numeric,
+ movement_type text,purchase_id bigint,item_id bigint,reversal_of_movement_id bigint,
+ source_issue_movement_id bigint
+);
+CREATE TABLE public.supplier_ledger_entries(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz,
+ entry_type text,credit_amount numeric,debit_amount numeric,purchase_id bigint,
+ supplier_return_id bigint,supplier_payment_id bigint,reference_no text
+);
+CREATE TABLE public.supplier_purchases(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,total_amount numeric
+);
+CREATE TABLE public.supplier_payments(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,amount numeric,
+ account_transaction_id bigint,company_account_id bigint
+);
+CREATE TABLE public.company_accounts(
+ id bigint PRIMARY KEY,tenant_id bigint,account_type text
+);
+CREATE TABLE public.account_transactions(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz,
+ reference_no text,related_payment_id bigint,related_expense_id bigint,
+ related_supplier_payment_id bigint,related_supplier_return_id bigint,
+ related_account_id bigint,account_id bigint,amount numeric,transaction_type text
+);
+\ir ../migrations/20261110011000_powerhub_financial_gl_opening_balances.sql
+\ir ../migrations/20261110012000_powerhub_financial_gl_source_coverage.sql
+\ir ../migrations/20261110013000_powerhub_financial_gl_trial_balance.sql
+\ir ../migrations/20261110014000_powerhub_financial_service_month_allocation.sql
+\ir ../migrations/20261110015000_powerhub_financial_gl_post_operational_sources.sql
+\ir ../migrations/20261110016000_powerhub_financial_gl_source_coverage_operational.sql
+\ir ../migrations/20261110017000_powerhub_financial_gl_service_recognition.sql
+
+BEGIN;
+INSERT INTO public.company_accounts VALUES(601,901,'cash');
+INSERT INTO public.invoices VALUES
+ (301,901,9101,'paid','2026-10-01T00:00:00Z','2026-10-31T12:00:00Z',
+  '2026-10-20T00:00:00Z',110,10,0,'TEST-INV-301',701);
+INSERT INTO public.payments VALUES
+ (401,901,9101,'completed','2026-10-20T12:00:00Z',55,55,0,301);
+INSERT INTO public.expenses VALUES
+ (701,901,9101,'maintenance','2026-10-20T12:00:00Z',12,601,'operating');
+INSERT INTO public.account_transactions VALUES
+ (501,901,9101,'2026-10-20T12:00:00Z',NULL,401,NULL,NULL,NULL,NULL,601,55,'collection'),
+ (502,901,9101,'2026-10-20T12:00:00Z',NULL,NULL,701,NULL,NULL,NULL,601,12,'withdrawal'),
+ (503,901,9101,'2026-10-20T12:00:00Z',NULL,NULL,NULL,1301,NULL,NULL,601,15,'withdrawal');
+INSERT INTO public.inventory_items VALUES(801,901,'expense_on_issue');
+INSERT INTO public.supplier_purchases VALUES(901,901,9101,'received',40),
+ (902,901,9101,'confirmed',20);
+INSERT INTO public.inventory_stock_movements VALUES
+ (1001,901,9101,'2026-10-20T12:00:00Z','PUR-901',4,10,40,'purchase_receipt',901,801,NULL,NULL),
+ (1002,901,9101,'2026-10-21T12:00:00Z','ISS-1002',1,10,10,'issue',NULL,801,NULL,NULL),
+ (1003,901,9101,'2026-10-22T12:00:00Z','RET-1003',1,10,10,'supplier_return',901,801,NULL,NULL),
+ (1004,901,9101,'2026-10-23T12:00:00Z','ADJ-1004',1,10,10,'adjustment_in',NULL,801,NULL,NULL);
+INSERT INTO public.supplier_ledger_entries VALUES
+ (1101,901,9101,'2026-10-20T12:00:00Z','purchase',40,0,901,NULL,NULL,'PUR-901'),
+ (1102,901,9101,'2026-10-22T12:00:00Z','supplier_return',0,10,901,1201,NULL,'RET-1003'),
+ (1103,901,9101,'2026-10-23T12:00:00Z','payment',0,15,901,NULL,1301,'PAY-1301'),
+ (1104,901,9101,'2026-10-24T12:00:00Z','purchase',20,0,902,NULL,NULL,'PUR-902');
+INSERT INTO public.supplier_payments VALUES(1301,901,9101,'posted',15,503,601);
+INSERT INTO public.payroll_runs VALUES(1401,901,9101,'2026-10','approved',100,80,20,9902,9901);
+INSERT INTO public.payroll_items VALUES(1401,100,0,10,10,80);
+DO $assert$
+DECLARE
+ opening jsonb; posted jsonb; service jsonb; retry jsonb;
+ src text; sid bigint; v jsonb; v_again jsonb; count_entries bigint;
+ total_net numeric; report jsonb; trial jsonb; blocked boolean;
+BEGIN
+ opening:=public.powerhub_financial_gl_opening_create(901,9101,9901,'2026-01-01',
+ 'CI-FINANCE-OPENING-901','Independent documented finance opening for source reconciliation',
+ 'ci-financial-source-opening-901',
+ '[{"accountCode":"1010","side":"debit","amount":500,"evidenceReference":"CI-CASH"},
+   {"accountCode":"3100","side":"credit","amount":500,"evidenceReference":"CI-CAPITAL"}]'::jsonb);
+ posted:=public.powerhub_financial_gl_opening_post(901,9101,
+    (opening->>'openingId')::bigint,9902);
+ IF posted->>'status'<>'posted' THEN RAISE EXCEPTION 'GL_CI_OPENING_NOT_POSTED'; END IF;
+ FOR src,sid IN SELECT * FROM (VALUES
+   ('invoice'::text,301::bigint),
+   ('payment',401),('expense',701),('supplier_ledger',1101),
+   ('supplier_ledger',1102),('supplier_ledger',1103),
+   ('stock_movement',1002),('payroll',1401)) AS sources(kind,source_id)
+ LOOP
+   v:=public.powerhub_financial_gl_post_source(901,9101,src,sid,9902);
+   v_again:=public.powerhub_financial_gl_post_source(901,9101,src,sid,9902);
+   IF v->>'status'<>'posted' OR (v->>'alreadyPosted')::boolean
+     OR NOT (v_again->>'alreadyPosted')::boolean
+     OR v->>'entryId' IS DISTINCT FROM v_again->>'entryId'
+   THEN RAISE EXCEPTION 'GL_CI_IDEMPOTENCY_FAILED % %',src,sid; END IF;
+ END LOOP;
+ service:=public.powerhub_financial_gl_recognize_billed_service(
+   901,9101,301,'2026-10',9902);
+ retry:=public.powerhub_financial_gl_recognize_billed_service(
+   901,9101,301,'2026-10',9902);
+ IF (service->>'amountMinor')::bigint<>10000
+    OR (service->>'alreadyPosted')::boolean
+    OR NOT (retry->>'alreadyPosted')::boolean
+    OR service->>'entryId' IS DISTINCT FROM retry->>'entryId'
+ THEN RAISE EXCEPTION 'GL_CI_SERVICE_RECOGNITION_BAD'; END IF;
+ blocked:=false;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_post_source(901,9101,'supplier_ledger',1104,9902);
+ EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true;
+ END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_UNRECEIVED_PURCHASE_POSTED'; END IF;
+ blocked:=false;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_post_source(901,9101,'stock_movement',1004,9902);
+ EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true;
+ END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_UNLINKED_ADJUSTMENT_POSTED'; END IF;
+ blocked:=false;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_post_source(902,9201,'payment',401,9902);
+ EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true;
+ END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_CROSS_TENANT_POSTED'; END IF;
+ SELECT count(*),coalesce(sum(CASE WHEN side='debit' THEN amount ELSE -amount END),0)
+ INTO count_entries,total_net FROM public.financial_gl_lines WHERE tenant_id=901 AND site_id=9101;
+ IF count_entries<>22 OR total_net<>0
+ THEN RAISE EXCEPTION 'GL_CI_LINES_IMBALANCED lines=% net=%',count_entries,total_net; END IF;
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
+ IF (report->'sources'->'invoices'->>'missingGL')::int<>0
+    OR (report->'sources'->'payments'->>'missingGL')::int<>0
+    OR (report->'sources'->'expenses'->>'missingGL')::int<>0
+    OR (report->'sources'->'payroll'->>'missingGL')::int<>0
+    OR (report->'sources'->'supplierLedger'->>'missingGL')::int<>1
+    OR (report->'sources'->'stockMovements'->>'missingGL')::int<>1
+    OR (trial->>'difference')::numeric<>0
+    OR trial->>'accountingCertification'<>'NOT_CERTIFIED'
+ THEN RAISE EXCEPTION 'GL_CI_COVERAGE_MISMATCH: %',report; END IF;
+ SET CONSTRAINTS ALL IMMEDIATE;
+END;$assert$;
+ROLLBACK;
+SELECT 'PASS: source GL invoice, payment, expense, supplier, stock, payroll, service and coverage' AS acceptance;
