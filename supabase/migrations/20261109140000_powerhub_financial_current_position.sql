@@ -9,7 +9,10 @@ CREATE OR REPLACE FUNCTION public.powerhub_financial_current_position(
 LANGUAGE sql STABLE SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $snapshot$
-WITH accessible_accounts AS (
+WITH verified_site AS (
+  SELECT s.id FROM public.sites s WHERE s.id=p_site_id
+    AND s.tenant_id=p_tenant_id AND s.status<>'archived'
+), accessible_accounts AS (
   SELECT a.id, a.name, a.account_type, a.opening_balance,
     NOT EXISTS (
       SELECT 1 FROM public.company_account_sites l
@@ -19,6 +22,7 @@ WITH accessible_accounts AS (
       WHERE l.tenant_id = a.tenant_id AND l.account_id = a.id AND l.site_id <> p_site_id
     ) AS is_shared
   FROM public.company_accounts a
+  CROSS JOIN verified_site v
   WHERE a.tenant_id = p_tenant_id
     AND a.is_active = TRUE
     AND (
@@ -46,11 +50,13 @@ WITH accessible_accounts AS (
   SELECT l.supplier_id,
     SUM(l.credit_amount - l.debit_amount) AS balance
   FROM public.supplier_ledger_entries l
+  CROSS JOIN verified_site v
   WHERE l.tenant_id = p_tenant_id AND l.site_id = p_site_id
   GROUP BY l.supplier_id
 ), payroll_advances AS (
   SELECT COALESCE(SUM(GREATEST(e.remaining_amount,0)),0) AS amount
   FROM public.employee_adjustments e
+  CROSS JOIN verified_site v
   WHERE e.tenant_id = p_tenant_id AND e.site_id = p_site_id
     AND e.adjustment_type = 'advance'
     AND e.remaining_amount > 0
@@ -58,6 +64,7 @@ WITH accessible_accounts AS (
 ), debtor_invoices AS (
   SELECT COALESCE(SUM(GREATEST(i.balance_due,0)),0) AS amount
   FROM public.invoices i
+  CROSS JOIN verified_site v
   WHERE i.tenant_id = p_tenant_id AND i.site_id = p_site_id
     AND i.status NOT IN ('draft','cancelled','void')
     AND i.balance_due > 0

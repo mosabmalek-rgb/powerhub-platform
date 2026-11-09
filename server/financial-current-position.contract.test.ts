@@ -26,6 +26,8 @@ describe("financial dashboard current position scope and performance contracts",
   expect(sql).toContain("employee_adjustments e");
   expect(sql).toContain("GREATEST(i.balance_due,0)");
   expect(sql).toContain("p_site_id");
+  expect(sql).toContain("CROSS JOIN verified_site v");
+  expect(sql).toContain("s.tenant_id=p_tenant_id AND s.status<>'archived'");
   expect(sql).toContain("is_shared");
   expect(sql).toContain("REVOKE ALL ON FUNCTION");
   expect(sql).toContain("TO service_role");
