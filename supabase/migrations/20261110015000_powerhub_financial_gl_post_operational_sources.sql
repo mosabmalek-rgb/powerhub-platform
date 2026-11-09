@@ -322,7 +322,7 @@ BEGIN
       AND tx.reference_no='PAYROLL-'||payroll.id FOR SHARE;
   IF a.related_expense_id<>exp.id OR a.transaction_type<>'withdrawal'
      OR a.amount<>payroll.total_net OR a.account_id<>payroll.paid_from_account_id
-     OR a.occurred_at::date<>(payroll.paid_at AT TIME ZONE 'Asia/Gaza')::date
+     OR (a.occurred_at AT TIME ZONE 'Asia/Gaza')::date<>(payroll.paid_at AT TIME ZONE 'Asia/Gaza')::date
   THEN RAISE EXCEPTION 'GL_PAYROLL_PAYOUT_CASH_MOVEMENT_MISMATCH'
       USING ERRCODE='22023'; END IF;
   SELECT * INTO ca FROM public.company_accounts
@@ -445,15 +445,15 @@ BEGIN
      IF v_available<v_required THEN
        RAISE EXCEPTION 'GL_SOURCE_ASSET_NOT_SUPPORTED_BY_LEDGER'
          USING ERRCODE='22023'; END IF;
-   ELSIF (v_line->>'side')='debit' AND (v_line->>'code')='2300' THEN
+   ELSIF (v_line->>'side')='debit' AND (v_line->>'code') IN ('2300','2400') THEN
      v_required:=(v_line->>'amount')::numeric;
      SELECT coalesce(sum(CASE WHEN l.side='credit' THEN l.amount ELSE -l.amount END),0)
        INTO v_available
      FROM public.financial_gl_lines l JOIN public.financial_gl_entries e ON e.id=l.entry_id
      WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
-       AND e.period<=v_period AND l.account_code='2300';
+       AND e.period<=v_period AND l.account_code=v_line->>'code';
      IF v_available<v_required THEN
-       RAISE EXCEPTION 'GL_SUPPLIER_PAYMENT_EXCEEDS_LIABILITY'
+       RAISE EXCEPTION 'GL_SOURCE_SETTLEMENT_EXCEEDS_LIABILITY'
          USING ERRCODE='22023'; END IF;
    END IF;
  END LOOP;
