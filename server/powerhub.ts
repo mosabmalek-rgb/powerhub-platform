@@ -4821,7 +4821,7 @@ export const powerhubRouter = router({
         inventoryConsumptionCost: total.inventoryConsumptionCost + branch.inventoryConsumptionCost,
         expenseTotal: total.expenseTotal + branch.expenseTotal, operatingProfit: total.operatingProfit + branch.operatingProfit,
       }), { invoiced: 0, collected: 0, grossCollected: 0, subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0,
-        directExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, operatingProfit: 0 });
+        directExpenseTotal: 0, nonOperatingExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, allExpenseTotal: 0, operatingProfit: 0 });
       const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number; grossAmount: number; subscriberCreditAmount: number }>>((acc, row) => {
         const key = String(row.payment.collectedByUserId ?? 0);
         const entry = acc[key] ?? { name: "محصل غير محدد", count: 0, amount: 0, grossAmount: 0, subscriberCreditAmount: 0 };
