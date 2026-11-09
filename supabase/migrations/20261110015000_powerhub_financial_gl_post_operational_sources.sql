@@ -351,6 +351,16 @@ BEGIN
    WHERE r.tenant_id=p_tenant_id AND r.site_id=p_site_id
     AND r.period=v_period AND r.status='locked')
  THEN RAISE EXCEPTION 'GL_SOURCE_PERIOD_LOCKED' USING ERRCODE='22023'; END IF;
+ -- No postings without a separately approved documentary opening. Without it,
+ -- arithmetic GL equality can conceal missing historical cash, stock and debts.
+ IF NOT EXISTS(SELECT 1 FROM public.financial_gl_opening_batches b
+    WHERE b.tenant_id=p_tenant_id AND b.site_id=p_site_id AND b.status='posted'
+      AND b.period<=v_period AND EXISTS(
+       SELECT 1 FROM public.financial_gl_entries e
+       WHERE e.tenant_id=b.tenant_id AND e.site_id=b.site_id
+         AND e.source_type='opening_balance' AND e.source_id=b.id::text
+         AND e.source_fingerprint=b.source_fingerprint))
+ THEN RAISE EXCEPTION 'GL_DOCUMENTED_OPENING_REQUIRED' USING ERRCODE='22023'; END IF;
  PERFORM public.powerhub_financial_gl_seed_chart(p_tenant_id);
  INSERT INTO public.financial_gl_accounts(tenant_id,code,name,account_class,normal_side,is_contra)
  VALUES(p_tenant_id,'2250','أرصدة مقدمة للمشتركين','liability','credit',false),
