@@ -65,6 +65,7 @@ CREATE TABLE public.account_transactions(
 \ir ../migrations/20261110015000_powerhub_financial_gl_post_operational_sources.sql
 \ir ../migrations/20261110016000_powerhub_financial_gl_source_coverage_operational.sql
 \ir ../migrations/20261110017000_powerhub_financial_gl_service_recognition.sql
+\ir ../migrations/20261110018000_powerhub_financial_gl_source_integrity_coverage.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
@@ -168,6 +169,10 @@ BEGIN
  report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
  IF (report->'sources'->'serviceRecognition'->>'missingGL')::int<>0
  THEN RAISE EXCEPTION 'GL_CI_EARNED_REVENUE_POSTED_NOT_RECONCILED: %',report; END IF;
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
+    OR (report->'sourceIntegrity'->>'checkedEntries')::int<>11
+ THEN RAISE EXCEPTION 'GL_CI_INTEGRITY_BASELINE_BAD: %',report->'sourceIntegrity'; END IF;
  -- A4: the source is authoritative. A booked invoice must not be silently
  -- re-posted after an amount revision, even when the journal remains balanced.
  -- This regression runs in the disposable transaction and restores source
@@ -184,7 +189,15 @@ BEGIN
      901,9101,301,'2026-10',9902);
  EXCEPTION WHEN SQLSTATE '23505' THEN blocked:=true; END;
  IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_EDITED_INVOICE_RECOGNITION_ALLOWED'; END IF;
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM false
+    OR (report->'sourceIntegrity'->>'driftedEntries')::int<>1
+    OR (report->'sourceIntegrity'->>'invalidSources')::int<>1
+ THEN RAISE EXCEPTION 'GL_CI_INTEGRITY_CHANGED_INVOICE_NOT_DETECTED: %',report->'sourceIntegrity'; END IF;
  UPDATE public.invoices SET total_amount=110 WHERE id=301;
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
+ THEN RAISE EXCEPTION 'GL_CI_INTEGRITY_RESTORED_INVOICE_NOT_CLEAN: %',report->'sourceIntegrity'; END IF;
  retry:=public.powerhub_financial_gl_post_source(901,9101,'invoice',301,9902);
  IF NOT (retry->>'alreadyPosted')::boolean
  THEN RAISE EXCEPTION 'GL_CI_RESTORED_INVOICE_NOT_IDEMPOTENT'; END IF;
@@ -195,8 +208,15 @@ BEGIN
    PERFORM public.powerhub_financial_gl_post_source(901,9101,'payment',401,9902);
  EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true; END;
  IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_CHANGED_COLLECTION_REPLAY_ALLOWED'; END IF;
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sourceIntegrity'->>'driftedEntries')::int<>1
+    OR (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM false
+ THEN RAISE EXCEPTION 'GL_CI_INTEGRITY_CHANGED_PAYMENT_NOT_DETECTED: %',report->'sourceIntegrity'; END IF;
  UPDATE public.account_transactions SET amount=55 WHERE id=501;
  retry:=public.powerhub_financial_gl_post_source(901,9101,'payment',401,9902);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
+ THEN RAISE EXCEPTION 'GL_CI_INTEGRITY_RESTORED_PAYMENT_NOT_CLEAN'; END IF;
  IF NOT (retry->>'alreadyPosted')::boolean
  THEN RAISE EXCEPTION 'GL_CI_RESTORED_PAYMENT_NOT_IDEMPOTENT'; END IF;
  retry:=public.powerhub_financial_gl_recognize_billed_service(
