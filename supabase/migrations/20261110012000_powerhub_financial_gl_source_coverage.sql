@@ -12,6 +12,7 @@ DECLARE
  v_opening_date date;
  v_invoice_total bigint;v_invoice_unposted bigint;v_invoice_missing_cycle bigint;
  v_payments_total bigint;v_payments_unposted bigint;
+ v_payment_ledger_mismatches bigint;v_payment_missing_ledger bigint;
  v_expense_total bigint;v_expense_unposted bigint;
  v_payroll_total bigint;v_payroll_unposted bigint;v_payroll_drafts bigint;
  v_stock_total bigint;v_stock_unposted bigint;
@@ -63,6 +64,29 @@ BEGIN
  FROM public.payments p
  WHERE p.tenant_id=p_tenant_id AND p.site_id=p_site_id
  AND p.status='completed' AND p.paid_at>=v_start AND p.paid_at<v_end;
+ -- Audit the ACTUAL payment-to-company-account movement, without
+ -- counting the same collection again as a second revenue event.
+ -- One completed payment must have exactly one collection movement with
+ -- matching tenant, site and amount. A link to another tenant is invalid.
+ SELECT count(*) FILTER(WHERE linked.movement_count=0),
+        count(*) FILTER(WHERE linked.movement_count<>1 OR
+          linked.correct_count<>1 OR linked.movement_amount<>p.amount OR
+          coalesce(p.invoice_applied_amount,0)+
+            coalesce(p.subscriber_credit_amount,0)<>p.amount OR
+          p.invoice_applied_amount<0 OR p.subscriber_credit_amount<0
+        )
+ INTO v_payment_missing_ledger,v_payment_ledger_mismatches
+ FROM public.payments p
+ CROSS JOIN LATERAL (
+   SELECT count(*) AS movement_count,
+      count(*) FILTER(WHERE a.tenant_id=p.tenant_id AND
+        a.site_id=p.site_id AND a.transaction_type='collection') AS correct_count,
+      coalesce(sum(a.amount),0) AS movement_amount
+   FROM public.account_transactions a
+   WHERE a.related_payment_id=p.id AND a.tenant_id=p.tenant_id
+ ) linked
+ WHERE p.tenant_id=p_tenant_id AND p.site_id=p_site_id
+   AND p.status='completed' AND p.paid_at>=v_start AND p.paid_at<v_end;
  SELECT count(*),count(*) FILTER(WHERE NOT EXISTS(
    SELECT 1 FROM public.financial_gl_entries g
    WHERE g.tenant_id=x.tenant_id AND g.site_id=x.site_id
@@ -121,7 +145,8 @@ BEGIN
  ) z;
  v_missing:=v_invoice_unposted+v_invoice_missing_cycle+v_payments_unposted+
    v_expense_unposted+v_payroll_unposted+v_payroll_drafts+
-   v_stock_unposted+v_supplier_unposted+v_cash_unclassified+v_gl_broken;
+   v_stock_unposted+v_supplier_unposted+v_cash_unclassified+v_gl_broken+
+   v_payment_ledger_mismatches;
  RETURN jsonb_build_object(
   'tenantId',p_tenant_id,'siteId',p_site_id,'period',p_period,
   'opening',jsonb_build_object('postedCount',v_opening_count,
@@ -129,7 +154,10 @@ BEGIN
   'sources',jsonb_build_object(
     'invoices',jsonb_build_object('inScope',v_invoice_total,
       'missingGL',v_invoice_unposted,'missingCycle',v_invoice_missing_cycle),
-    'payments',jsonb_build_object('inScope',v_payments_total,'missingGL',v_payments_unposted),
+    'payments',jsonb_build_object('inScope',v_payments_total,
+      'missingGL',v_payments_unposted,
+      'withoutLinkedCollection',v_payment_missing_ledger,
+      'linkedCollectionMismatch',v_payment_ledger_mismatches),
     'expenses',jsonb_build_object('inScope',v_expense_total,'missingGL',v_expense_unposted),
     'payroll',jsonb_build_object('approvedOrPaid',v_payroll_total,
       'missingGL',v_payroll_unposted,'drafts',v_payroll_drafts),
