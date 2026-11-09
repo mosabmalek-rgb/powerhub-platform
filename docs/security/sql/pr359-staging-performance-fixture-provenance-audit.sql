@@ -34,6 +34,11 @@ WITH cohort AS MATERIALIZED (
   COUNT(*) FILTER(WHERE occurred_at < '2026-05-01'::timestamptz
     OR occurred_at >= '2026-05-04'::timestamptz) AS outside_fixture_dates
  FROM cohort
+), fingerprint AS (
+ SELECT encode(extensions.digest(
+  string_agg(c.id::text||'='||to_jsonb(c)::text,chr(10) ORDER BY c.id),
+  'sha256'),'hex') AS sha256
+ FROM cohort c
 ), external_refs AS (
  SELECT
  (SELECT count(*) FROM public.company_account_movement_operations op
@@ -55,14 +60,15 @@ SELECT CASE WHEN d.count=250000 AND d.unknown_reference=0
  AND d.non_fixture_type=0 AND d.unexpected_amount=0
  AND d.linked_business_sources=0 AND d.outside_fixture_dates=0
  AND x.other_table_references=0
+ AND fp.sha256='f1b25e8562328a0f6e916beb4d54b2ee88366e78b4459c5d0ebc444616997df9'
  AND (SELECT COUNT(*) FROM per_account)=2
  AND NOT EXISTS(SELECT 1 FROM per_account p
     WHERE p.n<>125000 OR p.collections<>62500
       OR p.withdrawals<>62500 OR p.signed_amount<>0)
  THEN 'ARCHIVE_CANDIDATE_VERIFIED_NOT_ARCHIVED'
  ELSE 'BLOCKED_MANUAL_REVIEW_REQUIRED' END AS status,
- d.*,x.other_table_references,
+ d.*,x.other_table_references,fp.sha256 AS actual_content_sha256,
  (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.account_id) FROM per_account p)
  AS per_account_evidence,
  'READ_ONLY_NO_FINANCIAL_CERTIFICATION'::text AS accounting_status
-FROM discrepancies d CROSS JOIN external_refs x;
+FROM discrepancies d CROSS JOIN external_refs x CROSS JOIN fingerprint fp;
