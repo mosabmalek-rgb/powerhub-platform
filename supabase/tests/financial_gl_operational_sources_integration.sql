@@ -368,6 +368,27 @@ BEGIN
  report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
  IF (report->'sources'->'priorOperationalSources'->>'expensesMissingGL')::int<>0
  THEN RAISE EXCEPTION 'GL_CI_A8_PRIOR_EXPENSE_NOT_RECONCILED'; END IF;
+ -- A8: an otherwise valid September collection (linked to a posted
+ -- invoice) must also be visible as missing in October until its own GL
+ -- projection is posted. The collection movement is not extra revenue.
+ INSERT INTO public.payments(id,tenant_id,site_id,status,paid_at,amount,
+   invoice_applied_amount,subscriber_credit_amount,invoice_id)
+ VALUES(402,901,9101,'completed','2026-09-17T12:00:00Z',8,8,0,301);
+ INSERT INTO public.account_transactions(id,tenant_id,site_id,occurred_at,
+   related_payment_id,account_id,amount,transaction_type)
+ VALUES(1603,901,9101,'2026-09-17T12:00:00Z',402,601,8,'collection');
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'priorOperationalSources'->>'paymentsMissingGL')::int<>1
+   OR (report->'sources'->'priorOperationalSources'->
+      'paymentCollectionMismatches')::int<>0
+ THEN RAISE EXCEPTION 'GL_CI_A8_PRIOR_COLLECTION_HIDDEN: %',
+    report->'sources'->'priorOperationalSources';END IF;
+ PERFORM public.powerhub_financial_gl_post_source(901,9101,'payment',402,9902);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'priorOperationalSources'->>'paymentsMissingGL')::int<>0
+   OR (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
+ THEN RAISE EXCEPTION 'GL_CI_A8_PRIOR_COLLECTION_NOT_RECONCILED: %',
+   report->'sources'->'priorOperationalSources';END IF;
  -- A5 negative acceptance: a mathematically balanced but unapproved
  -- accrual journal projection must fail source integrity. A zero trial
  -- balance never substitutes for an authoritative approval document.
