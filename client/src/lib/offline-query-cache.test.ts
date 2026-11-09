@@ -927,7 +927,8 @@ describe("Delta-backed local snapshots", () => {
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listStockMovements", { input: { siteId: 7, limit: 500 }, type: "query" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub.inventory.listStockMovements", { input: { siteId: 7, limit: 100, includeCosts: true }, type: "query" }])).toBe(false);
     expect(getOfflineQueryDeltaEntity(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(null);
-    expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7 }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7, fromDate: "2026-10-01" }])).toBe(false);
     expect(isOfflineCacheableQueryKey(["powerhub", "companyAccounts", "list", { siteId: 7, branchId: 7, toDate: "2026-10-27" }])).toBe(false);
     expect(isDeltaSyncBackedQueryKey(["powerhub", "readings", "list", { siteId: 7 }])).toBe(true);
