@@ -209,8 +209,12 @@ BEGIN
  EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true; END;
  IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_CHANGED_COLLECTION_REPLAY_ALLOWED'; END IF;
  report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
- IF (report->'sourceIntegrity'->>'driftedEntries')::int<>1
-    OR (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM false
+ -- An invalid linked cash amount cannot yield an authoritative plan; the
+ -- audit must fail closed, regardless of whether it is classified as drift
+ -- or as an unverified source.
+ IF (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM false
+    OR (report->'sourceIntegrity'->>'driftedEntries')::int+
+       (report->'sourceIntegrity'->>'invalidSources')::int<>1
  THEN RAISE EXCEPTION 'GL_CI_INTEGRITY_CHANGED_PAYMENT_NOT_DETECTED: %',report->'sourceIntegrity'; END IF;
  UPDATE public.account_transactions SET amount=55 WHERE id=501;
  retry:=public.powerhub_financial_gl_post_source(901,9101,'payment',401,9902);
