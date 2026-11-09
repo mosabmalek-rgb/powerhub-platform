@@ -197,4 +197,42 @@ GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_post_accrual(bigint,bigin
   TO service_role;
 COMMENT ON FUNCTION public.powerhub_financial_gl_post_accrual(bigint,bigint,bigint)
  IS 'Atomic, source-derived GL projection of an APPROVED accrual journal, restricted to backend service_role; not final accounting recognition.';
+
+-- Atomic approval boundary: both the accrual status change and the GL
+-- projection are performed in ONE PostgreSQL function call / transaction.
+-- No server-side two-RPC waterfall, which could leave a posted source without GL.
+CREATE OR REPLACE FUNCTION public.powerhub_financial_accrual_post_and_gl(
+ p_tenant_id bigint, p_site_id bigint, p_journal_id bigint, p_user_id bigint
+) RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+SET search_path=pg_catalog,public,pg_temp AS $boundary$
+DECLARE v_approval jsonb; v_gl jsonb;
+BEGIN
+ IF p_user_id IS NULL OR p_user_id<=0 THEN
+   RAISE EXCEPTION 'GL_APPROVER_REQUIRED' USING ERRCODE='22023';
+ END IF;
+ v_approval:=public.powerhub_financial_accrual_journal_post(
+   p_tenant_id,p_site_id,p_journal_id,p_user_id);
+ IF v_approval IS NULL OR v_approval->>'status'<>'posted' THEN
+   RAISE EXCEPTION 'GL_APPROVAL_NOT_CONFIRMED' USING ERRCODE='22023';
+ END IF;
+ v_gl:=public.powerhub_financial_gl_post_accrual(
+   p_tenant_id,p_site_id,p_journal_id);
+ IF v_gl IS NULL OR v_gl->>'status'<>'posted' THEN
+   RAISE EXCEPTION 'GL_POST_NOT_CONFIRMED' USING ERRCODE='22023';
+ END IF;
+ RETURN v_approval || jsonb_build_object(
+   'glEntryId',(v_gl->>'entryId')::bigint,
+   'glAlreadyPosted',(v_gl->>'alreadyPosted')::boolean,
+   'sourceJournalId',p_journal_id
+ );
+END;
+$boundary$;
+REVOKE ALL ON FUNCTION public.powerhub_financial_accrual_post_and_gl(bigint,bigint,bigint,bigint)
+ FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.powerhub_financial_accrual_post_and_gl(bigint,bigint,bigint,bigint)
+ TO service_role;
+COMMENT ON FUNCTION public.powerhub_financial_accrual_post_and_gl(bigint,bigint,bigint,bigint)
+ IS 'Atomic accrual approval and balanced GL posting; both succeed or both roll back. Service-role server authorization required.';
+
 NOTIFY pgrst,'reload schema';
