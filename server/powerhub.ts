@@ -4987,6 +4987,58 @@ export const powerhubRouter = router({
       return data;
     }),
     // A3: on-demand, server-aggregated source coverage; never a certified P&L.
+    // A3: explicit, source-derived posting. No automatic historical backfill.
+    financialGLPostSource: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      sourceType:z.enum(["invoice","payment","expense","stock_movement",
+        "supplier_ledger","payroll"]),
+      sourceId:z.number().int().positive(),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_post_source",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_source_type:input.sourceType,p_source_id:input.sourceId,
+        p_user_id:ctx.user.id,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر ترحيل العملية إلى دفتر الأستاذ؛ تحقق من مستند المصدر والرصيد الافتتاحي وحالة الفترة."});
+      const result=data as Record<string,unknown>;
+      if(result.status!=="posted" || result.sourceType!==input.sourceType
+        || Number(result.sourceId)!==input.sourceId
+        || !Number.isSafeInteger(Number(result.entryId))
+        || Number(result.entryId)<=0)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم يُؤكَّد قيد الأستاذ؛ لا يمكن إعلان نجاح جزئي."});
+      return result;
+    }),
+    financialGLRecognizeBilledService: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      invoiceId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_gl_recognize_billed_service",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,
+          p_invoice_id:input.invoiceId,p_period:input.period,
+          p_actor_id:ctx.user.id,
+        });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر الاعتراف بإيراد هذه الفترة؛ يجب اكتمال شهر الخدمة وترحيل الفاتورة أولاً."});
+      const result=data as Record<string,unknown>;
+      if(result.status!=="posted" || Number(result.invoiceId)!==input.invoiceId
+        || result.period!==input.period || result.accountingCertification!=="NOT_CERTIFIED"
+        || !Number.isSafeInteger(Number(result.entryId)) || Number(result.entryId)<=0
+        || !Number.isSafeInteger(Number(result.amountMinor))
+        || Number(result.amountMinor)<=0)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم تُؤكَّد مطابقة قيمة الخدمة مع قيد الأستاذ."});
+      return result;
+    }),
     financialGLOpeningCreate: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       asOfDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
