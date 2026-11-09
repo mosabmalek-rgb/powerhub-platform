@@ -69,11 +69,13 @@ BEGIN
  IF TG_OP='UPDATE' THEN
    IF OLD.status<>'draft'
      OR NEW.status NOT IN ('posted','void')
-     OR (to_jsonb(NEW)-'status'-'approved_by_user_id'-'approved_at'
-         -'voided_by_user_id'-'voided_at'-'void_reason')
+     OR ROW(NEW.id,NEW.tenant_id,NEW.site_id,NEW.as_of_date,
+         NEW.evidence_reference,NEW.description,NEW.operation_key,
+         NEW.source_fingerprint,NEW.created_by_user_id,NEW.created_at)
         IS DISTINCT FROM
-        (to_jsonb(OLD)-'status'-'approved_by_user_id'-'approved_at'
-         -'voided_by_user_id'-'voided_at'-'void_reason')
+        ROW(OLD.id,OLD.tenant_id,OLD.site_id,OLD.as_of_date,
+         OLD.evidence_reference,OLD.description,OLD.operation_key,
+         OLD.source_fingerprint,OLD.created_by_user_id,OLD.created_at)
    THEN RAISE EXCEPTION 'GL_OPENING_IMMUTABLE' USING ERRCODE='22023'; END IF;
  END IF;
  RETURN NEW;
