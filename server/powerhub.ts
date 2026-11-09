@@ -5054,6 +5054,30 @@ export const powerhubRouter = router({
           message:"تعذر إلغاء المسودة الافتتاحية؛ القيد المعتمد غير قابل للحذف."});
       return data;
     }),
+    financialGLTrialBalance: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_trial_balance",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر استخراج ميزان المراجعة؛ لا توجد نتيجة جزئية معتمدة."});
+      const trial=data as Record<string,unknown>;
+      if(trial.tenantId!==access.tenantId || trial.siteId!==input.siteId
+        || trial.throughPeriod!==input.period
+        || trial.accountingCertification!=="NOT_CERTIFIED"
+        || trial.isFinalBalanceSheet!==false
+        || trial.isMathematicallyBalanced!==true
+        || Number(trial.difference)!==0
+        || !Array.isArray(trial.accounts) || !trial.sourceCoverage)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"ميزان المراجعة غير متوازن أو لا يطابق بيانات الفرع."});
+      return trial;
+    }),
     financialGLSourceCoverage: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
