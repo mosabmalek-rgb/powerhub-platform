@@ -51,6 +51,23 @@ export default function FinancialDashboardPage() {
     enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && cycleRangeReady),
     staleTime: 60_000, refetchOnWindowFocus: false,
   });
+  // Previous adjacent calendar period: same inclusive number of days, not a month approximation.
+  const [showCashComparison, setShowCashComparison] = useState(false);
+  const previousCashPeriod = useMemo(() => {
+    const start = Date.parse(`${startDate}T00:00:00Z`);
+    const end = Date.parse(`${endDate}T00:00:00Z`);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+    const duration = end - start + 86_400_000;
+    const toDate = (timestamp: number) => new Date(timestamp).toISOString().slice(0, 10);
+    return { startDate: toDate(start - duration), endDate: toDate(start - 86_400_000) };
+  }, [startDate, endDate]);
+  const priorCashFlow = trpc.powerhub.reports.cashFlow.useQuery({
+    siteId, startDate: previousCashPeriod?.startDate ?? startDate,
+    endDate: previousCashPeriod?.endDate ?? endDate,
+  }, {
+    enabled: Boolean(showCashComparison && previousCashPeriod && siteId && isAuthenticated && cycleRangeReady),
+    staleTime: 60_000, refetchOnWindowFocus: false,
+  });
   const report = trpc.powerhub.reports.range.useQuery({ siteId, startDate, endDate, paymentMethod }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && cycleRangeReady), staleTime: 60_000, refetchOnWindowFocus: false });
   const branding = trpc.powerhub.reportBranding.get.useQuery({ siteId }, { enabled: false, staleTime: 300_000 });
   const settlements = trpc.powerhub.settlements.list.useQuery({ siteId }, { enabled: false, staleTime: 300_000 });
@@ -230,6 +247,49 @@ export default function FinancialDashboardPage() {
           <strong className="mt-2 block text-xl text-white">{format(row.value)} شيكل</strong>
         </div>)}
       </div> : null}
+      <div className="mt-4 border-t border-white/10 pt-4">
+        <Button size="sm" variant="outline" className="border-white/20 text-white"
+          onClick={() => setShowCashComparison((value) => !value)}
+          disabled={!previousCashPeriod || !siteId}>
+          <BarChart3 className="ml-2 h-4 w-4" />
+          {showCashComparison ? "إخفاء المقارنة" : "مقارنة التدفق بالفترة السابقة"}
+        </Button>
+        {showCashComparison && previousCashPeriod ? <div className="mt-4 space-y-3">
+          <p className="text-xs text-slate-300">
+            مقارنة مع فترة مساوية في عدد الأيام: {previousCashPeriod.startDate} — {previousCashPeriod.endDate}.
+            المقارنة نقدية وليست قياساً لصافي الربح.
+          </p>
+          {priorCashFlow.isLoading ? <p role="status" className="text-sm text-slate-300">جارٍ حساب الفترة السابقة…</p> : null}
+          {priorCashFlow.isError ? <div role="alert" className="text-sm text-rose-200">
+            تعذر حساب الفترة السابقة؛ لا تعرض مقارنة غير مكتملة.
+            <Button size="sm" variant="outline" className="mr-2 text-white" onClick={() => void priorCashFlow.refetch()}>إعادة المحاولة</Button>
+          </div> : null}
+          {cashFlow.data && priorCashFlow.data && !cashFlow.isError && !priorCashFlow.isError ? <div className="grid gap-3 sm:grid-cols-3">
+            {([
+              {label:"النقد الوارد", current:cashFlow.data.externalCashIn, previous:priorCashFlow.data.externalCashIn},
+              {label:"النقد الصادر", current:cashFlow.data.externalCashOut, previous:priorCashFlow.data.externalCashOut},
+              {label:"صافي التدفق", current:cashFlow.data.netCashFlow, previous:priorCashFlow.data.netCashFlow},
+            ] as const).map(({label,current,previous}) => {
+              const delta = Number(current) - Number(previous);
+              const maximum = Math.max(Math.abs(Number(current)), Math.abs(Number(previous)), 1);
+              return <div key={label} className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
+                <p className="font-semibold text-white">{label}</p>
+                <div className="mt-3 space-y-2">
+                  {([{name:"الحالية",amount:Number(current)},{name:"السابقة",amount:Number(previous)}] as const).map(({name,amount}) =>
+                    <div key={name}>
+                      <div className="mb-1 flex justify-between gap-2 text-xs text-slate-300"><span>{name}</span><span>{format(amount)} شيكل</span></div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-700">
+                        <div className={name === "الحالية" ? "h-full rounded-full bg-[#F5B800]" : "h-full rounded-full bg-slate-400"}
+                          style={{width:`${Math.min(100, Math.abs(amount) / maximum * 100)}%`}} />
+                      </div>
+                    </div>)}
+                </div>
+                <p className="mt-3 text-xs text-slate-300">التغير: {delta > 0 ? "+" : ""}{format(delta)} شيكل</p>
+              </div>;
+            })}
+          </div> : null}
+        </div> : null}
+      </div>
       {cashFlow.data ? <p className="mt-3 text-xs text-slate-400">
         {format(cashFlow.data.transactionCount)} حركة خارجية؛ استُبعدت تحويلات داخلية بقيمة
         {" "}{format(cashFlow.data.internalTransferVolume)} شيكل من التدفق الصافي.
