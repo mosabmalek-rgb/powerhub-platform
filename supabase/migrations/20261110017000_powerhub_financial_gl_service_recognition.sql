@@ -7,7 +7,7 @@ ALTER TABLE public.financial_gl_entries
  ADD CONSTRAINT financial_gl_entries_source_type_check CHECK(source_type IN(
  'opening_balance','accrual_adjustment','invoice','payment','expense','payroll',
  'stock_movement','supplier_ledger','account_movement','asset_depreciation',
- 'provision','tax','correction','service_recognition'
+ 'provision','tax','correction','service_recognition','payroll_payment'
  ));
 
 CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_recognize_billed_service(
