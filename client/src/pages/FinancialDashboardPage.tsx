@@ -21,6 +21,14 @@ const dateKey = (value: unknown) => {
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isNaN(date.getTime()) ? "" : iso(date);
 };
+const payrollReconciliationDescriptions: Record<string,string> = {
+  MISSING_NET_PAYROLL_EXPENSE:"لا يوجد قيد مصروف لصافي رواتب كشف تم صرفه",
+  NET_PAYROLL_EXPENSE_MISMATCH:"قيمة مصروف الرواتب لا تطابق صافي كشف الرواتب",
+  MISSING_PAYROLL_CASH_MOVEMENT:"لا توجد حركة سحب نقدي مرتبطة بكشف رواتب مصروف",
+  PAYROLL_CASH_MOVEMENT_MISMATCH:"حركة سحب الرواتب لا تطابق المبلغ أو المصروف أو حساب الدفع",
+  PAYROLL_POSTING_BEFORE_PAYMENT:"يوجد مصروف أو حركة نقدية لكشف رواتب غير مصروف",
+  FULLY_DEDUCTED_APPROVED_PAYROLL_REQUIRES_REVIEW:"كشف معتمد بصافي صفر يحتاج إلى مراجعة تصنيف الخصومات",
+};
 const presets = [{ id: "today", label: "اليوم" }, { id: "current_cycle", label: "هذه الدورة" }, { id: "month_end", label: "آخر الشهر" }, { id: "custom", label: "مخصص" }] as const;
 
 export default function FinancialDashboardPage() {
@@ -500,12 +508,20 @@ export default function FinancialDashboardPage() {
             الكشوف: {format(payrollReview.data.counts.draft)} مسودة · {format(payrollReview.data.counts.approved)} معتمد ·
             {" "}{format(payrollReview.data.counts.paid)} مصروف · {format(payrollReview.data.counts.cancelled)} ملغى.
           </p>
-          {payrollReview.data.reconciliationIssues.length ? <p role="alert" className="text-xs text-rose-200">
-            توجد {format(payrollReview.data.reconciliationIssues.length)} ملاحظات مطابقة تحتاج مراجعة قبل اعتماد أي تقرير ربحية.
-          </p> : <p className="text-xs text-amber-200">
-            مطابقة الرواتب المسجلة متاحة، لكن صافي الربح المحاسبي النهائي غير معتمد؛
+          {payrollReview.data.reconciliationIssues.length ? <div role="alert" className="rounded-lg border border-rose-400/20 p-3 text-xs text-rose-200">
+            <p>توجد {format(payrollReview.data.reconciliationIssues.length)} ملاحظات مطابقة تحتاج مراجعة قبل اعتماد أي تقرير ربحية:</p>
+            <ul className="mt-2 list-disc space-y-1 pr-5">
+              {payrollReview.data.reconciliationIssues.map((issue,index) =>
+                <li key={`${issue}-${index}`}>{payrollReconciliationDescriptions[issue] ?? "توجد مشكلة مطابقة مالية تحتاج مراجعة"}</li>)}
+            </ul>
+          </div> : <p className="text-xs text-amber-200">
+            تمت مطابقة قيود الرواتب المرتبطة بالكشوف المعروضة، لكن صافي الربح النهائي غير معتمد؛
             يلزم التحقق من توقيت الإيرادات والمصروفات ومنع ازدواج الرواتب مع قيود الدفع.
           </p>}
+          <p className="text-xs text-slate-400">
+            نطاق الفحص: كشوف رواتب الفرع لهذا الشهر والمصروفات وحركات السحب المرتبطة بأرقامها فقط.
+            لا يشمل البحث الشامل عن قيود يتيمة أو حركات رواتب من شهور أخرى.
+          </p>
         </> : null}
       </div> : null}
     </section>
