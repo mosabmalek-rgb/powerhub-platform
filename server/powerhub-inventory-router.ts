@@ -1381,6 +1381,75 @@ export const powerhubInventoryRouter = router({
       return data[0];
     }),
 
+  // One-transaction purchase/confirmation/full physical receipt. This is a
+  // distinct explicit action; normal draft creation is never auto-received.
+  createPurchaseAndReceive: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      supplierId: z.number().int().positive().nullable(),
+      warehouseId: z.number().int().positive(),
+      supplierInvoiceNo: z.string().trim().max(120).optional(),
+      invoiceDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      dueDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      paymentTermsDays: z.number().int().min(0).max(3650).optional(),
+      paymentMode: z.enum(["immediate", "deferred"]),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      companyAccountId: z.number().int().positive().optional(),
+      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/).optional(),
+      paymentReferenceNo: z.string().trim().max(120).optional(),
+      paymentNotes: z.string().trim().max(2000).optional(),
+      receiptDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      operationKey: z.string().trim().min(8).max(155),
+      lines: z.array(purchaseLineInputSchema).min(1).max(200),
+    }).superRefine((value, ctx) => {
+      if (!value.supplierId && value.paymentMode !== "immediate") {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "المورد غير المسجل يتطلب دفعًا فوريًا." });
+      }
+      if (value.paymentMode === "immediate" && (!value.companyAccountId || !value.paymentDate)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "حدد حساب الشركة وتاريخ الدفع الفوري." });
+      }
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const createAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createPurchases");
+      const approvalAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "approvePurchases");
+      const receiveAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "receiveInventory");
+      if (createAccess.tenantId !== approvalAccess.tenantId || createAccess.tenantId !== receiveAccess.tenantId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "تعارض نطاق صلاحيات الشراء والاعتماد والاستلام." });
+      }
+      if (input.paymentMode === "immediate") {
+        const paymentAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+        if (paymentAccess.tenantId !== createAccess.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "تعارض صلاحية السداد مع نطاق المشتريات." });
+        }
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_purchase_auto_receive", {
+        p_tenant_id: createAccess.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_supplier_id: input.supplierId, p_warehouse_id: input.warehouseId,
+        p_supplier_invoice_no: input.supplierInvoiceNo || null,
+        p_invoice_date: input.invoiceDate, p_due_date: input.dueDate || null,
+        p_payment_terms_days: input.paymentTermsDays ?? null,
+        p_payment_mode: input.paymentMode,
+        p_reference_no: input.referenceNo || null, p_notes: input.notes || null,
+        p_company_account_id: input.companyAccountId || null,
+        p_payment_date: input.paymentDate || null,
+        p_payment_reference_no: input.paymentReferenceNo || null,
+        p_payment_notes: input.paymentNotes || null,
+        p_receipt_date: input.receiptDate,
+        p_operation_key: input.operationKey,
+        p_lines: input.lines.map((line) => ({
+          item_id: line.itemId, quantity: line.quantity, unit: line.unit,
+          units_to_base_factor: line.unitsToBaseFactor, unit_price: line.unitPrice,
+          discount_amount: line.discountAmount, tax_amount: line.taxAmount,
+          notes: line.notes || null,
+        })),
+      });
+      if (error || !data?.[0]) {
+        mapPurchaseDatabaseError(error, "تعذر إكمال الشراء والاستلام في معاملة واحدة؛ لم تُحفظ حالة جزئية.");
+      }
+      return data[0];
+    }),
+
   createPurchase: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
