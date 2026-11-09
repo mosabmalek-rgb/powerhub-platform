@@ -110,6 +110,7 @@ export default function InventoryPurchasesPanel({
   const [supplierId, setSupplierId] = useState("");
   const isWalkInSupplier = supplierId === "__walk_in__";
   const [warehouseId, setWarehouseId] = useState("");
+  const [autoReceive, setAutoReceive] = useState(false);
   const [supplierInvoiceNo, setSupplierInvoiceNo] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(todayForInput);
   const [dueDate, setDueDate] = useState("");
@@ -237,14 +238,15 @@ export default function InventoryPurchasesPanel({
 
   useEffect(() => {
     const firstSupplier = options.data?.suppliers[0];
-    const firstWarehouse = options.data?.warehouses[0];
+    const onlyWarehouse = options.data?.warehouses.length === 1 ? options.data.warehouses[0] : undefined;
     const firstItem = options.data?.items[0];
     if (firstSupplier) {
       setSupplierId((current) => current === "__walk_in__" || options.data?.suppliers.some((supplier) => String(supplier.id) === current) ? current : String(firstSupplier.id));
     }
-    if (firstWarehouse) {
-      setWarehouseId((current) => options.data?.warehouses.some((warehouse) => String(warehouse.id) === current) ? current : String(firstWarehouse.id));
-    }
+    // Do not silently select the first of several warehouses; a wrong tank
+    // would corrupt both physical stock and its GL source document.
+    setWarehouseId((current) => options.data?.warehouses.some((warehouse) => String(warehouse.id) === current)
+      ? current : (onlyWarehouse ? String(onlyWarehouse.id) : ""));
     if (firstItem) {
       setDraftLines((current) => current.map((line) => line.itemId ? line : { ...line, itemId: String(firstItem.id), unit: firstItem.base_unit }));
     }
@@ -319,6 +321,33 @@ export default function InventoryPurchasesPanel({
       ]);
     },
     onError: (error) => toast.error(error.message || "تعذر إتمام شراء المورد غير المسجل؛ لم تنفذ عملية جزئية."),
+  });
+
+  const createPurchaseAndReceive = trpc.powerhub.inventory.createPurchaseAndReceive.useMutation({
+    onSuccess: async (result) => {
+      pendingSettlementRef.current = null;
+      const purchaseId = Number(result.purchase_id);
+      setSelectedPurchaseId(purchaseId);
+      setCreateOpen(false);
+      setAutoReceive(false);
+      setSupplierInvoiceNo("");
+      setReferenceNo("");
+      setPurchaseNotes("");
+      setDraftLines([emptyLine(options.data?.items[0])]);
+      toast.success(result.replayed
+        ? "تم التحقق من الشراء والاستلام السابقين؛ لا توجد حركة مخزون أو دفعة مكررة."
+        : `تم شراء الأصناف واستلامها في المخزن: ${result.receipt_number}. ${result.payment_id ? "وسُجل السداد." : "دون خصم من حساب الشركة."}`);
+      await Promise.all([
+        refreshPurchaseData(purchaseId),
+        utils.powerhub.inventory.stockOverview.invalidate({ siteId }),
+        utils.powerhub.inventory.listStockMovements.invalidate({ siteId, limit: 100 }),
+        utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
+      ]);
+    },
+    onError: (error) => {
+      pendingSettlementRef.current = null;
+      toast.error(error.message || "تعذر إتمام الشراء والاستلام؛ لم تُحفظ حالة جزئية.");
+    },
   });
 
   const createPurchase = trpc.powerhub.inventory.createPurchase.useMutation({
@@ -466,8 +495,12 @@ export default function InventoryPurchasesPanel({
       toast.error("تعذر التحقق من أحدث الموردين والمخازن والأصناف؛ حدّث الخيارات قبل إنشاء المسودة.");
       return;
     }
-    if (!supplierId || !warehouseId) {
-      toast.error("اختر المورد والمخزن قبل حفظ الفاتورة.");
+    if (!supplierId || !warehouseId || !options.data?.warehouses.some((w) => String(w.id) === warehouseId)) {
+      toast.error("حدد المورد والمخزن المستلم من خيارات الفرع المعتمدة قبل الحفظ.");
+      return;
+    }
+    if (autoReceive && (!canApprovePurchases || !canReceiveInventory)) {
+      toast.error("الاستلام التلقائي يتطلب صلاحية اعتماد المشتريات واستلام المخزون.");
       return;
     }
     const lines = draftLines.map((line) => ({
@@ -512,6 +545,32 @@ export default function InventoryPurchasesPanel({
     if (!Number.isSafeInteger(userId) || userId < 1) {
       pendingSettlementRef.current = null;
       toast.error("تعذر تحديد مستخدم الجلسة؛ لم تُرسل فاتورة المشتريات.");
+      return;
+    }
+    if (autoReceive) {
+      // An explicit opt-in uses ONE atomic server RPC; never chain multiple
+      // browser mutations that could leave draft, payment or stock partial.
+      pendingSettlementRef.current = null;
+      const payload = {
+        siteId, supplierId: isWalkInSupplier ? null : Number(supplierId),
+        warehouseId: Number(warehouseId),
+        supplierInvoiceNo: supplierInvoiceNo.trim() || undefined,
+        invoiceDate: invoiceDate || todayForInput(),
+        dueDate: paymentMode === "immediate" ? (invoiceDate || todayForInput()) : (dueDate || undefined),
+        paymentTermsDays: paymentMode === "immediate" ? 0 : terms,
+        paymentMode,
+        referenceNo: referenceNo.trim() || undefined,
+        notes: purchaseNotes.trim() || undefined,
+        companyAccountId: paymentMode === "immediate" ? Number(companyAccountId) : undefined,
+        paymentDate: paymentMode === "immediate" ? (paymentDate || invoiceDate || todayForInput()) : undefined,
+        paymentReferenceNo: paymentReferenceNo.trim() || undefined,
+        paymentNotes: paymentNotes.trim() || undefined,
+        receiptDate: todayForInput(),
+        lines,
+      };
+      void runWithStableOperationKey({ userId, siteId, kind: "inventory_purchase_auto_receipt", payload },
+        (operationKey) => createPurchaseAndReceive.mutateAsync({ ...payload, operationKey }))
+        .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل الشراء والاستلام في عملية واحدة."));
       return;
     }
     if (isWalkInSupplier) {
@@ -689,7 +748,7 @@ export default function InventoryPurchasesPanel({
             <form onSubmit={onCreateSubmit} className="space-y-4 rounded-lg border p-3 md:p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">مسودة مشتريات جديدة</h3>
-                <p className="text-sm text-muted-foreground">لا تُضاف كميات إلى المخزون حتى تسجيل الاستلام.</p>
+                <p className="text-sm text-muted-foreground">الاستلام يدوي افتراضيًا، أو يمكن تفعيل الاستلام التلقائي إلى المخزن المختار.</p>
               </div>
               {options.isLoading ? <p className="py-4 text-center text-muted-foreground">جارٍ تحميل الموردين والمخازن والأصناف…</p> : null}
               {options.error ? <p className="text-sm text-destructive">تعذر تحميل خيارات المشتريات: {options.error.message}</p> : null}
@@ -715,6 +774,19 @@ export default function InventoryPurchasesPanel({
                     {options.data?.warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name} — {warehouse.code}</option>)}
                   </select>
                 </label>
+                <div className={inputGridClass + " sm:col-span-2 lg:col-span-3"}>
+                  {options.data?.warehouses.length === 1 ? <p className="text-xs text-muted-foreground">لديك مخزن واحد نشط؛ تم اختياره تلقائيًا ويمكن تغييره إذا أضيف مخزن آخر.</p> : <p className="text-xs text-muted-foreground">عند وجود عدة مخازن اختر المخزن المستلم صراحةً، ولا يُستخدم أول مخزن افتراضيًا.</p>}
+                  <label className="flex items-start gap-2 rounded-md border p-3">
+                    <input type="checkbox" className="mt-1 h-4 w-4" checked={autoReceive}
+                      disabled={!canApprovePurchases || !canReceiveInventory}
+                      onChange={(event) => setAutoReceive(event.target.checked)} />
+                    <span className="space-y-1">
+                      <span className="block font-medium">استلام تلقائي إلى المخزن المحدد عند إنشاء الشراء</span>
+                      <span className="block text-xs text-muted-foreground">عند التفعيل تُعتمد الفاتورة وتُستلم كامل كميات بنودها في عملية خادم واحدة. الدفع الفوري يُسجَّل في العملية نفسها؛ وإذا فشل أي جزء لا تُحفظ عملية جزئية.</span>
+                      {!canApprovePurchases || !canReceiveInventory ? <span className="block text-xs text-muted-foreground">يتطلب هذا الخيار صلاحية اعتماد المشتريات واستلام المخزون.</span> : null}
+                    </span>
+                  </label>
+                </div>
                 <label className={inputGridClass}>رقم فاتورة المورد
                   <Input value={supplierInvoiceNo} onChange={(event) => setSupplierInvoiceNo(event.target.value)} maxLength={120} />
                 </label>
@@ -814,9 +886,9 @@ export default function InventoryPurchasesPanel({
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>إلغاء</Button>
-                <Button type="submit" disabled={serverWriteBlocked || createPurchase.isPending || createWalkInPurchase.isPending || options.isLoading || !options.data?.items.length || (!options.data?.suppliers.length && !(canApprovePurchases && canManageSupplierPayments)) || !options.data?.warehouses.length}>
-                  {createPurchase.isPending || createWalkInPurchase.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="ml-2 h-4 w-4" />}
-                  حفظ المسودة
+                <Button type="submit" disabled={serverWriteBlocked || createPurchase.isPending || createWalkInPurchase.isPending || createPurchaseAndReceive.isPending || options.isLoading || !options.data?.items.length || (!options.data?.suppliers.length && !(canApprovePurchases && canManageSupplierPayments)) || !options.data?.warehouses.length}>
+                  {createPurchase.isPending || createWalkInPurchase.isPending || createPurchaseAndReceive.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="ml-2 h-4 w-4" />}
+                  {autoReceive ? "حفظ الشراء واستلامه تلقائيًا" : "حفظ المسودة"}
                 </Button>
               </div>
             </form>
