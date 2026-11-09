@@ -14,7 +14,6 @@ import { aggregateAuthorizedFinancialPositions, InvalidFinancialSnapshot, type S
 import { financialTrendMonths } from "./financial-trend-months";
 import { reviewFinancialPayrollMonth, InvalidPayrollReview } from "./financial-payroll-review";
 import { summarizeAccrualComponents, summarizeInvoiceServiceCycleCoverage, isIssuedFinancialInvoiceStatus, InvalidAccrualComponents } from "./financial-accrual-components";
-import { summarizeServiceCycleBilling, InvalidServiceCycleBilling } from "./financial-service-cycle-bridge";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
@@ -4968,51 +4967,74 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
       const {start,endExclusive}=reportDateRange(input.startDate,input.endDate);
-      const windowDays=(endExclusive.getTime()-start.getTime())/86_400_000;
-      if(!Number.isFinite(windowDays) || windowDays<1 || windowDays>366 ||
-        start.toISOString().slice(0,10)!==input.startDate ||
+      if(!Number.isFinite(start.getTime()) || !Number.isFinite(endExclusive.getTime()) ||
+        start>=endExclusive || start.toISOString().slice(0,10)!==input.startDate ||
         new Date(endExclusive.getTime()-86_400_000).toISOString().slice(0,10)!==input.endDate){
-        throw new TRPCError({code:"BAD_REQUEST",message:"اختر فترة صحيحة لا تتجاوز 366 يوماً لمراجعة دورات الخدمة."});
+        throw new TRPCError({code:"BAD_REQUEST",message:"نطاق تاريخ دورة الخدمة غير صالح."});
       }
-      // Bounded optional diagnostic. The two-day UTC margin covers Gaza
-      // midnight/DST; the pure aggregation performs exact Gaza-calendar filtering.
-      const lower=new Date(start.getTime()-2*86_400_000).toISOString();
-      const upper=new Date(endExclusive.getTime()+2*86_400_000).toISOString();
-      const {data,error}=await supabaseAdmin().from("invoices")
-        .select("id,status,total_amount,tax_amount,issue_date,cycle_start_at,cycle_end_at")
-        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
-        .in("status",["issued","partially_paid","paid","overdue"])
-        .not("cycle_start_at","is",null).not("cycle_end_at","is",null)
-        .lt("cycle_start_at",upper).gte("cycle_end_at",lower)
-        .order("id",{ascending:true}).limit(5001);
-      if(error || !data || data.length>5000){
-        throw new TRPCError({code:"PRECONDITION_FAILED",
-          message:"تعذر إكمال مراجعة دورة الخدمة أو تجاوز عدد الفواتير الحد الآمن؛ لا تُعرض نتيجة جزئية."});
+      // A single, tenant/site-scoped aggregate RPC: no invoice row downloads,
+      // arbitrary 5,000-invoice limit, or one-year reporting ceiling.
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_service_cycle_billing_aggregate",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,
+          p_start_date:input.startDate,p_end_date:input.endDate,
+          p_as_of:new Date().toISOString(),
+        });
+      if(error || !data || typeof data!=="object" || Array.isArray(data)){
+        console.error("[PowerHub] service-cycle aggregate RPC failed",{
+          code:error?.code??"EMPTY_AGGREGATE",
+        });
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تجميع فوترة دورة الخدمة داخل قاعدة البيانات؛ تحقق من ترحيلها."});
       }
-      try{
-        const asOf=new Date();
-        return {
-          ...summarizeServiceCycleBilling(input.startDate,input.endDate,asOf,
-            data.map(row=>({
-              id:Number(row.id),status:String(row.status),
-              totalAmount:Number(row.total_amount),
-              taxAmount:Number(row.tax_amount),
-              issueDate:new Date(row.issue_date),
-              cycleStartAt:row.cycle_start_at?new Date(row.cycle_start_at):null,
-              cycleEndAt:row.cycle_end_at?new Date(row.cycle_end_at):null,
-            }))),
-          scopeSiteId:input.siteId,
-          scopeTenantId:access.tenantId,
-          isCompleteProfitAndLoss:false as const,
-        };
-      }catch(error){
-        if(error instanceof InvalidServiceCycleBilling){
-          console.error("[PowerHub] invalid service cycle billing review",{reason:error.message});
+      const snapshot=data as Record<string,unknown>;
+      const amountKeys=[
+        "billedGross","billedTax","billedExTax","completedCycleBilledGross",
+        "ongoingCycleBilledGross","futureCycleBilledGross",
+        "issuedOutsideRangeBilledGross",
+      ] as const;
+      const countKeys=[
+        "issuedInvoiceCount","fullyInsideCount","crossBoundaryCount",
+        "completedCount","inProgressCount","futureCount",
+        "issuedOutsideRangeCount","missingCycleCount",
+      ] as const;
+      const checkedMoney=(key:string)=>{
+        const raw=snapshot[key];const n=Number(raw);
+        if(raw===null || raw===undefined || raw==="" || !Number.isFinite(n) || n<0){
           throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
-            message:"توجد بيانات غير صالحة لدورة الخدمة؛ لم يُعرض تقرير فوترة غير موثوق."});
+            message:"إجمالي دورة الخدمة غير مكتمل أو غير صالح؛ لا يمكن عرضه."});
         }
-        throw error;
+        return n;
+      };
+      const amounts=Object.fromEntries(amountKeys.map(key=>[key,checkedMoney(key)])) as Record<(typeof amountKeys)[number],number>;
+      const counts=Object.fromEntries(countKeys.map(key=>{
+        const n=checkedMoney(key);
+        if(!Number.isSafeInteger(n))throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"عدد الفواتير غير صالح."});
+        return [key,n];
+      })) as Record<(typeof countKeys)[number],number>;
+      if(Number(snapshot.scopeTenantId)!==access.tenantId ||
+        Number(snapshot.scopeSiteId)!==input.siteId ||
+        Math.abs(amounts.billedGross-amounts.billedTax-amounts.billedExTax)>0.011 ||
+        Math.abs(amounts.completedCycleBilledGross+amounts.ongoingCycleBilledGross+
+          amounts.futureCycleBilledGross-amounts.billedGross)>0.011 ||
+        counts.fullyInsideCount+counts.crossBoundaryCount!==counts.issuedInvoiceCount ||
+        counts.completedCount+counts.inProgressCount+counts.futureCount!==counts.issuedInvoiceCount ||
+        snapshot.isRecognizedRevenue!==false || snapshot.isCompleteProfitAndLoss!==false ||
+        snapshot.isCycleCoverageComplete!==(counts.missingCycleCount===0) ||
+        snapshot.coverage!=="invoices_with_service_cycles_intersecting_range"){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"فشلت مطابقة نطاق ونتائج تقرير دورة الخدمة؛ لن نعرض مجموعاً غير موثوق."});
       }
+      return {
+        range:{startDate:input.startDate,endDate:input.endDate},
+        asOf:String(snapshot.asOf),
+        scopeSiteId:input.siteId,scopeTenantId:access.tenantId,
+        ...amounts,...counts,
+        isCycleCoverageComplete:counts.missingCycleCount===0,
+        isRecognizedRevenue:false as const,
+        isCompleteProfitAndLoss:false as const,
+        coverage:"invoices_with_service_cycles_intersecting_range" as const,
+      };
     }),
     range: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
