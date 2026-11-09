@@ -564,6 +564,11 @@ export default function FinancialDashboardPage() {
                   {format(serviceCycleBilling.data.issuedOutsideRangeCount)} أُصدرت خارج الفترة،
                   {" "}{format(serviceCycleBilling.data.crossBoundaryCount)} دورة تعبر حدودها.
                 </p>
+                {!serviceCycleBilling.data.isCycleCoverageComplete ? <p role="alert" className="text-xs text-rose-200">
+                  توجد {format(serviceCycleBilling.data.missingCycleCount)} فاتورة صادرة داخل الفترة
+                  لا تحتوي على نطاق دورة خدمة مكتمل؛ لم تدخل في مجموع فوترة الدورات.
+                  إجمالي الدورات ليس شاملاً لهذه الحالات ولا يجوز استخدامه كقيمة إيراد.
+                </p> : null}
                 <p className="text-xs text-amber-200">الاكتمال يعني انتهاء دورة الخدمة، لا اعتماد الإيراد المحاسبي.
                   لا تُستخدم هذه المجاميع مباشرة لحساب صافي الربح دون معالجة التسويات والاعتراف بالإيراد.</p>
               </> : null}
