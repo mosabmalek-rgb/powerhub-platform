@@ -143,6 +143,28 @@ BEGIN
             AND sm.purchase_id=m.purchase_id
             AND sm.reference_no=m.reference_no
             AND sm.movement_type='supplier_return')))
+   OR
+   (m.movement_type='issue' AND m.operation_key LIKE 'trf:%:out'
+     AND (SELECT count(*) FROM public.inventory_stock_movements paired
+       WHERE paired.tenant_id=m.tenant_id AND paired.site_id=m.site_id
+         AND paired.movement_type='adjustment_in'
+         AND paired.operation_key=left(m.operation_key,length(m.operation_key)-4)||':in'
+         AND paired.reference_no=m.reference_no
+         AND paired.item_id=m.item_id AND paired.quantity=m.quantity
+         AND paired.unit_cost=m.unit_cost
+         AND paired.total_cost_amount=m.total_cost_amount
+         AND paired.warehouse_id<>m.warehouse_id)=1)
+   OR
+   (m.movement_type='adjustment_in' AND m.operation_key LIKE 'trf:%:in'
+     AND (SELECT count(*) FROM public.inventory_stock_movements paired
+       WHERE paired.tenant_id=m.tenant_id AND paired.site_id=m.site_id
+         AND paired.movement_type='issue'
+         AND paired.operation_key=left(m.operation_key,length(m.operation_key)-3)||':out'
+         AND paired.reference_no=m.reference_no
+         AND paired.item_id=m.item_id AND paired.quantity=m.quantity
+         AND paired.unit_cost=m.unit_cost
+         AND paired.total_cost_amount=m.total_cost_amount
+         AND paired.warehouse_id<>m.warehouse_id)=1)
  ))
  INTO v_stock_total,v_stock_unposted
  FROM public.inventory_stock_movements m
