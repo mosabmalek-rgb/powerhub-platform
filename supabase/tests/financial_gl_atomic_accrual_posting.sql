@@ -207,3 +207,35 @@ BEGIN
   THEN RAISE EXCEPTION 'GL_A4_TRIAL_BALANCE_CERTIFICATION_MISMATCH'; END IF;
 END;
 $trial$;
+
+-- Independent source discrepancies must block the accounting acceptance even
+-- when the GL trial balance is numerically zero on an empty ledger.
+BEGIN;
+INSERT INTO public.invoices(id,tenant_id,site_id,status,cycle_start_at,cycle_end_at,issue_date)
+VALUES(1,901,9101,'issued','2026-10-01T00:00:00Z','2026-10-31T00:00:00Z','2026-10-31T01:00:00Z');
+INSERT INTO public.payments(id,tenant_id,site_id,status,paid_at)
+VALUES(2,901,9101,'completed','2026-10-12T12:00:00Z');
+INSERT INTO public.expenses(id,tenant_id,site_id,category,occurred_at)
+VALUES(3,901,9101,'maintenance','2026-10-14T12:00:00Z');
+INSERT INTO public.payroll_runs(id,tenant_id,site_id,period,status)
+VALUES(4,901,9101,'2026-10','draft');
+INSERT INTO public.inventory_stock_movements(id,tenant_id,site_id,occurred_at)
+VALUES(5,901,9101,'2026-10-15T12:00:00Z');
+INSERT INTO public.supplier_ledger_entries(id,tenant_id,site_id,occurred_at)
+VALUES(6,901,9101,'2026-10-15T12:00:00Z');
+INSERT INTO public.account_transactions(id,tenant_id,site_id,occurred_at)
+VALUES(7,901,9101,'2026-10-15T12:00:00Z');
+DO $discrepancies$
+DECLARE r jsonb;
+BEGIN
+ r:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (r->>'isSourceCoverageComplete')::boolean OR
+    (r->>'unreconciledSourceCount')::bigint<7 OR
+    (r->'sources'->'invoices'->>'missingGL')::bigint<>1 OR
+    (r->'sources'->'companyAccountMovements'->>'unclassified')::bigint<>1 OR
+    (r->'sources'->'payroll'->>'drafts')::bigint<>1 OR
+    r->>'accountingCertification'<>'NOT_CERTIFIED'
+ THEN RAISE EXCEPTION 'GL_SOURCE_COVERAGE_FALSE_PASS'; END IF;
+END;
+$discrepancies$;
+ROLLBACK;
