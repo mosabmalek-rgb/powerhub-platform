@@ -19,10 +19,13 @@ describe("phase A2.1 atomic accrual to GL release boundary",()=>{
  });
  it("preserves existing accrual period lock ordering",()=>{
   expect(migration).toContain("'powerhub:accrual-period:'");
-  expect(migration).toContain("FOR SHARE");
-  expect(migration.indexOf("pg_advisory_xact_lock")).toBeLessThan(
-   migration.indexOf("FOR SHARE")
+  const lockAt=migration.indexOf("PERFORM pg_advisory_xact_lock");
+  const sourceReadAt=migration.indexOf(
+    "SELECT * INTO v_source FROM public.financial_accrual_journals j"
   );
+  expect(lockAt).toBeGreaterThan(0);
+  expect(sourceReadAt).toBeGreaterThan(lockAt);
+  expect(migration.slice(sourceReadAt,sourceReadAt+230)).toContain("FOR SHARE");
  });
  it("narrows table grants and denies direct authenticated RPC access",()=>{
   for(const name of ["accounts","entries","lines"]){
