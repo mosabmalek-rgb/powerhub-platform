@@ -194,8 +194,10 @@ BEGIN
     SELECT coalesce(sum(m.total_cost_amount),0),count(*) INTO v_sum,v_count
     FROM public.inventory_stock_movements m WHERE m.tenant_id=p_tenant_id
      AND m.site_id=p_site_id AND m.purchase_id=supplier.purchase_id
-     AND m.movement_type='supplier_return';
-    IF supplier.supplier_return_id IS NULL OR supplier.debit_amount<=0
+     AND m.movement_type='supplier_return'
+     AND m.reference_no=supplier.reference_no;
+    IF supplier.reference_no IS NULL
+      OR supplier.supplier_return_id IS NULL OR supplier.debit_amount<=0
       OR supplier.credit_amount<>0 OR v_sum<>supplier.debit_amount OR v_count<1
       OR NOT EXISTS(SELECT 1 FROM public.financial_gl_entries e
        WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
