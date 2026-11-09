@@ -13,6 +13,7 @@ import { normalizeSettlementLedgerSnapshot } from "./financial-settlement-snapsh
 import { aggregateAuthorizedFinancialPositions, InvalidFinancialSnapshot, type SiteFinancialSnapshot } from "./financial-multi-site-position";
 import { financialTrendMonths } from "./financial-trend-months";
 import { reviewFinancialPayrollMonth, InvalidPayrollReview } from "./financial-payroll-review";
+import { summarizeAccrualComponents, InvalidAccrualComponents } from "./financial-accrual-components";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
@@ -4989,6 +4990,25 @@ export const powerhubRouter = router({
       const grossCollected = completedPayments.reduce((sum, row) => sum + Number(row.payment.grossAmount), 0);
       const subscriberCreditCreated = completedPayments.reduce((sum, row) => sum + Number(row.payment.subscriberCreditAmount), 0);
       const periodExpenses = expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive);
+      let accrualComponents: ReturnType<typeof summarizeAccrualComponents>;
+      try {
+        accrualComponents = summarizeAccrualComponents(
+          allInvoices.map(invoice => ({
+            status:invoice.status,totalAmount:invoice.totalAmount,taxAmount:invoice.taxAmount,
+          })),
+          periodExpenses.map(expense=>({
+            category:expense.category,expenseClassification:expense.expenseClassification,amount:expense.amount,
+          })),
+        );
+      } catch(error) {
+        if(error instanceof InvalidAccrualComponents) {
+          console.error("[PowerHub] invalid accrual bridge components",{reason:error.message});
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+            message:"تعذر التحقق من مكونات الإيرادات والمصروفات؛ لن نعرض تقديرات غير موثوقة."});
+        }
+        throw error;
+      }
+
       const directExpenseTotal = periodExpenses.filter((expense) => expense.expenseClassification !== "non_operating").reduce((sum, expense) => sum + expense.amount, 0);
       const nonOperatingExpenseTotal = periodExpenses.filter((expense) => expense.expenseClassification === "non_operating").reduce((sum, expense) => sum + expense.amount, 0);
       const inventoryConsumptionCost = inventoryConsumption.get(input.siteId) ?? 0;
@@ -5024,6 +5044,7 @@ export const powerhubRouter = router({
         summary: { invoiced, collected, grossCollected, subscriberCreditCreated, outstanding, energyKwh,
           directExpenseTotal, nonOperatingExpenseTotal, inventoryConsumptionCost, expenseTotal,
           allExpenseTotal: expenseTotal + nonOperatingExpenseTotal, operatingProfit: collected - expenseTotal },
+        accrualComponents,
         collectors, topDebtors, paymentDetails,
       };
     }),
