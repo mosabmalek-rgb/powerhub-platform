@@ -273,4 +273,56 @@ GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_fixture_manifest_review(b
  TO service_role;
 GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_prior_operational_gaps(bigint,bigint,text)
  TO service_role;
+
+-- The fixture cohort falls inside May itself. Later periods use the historical
+-- wrapper above; May source coverage must make the same *explicit* validated
+-- distinction without silently ignoring 250k raw events. Never alter other
+-- months or change accountingCertification / independent-opening flags.
+ALTER FUNCTION public.powerhub_financial_gl_source_coverage(
+ bigint,bigint,text) RENAME TO powerhub_financial_gl_source_coverage_raw;
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_source_coverage_raw(
+ bigint,bigint,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_source_coverage_raw(
+ bigint,bigint,text) TO service_role;
+CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_source_coverage(
+ p_tenant_id bigint,p_site_id bigint,p_period text
+) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+SET search_path=pg_catalog,public,pg_temp AS $coverage_wrapper$
+DECLARE v_report jsonb;v_verified jsonb;v_count bigint;v_cash jsonb;
+ v_unclassified bigint;v_missing bigint;v_new_missing bigint;
+BEGIN
+ v_report:=public.powerhub_financial_gl_source_coverage_raw(
+   p_tenant_id,p_site_id,p_period);
+ IF p_period='2026-05' THEN
+  v_verified:=public.powerhub_financial_gl_verify_staging_fixture(
+     p_tenant_id,p_site_id);
+  IF (v_verified->>'verified')::boolean IS TRUE THEN
+   v_count:=(v_verified->>'quarantinedCount')::bigint;
+   v_cash:=v_report->'sources'->'companyAccountMovements';
+   v_unclassified:=(v_cash->>'unclassified')::bigint;
+   v_missing:=(v_report->>'unreconciledSourceCount')::bigint;
+   IF v_unclassified>=v_count AND v_missing>=v_count THEN
+    v_new_missing:=v_missing-v_count;
+    v_cash:=jsonb_set(v_cash,'{unclassified}',
+       to_jsonb(v_unclassified-v_count))
+       ||jsonb_build_object('quarantinedTestMovements',v_count,
+                           'fixtureQuarantine',v_verified);
+    v_report:=jsonb_set(v_report,'{sources,companyAccountMovements}',v_cash);
+    v_report:=jsonb_set(v_report,'{unreconciledSourceCount}',to_jsonb(v_new_missing));
+    v_report:=jsonb_set(v_report,'{isSourceCoverageComplete}',to_jsonb(
+        v_new_missing=0
+        AND (v_report->'sourceIntegrity'->>'isClean')::boolean IS TRUE
+        AND (v_report->'opening'->>'postedCount')::bigint=1
+        AND (v_report->'opening'->>'draftCount')::bigint=0));
+   END IF;
+  END IF;
+ END IF;
+ RETURN v_report;
+END;
+$coverage_wrapper$;
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_source_coverage(
+ bigint,bigint,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_source_coverage(
+ bigint,bigint,text) TO service_role;
+
 NOTIFY pgrst,'reload schema';
