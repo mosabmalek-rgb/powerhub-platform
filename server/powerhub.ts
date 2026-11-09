@@ -5031,7 +5031,17 @@ export const powerhubRouter = router({
       if(error||!Number.isSafeInteger(Number(data))||Number(data)<=0)
         throw new TRPCError({code:"BAD_REQUEST",
           message:"تعذر حفظ مسودة قيد التسوية؛ تحقق من الحسابات والمبلغ أو مفتاح العملية."});
-      return {id:Number(data),status:"draft" as const};
+      // A retry can return an existing posted journal. Never claim it is a
+      // newly-created draft: expose the authoritative persisted status.
+      const {data:actual,error:lookupError}=await supabaseAdmin()
+        .from("financial_accrual_journals").select("status")
+        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+        .eq("id",Number(data)).single();
+      if(lookupError || !actual || !["draft","posted"].includes(actual.status)){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"حُفظ القيد لكن تعذر التأكد من حالته؛ أعد فتح سجل القيود قبل المحاولة مجدداً."});
+      }
+      return {id:Number(data),status:actual.status as "draft"|"posted"};
     }),
     accrualJournalPost: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),journalId:z.number().int().positive(),
