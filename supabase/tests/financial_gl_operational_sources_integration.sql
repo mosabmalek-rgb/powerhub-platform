@@ -199,6 +199,8 @@ BEGIN
  retry:=public.powerhub_financial_gl_post_source(901,9101,'payment',401,9902);
  IF NOT (retry->>'alreadyPosted')::boolean
  THEN RAISE EXCEPTION 'GL_CI_RESTORED_PAYMENT_NOT_IDEMPOTENT'; END IF;
+ retry:=public.powerhub_financial_gl_recognize_billed_service(
+   901,9101,301,'2026-10',9902);
  IF (service->>'amountMinor')::bigint<>10000
     OR (service->>'alreadyPosted')::boolean
     OR NOT (retry->>'alreadyPosted')::boolean
