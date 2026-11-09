@@ -5054,6 +5054,33 @@ export const powerhubRouter = router({
           message:"تعذر إلغاء المسودة الافتتاحية؛ القيد المعتمد غير قابل للحذف."});
       return data;
     }),
+    financialServiceMonthAllocation: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_service_month_allocation",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,
+          p_period:input.period,p_as_of:new Date().toISOString(),
+        });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر توزيع إيراد الخدمة على الأشهر؛ لم تُعرض نتيجة ناقصة."});
+      const result=data as Record<string,unknown>;
+      if(result.tenantId!==access.tenantId || result.siteId!==input.siteId
+        || result.period!==input.period
+        || result.recognitionPolicyVersion!=="gaza-invoice-service-calendar-days-v1"
+        || result.isBilledServiceAllocation!==true
+        || result.isEarnedRevenueCertified!==false
+        || result.accountingCertification!=="NOT_CERTIFIED"
+        || result.isCompleteAccrualStatement!==false
+        || !Number.isSafeInteger(Number(result.monthlyServiceAllocationExTaxMinor)))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"نتيجة توزيع الخدمة غير متسقة أو غير مسموح بعرضها."});
+      return result;
+    }),
     financialGLTrialBalance: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
