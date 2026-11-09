@@ -8,7 +8,7 @@ describe("Phase A1 inclusive Gaza calendar day allocation — provisional only",
  it("allocates a cross-month service invoice, excluding billed tax exactly",()=>{
    const result=allocate({
      cycleStartAt:dt("2026-10-19T21:00:00Z"), // Oct 20 local
-     cycleEndAt:dt("2026-11-18T21:59:59.999Z"), // Nov 19 local
+     cycleEndAt:dt("2026-11-19T21:59:59.999Z"), // Nov 19 Gaza local (+02:00); the 18th UTC date was incorrect
      billedGrossMinor:3410n,billedTaxMinor:310n,
    });
    expect(result.totalServiceDays).toBe(31);
