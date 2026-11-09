@@ -203,6 +203,46 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
+  it("requires purchase creation, approval, and supplier-payment capabilities independently for walk-in purchases", async () => {
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.createWalkInPurchase;
+    const input = { siteId: 6, warehouseId: 3, companyAccountId: 2,
+      invoiceDate: "2026-11-09", paymentDate: "2026-11-09", operationKey: "walk-in:test:1",
+      lines: [{ itemId: 9, quantity: 2, unit: "liter", unitsToBaseFactor: 1,
+        unitPrice: 4, discountAmount: 0, taxAmount: 0 }] };
+    for (const failAt of ["createPurchases", "approvePurchases", "manageSupplierPayments"]) {
+      state.rpc.mockClear();
+      state.access.mockReset().mockImplementation(async (_user, _site, _roles, capability) => {
+        if (capability === failAt) throw new TRPCError({ code: "FORBIDDEN" });
+        return { tenantId: 44 };
+      });
+      await expect(mutation._def.resolver({ ctx: { user: { id: 45 } }, input }))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(state.rpc).not.toHaveBeenCalled();
+    }
+  });
+
+  it("uses ONE atomic walk-in purchase RPC with a stable operation key", async () => {
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.createWalkInPurchase;
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      purchase_id: 71, purchase_number: "PUR-20261109-000001", payment_id: 20,
+      total_amount: 8, replayed: false,
+    }], error: null });
+    const result = await mutation._def.resolver({ ctx: { user: { id: 45 } },
+      input: { siteId: 6, warehouseId: 3, companyAccountId: 2,
+        invoiceDate: "2026-11-09", paymentDate: "2026-11-09", operationKey: "walk-in:test:stable",
+        lines: [{ itemId: 9, quantity: 2, unit: "liter",
+          unitsToBaseFactor: 1, unitPrice: 4, discountAmount: 0, taxAmount: 0 }] },
+    });
+    expect(result.purchase_id).toBe(71);
+    expect(state.rpc).toHaveBeenCalledTimes(1);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_create_walk_in_immediate_purchase",
+      expect.objectContaining({ p_tenant_id: 44, p_site_id: 6, p_user_id: 45,
+        p_company_account_id: 2, p_operation_key: "walk-in:test:stable" }));
+  });
+
   it("requires createPurchases before calling the purchase draft RPC", async () => {
     state.rpc.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));

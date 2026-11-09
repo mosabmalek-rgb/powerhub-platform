@@ -1327,6 +1327,60 @@ export const powerhubInventoryRouter = router({
       };
     }),
 
+  // A walk-in supplier is not registered in the active directory. The
+  // Postgres RPC creates an archival supplier reference, confirms the purchase,
+  // and posts the full payment in ONE transaction or rolls everything back.
+  createWalkInPurchase: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      warehouseId: z.number().int().positive(),
+      companyAccountId: z.number().int().positive(),
+      supplierInvoiceNo: z.string().trim().max(120).optional(),
+      invoiceDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      paymentReferenceNo: z.string().trim().max(120).optional(),
+      paymentNotes: z.string().trim().max(2000).optional(),
+      operationKey: z.string().trim().min(1).max(180),
+      lines: z.array(purchaseLineInputSchema).min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Capability gates must be enforced independently. A create-only user
+      // cannot silently bypass approval or move money out of company accounts.
+      const createAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createPurchases");
+      const approvalAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "approvePurchases");
+      const paymentAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      if (createAccess.tenantId !== approvalAccess.tenantId || createAccess.tenantId !== paymentAccess.tenantId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "تعارض نطاق صلاحيات فرع المشتريات." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_walk_in_immediate_purchase", {
+        p_tenant_id: createAccess.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_warehouse_id: input.warehouseId,
+        p_company_account_id: input.companyAccountId,
+        p_supplier_invoice_no: input.supplierInvoiceNo || null,
+        p_invoice_date: input.invoiceDate,
+        p_payment_date: input.paymentDate,
+        p_reference_no: input.referenceNo || null,
+        p_notes: input.notes || null,
+        p_payment_reference_no: input.paymentReferenceNo || null,
+        p_payment_notes: input.paymentNotes || null,
+        p_operation_key: input.operationKey,
+        p_lines: input.lines.map((line) => ({
+          item_id: line.itemId, quantity: line.quantity, unit: line.unit,
+          units_to_base_factor: line.unitsToBaseFactor, unit_price: line.unitPrice,
+          discount_amount: line.discountAmount, tax_amount: line.taxAmount,
+          notes: line.notes || null,
+        })),
+      });
+      if (error || !data?.[0]) {
+        mapPurchaseDatabaseError(error, "تعذر إتمام شراء المورد غير المسجل. لم يُحفظ شراء جزئي أو دفعة منفصلة.");
+      }
+      return data[0];
+    }),
+
   createPurchase: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),

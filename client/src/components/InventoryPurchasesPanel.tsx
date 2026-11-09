@@ -108,6 +108,7 @@ export default function InventoryPurchasesPanel({
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [supplierId, setSupplierId] = useState("");
+  const isWalkInSupplier = supplierId === "__walk_in__";
   const [warehouseId, setWarehouseId] = useState("");
   const [supplierInvoiceNo, setSupplierInvoiceNo] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(todayForInput);
@@ -239,7 +240,7 @@ export default function InventoryPurchasesPanel({
     const firstWarehouse = options.data?.warehouses[0];
     const firstItem = options.data?.items[0];
     if (firstSupplier) {
-      setSupplierId((current) => options.data?.suppliers.some((supplier) => String(supplier.id) === current) ? current : String(firstSupplier.id));
+      setSupplierId((current) => current === "__walk_in__" || options.data?.suppliers.some((supplier) => String(supplier.id) === current) ? current : String(firstSupplier.id));
     }
     if (firstWarehouse) {
       setWarehouseId((current) => options.data?.warehouses.some((warehouse) => String(warehouse.id) === current) ? current : String(firstWarehouse.id));
@@ -294,6 +295,31 @@ export default function InventoryPurchasesPanel({
       utils.powerhub.inventory.getPurchase.invalidate(purchaseId ? { siteId, purchaseId } : undefined),
     ]);
   };
+
+  const createWalkInPurchase = trpc.powerhub.inventory.createWalkInPurchase.useMutation({
+    onSuccess: async (result) => {
+      const purchaseId = Number(result.purchase_id);
+      setSelectedPurchaseId(purchaseId);
+      setCreateOpen(false);
+      setSupplierId("");
+      setSupplierInvoiceNo("");
+      setInvoiceDate(todayForInput());
+      setDueDate("");
+      setPaymentTermsDays("");
+      setReferenceNo("");
+      setPurchaseNotes("");
+      setDraftLines([emptyLine(options.data?.items[0])]);
+      setPaymentMode("deferred");
+      toast.success(result.replayed
+        ? "تم تأكيد العملية السابقة؛ لم يُكرر شراء أو خصم."
+        : `اكتمل الشراء الفوري ${result.purchase_number} والسداد في عملية واحدة.`);
+      await Promise.all([
+        refreshPurchaseData(purchaseId),
+        utils.powerhub.inventory.listSupplierPaymentOptions.invalidate({ siteId }),
+      ]);
+    },
+    onError: (error) => toast.error(error.message || "تعذر إتمام شراء المورد غير المسجل؛ لم تنفذ عملية جزئية."),
+  });
 
   const createPurchase = trpc.powerhub.inventory.createPurchase.useMutation({
     onSuccess: async (result) => {
@@ -467,6 +493,10 @@ export default function InventoryPurchasesPanel({
       toast.error("مدة السداد يجب أن تكون عدد أيام صحيحًا بين 0 و3650.");
       return;
     }
+    if (isWalkInSupplier && paymentMode !== "immediate") {
+      toast.error("المورد غير المسجل متاح للشراء الفوري الكامل فقط.");
+      return;
+    }
     if (paymentMode === "immediate") {
       if (!canApprovePurchases || !canManageSupplierPayments) { toast.error("يتطلب الدفع الفوري صلاحية اعتماد المشتريات وإدارة دفعات الموردين."); return; }
       if (!paymentOptionsAreAuthoritative) {
@@ -482,6 +512,25 @@ export default function InventoryPurchasesPanel({
     if (!Number.isSafeInteger(userId) || userId < 1) {
       pendingSettlementRef.current = null;
       toast.error("تعذر تحديد مستخدم الجلسة؛ لم تُرسل فاتورة المشتريات.");
+      return;
+    }
+    if (isWalkInSupplier) {
+      // The server handles supplier reference, purchase, approval and payment
+      // atomically. Never run the ordinary three-request immediate workflow.
+      pendingSettlementRef.current = null;
+      const payload = {
+        siteId, warehouseId: Number(warehouseId), companyAccountId: Number(companyAccountId),
+        supplierInvoiceNo: supplierInvoiceNo.trim() || undefined,
+        invoiceDate: invoiceDate || todayForInput(),
+        paymentDate: paymentDate || invoiceDate || todayForInput(),
+        referenceNo: referenceNo.trim() || undefined, notes: purchaseNotes.trim() || undefined,
+        paymentReferenceNo: paymentReferenceNo.trim() || undefined,
+        paymentNotes: paymentNotes.trim() || undefined,
+        lines,
+      };
+      void runWithStableOperationKey({ userId, siteId, kind: "inventory_walk_in_purchase_immediate", payload },
+        (operationKey) => createWalkInPurchase.mutateAsync({ ...payload, operationKey }))
+        .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر إتمام الشراء الفوري؛ لم تنفذ عملية جزئية."));
       return;
     }
     const payload = {
@@ -644,17 +693,22 @@ export default function InventoryPurchasesPanel({
               </div>
               {options.isLoading ? <p className="py-4 text-center text-muted-foreground">جارٍ تحميل الموردين والمخازن والأصناف…</p> : null}
               {options.error ? <p className="text-sm text-destructive">تعذر تحميل خيارات المشتريات: {options.error.message}</p> : null}
-              {!options.isLoading && options.data && (!options.data.suppliers.length || !options.data.warehouses.length || !options.data.items.length) ? (
-                <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">تحتاج إلى مورد نشط ومخزن نشط وصنف واحد على الأقل قبل إنشاء فاتورة.</p>
+              {!options.isLoading && options.data && (!options.data.warehouses.length || !options.data.items.length) ? (
+                <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">تحتاج إلى مخزن نشط وصنف واحد على الأقل قبل إنشاء فاتورة.</p>
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <label className={inputGridClass}>المورد
-                  <select className={selectClass} value={supplierId} onChange={(event) => setSupplierId(event.target.value)} required>
+                  <select className={selectClass} value={supplierId} onChange={(event) => {
+                    const nextSupplierId = event.target.value;
+                    setSupplierId(nextSupplierId);
+                    if (nextSupplierId === "__walk_in__") { setPaymentMode("immediate"); setDueDate(invoiceDate); setPaymentTermsDays("0"); }
+                  }} required>
                     <option value="">اختر المورد</option>
+                    {canApprovePurchases && canManageSupplierPayments ? <option value="__walk_in__">غير مسجل — شراء فوري فقط</option> : null}
                     {options.data?.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.supplier_code ? ` — ${supplier.supplier_code}` : ""}{supplier.supplier_type === "one_time" ? " — لمرة واحدة" : ""}</option>)}
                   </select>
                 </label>
-                {canApprovePurchases && canManageSupplierPayments ? <label className={inputGridClass}>طريقة السداد<select className={selectClass} value={paymentMode} onChange={(event) => { const mode = event.target.value as "immediate" | "deferred"; setPaymentMode(mode); if (mode === "immediate") { setDueDate(invoiceDate); setPaymentTermsDays("0"); } else { setDueDate(""); setPaymentTermsDays(""); } }}><option value="deferred">آجل</option><option value="immediate">فوري — سداد كامل</option></select></label> : null}
+                {canApprovePurchases && canManageSupplierPayments ? <label className={inputGridClass}>طريقة السداد<select className={selectClass} value={isWalkInSupplier ? "immediate" : paymentMode} disabled={isWalkInSupplier} onChange={(event) => { const mode = event.target.value as "immediate" | "deferred"; setPaymentMode(mode); if (mode === "immediate") { setDueDate(invoiceDate); setPaymentTermsDays("0"); } else { setDueDate(""); setPaymentTermsDays(""); } }}><option value="deferred">آجل</option><option value="immediate">فوري — سداد كامل</option></select></label> : null}
                 <label className={inputGridClass}>المخزن المستلم
                   <select className={selectClass} value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} required>
                     <option value="">اختر المخزن</option>
@@ -673,7 +727,7 @@ export default function InventoryPurchasesPanel({
                 <label className={inputGridClass}>مدة السداد بالأيام
                   <Input type="number" min={0} max={3650} step={1} value={paymentMode === "immediate" ? "0" : paymentTermsDays} onChange={(event) => setPaymentTermsDays(event.target.value)} placeholder="اتركها لاستخدام مدة المورد" disabled={paymentMode === "immediate"} />
                 </label>
-                {paymentMode === "immediate" ? <div className={inputGridClass + " sm:col-span-2 lg:col-span-3"}><label>حساب الشركة للسداد الكامل</label><select className={selectClass} value={companyAccountId} onChange={(event) => setCompanyAccountId(event.target.value)} required><option value="">اختر حسابًا يكفي رصيده</option>{currentPaymentOptions.map((account) => <option key={account.id} value={account.id}>{account.name} — {formatAmount(account.balance)}</option>)}</select><p className="text-xs text-muted-foreground">يُنشأ الشراء ثم يعتمد ثم يسدد كاملًا. إذا تعثر السداد بعد الاعتماد تبقى الفاتورة معتمدة ومستحقة ويظهر تنبيه بذلك.</p></div> : null}
+                {paymentMode === "immediate" ? <div className={inputGridClass + " sm:col-span-2 lg:col-span-3"}><label>حساب الشركة للسداد الكامل</label><select className={selectClass} value={companyAccountId} onChange={(event) => setCompanyAccountId(event.target.value)} required><option value="">اختر حسابًا يكفي رصيده</option>{currentPaymentOptions.map((account) => <option key={account.id} value={account.id}>{account.name} — {formatAmount(account.balance)}</option>)}</select><p className="text-xs text-muted-foreground">يُنشأ الشراء ثم يعتمد ثم يسدد كاملًا. {isWalkInSupplier ? "المورد غير المسجل: إنشاء الفاتورة واعتمادها وسدادها عملية واحدة؛ إذا فشلت يُلغى التنفيذ بالكامل. تحتفظ المنصة بمرجع داخلي مؤرشف للتدقيق فقط." : "إذا تعثر السداد بعد الاعتماد تبقى الفاتورة معتمدة ومستحقة ويظهر تنبيه بذلك."}</p></div> : null}
                 <label className={inputGridClass}>المرجع
                   <Input value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} maxLength={120} />
                 </label>
@@ -760,8 +814,8 @@ export default function InventoryPurchasesPanel({
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>إلغاء</Button>
-                <Button type="submit" disabled={serverWriteBlocked || createPurchase.isPending || options.isLoading || !options.data?.items.length || !options.data?.suppliers.length || !options.data?.warehouses.length}>
-                  {createPurchase.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="ml-2 h-4 w-4" />}
+                <Button type="submit" disabled={serverWriteBlocked || createPurchase.isPending || createWalkInPurchase.isPending || options.isLoading || !options.data?.items.length || (!options.data?.suppliers.length && !(canApprovePurchases && canManageSupplierPayments)) || !options.data?.warehouses.length}>
+                  {createPurchase.isPending || createWalkInPurchase.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="ml-2 h-4 w-4" />}
                   حفظ المسودة
                 </Button>
               </div>
