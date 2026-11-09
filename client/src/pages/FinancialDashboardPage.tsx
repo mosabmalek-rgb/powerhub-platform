@@ -91,6 +91,14 @@ export default function FinancialDashboardPage() {
     enabled: Boolean(showCashTrend && siteId && isAuthenticated && endDate && startDate <= endDate && cycleRangeReady),
     staleTime: 120_000, refetchOnWindowFocus: false,
   });
+  const [showPayrollReview, setShowPayrollReview] = useState(false);
+  const payrollPeriod = endDate.slice(0, 7);
+  const payrollReview = trpc.powerhub.reports.payrollAccrualReview.useQuery({
+    siteId,period:payrollPeriod,
+  },{
+    enabled: Boolean(showPayrollReview && isAuthenticated && siteId && /^\d{4}-(0[1-9]|1[0-2])$/.test(payrollPeriod) && cycleRangeReady),
+    staleTime:120_000,refetchOnWindowFocus:false,
+  });
   const report = trpc.powerhub.reports.range.useQuery({ siteId, startDate, endDate, paymentMethod }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && cycleRangeReady), staleTime: 60_000, refetchOnWindowFocus: false });
   const branding = trpc.powerhub.reportBranding.get.useQuery({ siteId }, { enabled: false, staleTime: 300_000 });
   const settlements = trpc.powerhub.settlements.list.useQuery({ siteId }, { enabled: false, staleTime: 300_000 });
@@ -451,6 +459,55 @@ export default function FinancialDashboardPage() {
         {format(cashFlow.data.transactionCount)} حركة خارجية؛ استُبعدت تحويلات داخلية بقيمة
         {" "}{format(cashFlow.data.internalTransferVolume)} شيكل من التدفق الصافي.
       </p> : null}
+    </section>
+    <section aria-labelledby="payroll-financial-review-title" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 id="payroll-financial-review-title" className="text-lg font-bold text-white">مراجعة أثر الرواتب على الاستحقاق</h2>
+          <p className="mt-1 text-xs text-slate-400">
+            تدقيق اختياري لشهر {payrollPeriod} حسب كشوف الرواتب، وليس صافي ربح أو مصروفاً إضافياً.
+            تاريخ الشهر يعتمد على نهاية الفترة المحددة، دون تحميل سجل الرواتب عند فتح اللوحة.
+          </p>
+        </div>
+        <Button size="sm" variant="outline" className="border-white/20 text-white" disabled={!siteId || !cycleRangeReady}
+          onClick={() => setShowPayrollReview(value => !value)}>
+          {showPayrollReview ? "إخفاء تدقيق الرواتب" : "فحص الرواتب والاستحقاق"}
+        </Button>
+      </div>
+      {showPayrollReview ? <div className="mt-4 space-y-3">
+        {payrollReview.isLoading ? <p role="status" className="text-sm text-slate-300">جارٍ التحقق من كشوف الرواتب والمصروفات المرتبطة بها…</p> : null}
+        {payrollReview.isError ? <div role="alert" className="text-sm text-rose-200">
+          تعذر مطابقة الرواتب مع المصروفات. لا يُعرض إجمالي غير موثوق.
+          <Button size="sm" variant="outline" className="mr-2 text-white" onClick={() => void payrollReview.refetch()}>إعادة المحاولة</Button>
+        </div> : null}
+        {payrollReview.data && !payrollReview.isError ? <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {([
+              {label:"إجمالي المسودات غير المعتمدة",value:payrollReview.data.draftGross,help:"معلومة للمراجعة، لا تُحتسب كمصروف معتمد"},
+              {label:"إجمالي الأجور المعتمدة",value:payrollReview.data.approvedGross,help:"قبل الخصومات، ولم يُصرف بعد"},
+              {label:"إجمالي الأجور المصروفة",value:payrollReview.data.paidGross,help:"قبل الخصومات"},
+              {label:"النقد المسجل كمصروف رواتب",value:payrollReview.data.matchedNetExpense,help:"صافي المدفوع المطابق لقيد المصروف"},
+              {label:"صافي الرواتب المعتمدة المستحقة",value:payrollReview.data.approvedNet,help:"التزام قائم عند الاعتماد"},
+              {label:"صافي الرواتب المصروفة",value:payrollReview.data.paidNet,help:"ليس تكلفة أجور إضافية"},
+              {label:"خصومات كشوف الرواتب المصروفة",value:payrollReview.data.paidDeductions,help:"تحتاج تصنيفاً محاسبياً حسب نوع الخصم"},
+            ] as const).map(item => <div key={item.label} className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
+              <p className="text-xs text-slate-300">{item.label}</p>
+              <strong className="mt-2 block text-lg text-white">{format(item.value)} شيكل</strong>
+              <p className="mt-1 text-xs text-slate-400">{item.help}</p>
+            </div>)}
+          </div>
+          <p className="text-xs text-slate-300">
+            الكشوف: {format(payrollReview.data.counts.draft)} مسودة · {format(payrollReview.data.counts.approved)} معتمد ·
+            {" "}{format(payrollReview.data.counts.paid)} مصروف · {format(payrollReview.data.counts.cancelled)} ملغى.
+          </p>
+          {payrollReview.data.reconciliationIssues.length ? <p role="alert" className="text-xs text-rose-200">
+            توجد {format(payrollReview.data.reconciliationIssues.length)} ملاحظات مطابقة تحتاج مراجعة قبل اعتماد أي تقرير ربحية.
+          </p> : <p className="text-xs text-amber-200">
+            مطابقة الرواتب المسجلة متاحة، لكن صافي الربح المحاسبي النهائي غير معتمد؛
+            يلزم التحقق من توقيت الإيرادات والمصروفات ومنع ازدواج الرواتب مع قيود الدفع.
+          </p>}
+        </> : null}
+      </div> : null}
     </section>
     {data && !report.isError ? <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{ label: "إجمالي المحصّل", value: data?.summary.collected, color: "text-emerald-300", Icon: CircleDollarSign }, { label: "إجمالي المصروفات التشغيلية", value: data?.summary.expenseTotal, color: "text-rose-300", Icon: Receipt }, { label: "فائض التحصيل بعد المصروفات", value: data?.summary.operatingProfit, color: "text-[#F5B800]", Icon: TrendingUp }, { label: "المتبقي من فواتير الفترة", value: data?.summary.outstanding, color: "text-orange-300", Icon: FileText }].map(({ label, value, color, Icon }) => <Card key={String(label)} className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className={`flex items-center gap-2 ${String(color)}`}><Icon className="h-5 w-5" /><span className="text-sm font-bold">{String(label)}</span></div><p className="mt-5 text-3xl font-extrabold text-white">{format(value)} شيكل</p><p className="mt-2 text-xs text-slate-500">الفترة: {startDate} — {endDate}</p></CardContent></Card>)}</section><section className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-white/10 bg-[#111823] p-4"><p className="text-xs text-slate-400">مصروفات مباشرة تشغيلية</p><strong className="mt-2 block text-xl text-white">{format(data?.summary.directExpenseTotal)} شيكل</strong></div><div className="rounded-xl border border-white/10 bg-[#111823] p-4"><p className="text-xs text-slate-400">صافي تكلفة استهلاك المخزون</p><strong className="mt-2 block text-xl text-white">{format(data?.summary.inventoryConsumptionCost)} شيكل</strong><p className="mt-1 text-xs text-slate-400">لا يشمل المشتريات غير المستهلكة أو سداد الموردين</p></div><div className="rounded-xl border border-white/10 bg-[#111823] p-4"><p className="text-xs text-slate-400">المصروفات غير التشغيلية</p><strong className="mt-2 block text-xl text-white">{format(data?.summary.nonOperatingExpenseTotal)} شيكل</strong></div></section><Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-white">إحصاءات الخصومات</h2><p className="mt-1 text-xs text-slate-400">حسب تاريخ تسجيل التسوية خلال الفترة المحددة؛ الأرصدة المرحّلة ليست خصومات.</p></div><span className="rounded-full border border-[#F5B800]/20 px-3 py-1 text-xs text-[#F5B800]">{startDate} — {endDate}</span></div>{discounts.isError ? <p className="mt-4 text-sm text-rose-200">تعذر تحميل إحصاءات الخصومات. أعد المحاولة.</p> : <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><div className="rounded-xl border border-white/8 p-4"><p className="text-xs text-slate-400">إجمالي الخصومات الفعلية</p><strong className="mt-2 block text-2xl text-white">{format(discounts.data?.totalDiscount)} شيكل</strong></div><div className="rounded-xl border border-white/8 p-4"><p className="text-xs text-slate-400">خصومات كسر الفاتورة التلقائية</p><strong className="mt-2 block text-2xl text-emerald-300">{format(discounts.data?.automaticDiscountTotal)} شيكل</strong><p className="mt-1 text-xs text-slate-500">{format(discounts.data?.automaticDiscountCount)} فاتورة</p></div><div className="rounded-xl border border-white/8 p-4"><p className="text-xs text-slate-400">خصومات التحصيل اليدوية</p><strong className="mt-2 block text-2xl text-amber-200">{format(discounts.data?.manualDiscountTotal)} شيكل</strong><p className="mt-1 text-xs text-slate-500">{format(discounts.data?.manualDiscountCount)} عملية</p></div></div>}</CardContent></Card><section className="grid gap-6 lg:grid-cols-[1.2fr_.8fr]"><Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><h2 className="font-bold text-white">مؤشرات الفترة</h2><div className="mt-5 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/8 p-4"><p className="text-xs text-slate-400">إجمالي الفوترة</p><strong className="mt-2 block text-xl text-white">{format(data?.summary.invoiced)} شيكل</strong></div><div className="rounded-xl border border-white/8 p-4"><p className="text-xs text-slate-400">التحصيل مقابل فوترة الفترة</p><strong className="mt-2 block text-xl text-emerald-300">{ratioLabel}</strong></div><div className="rounded-xl border border-white/8 p-4"><p className="text-xs text-slate-400">الاستهلاك</p><strong className="mt-2 block text-xl text-white">{format(data?.summary.energyKwh)} kWh</strong></div></div><p className="mt-3 text-xs text-amber-200">مؤشر للمقارنة فقط: تاريخ تحصيل الدفعات يختلف عن تاريخ إصدار الفواتير، ولا يُستخدم لحساب الربح أو معدل سداد نفس الفواتير.</p><div className="mt-6 h-3 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${Math.max(0,Math.min(100, collectionToBillingRatio ?? 0))}%` }} /></div><p className="mt-2 text-xs text-slate-400">{paymentMethod === "all" ? "نسبة مقارنة حسابية بين التحصيلات المسجلة وفواتير الفترة، وقد تتضمن التحصيلات فواتير أقدم؛ ليست نسبة سداد الفواتير الصادرة في الفترة." : "مقارنة التحصيل بالطريقة المختارة مع قيمة فوترة الفترة؛ لا تمثل معدل سداد فواتير الفترة."}</p></CardContent></Card><Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><h2 className="font-bold text-white">أداء المحصلين</h2><div className="mt-4 space-y-3">{(data?.collectors ?? []).slice(0, 5).map((item) => <div key={item.name} className="flex items-center justify-between rounded-xl border border-white/8 p-3"><div><p className="font-bold text-white">{item.name}</p><p className="text-xs text-slate-500">{item.count} عملية</p></div><strong className="text-emerald-300">{format(item.amount)} شيكل</strong></div>)}{!data?.collectors?.length && <p className="py-8 text-center text-sm text-slate-500">لا توجد تحصيلات مكتملة في الفترة.</p>}</div></CardContent></Card></section><Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex items-center justify-between"><h2 className="font-bold text-white">أعلى المتأخرات</h2><span className="text-xs text-slate-500">{data?.topDebtors?.length ?? 0} سجلات معروضة</span></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[700px] text-right text-sm"><thead className="text-xs text-slate-500"><tr><th className="p-3">المشترك</th><th className="p-3">رقم الفاتورة</th><th className="p-3">الرصيد</th><th className="p-3">تاريخ الاستحقاق</th></tr></thead><tbody>{(data?.topDebtors ?? []).map((item) => <tr key={item.invoiceNo} className="border-t border-white/8"><td className="p-3 font-bold text-white">{item.subscriber}</td><td className="p-3 text-slate-300">{item.invoiceNo}</td><td className="p-3 text-orange-300">{format(item.balanceDue)} شيكل</td><td className="p-3 text-slate-400">{formatReportDate(item.dueDate)}</td></tr>)}</tbody></table></div></CardContent></Card></> : null}</main></DashboardLayout>;
 }
