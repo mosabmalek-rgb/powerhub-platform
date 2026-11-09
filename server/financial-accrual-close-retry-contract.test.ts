@@ -44,7 +44,8 @@ describe("financial accrual close, reversal and retry protections",()=>{
   expect(server).toContain('actual.status as "draft"|"posted"');
   expect(ui).toContain('result.status==="posted"');
   expect(ui).toContain("القيد موجود ومعتمد بالفعل");
-  expect(ui).toContain("accrual-reverse-${id}-${reversalPeriod}");
+  expect(ui).toContain("accrual-reverse-${id}-${crypto.randomUUID()}");
+  expect(ui).toContain("setReversalOperationKey(operationKey)");
  });
  it("allows valid decimal cents without floating-point equality failure",()=>{
   expect(ui).toContain(String.raw`/^(?:0|[1-9]\\d*)(?:\\.\\d{1,2})?$/`.replace(/\\\\/g,"\\"));
