@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS public.financial_gl_entries (
     (length(btrim(accounting_policy_version)) BETWEEN 3 AND 100),
   posted_by_user_id bigint NOT NULL REFERENCES public.users(id),
   posted_at timestamptz NOT NULL DEFAULT now(),
-  reverses_entry_id bigint REFERENCES public.financial_gl_entries(id),
+  reverses_entry_id bigint,
+  CONSTRAINT financial_gl_reversal_same_scope FOREIGN KEY
+    (reverses_entry_id,tenant_id,site_id)
+    REFERENCES public.financial_gl_entries(id,tenant_id,site_id),
   CONSTRAINT financial_gl_entries_scope UNIQUE (id,tenant_id,site_id),
   CONSTRAINT financial_gl_entry_source_unique UNIQUE
     (tenant_id,site_id,source_type,source_id,source_revision),
