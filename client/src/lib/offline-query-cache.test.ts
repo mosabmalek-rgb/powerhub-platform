@@ -58,6 +58,37 @@ describe("offline query cache policy", () => {
   });
 
 
+  it("retains bounded company-account history as a user/site/account-scoped read-only offline snapshot", () => {
+    const input = { siteId: 7, accountId: 11, limit: 30, movementFromDate: "2026-11-01", movementToDate: "2026-11-09" };
+    const key = ["powerhub.companyAccounts.history", { input, type: "query" }] as const;
+    expect(isOfflineCacheableQueryKey(key)).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(key)).toBe(false);
+    expect(getOfflineQueryStaleTime(key)).toBe(30_000);
+    const response = { items: [{ id: 2, accountId: 11, tenantId: 1, transactionType: "deposit", amount: "45",
+      description: "Test movement", occurredAt: new Date("2026-11-09T10:00:00Z"), balanceAfter: 145,
+      internalSecret: "not-persisted" }], totalCount: 1, incomingTotal: 45, outgoingTotal: 0,
+      hasNext: false, nextCursor: null, balanceTimeline: [{ day: "2026-11-09", balance: 145 }] };
+    const safe = sanitizeOfflineQueryData(key, response) as typeof response;
+    expect(safe.items).toHaveLength(1);
+    expect(safe.items[0]).not.toHaveProperty("internalSecret");
+    expect(safe.balanceTimeline).toEqual([]);
+    expect(isOfflineCacheableQueryKey(["powerhub.companyAccounts.history", {
+      input: { ...input, limit: 200 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.companyAccounts.history", {
+      input: { ...input, tenantId: 999 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.companyAccounts.history", {
+      input: { ...input, siteId: 0 }, type: "query",
+    }])).toBe(false);
+    expect(isOfflineCacheableQueryKey(["powerhub.companyAccounts.list", {
+      input: { siteId: 7 }, type: "query",
+    }])).toBe(true);
+    expect(isDeltaSyncBackedQueryKey(["powerhub.companyAccounts.list", {
+      input: { siteId: 7 }, type: "query",
+    }])).toBe(false);
+  });
+
   it("caches only minimized branch-scoped security-deposit account options for offline drafts", () => {
     const key = ["powerhub.subscribers.securityDepositAccounts", {
       input: { siteId: 7 }, type: "query",

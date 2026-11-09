@@ -349,6 +349,27 @@ export function sanitizeOfflineQueryData(queryKey: readonly unknown[], data: unk
   const querySegments = Array.isArray(first)
     ? first.filter((part): part is string => typeof part === "string")
     : typeof first === "string" ? first.split(".") : [];
+  if (querySegments[0] === "powerhub" && querySegments[1] === "companyAccounts" &&
+      querySegments[2] === "history" && data && typeof data === "object" && !Array.isArray(data)) {
+    // A short-lived, read-only page snapshot. Never mark it Delta-complete or
+    // use it as financial authority for a deposit/withdrawal approval.
+    const record = data as Record<string, unknown>;
+    const items = Array.isArray(record.items) ? record.items.slice(0, 30).map((value) => {
+      const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+      return {
+        id: row.id, tenantId: row.tenantId, accountId: row.accountId, siteId: row.siteId,
+        transactionType: row.transactionType, amount: row.amount,
+        description: row.description, referenceNo: row.referenceNo,
+        relatedPaymentId: row.relatedPaymentId, relatedAccountId: row.relatedAccountId,
+        occurredAt: row.occurredAt, createdAt: row.createdAt, balanceAfter: row.balanceAfter,
+      };
+    }) : [];
+    return {
+      items, totalCount: record.totalCount, incomingTotal: record.incomingTotal,
+      outgoingTotal: record.outgoingTotal, hasNext: record.hasNext,
+      nextCursor: record.nextCursor, balanceTimeline: [],
+    };
+  }
   if (querySegments[0] === "powerhub" && querySegments[1] === "subscribers" &&
       querySegments[2] === "securityDepositAccounts" && Array.isArray(data)) {
     // Persist only account identity/type needed to draft an offline deposit.
@@ -830,6 +851,9 @@ async function persistOfflineQueryWithPolicy(
       ? getOfflineHrCompanyAccountOptionsExpiry(now)
       : now + OFFLINE_HR_DELTA_PROJECTION_TTL_MS
     : null;
+  const isCompanyLedgerSnapshot = cacheKeySegments[0] === "powerhub" && cacheKeySegments[1] === "companyAccounts" &&
+    (cacheKeySegments[2] === "history" || (cacheKeySegments[2] === "list" &&
+      !isDeltaSyncBackedQueryKey(query.queryKey)));
   const isPurchaseDetailSnapshot = isSafePurchaseDetailSnapshot(query.queryKey);
   const isSupplierFinancialSnapshot = isSafeSupplierLedgerStatementSnapshot(query.queryKey) ||
     isSafeSupplierPayablesAgingSnapshot(query.queryKey);
@@ -849,7 +873,8 @@ async function persistOfflineQueryWithPolicy(
     updatedAt: query.state.dataUpdatedAt || now,
     // Operational snapshots are retained across days; freshness is handled by sync cursors,
     // not by expiring the whole snapshot on a wall-clock TTL. Size and scope limits still apply.
-    expiresAt: isPurchaseDetailSnapshot ? now + 24 * 60 * 60 * 1000
+    expiresAt: isCompanyLedgerSnapshot ? now + 4 * 60 * 60 * 1000
+      : isPurchaseDetailSnapshot ? now + 24 * 60 * 60 * 1000
       : isSupplierFinancialSnapshot ? now + OFFLINE_SUPPLIER_FINANCIAL_SNAPSHOT_TTL_MS
       : isHrProjection ? hrCacheExpiry
       : isExpenseFilterOptions ? now + OFFLINE_EXPENSE_FILTER_OPTIONS_TTL_MS

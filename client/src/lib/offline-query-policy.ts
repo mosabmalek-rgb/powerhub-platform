@@ -251,11 +251,33 @@ function isSafeInventoryMovementList(queryKey: readonly unknown[], segments = ge
     input.limit === 100);
 }
 
+function isSafeCompanyAccountHistorySnapshot(queryKey: readonly unknown[]) {
+  const input = getOfflineQueryInput(queryKey);
+  if (!input) return false;
+  const allowed = new Set(["siteId", "accountId", "branchId", "fromDate", "toDate",
+    "movementFromDate", "movementToDate", "transactionType", "search", "cursor", "limit"]);
+  if (Object.keys(input).some((key) => !allowed.has(key)) ||
+      !Number.isSafeInteger(input.siteId) || Number(input.siteId) < 1 ||
+      !Number.isSafeInteger(input.accountId) || Number(input.accountId) < 1 ||
+      input.limit !== 30) return false;
+  if (input.branchId !== undefined &&
+      (!Number.isSafeInteger(input.branchId) || Number(input.branchId) < 1)) return false;
+  if (input.cursor !== undefined && (typeof input.cursor !== "string" ||
+      input.cursor.length < 1 || input.cursor.length > 300)) return false;
+  for (const key of ["fromDate", "toDate", "movementFromDate", "movementToDate"]) {
+    if (input[key] !== undefined && !isValidOfflineDate(input[key])) return false;
+  }
+  if (input.search !== undefined &&
+      (typeof input.search !== "string" || input.search.length > 120)) return false;
+  if (input.transactionType !== undefined &&
+      !["collection", "deposit", "withdrawal", "transfer_in", "transfer_out"].includes(String(input.transactionType))) return false;
+  return true;
+}
 function isSafeBranchScopedCompanyAccountList(queryKey: readonly unknown[]) {
   const input = getOfflineQueryInput(queryKey);
   if (!input || Object.keys(input).some((key) => !["siteId", "branchId"].includes(key))) return false;
   return Number.isSafeInteger(input.siteId) && Number(input.siteId) > 0 &&
-    Number.isSafeInteger(input.branchId) && Number(input.branchId) > 0;
+    (input.branchId === undefined || (Number.isSafeInteger(input.branchId) && Number(input.branchId) > 0));
 }
 function isSafeSubscriberDirectoryPage(queryKey: readonly unknown[]) {
   const input = getOfflineQueryInput(queryKey);
@@ -417,6 +439,7 @@ function isSafeOfflineStocktakeAccessSnapshot(queryKey: readonly unknown[], segm
 export function isOfflineCacheableQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (segments[0] !== "powerhub") return false;
+  if (isSafeCompanyAccountHistorySnapshot(queryKey) && segments[1] === "companyAccounts" && segments[2] === "history") return true;
   if (isSafeOfflineStocktakeAccessSnapshot(queryKey, segments)) return true;
   // Active, branch-scoped account choices are cached as a minimized option list.
   // The server revalidates account activity and branch access when an offline draft syncs.
@@ -481,6 +504,10 @@ export function isOfflineDashboardSnapshotQueryKey(queryKey: readonly unknown[])
 export function isDeltaSyncBackedQueryKey(queryKey: readonly unknown[]) {
   const segments = getPowerHubQuerySegments(queryKey);
   if (!isOfflineCacheableQueryKey(queryKey) || segments.length < 3 || segments[0] !== "powerhub") return false;
+  // Cached ledger snapshots and all-branch account lists are NOT Delta-backed.
+  if (segments[1] === "companyAccounts" && segments[2] === "history") return false;
+  if (segments[1] === "companyAccounts" && segments[2] === "list" &&
+      getOfflineQueryInput(queryKey)?.branchId === undefined) return false;
   if (isSafeHrOfflineProjection(queryKey, segments) &&
       ["offlineDirectory", "offlineAttendance", "offlineEmployeeAdvances", "offlinePayrollRuns"].includes(segments[2] ?? "")) return true;
 

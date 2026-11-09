@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, ChevronDown, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards, Eye, EyeOff } from "lucide-react";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
@@ -54,8 +55,18 @@ type CompanyAccountHistorySummary = {
   balanceTimeline: Array<{ day: string | null; balance: number }>;
 };
 
+type MovementPeriod = "today" | "cycle" | "month" | "custom";
+function gazaDateKey(value: Date | string = new Date()) {
+  const pieces = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (part: string) => pieces.find((item) => item.type === part)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 export default function CompanyAccountsPage() {
   const { isAuthenticated, loading } = useAuth();
+  const { isOnline } = usePowerHubConnectivity();
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const siteId = sites.data?.[0]?.id ?? 0;
   const [branchFilter, setBranchFilter] = useState("");
@@ -63,6 +74,7 @@ export default function CompanyAccountsPage() {
   const [toDate, setToDate] = useState("");
   const [transactionTypeFilter, setTransactionTypeFilter] = useState("");
   const [transactionSearch, setTransactionSearch] = useState("");
+  const [movementPeriod, setMovementPeriod] = useState<MovementPeriod>("cycle");
   const [movementFromDate, setMovementFromDate] = useState("");
   const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
@@ -72,6 +84,20 @@ export default function CompanyAccountsPage() {
   const [exportProgress, setExportProgress] = useState(0);
   const deferredTransactionSearch = useDeferredValue(transactionSearch);
   const [selected, setSelected] = useState<number | null>(null);
+  const cycleSiteId = branchFilter ? Number(branchFilter) : siteId;
+  const cycleBoundsQuery = trpc.powerhub.readingCycle.currentBounds.useQuery(
+    { siteId: cycleSiteId }, { enabled: Boolean(cycleSiteId && isAuthenticated), staleTime: 60_000 },
+  );
+  const currentDay = gazaDateKey();
+  const movementRange = useMemo(() => {
+    if (movementPeriod === "today") return { start: currentDay, end: currentDay };
+    if (movementPeriod === "month") return { start: currentDay.slice(0, 7) + "-01", end: currentDay };
+    if (movementPeriod === "custom") return { start: movementFromDate, end: movementToDate };
+    if (!cycleBoundsQuery.data?.startAt || !cycleBoundsQuery.data?.endAt) return { start: "", end: "" };
+    return { start: gazaDateKey(cycleBoundsQuery.data.startAt), end: gazaDateKey(cycleBoundsQuery.data.endAt) };
+  }, [movementPeriod, movementFromDate, movementToDate, cycleBoundsQuery.data?.startAt, cycleBoundsQuery.data?.endAt, currentDay]);
+  const movementRangeReady = movementPeriod !== "cycle" || Boolean(cycleBoundsQuery.data?.startAt && cycleBoundsQuery.data?.endAt);
+  const movementDatesValid = movementPeriod !== "custom" || Boolean(movementRange.start && movementRange.end && movementRange.start <= movementRange.end);
   const [managementExpanded, setManagementExpanded] = useState(false);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -152,15 +178,15 @@ export default function CompanyAccountsPage() {
     branchId: branchFilter ? Number(branchFilter) : undefined,
     fromDate: fromDate || undefined,
     toDate: toDate || undefined,
-    movementFromDate: movementFromDate || undefined,
-    movementToDate: movementToDate || undefined,
+    movementFromDate: movementRange.start || undefined,
+    movementToDate: movementRange.end || undefined,
     transactionType: transactionTypeFilter
       ? transactionTypeFilter as "collection" | "deposit" | "withdrawal" | "transfer_in" | "transfer_out"
       : undefined,
     search: deferredTransactionSearch.trim() || undefined,
     cursor: historyCursor || undefined,
-    limit: 10,
-  }, { enabled: Boolean(siteId && isAuthenticated && selectedAccount) });
+    limit: 30,
+  }, { enabled: Boolean(siteId && isAuthenticated && selectedAccount && movementRangeReady && movementDatesValid), refetchOnReconnect: "always" });
 
   useEffect(() => {
     const page = historyQuery.data;
@@ -183,10 +209,11 @@ export default function CompanyAccountsPage() {
     outgoing: Number(historySummary?.outgoingTotal ?? historyQuery.data?.outgoingTotal ?? 0),
   };
   const transactionNet = transactionSummary.incoming - transactionSummary.outgoing;
-  const pageSize = 10;
+  const pageSize = 30;
   const totalTransactions = Number(historySummary?.totalCount ?? historyQuery.data?.totalCount ?? 0);
   const pageCount = Math.max(1, Math.ceil(totalTransactions / pageSize));
   const visibleTransactions = transactionRows;
+  const showingOfflineHistory = !isOnline && Boolean(historyQuery.data);
   
   const balanceTimeline = useMemo(() => (historySummary?.balanceTimeline ?? historyQuery.data?.balanceTimeline ?? []).map((row) => ({
     label: row.day
@@ -209,6 +236,7 @@ export default function CompanyAccountsPage() {
     resetTransactionPagination();
     setTransactionTypeFilter("");
     setTransactionSearch("");
+    setMovementPeriod("cycle");
     setMovementFromDate("");
     setMovementToDate("");
     setMode("deposit");
@@ -296,7 +324,7 @@ export default function CompanyAccountsPage() {
   const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(labels[row.accountType]??row.accountType)}</td><td>${escapeHtml(row.phoneNumber??"—")}</td><td>${escapeHtml(row.linkedSites.map(site=>site.siteName).join("، ")||"—")}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
 
   const fetchAllTransactionsForExport = async (maximumRows = 50_000) => {
-    if (!selectedAccount) return [];
+    if (!selectedAccount || !movementRangeReady || !movementDatesValid) throw new Error("لا يمكن تصدير كشف الحركات قبل تحديد فترة صحيحة.");
     if (totalTransactions > maximumRows) {
       throw new Error(`يتجاوز عدد الحركات حد التصدير الآمن (${maximumRows.toLocaleString("ar")} حركة). حدد فترة زمنية أضيق.`);
     }
@@ -318,8 +346,8 @@ export default function CompanyAccountsPage() {
         branchId: branchFilter ? Number(branchFilter) : undefined,
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
-        movementFromDate: movementFromDate || undefined,
-        movementToDate: movementToDate || undefined,
+        movementFromDate: movementRange.start || undefined,
+        movementToDate: movementRange.end || undefined,
         transactionType: transactionTypeFilter
           ? transactionTypeFilter as "collection" | "deposit" | "withdrawal" | "transfer_in" | "transfer_out"
           : undefined,
@@ -346,7 +374,7 @@ export default function CompanyAccountsPage() {
   };
 
   const exportTransactionsExcel = async () => {
-    if (!selectedAccount || exportingTransactions) return;
+    if (!selectedAccount || exportingTransactions || !isOnline) return;
     setExportingTransactions(true);
     setExportProgress(0);
     try {
@@ -400,7 +428,7 @@ export default function CompanyAccountsPage() {
   };
 
   const exportTransactionsPdf = async () => {
-    if (!selectedAccount || exportingTransactions) return;
+    if (!selectedAccount || exportingTransactions || !isOnline) return;
     // Open synchronously within the click gesture, before awaiting the ledger.
     // Native printing is paginated, text-selectable, and avoids html2canvas
     // allocating one enormous image for thousands of account transactions.
@@ -519,7 +547,7 @@ tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
 
         <Card className="border-[#F5B800]/20 bg-[#F5B800]/5 print:border-slate-300 print:bg-white"><CardContent className="flex items-center justify-between p-5"><span className="font-bold text-white print:text-black">إجمالي السيولة المتاحة</span><strong className="text-2xl text-[#F5B800] print:text-black">{money(total)} ش</strong></CardContent></Card>
 
-        {selectedAccount && <Card className="border-white/10 bg-[#111823] print:hidden"><CardContent className="flex flex-wrap items-end gap-3 p-4"><div className="min-w-52"><p className="font-bold text-white">تصفية كشف الحركات</p><p className="mt-1 text-xs text-slate-500">تنطبق الفلاتر على السجل والمخطط وملفي Excel وPDF.</p></div><label className="grid gap-1 text-xs text-slate-300"><span>من تاريخ</span><Input dir="ltr" type="date" value={movementFromDate} max={movementToDate || undefined} onChange={(event) => { setMovementFromDate(event.target.value); resetTransactionPagination(); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><label className="grid gap-1 text-xs text-slate-300"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={movementToDate} min={movementFromDate || undefined} onChange={(event) => { setMovementToDate(event.target.value); resetTransactionPagination(); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><Button size="sm" variant="outline" onClick={() => { setMovementFromDate(""); setMovementToDate(""); setTransactionTypeFilter(""); resetTransactionPagination(); }} className="border-white/15 text-white">مسح فلاتر الحركات</Button></CardContent></Card>}
+        {selectedAccount && <Card className="border-white/10 bg-[#111823] print:hidden"><CardContent className="flex flex-wrap items-end gap-3 p-4"><div className="min-w-52"><p className="font-bold text-white">فترة سجل الحركات</p><p className="mt-1 text-xs text-slate-400">هذه الدورة افتراضياً. تنطبق الفترة على السجل والتصدير.</p></div><label className="grid gap-1 text-xs text-slate-200"><span>الفترة</span><select aria-label="فترة حركات الحساب" value={movementPeriod} onChange={(event) => { setMovementPeriod(event.target.value as MovementPeriod); resetTransactionPagination(); }} className="h-9 min-w-36 rounded-lg border border-white/15 bg-[#0D1117] px-3 text-white"><option value="today">اليوم</option><option value="cycle">هذه الدورة</option><option value="month">هذا الشهر</option><option value="custom">مخصص</option></select></label>{movementPeriod === "custom" ? <><label className="grid gap-1 text-xs text-slate-200"><span>من تاريخ</span><Input dir="ltr" type="date" value={movementFromDate} max={movementToDate || undefined} onChange={(event) => { setMovementFromDate(event.target.value); resetTransactionPagination(); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><label className="grid gap-1 text-xs text-slate-200"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={movementToDate} min={movementFromDate || undefined} onChange={(event) => { setMovementToDate(event.target.value); resetTransactionPagination(); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label></> : <span className="text-xs text-slate-300">من {movementRange.start || "…"} إلى {movementRange.end || "…"}</span>}{movementPeriod === "cycle" && !branchFilter && (sites.data?.length ?? 0) > 1 ? <span className="text-xs text-amber-200">الدورة حسب الفرع المرجعي؛ اختر فرعاً لتحديد دورته الخاصة.</span> : null}{!movementRangeReady ? <span role="status" className="text-xs text-amber-300">{cycleBoundsQuery.isError ? "تعذر تحديد الدورة؛ أعد المحاولة عند عودة الاتصال." : "جارٍ تحديد حدود الدورة…"}</span> : null}{!movementDatesValid ? <span role="alert" className="text-xs text-rose-300">حدد فترة مخصصة صحيحة.</span> : null}</CardContent></Card>}
 
         {selectedAccount && (
           <div className="space-y-5 print:hidden">
@@ -610,13 +638,12 @@ tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
               </CardContent>
             </Card>
 
-            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات</h2><p className="mt-1 text-xs text-slate-500">يتم تحميل 10 حركات في كل صفحة؛ الملخص والرصيد بعد الحركة محسوبان في قاعدة البيانات.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!selectedAccount || exportingTransactions} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "Excel"}</Button><Button size="sm" variant="outline" disabled={!selectedAccount || exportingTransactions} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "طباعة / PDF"}</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); resetTransactionPagination(); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
+            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات</h2><p className="mt-1 text-xs text-slate-500">يتم عرض 30 حركة في كل صفحة؛ الملخص والرصيد بعد الحركة محسوبان في قاعدة البيانات.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!selectedAccount || exportingTransactions || !isOnline || !movementRangeReady || !movementDatesValid} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "Excel"}</Button><Button size="sm" variant="outline" disabled={!selectedAccount || exportingTransactions || !isOnline || !movementRangeReady || !movementDatesValid} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "طباعة / PDF"}</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); resetTransactionPagination(); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
 <label className="grid gap-1 text-xs text-slate-400"><span>بحث بالوصف أو رقم الحركة أو التاريخ</span><Input value={transactionSearch} onChange={(event) => { setTransactionSearch(event.target.value); resetTransactionPagination(); }} placeholder="ابحث في الحركات…" className="border-white/10 bg-[#0D1117] text-white" /></label>
-<label className="grid gap-1 text-xs text-slate-400"><span>من تاريخ</span><Input type="date" dir="ltr" value={movementFromDate} onChange={(event) => { setMovementFromDate(event.target.value); resetTransactionPagination(); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
-<label className="grid gap-1 text-xs text-slate-400"><span>إلى تاريخ</span><Input type="date" dir="ltr" value={movementToDate} onChange={(event) => { setMovementToDate(event.target.value); resetTransactionPagination(); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
-<div className="flex items-end"><Button size="sm" variant="outline" onClick={() => { setTransactionSearch(""); setTransactionTypeFilter(""); setMovementFromDate(""); setMovementToDate(""); resetTransactionPagination(); }} className="border-white/10 text-white">مسح فلاتر الحركات</Button></div>
+<div className="flex items-end"><Button size="sm" variant="outline" onClick={() => { setTransactionSearch(""); setTransactionTypeFilter(""); setMovementPeriod("cycle"); setMovementFromDate(""); setMovementToDate(""); resetTransactionPagination(); }} className="border-white/10 text-white">استعادة فلاتر الدورة</Button></div>
 </div>
+{showingOfflineHistory ? <p role="status" className="mt-3 rounded-lg border border-amber-300/20 bg-amber-400/5 p-2 text-xs text-amber-200">عرض محلي للقراءة فقط؛ قد لا يتضمن أحدث الحركات. لا يمكن اعتماد الأرصدة أو تنفيذ عمليات مالية دون اتصال.</p> : null}
 <div className="mt-3 grid gap-2 sm:grid-cols-3">
 <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[.06] p-3"><p className="text-xs text-slate-400">إجمالي الوارد</p><p className="mt-1 font-bold text-emerald-300">{money(transactionSummary.incoming)} ش</p></div>
 <div className="rounded-xl border border-rose-500/20 bg-rose-500/[.06] p-3"><p className="text-xs text-slate-400">إجمالي الصادر</p><p className="mt-1 font-bold text-rose-300">{money(transactionSummary.outgoing)} ش</p></div>
@@ -662,7 +689,7 @@ tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
 </table>
 </div>
 <p className="mt-2 text-xs text-slate-500">ملخص الوارد والصادر محسوب لكل الحركات المطابقة، وليس للصفحة الحالية فقط. الرصيد بعد الحركة يأخذ حركات الحساب المشتركة من جميع الفروع في الاعتبار.</p>
-{totalTransactions > 0 && <div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>الحركات المطابقة: {totalTransactions} · صفحة {transactionPage} من {pageCount} · يعرض 10 في الصفحة</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={transactionPage === 1 || historyQuery.isFetching} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="border-white/10 text-white">السابق</Button><Button size="sm" variant="outline" disabled={!historyQuery.data?.hasNext || historyQuery.isFetching} onClick={() => { const nextCursor = historyQuery.data?.nextCursor; if (!nextCursor) return; setTransactionCursors((current) => [...current.slice(0, transactionPage), nextCursor]); setTransactionPage((page) => page + 1); }} className="border-white/10 text-white">التالي</Button></div></div>}</CardContent></Card>
+{totalTransactions > 0 && <div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>الحركات المطابقة: {totalTransactions} · صفحة {transactionPage} من {pageCount} · يعرض 30 في الصفحة</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={transactionPage === 1 || historyQuery.isFetching} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="border-white/10 text-white">السابق</Button><Button size="sm" variant="outline" disabled={!historyQuery.data?.hasNext || historyQuery.isFetching} onClick={() => { const nextCursor = historyQuery.data?.nextCursor; if (!nextCursor) return; setTransactionCursors((current) => [...current.slice(0, transactionPage), nextCursor]); setTransactionPage((page) => page + 1); }} className="border-white/10 text-white">التالي</Button></div></div>}</CardContent></Card>
           </div>
         )}
         <Dialog open={Boolean(pendingAction)} onOpenChange={(open) => !open && setPendingAction(null)}><DialogContent className="border-white/10 bg-[#111823] text-white"><DialogHeader><DialogTitle>{pendingAction?.kind === "withdrawal" ? "تأكيد عملية السحب" : "تأكيد التحويل بين الحسابات"}</DialogTitle></DialogHeader><div className="space-y-3 text-sm"><p className="text-slate-300">الحساب المصدر: <strong className="text-white">{selectedAccount?.name}</strong></p><p className="text-slate-300">المبلغ: <strong className="text-[#F5B800]">{money(pendingAction?.amount ?? 0)} ش</strong></p>{pendingAction?.kind === "transfer" ? <p className="text-slate-300">الحساب المستقبِل: <strong className="text-white">{rows.find((row) => row.id === pendingAction.targetAccountId)?.name ?? "—"}</strong></p> : null}<p className="rounded-lg bg-amber-400/10 p-3 text-xs leading-6 text-amber-100">سيُسجل الإجراء في كشف الحساب وسجل التدقيق. راجع البيانات قبل التأكيد.</p></div><DialogFooter><Button variant="outline" onClick={() => setPendingAction(null)} className="border-white/15 text-white">إلغاء</Button><Button onClick={confirmPendingAction} disabled={movement.isPending || transfer.isPending} className="bg-[#F5B800] font-bold text-[#0D1117]">تأكيد التنفيذ</Button></DialogFooter></DialogContent></Dialog>
