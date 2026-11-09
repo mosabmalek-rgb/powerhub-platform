@@ -4738,6 +4738,117 @@ export const powerhubRouter = router({
       };
     }),
 
+    // Explicit, on-demand tenant-wide financial position for users with multiple authorized sites.
+    // Account balances are deduplicated by account ID; site-level ledger balances are additive.
+    allSitesCurrentPosition: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      const anchor = await requireSupabaseSiteRole(
+        ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports"
+      );
+      const accessible = await listSupabaseAccessibleSites(ctx.user.id, isActivePlatformAdmin(ctx.user));
+      const candidateSites = accessible
+        .filter(site => site.tenantId === anchor.tenantId && site.status !== "archived")
+        .sort((a, b) => a.id - b.id);
+      if (candidateSites.length > 40) {
+        throw new TRPCError({code:"PRECONDITION_FAILED",message:"هذا الاشتراك يضم عدداً كبيراً من الفروع؛ يلزم تقرير تجميعي مفهرس قبل تحميل المركز الموحد."});
+      }
+      const permittedSites: typeof candidateSites = [];
+      for (const site of candidateSites) {
+        try {
+          const permission = await requireSupabaseSiteRole(
+            ctx.user.id, site.id, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports"
+          );
+          if (permission.tenantId !== anchor.tenantId) {
+            throw new TRPCError({code:"FORBIDDEN",message:"تعارض نطاق الاشتراك."});
+          }
+          permittedSites.push(site);
+        } catch (error) {
+          if (error instanceof TRPCError && (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")) continue;
+          throw error;
+        }
+      }
+      if (!permittedSites.some(site => site.id === input.siteId)) {
+        throw new TRPCError({code:"FORBIDDEN",message:"الفرع المحدد غير مخوّل."});
+      }
+      if (permittedSites.length < 2) {
+        throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا توجد فروع إضافية مخوّلة لهذا العرض."});
+      }
+      const amountFields = [
+        "supplierPayables", "supplierPrepayments", "employeeAdvances",
+        "subscriberReceivables", "inventoryValue", "subscriberCreditLiability",
+        "securityDepositLiability", "approvedPayrollPayable",
+      ] as const;
+      const totals: Record<(typeof amountFields)[number], number> = {
+        supplierPayables:0,supplierPrepayments:0,employeeAdvances:0,
+        subscriberReceivables:0,inventoryValue:0,subscriberCreditLiability:0,
+        securityDepositLiability:0,approvedPayrollPayable:0,
+      };
+      const uniqueAccounts = new Map<number,{id:number;name:string;balance:number;shared:boolean}>();
+      const branchPositions: Array<{siteId:number;siteName:string;subscriberReceivables:number;inventoryValue:number;supplierPayables:number}> = [];
+      const checkedNumber = (record: Record<string,unknown>, key: string) => {
+        const raw = record[key];
+        const n = Number(raw);
+        if (raw === null || raw === undefined || !Number.isFinite(n)) {
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"نتيجة مالية غير صالحة؛ أُلغِي العرض المجمع."});
+        }
+        return n;
+      };
+      // Bounded work: no client-side movement scans and no unbounded parallel RPC burst.
+      for (let offset = 0; offset < permittedSites.length; offset += 3) {
+        const batch = permittedSites.slice(offset, offset + 3);
+        const results = await Promise.all(batch.map(async site => {
+          const {data,error} = await supabaseAdmin().rpc("powerhub_financial_current_position_v2", {
+            p_tenant_id:anchor.tenantId,p_site_id:site.id
+          });
+          if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر استكمال أرصدة أحد الفروع؛ لم يُعرض مجموع جزئي."});
+          }
+          return {site,position:data as Record<string,unknown>};
+        }));
+        for (const {site,position} of results) {
+          if (checkedNumber(position,"scopeSiteId") !== site.id ||
+            checkedNumber(position,"inventoryValuationIssueCount") > 0 ||
+            checkedNumber(position,"subscriberLiabilityIssueCount") > 0) {
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"اختلال نطاق أو سلامة أحد الفروع؛ لم يُعرض مجموع مالي غير موثوق."});
+          }
+          for (const key of amountFields) totals[key] += checkedNumber(position,key);
+          if (!Array.isArray(position.accounts)) {
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تفاصيل الحسابات المالية غير مكتملة."});
+          }
+          for (const rawAccount of position.accounts) {
+            if (!rawAccount || typeof rawAccount !== "object") {
+              throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"حساب مالي غير صالح."});
+            }
+            const account = rawAccount as Record<string,unknown>;
+            const id = checkedNumber(account,"id");
+            const balance = checkedNumber(account,"balance");
+            const prior = uniqueAccounts.get(id);
+            if (prior && Math.abs(prior.balance - balance) > 0.005) {
+              throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تضارب رصيد حساب مالي مشترك بين الفروع."});
+            }
+            uniqueAccounts.set(id,{id,name:String(account.name ?? ""),balance,shared:account.shared===true || Boolean(prior?.shared)});
+          }
+          branchPositions.push({
+            siteId:site.id,siteName:site.name,
+            subscriberReceivables:checkedNumber(position,"subscriberReceivables"),
+            inventoryValue:checkedNumber(position,"inventoryValue"),
+            supplierPayables:checkedNumber(position,"supplierPayables")
+          });
+        }
+      }
+      return {
+        asOf:new Date().toISOString(),
+        scopeTenantId:anchor.tenantId,
+        branchCount:permittedSites.length,
+        cashBalance:Array.from(uniqueAccounts.values()).reduce((sum,account)=>sum+account.balance,0),
+        accountCount:uniqueAccounts.size,
+        sharedAccountCount:Array.from(uniqueAccounts.values()).filter(account=>account.shared).length,
+        ...totals,
+        branches:branchPositions,
+        scopeNotice:"authorized_sites_only" as const,
+        isCompleteBalanceSheet:false as const,
+      };
+    }),
+
     cashFlow: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
