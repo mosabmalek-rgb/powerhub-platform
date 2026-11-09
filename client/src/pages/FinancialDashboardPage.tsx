@@ -52,9 +52,9 @@ export default function FinancialDashboardPage() {
     staleTime: 60_000, refetchOnWindowFocus: false,
   });
   const report = trpc.powerhub.reports.range.useQuery({ siteId, startDate, endDate, paymentMethod }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && cycleRangeReady), staleTime: 60_000, refetchOnWindowFocus: false });
-  const branding = trpc.powerhub.reportBranding.get.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated) });
-  const settlements = trpc.powerhub.settlements.list.useQuery({ siteId }, { enabled: Boolean(siteId && isAuthenticated) });
-  const discounts = trpc.powerhub.siteBillingPolicy.discountSummary.useQuery({ siteId, startDate, endDate }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate) });
+  const branding = trpc.powerhub.reportBranding.get.useQuery({ siteId }, { enabled: false, staleTime: 300_000 });
+  const settlements = trpc.powerhub.settlements.list.useQuery({ siteId }, { enabled: false, staleTime: 300_000 });
+  const discounts = trpc.powerhub.siteBillingPolicy.discountSummary.useQuery({ siteId, startDate, endDate }, { enabled: Boolean(siteId && isAuthenticated && startDate && endDate && startDate <= endDate && cycleRangeReady), staleTime: 60_000, refetchOnWindowFocus: false });
   const data = report.data;
   const collectionRate = data?.summary.invoiced ? (data.summary.collected / data.summary.invoiced) * 100 : 0;
   const applyPreset = async (id: typeof preset) => {
@@ -81,10 +81,19 @@ export default function FinancialDashboardPage() {
   };
   const exportAdminPdf = async () => {
     if (!data) return;
+    // Historical settlements and branding are needed only for export.
+    // Do not fetch them on every financial dashboard visit.
+    const [brandResponse, settlementResponse] = await Promise.all([
+      branding.refetch(), settlements.refetch(),
+    ]);
+    if (brandResponse.isError || settlementResponse.isError) {
+      toast.error("تعذر جلب تفاصيل التقرير الإداري؛ لم يُنشأ ملف ناقص.");
+      return;
+    }
     const wrapper = document.createElement("div");
     wrapper.dir = "rtl";
     wrapper.style.cssText = "position:fixed;left:-10000px;top:0;width:1100px;padding:42px;background:#fff;color:#111;font-family:Tajawal,Arial,sans-serif";
-    const monthly = Array.from((settlements.data ?? []).reduce((map, row) => {
+    const monthly = Array.from((settlementResponse.data ?? []).reduce((map, row) => {
       const key = new Date(row.periodStart).toISOString().slice(0, 7);
       const item = map.get(key) ?? { collected: 0, expenses: 0 };
       item.collected += Number(row.totalCollected);
@@ -97,7 +106,7 @@ export default function FinancialDashboardPage() {
     const collectorRows = (data.collectors ?? []).map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${item.count}</td><td>${format(item.amount)} شيكل</td></tr>`).join("");
     const debtorRows = (data.topDebtors ?? []).slice(0, 10).map((item) => `<tr><td>${escapeHtml(item.subscriber)}</td><td>${escapeHtml(item.invoiceNo)}</td><td>${format(item.balanceDue)} شيكل</td><td>${escapeHtml(formatReportDate(item.dueDate))}</td></tr>`).join("");
     wrapper.innerHTML = `
-      <h1 style="border-bottom:3px solid #f5b800;padding-bottom:18px">${escapeHtml(branding.data?.companyName ?? "PowerHub")} — التقرير الإداري المالي</h1>
+      <h1 style="border-bottom:3px solid #f5b800;padding-bottom:18px">${escapeHtml(brandResponse.data?.companyName ?? "PowerHub")} — التقرير الإداري المالي</h1>
       <p>الفترة: ${escapeHtml(formatReportPeriod(startDate, endDate))}</p>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
         <div style="border:1px solid #ccc;padding:14px">التحصيل<br><b>${format(data.summary.collected)} شيكل</b></div>

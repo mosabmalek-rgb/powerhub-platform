@@ -15,6 +15,10 @@ describe("financial dashboard current position scope and performance contracts",
   expect(dashboard).toContain("لا تتأثر بفلتر اليوم أو الدورة أو الشهر");
   expect(dashboard).toContain("staleTime: 120_000");
   expect(dashboard).toContain("refetchOnWindowFocus: false");
+  expect(dashboard).toContain("enabled: false, staleTime: 300_000");
+  expect(dashboard).toContain("branding.refetch(), settlements.refetch()");
+  expect(dashboard).toContain("cycleRangeReady), staleTime: 60_000");
+
   expect(dashboard).toContain("currentPosition.refetch()");
   expect(dashboard).not.toContain('if (loading || report.isLoading ||');
  });
