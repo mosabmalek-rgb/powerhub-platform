@@ -28,6 +28,23 @@ export default function FinancialDashboardPage() {
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
   const siteId = (selectedSiteId && sites.data?.some(site => site.id === selectedSiteId) ? selectedSiteId : sites.data?.[0]?.id) ?? 0;
+  // The ordinary one-branch experience never issues the multi-branch query.
+  const [showAllBranches, setShowAllBranches] = useState(false);
+  const tenantSites = useMemo(() => {
+    const current = sites.data?.find(site => site.id === siteId);
+    return (sites.data ?? []).filter(site =>
+      current && site.tenantId === current.tenantId && site.status !== "archived"
+    );
+  }, [sites.data, siteId]);
+  const hasMultipleBranches = tenantSites.length > 1;
+  const allBranchesPosition = trpc.powerhub.reports.allSitesCurrentPosition.useQuery({ siteId }, {
+    enabled: Boolean(isAuthenticated && siteId && hasMultipleBranches && showAllBranches),
+    staleTime: 120_000, refetchOnWindowFocus: false, refetchOnReconnect: true,
+  });
+  useEffect(() => {
+    // Switching to an unrelated tenant or a single-site tenant removes the aggregate view.
+    setShowAllBranches(false);
+  }, [siteId]);
   const [preset, setPreset] = useState<"today" | "current_cycle" | "month_end" | "custom">("current_cycle");
   const [paymentMethod, setPaymentMethod] = useState("all");
   const currentPosition = trpc.powerhub.reports.currentPosition.useQuery({ siteId }, {
@@ -195,12 +212,12 @@ export default function FinancialDashboardPage() {
           {currentPosition.data?.asOf ? <p className="mt-2 text-xs text-slate-400">آخر لقطة: {formatReportDate(currentPosition.data.asOf)}</p> : null}
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <label className="text-xs text-slate-300">الفرع
+          {hasMultipleBranches ? <label className="text-xs text-slate-300">الفرع
             <select aria-label="فرع المركز المالي" className="mt-1 block min-w-36 rounded-lg border border-white/15 bg-[#0D1117] px-2 py-2 text-white"
               value={siteId} onChange={(event) => setSelectedSiteId(Number(event.target.value))}>
               {(sites.data ?? []).map(site => <option key={site.id} value={site.id}>{site.name}</option>)}
             </select>
-          </label>
+          </label> : null}
           <Button size="sm" variant="outline" onClick={exportCurrentPositionCsv}
             disabled={!siteId || !currentPosition.data || currentPosition.isError || currentPosition.isFetching}
             className="border-white/20 text-white">
@@ -252,6 +269,59 @@ export default function FinancialDashboardPage() {
         </details>
       </> : null}
     </section>
+    {hasMultipleBranches ? <section aria-labelledby="all-branches-title" className="rounded-2xl border border-white/10 bg-[#111823] p-5 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 id="all-branches-title" className="text-lg font-bold text-white">المركز المالي لجميع الفروع المخوّلة</h2>
+          <p className="mt-1 text-xs text-slate-300">عرض اختياري للاشتراكات متعددة الفروع. تُحتسب الحسابات المشتركة مرة واحدة، ولا تتأثر الأرصدة بفلتر الفترة.</p>
+        </div>
+        <Button size="sm" variant="outline" className="border-white/20 text-white"
+          onClick={() => setShowAllBranches(value => !value)}>
+          {showAllBranches ? "إخفاء التجميع" : "عرض جميع الفروع"}
+        </Button>
+      </div>
+      {showAllBranches ? <>
+        {allBranchesPosition.isLoading ? <p role="status" className="mt-4 text-sm text-slate-300">جارٍ تجميع الأرصدة المخوّلة…</p> : null}
+        {allBranchesPosition.isError ? <div role="alert" className="mt-4 text-sm text-rose-200">
+          تعذر تحميل مركز جميع الفروع؛ لم يُعرض إجمالي جزئي أو غير موثوق.
+          <Button size="sm" variant="outline" className="mr-2 text-white" onClick={() => void allBranchesPosition.refetch()}>إعادة المحاولة</Button>
+        </div> : null}
+        {allBranchesPosition.data && !allBranchesPosition.isError ? <>
+          <p className="mt-4 text-xs text-amber-200">
+            يشمل {format(allBranchesPosition.data.branchCount)} فروع مخوّلة فقط؛ ولا يمثّل ميزانية عمومية مكتملة.
+            أرصدة الحسابات المشتركة مُجمّعة دون تكرار.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {([
+              {label:"أرصدة الحسابات (دون تكرار)",value:allBranchesPosition.data.cashBalance},
+              {label:"ديون المشتركين",value:allBranchesPosition.data.subscriberReceivables},
+              {label:"مستحقات الموردين",value:allBranchesPosition.data.supplierPayables},
+              {label:"قيمة المخزون بالتكلفة",value:allBranchesPosition.data.inventoryValue},
+              {label:"سلف الموظفين",value:allBranchesPosition.data.employeeAdvances},
+              {label:"دفعات مقدمة للموردين",value:allBranchesPosition.data.supplierPrepayments},
+              {label:"أرصدة المشتركين الدائنة",value:allBranchesPosition.data.subscriberCreditLiability},
+              {label:"التأمينات المحتجزة",value:allBranchesPosition.data.securityDepositLiability},
+              {label:"الرواتب المستحقة",value:allBranchesPosition.data.approvedPayrollPayable},
+            ] as const).map(item => <div key={item.label} className="rounded-lg border border-white/10 bg-[#0D1117] p-4">
+              <p className="text-xs text-slate-300">{item.label}</p>
+              <strong className="mt-2 block text-xl text-white">{format(item.value)} شيكل</strong>
+            </div>)}
+          </div>
+          <details className="mt-4 rounded-lg border border-white/10 p-3">
+            <summary className="cursor-pointer text-sm font-bold text-white">مقارنة الفروع المخوّلة</summary>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[550px] text-right text-sm">
+                <thead className="text-slate-300"><tr><th className="p-2">الفرع</th><th className="p-2">ديون المشتركين</th><th className="p-2">المخزون</th><th className="p-2">مستحقات الموردين</th></tr></thead>
+                <tbody>{allBranchesPosition.data.branches.map(branch => <tr key={branch.siteId} className="border-t border-white/10 text-white">
+                  <td className="p-2">{branch.siteName}</td><td className="p-2">{format(branch.subscriberReceivables)}</td>
+                  <td className="p-2">{format(branch.inventoryValue)}</td><td className="p-2">{format(branch.supplierPayables)}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </details>
+        </> : null}
+      </> : null}
+    </section> : null}
     <header className="rounded-2xl border border-[#F5B800]/20 bg-[#111823] p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2 text-[#F5B800]"><BarChart3 className="h-5 w-5" /><span className="font-bold">الإدارة المالية</span></div><h1 className="mt-2 text-2xl font-extrabold text-white">الأداء المالي خلال الفترة</h1><p className="mt-2 text-sm text-slate-400">أداء التحصيل والمصروفات خلال الفترة المختارة. الأرصدة الحالية أعلاه لا تتغير بتغيير الفترة.</p></div><div className="flex flex-wrap gap-2"><Button onClick={exportCsv} disabled={!data || report.isError} variant="outline" className="border-white/15 text-white"><Download className="ml-2 h-4 w-4" />تصدير CSV</Button><Button onClick={exportAdminPdf} disabled={!data} variant="outline" className="border-[#F5B800]/40 text-[#F5B800]"><FileText className="ml-2 h-4 w-4" />تقرير مالي إداري</Button></div></div><div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <div className="flex flex-wrap items-center gap-2 xl:col-span-4"><CalendarRange className="h-4 w-4 text-slate-400" />{presets.map((item) => <Button key={item.id} size="sm" variant={preset === item.id ? "default" : "outline"} onClick={() => void applyPreset(item.id)} className={preset === item.id ? "bg-[#F5B800] text-[#0D1117]" : "border-white/15 text-white"}>{item.label}</Button>)}</div>
       {preset === "custom" ? <><label className="text-xs text-slate-400">من تاريخ<Input aria-label="بداية فترة الإحصاء المالي" type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} className="mt-1 h-9 w-full border-white/10 bg-[#0D1117] text-white" /></label><label className="text-xs text-slate-400">إلى تاريخ<Input aria-label="نهاية فترة الإحصاء المالي" type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} className="mt-1 h-9 w-full border-white/10 bg-[#0D1117] text-white" /></label></> : <div className="flex items-end text-xs text-slate-400">الفترة: <span className="mr-1 font-semibold text-white">{startDate} — {endDate}</span></div>}
