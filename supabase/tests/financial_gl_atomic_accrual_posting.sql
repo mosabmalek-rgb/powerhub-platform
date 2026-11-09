@@ -25,6 +25,32 @@ CREATE TABLE public.financial_accrual_period_reviews(
 \ir ../migrations/20261110005000_powerhub_financial_gl_foundation.sql
 \ir ../migrations/20261110010000_powerhub_financial_gl_post_approved_accrual.sql
 \ir ../migrations/20261110011000_powerhub_financial_gl_opening_balances.sql
+-- Isolated sources for coverage; real PostgreSQL migration logic, no mock RPC.
+CREATE TABLE public.invoices(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,
+ cycle_start_at timestamptz,cycle_end_at timestamptz,issue_date timestamptz
+);
+CREATE TABLE public.payments(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,status text,paid_at timestamptz
+);
+CREATE TABLE public.expenses(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,category text,occurred_at timestamptz
+);
+CREATE TABLE public.payroll_runs(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,period text,status text
+);
+CREATE TABLE public.inventory_stock_movements(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz
+);
+CREATE TABLE public.supplier_ledger_entries(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz
+);
+CREATE TABLE public.account_transactions(
+ id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz,
+ related_payment_id bigint,related_expense_id bigint,
+ related_supplier_payment_id bigint,related_supplier_return_id bigint,
+ related_account_id bigint
+);
 \ir ../migrations/20261110012000_powerhub_financial_gl_source_coverage.sql
 \ir ../migrations/20261110013000_powerhub_financial_gl_trial_balance.sql
 
