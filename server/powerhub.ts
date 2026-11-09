@@ -4986,6 +4986,34 @@ export const powerhubRouter = router({
         message:"تعذر إقفال المراجعة: يجب انتهاء الشهر، ومطابقة المصادر، واعتماد القيود والرواتب، ومراجعة مستخدم مخوّل آخر."});
       return data;
     }),
+    // A3: on-demand, server-aggregated source coverage; never a certified P&L.
+    financialGLSourceCoverage: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_source_coverage",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data)){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر فحص تغطية القيود المالية؛ لم تُعرض نتائج جزئية."});
+      }
+      const coverage=data as Record<string,unknown>;
+      if(coverage.tenantId!==access.tenantId ||
+         coverage.siteId!==input.siteId ||
+         coverage.period!==input.period ||
+         coverage.accountingCertification!=="NOT_CERTIFIED" ||
+         coverage.isFinalProfit!==false ||
+         coverage.isCompleteAccrualStatement!==false ||
+         !coverage.sources || !coverage.opening || !coverage.gl ||
+         !Number.isSafeInteger(Number(coverage.unreconciledSourceCount))){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"نتيجة فحص المطابقة غير مكتملة أو لا تطابق نطاق الفرع."});
+      }
+      return coverage;
+    }),
     accrualJournalList: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
