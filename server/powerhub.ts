@@ -14,6 +14,7 @@ import { aggregateAuthorizedFinancialPositions, InvalidFinancialSnapshot, type S
 import { financialTrendMonths } from "./financial-trend-months";
 import { reviewFinancialPayrollMonth, InvalidPayrollReview } from "./financial-payroll-review";
 import { summarizeAccrualComponents, summarizeInvoiceServiceCycleCoverage, isIssuedFinancialInvoiceStatus, InvalidAccrualComponents } from "./financial-accrual-components";
+import { summarizeServiceCycleBilling, InvalidServiceCycleBilling } from "./financial-service-cycle-bridge";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
@@ -4958,6 +4959,60 @@ export const powerhubRouter = router({
         results.push(...rows);
       }
       return {siteId:input.siteId,scopeNotice:"site_attributed_only" as const,months:results};
+    }),
+    serviceCycleBillingReview: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {start,endExclusive}=reportDateRange(input.startDate,input.endDate);
+      const windowDays=(endExclusive.getTime()-start.getTime())/86_400_000;
+      if(!Number.isFinite(windowDays) || windowDays<1 || windowDays>366 ||
+        start.toISOString().slice(0,10)!==input.startDate ||
+        new Date(endExclusive.getTime()-86_400_000).toISOString().slice(0,10)!==input.endDate){
+        throw new TRPCError({code:"BAD_REQUEST",message:"اختر فترة صحيحة لا تتجاوز 366 يوماً لمراجعة دورات الخدمة."});
+      }
+      // Bounded optional diagnostic. The two-day UTC margin covers Gaza
+      // midnight/DST; the pure aggregation performs exact Gaza-calendar filtering.
+      const lower=new Date(start.getTime()-2*86_400_000).toISOString();
+      const upper=new Date(endExclusive.getTime()+2*86_400_000).toISOString();
+      const {data,error}=await supabaseAdmin().from("invoices")
+        .select("id,status,total_amount,tax_amount,issue_date,cycle_start_at,cycle_end_at")
+        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+        .in("status",["issued","partially_paid","paid","overdue"])
+        .not("cycle_start_at","is",null).not("cycle_end_at","is",null)
+        .lt("cycle_start_at",upper).gte("cycle_end_at",lower)
+        .order("id",{ascending:true}).limit(5001);
+      if(error || !data || data.length>5000){
+        throw new TRPCError({code:"PRECONDITION_FAILED",
+          message:"تعذر إكمال مراجعة دورة الخدمة أو تجاوز عدد الفواتير الحد الآمن؛ لا تُعرض نتيجة جزئية."});
+      }
+      try{
+        const asOf=new Date();
+        return {
+          ...summarizeServiceCycleBilling(input.startDate,input.endDate,asOf,
+            data.map(row=>({
+              id:Number(row.id),status:String(row.status),
+              totalAmount:Number(row.total_amount),
+              taxAmount:Number(row.tax_amount),
+              issueDate:new Date(row.issue_date),
+              cycleStartAt:row.cycle_start_at?new Date(row.cycle_start_at):null,
+              cycleEndAt:row.cycle_end_at?new Date(row.cycle_end_at):null,
+            }))),
+          scopeSiteId:input.siteId,
+          scopeTenantId:access.tenantId,
+          isCompleteProfitAndLoss:false as const,
+        };
+      }catch(error){
+        if(error instanceof InvalidServiceCycleBilling){
+          console.error("[PowerHub] invalid service cycle billing review",{reason:error.message});
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+            message:"توجد بيانات غير صالحة لدورة الخدمة؛ لم يُعرض تقرير فوترة غير موثوق."});
+        }
+        throw error;
+      }
     }),
     range: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
