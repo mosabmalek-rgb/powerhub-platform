@@ -47,7 +47,7 @@ CREATE TABLE public.supplier_ledger_entries(
 );
 CREATE TABLE public.account_transactions(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz,
- related_payment_id bigint,related_expense_id bigint,
+ reference_no text,related_payment_id bigint,related_expense_id bigint,
  related_supplier_payment_id bigint,related_supplier_return_id bigint,
  related_account_id bigint
 );
