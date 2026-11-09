@@ -97,10 +97,15 @@ BEGIN
  AND x.occurred_at>=v_start AND x.occurred_at<v_end
  AND x.category<>'payroll';
  SELECT count(*) FILTER(WHERE status IN ('approved','paid')),
-        count(*) FILTER(WHERE status IN ('approved','paid') AND NOT EXISTS(
-          SELECT 1 FROM public.financial_gl_entries g
-          WHERE g.tenant_id=p.tenant_id AND g.site_id=p.site_id
-          AND g.source_type='payroll' AND g.source_id=p.id::text)),
+        count(*) FILTER(WHERE status IN ('approved','paid') AND
+          (NOT EXISTS(
+            SELECT 1 FROM public.financial_gl_entries g
+            WHERE g.tenant_id=p.tenant_id AND g.site_id=p.site_id
+              AND g.source_type='payroll' AND g.source_id=p.id::text)
+           OR (p.status='paid' AND NOT EXISTS(
+             SELECT 1 FROM public.financial_gl_entries g
+             WHERE g.tenant_id=p.tenant_id AND g.site_id=p.site_id
+               AND g.source_type='payroll_payment' AND g.source_id=p.id::text)))),
         count(*) FILTER(WHERE status='draft')
  INTO v_payroll_total,v_payroll_unposted,v_payroll_drafts
  FROM public.payroll_runs p WHERE p.tenant_id=p_tenant_id
