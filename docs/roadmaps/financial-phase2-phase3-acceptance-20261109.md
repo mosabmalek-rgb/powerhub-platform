@@ -1,61 +1,102 @@
-# PowerHub — Financial reporting Phase 2 and independent acceptance Phase 3
-**Execution baseline:** 2026-11-09 · PR #359 · Staging only · no Production migration or PR merge.
+# PowerHub — الخطة التنفيذية والقبول الكامل للدفعتين الثانية والثالثة (A–F)
+**النسخة:** 2026-11-09 · **PR:** #359 · **الفرع:** `feat/auth-local-first-single-pr`  
+**حالة العمل:** مرحلة A جارية، B–F لم تُعتمد. جميع الأدلة مربوطة بإصدارات Commit محددة، ولا يُقبل نجاح SHA قديم للرأس الجديد.
 
-## Verified evidence in this round
-- PR #359 is OPEN / DRAFT / unmerged at the readback, initial head `af4621e3a12e287ecd671c33821b237bb92852e3`.
-- Four workflows on that **initial** SHA were successful: PowerHub CI, Reading Cycle PostgreSQL Integration, PowerHub Security, Supabase Admin Guard. They **must be rerun/checked on subsequent commits**.
-- Vercel preview `powerhub-platform-oih0099jx-mosabmalek-rgb.vercel.app` was READY and associated with that initial SHA. This is a deployment status, **not** authenticated browser acceptance.
-- Staging migration ledger includes the financial migration versions `20261109170000` through `20261110004000`, including source-detail fingerprint and reversal recovery. Never replay a recorded version blindly.
-- Staging read-only inspection: `financial_accrual_journals` has **0** persisted rows and `financial_accrual_period_reviews` has **0** persisted rows. Existing rollback-only SQL tests are historical evidence, not persisted real-user acceptance.
-- Read-only structural audit SQL: `docs/security/sql/pr359-financial-close-readonly-acceptance.sql`. A zero-row result must report **NOT_TESTED**, never PASS.
-- No production data or migration was changed in this round.
+## 0. ثوابت السلامة والتسليم
+1. إعادة استخدام طبقة الاستحقاق والتسويات والإلغاء والعكس والإقفال الموجودة؛ عدم إنشاء محرك محاسبي موازٍ يناقضها.
+2. تعديل الكود في PR #359 فقط، ولا يُدمج دون موافقة صريحة. ترحيلات Staging فقط بعد مراجعة تطابق نسخ ملفات Git مع سجل `schema_migrations` وحماية الوصول؛ لا تُطبَّق ترحيلات Production إلا بموافقة منفصلة.
+3. بيانات Staging اختبارية؛ لا رسائل SMS أو تحصيلات حقيقية، ولا حذف عشوائي لبيانات Local-First أو Outbox.
+4. منع النجاح الكاذب، النتائج الجزئية، خلط النقدي بالاستحقاق، مضاعفة المصروف أو الإيراد، عرض ميزانية «متوازنة» بواسطة مبلغ تسوية اصطناعي.
+5. فصل الفرع الواحد عن عمليات التجميع بين الفروع: لا تُحمّل الاستعلامات المكلفة مع اللوحة الأساسية؛ تُشغّل عند طلب التقرير/التصدير.
+6. لا تُعدّل دلالتا `isFinalProfit=false` و`isCompleteAccrualStatement=false` إلا بعد قبول سلسلة المستندات ودفتر الأستاذ والاعتراف بالمصروف والإيراد.
+7. جميع العمليات المالية تتطلب Visibility → Permission → RPC → Server bypass prevention → Tenant/site isolation → DB/RPC → idempotency → Audit → UI truthfulness → retry/concurrency.
+8. يُعالج كل فشل CI على آخر SHA، ويُوثق فحص الأمان والأداء وترحيلات Staging منفصلة.
 
-## Accounting decision gates (blocking)
+## 1. خط الأساس المؤكد
+- طبقة الدفعة الأولى: فوترة دورة الخدمة، سجل قيود الاستحقاق المزدوجة، اعتماد مستخدم ثانٍ، إلغاء مسودة، عكس قيد، حماية عدم التعديل وTRUNCATE، بصمة تغيير المصدر، مراجعة الفترة والإقفال، واختبارات Staging سابقة. **ليست قوائم مدققة**.
+- السجل المالي الحالي في Staging: `financial_accrual_journals` و`financial_accrual_period_reviews` خاليان من سجلات اختبارات محفوظة عند الفحص السابق؛ هذا ليس دليلاً على أن جميع العمليات الواقعية مقبولة.
+- الترحيلات الأساسية من `20261109170000` إلى `20261110004000` مسجلة في Staging؛ عدم إعادة تنفيذها بصورة عمياء.
+- اختبار التزامن من اتصالين مستقلين ومتصفح بحسابين مختلفين، سياسة الاعتراف للإيراد العابر للشهور، الأرصدة الافتتاحية، المخصصات، الإهلاك، المطابقة مع دفتر الأستاذ الكامل **متطلبات قبول مفتوحة**.
+- اختبار الحسابات السابق عبر `server/financial-statement-validation.ts` يفحص الاتزان الحسابي فقط ولا يثبت وجود مصدر مالي مكتمل.
 
-### A. Recognition and cutoff
-Before calling the output a formal income statement, define a versioned service-recognition policy and demonstrate:
-1. A service cycle crossing two Gaza-local calendar months is allocated to each month under a documented, consistently applied basis. A completed-cycle-at-end report remains an **indicative billed-service view** only.
-2. Earned-but-unbilled service is accrued once, and later invoicing clears that accrual without a second revenue event.
-3. Prepayments/unearned portions are liabilities until earned; cancellation, discounts, reversals and tax are reconciled.
-4. Revenue journal totals agree independently with invoice/services supporting schedules and the general ledger; the actual source timestamps and time zone are recorded.
+## 2. المرحلة A — الترحيل المحاسبي والاعتراف والتطابق
+**A0 — جرد المصدر والقيود (قيد التنفيذ)**
+- [ ] توثيق جميع جداول العمليات المالية الفعلية وأسماء المفاتيح والحالات والأزمنة والعملات، وخرائطها إلى (tenant, site, generator, account).
+- [ ] حساب فجوات بيانات المصدر بدون تعديلات: غياب دورة فاتورة، ربط تحصيل ناقص، معاملات حساب دون مرجع، حركات مخزون غير مصنفة، رواتب غير معتمدة، موردون ومبالغ مفتوحة، وعناصر افتتاحية.
+- [ ] توثيق سياسة التاريخ المحلي `Asia/Gaza`، المناطق الزمنية، العملات، معالجة كسور المبالغ، الأرصدة المبدئية.
+**A1 — سياسة الاعتراف بالإيراد**
+- [ ] سياسة مُرقّمة وثابتة توزّع إيراد الخدمة عبر الشهور حسب أيام الخدمة المحلية الفعلية (في حدود دورة موثّقة)، مع إيضاح اختيار معاملة الرسوم الثابتة والتأمينات والضرائب.
+- [ ] اجتياز دورات فبراير 28/29، آخر الشهر، انتقال توقيت غزة، الاعتراف بالخدمة المكتملة والخدمة المستحقة غير المفوترة والدفعات المسبقة.
+- [ ] تسوية (خدمة → مستحق غير مفوتر → إصدار فاتورة → تحصيل) بلا إثبات إيراد مضاعف، وعكس الإلغاء/الخصومات/الائتمان والتعديل دون إخفاء الفروق.
+**A2 — دفتر الأستاذ العام**
+- [ ] جدول دليل حسابات لكل اشتراك: معرف ثابت ونوع الحساب وطبيعته وحالة الاستخدام.
+- [ ] قيود اليومية المزدوجة وتفاصيلها بالعملة الأصغر، هوية المصدر/نوعه/نسخته، البصمة وoperation_key، هوية المنشئ/المعتمد وتاريخ قيد محلي قابل للتتبع، بدون حذف القيد المعتمد.
+- [ ] منع الترحيل المكرر لنفس العملية، وعكسها بقيد مقابل مع الاحتفاظ بتاريخها؛ إجراء الترحيل ذاته ذريّ، ويتزامن مع العملية المصدرية أو عبر outbox موثوق مع كشف التأخير ومنع القوائم النهائية لحين اكتمال الترحيل.
+- [ ] الأرصدة الافتتاحية عبر مستندات/معرّفات مرجعية مع فصل أصول عن التزامات عن حقوق ملكية؛ تمنع المسودات الترحيل والإقفال.
+- [ ] إدماج `financial_accrual_journals` القائمة بوصفها سجلاً فرعياً: ربط قيد مصدر واحدة بقيد الأستاذ، دون تكرار التسجيل.
+**A3 — تغطية مصادر المال والمطابقة**
+- [ ] فواتير/تحصيلات/رصيد مشترك/الضرائب/الخصومات/الإلغاء، ومطابقة مدين العملاء.
+- [ ] الحسابات والمحافظ والتحويلات الداخلية/الخصم والسداد دون اعتبار كل انتقال نقدي إيراداً.
+- [ ] المصروفات التشغيلية وغير التشغيلية والرواتب الإجمالية وخصوماتها وسلفها؛ لا تُحسب دفعة الراتب كمصروف ثانٍ.
+- [ ] مشتريات الموردين وذممهم ومرتجعاتهم والتحويلات الدفترية؛ المخزون أصل حتى وقوع الاستهلاك الصحيح، والمرتجع يعكس التكلفة مرة واحدة.
+- [ ] سجلات الأصول والإهلاك والمخصصات/الديون المشكوك فيها والالتزامات المؤجلة والضريبة بمستندات وموافقات.
+- [ ] مطابقة الأرصدة الافتتاحية، ميزان المراجعة، الحركة النقدية، الأرصدة المساعدة، فرق التسويات ومصادر انحراف الإقفال.
+**A4 — بوابات قبول A**
+- [ ] اختبار قاعدة البيانات على مجموعة مترابطة تشمل فتح رصيد، فاتورة تعبر شهرين، قيد مستحق، إصدار الفاتورة، دفع جزئي، وقود مشتَرى ومستهلك ومُرتجَع، راتب مدفوع، قيد إهلاك ومخصص، قيد عكس، مقارنة أرصدة كاملة.
+- [ ] إثبات أن المدين=الدائن لكل قيد، ولكل ميزان مراجعة ضمن النطاق، وأن فرق المركز المالي صفر بدون سدادة وهمية.
+- [ ] اختبار tenant/site isolation وACL وRPC bypass وduplicate/replay ونقل التواريخ والإقفال.
+- [ ] تثبيت SQL/PG واختبارات TS على رأس واحد في CI؛ نشر تغييرات واجهة المعاينة بعد التحقق من اعتمادها على Staging حصراً.
+- [ ] كتابة تقرير نتيجة قبول A يميز PASS / FAIL / BLOCKED مع المستندات والبيانات المفقودة؛ لا تصريح بالاعتماد إذا بقيت حالات مالية مجهولة.
 
-### B. Complete and reconciled expense recognition
-Gross approved payroll, cash payouts, deductions and advances must reconcile; purchases of stock are assets until qualified consumption; returned/voided movements must reverse cost once. Asset registers, depreciation, provisions, supplier accruals and non-operating items need source-backed schedules and posted entries. No invented zero amounts to fill unknowns.
+## 3. المرحلة B — إعداد القوائم والربحية
+- [ ] قائمة دخل فعلية للفترة وفق سياسة الإيراد: إيراد الخدمة، تكلفة الخدمة، مجمل الربح، التشغيلية، الإهلاك، المخصصات، غير التشغيلية والضريبة، وصافي النتيجة؛ الإجماليات تطابق الأستاذ.
+- [ ] المركز المالي بتاريخ محلي دقيق: نقد/محافظ، ذمم، مخزون، سلف، أصول صافية، التزامات، إيرادات مؤجلة، حقوق ملكية وأرباح محتجزة. تتطابق مع ميزان المراجعة والجدوال الفرعية.
+- [ ] ربحية الفرع: إيراد وتكلفة مباشرة ثم حصة من المصروف المركزي فقط بعد إقرار طريقة تخصيص موثقة؛ عدم إخفاء التكاليف غير المخصصة.
+- [ ] تجميع اشتراك متعدد الفروع من دون ازدواج أرصدة الشركة أو التحويلات بين الفروع، وعزل المشتركين والفواتير/الموظفين/الأصول بحسب الفرع.
+- [ ] القوائم الأولية أو غير المكتملة لا تُسمى «نهائية»؛ أي مصدر ناقص أو غير مصنف يرفض التصديق.
 
-### C. General-ledger and opening-position gate
-Maintain a tenant-scoped, site-aware chart of accounts, opening balances, journal postings and source-to-GL references, with one posting per business event and idempotent reversals. Reconcile:
-- Trial balance: total debit balances = total credit balances.
-- Balance sheet: **assets = liabilities + equity**, with retained earnings sourced from reconciled P&L (not introduced as a fabricated balancing plug).
-- Bank/cash accounts, receivables, payables, inventory, fixed assets, deferred revenue, tax, payroll liability and equity versus their independently produced supporting schedules.
-- Multi-site consolidation: eliminate internal transfers and cross-site duplicates; site-level reports must not claim that shared/central costs are assigned without a documented allocation policy.
+## 4. المرحلة C — المقارنات والتصدير
+- [ ] مقارنة فترتين متكافئتين ونسخة سياسة الاعتراف؛ نسب فروق صحيحة وبيان فترة المقارنة/حالتها.
+- [ ] مقارنات الفروع والاتجاهات ببطاقات غير محمّلة تلقائياً، مع تجميع PostgreSQL لا تجميع صفحات أولى في المتصفح.
+- [ ] PDF عربي احترافي RTL وExcel/CSV تفصيلي: اسم المولد/الفرع، التاريخ، العملة، الفلاتر، نسخة السياسة، حالة الاعتماد، وقت الاستخراج، بصمة/معرّف اللقطة، أرقام الصفحات والإجماليات.
+- [ ] تطابق الأرقام بين واجهة التقرير وملف التصدير والقيود، ورفض تصدير ناقص/متقادم/غير مصرح به.
+- [ ] اختبارات تنزيل وفتحات صفحات متعددة وحجم بيانات كبير، دون حذف أو ترحيل بيانات حساسة.
 
-If any mandatory source, opening balance, GL posting, or reconciliation is unavailable, the report is **incomplete**, not a balanced final statement, regardless of whether a formula happens to net to zero.
+## 5. المرحلة D — قبول Staging المحاسبي المستقل
+- [ ] اختبارات قاعدة فعلية لسلسلة A بمستخدمين مختلفين، وحالة تطبيق القيود وعكسها وتعديل الأصل/بصمة المصدر والإقفال.
+- [ ] اتصالان PostgreSQL **مستقلان** في أربع سباقات: اعتماد+اعتماد، إقفال+اعتماد، عكس+عكس، إقفال+عكس.
+- [ ] حالات الزمن: شهور 28/29/30/31، انتقال التوقيت، الفترة المقفلة والمرحّلة، تعديل مصدر بعد الإقفال.
+- [ ] اختبارات ملكية البيانات والعزل، وفصل إعداد الأدلة عن اعتمادها، والتحقق من عدم ترك بيانات اختبارية غير معتمدة.
 
-## Phase 2 report contracts
+## 6. المرحلة E — واجهة Vercel والأمان والأداء
+- [ ] تحقق مستقل من متغيرات Preview الأربعة، خاصة ارتباط `SUPABASE_SERVICE_ROLE_KEY` بمشروع Staging، قبل أي اختبار واجهة مميز بصلاحية.
+- [ ] تجربة متصفح حقيقية بحسابي مُعدّ ومراجع، ومالك/حساب فرعي، مع حالات الخطأ وإعادة المحاولة واستمرار الجلسة وتغيير الفرع.
+- [ ] اختبارات API bypass وACL/RLS والتهديدات عبر هوية/فرع آخر ورفض كل محاولة غير مخوّلة.
+- [ ] قياس خطة الاستعلام وزمن الاستجابة على 6,001 فاتورة وأكثر من 300 ألف حركة حساب، مع عدم فرض حد تنزيل يخفي مصدراً؛ حراسة المهلة والتجزئة/التصدير الشامل.
+- [ ] فحص الأداء لحالة فرع واحد، وعدم جلب المقارنات الثقيلة افتراضياً.
 
-| Report | Minimum input | Required output | Fail-closed conditions |
+## 7. المرحلة F — قبول PR وإغلاق المتطلبات
+- [ ] تقرير مطابقة Git migration version/name إلى سجل Staging، دون ترحيلات متكررة أو اختلاف تاريخ ترحيل؛ مراجعة Roll-forward.
+- [ ] تنظيف الفحوص المثبتة وفق SHA نهائي؛ بوابات PowerHub CI وPostgreSQL Integration وSecurity وSupabase Admin Guard جميعها SUCCESS على الرأس ذاته.
+- [ ] توثيق حالة كل متطلب وتصحيح ملاحظات الأمن والأداء والمحاكاة وأي تراجع في Local-First/Delta/Outbox.
+- [ ] إعداد تقرير القبول ومرفقاته، وخطة مراقبة الترحيل وقابلية الاستعادة، وطلب مراجعة نهائي؛ يبقى PR Draft حتى القبول.
+- [ ] لا دمج ولا Production ولا رسائل SMS حقيقية أو تحصيلات حقيقية بدون إذن صريح.
+
+## 8. سجل العمل والحقائق — يُحدّث مع كل مرحلة
+| المرحلة | الحالة | الإثبات المطلوب | القرار |
 |---|---|---|---|
-| Income statement | Period, one site or explicitly authorized tenant consolidation, policy version | service revenue, adjustments, cost of service, gross margin, operating expenses, depreciation/provisions, non-operating items, tax, net result, source references | missing accrual, unclassified stock, unbalanced/unposted GL, incomplete recognized revenue |
-| Balance sheet | Exact Gaza-local as-of date, opening journal and complete ledger | cash/bank, A/R, inventory, advances, fixed assets net, liabilities, deferred income, capital, retained earnings, trial-balance link | nonzero unexplained balance difference or missing accounts/schedules |
-| Branch profitability | Site + period and documented allocation rules | direct revenue/cost, directly attributed margin, separate allocated overhead and resulting branch result | an unassigned shared cost presented as zero, out-of-scope site, duplicate group consolidation |
-| Comparisons | Two matching recognition-policy versions and period boundaries | current/prior and amount/percentage delta, change of status and accounting-policy version | one period incomplete or different policy not disclosed |
-| Export | Identical server snapshot/report ID, currency and filters | Arabic RTL PDF and Excel/CSV with run time, period, site, policy, certification state, source fingerprint and page totals | stale snapshot, partial page, failed query, unauthorized site, truncation, discrepancy between on-screen and exported totals |
+| A | IN_PROGRESS | تنفيذ المدونة + ترحيل محفوظ + اختبارات مصادر وأرصدة | BLOCKED لحين الإثبات |
+| B | NOT_STARTED | قائمة الدخل/مركز مالي/ربحية فرع مربوطة بالأستاذ | BLOCKED |
+| C | NOT_STARTED | مقارنات/تصدير مطابق وذو حدود موثقة | BLOCKED |
+| D | NOT_STARTED | قياسات وسجلات SQL مستقلة وسيناريوهات Staging | BLOCKED |
+| E | NOT_STARTED | معاينة مُتحقق من أسرارها ومتصفح وأداء وصلاحيات | BLOCKED |
+| F | NOT_STARTED | CI النهائي على SHA نفسه + موافقات | BLOCKED |
 
-Do not replace accounting with the existing operational cash-flow or issued-invoice graph. Report fetching/export is opt-in and may not delay ordinary single-site dashboard navigation.
+## 9. تعريفات غير قابلة للالتباس
+- `ENGINEERING_VERIFIED`: بناء واختبارات وحدوية/SQL ناجحة على مصدر معلوم.
+- `STAGING_ACCEPTED`: السيناريو المالي المتكامل مُختبر في Staging بأدلة وفصل صلاحيات.
+- `ACCOUNTING_RECONCILED`: دفتر الأستاذ والافتتاحيات والقوائم/المساعدات متطابقة، مع لا فروق غير مفسرة.
+- `RELEASE_READY`: كل البوابات ومراجعة Preview/الأمن/الأداء مكتملة على الرأس النهائي.
+- لا تُحوّل حالة `READY` على Vercel أو `success` في CI وحدها إلى ادعاء اعتماد محاسبي.
 
-## Phase 3 independently repeatable release matrix
-- Two distinct authorized Staging users: maker creates draft; checker posts; maker cannot self-approve; reversal/void are tested in real UI, with the true server response.
-- Site A and Site B under same tenant; unauthorized cross-tenant, unauthorized cross-site, and direct tRPC/API bypass are rejected, not hidden only in the UI.
-- At least two **independent PostgreSQL connections** race on post-versus-post, close-versus-post, reverse-versus-reverse, and close-versus-reversal. Confirm one committed outcome, explicit loser error/idempotent replay, zero double effect, and a regression fixture.
-- Test service spans at 28/29 February, March DST/time-zone transitions and midnight month end; cancellation/reissue, partial receipts, tax, credit note, unbilled service, stock return, payroll advance and depreciation.
-- Test multi-site consolidated totals versus individual site totals, shared expenses, and inter-site transfers; reconciliation and export equality.
-- Use increasing invoice and account-movement datasets, compare query plans, runtimes and memory; include existing >6,000 invoice fingerprint fixture and high-volume company-account movements. Never silently cap source rows.
-- Authenticated Preview browser test on the **new** SHA with two users and role boundaries; reload, stale/failed API path, PDF/CSV export integrity, and real UI validation. Vercel READY alone is insufficient.
-- Final four CI gates on **identical final head SHA**; verify branch-preview Staging credentials including independent verification of service-role project association before using privileged Preview operations.
-
-## Explicit release status
-- Engineering foundation of Phase 1: verified in preceding handoff.
-- Phase 2 income statement / balanced position / branch profit / comparisons / professional export: **NOT ACCEPTED**; requirements documented, implementation and accountant reconciliation remain open.
-- Phase 3 browser, independent concurrency and final CI: **NOT ACCEPTED**.
-- Do not set `isFinalProfit=true` or `isCompleteAccrualStatement=true` until all blocking accounting evidence is attached.
-- Keep PR #359 Draft; do not merge or apply changes to Production without explicit approval.
+**المسار الفعلي:** A0 ثم A1 ثم A2 ثم A3 ثم A4، وبعدها B وC وD وE وF. كل خطوة تثبت في هذا الملف، وتُستكمل على PR #359 دون إعادة ما اكتمل في الدفعة الأولى.
