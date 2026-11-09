@@ -4911,6 +4911,71 @@ export const powerhubRouter = router({
         isFinalProfit:false as const,isCompleteAccrualStatement:false as const,
       };
     }),
+    accrualPeriodReviewStatus: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_period_review_status",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر التحقق من حالة مراجعة الإقفال الشهري."});
+      const value=data as Record<string,unknown>;
+      if(!["draft","locked","unprepared"].includes(String(value.status))||
+         value.isCertifiedProfit!==false){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"نتيجة حالة الإقفال الشهرية غير صالحة."});
+      }
+      return {
+        status:String(value.status),
+        driftDetected:value.driftDetected===true,
+        preparedByUserId:value.preparedByUserId==null?null:Number(value.preparedByUserId),
+        lockedByUserId:value.lockedByUserId==null?null:Number(value.lockedByUserId),
+        evidence:value.evidence && typeof value.evidence==="object" && !Array.isArray(value.evidence)
+          ? value.evidence as Record<string,string> : null,
+        lockedAt:value.lockedAt==null?null:String(value.lockedAt),
+        isCertifiedProfit:false as const,
+      };
+    }),
+    accrualPeriodReviewSave: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      evidence:z.object({
+        unbilled_service:z.string().trim().min(8).max(1000),
+        invoice_cutoff:z.string().trim().min(8).max(1000),
+        supplier_reconciliation:z.string().trim().min(8).max(1000),
+        inventory_reconciliation:z.string().trim().min(8).max(1000),
+        payroll_reconciliation:z.string().trim().min(8).max(1000),
+        depreciation_register:z.string().trim().min(8).max(1000),
+        provision_assessment:z.string().trim().min(8).max(1000),
+        tax_reconciliation:z.string().trim().min(8).max(1000),
+      }).strict(),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_period_save_review",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+        p_user_id:ctx.user.id,p_evidence:input.evidence,
+      });
+      if(error||!Number.isSafeInteger(Number(data))||Number(data)<=0)
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر حفظ أدلة المراجعة؛ تحقق من اكتمال المراجع أو حالة الإقفال."});
+      return {reviewId:Number(data),status:"draft" as const};
+    }),
+    accrualPeriodReviewLock: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_accrual_period_lock",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+        p_user_id:ctx.user.id,
+      });
+      if(error||!data)throw new TRPCError({code:"BAD_REQUEST",
+        message:"تعذر إقفال المراجعة: يجب انتهاء الشهر، ومطابقة المصادر، واعتماد القيود والرواتب، ومراجعة مستخدم مخوّل آخر."});
+      return data;
+    }),
     accrualJournalList: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
