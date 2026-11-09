@@ -83,6 +83,39 @@ BEGIN
  THEN RAISE EXCEPTION 'AUTO_RECEIPT_EXECUTE_ACL_INCORRECT';END IF;
 END;
 $auto_accept$;
+-- Rejecting an immediate payment must roll back the purchase, receipt,
+-- supplier payable and stock movement too, not leave a false partial success.
+DO $atomic_rollback$
+DECLARE supplier bigint;warehouse bigint;item bigint;denied boolean:=false;
+BEGIN
+ SELECT id INTO supplier FROM public.suppliers
+ WHERE tenant_id=10 AND supplier_code='PUR-WF-SUP' AND is_active LIMIT 1;
+ SELECT id INTO warehouse FROM public.inventory_warehouses
+ WHERE tenant_id=10 AND site_id=100 AND is_active ORDER BY id LIMIT 1;
+ SELECT id INTO item FROM public.inventory_items
+ WHERE tenant_id=10 AND sku='DSL-01' AND is_active LIMIT 1;
+ BEGIN
+  PERFORM public.powerhub_inventory_purchase_auto_receive(
+   10,100,1,supplier,warehouse,'CI-ROLLBACK-PAYMENT',
+   current_date,current_date,0,'immediate',
+   'CI-ROLLBACK-AUTO','Atomic receipt must roll back if payment fails',
+   999999999::bigint,current_date,'CI-PAYMENT-INVALID','Invalid account',
+   current_date,'ci-auto-receipt-invalid-payment',
+   jsonb_build_array(jsonb_build_object(
+    'item_id',item,'quantity',1,'unit','liter','units_to_base_factor',1,
+    'unit_price',0.01,'discount_amount',0,'tax_amount',0,'notes',null)));
+ EXCEPTION WHEN OTHERS THEN denied:=true;END;
+ IF NOT denied THEN
+  RAISE EXCEPTION 'AUTO_RECEIPT_INVALID_PAYMENT_ACCEPTED';END IF;
+ IF EXISTS(SELECT 1 FROM public.supplier_purchases p WHERE p.tenant_id=10
+    AND p.operation_key='ci-auto-receipt-invalid-payment')
+ OR EXISTS(SELECT 1 FROM public.supplier_purchase_receipts r
+    WHERE r.tenant_id=10 AND r.operation_key='ci-auto-receipt-invalid-payment:receipt')
+ OR EXISTS(SELECT 1 FROM public.supplier_payments pay WHERE pay.tenant_id=10
+    AND pay.operation_key='ci-auto-receipt-invalid-payment:payment')
+ THEN RAISE EXCEPTION 'AUTO_RECEIPT_PARTIAL_COMMIT_AFTER_FAILED_PAYMENT';END IF;
+END;
+$atomic_rollback$;
 DO $walkin_auto$
 DECLARE
  v_warehouse bigint;v_item bigint;v_purchase bigint;
