@@ -1374,6 +1374,17 @@ describe("PowerHub inventory catalog and supplier API", () => {
 describe("PowerHub inventory mutation capability-denial matrix", () => {
   const cases = [
     {
+      procedure: "createPurchaseAndReceive",
+      capability: "createPurchases",
+      input: {
+        siteId: 7, supplierId: 4, warehouseId: 5,
+        invoiceDate: "2026-11-09", receiptDate: "2026-11-09",
+        paymentMode: "deferred", operationKey: "auth-matrix:auto-receipt",
+        lines: [{ itemId: 9, quantity: 1, unit: "liter", unitsToBaseFactor: 1, unitPrice: 2,
+          discountAmount: 0, taxAmount: 0 }],
+      },
+    },
+    {
       procedure: "updateItem",
       capability: "editInventoryItems",
       input: { siteId: 7, itemId: 9, name: "Engine oil", category: "oil", accountingTreatment: "expense_on_issue", baseUnit: "liter", reorderPoint: 0 },
