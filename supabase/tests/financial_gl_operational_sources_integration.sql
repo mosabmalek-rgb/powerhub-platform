@@ -103,7 +103,8 @@ BEGIN
  opening:=public.powerhub_financial_gl_opening_create(901,9101,9901,'2026-01-01',
  'CI-FINANCE-OPENING-901','Independent documented finance opening for source reconciliation',
  'ci-financial-source-opening-901',
- '[{"accountCode":"1010","side":"debit","amount":500,"evidenceReference":"CI-CASH"},
+ '[{"accountCode":"1010","side":"debit","amount":490,"evidenceReference":"CI-CASH"},
+   {"accountCode":"1700","side":"debit","amount":10,"evidenceReference":"CI-ADVANCE"},
    {"accountCode":"3100","side":"credit","amount":500,"evidenceReference":"CI-CAPITAL"}]'::jsonb);
  posted:=public.powerhub_financial_gl_opening_post(901,9101,
     (opening->>'openingId')::bigint,9902);
@@ -150,7 +151,7 @@ BEGIN
  IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_CROSS_TENANT_POSTED'; END IF;
  SELECT count(*),coalesce(sum(CASE WHEN side='debit' THEN amount ELSE -amount END),0)
  INTO count_entries,total_net FROM public.financial_gl_lines WHERE tenant_id=901 AND site_id=9101;
- IF count_entries<>23 OR total_net<>0
+ IF count_entries<>24 OR total_net<>0
  THEN RAISE EXCEPTION 'GL_CI_LINES_IMBALANCED lines=% net=%',count_entries,total_net; END IF;
  report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
  trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
