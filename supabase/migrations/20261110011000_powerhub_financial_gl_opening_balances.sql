@@ -138,13 +138,17 @@ GRANT USAGE,SELECT ON SEQUENCE public.financial_gl_opening_lines_id_seq TO servi
 CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_opening_atomicity_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
 SET search_path=pg_catalog,public,pg_temp AS $guard$
-DECLARE v_e bigint;v_expected bigint;v_lines bigint;v_net numeric;
+DECLARE v_e bigint;v_expected bigint;v_lines bigint;v_net numeric;v_status text;
 BEGIN
+ -- Deferred INSERT/UPDATE trigger events may carry old snapshots. Consult the
+ -- current persisted state at the end of the transaction.
+ SELECT b.status INTO v_status FROM public.financial_gl_opening_batches b
+ WHERE b.id=NEW.id AND b.tenant_id=NEW.tenant_id AND b.site_id=NEW.site_id;
  SELECT e.id INTO v_e FROM public.financial_gl_entries e
  WHERE e.tenant_id=NEW.tenant_id AND e.site_id=NEW.site_id
    AND e.source_type='opening_balance' AND e.source_id=NEW.id::text
    AND e.source_revision=1 AND e.source_fingerprint=NEW.source_fingerprint;
- IF NEW.status='posted' THEN
+ IF v_status='posted' THEN
    IF v_e IS NULL THEN RAISE EXCEPTION 'GL_OPENING_POSTING_NOT_ATOMIC'
      USING ERRCODE='23514'; END IF;
    SELECT count(*) INTO v_expected FROM public.financial_gl_opening_lines l
