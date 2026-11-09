@@ -5008,7 +5008,8 @@ export const powerhubRouter = router({
           .from("financial_accrual_journals")
           .select("id,period,status,reverses_journal_id")
           .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
-          .in("reverses_journal_id",sourceIds).limit(201);
+          .in("reverses_journal_id",sourceIds)
+          .neq("status","void").limit(201);
         if(reversalError || !reversals || reversals.length>200){
           throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
             message:"تعذر التحقق من قيود العكس المرتبطة، ولم تُعرض حالة جزئية."});
