@@ -4685,6 +4685,51 @@ export const powerhubRouter = router({
     setStatus: protectedProcedure.input(z.object({ siteId:z.number().int().positive(), settlementId:z.number().int().positive(), status:z.enum(["submitted","approved","locked"]) })).mutation(async({ctx,input})=>{ const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner","manager","accountant"],"manageExpenses"); const {data,error}=await supabaseAdmin().rpc("powerhub_set_financial_settlement_status",{p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,p_settlement_id:input.settlementId,p_status:input.status}); if(error) throw new TRPCError({code:error.message.includes("OUT_OF_SCOPE")?"NOT_FOUND":error.message.includes("CREATOR_CANNOT_APPROVE")?"FORBIDDEN":"BAD_REQUEST",message:error.message.includes("CREATOR_CANNOT_APPROVE")?"لا يمكن لمنشئ التسوية اعتمادها؛ يجب أن يعتمدها مستخدم آخر.":error.message.includes("SOURCE_FINGERPRINT_REQUIRED")?"هذه المسودة أُنشئت قبل تفعيل بصمة مصادر الدفاتر؛ أنشئ تسوية جديدة قبل إرسالها أو اعتمادها أو إقفالها.":error.message.includes("SOURCE_LEDGER_CHANGED")?"تغيرت القيود المالية منذ إعداد التسوية؛ لا يمكن إرسالها أو اعتمادها أو إقفالها قبل إنشاء تسوية محدثة.":error.message.includes("LEDGER_RECONCILIATION_FAILED")?"تعذرت مطابقة الدفاتر المالية؛ راجع مصادر الحركة النقدية قبل المتابعة.":error.message.includes("MUST_BE_SUBMITTED")?"يجب إرسال التسوية للمراجعة قبل اعتمادها.":error.message.includes("MUST_BE_APPROVED")?"يجب اعتماد التسوية قبل قفلها.":error.message.includes("ALREADY_LOCKED")?"التسوية مقفلة ولا يمكن تعديلها.":error.message.includes("INVALID_SETTLEMENT_TRANSITION")?"انتقال حالة التسوية غير مسموح.":"تعذر تحديث حالة التسوية."}); if(!Number((data as Array<{settlement_id:number}>|null)?.[0]?.settlement_id)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم تُعد دالة التسوية استجابة صالحة."}); return {success:true}; }),
   }),
   reports: router({
+    currentPosition: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
+      // No date filter: cash, liabilities and receivables are as-of-now balances.
+      const access = await requireSupabaseSiteRole(
+        ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports"
+      );
+      const { data, error } = await supabaseAdmin().rpc("powerhub_financial_current_position", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId,
+      });
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        console.error("[PowerHub] financial current position unavailable", { code: error?.code ?? "INVALID_RESPONSE" });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR",
+          message: "تعذر تحميل المركز المالي الحالي؛ تحقّق من ترحيل التقرير وإمكانية الاتصال بالخادم." });
+      }
+      const result = data as Record<string, unknown>;
+      const amount = (name: string) => {
+        const numeric = Number(result[name]);
+        if (result[name] == null || !Number.isFinite(numeric)) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "أعادت قاعدة البيانات رصيداً مالياً غير صالح." });
+        }
+        return numeric;
+      };
+      if (Number(result.scopeSiteId) !== input.siteId) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعارض نطاق الفرع في المركز المالي." });
+      }
+      const accounts = Array.isArray(result.accounts) ? result.accounts : [];
+      return {
+        asOf: String(result.asOf ?? new Date().toISOString()),
+        cashBalance: amount("cashBalance"),
+        supplierPayables: amount("supplierPayables"),
+        supplierPrepayments: amount("supplierPrepayments"),
+        employeeAdvances: amount("employeeAdvances"),
+        subscriberReceivables: amount("subscriberReceivables"),
+        accountCount: amount("accountCount"),
+        sharedAccountCount: amount("sharedAccountCount"),
+        accounts: accounts.map((account) => {
+          const item = account as Record<string, unknown>;
+          const balance = Number(item.balance);
+          if (!Number.isFinite(balance)) throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من رصيد حساب الشركة." });
+          return { id: Number(item.id), name: String(item.name), type: String(item.type),
+            balance, shared: item.shared === true };
+        }),
+      };
+    }),
+
     range: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
