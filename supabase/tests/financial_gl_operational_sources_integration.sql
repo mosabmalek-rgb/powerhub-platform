@@ -168,6 +168,37 @@ BEGIN
  report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
  IF (report->'sources'->'serviceRecognition'->>'missingGL')::int<>0
  THEN RAISE EXCEPTION 'GL_CI_EARNED_REVENUE_POSTED_NOT_RECONCILED: %',report; END IF;
+ -- A4: the source is authoritative. A booked invoice must not be silently
+ -- re-posted after an amount revision, even when the journal remains balanced.
+ -- This regression runs in the disposable transaction and restores source
+ -- fields before the other coverage assertions.
+ UPDATE public.invoices SET total_amount=111 WHERE id=301;
+ blocked:=false;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_post_source(901,9101,'invoice',301,9902);
+ EXCEPTION WHEN SQLSTATE '23505' THEN blocked:=true; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_EDITED_INVOICE_REPLAY_ALLOWED'; END IF;
+ blocked:=false;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_recognize_billed_service(
+     901,9101,301,'2026-10',9902);
+ EXCEPTION WHEN SQLSTATE '23505' THEN blocked:=true; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_EDITED_INVOICE_RECOGNITION_ALLOWED'; END IF;
+ UPDATE public.invoices SET total_amount=110 WHERE id=301;
+ retry:=public.powerhub_financial_gl_post_source(901,9101,'invoice',301,9902);
+ IF NOT (retry->>'alreadyPosted')::boolean
+ THEN RAISE EXCEPTION 'GL_CI_RESTORED_INVOICE_NOT_IDEMPOTENT'; END IF;
+ -- The linked collection also forms part of the payment source fingerprint.
+ UPDATE public.account_transactions SET amount=56 WHERE id=501;
+ blocked:=false;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_post_source(901,9101,'payment',401,9902);
+ EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_CHANGED_COLLECTION_REPLAY_ALLOWED'; END IF;
+ UPDATE public.account_transactions SET amount=55 WHERE id=501;
+ retry:=public.powerhub_financial_gl_post_source(901,9101,'payment',401,9902);
+ IF NOT (retry->>'alreadyPosted')::boolean
+ THEN RAISE EXCEPTION 'GL_CI_RESTORED_PAYMENT_NOT_IDEMPOTENT'; END IF;
  IF (service->>'amountMinor')::bigint<>10000
     OR (service->>'alreadyPosted')::boolean
     OR NOT (retry->>'alreadyPosted')::boolean
