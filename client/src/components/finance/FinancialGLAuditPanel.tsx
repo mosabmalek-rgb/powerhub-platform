@@ -69,6 +69,7 @@ export default function FinancialGLAuditPanel({
   const sources = object(report.sources);
   const prior = object(sources.priorOperationalSources);
   const opening = object(report.openingEvidenceAudit);
+  const evidenceReview = object(opening.evidenceReview);
   const blockers = canShowCoverage ? accountingBlockers(report) : [];
   const canShowTrial = Boolean(trial.data && showTrial && !trial.isError && !trial.isFetching && !trial.isLoading);
   const trialData = canShowTrial ? object(trial.data) : {};
@@ -108,6 +109,15 @@ export default function FinancialGLAuditPanel({
         {" "}المطابقة المستقلة: {report.isOpeningReconciled === true && opening.accountBalancesMatchedToOpening === true ? "مثبتة" : "غير مثبتة"}؛
         {" "}تغطية المصادر: {report.isSourceCoverageComplete === true ? "مكتملة ضمن نطاق الفحص" : "غير مكتملة"}.
       </p>
+      {Object.keys(evidenceReview).length > 0 ? <div className="mt-3 rounded-md border border-white/10 p-3 text-xs text-slate-200">
+        <h4 className="font-semibold text-white">مستندات إثبات الافتتاحية والمراجعة المستقلة</h4>
+        <p className="mt-2">حالة الإثبات: {String(evidenceReview.status ?? "غير محددة")}</p>
+        <p>سطور بلا مستندات مراجعة مطابقة: {numberText(evidenceReview.linesWithoutMatchedReviewedEvidence)}</p>
+        <p>سطور تحتوي على أدلة بانتظار المراجعة: {numberText(evidenceReview.linesWithUnreviewedEvidence)}</p>
+        <p className="mt-1 text-amber-200">
+          مراجعة المستندات وإجمالياتها لا تكفي وحدها للتصديق؛ يتطلب إثباتًا مستقلًا لمصدر المستند وتاريخه وصحته.
+        </p>
+      </div> : null}
       <div className="mt-3 rounded-md border border-rose-400/20 p-3 text-sm text-rose-100">
         <h4 className="font-semibold">موانع الاعتماد المثبتة</h4>
         <ul className="mt-2 list-disc space-y-1 pr-5">
