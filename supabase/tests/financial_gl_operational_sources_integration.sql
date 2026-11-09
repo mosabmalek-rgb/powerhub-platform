@@ -389,6 +389,31 @@ BEGIN
    OR (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
  THEN RAISE EXCEPTION 'GL_CI_A8_PRIOR_COLLECTION_NOT_RECONCILED: %',
    report->'sources'->'priorOperationalSources';END IF;
+ -- A9: a posted GL must remain immutable even to a privileged caller.
+ -- Verify that denied journal edits/deletions do not turn the trial result
+ -- into a false clean source. Deferred balance checks run at commit.
+ blocked:=false;
+ BEGIN
+   UPDATE public.financial_gl_entries
+      SET accounting_policy_version='tampered-v9'
+    WHERE tenant_id=901 AND site_id=9101 AND source_type='invoice'
+      AND source_id='301';
+ EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_A9_POSTED_ENTRY_MUTABLE';END IF;
+ blocked:=false;
+ BEGIN
+   DELETE FROM public.financial_gl_lines
+    WHERE tenant_id=901 AND site_id=9101
+      AND entry_id=(SELECT id FROM public.financial_gl_entries
+         WHERE tenant_id=901 AND site_id=9101
+           AND source_type='invoice' AND source_id='301');
+ EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true; END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_A9_POSTED_LINES_DELETABLE';END IF;
+ blocked:=false;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_source_coverage(902,9101,'2026-10');
+ EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true;END;
+ IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_A9_CROSS_TENANT_REPORT_VISIBLE'; END IF;
  -- A5 negative acceptance: a mathematically balanced but unapproved
  -- accrual journal projection must fail source integrity. A zero trial
  -- balance never substitutes for an authoritative approval document.
