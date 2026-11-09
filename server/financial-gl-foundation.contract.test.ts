@@ -25,6 +25,8 @@ describe("phase A2 general-ledger schema foundation contract",()=>{
    expect(sql).toContain("(tenant_id,site_id,source_type,source_id,source_revision)");
    expect(sql).toContain("financial_gl_entry_operation_unique UNIQUE");
    expect(sql).toContain("financial_gl_active_reversal_unique");
+   expect(sql).toContain("CONSTRAINT financial_gl_reversal_same_scope FOREIGN KEY");
+   expect(sql).toContain("(reverses_entry_id,tenant_id,site_id)");
    expect(sql).toContain("FINANCIAL_GL_SITE_OUT_OF_SCOPE");
    expect(sql).toContain("s.id=NEW.site_id AND s.tenant_id=NEW.tenant_id");
    expect(sql).toContain("financial_gl_entry_scope_guard");
