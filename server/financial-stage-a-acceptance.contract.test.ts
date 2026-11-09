@@ -83,7 +83,7 @@ describe("Phase A financial acceptance evidence", () => {
     expect(sources).toContain(
       "20261110026000_powerhub_financial_staging_fixture_quarantine.sql",
     );
-    expect(quarantine).not.toMatch(/DELETE\\s+FROM\\s+public\\.account_transactions/i);
+    expect(quarantine).not.toMatch(/DELETE\s+FROM\s+public\.account_transactions/i);
     expect(quarantine).not.toContain("DISABLE TRIGGER");
   });
   it("never renders balanced GL or synthetic archive eligibility as certification", () => {
