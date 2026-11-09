@@ -302,17 +302,23 @@ BEGIN
  IF p_user_id IS NULL OR p_user_id<=0 OR NOT EXISTS(
     SELECT 1 FROM public.users u WHERE u.id=p_user_id)
  THEN RAISE EXCEPTION 'GL_SOURCE_ACTOR_INVALID' USING ERRCODE='22023'; END IF;
- PERFORM pg_advisory_xact_lock(hashtextextended(
-   'powerhub:gl-site:'||p_tenant_id||':'||p_site_id,0));
  v_plan:=public.powerhub_financial_gl_source_plan(
    p_tenant_id,p_site_id,p_source_type,p_source_id);
  v_period:=v_plan->>'period';v_lines:=v_plan->'lines';
  v_fingerprint:=v_plan->>'sourceFingerprint';v_policy:=v_plan->>'policyVersion';
  v_reversal_id:=(v_plan->>'reversesEntryId')::bigint;
  v_key:='gl:source:'||p_source_type||':'||p_source_id||':v1';
- -- Same lock ordering as existing accrual and opening functions.
+ -- Match the existing accrual/opening lock hierarchy: period before site.
  PERFORM pg_advisory_xact_lock(hashtextextended(
    'powerhub:accrual-period:'||p_tenant_id||':'||p_site_id||':'||v_period,0));
+ PERFORM pg_advisory_xact_lock(hashtextextended(
+   'powerhub:gl-site:'||p_tenant_id||':'||p_site_id,0));
+ -- Source may have changed while waiting for locks: derive and compare again.
+ IF public.powerhub_financial_gl_source_plan(
+     p_tenant_id,p_site_id,p_source_type,p_source_id)->>'sourceFingerprint'
+     IS DISTINCT FROM v_fingerprint
+ THEN RAISE EXCEPTION 'GL_SOURCE_CHANGED_DURING_POST'
+    USING ERRCODE='40001'; END IF;
  SELECT * INTO v_entry FROM public.financial_gl_entries e
  WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
    AND e.source_type=p_source_type AND e.source_id=p_source_id::text
