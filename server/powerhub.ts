@@ -11,6 +11,7 @@ import { buildFinancialOverview } from "./financial-overview-utils";
 import { buildDashboardPeriodMetrics } from "./dashboard-period-metrics";
 import { normalizeSettlementLedgerSnapshot } from "./financial-settlement-snapshot";
 import { aggregateAuthorizedFinancialPositions, InvalidFinancialSnapshot, type SiteFinancialSnapshot } from "./financial-multi-site-position";
+import { financialTrendMonths } from "./financial-trend-months";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
@@ -4842,6 +4843,56 @@ export const powerhubRouter = router({
         transactionCount:num("transactionCount"),
         scopeNotice:"site_attributed_only" as const,
       };
+    }),
+    cashFlowTrend: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    })).query(async ({ctx,input}) => {
+      const access=await requireSupabaseSiteRole(
+        ctx.user.id,input.siteId,["owner","manager","accountant","viewer"],"viewFinancialReports"
+      );
+      let periods:ReturnType<typeof financialTrendMonths>;
+      try { periods=financialTrendMonths(input.endDate); }
+      catch { throw new TRPCError({code:"BAD_REQUEST",message:"تاريخ اتجاه التدفق النقدي غير صالح."}); }
+      const results: Array<{month:string;startDate:string;endDate:string;externalCashIn:number;externalCashOut:number;netCashFlow:number;transactionCount:number}> = [];
+      // At most two indexed aggregate RPCs concurrently; never fetch individual movements.
+      for (let offset=0;offset<periods.length;offset+=2) {
+        const chunk=periods.slice(offset,offset+2);
+        const rows=await Promise.all(chunk.map(async period=>{
+          const {start,endExclusive}=reportDateRange(period.startDate,period.endDate);
+          const {data,error}=await supabaseAdmin().rpc("powerhub_financial_period_cash_flow",{
+            p_tenant_id:access.tenantId,p_site_id:input.siteId,
+            p_period_start:start.toISOString(),p_period_end_exclusive:endExclusive.toISOString(),
+          });
+          if (error || !data || typeof data!=="object" || Array.isArray(data)) {
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+              message:"تعذر تحميل أحد أشهر التدفق النقدي؛ لن نعرض اتجاهاً جزئياً."});
+          }
+          const record=data as Record<string,unknown>;
+          const number=(key:string)=>{
+            const raw=record[key];
+            const value=Number(raw);
+            if(raw===null || raw===undefined || raw==="" || !Number.isFinite(value)) {
+              throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+                message:"استجابة اتجاه التدفق النقدي غير مكتملة."});
+            }
+            return value;
+          };
+          if (number("scopeSiteId")!==input.siteId) {
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعارض نطاق الفرع في اتجاه التدفق النقدي."});
+          }
+          const externalCashIn=number("externalCashIn");
+          const externalCashOut=number("externalCashOut");
+          const netCashFlow=number("netCashFlow");
+          const transactionCount=number("transactionCount");
+          if(Math.abs(externalCashIn-externalCashOut-netCashFlow)>0.011 || transactionCount<0) {
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"فشلت مطابقة حركة التدفق النقدي."});
+          }
+          return {...period,externalCashIn,externalCashOut,netCashFlow,transactionCount};
+        }));
+        results.push(...rows);
+      }
+      return {siteId:input.siteId,scopeNotice:"site_attributed_only" as const,months:results};
     }),
     range: protectedProcedure.input(z.object({
       siteId: z.number().int().positive(),
