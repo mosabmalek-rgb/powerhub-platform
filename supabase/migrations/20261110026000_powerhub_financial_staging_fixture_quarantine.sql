@@ -189,7 +189,7 @@ CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_fixture_manifest_review(
  p_tenant_id bigint,p_site_id bigint,p_id bigint,p_reviewer_id bigint
 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY INVOKER
 SET search_path=pg_catalog,public,pg_temp AS $review$
-DECLARE v_manifest record;
+DECLARE v_manifest record;v_verified jsonb;
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.tenant_members m JOIN public.users u
    ON u.id=m.user_id WHERE m.tenant_id=p_tenant_id AND m.user_id=p_reviewer_id
@@ -209,6 +209,11 @@ BEGIN
  UPDATE public.financial_gl_staging_fixture_manifests f
  SET status='verified',reviewed_by_user_id=p_reviewer_id,reviewed_at=now()
  WHERE f.id=p_id;
+ v_verified:=public.powerhub_financial_gl_verify_staging_fixture(p_tenant_id,p_site_id);
+ IF (v_verified->>'verified')::boolean IS DISTINCT FROM true THEN
+   RAISE EXCEPTION 'GL_FIXTURE_REVIEW_CONTENT_MISMATCH: %',
+    v_verified->>'reason' USING ERRCODE='23514';
+ END IF;
  RETURN jsonb_build_object('manifestId',p_id,'replayed',false,'status','verified');
 END;
 $review$;
@@ -234,7 +239,8 @@ BEGIN
   p_tenant_id,p_site_id);
  IF (v_audit->>'verified')::boolean IS TRUE
     AND p_period>'2026-05'
-    AND (v_original->>'fromOpeningDate') IS NULL
+    AND ((v_original->>'fromOpeningDate') IS NULL
+      OR (v_original->>'fromOpeningDate')::date<='2026-05-01'::date)
  THEN v_rows:=(v_audit->>'quarantinedCount')::bigint;
   IF (v_original->>'unclassifiedAccountMovements')::bigint>=v_rows
    AND (v_original->>'unreconciledCount')::bigint>=v_rows
