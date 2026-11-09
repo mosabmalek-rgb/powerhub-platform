@@ -99,6 +99,7 @@ export default function FinancialDashboardPage() {
     enabled: Boolean(showCashTrend && siteId && isAuthenticated && endDate && startDate <= endDate && cycleRangeReady),
     staleTime: 120_000, refetchOnWindowFocus: false,
   });
+  const [showAccrualBridge, setShowAccrualBridge] = useState(false);
   const [showPayrollReview, setShowPayrollReview] = useState(false);
   const payrollPeriod = endDate.slice(0, 7);
   const payrollReview = trpc.powerhub.reports.payrollAccrualReview.useQuery({
@@ -467,6 +468,59 @@ export default function FinancialDashboardPage() {
         {format(cashFlow.data.transactionCount)} حركة خارجية؛ استُبعدت تحويلات داخلية بقيمة
         {" "}{format(cashFlow.data.internalTransferVolume)} شيكل من التدفق الصافي.
       </p> : null}
+    </section>
+    <section aria-labelledby="accrual-bridge-title" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 id="accrual-bridge-title" className="text-lg font-bold text-white">مكوّنات قائمة الدخل — مراجعة أولية</h2>
+          <p className="mt-1 text-xs text-slate-400">
+            فصل الفوترة عن التحصيل، وفصل النقد المدفوع للرواتب عن تكلفة أجورها. هذا ليس صافي ربح محاسبياً معتمداً.
+          </p>
+        </div>
+        <Button size="sm" variant="outline" className="border-white/20 text-white"
+          onClick={() => setShowAccrualBridge(v => !v)}>
+          {showAccrualBridge ? "إخفاء المكوّنات" : "عرض مكوّنات الاستحقاق"}
+        </Button>
+      </div>
+      {showAccrualBridge ? <div className="mt-4 space-y-3">
+        {report.isLoading ? <p role="status" className="text-sm text-slate-300">جارٍ تحميل مكوّنات الفترة…</p> : null}
+        {report.isError ? <p role="alert" className="text-sm text-rose-200">
+          تعذر التحقق من بيانات الفترة؛ لن تُعرض نتائج ناقصة أو مخزّنة بعد فشل التحديث.
+        </p> : null}
+        {data?.accrualComponents && !report.isError ? <>
+          <p className="text-xs text-amber-200">
+            القيم للفترة {startDate} — {endDate}، حسب تاريخ إصدار الفاتورة وتاريخ تسجيل المصروف؛
+            توقيت تقديم الخدمة والضرائب والخصومات والالتزامات بحاجة إلى مطابقة إضافية.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {([
+              {label:"إجمالي الفواتير الصادرة",amount:data.accrualComponents.billedGross},
+              {label:"الضرائب ضمن الفواتير",amount:data.accrualComponents.billedTax},
+              {label:"الفوترة بعد استبعاد الضريبة",amount:data.accrualComponents.billedExTax},
+              {label:"مصروفات تشغيلية غير رواتب الدفع",amount:data.accrualComponents.nonPayrollOperatingExpenses},
+              {label:"صافي الرواتب المسجل نقدياً كمصروف",amount:data.accrualComponents.payrollCashOperatingExpenses},
+              {label:"مصروفات غير تشغيلية",amount:data.accrualComponents.nonOperatingExpenses},
+              {label:"تكلفة استهلاك المخزون",amount:data.summary.inventoryConsumptionCost},
+            ] as const).map(item => <div key={item.label} className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
+              <p className="text-xs text-slate-300">{item.label}</p>
+              <strong className="mt-2 block text-lg text-white">{format(item.amount)} شيكل</strong>
+            </div>)}
+          </div>
+          <p className="text-xs text-slate-300">
+            فواتير محتسبة: {format(data.accrualComponents.issuedInvoiceCount)}،
+            مسودات مستبعدة: {format(data.accrualComponents.excludedDraftCount)}،
+            فواتير ملغاة مستبعدة: {format(data.accrualComponents.excludedCancelledCount)}.
+          </p>
+          {data.accrualComponents.unknownInvoiceCount > 0 ? <p role="alert" className="text-xs text-rose-200">
+            توجد حالات فواتير غير معروفة ({format(data.accrualComponents.unknownInvoiceCount)}) لم تُحتسب؛ يلزم مراجعتها.
+          </p> : null}
+          <p className="text-xs text-amber-200">
+            لا تُجمع الرواتب المدفوعة أعلاه مرة ثانية مع إجمالي أجور كشوف الرواتب.
+            ويلزم ربط فترة تقديم الخدمة وإجمالي الأجور المعتمدة وأثر تسويات السلف
+            والمخصصات والإهلاك قبل إصدار قائمة دخل أو صافي ربح معتمد.
+          </p>
+        </> : null}
+      </div> : null}
     </section>
     <section aria-labelledby="payroll-financial-review-title" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
