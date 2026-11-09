@@ -91,13 +91,13 @@ const gazaDateKey=(date:Date)=>{
   const parts=gazaCalendar.formatToParts(date);
   const read=(type:string)=>parts.find(p=>p.type===type)?.value??"";
   const key=`${read("year")}-${read("month")}-${read("day")}`;
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(key)){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(key)){
     throw new InvalidAccrualComponents("Invalid Gaza calendar conversion");
   }
   return key;
 };
 const financialReportDay=(day:string)=>{
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(day))throw new InvalidAccrualComponents("Invalid report date");
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day))throw new InvalidAccrualComponents("Invalid report date");
   const d=new Date(`${day}T12:00:00Z`);
   if(!Number.isFinite(d.getTime())||d.toISOString().slice(0,10)!==day){
     throw new InvalidAccrualComponents("Invalid calendar date");
