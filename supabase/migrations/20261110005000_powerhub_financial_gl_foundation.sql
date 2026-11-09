@@ -142,7 +142,9 @@ REVOKE ALL ON public.financial_gl_lines FROM PUBLIC,anon,authenticated;
 GRANT SELECT ON public.financial_gl_accounts TO service_role;
 GRANT SELECT ON public.financial_gl_entries TO service_role;
 GRANT SELECT ON public.financial_gl_lines TO service_role;
-REVOKE ALL ON FUNCTION public.powerhub_financial_gl_scope_guard()\n FROM PUBLIC,anon,authenticated;\nREVOKE ALL ON FUNCTION public.powerhub_financial_gl_balance_guard()
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_scope_guard()
+ FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_balance_guard()
  FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION public.powerhub_financial_gl_immutable_guard()
  FROM PUBLIC,anon,authenticated;
