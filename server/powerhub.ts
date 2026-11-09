@@ -4690,7 +4690,7 @@ export const powerhubRouter = router({
       const access = await requireSupabaseSiteRole(
         ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports"
       );
-      const { data, error } = await supabaseAdmin().rpc("powerhub_financial_current_position", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_financial_current_position_v2", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
       });
       if (error || !data || typeof data !== "object" || Array.isArray(data)) {
@@ -4709,6 +4709,10 @@ export const powerhubRouter = router({
       if (Number(result.scopeSiteId) !== input.siteId) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعارض نطاق الفرع في المركز المالي." });
       }
+      if (amount("inventoryValuationIssueCount") > 0 || amount("subscriberLiabilityIssueCount") > 0) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR",
+          message: "توجد حركة مخزون أو رصيد مشترك يحتاج إلى تسوية؛ لا يمكن عرض قيمة مالية غير موثوقة." });
+      }
       const accounts = Array.isArray(result.accounts) ? result.accounts : [];
       return {
         asOf: String(result.asOf ?? new Date().toISOString()),
@@ -4717,6 +4721,10 @@ export const powerhubRouter = router({
         supplierPrepayments: amount("supplierPrepayments"),
         employeeAdvances: amount("employeeAdvances"),
         subscriberReceivables: amount("subscriberReceivables"),
+        inventoryValue: amount("inventoryValue"),
+        subscriberCreditLiability: amount("subscriberCreditLiability"),
+        securityDepositLiability: amount("securityDepositLiability"),
+        approvedPayrollPayable: amount("approvedPayrollPayable"),
         accountCount: amount("accountCount"),
         sharedAccountCount: amount("sharedAccountCount"),
         accounts: accounts.map((account) => {

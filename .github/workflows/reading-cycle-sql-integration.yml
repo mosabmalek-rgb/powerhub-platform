@@ -214,6 +214,13 @@ jobs:
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command "CREATE DATABASE dashboard_financial_aggregate_test"
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname dashboard_financial_aggregate_test --set ON_ERROR_STOP=1 --file supabase/tests/dashboard_financial_aggregate_read_models.sql
 
+      - name: Verify financial current-position assets and liabilities
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_current_position_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_current_position_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_current_position_assets_liabilities.sql
+
       - name: Create isolated all-branch dashboard KPI database
         env:
           PGPASSWORD: postgres

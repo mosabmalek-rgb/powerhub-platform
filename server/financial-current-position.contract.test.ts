@@ -7,7 +7,7 @@ describe("financial dashboard current position scope and performance contracts",
  it("separates point-in-time balances from filtered period calculations and independently renders",()=>{
   expect(server).toContain("currentPosition: protectedProcedure.input(siteScoped)");
   expect(server).toContain('"viewFinancialReports"');
-  expect(server).toContain('rpc("powerhub_financial_current_position"');
+  expect(server).toContain('rpc("powerhub_financial_current_position_v2"');
   expect(server).toContain("Number(result.scopeSiteId) !== input.siteId");
   expect(dashboard).toContain("powerhub.reports.currentPosition.useQuery({ siteId }");
   expect(dashboard).toContain("المركز المالي الحالي");

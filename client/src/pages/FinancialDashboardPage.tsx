@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { BarChart3, CalendarRange, CircleDollarSign, Download, FileText, Loader2, Receipt, TrendingUp, RefreshCw, Wallet, Landmark, UsersRound, Truck, HandCoins } from "lucide-react";
+import { BarChart3, CalendarRange, CircleDollarSign, Download, FileText, Loader2, Receipt, TrendingUp, RefreshCw, Wallet, Landmark, UsersRound, Truck, HandCoins, Package, ShieldCheck } from "lucide-react";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -163,13 +163,17 @@ export default function FinancialDashboardPage() {
         <Button size="sm" variant="outline" className="mr-2 text-white" onClick={() => void currentPosition.refetch()}>إعادة المحاولة</Button>
       </div> : null}
       {currentPosition.isLoading ? <div role="status" className="mt-4 flex items-center gap-2 text-sm text-slate-300"><Loader2 className="h-4 w-4 animate-spin" />جارٍ التحقق من الأرصدة الحالية…</div> : null}
-      {currentPosition.data ? <>
+      {!currentPosition.isError && currentPosition.data ? <>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {([
             {label:"أرصدة الحسابات المتاحة",amount:currentPosition.data.cashBalance,Icon:Wallet,help:"تشمل الحسابات المشتركة المرتبطة بالفرع"},
             {label:"ديون المشتركين القائمة",amount:currentPosition.data.subscriberReceivables,Icon:UsersRound,help:"جميع الفواتير غير المسددة حتى الآن"},
             {label:"مستحقات الموردين",amount:currentPosition.data.supplierPayables,Icon:Truck,help:"صافي أرصدة الموردين الدائنة"},
             {label:"السلف القائمة للموظفين",amount:currentPosition.data.employeeAdvances,Icon:HandCoins,help:"مبالغ لم تُسوَّ بعد، وليست مصروفاً"},
+            {label:"قيمة المخزون الحالية",amount:currentPosition.data.inventoryValue,Icon:Package,help:"تكلفة الرصيد المتبقي في مواقع الفرع، لا تكلفة المشتريات خلال الفترة"},
+            {label:"أرصدة دائنة للمشتركين",amount:currentPosition.data.subscriberCreditLiability,Icon:UsersRound,help:"مبالغ للمشتركين لم تُطبق أو تُرد بعد"},
+            {label:"تأمينات المشتركين",amount:currentPosition.data.securityDepositLiability,Icon:ShieldCheck,help:"التزام قابل للرد أو التسوية، وليس إيراداً"},
+            {label:"رواتب معتمدة غير مدفوعة",amount:currentPosition.data.approvedPayrollPayable,Icon:HandCoins,help:"المسيرات المعتمدة فقط؛ المسودات غير مستحقة هنا"},
           ] as const).map(({label,amount,Icon,help}) => <Card key={label} className="border-white/10 bg-[#0D1117]">
             <CardContent className="p-4"><div className="flex items-center gap-2 text-slate-300">
               <Icon className="h-4 w-4" /><span className="text-sm font-medium">{label}</span></div>
