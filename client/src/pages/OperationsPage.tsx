@@ -301,6 +301,7 @@ export default function OperationsPage({ section }: { section: Section }) {
   const submitExpense = async (payload: {
     siteId: number; generatorId?: number; companyAccountId: number;
     category: "fuel" | "maintenance" | "payroll" | "parts" | "transport" | "other";
+    expenseClassification: "operating" | "non_operating";
     description: string; amount: number; referenceNo?: string;
   }) => {
     const clientOperationId = crypto.randomUUID();
@@ -318,6 +319,7 @@ export default function OperationsPage({ section }: { section: Section }) {
           generatorId: payload.generatorId,
           companyAccountId: payload.companyAccountId,
           category: payload.category,
+          expenseClassification: payload.expenseClassification,
           description: payload.description,
           amount: payload.amount,
           referenceNo: payload.referenceNo,
@@ -914,7 +916,7 @@ function ExpenseHistoryPanel({ history, canCorrect = true }: { history: ReturnTy
       : expenses.length ? <div className="space-y-2">{expenses.map((x: any) => {
         const account = history.accounts.find((item: any) => item.id === x.companyAccountId);
         return <div key={x.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/[0.018] px-4 py-3">
-          <div className="min-w-0 flex-1"><p className="break-words font-bold text-white">{x.description}</p><p className="mt-1 text-xs leading-5 text-slate-400">{x.category} · {formatReportDate(x.occurredAt)} · الحساب المصروف منه: {account?.name ?? (x.companyAccountId ? "حساب #" + x.companyAccountId : "غير محدد")}</p></div>
+          <div className="min-w-0 flex-1"><p className="break-words font-bold text-white">{x.description}</p><p className="mt-1 text-xs leading-5 text-slate-400">{x.category} · {x.expenseClassification === "non_operating" ? "غير تشغيلي" : "تشغيلي"} · {formatReportDate(x.occurredAt)} · الحساب المصروف منه: {account?.name ?? (x.companyAccountId ? "حساب #" + x.companyAccountId : "غير محدد")}</p></div>
           <span className="whitespace-nowrap font-display font-bold text-[#F5B800]">{formatValue(x.amount, 2)}</span>
           {canCorrect ? <Button size="sm" variant="ghost" className="text-orange-300 hover:bg-orange-400/10" onClick={() => window.location.assign("/financial-settlements?entityType=expense&entityId=" + x.id)}>تصحيح</Button> : null}
         </div>;
@@ -951,7 +953,7 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit, isOnli
           if (description.length < 2) { toast.error("اكتب وصفاً للمصروف من حرفين على الأقل."); return; }
           if (!Number.isFinite(amount) || amount <= 0) { toast.error("أدخل مبلغ مصروف صحيحاً أكبر من صفر."); return; }
           try {
-            await onSubmit({ siteId, generatorId: f.get("generator") ? Number(f.get("generator")) : undefined, companyAccountId: selectedAccountId, category: String(f.get("category")), description, amount, referenceNo: String(f.get("reference") || "").trim() || undefined });
+            await onSubmit({ siteId, generatorId: f.get("generator") ? Number(f.get("generator")) : undefined, companyAccountId: selectedAccountId, category: String(f.get("category")), expenseClassification: String(f.get("expenseClassification") || "operating"), description, amount, referenceNo: String(f.get("reference") || "").trim() || undefined });
             form.reset();
             setAccountId("");
           } catch (error) {
@@ -966,6 +968,7 @@ function ExpensesModule({ siteId, generators, summary, pending, onSubmit, isOnli
             </select>
           </Field>
           {selectedAccount ? <p className="rounded-lg bg-rose-400/10 px-3 py-2 text-xs text-rose-100">سيُعاد التحقق من صلاحية الحساب وارتباطه بالفرع ورصيده الحالي داخل معاملة الخادم. الاختيار المحلي لا يثبت توافر الرصيد ولا يرحّل أي حركة.</p> : <p className="rounded-lg bg-white/[.03] px-3 py-2 text-xs text-slate-500">يلزم تحديد حساب الصرف؛ الخيارات المخزنة محليًا أسماء ومعرّفات فقط وليست مرجعًا للرصيد أو الصلاحيات.</p>}
+          <Field label="نوع المصروف"><select name="expenseClassification" defaultValue="operating" className={selectClass}><option value="operating">تشغيلي (افتراضي)</option><option value="non_operating">غير تشغيلي</option></select><p className="mt-1 text-xs leading-5 text-slate-400">الرواتب التشغيلية تُعد مصروفاً تشغيلياً. السلف والقروض لا تُسجل كمصروف؛ استخدم تبويب سلف الموظفين.</p></Field>
           <Field label="فئة المصروف"><select name="category" className={selectClass}><option value="fuel">وقود</option><option value="maintenance">صيانة</option><option value="payroll">رواتب</option><option value="parts">قطع غيار</option><option value="transport">نقل</option><option value="other">أخرى</option></select></Field>
           <Field label="المولد"><select name="generator" className={selectClass}><option value="">مصروف عام</option>{generators.map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
           <Field label="الوصف"><input required name="description" className={inputClass} placeholder="مثال: تعبئة ديزل" /></Field>

@@ -4015,6 +4015,7 @@ export const powerhubRouter = router({
       generatorId: z.number().int().positive().optional(),
       companyAccountId: z.number().int().positive(),
       category: z.enum(["fuel", "maintenance", "payroll", "parts", "transport", "other"]),
+      expenseClassification: z.enum(["operating", "non_operating"]).default("operating"),
       description: z.string().min(2).max(255),
       amount: z.number().positive(),
       referenceNo: z.string().max(120).optional(),
@@ -4032,9 +4033,16 @@ export const powerhubRouter = router({
         p_amount: input.amount,
         p_reference_no: input.referenceNo ?? null,
       };
+      // New expense classifications use one transactional, idempotent RPC.
+      // Old clients without a key remain compatible for operating expenses.
+      if (input.expenseClassification === "non_operating" && !input.clientOperationId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "تسجيل المصروف غير التشغيلي يتطلب مفتاح عملية ثابتاً." });
+      }
       const { data, error } = input.clientOperationId
-        ? await supabaseAdmin().rpc("powerhub_create_expense_with_account_idempotent", {
-            ...rpcArgs, p_client_operation_id: input.clientOperationId,
+        ? await supabaseAdmin().rpc("powerhub_create_expense_classified_idempotent", {
+            ...rpcArgs,
+            p_client_operation_id: input.clientOperationId,
+            p_expense_classification: input.expenseClassification,
           })
         : await supabaseAdmin().rpc("powerhub_create_expense_with_account", rpcArgs);
       if (!error && data?.[0]) {
@@ -4045,7 +4053,7 @@ export const powerhubRouter = router({
         };
       }
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
-      if (error?.code === "PGRST202" || /powerhub_create_expense_with_account.*schema cache|schema cache.*powerhub_create_expense_with_account/i.test(errorText)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "دالة تسجيل المصروفات غير متاحة في مخطط Supabase. تم تحديث إعدادات قاعدة البيانات؛ حدّث الصفحة وأعد المحاولة." });
+      if (error?.code === "PGRST202" || /powerhub_create_expense_(?:classified_idempotent|with_account).*schema cache|schema cache.*powerhub_create_expense_/i.test(errorText)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "دالة تسجيل المصروفات غير متاحة في مخطط Supabase. تم تحديث إعدادات قاعدة البيانات؛ حدّث الصفحة وأعد المحاولة." });
       if (errorText.includes("IDEMPOTENCY_KEY_REUSED")) throw new TRPCError({ code: "CONFLICT", message: "مفتاح العملية مستخدم سابقًا لبيانات مصروف مختلفة؛ أُوقفت إعادة الإرسال للحماية من التكرار." });
       if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "المحطة غير متاحة ضمن مساحة العمل الحالية." });
       if (errorText.includes("GENERATOR_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "المولد لا يتبع للمحطة المحددة." });
@@ -4707,7 +4715,9 @@ export const powerhubRouter = router({
       const collected = completedPayments.reduce((sum, row) => sum + Number(row.payment.invoiceAppliedAmount), 0);
       const grossCollected = completedPayments.reduce((sum, row) => sum + Number(row.payment.grossAmount), 0);
       const subscriberCreditCreated = completedPayments.reduce((sum, row) => sum + Number(row.payment.subscriberCreditAmount), 0);
-      const directExpenseTotal = expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive).reduce((sum, expense) => sum + expense.amount, 0);
+      const periodExpenses = expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive);
+      const directExpenseTotal = periodExpenses.filter((expense) => expense.expenseClassification !== "non_operating").reduce((sum, expense) => sum + expense.amount, 0);
+      const nonOperatingExpenseTotal = periodExpenses.filter((expense) => expense.expenseClassification === "non_operating").reduce((sum, expense) => sum + expense.amount, 0);
       const inventoryConsumptionCost = inventoryConsumption.get(input.siteId) ?? 0;
       const expenseTotal = Math.round((directExpenseTotal + inventoryConsumptionCost) * 100) / 100;
       const collectors = Object.values(completedPayments.reduce<Record<string, { name: string; count: number; amount: number; grossAmount: number; subscriberCreditAmount: number }>>((acc, row) => {
@@ -4739,7 +4749,8 @@ export const powerhubRouter = router({
       return {
         range: { startDate: input.startDate, endDate: input.endDate },
         summary: { invoiced, collected, grossCollected, subscriberCreditCreated, outstanding, energyKwh,
-          directExpenseTotal, inventoryConsumptionCost, expenseTotal, operatingProfit: collected - expenseTotal },
+          directExpenseTotal, nonOperatingExpenseTotal, inventoryConsumptionCost, expenseTotal,
+          allExpenseTotal: expenseTotal + nonOperatingExpenseTotal, operatingProfit: collected - expenseTotal },
         collectors, topDebtors, paymentDetails,
       };
     }),
@@ -4754,7 +4765,7 @@ export const powerhubRouter = router({
       if (sitesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أفرع المستأجر من Supabase." });
       const branchRows = (siteRows ?? []).map((site) => ({ id: Number(site.id), name: site.name }));
       const branchIds = branchRows.map((branch) => branch.id);
-      if (!branchIds.length) return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: 0 }, summary: { invoiced: 0, collected: 0, grossCollected: 0, subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, directExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, operatingProfit: 0 }, collectors: [], topDebtors: [], branchSummaries: [], paymentDetails: [] };
+      if (!branchIds.length) return { range: { startDate: input.startDate, endDate: input.endDate }, scope: { branchCount: 0 }, summary: { invoiced: 0, collected: 0, grossCollected: 0, subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, directExpenseTotal: 0, nonOperatingExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, allExpenseTotal: 0, operatingProfit: 0 }, collectors: [], topDebtors: [], branchSummaries: [], paymentDetails: [] };
       const [allInvoices, paymentRows, expenseRows, inventoryConsumption] = await Promise.all([
         listSupabaseReportInvoices({ tenantId, siteIds: branchIds, start, endExclusive }),
         listSupabaseReportPayments({ tenantId, siteIds: branchIds, start, endExclusive }),
@@ -4768,7 +4779,7 @@ export const powerhubRouter = router({
       const branchNameById = new Map(branchRows.map((branch) => [branch.id, branch.name]));
       const branchSummaryById = new Map(branchRows.map((branch) => [branch.id, {
         siteId: branch.id, branchName: branch.name, invoiced: 0, collected: 0, grossCollected: 0,
-        subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, directExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, operatingProfit: 0,
+        subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0, directExpenseTotal: 0, nonOperatingExpenseTotal: 0, inventoryConsumptionCost: 0, expenseTotal: 0, allExpenseTotal: 0, operatingProfit: 0,
       }]));
       invoiceRows.forEach((invoice) => {
         const summary = branchSummaryById.get(invoice.siteId);
@@ -4787,12 +4798,16 @@ export const powerhubRouter = router({
       });
       expenseRows.filter((expense) => expense.occurredAt >= start && expense.occurredAt < endExclusive).forEach((expense) => {
         const summary = branchSummaryById.get(expense.siteId);
-        if (summary) summary.directExpenseTotal += expense.amount;
+        if (summary) {
+          if (expense.expenseClassification === "non_operating") summary.nonOperatingExpenseTotal += expense.amount;
+          else summary.directExpenseTotal += expense.amount;
+        }
       });
       const branchSummaries = Array.from(branchSummaryById.values()).map((summary) => {
         const inventoryConsumptionCost = inventoryConsumption.get(summary.siteId) ?? 0;
         const expenseTotal = Math.round((summary.directExpenseTotal + inventoryConsumptionCost) * 100) / 100;
         return { ...summary, inventoryConsumptionCost, expenseTotal,
+          allExpenseTotal: expenseTotal + summary.nonOperatingExpenseTotal,
           operatingProfit: summary.collected - expenseTotal };
       });
       const summary = branchSummaries.reduce((total, branch) => ({
@@ -4801,6 +4816,8 @@ export const powerhubRouter = router({
         subscriberCreditCreated: total.subscriberCreditCreated + branch.subscriberCreditCreated,
         outstanding: total.outstanding + branch.outstanding, energyKwh: total.energyKwh + branch.energyKwh,
         directExpenseTotal: total.directExpenseTotal + branch.directExpenseTotal,
+        nonOperatingExpenseTotal: total.nonOperatingExpenseTotal + branch.nonOperatingExpenseTotal,
+        allExpenseTotal: total.allExpenseTotal + branch.allExpenseTotal,
         inventoryConsumptionCost: total.inventoryConsumptionCost + branch.inventoryConsumptionCost,
         expenseTotal: total.expenseTotal + branch.expenseTotal, operatingProfit: total.operatingProfit + branch.operatingProfit,
       }), { invoiced: 0, collected: 0, grossCollected: 0, subscriberCreditCreated: 0, outstanding: 0, energyKwh: 0,

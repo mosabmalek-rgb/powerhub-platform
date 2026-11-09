@@ -160,6 +160,7 @@ export type ExpenseCreateDraft = {
   generatorId?: number;
   companyAccountId: number;
   category: "fuel" | "maintenance" | "payroll" | "parts" | "transport" | "other";
+  expenseClassification?: "operating" | "non_operating";
   description: string;
   amount: number;
   referenceNo?: string;
