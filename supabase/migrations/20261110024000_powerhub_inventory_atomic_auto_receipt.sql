@@ -4,6 +4,40 @@
 -- A failure in ANY stage rolls back ALL stages, including money and stock.
 -- The operation key and derived receipt/payment keys provide exactly-once replay.
 -- Manual purchase and later partial receiving remain unchanged.
+-- Repair existing one-time supplier RPC: RETURNS TABLE output names `id` and
+-- `tenant_id` shadow the same-named unqualified columns in the UPDATE and
+-- user lookup. This is mandatory for walk-in auto-receive and fixes a bug
+-- in the pre-existing manual walk-in immediate purchase as well.
+CREATE OR REPLACE FUNCTION public.powerhub_inventory_create_supplier_with_type(p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_supplier_code text, p_name text, p_contact_name text, p_phone text, p_email text, p_address text, p_tax_number text, p_default_payment_terms_days integer, p_notes text, p_supplier_type text)
+ RETURNS TABLE(id bigint, tenant_id bigint, supplier_code text, name text, contact_name text, phone text, email text, address text, tax_number text, default_payment_terms_days integer, supplier_type text, notes text, is_active boolean, created_at timestamp with time zone, updated_at timestamp with time zone)
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare v_supplier_id bigint; v_supplier public.suppliers%rowtype; v_platform_role text;
+begin
+ if p_supplier_type is null or p_supplier_type not in ('permanent','one_time') then
+   raise exception 'INVALID_SUPPLIER_TYPE' using errcode='P0001';
+ end if;
+ if p_supplier_type='one_time' and coalesce(p_default_payment_terms_days,0)<>0 then
+   raise exception 'INVALID_ONE_TIME_SUPPLIER_TERMS' using errcode='P0001';
+ end if;
+ select created.id into v_supplier_id from public.powerhub_inventory_create_supplier(
+   p_tenant_id,p_site_id,p_user_id,p_supplier_code,p_name,p_contact_name,p_phone,p_email,
+   p_address,p_tax_number,p_default_payment_terms_days,p_notes
+ ) as created;
+ update public.suppliers AS s set supplier_type=p_supplier_type
+   where s.tenant_id=p_tenant_id and s.id=v_supplier_id returning * into v_supplier;
+ select u.platform_role into v_platform_role from public.users AS u where u.id=p_user_id;
+ insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,entity_type,entity_id,action,before_data,after_data)
+ values(p_tenant_id,p_site_id,p_user_id,v_platform_role,'supplier',v_supplier.id::text,'set_supplier_type',
+   jsonb_build_object('supplierType','permanent'),jsonb_build_object('supplierType',v_supplier.supplier_type));
+ return query select v_supplier.id,v_supplier.tenant_id,v_supplier.supplier_code,v_supplier.name,
+   v_supplier.contact_name,v_supplier.phone,v_supplier.email,v_supplier.address,v_supplier.tax_number,
+   v_supplier.default_payment_terms_days,v_supplier.supplier_type,v_supplier.notes,v_supplier.is_active,
+   v_supplier.created_at,v_supplier.updated_at;
+end;
+$function$
+;
 CREATE OR REPLACE FUNCTION public.powerhub_inventory_purchase_auto_receive(
  p_tenant_id bigint,
  p_site_id bigint,
