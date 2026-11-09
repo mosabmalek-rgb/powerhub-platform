@@ -69,6 +69,7 @@ CREATE TABLE public.account_transactions(
 \ir ../migrations/20261110019000_powerhub_financial_gl_accrual_integrity.sql
 \ir ../migrations/20261110020000_powerhub_financial_gl_accrual_source_coverage.sql
 \ir ../migrations/20261110021000_powerhub_financial_gl_prior_accrual_coverage.sql
+\ir ../migrations/20261110022000_powerhub_financial_gl_opening_evidence_gate.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
@@ -414,6 +415,20 @@ BEGIN
    PERFORM public.powerhub_financial_gl_source_coverage(902,9101,'2026-10');
  EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true;END;
  IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_A9_CROSS_TENANT_REPORT_VISIBLE'; END IF;
+ -- A10: the opening batch and balanced journal prove structural posting,
+ -- not independent reconciliation with source balances. No caller may infer
+ -- an accountant-certified opening from the presence of posted GL.
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
+ IF (report->>'isOpeningStructurallyPosted')::boolean IS DISTINCT FROM true
+   OR (report->>'isOpeningReconciled')::boolean IS DISTINCT FROM false
+   OR report->'openingEvidenceAudit'->>'status'
+       IS DISTINCT FROM 'INDEPENDENT_SUBLEDGER_RECONCILIATION_REQUIRED'
+   OR (report->'openingEvidenceAudit'->>'accountBalancesMatchedToOpening')::boolean
+       IS DISTINCT FROM false
+   OR trial->>'accountingCertification'<>'NOT_CERTIFIED'
+ THEN RAISE EXCEPTION 'GL_CI_A10_OPENING_EVIDENCE_FALSE_CERTIFICATION: %',
+    report->'openingEvidenceAudit';END IF;
  -- A5 negative acceptance: a mathematically balanced but unapproved
  -- accrual journal projection must fail source integrity. A zero trial
  -- balance never substitutes for an authoritative approval document.
