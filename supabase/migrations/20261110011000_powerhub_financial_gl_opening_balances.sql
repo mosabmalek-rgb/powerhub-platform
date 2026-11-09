@@ -6,7 +6,10 @@ CREATE TABLE public.financial_gl_opening_batches (
   tenant_id bigint NOT NULL REFERENCES public.tenants(id),
   site_id bigint NOT NULL REFERENCES public.sites(id),
   as_of_date date NOT NULL,
-  period text GENERATED ALWAYS AS (to_char(as_of_date,'YYYY-MM')) STORED,
+  period text GENERATED ALWAYS AS (
+    extract(year from as_of_date)::integer::text || '-' ||
+    lpad(extract(month from as_of_date)::integer::text,2,'0')
+  ) STORED,
   evidence_reference text NOT NULL CHECK(length(btrim(evidence_reference)) BETWEEN 8 AND 250),
   description text NOT NULL CHECK(length(btrim(description)) BETWEEN 10 AND 1000),
   operation_key text NOT NULL CHECK(length(btrim(operation_key)) BETWEEN 8 AND 180),
