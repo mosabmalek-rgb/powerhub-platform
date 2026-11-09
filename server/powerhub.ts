@@ -4989,7 +4989,7 @@ export const powerhubRouter = router({
     // A3: on-demand, server-aggregated source coverage; never a certified P&L.
     financialGLSourceCoverage: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
-      period:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
