@@ -34,6 +34,9 @@ export function reviewFinancialPayrollMonth(
     throw new InvalidPayrollReview("Invalid period or row bound");
   }
   const ids=new Set<number>(), expenses=new Map<string,number>();
+  // The payout is a NET cash movement and must never be recognized as
+  // a second wage cost on top of approved/paid GROSS payroll.
+
   for (const expense of linkedExpenses) {
     if(typeof expense.reference_no!=="string" || !/^PAYROLL-\d+$/.test(expense.reference_no) ||
        expenses.has(expense.reference_no)){
@@ -80,6 +83,12 @@ export function reviewFinancialPayrollMonth(
     } else if(actualExpense!==undefined){
       reconciliationIssues.push("EXPENSE_FOR_UNPAID_OR_CANCELLED_PAYROLL");
     }
+    if (status==="approved" && totalNet===0 && totalGross>0) {
+      // Fully deducted runs are legitimate, but accrual classification
+      // remains a manual accounting decision until deduction kinds are reconciled.
+      reconciliationIssues.push("FULLY_DEDUCTED_APPROVED_PAYROLL_REQUIRES_REVIEW");
+    }
+
   }
   for(const ref of expenses.keys()){
     if(!ids.has(Number(ref.slice("PAYROLL-".length)))){
