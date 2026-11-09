@@ -11,7 +11,7 @@ const pairs:AccountPair[]=[
   {label:"تحميل إيراد مؤجل مكتسب",debit:"2200",credit:"4100",description:"مدين: إيراد مؤجل، دائن: إيراد خدمة"},
   {label:"تسوية مصروف تشغيلي مستحق",debit:"5100",credit:"2100",description:"مدين: مصروف تشغيلي، دائن: التزامات مستحقة"},
   {label:"إهلاك أصل ثابت",debit:"5300",credit:"1500",description:"مدين: مصروف إهلاك، دائن: مجمع الإهلاك"},
-  {label:"مخصص ديون محتمل تحصيلها",debit:"5400",credit:"1190",description:"مدين: مصروف مخصص، دائن: مخصص ديون"},
+  {label:"مخصص ديون مشكوك في تحصيلها",debit:"5400",credit:"1190",description:"مدين: مصروف مخصص، دائن: مخصص ديون"},
   {label:"مصروف غير تشغيلي مستحق",debit:"6100",credit:"2100",description:"مدين: مصروف غير تشغيلي، دائن: التزامات مستحقة"},
 ];
 const evidenceLabels=[
@@ -160,6 +160,9 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
       </p>
       <div className="grid grid-cols-2 gap-3 text-xs text-slate-300 sm:grid-cols-4">
         <p>مسودات الرواتب: {n(statement.data.draftPayrollCount)}</p>
+        <p className={statement.data.unreconciledPayrollPayoutCount>0?"text-rose-300":""}>
+          عمليات رواتب غير متطابقة: {n(statement.data.unreconciledPayrollPayoutCount)}
+        </p>
         <p>فواتير دورات غير مكتملة: {n(statement.data.uncompletedInvoiceCount)}</p>
         <p>فواتير تفتقر للدورة: {n(statement.data.missingCycleCount)}</p>
         <p>حركات مخزون غير مصنفة: {n(statement.data.unclassifiedInventoryIssueCount)}</p>
@@ -189,7 +192,12 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
       </div>:null}
       {!locked&&!review.isError?<div className="mt-3 flex flex-wrap gap-2">
         <Button size="sm" variant="outline" disabled={busy} className="text-white"
-          onClick={()=>setShowEvidence(v=>!v)}>
+          onClick={()=>{
+            if(!showEvidence && review.data?.evidence){
+              setEvidence({...emptyEvidence,...review.data.evidence});
+            }
+            setShowEvidence(v=>!v);
+          }}>
           {showEvidence?"إخفاء مستندات المراجعة":"إعداد مستندات الإقفال"}
         </Button>
         <Button size="sm" variant="outline" disabled={busy || review.data?.status!=="draft"} className="text-white"
