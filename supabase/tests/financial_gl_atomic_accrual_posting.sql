@@ -26,6 +26,7 @@ CREATE TABLE public.financial_accrual_period_reviews(
 \ir ../migrations/20261110010000_powerhub_financial_gl_post_approved_accrual.sql
 \ir ../migrations/20261110011000_powerhub_financial_gl_opening_balances.sql
 \ir ../migrations/20261110012000_powerhub_financial_gl_source_coverage.sql
+\ir ../migrations/20261110013000_powerhub_financial_gl_trial_balance.sql
 
 DO $permissions$
 DECLARE t text;
@@ -167,3 +168,16 @@ BEGIN
   THEN RAISE EXCEPTION 'GL_A3_COVERAGE_PARTIAL_RESULT'; END IF;
 END;
 $coverage$;
+
+DO $trial$
+DECLARE report jsonb;
+BEGIN
+  report:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
+  IF report->>'accountingCertification'<>'NOT_CERTIFIED'
+    OR (report->>'isFinalBalanceSheet')::boolean
+    OR NOT (report->>'isMathematicallyBalanced')::boolean
+    OR (report->>'difference')::numeric<>0
+    OR NOT (report ? 'sourceCoverage')
+  THEN RAISE EXCEPTION 'GL_A4_TRIAL_BALANCE_CERTIFICATION_MISMATCH'; END IF;
+END;
+$trial$;
