@@ -68,6 +68,7 @@ CREATE TABLE public.account_transactions(
 \ir ../migrations/20261110018000_powerhub_financial_gl_source_integrity_coverage.sql
 \ir ../migrations/20261110019000_powerhub_financial_gl_accrual_integrity.sql
 \ir ../migrations/20261110020000_powerhub_financial_gl_accrual_source_coverage.sql
+\ir ../migrations/20261110021000_powerhub_financial_gl_prior_accrual_coverage.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
@@ -324,6 +325,27 @@ BEGIN
    OR (report->'sources'->'accrualAdjustments'->>'drafts')::int<>0
    OR (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
  THEN RAISE EXCEPTION 'GL_CI_A6_APPROVED_ACCRUAL_NOT_RECONCILED'; END IF;
+ -- A7: an earlier-month approved accrual with no GL must block
+ -- a later cumulative trial balance (not just its own month).
+ sid:=public.powerhub_financial_accrual_journal_create(
+   901,9101,9901,'2026-09','5100','2100',19.25,
+   'Historical unposted adjustment to verify cumulative month-end source audit',
+   'ci-a7-prior-accrual-missing-gl');
+ PERFORM public.powerhub_financial_accrual_journal_post(901,9101,sid,9902);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
+ IF (report->'sources'->'priorAccrualAdjustments'->>'missingGL')::int<>1
+    OR (report->'sources'->'priorAccrualAdjustments'->>'approved')::int<2
+    OR (trial->'sourceCoverage'->'sources'->
+         'priorAccrualAdjustments'->>'missingGL')::int<>1
+    OR (report->>'isSourceCoverageComplete')::boolean IS DISTINCT FROM false
+ THEN RAISE EXCEPTION 'GL_CI_A7_PRIOR_PERIOD_ACCRUAL_GAP_HIDDEN: %',
+   report->'sources'->'priorAccrualAdjustments'; END IF;
+ PERFORM public.powerhub_financial_gl_post_accrual(901,9101,sid);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'priorAccrualAdjustments'->>'missingGL')::int<>0
+   OR (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
+ THEN RAISE EXCEPTION 'GL_CI_A7_PRIOR_ACCRUAL_RECONCILE_FAILED'; END IF;
  -- A5 negative acceptance: a mathematically balanced but unapproved
  -- accrual journal projection must fail source integrity. A zero trial
  -- balance never substitutes for an authoritative approval document.
