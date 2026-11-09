@@ -12,6 +12,7 @@ DECLARE
  v_opening_count bigint;v_unposted_opening_count bigint;
  v_opening_date date;
  v_invoice_total bigint;v_invoice_unposted bigint;v_invoice_missing_cycle bigint;
+ v_service_recognition_required bigint:=0;v_service_recognition_missing bigint:=0;
  v_payments_total bigint;v_payments_unposted bigint;
  v_payment_ledger_mismatches bigint;v_payment_missing_ledger bigint;
  v_expense_total bigint;v_expense_unposted bigint;
@@ -57,6 +58,49 @@ BEGIN
  AND i.status IN ('issued','overdue','partially_paid','paid')
  AND (i.cycle_start_at IS NULL OR i.cycle_end_at IS NULL)
  AND i.issue_date>=v_start AND i.issue_date<v_end;
+ -- For fully completed months, a posted invoice alone does not prove
+ -- earned-service recognition. Evaluate the same Gaza calendar-day, integer-
+ -- minor-unit formula as the dedicated recognition RPC. No future-month
+ -- revenue recognition is required, and a zero-cent allocation needs no GL.
+ IF (v_day+INTERVAL '1 month - 1 day')::date
+    < (now() AT TIME ZONE 'Asia/Gaza')::date THEN
+   WITH scoped AS (
+     SELECT i.id, i.total_amount, i.tax_amount,
+       (i.cycle_start_at AT TIME ZONE 'Asia/Gaza')::date first_day,
+       (i.cycle_end_at AT TIME ZONE 'Asia/Gaza')::date last_day
+     FROM public.invoices i
+     WHERE i.tenant_id=p_tenant_id AND i.site_id=p_site_id
+       AND i.status IN ('issued','overdue','partially_paid','paid')
+       AND i.cycle_start_at IS NOT NULL AND i.cycle_end_at IS NOT NULL
+       AND i.cycle_end_at>=v_start AND i.cycle_start_at<v_end
+       AND i.total_amount IS NOT NULL AND i.tax_amount IS NOT NULL
+       AND i.total_amount>=i.tax_amount AND i.tax_amount>=0
+       AND i.total_amount=round(i.total_amount,2)
+       AND i.tax_amount=round(i.tax_amount,2)
+   ), calendar AS (
+     SELECT id, first_day,last_day,
+       ((total_amount-tax_amount)*100)::bigint net_minor,
+       (last_day-first_day+1)::bigint service_days
+     FROM scoped
+     WHERE last_day>=v_day AND first_day<(v_day+INTERVAL '1 month')::date
+       AND last_day>=first_day AND last_day-first_day+1 BETWEEN 1 AND 3660
+   ), portions AS (
+     SELECT id,
+       (net_minor*((least(last_day,(v_day+INTERVAL '1 month - 1 day')::date)
+         -first_day+1)::bigint)/service_days)
+       -(net_minor*((greatest(first_day,v_day)-first_day)::bigint)/service_days)
+       AS expected_minor
+     FROM calendar
+   )
+   SELECT count(*),count(*) FILTER(WHERE NOT EXISTS(
+      SELECT 1 FROM public.financial_gl_entries gl
+      WHERE gl.tenant_id=p_tenant_id AND gl.site_id=p_site_id
+       AND gl.source_type='service_recognition'
+       AND gl.source_revision=1
+       AND gl.source_id=portions.id::text||':'||p_period))
+   INTO v_service_recognition_required,v_service_recognition_missing
+   FROM portions WHERE expected_minor>0;
+ END IF;
  SELECT count(*),count(*) FILTER(WHERE NOT EXISTS(
    SELECT 1 FROM public.financial_gl_entries g
    WHERE g.tenant_id=p.tenant_id AND g.site_id=p.site_id
@@ -209,7 +253,7 @@ BEGIN
  v_missing:=v_invoice_unposted+v_invoice_missing_cycle+v_payments_unposted+
    v_expense_unposted+v_payroll_unposted+v_payroll_drafts+
    v_stock_unposted+v_supplier_unposted+v_cash_unclassified+v_gl_broken+
-   v_payment_ledger_mismatches;
+   v_payment_ledger_mismatches+v_service_recognition_missing;
  RETURN jsonb_build_object(
   'tenantId',p_tenant_id,'siteId',p_site_id,'period',p_period,
   'opening',jsonb_build_object('postedCount',v_opening_count,
@@ -217,6 +261,11 @@ BEGIN
   'sources',jsonb_build_object(
     'invoices',jsonb_build_object('inScope',v_invoice_total,
       'missingGL',v_invoice_unposted,'missingCycle',v_invoice_missing_cycle),
+    'serviceRecognition',jsonb_build_object(
+      'monthCompleted',(v_day+INTERVAL '1 month - 1 day')::date
+        < (now() AT TIME ZONE 'Asia/Gaza')::date,
+      'requiredInvoiceMonths',v_service_recognition_required,
+      'missingGL',v_service_recognition_missing),
     'payments',jsonb_build_object('inScope',v_payments_total,
       'missingGL',v_payments_unposted,
       'withoutLinkedCollection',v_payment_missing_ledger,
