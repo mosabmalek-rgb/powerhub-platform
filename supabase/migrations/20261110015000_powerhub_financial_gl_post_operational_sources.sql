@@ -297,7 +297,7 @@ DECLARE
  v_plan jsonb;v_entry public.financial_gl_entries%ROWTYPE;
  v_period text;v_lines jsonb;v_fingerprint text;v_policy text;v_key text;
  v_line jsonb;v_debit numeric;v_credit numeric;v_expected bigint;
- v_reversal_id bigint;v_count bigint;
+ v_reversal_id bigint;v_count bigint;v_required numeric;v_available numeric;
 BEGIN
  IF p_user_id IS NULL OR p_user_id<=0 OR NOT EXISTS(
     SELECT 1 FROM public.users u WHERE u.id=p_user_id)
@@ -361,6 +361,32 @@ BEGIN
          AND e.source_type='opening_balance' AND e.source_id=b.id::text
          AND e.source_fingerprint=b.source_fingerprint))
  THEN RAISE EXCEPTION 'GL_DOCUMENTED_OPENING_REQUIRED' USING ERRCODE='22023'; END IF;
+ -- Source cost/settlement may not consume more than the documented GL
+ -- asset or liability available at this site. Check AFTER acquiring both
+ -- advisory locks, so two concurrent issues cannot spend the same stock.
+ FOR v_line IN SELECT jsonb_array_elements(v_lines) LOOP
+   IF (v_line->>'side')='credit' AND (v_line->>'code') IN ('1300','1700') THEN
+     v_required:=(v_line->>'amount')::numeric;
+     SELECT coalesce(sum(CASE WHEN l.side='debit' THEN l.amount ELSE -l.amount END),0)
+       INTO v_available
+     FROM public.financial_gl_lines l JOIN public.financial_gl_entries e ON e.id=l.entry_id
+     WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
+       AND e.period<=v_period AND l.account_code=v_line->>'code';
+     IF v_available<v_required THEN
+       RAISE EXCEPTION 'GL_SOURCE_ASSET_NOT_SUPPORTED_BY_LEDGER'
+         USING ERRCODE='22023'; END IF;
+   ELSIF (v_line->>'side')='debit' AND (v_line->>'code')='2300' THEN
+     v_required:=(v_line->>'amount')::numeric;
+     SELECT coalesce(sum(CASE WHEN l.side='credit' THEN l.amount ELSE -l.amount END),0)
+       INTO v_available
+     FROM public.financial_gl_lines l JOIN public.financial_gl_entries e ON e.id=l.entry_id
+     WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
+       AND e.period<=v_period AND l.account_code='2300';
+     IF v_available<v_required THEN
+       RAISE EXCEPTION 'GL_SUPPLIER_PAYMENT_EXCEEDS_LIABILITY'
+         USING ERRCODE='22023'; END IF;
+   END IF;
+ END LOOP;
  PERFORM public.powerhub_financial_gl_seed_chart(p_tenant_id);
  INSERT INTO public.financial_gl_accounts(tenant_id,code,name,account_class,normal_side,is_contra)
  VALUES(p_tenant_id,'2250','أرصدة مقدمة للمشتركين','liability','credit',false),
