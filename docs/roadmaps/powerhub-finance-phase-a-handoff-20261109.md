@@ -1,3 +1,18 @@
+## تحديث A16 — بوابة القبول النهائية المحاسبية ومنع الشهادة الكاذبة (9 نوفمبر 2026)
+
+### التنفيذ الذي أُضيف فعلياً في PR #359
+- أصبحت كل الترحيلات GL/الاستحقاق والاستلام التلقائي من `20261110005000` إلى `20261110024000` **مسجلة على Staging** مع الحفاظ على أرقام Git؛ لا ترحيلات جديدة مطلوبة لهذه الوظائف.
+- واجهة مالية اختيارية جديدة `client/src/components/finance/FinancialGLAuditPanel.tsx` موصولة بـ`client/src/pages/FinancialDashboardPage.tsx`: تظهر عند الضغط على «فتح تدقيق دفتر الأستاذ»، ولا تُحمّل تقرير المصدر أو ميزان المراجعة افتراضياً. تُبرز الفرق بين الاتزان الرياضي ووجود افتتاحية مرحلة/مطابقة مصدرية مستقلة، وتعرض فئات النواقص، وحركات اختبارات الأداء، وتمنع عرض نتائج قديمة كأنها موثوقة عند فشل الاستعلام.
+- أضيف `server/financial-gl-audit-ui.contract.test.ts` لضمان نطاق الفرع، عرض أسباب الحظر، عدم جلب التقارير دون طلب، وعدم إظهار بيانات مخزنة عند الخطأ.
+- أضيف فحص قبول SQL **للقراءة فقط** في `docs/security/sql/pr359-financial-phase-a-final-readonly-acceptance.sql`؛ يعرض `gl_structural_check`, `source_completeness_check`, `opening_independent_evidence_check`, `performance_fixture_segregation_check`, `phase_a_accounting_acceptance`، ويعرض أعداد المصدر ونسخة الإثبات بدلاً من تجاوز النتائج الناقصة.
+
+### نتائج Staging المباشرة من فحص القبول
+- **tenant=1 / site=1 / through=2026-11:** `gl_structural_check=BLOCKED`, `source_completeness_check=BLOCKED`, `opening_independent_evidence_check=BLOCKED`, `performance_fixture_segregation_check=BLOCKED`, `phase_a_accounting_acceptance=BLOCKED`. `posted_gl_count=0`، `unreconciled_source_count=250027`، منها `performance_fixture_count=250000`. `trial_balance_difference=0` لا يشكل شهادة؛ لا توجد افتتاحية منشورة، وعلم `accountingCertification=NOT_CERTIFIED`.
+- **tenant=1 / site=9000000000099 / through=2026-10:** `gl_structural_check=PASS`, `source_completeness_check=PASS`, `performance_fixture_segregation_check=PASS`, لكن `opening_independent_evidence_check=BLOCKED`, `phase_a_accounting_acceptance=BLOCKED`. توجد 3 قيود صحيحة وفرق الميزان صفر، إلا أن الافتتاحية 2000 شيكل تركيبية ولا تطابق أدلة مصدرية مستقلة. `NOT_CERTIFIED` قرار صحيح.
+- **حقائق لا يجوز معالجتها بقيد سدادة:** الـ250 ألف حركة `STG-PERF-*` تجريبية لكنها أُدرجت في سجل الشركة النقدي القديم؛ يجب أن يكون فصلها بمسار بيانات موثق ومستقل مع أدلة أصل/حذف/ترحيل وسياسة تصنيف، لا تجاهلها عبر WHERE على الوسم أو تزوير قيود مقابلها. يجب إنشاء افتتاحية أصلية مؤرخة مثبتة بأرصدة الصندوق والمحافظ والمخزون والذمم والدائنين والرواتب وتدقيق فصل المستخدمين. لا تسمح سياسة A10 الحالية بتصديق أي افتتاحية دون محرك أدلة مستقل.
+- **بوابات غير مكتملة:** الفحص المستقل لأرصدة المصدر والتصنيف، معاملة الإقفال/العكس عبر اتصالين مستقلين، اختبار واجهة Preview مطابق للـSHA ومؤكد أنها تستخدم Staging، واختبار تحميل وبصمات على حمل كبير. يجب إعادة قراءة CI الأربع على الرأس النهائي عند كل تعديل؛ لا تُنسب نتيجة SHA سابق إليه.
+- **قرار هذه الجولة:** `ENGINEERING_VERIFIED` للجزء المطبق والمختبر، `ACCOUNTING_RECONCILED=false`, `STAGING_ACCEPTED=false`, `PHASE_A_ACCEPTED=false`, `RELEASE_READY=false`. إغلاق A على site=1 دون تحقق الافتتاح والمصادر يعد نجاحاً كاذباً. لا تعديل Production، ولا دمج PR #359، ولا إرسال SMS أو تنفيذ عمليات مالية خارج Staging.
+
 ## تحديث A15 — قبول تكامل الاستلام التلقائي على Staging الدائمة (9 نوفمبر 2026)
 
 - **تحقق الحالة على قاعدة Staging الحقيقية:** `supabase_migrations.schema_migrations` يسجل `20261110024000_powerhub_inventory_atomic_auto_receipt`؛ وكذلك `22000` و`23000` سابقًا. آخر رأس متحقق منه قبل هذا التوثيق `3fb523db87a6f98db35fd7dbe8bcb1625afc0030`، وجميع بوابات CI الأربع `success` على الرأس نفسه: PowerHub CI، Reading Cycle PostgreSQL Integration، PowerHub Security، PowerHub Supabase Admin Guard. PR #359 مفتوح `Draft` وغير مدمج؛ لا نشر Production.
