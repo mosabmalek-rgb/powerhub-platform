@@ -1,3 +1,12 @@
+## تحديث A4 — حماية اكتمال التغطية من تغيّر المصادر (9 نوفمبر 2026)
+
+- بعد نجاح البوابات الأربع على `0671347c3df933feefe0520af77aadb185d6d173`، أُضيف الترحيل الجديد **`supabase/migrations/20261110018000_powerhub_financial_gl_source_integrity_coverage.sql`** إلى PR #359. **لم يطبق بعد تطبيقًا دائمًا على Staging**؛ يجب إطلاقه بالمسار المحمي وبنفس النسخة المسجلة في GitHub. لا تستخدم `apply_migration` الذي يغيّر رقم نسخة الملف.
+- الترحيل يضيف `powerhub_financial_gl_source_integrity(tenant,site,throughPeriod)` ويتحقق من بصمة المصدر وسياسة المحاسبة ونسخة المصدر والمبلغ والحسابات والجانبين على هيئة multiset لكل قيد تشغيلي، واعتراف الخدمة وأصله، وحالة الافتتاحية، ومنع تصنيف أي نوع غير مدقق على أنه صالح. يحتفظ بجميع إجماليات العيوب، ويقصر **أمثلة** العيوب على 12 مع علم `sampleTruncated`، دون سقف على الحسابات نفسها.
+- أُعيد تعريف `powerhub_financial_gl_source_coverage` لإضافة `sourceIntegrity` إلى JSON وضم العيوب لإجمالي `unreconciledSourceCount` حتى لا تُعرض حالة اكتمال كاذبة. بقي `NOT_CERTIFIED` و`isFinalProfit=false`.
+- **اختبار Staging الآمن عبر BEGIN/ROLLBACK نجح:** بإنشاء افتتاحية مؤقتة وقيد فاتورة 18 واعتراف الخدمة، سجل تقرير أكتوبر `checkedEntries=3` و`isClean=true` و9 نواقص. بعد رفع مبلغ الفاتورة مؤقتاً بوحدة نقدية أصبح `driftedEntries=1` و`invalidSources=1`، و`isClean=false` و11 نقيصة. بعد الاستعادة عاد `isClean=true` و9 نواقص، ثم تراجعت المعاملة كاملة. **هذه شهادة للاختبار المؤقت فقط وليست دليل التطبيق الدائم.**
+- حُدّث اختبار PostgreSQL `financial_gl_operational_sources_integration.sql` لتنفيذ ترحيل 18000 والتحقق من نظافة المدقق بعد الترحيل وعند تغيير الفاتورة والحركة النقدية وبعد إرجاعهما.
+- يجب اعتماد نتائج CI الأربع على **SHA الجديد**، ثم تدقيق الأداء على فرع كبير قبل تنفيذ 18000 تطبيقًا دائمًا. لا يُعلن قبول A قبل تسوية الأرصدة الافتتاحية وجميع المصادر والتحقق من إدخالات المال والرواتب والمشتريات، والعكس والفترات والواجهة والصلاحيات. `ACCOUNTING_RECONCILED=false` و`STAGING_ACCEPTED=false`.
+
 ## تحديث قبول Staging — 9 نوفمبر 2026 (بعد الترحيلات الثلاثة)
 
 - ثبت من `supabase_migrations.schema_migrations` تسجيل `20261110015000` و`20261110016000` و`20261110017000` بأرقام الملفات الأصلية. دوال post/source-plan/coverage/service-recognition/trial-balance موجودة، `SECURITY INVOKER`، لا EXECUTE مباشر لـ`anon` أو `authenticated`، ويسمح `service_role`.
