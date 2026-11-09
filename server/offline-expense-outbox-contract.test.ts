@@ -26,7 +26,7 @@ describe("offline expense Outbox server boundary", () => {
     const end = router.indexOf("dashboard: router({", start);
     const expenseRouter = router.slice(start, end);
     expect(expenseRouter).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, createRoles, "manageExpenses")');
-    expect(expenseRouter).toContain("powerhub_create_expense_with_account_idempotent");
+    expect(expenseRouter).toContain("powerhub_create_expense_classified_idempotent");
     expect(expenseRouter).toContain("p_client_operation_id: input.clientOperationId");
   });
 

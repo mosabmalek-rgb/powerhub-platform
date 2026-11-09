@@ -33,10 +33,10 @@ describe("financial dashboard operating expense inclusion",()=>{
     expect(router).toContain("operatingProfit: collected - expenseTotal");
   });
   it("explains the expense components in cards, CSV and PDF, avoiding cash-flow mislabelling",()=>{
-    expect(page).toContain("مصروفات مسجلة مباشرة");
+    expect(page).toContain("مصروفات مباشرة تشغيلية");
     expect(page).toContain("صافي تكلفة استهلاك المخزون");
     expect(page).toContain("فائض التحصيل بعد المصروفات");
     expect(page).toContain("["+'"'+"تكلفة استهلاك المخزون"+'"'+", data.summary.inventoryConsumptionCost]");
-    expect(page).toContain("المصروفات المباشرة:");
+    expect(page).toContain("المصروفات المباشرة التشغيلية:");
   });
 });

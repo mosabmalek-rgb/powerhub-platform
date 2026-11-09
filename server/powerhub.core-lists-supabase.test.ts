@@ -159,6 +159,18 @@ const state = vi.hoisted(() => {
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
       if (missingRpcs.has(name)) return Promise.resolve({ data: null, error: { code: "PGRST202", message: `Could not find the function public.${name} in the schema cache` } });
+      if (name === "powerhub_report_inventory_consumption_costs") {
+        const { p_tenant_id, p_site_ids } = args as { p_tenant_id: number; p_site_ids: number[] };
+        const rows = (tables.inventory_stock_movements ?? []) as Array<Record<string, unknown>>;
+        const results = p_site_ids.map(siteId => ({
+          site_id: siteId,
+          inventory_consumption_cost: rows
+            .filter(row => Number(row.tenant_id) === p_tenant_id && Number(row.site_id) === siteId)
+            .reduce((total, row) => total + Number(row.total_cost_amount ?? 0), 0),
+        }));
+        return resolved(results);
+      }
+
       const recordRows = (table: string) => (tables[table] ?? []) as Array<Record<string, unknown>>;
       if (name === "powerhub_dashboard_operational_summary") {
         const input = args as { p_tenant_id: number; p_site_id: number | null };
