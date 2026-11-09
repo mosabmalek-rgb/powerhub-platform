@@ -67,6 +67,7 @@ CREATE TABLE public.account_transactions(
 \ir ../migrations/20261110017000_powerhub_financial_gl_service_recognition.sql
 \ir ../migrations/20261110018000_powerhub_financial_gl_source_integrity_coverage.sql
 \ir ../migrations/20261110019000_powerhub_financial_gl_accrual_integrity.sql
+\ir ../migrations/20261110020000_powerhub_financial_gl_accrual_source_coverage.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
@@ -303,6 +304,26 @@ BEGIN
  IF (trial->>'difference')::numeric<>0 OR
     trial->'sourceCoverage'->'sourceIntegrity'->>'isClean'<>'true'
  THEN RAISE EXCEPTION 'GL_CI_ACCRUAL_REVERSAL_TRIAL_BALANCE'; END IF;
+ -- A6: draft accruals and already approved but missing GL projections
+ -- must block coverage despite mathematically balanced existing journals.
+ sid:=public.powerhub_financial_accrual_journal_create(
+   901,9101,9901,'2026-10','5100','2100',13.75,
+   'Independent accrual source coverage gap detector',
+   'ci-a6-approved-unposted-accrual');
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'accrualAdjustments'->>'drafts')::int<>1
+ THEN RAISE EXCEPTION 'GL_CI_A6_ACCRUAL_DRAFT_HIDDEN'; END IF;
+ PERFORM public.powerhub_financial_accrual_journal_post(901,9101,sid,9902);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'accrualAdjustments'->>'missingGL')::int<>1
+   OR (report->>'isSourceCoverageComplete')::boolean IS DISTINCT FROM false
+ THEN RAISE EXCEPTION 'GL_CI_A6_APPROVED_WITHOUT_GL_HIDDEN'; END IF;
+ PERFORM public.powerhub_financial_gl_post_accrual(901,9101,sid);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ IF (report->'sources'->'accrualAdjustments'->>'missingGL')::int<>0
+   OR (report->'sources'->'accrualAdjustments'->>'drafts')::int<>0
+   OR (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM true
+ THEN RAISE EXCEPTION 'GL_CI_A6_APPROVED_ACCRUAL_NOT_RECONCILED'; END IF;
  -- A5 negative acceptance: a mathematically balanced but unapproved
  -- accrual journal projection must fail source integrity. A zero trial
  -- balance never substitutes for an authoritative approval document.
