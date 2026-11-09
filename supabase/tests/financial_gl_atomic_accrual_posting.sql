@@ -151,6 +151,14 @@ BEGIN
  EXCEPTION WHEN SQLSTATE '22023' THEN denied:=true;
  END;
  IF NOT denied THEN RAISE EXCEPTION 'OPENING_SELF_APPROVAL_NOT_REJECTED'; END IF;
+ denied:=false;
+ BEGIN
+   UPDATE public.financial_gl_opening_batches
+   SET status='posted',approved_by_user_id=9902,approved_at=now()
+   WHERE id=oid;
+   SET CONSTRAINTS ALL IMMEDIATE;
+ EXCEPTION WHEN SQLSTATE '23514' THEN denied:=true; END;
+ IF NOT denied THEN RAISE EXCEPTION 'OPENING_DIRECT_STATUS_BYPASS_NOT_REJECTED'; END IF;
  p:=public.powerhub_financial_gl_opening_post(901,9101,oid,9902);
  r:=public.powerhub_financial_gl_opening_post(901,9101,oid,9902);
  eid:=(p->>'entryId')::bigint;
