@@ -18,7 +18,15 @@ WITH input AS (
   (coverage->>'isOpeningReconciled')::boolean AS opening_reconciled,
   (coverage->'openingEvidenceAudit'->>'accountBalancesMatchedToOpening')::boolean AS matched_opening,
   (coverage->'openingEvidenceAudit'->>'sourceSubledgersIndependentlyVerified')::boolean AS verified_subledgers,
-  coalesce((coverage->'sources'->'priorOperationalSources'->>'performanceFixtureTagged')::bigint,0) AS performance_fixtures,
+  (coalesce((coverage->'sources'->'priorOperationalSources'->>'performanceFixtureTagged')::bigint,0)
+   +coalesce((coverage->'sources'->'companyAccountMovements'->>'performanceFixtureTagged')::bigint,0))
+   AS performance_fixtures,
+  (coalesce((coverage->'sources'->'priorOperationalSources'->>'quarantinedTestMovements')::bigint,0)
+   +coalesce((coverage->'sources'->'companyAccountMovements'->>'quarantinedTestMovements')::bigint,0))
+   AS quarantined_fixtures,
+  (coalesce((coverage->'sources'->'priorOperationalSources'->'fixtureQuarantine'->>'verified')::boolean,false)
+   OR coalesce((coverage->'sources'->'companyAccountMovements'->'fixtureQuarantine'->>'verified')::boolean,false))
+   AS quarantine_source_verified,
   (trial->>'difference')::numeric AS balance_difference,
   (trial->>'postedEntryCount')::bigint AS gl_entries
  FROM reports r
@@ -32,6 +40,8 @@ SELECT tenant_id,site_id,period,
    AND matched_opening IS TRUE AND verified_subledgers IS TRUE
     THEN 'PASS' ELSE 'BLOCKED' END AS opening_independent_evidence_check,
   CASE WHEN performance_fixtures=0
+   OR (quarantine_source_verified IS TRUE
+       AND performance_fixtures=quarantined_fixtures)
     THEN 'PASS' ELSE 'BLOCKED' END AS performance_fixture_segregation_check,
   CASE WHEN coverage->>'accountingCertification'='CERTIFIED'
     AND trial->>'accountingCertification'='CERTIFIED'
@@ -39,10 +49,14 @@ SELECT tenant_id,site_id,period,
     AND sources_complete IS TRUE AND unresolved=0
     AND opening_reconciled IS TRUE AND verified_subledgers IS TRUE
     AND matched_opening IS TRUE AND source_clean IS TRUE
-    AND performance_fixtures=0 AND balance_difference=0 AND gl_entries>0
+    AND (performance_fixtures=0 OR
+       (quarantine_source_verified IS TRUE AND performance_fixtures=quarantined_fixtures))
+    AND balance_difference=0 AND gl_entries>0
    THEN 'PASS' ELSE 'BLOCKED' END AS phase_a_accounting_acceptance,
   unresolved AS unresolved_source_count,gl_entries AS posted_gl_count,
   performance_fixtures AS performance_fixture_count,
+  quarantined_fixtures AS verified_quarantine_count,
+  quarantine_source_verified,
   balance_difference,
   coverage->'openingEvidenceAudit' AS opening_evidence,
   coverage->'sourceIntegrity' AS source_integrity,
