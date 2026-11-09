@@ -171,6 +171,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres company_account_movement_idempotency_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname company_account_movement_idempotency_test --set ON_ERROR_STOP=1 --file supabase/tests/company_account_movement_idempotency.sql
 
+      - name: Verify A2 general-ledger foundation migration and negative cases in isolated PostgreSQL
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_gl_foundation_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_gl_foundation_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_gl_foundation_integration.sql
+
       - name: Verify independent financial-settlement approval and immutable approver identity
         env:
           PGPASSWORD: postgres
