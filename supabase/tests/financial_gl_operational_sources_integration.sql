@@ -303,6 +303,31 @@ BEGIN
  IF (trial->>'difference')::numeric<>0 OR
     trial->'sourceCoverage'->'sourceIntegrity'->>'isClean'<>'true'
  THEN RAISE EXCEPTION 'GL_CI_ACCRUAL_REVERSAL_TRIAL_BALANCE'; END IF;
+ -- A5 negative acceptance: a mathematically balanced but unapproved
+ -- accrual journal projection must fail source integrity. A zero trial
+ -- balance never substitutes for an authoritative approval document.
+ INSERT INTO public.financial_gl_entries(tenant_id,site_id,period,source_type,
+   source_id,source_revision,operation_key,source_fingerprint,
+   accounting_policy_version,posted_by_user_id)
+ VALUES(901,9101,'2026-10','accrual_adjustment','999999999',1,
+   'gl:accrual:999999999:v1',repeat('0',64),
+   'accrual-approved-subledger-v1',9902)
+ RETURNING id INTO sid;
+ INSERT INTO public.financial_gl_lines(
+   entry_id,tenant_id,site_id,account_code,side,amount)
+ VALUES(sid,901,9101,'5100','debit',19.99),
+       (sid,901,9101,'2100','credit',19.99);
+ report:=public.powerhub_financial_gl_source_coverage(901,9101,'2026-10');
+ trial:=public.powerhub_financial_gl_trial_balance(901,9101,'2026-10');
+ IF (report->'sourceIntegrity'->>'isClean')::boolean IS DISTINCT FROM false
+    OR (report->'sourceIntegrity'->>'invalidSources')::int<>1
+    OR (report->'sourceIntegrity'->'samples'->0->>'reason')
+       IS DISTINCT FROM 'ACCRUAL_NOT_APPROVED_OR_MISSING'
+    OR (trial->>'difference')::numeric<>0
+    OR (trial->'sourceCoverage'->>'isSourceCoverageComplete')::boolean
+       IS DISTINCT FROM false
+ THEN RAISE EXCEPTION 'GL_CI_UNAPPROVED_BUT_BALANCED_ACCRUAL_FALSE_PASS: %',
+   report->'sourceIntegrity'; END IF;
  SET CONSTRAINTS ALL IMMEDIATE;
 END;$assert$;
 ROLLBACK;
