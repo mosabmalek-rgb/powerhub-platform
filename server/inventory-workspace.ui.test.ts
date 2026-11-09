@@ -247,7 +247,8 @@ describe("inventory workspace UI contract", () => {
     expect(panel).toContain("trpc.powerhub.inventory.createPurchase.useMutation");
     expect(panel).toContain("trpc.powerhub.inventory.confirmPurchase.useMutation");
     expect(panel).toContain("trpc.powerhub.inventory.receivePurchase.useMutation");
-    expect(panel).toContain("لا تُضاف كميات إلى المخزون حتى تسجيل الاستلام");
+    expect(panel).toContain("الاستلام يدوي افتراضيًا، أو يمكن تفعيل الاستلام التلقائي");
+    expect(panel).toContain("استلام تلقائي إلى المخزن المحدد عند إنشاء الشراء");
     expect(panel).toContain("canViewFinancials");
     expect(router).toContain("requirePurchaseReadAccess");
     expect(router).toContain("requireSupabaseSiteAnyCapability(userId, siteId");
