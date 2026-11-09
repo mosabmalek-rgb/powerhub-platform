@@ -4862,23 +4862,42 @@ export const powerhubRouter = router({
           message:"تعذر التحقق من كشوف الرواتب للفترة؛ لم يُعرض تقرير جزئي."});
       }
       const refs=runs.map(run=>`PAYROLL-${run.id}`);
-      let expenses:Array<{reference_no:string|null;amount:number|string}>=[];
+      let expenses:Array<{
+        id:number;reference_no:string|null;amount:number|string;company_account_id:number|null
+      }>=[];
+      let movements:Array<{
+        id:number;reference_no:string|null;amount:number|string;account_id:number;
+        related_expense_id:number|null;transaction_type:string
+      }>=[];
       if(refs.length){
-        const {data,error}=await supabaseAdmin().from("expenses")
-          .select("reference_no,amount").eq("tenant_id",access.tenantId)
-          .eq("site_id",input.siteId).eq("category","payroll")
-          .in("reference_no",refs).order("id",{ascending:true}).limit(201);
-        if(error || !data || data.length>200) {
+        const [expenseResult,movementResult]=await Promise.all([
+          supabaseAdmin().from("expenses")
+            .select("id,reference_no,amount,company_account_id")
+            .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+            .eq("category","payroll").in("reference_no",refs)
+            .order("id",{ascending:true}).limit(201),
+          supabaseAdmin().from("account_transactions")
+            .select("id,reference_no,amount,account_id,related_expense_id,transaction_type")
+            .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+            .in("reference_no",refs).order("id",{ascending:true}).limit(201),
+        ]);
+        if(expenseResult.error || movementResult.error ||
+          !expenseResult.data || !movementResult.data ||
+          expenseResult.data.length>200 || movementResult.data.length>200){
           throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
-            message:"تعذر مطابقة مصروفات الرواتب؛ لم يُعرض تقرير جزئي."});
+            message:"تعذر مطابقة المصروفات والحركات النقدية للرواتب؛ لم يُعرض تقرير جزئي."});
         }
-        expenses=data;
+        expenses=expenseResult.data;
+        movements=movementResult.data;
       }
       try {
         return {
-          ...reviewFinancialPayrollMonth(input.period,runs,expenses),
+          ...reviewFinancialPayrollMonth(input.period,runs,expenses,movements),
           scopeSiteId:input.siteId,
           asOf:new Date().toISOString(),
+          // Only payment references belonging to this month's payroll runs are audited.
+          // Other months' payout postings and unrelated orphan rows are outside this review.
+          coverageNotice:"linked_monthly_payroll_runs_only" as const,
         };
       } catch(error) {
         if(error instanceof InvalidPayrollReview) {
