@@ -16,7 +16,7 @@ DECLARE
  v_payroll_total bigint;v_payroll_unposted bigint;v_payroll_drafts bigint;
  v_stock_total bigint;v_stock_unposted bigint;
  v_supplier_total bigint;v_supplier_unposted bigint;
- v_cash_moves bigint;v_cash_unclassified bigint;
+ v_cash_moves bigint;v_cash_unclassified bigint;v_cash_perf_fixture bigint;
  v_gl_total bigint;v_gl_broken bigint;v_gl_balance numeric;
  v_missing bigint;
 BEGIN
@@ -101,8 +101,10 @@ BEGIN
  SELECT count(*),count(*) FILTER(WHERE
      a.related_payment_id IS NULL AND a.related_expense_id IS NULL
      AND a.related_supplier_payment_id IS NULL AND a.related_supplier_return_id IS NULL
-     AND a.related_account_id IS NULL)
- INTO v_cash_moves,v_cash_unclassified
+     AND a.related_account_id IS NULL),
+     count(*) FILTER(WHERE a.reference_no LIKE 'STG-PERF-%'
+        OR a.reference_no LIKE 'PH-PERF-%')
+ INTO v_cash_moves,v_cash_unclassified,v_cash_perf_fixture
  FROM public.account_transactions a
  WHERE a.tenant_id=p_tenant_id AND a.site_id=p_site_id
  AND a.occurred_at>=v_start AND a.occurred_at<v_end;
@@ -134,7 +136,8 @@ BEGIN
     'stockMovements',jsonb_build_object('inScope',v_stock_total,'missingGL',v_stock_unposted),
     'supplierLedger',jsonb_build_object('inScope',v_supplier_total,'missingGL',v_supplier_unposted),
     'companyAccountMovements',jsonb_build_object('inScope',v_cash_moves,
-      'unclassified',v_cash_unclassified)),
+      'unclassified',v_cash_unclassified,
+      'performanceFixtureTagged',v_cash_perf_fixture)),
   'gl',jsonb_build_object('entries',v_gl_total,'unbalancedEntries',v_gl_broken,
     'signedBalance',v_gl_balance),
   'unreconciledSourceCount',v_missing,
