@@ -49,10 +49,12 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const create=trpc.powerhub.reports.accrualJournalCreate.useMutation();
   const post=trpc.powerhub.reports.accrualJournalPost.useMutation();
   const reverse=trpc.powerhub.reports.accrualJournalReverse.useMutation();
+  const voidDraft=trpc.powerhub.reports.accrualJournalVoid.useMutation();
   const [selectedPair,setSelectedPair]=useState("0");
   const [amount,setAmount]=useState("");
   const [reason,setReason]=useState("");
   const [reversalReason,setReversalReason]=useState("");
+  const [voidReason,setVoidReason]=useState("");
   const [requestKey,setRequestKey]=useState<string|null>(null);
   const [evidence,setEvidence]=useState<Record<EvidenceKey,string>>(emptyEvidence);
   const [showEvidence,setShowEvidence]=useState(false);
@@ -111,6 +113,14 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
       await refresh();
     }catch{toast.error("لم يُعتمد القيد. لا يجوز لمنشئ القيد اعتماده بنفسه.");}
   };
+  const voidJournal=async(id:number)=>{
+    if(voidReason.trim().length<10){toast.error("أدخل سبب إلغاء واضحاً لا يقل عن 10 أحرف.");return;}
+    try{
+      await voidDraft.mutateAsync({siteId,journalId:id,reason:voidReason.trim()});
+      toast.success("أُلغيت المسودة وسُجّل سبب الإلغاء دون حذف السجل.");
+      setVoidReason("");await refresh();
+    }catch{toast.error("تعذر إلغاء المسودة؛ لا يمكن إلغاء قيد معتمد دون قيد عكس.");}
+  };
   const createReversal=async(id:number)=>{
     if(reversalReason.trim().length<10){
       toast.error("أدخل سبب عكس واضحاً لا يقل عن 10 أحرف.");return;
@@ -123,7 +133,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
     }catch{toast.error("تعذر إنشاء قيد عكس. تحقق من أن القيد معتمد ولم يُعكس سابقاً.");}
   };
   const loading=statement.isLoading||journals.isLoading;
-  const busy=create.isPending||post.isPending||reverse.isPending||saveReview.isPending||lockReview.isPending;
+  const busy=create.isPending||post.isPending||reverse.isPending||voidDraft.isPending||saveReview.isPending||lockReview.isPending;
   const locked=review.data?.status==="locked";
   return <section aria-labelledby="monthly-accrual-review" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -248,15 +258,21 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
       {journals.data&&!journals.isError?<div className="mt-3 space-y-2">
         {journals.data.map(item=><div key={item.id} className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
           <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-white">
-            <span>#{item.id} · {item.status==="posted"?"معتمد":"مسودة"} · {n(item.amount)} شيكل</span>
+            <span>#{item.id} · {item.status==="posted"?"معتمد":item.status==="void"?"ملغى":"مسودة"} · {n(item.amount)} شيكل</span>
             <span>مدين {item.debitAccount} / دائن {item.creditAccount}</span>
           </div>
           <p className="mt-1 text-xs text-slate-300">{item.reason}</p>
+          {item.status==="void"?<p className="mt-1 text-xs text-rose-200">
+            سبب الإلغاء: {item.voidReason??"غير متاح"}
+          </p>:null}
           <p className="mt-1 text-xs text-slate-500">أنشأه مستخدم #{item.createdByUserId} ·
             {item.approvedByUserId===null?" ينتظر اعتماد مستخدم آخر":` اعتمده مستخدم #${item.approvedByUserId}`}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {item.status==="draft"?<Button size="sm" variant="outline" className="text-white"
               disabled={busy || locked || review.isError} onClick={()=>void approve(item.id)}>اعتماد القيد</Button>:null}
+            {item.status==="draft"?<Button size="sm" variant="outline"
+              className="text-rose-200" disabled={busy || locked || review.isError}
+              onClick={()=>void voidJournal(item.id)}>إلغاء المسودة</Button>:null}
             {item.status==="posted"&&!item.reversesJournalId?<Button size="sm" variant="outline"
               className="text-white" disabled={busy || locked || review.isError} onClick={()=>void createReversal(item.id)}>
               إنشاء قيد عكس
@@ -265,6 +281,11 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
         </div>)}
         {journals.data.length===0?<p className="text-xs text-slate-400">لا توجد قيود تسوية لهذا الشهر.</p>:null}
       </div>:null}
+      <label className="mt-3 block text-xs text-slate-300">سبب إلغاء مسودة (عند الحاجة)
+        <Input value={voidReason} onChange={e=>setVoidReason(e.target.value)}
+          maxLength={1000} className="mt-1 border-white/20 bg-[#0D1117] text-white"
+          placeholder="سبب إلغاء المسودة ورقم المستند"/>
+      </label>
       <label className="mt-3 block text-xs text-slate-300">سبب عكس القيد (عند الحاجة)
         <Input value={reversalReason} onChange={e=>setReversalReason(e.target.value)}
           maxLength={1000} className="mt-1 border-white/20 bg-[#0D1117] text-white"
