@@ -10,6 +10,12 @@ const acceptance = readFileSync(
 const dashboard = readFileSync(
   "client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8",
 );
+const quarantine = readFileSync(
+  "supabase/migrations/20261110026000_powerhub_financial_staging_fixture_quarantine.sql", "utf8",
+);
+const sources = readFileSync(
+  "supabase/tests/financial_gl_operational_sources_integration.sql", "utf8",
+);
 
 describe("Phase A financial acceptance evidence", () => {
   it("qualifies but never silently removes or relabels synthetic bank movements", () => {
@@ -52,6 +58,34 @@ describe("Phase A financial acceptance evidence", () => {
     expect(acceptance).not.toMatch(/\bUPDATE\s+public\./i);
   });
 
+  it("quarantines only the exact dual-reviewed unchanged 250k Staging cohort", () => {
+    for (const proof of [
+      "NO_APPROVED_MANIFEST",
+      "v_manifest.sha256",
+      "extensions.digest(",
+      "v_count<>250000",
+      "v_good_accounts<>2",
+      "v_external<>0",
+      "GL_FIXTURE_SELF_REVIEW",
+      "GL_FIXTURE_REVIEW_CONTENT_MISMATCH",
+      "retainedRawRows",
+      "quarantinedTestMovements",
+      "financialCertification','NOT_CERTIFIED'",
+      "powerhub_financial_gl_prior_operational_gaps_raw",
+      "sourceSubledgersIndependentlyVerified",
+    ]) {
+      if (proof === "sourceSubledgersIndependentlyVerified") {
+        expect(acceptance).toContain(proof);
+      } else {
+        expect(quarantine).toContain(proof);
+      }
+    }
+    expect(sources).toContain(
+      "20261110026000_powerhub_financial_staging_fixture_quarantine.sql",
+    );
+    expect(quarantine).not.toMatch(/DELETE\\s+FROM\\s+public\\.account_transactions/i);
+    expect(quarantine).not.toContain("DISABLE TRIGGER");
+  });
   it("never renders balanced GL or synthetic archive eligibility as certification", () => {
     expect(dashboard).toContain("غير معتمدة محاسبيًا");
     expect(dashboard).toContain("isOpeningReconciled");
