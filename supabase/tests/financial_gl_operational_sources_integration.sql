@@ -34,7 +34,7 @@ CREATE TABLE public.inventory_stock_movements(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz,
  reference_no text,quantity numeric,unit_cost numeric,total_cost_amount numeric,
  movement_type text,purchase_id bigint,item_id bigint,reversal_of_movement_id bigint,
- source_issue_movement_id bigint
+ source_issue_movement_id bigint,operation_key text,warehouse_id bigint
 );
 CREATE TABLE public.supplier_ledger_entries(
  id bigint PRIMARY KEY,tenant_id bigint,site_id bigint,occurred_at timestamptz,
@@ -86,6 +86,16 @@ INSERT INTO public.inventory_stock_movements VALUES
  (1002,901,9101,'2026-10-21T12:00:00Z','ISS-1002',1,10,10,'issue',NULL,801,NULL,NULL),
  (1003,901,9101,'2026-10-22T12:00:00Z','RET-1003',1,10,10,'supplier_return',901,801,NULL,NULL),
  (1004,901,9101,'2026-10-23T12:00:00Z','ADJ-1004',1,10,10,'adjustment_in',NULL,801,NULL,NULL);
+-- One paired transfer changes the warehouse, not inventory asset value.
+INSERT INTO public.inventory_stock_movements(
+ id,tenant_id,site_id,occurred_at,reference_no,quantity,unit_cost,total_cost_amount,
+ movement_type,purchase_id,item_id,reversal_of_movement_id,source_issue_movement_id,
+ operation_key,warehouse_id)
+VALUES
+ (1005,901,9101,'2026-10-23T12:00:00Z','XFER-1005',2,10,20,
+   'issue',NULL,801,NULL,NULL,'trf:ci-warehouse-transfer:out',111),
+ (1006,901,9101,'2026-10-23T12:00:00Z','XFER-1005',2,10,20,
+   'adjustment_in',NULL,801,NULL,NULL,'trf:ci-warehouse-transfer:in',222);
 INSERT INTO public.supplier_ledger_entries VALUES
  (1101,901,9101,'2026-10-20T12:00:00Z','purchase',40,0,901,NULL,NULL,'PUR-901'),
  (1102,901,9101,'2026-10-22T12:00:00Z','supplier_return',0,10,901,1201,NULL,'RET-1003'),
@@ -143,6 +153,13 @@ BEGIN
  EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true;
  END;
  IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_UNLINKED_ADJUSTMENT_POSTED'; END IF;
+ FOR sid IN SELECT unnest(ARRAY[1005::bigint,1006]) LOOP
+   blocked:=false;
+   BEGIN
+      PERFORM public.powerhub_financial_gl_post_source(901,9101,'stock_movement',sid,9902);
+   EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true; END;
+   IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_TRANSFER_EXPENSED_%',sid; END IF;
+ END LOOP;
  blocked:=false;
  BEGIN
    PERFORM public.powerhub_financial_gl_post_source(902,9201,'payment',401,9902);
