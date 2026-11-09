@@ -4991,11 +4991,21 @@ export const powerhubRouter = router({
     financialGLPostSource: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       sourceType:z.enum(["invoice","payment","expense","stock_movement",
-        "supplier_ledger","payroll"]),
+        "supplier_ledger","payroll","payroll_payment"]),
       sourceId:z.number().int().positive(),
     })).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageExpenses");
+      // Posting a ledger projection does not bypass the source operation's
+      // feature-specific capability. Both checks must pass.
+      const sourceCapability=input.sourceType==="invoice"?"issueInvoices"
+        :input.sourceType==="payment"?"collectPayments"
+        :input.sourceType==="payroll" || input.sourceType==="payroll_payment"
+          ?"managePayroll":null;
+      if(sourceCapability){
+        await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+          ["owner","manager","accountant"],sourceCapability);
+      }
       const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_post_source",{
         p_tenant_id:access.tenantId,p_site_id:input.siteId,
         p_source_type:input.sourceType,p_source_id:input.sourceId,
@@ -5020,6 +5030,8 @@ export const powerhubRouter = router({
     })).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"issueInvoices");
       const {data,error}=await supabaseAdmin().rpc(
         "powerhub_financial_gl_recognize_billed_service",{
           p_tenant_id:access.tenantId,p_site_id:input.siteId,
