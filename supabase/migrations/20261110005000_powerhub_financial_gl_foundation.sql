@@ -93,7 +93,13 @@ RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
 SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE v_id bigint; v_total numeric; v_count bigint;
 BEGIN
-  v_id:=CASE WHEN TG_TABLE_NAME='financial_gl_entries' THEN NEW.id ELSE NEW.entry_id END;
+  IF TG_TABLE_NAME='financial_gl_entries' THEN
+    v_id:=NEW.id;
+  ELSIF TG_TABLE_NAME='financial_gl_lines' THEN
+    v_id:=NEW.entry_id;
+  ELSE
+    RAISE EXCEPTION 'FINANCIAL_GL_UNKNOWN_TRIGGER_SOURCE' USING ERRCODE='22023';
+  END IF;
   SELECT count(*),
     coalesce(sum(CASE WHEN side='debit' THEN amount ELSE -amount END),0)
     INTO v_count,v_total FROM public.financial_gl_lines WHERE entry_id=v_id;
