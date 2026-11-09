@@ -6845,6 +6845,9 @@ export const powerhubRouter = router({
       if (!error && result?.payroll_run_id) return { success: true };
       const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
       if (errorText.includes("PAYROLL_RUN_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "مسودة الراتب غير موجودة." });
+      if (errorText.includes("PAYROLL_APPROVER_SAME_AS_CREATOR")) throw new TRPCError({ code: "FORBIDDEN", message: "لا يجوز اعتماد كشف رواتب أنشأته بنفسك؛ يجب أن يعتمده مسؤول آخر." });
+      if (errorText.includes("PAYROLL_APPROVER_OUT_OF_TENANT") || errorText.includes("PAYROLL_APPROVAL_INVALID_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "حساب الاعتماد ليس مخولاً ضمن المستأجر والفرع." });
+      if (errorText.includes("PAYROLL_APPROVAL_REPLAY_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "سبق اعتماد كشف الرواتب بواسطة مسؤول مختلف، ولا يمكن تغيير جهة الاعتماد." });
       if (errorText.includes("PAYROLL_RUN_NOT_DRAFT")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن اعتماد مسودة ليست في حالة مسودة." });
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن اعتماد كشف الرواتب ضمنها." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد كشف الرواتب في Supabase." });
