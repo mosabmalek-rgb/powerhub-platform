@@ -4998,6 +4998,28 @@ export const powerhubRouter = router({
         .eq("period",input.period).order("id",{ascending:false}).limit(201);
       if(error||!data||data.length>200)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
         message:"تعذر تحميل جميع قيود التسوية، أو تجاوزت القيود حد العرض الآمن."});
+      // A reversal may be posted in a later month. Query its status in one
+      // tenant/site-scoped lookup, not by the current month's journal rows.
+      const sourceIds=data.filter(row=>row.status==="posted" && row.reverses_journal_id===null)
+        .map(row=>Number(row.id));
+      const reversalBySource=new Map<number,{id:number,status:string,period:string}>();
+      if(sourceIds.length){
+        const {data:reversals,error:reversalError}=await supabaseAdmin()
+          .from("financial_accrual_journals")
+          .select("id,period,status,reverses_journal_id")
+          .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+          .in("reverses_journal_id",sourceIds).limit(201);
+        if(reversalError || !reversals || reversals.length>200){
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+            message:"تعذر التحقق من قيود العكس المرتبطة، ولم تُعرض حالة جزئية."});
+        }
+        for(const reversal of reversals){
+          if(reversal.reverses_journal_id===null)continue;
+          reversalBySource.set(Number(reversal.reverses_journal_id),{
+            id:Number(reversal.id),status:String(reversal.status),period:String(reversal.period),
+          });
+        }
+      }
       return data.map(row=>({
         id:Number(row.id),period:String(row.period),
         debitAccount:String(row.debit_account),creditAccount:String(row.credit_account),
@@ -5005,6 +5027,7 @@ export const powerhubRouter = router({
         createdByUserId:Number(row.created_by_user_id),
         approvedByUserId:row.approved_by_user_id===null?null:Number(row.approved_by_user_id),
         reversesJournalId:row.reverses_journal_id===null?null:Number(row.reverses_journal_id),
+        reversal:reversalBySource.get(Number(row.id))??null,
         createdAt:String(row.created_at),approvedAt:row.approved_at===null?null:String(row.approved_at),
         voidReason:row.void_reason===null?null:String(row.void_reason),
         voidedAt:row.voided_at===null?null:String(row.voided_at),
