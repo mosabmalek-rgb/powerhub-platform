@@ -14,6 +14,22 @@ const pairs:AccountPair[]=[
   {label:"مخصص ديون محتمل تحصيلها",debit:"5400",credit:"1190",description:"مدين: مصروف مخصص، دائن: مخصص ديون"},
   {label:"مصروف غير تشغيلي مستحق",debit:"6100",credit:"2100",description:"مدين: مصروف غير تشغيلي، دائن: التزامات مستحقة"},
 ];
+const evidenceLabels=[
+  {key:"unbilled_service",label:"تسوية الخدمات المستحقة غير المفوترة"},
+  {key:"invoice_cutoff",label:"مطابقة الفواتير مع فترات تقديم الخدمة"},
+  {key:"supplier_reconciliation",label:"مطابقة ذمم ومشتريات الموردين"},
+  {key:"inventory_reconciliation",label:"تسوية المخزون والمستهلك"},
+  {key:"payroll_reconciliation",label:"مطابقة الأجور والسلف والخصومات"},
+  {key:"depreciation_register",label:"سجل الأصول والإهلاك"},
+  {key:"provision_assessment",label:"مراجعة المخصصات"},
+  {key:"tax_reconciliation",label:"مطابقة الضريبة والتسويات"},
+] as const;
+type EvidenceKey=typeof evidenceLabels[number]["key"];
+const emptyEvidence:Record<EvidenceKey,string>={
+  unbilled_service:"",invoice_cutoff:"",supplier_reconciliation:"",
+  inventory_reconciliation:"",payroll_reconciliation:"",
+  depreciation_register:"",provision_assessment:"",tax_reconciliation:"",
+};
 const n=(v:number)=>v.toLocaleString("ar",{minimumFractionDigits:0,maximumFractionDigits:2});
 export default function AccrualAccountingPanel({siteId,period,active}:{
   siteId:number;period:string;active:boolean;
@@ -25,6 +41,11 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const journals=trpc.powerhub.reports.accrualJournalList.useQuery({siteId,period},{
     enabled:active,staleTime:60000,refetchOnWindowFocus:false
   });
+  const review=trpc.powerhub.reports.accrualPeriodReviewStatus.useQuery({siteId,period},{
+    enabled:active,staleTime:60000,refetchOnWindowFocus:false,
+  });
+  const saveReview=trpc.powerhub.reports.accrualPeriodReviewSave.useMutation();
+  const lockReview=trpc.powerhub.reports.accrualPeriodReviewLock.useMutation();
   const create=trpc.powerhub.reports.accrualJournalCreate.useMutation();
   const post=trpc.powerhub.reports.accrualJournalPost.useMutation();
   const reverse=trpc.powerhub.reports.accrualJournalReverse.useMutation();
@@ -33,12 +54,35 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const [reason,setReason]=useState("");
   const [reversalReason,setReversalReason]=useState("");
   const [requestKey,setRequestKey]=useState<string|null>(null);
+  const [evidence,setEvidence]=useState<Record<EvidenceKey,string>>(emptyEvidence);
+  const [showEvidence,setShowEvidence]=useState(false);
   const [showNew,setShowNew]=useState(false);
   const refresh=async()=>{
     await Promise.all([
       utils.powerhub.reports.accrualMonthStatement.invalidate({siteId,period}),
       utils.powerhub.reports.accrualJournalList.invalidate({siteId,period}),
+      utils.powerhub.reports.accrualPeriodReviewStatus.invalidate({siteId,period}),
     ]);
+  };
+  const submitEvidence=async()=>{
+    const values={...evidence};
+    if(evidenceLabels.some(({key})=>values[key].trim().length<8)){
+      toast.error("أدخل مرجعاً أو نتيجة مراجعة واضحة لكل بند (ثمانية أحرف على الأقل).");
+      return;
+    }
+    try{
+      await saveReview.mutateAsync({siteId,period,evidence:values});
+      toast.success("حُفظت أدلة الإقفال كمسودة، وتتطلب مراجعة مستخدم مخوّل آخر.");
+      setShowEvidence(false);
+      await refresh();
+    }catch{toast.error("تعذر حفظ أدلة الإقفال؛ تحقق من صلاحياتك أو حالة الشهر.");}
+  };
+  const signoff=async()=>{
+    try{
+      await lockReview.mutateAsync({siteId,period});
+      toast.success("أُقفلت المراجعة الشهرية وحُفظت اللقطة؛ الربح يظل أولياً لحين اكتمال دفاتر الحسابات.");
+      await refresh();
+    }catch{toast.error("تعذر إقفال الشهر؛ راجع المسودات والذمم والدورات والصلاحيات وفصل مهام المراجعة.");}
   };
   const submit=async()=>{
     const choice=pairs[Number(selectedPair)];
@@ -79,7 +123,8 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
     }catch{toast.error("تعذر إنشاء قيد عكس. تحقق من أن القيد معتمد ولم يُعكس سابقاً.");}
   };
   const loading=statement.isLoading||journals.isLoading;
-  const busy=create.isPending||post.isPending||reverse.isPending;
+  const busy=create.isPending||post.isPending||reverse.isPending||saveReview.isPending||lockReview.isPending;
+  const locked=review.data?.status==="locked";
   return <section aria-labelledby="monthly-accrual-review" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -123,10 +168,51 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
       </div>
     </div>:null}
     <div className="mt-5 border-t border-white/10 pt-4">
+      <h3 className="text-sm font-bold text-white">أدلة المراجعة والإقفال الشهري</h3>
+      <p className="mt-1 text-xs text-slate-400">
+        لا يكتمل الإقفال دون أدلة لكل مصدر محاسبي، وتوقيع مستخدم ثانٍ،
+        وتصفير المسودات والفواتير غير المكتملة. الإقفال لا يساوي شهادة تدقيق خارجي.
+      </p>
+      {review.isError?<p role="alert" className="mt-2 text-xs text-rose-200">
+        تعذر التحقق من حالة الإقفال؛ لا تسمح بإجراءات تعتمد على نتيجة غير مكتملة.
+      </p>:null}
+      {review.data&&!review.isError?<div className="mt-3 rounded-lg border border-white/10 p-3">
+        <p className="text-sm font-semibold text-white">
+          الحالة: {review.data.status==="locked"?"مقفلة":review.data.status==="draft"?"مراجعة مسودة":"لم تُجهز المراجعة"}
+        </p>
+        {review.data.driftDetected?<p role="alert" className="mt-2 text-xs text-rose-200">
+          تغيّرت مصادر البيانات بعد الإقفال، ويجب معالجة الانحراف قبل الاعتماد على اللقطة.
+        </p>:null}
+        {review.data.status==="draft"?<p className="mt-1 text-xs text-amber-200">
+          أعد المراجعة مستخدم #{review.data.preparedByUserId}، ويلزم اعتماد مستخدم آخر.
+        </p>:null}
+      </div>:null}
+      {!locked&&!review.isError?<div className="mt-3 flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" disabled={busy} className="text-white"
+          onClick={()=>setShowEvidence(v=>!v)}>
+          {showEvidence?"إخفاء مستندات المراجعة":"إعداد مستندات الإقفال"}
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy || review.data?.status!=="draft"} className="text-white"
+          onClick={()=>void signoff()}>اعتماد وإقفال المراجعة</Button>
+      </div>:null}
+      {showEvidence&&!locked?<div className="mt-3 grid gap-3 rounded-lg border border-white/10 p-3">
+        {evidenceLabels.map(({key,label})=><label className="text-xs text-slate-300" key={key}>
+          {label}
+          <Input className="mt-1 border-white/20 bg-[#0D1117] text-white"
+            placeholder="ملخص الفحص ورقم المستند أو مرجع التسوية"
+            maxLength={1000} value={evidence[key]}
+            onChange={e=>setEvidence(current=>({...current,[key]:e.target.value}))}/>
+        </label>)}
+        <Button size="sm" disabled={busy} onClick={()=>void submitEvidence()}>
+          حفظ أدلة المراجعة
+        </Button>
+      </div>:null}
+    </div>
+    <div className="mt-5 border-t border-white/10 pt-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-bold text-white">سجل قيود التسوية</h3>
         <Button size="sm" variant="outline" className="border-white/20 text-white"
-          disabled={busy} onClick={()=>setShowNew(v=>!v)}>
+          disabled={busy || locked || review.isError} onClick={()=>setShowNew(v=>!v)}>
           {showNew?"إخفاء نموذج القيد":"إنشاء قيد تسوية"}
         </Button>
       </div>
@@ -149,7 +235,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
             className="mt-1 border-white/20 bg-[#0D1117] text-white" placeholder="وصف التسوية ورقم المستند"/>
         </label>
         <p className="text-xs text-amber-200">كل قيد متوازن تلقائياً (مدين = دائن) ويُحفظ مسودة. لا يمكن لمُنشئه اعتماده.</p>
-        <Button disabled={busy} size="sm" onClick={()=>void submit()}>حفظ مسودة القيد</Button>
+        <Button disabled={busy || locked || review.isError} size="sm" onClick={()=>void submit()}>حفظ مسودة القيد</Button>
       </div>:null}
       {journals.data&&!journals.isError?<div className="mt-3 space-y-2">
         {journals.data.map(item=><div key={item.id} className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
@@ -162,9 +248,9 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
             {item.approvedByUserId===null?" ينتظر اعتماد مستخدم آخر":` اعتمده مستخدم #${item.approvedByUserId}`}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {item.status==="draft"?<Button size="sm" variant="outline" className="text-white"
-              disabled={busy} onClick={()=>void approve(item.id)}>اعتماد القيد</Button>:null}
+              disabled={busy || locked || review.isError} onClick={()=>void approve(item.id)}>اعتماد القيد</Button>:null}
             {item.status==="posted"&&!item.reversesJournalId?<Button size="sm" variant="outline"
-              className="text-white" disabled={busy} onClick={()=>void createReversal(item.id)}>
+              className="text-white" disabled={busy || locked || review.isError} onClick={()=>void createReversal(item.id)}>
               إنشاء قيد عكس
             </Button>:null}
           </div>
