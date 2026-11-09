@@ -242,7 +242,7 @@ BEGIN
  ELSIF p_source_type='payroll' THEN
   SELECT * INTO payroll FROM public.payroll_runs WHERE id=p_source_id
     AND tenant_id=p_tenant_id AND site_id=p_site_id FOR SHARE;
-  IF NOT FOUND OR payroll.status NOT IN ('approved','paid')
+  IF NOT FOUND OR payroll.status<>'approved'
     OR payroll.approved_by_user_id IS NULL
     OR payroll.approved_by_user_id=payroll.created_by_user_id
     OR payroll.total_gross<=0 OR payroll.total_net<=0 OR payroll.total_deductions<0
@@ -253,6 +253,11 @@ BEGIN
     coalesce(sum(it.other_deduction),0)
   INTO v_count,v_gross,v_net,v_adv,v_other FROM public.payroll_items it
   WHERE it.payroll_run_id=payroll.id;
+  -- Payroll paid state needs a separately verified cash settlement. The
+  -- accrual entry below must never misstate a paid run as unpaid liability.
+  IF payroll.paid_at IS NOT NULL OR payroll.paid_from_account_id IS NOT NULL
+  THEN RAISE EXCEPTION 'GL_PAYROLL_PAYMENT_REQUIRES_CASH_RECONCILIATION'
+    USING ERRCODE='22023'; END IF;
   IF v_count<1 OR v_gross<>payroll.total_gross OR v_net<>payroll.total_net
     OR v_adv+v_other<>payroll.total_deductions OR v_adv<0 OR v_other<0
     OR payroll.total_gross<>round(payroll.total_gross,2)
