@@ -1,3 +1,14 @@
+## تحديث A6 — كشف الاستحقاقات المعتمدة غير المسجلة في دفتر الأستاذ (9 نوفمبر 2026)
+
+- اكتُشفت فجوة إضافية: وظيفة تدقيق 18000 تتحقق من صحة GL الموجود، لكنها لا تعد مصدر `financial_accrual_journals` المعتمد إذا لم يوجد له GL أصلاً؛ وبذلك يمكن أن يبدو سجل GL متوازنًا وهو ناقص. هذه حالة مغايرة لفجوة A5 الخاصة بالموافقة والبصمة.
+- أُضيف `supabase/migrations/20261110020000_powerhub_financial_gl_accrual_source_coverage.sql` (بعد 19000)، مع إضافة حقل `sources.accrualAdjustments`: `approved`, `drafts`, `missingGL`. انضمّت مسودات الاستحقاق والنواقص المعتمدة إلى `unreconciledSourceCount` وقرار `isSourceCoverageComplete`. لا قيد يُولد تلقائياً ولا ترحيل مالي صامت.
+- **اختبار Staging عبر BEGIN/ROLLBACK نجح بعد تنفيذ 19000 و20000 مؤقتاً:** مع افتتاحية اختبارية وفي أكتوبر 2026 كان العدد الأصلي 11؛ إنشاء مسودة رفع النواقص إلى 12 (`drafts=1`)، واعتماد المستند دون GL حافظ على 12 (`missingGL=1`)، ثم ترحيل GL خفّضها إلى 11 (`missingGL=0`). الميزان بقي متوازناً في الحالات الثلاث، لكن التقرير لم يخفِ المصدر الناقص.
+- **ترحيل 19000 اختُبر بنجاح داخل معاملة Staging:** استحقاق + عكس معتمد، 3 قيود صحيحة بما فيها الافتتاحية، `sourceIntegrity.isClean=true`. اختبار مضاد بقيد استحقاق متوازن لكن دون مستند أصلي أعاد `invalidSources=1`, `ACCRUAL_NOT_APPROVED_OR_MISSING`.
+- أُلحقت اختبارات A5 وA6 إلى `supabase/tests/financial_gl_operational_sources_integration.sql`، وتُشغّل مع ترحيلات 19000 و20000 في PostgreSQL Integration. **حالة CI يجب أخذها من SHA الأحدث عند استئناف العمل؛ لا تعتمد نجاح الفحوص القديمة.**
+- **الترحيلان 19000 و20000 لم يُطبقا دائماً على Staging بعد.** يجب تمريرهما بالتسلسل عبر workflow `Supabase Versioned Migration Release` وبأرقام GitHub الأصلية، بعد اجتياز CI الأربع على SHA واحد.
+- تأكد خلو Staging من بيانات الاختبارات التراجعية؛ `financial_gl_entries=0` و`financial_gl_lines=0` و`financial_gl_opening_batches=0` و`financial_accrual_journals` المزروعة باختبارات A5 صفر. لا اعتبار لدليل `BEGIN/ROLLBACK` بديلًا عن مطابقة مصادر بيانات دائمة وافتتاحية موثقة.
+- **بوابات قبول A المفتوحة**: الترحيل الدائم 19000 و20000، أدلة افتتاحية مطابقة للدفاتر المساعدة، ترحيل الفواتير والتحصيل والمخزون والموردين والرواتب الفعلية في Staging، إغلاق فجوة استلام الشراء غير المستلم بمستند، إقفال وعكس وتزامن وواجهة Vercel Preview محدثة، واختبارات أداء متعددة على حمل واقعي. ما زال `ACCOUNTING_RECONCILED=false` و`STAGING_ACCEPTED=false`.
+
 ## تحديث A5 — بعد تطبيق 18000، تدقيق الاستحقاقات المعتمدة وعكسها (9 نوفمبر 2026)
 
 - **دليل التطبيق الدائم:** استعلام `supabase_migrations.schema_migrations` على Staging أثبت وجود `20261110018000_powerhub_financial_gl_source_integrity_coverage` ضمن الترحيلات التسعة السابقة. بوابات CI الأربع نجحت على SHA `7f3e24dffcc0624a6657342d1afbc875251bc75e` بعد التطبيق.
