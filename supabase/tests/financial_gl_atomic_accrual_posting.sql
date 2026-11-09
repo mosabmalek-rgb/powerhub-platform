@@ -24,6 +24,7 @@ CREATE TABLE public.financial_accrual_period_reviews(
 );
 \ir ../migrations/20261110005000_powerhub_financial_gl_foundation.sql
 \ir ../migrations/20261110010000_powerhub_financial_gl_post_approved_accrual.sql
+\ir ../migrations/20261110011000_powerhub_financial_gl_opening_balances.sql
 
 DO $permissions$
 DECLARE t text;
@@ -104,3 +105,47 @@ BEGIN
 END;$assertions$;
 ROLLBACK;
 SELECT 'PASS: A2.1 atomic approved accrual and reversal GL integration' AS acceptance;
+
+
+-- Opening balances use the identical GL structure with two approvers.
+BEGIN;
+DO $opening$
+DECLARE j jsonb;p jsonb;r jsonb; oid bigint;eid bigint;denied boolean:=false;
+BEGIN
+ j:=public.powerhub_financial_gl_opening_create(901,9101,9901,'2026-01-01',
+ 'CI-OPENING-BOOK-01','Independent opening balance documentation',
+ 'ci-opening-balances-v1',
+ '[{"accountCode":"1010","side":"debit","amount":123.45,"evidenceReference":"CASH-01"},
+   {"accountCode":"3100","side":"credit","amount":123.45,"evidenceReference":"CAPITAL-01"}]'::jsonb);
+ oid:=(j->>'openingId')::bigint;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_opening_post(901,9101,oid,9901);
+ EXCEPTION WHEN SQLSTATE '22023' THEN denied:=true;
+ END;
+ IF NOT denied THEN RAISE EXCEPTION 'OPENING_SELF_APPROVAL_NOT_REJECTED'; END IF;
+ p:=public.powerhub_financial_gl_opening_post(901,9101,oid,9902);
+ r:=public.powerhub_financial_gl_opening_post(901,9101,oid,9902);
+ eid:=(p->>'entryId')::bigint;
+ IF eid IS NULL OR p->>'status'<>'posted' OR
+ (p->>'alreadyPosted')::boolean OR NOT (r->>'alreadyPosted')::boolean OR
+ eid<>(r->>'entryId')::bigint
+ THEN RAISE EXCEPTION 'OPENING_ATOMIC_RETRY_FAILED'; END IF;
+ IF (SELECT count(*) FROM public.financial_gl_lines WHERE entry_id=eid)<>2
+ THEN RAISE EXCEPTION 'OPENING_WRONG_LINE_COUNT'; END IF;
+ denied:=false;
+ BEGIN
+   INSERT INTO public.financial_gl_opening_lines
+     (opening_id,tenant_id,site_id,sequence_number,account_code,side,amount,evidence_reference)
+   VALUES(oid,901,9101,3,'1010','debit',1,'CI-AFTER-POST');
+ EXCEPTION WHEN SQLSTATE '22023' THEN denied:=true; END;
+ IF NOT denied THEN RAISE EXCEPTION 'OPENING_POSTED_LINES_NOT_SEALED'; END IF;
+ denied:=false;
+ BEGIN
+   PERFORM public.powerhub_financial_gl_opening_post(902,9201,oid,9902);
+ EXCEPTION WHEN SQLSTATE '22023' THEN denied:=true; END;
+ IF NOT denied THEN RAISE EXCEPTION 'OPENING_CROSS_TENANT_POST_ACCEPTED'; END IF;
+ SET CONSTRAINTS ALL IMMEDIATE;
+END;
+$opening$;
+ROLLBACK;
+SELECT 'PASS: A2.2 documented, balanced, immutable opening balances' AS acceptance;
