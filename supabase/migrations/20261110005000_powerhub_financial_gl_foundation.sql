@@ -66,6 +66,26 @@ CREATE INDEX IF NOT EXISTS financial_gl_line_entry_idx
 CREATE INDEX IF NOT EXISTS financial_gl_line_account_idx
  ON public.financial_gl_lines(tenant_id,account_code,entry_id);
 
+-- Site/tenant association is independently checked on the header. A single-column
+-- FK to sites(id) alone is not sufficient for tenant isolation.
+CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_scope_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
+SET search_path=pg_catalog,public,pg_temp AS $fn$
+BEGIN
+ IF NOT EXISTS (
+   SELECT 1 FROM public.sites s
+   WHERE s.id=NEW.site_id AND s.tenant_id=NEW.tenant_id
+     AND s.status<>'archived'
+ ) THEN
+   RAISE EXCEPTION 'FINANCIAL_GL_SITE_OUT_OF_SCOPE' USING ERRCODE='22023';
+ END IF;
+ RETURN NEW;
+END;
+$fn$;
+CREATE TRIGGER financial_gl_entry_scope_guard
+ BEFORE INSERT ON public.financial_gl_entries
+ FOR EACH ROW EXECUTE FUNCTION public.powerhub_financial_gl_scope_guard();
+
 -- Every ledger header MUST have at least two lines and balanced sides before commit,
 -- including when an administrative transaction tries inserting records directly.
 CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_balance_guard()
@@ -122,7 +142,7 @@ REVOKE ALL ON public.financial_gl_lines FROM PUBLIC,anon,authenticated;
 GRANT SELECT ON public.financial_gl_accounts TO service_role;
 GRANT SELECT ON public.financial_gl_entries TO service_role;
 GRANT SELECT ON public.financial_gl_lines TO service_role;
-REVOKE ALL ON FUNCTION public.powerhub_financial_gl_balance_guard()
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_scope_guard()\n FROM PUBLIC,anon,authenticated;\nREVOKE ALL ON FUNCTION public.powerhub_financial_gl_balance_guard()
  FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION public.powerhub_financial_gl_immutable_guard()
  FROM PUBLIC,anon,authenticated;
