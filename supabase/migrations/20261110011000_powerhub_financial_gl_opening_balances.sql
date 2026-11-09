@@ -132,6 +132,38 @@ GRANT USAGE,SELECT ON SEQUENCE public.financial_gl_opening_lines_id_seq TO servi
 
 -- Default catalog. Only deterministic classifications; existing mismatches
 -- cause explicit failure rather than upsert/rewrite of financial history.
+-- A posted opening may not exist without its exact, balanced GL projection.
+-- Deferred checking lets the approved transaction update status and insert
+-- GL lines atomically, while blocking privileged direct UPDATE status='posted'.
+CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_opening_atomicity_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
+SET search_path=pg_catalog,public,pg_temp AS $guard$
+DECLARE v_e bigint;v_expected bigint;v_lines bigint;v_net numeric;
+BEGIN
+ SELECT e.id INTO v_e FROM public.financial_gl_entries e
+ WHERE e.tenant_id=NEW.tenant_id AND e.site_id=NEW.site_id
+   AND e.source_type='opening_balance' AND e.source_id=NEW.id::text
+   AND e.source_revision=1 AND e.source_fingerprint=NEW.source_fingerprint;
+ IF NEW.status='posted' THEN
+   IF v_e IS NULL THEN RAISE EXCEPTION 'GL_OPENING_POSTING_NOT_ATOMIC'
+     USING ERRCODE='23514'; END IF;
+   SELECT count(*) INTO v_expected FROM public.financial_gl_opening_lines l
+   WHERE l.opening_id=NEW.id AND l.tenant_id=NEW.tenant_id AND l.site_id=NEW.site_id;
+   SELECT count(*),coalesce(sum(CASE WHEN side='debit' THEN amount ELSE -amount END),0)
+   INTO v_lines,v_net FROM public.financial_gl_lines WHERE entry_id=v_e;
+   IF v_lines<2 OR v_lines<>NEW.expected_line_count OR
+      v_lines<>v_expected OR v_net<>0 THEN
+     RAISE EXCEPTION 'GL_OPENING_POSTING_NOT_BALANCED' USING ERRCODE='23514'; END IF;
+ ELSIF v_e IS NOT NULL THEN
+   RAISE EXCEPTION 'GL_OPENING_UNAPPROVED_GL_EXISTS' USING ERRCODE='23514';
+ END IF;
+ RETURN NULL;
+END;$guard$;
+CREATE CONSTRAINT TRIGGER financial_gl_opening_atomicity
+ AFTER INSERT OR UPDATE ON public.financial_gl_opening_batches
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+ EXECUTE FUNCTION public.powerhub_financial_gl_opening_atomicity_guard();
+
 CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_seed_chart(p_tenant_id bigint)
 RETURNS integer LANGUAGE plpgsql VOLATILE SECURITY INVOKER
 SET search_path=pg_catalog,public,pg_temp AS $seed$
@@ -368,6 +400,8 @@ BEGIN
 END;
 $void$;
 
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_opening_atomicity_guard()
+ FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION public.powerhub_financial_gl_opening_insert_guard()
  FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION public.powerhub_financial_gl_opening_guard()
