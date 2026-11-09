@@ -25,6 +25,9 @@ describe("phase A2 general-ledger schema foundation contract",()=>{
    expect(sql).toContain("(tenant_id,site_id,source_type,source_id,source_revision)");
    expect(sql).toContain("financial_gl_entry_operation_unique UNIQUE");
    expect(sql).toContain("financial_gl_active_reversal_unique");
+   expect(sql).toContain("FINANCIAL_GL_SITE_OUT_OF_SCOPE");
+   expect(sql).toContain("s.id=NEW.site_id AND s.tenant_id=NEW.tenant_id");
+   expect(sql).toContain("financial_gl_entry_scope_guard");
    expect(sql).toContain("source_fingerprint ~ '^[0-9a-f]{64}$'");
  });
  it("requires double entry before commit and forbids changing posted rows",()=>{
