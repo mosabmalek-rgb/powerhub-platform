@@ -21,7 +21,7 @@ DECLARE
 BEGIN
  IF p_tenant_id IS NULL OR p_tenant_id<=0 OR p_site_id IS NULL OR p_site_id<=0
    OR p_source_id IS NULL OR p_source_id<=0 OR p_source_type IS NULL
-   OR p_source_type NOT IN('invoice','payment','expense','stock_movement','supplier_ledger','payroll')
+   OR p_source_type NOT IN('invoice','payment','expense','stock_movement','supplier_ledger','payroll','payroll_payment')
    OR NOT EXISTS(SELECT 1 FROM public.sites s WHERE s.id=p_site_id
       AND s.tenant_id=p_tenant_id AND s.status<>'archived')
  THEN RAISE EXCEPTION 'GL_SOURCE_SCOPE_INVALID' USING ERRCODE='22023'; END IF;
@@ -248,7 +248,13 @@ BEGIN
  ELSIF p_source_type='payroll' THEN
   SELECT * INTO payroll FROM public.payroll_runs WHERE id=p_source_id
     AND tenant_id=p_tenant_id AND site_id=p_site_id FOR SHARE;
-  IF NOT FOUND OR payroll.status<>'approved'
+  IF NOT FOUND OR
+    (payroll.status<>'approved' AND NOT (
+       payroll.status='paid' AND EXISTS(
+         SELECT 1 FROM public.financial_gl_entries e
+         WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
+           AND e.source_type='payroll' AND e.source_id=payroll.id::text
+           AND e.source_revision=1)))
     OR payroll.approved_by_user_id IS NULL
     OR payroll.approved_by_user_id=payroll.created_by_user_id
     OR payroll.total_gross<=0 OR payroll.total_net<=0 OR payroll.total_deductions<0
@@ -261,7 +267,8 @@ BEGIN
   WHERE it.payroll_run_id=payroll.id;
   -- Payroll paid state needs a separately verified cash settlement. The
   -- accrual entry below must never misstate a paid run as unpaid liability.
-  IF payroll.paid_at IS NOT NULL OR payroll.paid_from_account_id IS NOT NULL
+  IF payroll.status='approved' AND
+     (payroll.paid_at IS NOT NULL OR payroll.paid_from_account_id IS NOT NULL)
   THEN RAISE EXCEPTION 'GL_PAYROLL_PAYMENT_REQUIRES_CASH_RECONCILIATION'
     USING ERRCODE='22023'; END IF;
   IF v_count<1 OR v_gross<>payroll.total_gross OR v_net<>payroll.total_net
@@ -280,6 +287,58 @@ BEGIN
     'gross',v_gross,'net',v_net,'advance',v_adv,'other',v_other,
     'approvedBy',payroll.approved_by_user_id,'itemCount',v_count);
   v_policy:='payroll-accrued-gross-advance-deductions-v1';
+ ELSIF p_source_type='payroll_payment' THEN
+  SELECT * INTO payroll FROM public.payroll_runs WHERE id=p_source_id
+    AND tenant_id=p_tenant_id AND site_id=p_site_id FOR SHARE;
+  IF NOT FOUND OR payroll.status<>'paid'
+     OR payroll.paid_at IS NULL OR payroll.paid_from_account_id IS NULL
+     OR payroll.total_net<=0 OR payroll.total_net<>round(payroll.total_net,2)
+     OR payroll.approved_by_user_id IS NULL
+     OR payroll.created_by_user_id=payroll.approved_by_user_id
+     OR NOT EXISTS (SELECT 1 FROM public.financial_gl_entries e
+         WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
+          AND e.source_type='payroll' AND e.source_id=payroll.id::text)
+  THEN RAISE EXCEPTION 'GL_PAYROLL_PAYOUT_ACCRUAL_NOT_POSTED'
+    USING ERRCODE='22023'; END IF;
+  SELECT count(*) INTO v_count FROM public.expenses e
+    WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
+      AND e.category='payroll' AND e.reference_no='PAYROLL-'||payroll.id;
+  IF v_count<>1 THEN RAISE EXCEPTION 'GL_PAYROLL_PAYOUT_EXPENSE_MISSING'
+    USING ERRCODE='22023'; END IF;
+  SELECT * INTO exp FROM public.expenses e
+    WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id
+      AND e.category='payroll' AND e.reference_no='PAYROLL-'||payroll.id
+    FOR SHARE;
+  IF exp.amount<>payroll.total_net OR exp.company_account_id<>payroll.paid_from_account_id
+    THEN RAISE EXCEPTION 'GL_PAYROLL_PAYOUT_AMOUNT_MISMATCH'
+      USING ERRCODE='22023'; END IF;
+  SELECT count(*) INTO v_count FROM public.account_transactions tx
+    WHERE tx.tenant_id=p_tenant_id AND tx.site_id=p_site_id
+      AND tx.reference_no='PAYROLL-'||payroll.id;
+  IF v_count<>1 THEN RAISE EXCEPTION 'GL_PAYROLL_PAYOUT_CASH_MOVEMENT_MISSING'
+    USING ERRCODE='22023'; END IF;
+  SELECT * INTO a FROM public.account_transactions tx
+    WHERE tx.tenant_id=p_tenant_id AND tx.site_id=p_site_id
+      AND tx.reference_no='PAYROLL-'||payroll.id FOR SHARE;
+  IF a.related_expense_id<>exp.id OR a.transaction_type<>'withdrawal'
+     OR a.amount<>payroll.total_net OR a.account_id<>payroll.paid_from_account_id
+     OR a.occurred_at::date<>(payroll.paid_at AT TIME ZONE 'Asia/Gaza')::date
+  THEN RAISE EXCEPTION 'GL_PAYROLL_PAYOUT_CASH_MOVEMENT_MISMATCH'
+      USING ERRCODE='22023'; END IF;
+  SELECT * INTO ca FROM public.company_accounts
+    WHERE id=a.account_id AND tenant_id=p_tenant_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'GL_PAYROLL_PAYOUT_ACCOUNT_UNKNOWN'
+      USING ERRCODE='22023'; END IF;
+  v_cash_account:=CASE WHEN ca.account_type='cash' THEN '1010' ELSE '1020' END;
+  v_period:=to_char(payroll.paid_at AT TIME ZONE 'Asia/Gaza','YYYY-MM');
+  v_lines:=jsonb_build_array(
+   jsonb_build_object('code','2400','side','debit','amount',payroll.total_net),
+   jsonb_build_object('code',v_cash_account,'side','credit','amount',payroll.total_net));
+  v_payload:=jsonb_build_object('payrollRunId',payroll.id,'paidAt',payroll.paid_at,
+    'net',payroll.total_net,'approvedBy',payroll.approved_by_user_id,
+    'expenseId',exp.id,'movementId',a.id,'cashAccount',a.account_id,
+    'cashAccountType',ca.account_type);
+  v_policy:='payroll-settlement-no-second-wage-expense-v1';
  END IF;
  IF v_lines IS NULL OR jsonb_typeof(v_lines)<>'array' OR jsonb_array_length(v_lines)<2
     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_lines) item
