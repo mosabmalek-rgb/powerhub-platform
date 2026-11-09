@@ -4987,6 +4987,73 @@ export const powerhubRouter = router({
       return data;
     }),
     // A3: on-demand, server-aggregated source coverage; never a certified P&L.
+    financialGLOpeningCreate: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      asOfDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      evidenceReference:z.string().trim().min(8).max(250),
+      description:z.string().trim().min(10).max(1000),
+      operationKey:z.string().trim().min(8).max(180),
+      lines:z.array(z.object({
+        accountCode:z.string().regex(/^\d{3,8}$/),
+        side:z.enum(["debit","credit"]),
+        amount:z.number().finite().positive().max(100000000000).refine(
+          n=>Math.abs(n*100-Math.round(n*100))<0.000001,
+          "يجب ألا يتجاوز المبلغ منزلتين عشريتين"),
+        evidenceReference:z.string().trim().min(3).max(250),
+      })).min(2).max(500),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_opening_create",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_user_id:ctx.user.id,
+        p_as_of_date:input.asOfDate,p_evidence_reference:input.evidenceReference,
+        p_description:input.description,p_operation_key:input.operationKey,
+        p_lines:input.lines,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",message:"تعذر إنشاء الرصيد الافتتاحي؛ تحقق من المستندات والتوازن والصلاحيات."});
+      const result=data as Record<string,unknown>;
+      if(!Number.isSafeInteger(Number(result.openingId)) || Number(result.openingId)<=0
+        || !["draft","posted"].includes(String(result.status)))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تأكيد حالة الرصيد الافتتاحي بعد الحفظ."});
+      return result;
+    }),
+    financialGLOpeningPost: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),openingId:z.number().int().positive(),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_opening_post",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_opening_id:input.openingId,p_approver_id:ctx.user.id,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر اعتماد الرصيد الافتتاحي؛ يتطلب مراجِعاً مختلفاً ومطابقة كاملة."});
+      const result=data as Record<string,unknown>;
+      if(result.status!=="posted" || !Number.isSafeInteger(Number(result.entryId))
+        || Number(result.entryId)<=0)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تأكيد ترحيل الرصيد الافتتاحي إلى دفتر الأستاذ."});
+      return result;
+    }),
+    financialGLOpeningVoid: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),openingId:z.number().int().positive(),
+      reason:z.string().trim().min(10).max(1000),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_opening_void",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_opening_id:input.openingId,p_actor_id:ctx.user.id,p_reason:input.reason,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data)
+        || (data as Record<string,unknown>).status!=="void")
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر إلغاء المسودة الافتتاحية؛ القيد المعتمد غير قابل للحذف."});
+      return data;
+    }),
     financialGLSourceCoverage: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
