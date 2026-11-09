@@ -88,12 +88,24 @@ function mapPurchaseDatabaseError(
   if (error?.code === "23505" && (error.message ?? "").includes("inventory_item_units_label_unique_idx")) {
     throw new TRPCError({ code: "CONFLICT", message: "وحدة شراء بهذا الاسم موجودة لهذا الصنف." });
   }
+  if (error?.code === "23505" && (error.message ?? "").includes("AUTO_RECEIPT_INCOMPLETE_REPLAY")) {
+    throw new TRPCError({ code: "CONFLICT", message: "وجدنا شراءً سابقًا بنفس المفتاح لكن دون سجل استلام تلقائي مكتمل؛ لم تُنفّذ عملية ثانية." });
+  }
   if (error?.code === "23505") {
     throw new TRPCError({ code: "CONFLICT", message: "يوجد رقم فاتورة أو مفتاح عملية مستخدم مسبقًا." });
   }
   const message = error?.message ?? "";
   const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN"; message: string }> = {
-    INVALID_OPERATION_KEY: { code: "BAD_REQUEST", message: "مفتاح العملية غير صالح." },
+    AUTO_RECEIPT_REQUEST_INVALID: { code: "BAD_REQUEST", message: "تحقق من المخزن والتاريخ وبنود الاستلام التلقائي." },
+    AUTO_RECEIPT_PAYMENT_MODE_INVALID: { code: "BAD_REQUEST", message: "الشراء الفوري يتطلب حسابًا وتاريخ دفع صالحين." },
+    AUTO_RECEIPT_WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن المحدد غير نشط أو لا يتبع الفرع." },
+    AUTO_RECEIPT_PURCHASE_NOT_CREATED: { code: "CONFLICT", message: "تعذر إنشاء شراء الاستلام التلقائي؛ لم تُحفظ أي حركة." },
+    AUTO_RECEIPT_LINE_COUNT_MISMATCH: { code: "CONFLICT", message: "عدد بنود الشراء لا يطابق الاستلام؛ لم تُحفظ حركة مخزون." },
+    AUTO_RECEIPT_NOT_FULLY_RECEIVED: { code: "CONFLICT", message: "لم يكتمل استلام كل البنود؛ ألغيت العملية بالكامل." },
+    AUTO_RECEIPT_PAYMENT_NOT_POSTED: { code: "CONFLICT", message: "تعذر تسجيل السداد والاستلام في معاملة واحدة؛ ألغيت العملية." },
+    AUTO_RECEIPT_RECEIPT_NOT_CREATED: { code: "CONFLICT", message: "تعذر تسجيل سند الاستلام؛ ألغيت عملية الشراء." },
+    AUTO_RECEIPT_WALK_IN_PAYMENT_MISSING: { code: "CONFLICT", message: "سداد المورد غير المسجل لم يكتمل؛ ألغيت العملية." },
+        INVALID_OPERATION_KEY: { code: "BAD_REQUEST", message: "مفتاح العملية غير صالح." },
     INVALID_STOCK_TRANSFER: { code: "BAD_REQUEST", message: "بيانات التحويل المخزني غير صالحة؛ اختر مخزنين مختلفين." },
     INVALID_STOCK_TRANSFER_QUANTITY: { code: "BAD_REQUEST", message: "كمية التحويل غير صالحة أو تتجاوز ثلاث منازل عشرية." },
     STOCK_DESTINATION_WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن المستلم غير نشط أو لا يتبع هذا الفرع." },
