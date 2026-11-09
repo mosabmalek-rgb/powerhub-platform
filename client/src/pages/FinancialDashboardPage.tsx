@@ -100,6 +100,14 @@ export default function FinancialDashboardPage() {
     staleTime: 120_000, refetchOnWindowFocus: false,
   });
   const [showAccrualBridge, setShowAccrualBridge] = useState(false);
+  const [showServiceCycleBilling, setShowServiceCycleBilling] = useState(false);
+  const serviceCycleBilling = trpc.powerhub.reports.serviceCycleBillingReview.useQuery({
+    siteId,startDate,endDate,
+  },{
+    enabled:Boolean(isAuthenticated && siteId && showAccrualBridge && showServiceCycleBilling &&
+      cycleRangeReady && startDate <= endDate),
+    staleTime:120_000,refetchOnWindowFocus:false,
+  });
   const [showPayrollReview, setShowPayrollReview] = useState(false);
   const payrollPeriod = endDate.slice(0, 7);
   const payrollReview = trpc.powerhub.reports.payrollAccrualReview.useQuery({
@@ -511,6 +519,56 @@ export default function FinancialDashboardPage() {
             مسودات مستبعدة: {format(data.accrualComponents.excludedDraftCount)}،
             فواتير ملغاة مستبعدة: {format(data.accrualComponents.excludedCancelledCount)}.
           </p>
+          <div className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white">الفوترة بحسب دورة الخدمة</h3>
+                <p className="mt-1 text-xs text-slate-400">
+                  فحص إضافي اختياري يشمل فواتير الدورة حتى إن صدرت خارج الفترة المحددة.
+                  يُحمّل عند الطلب فقط، ولا يمثل إيراداً معترفاً به.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" className="border-white/20 text-white"
+                disabled={!cycleRangeReady || !siteId}
+                onClick={() => setShowServiceCycleBilling(v=>!v)}>
+                {showServiceCycleBilling ? "إخفاء فوترة الدورة" : "فحص فوترة الدورة"}
+              </Button>
+            </div>
+            {showServiceCycleBilling ? <div className="mt-3 space-y-3">
+              {serviceCycleBilling.isLoading ? <p role="status" className="text-xs text-slate-300">جارٍ احتساب فوترة دورة الخدمة…</p> : null}
+              {serviceCycleBilling.isError ? <div role="alert" className="text-xs text-rose-200">
+                تعذر إكمال فحص دورة الخدمة؛ لن تُعرض بيانات جزئية أو قديمة.
+                <Button size="sm" variant="outline" className="mr-2 text-white" onClick={() => void serviceCycleBilling.refetch()}>
+                  إعادة المحاولة
+                </Button>
+              </div> : null}
+              {serviceCycleBilling.data && !serviceCycleBilling.isError ? <>
+                <p className="text-xs text-amber-200">
+                  فواتير الدورات المتداخلة مع {startDate} — {endDate}. لا توجد قسمة افتراضية للإيراد على أيام الخدمة.
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {([
+                    {label:"فوترة الدورات (الإجمالي)",amount:serviceCycleBilling.data.billedGross},
+                    {label:"فوترة الدورات دون الضريبة",amount:serviceCycleBilling.data.billedExTax},
+                    {label:"فوترة دورات مكتملة",amount:serviceCycleBilling.data.completedCycleBilledGross},
+                    {label:"فوترة دورات جارية",amount:serviceCycleBilling.data.ongoingCycleBilledGross},
+                    {label:"فوترة دورات مستقبلية",amount:serviceCycleBilling.data.futureCycleBilledGross},
+                    {label:"فوترة أُصدرت خارج الفترة",amount:serviceCycleBilling.data.issuedOutsideRangeBilledGross},
+                  ] as const).map(item=><div key={item.label}>
+                    <p className="text-xs text-slate-400">{item.label}</p>
+                    <strong className="text-lg text-white">{format(item.amount)} شيكل</strong>
+                  </div>)}
+                </div>
+                <p className="text-xs text-slate-300">
+                  {format(serviceCycleBilling.data.issuedInvoiceCount)} فاتورة، منها{" "}
+                  {format(serviceCycleBilling.data.issuedOutsideRangeCount)} أُصدرت خارج الفترة،
+                  {" "}{format(serviceCycleBilling.data.crossBoundaryCount)} دورة تعبر حدودها.
+                </p>
+                <p className="text-xs text-amber-200">الاكتمال يعني انتهاء دورة الخدمة، لا اعتماد الإيراد المحاسبي.
+                  لا تُستخدم هذه المجاميع مباشرة لحساب صافي الربح دون معالجة التسويات والاعتراف بالإيراد.</p>
+              </> : null}
+            </div> : null}
+          </div>
           {data.serviceCycleCoverage ? <div className="rounded-lg border border-white/10 bg-[#0D1117] p-3">
             <p className="text-sm font-semibold text-white">مطابقة الفوترة مع فترة الخدمة</p>
             <p className="mt-1 text-xs text-slate-400">
