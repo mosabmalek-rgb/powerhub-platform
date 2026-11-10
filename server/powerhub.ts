@@ -4840,6 +4840,10 @@ export const powerhubRouter = router({
         return v;
       };
       const treatment=result.fixtureTreatment;
+      if(result.accountingCertification!=="NOT_CERTIFIED"){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"حالة الاعتماد المحاسبي لتقرير التدفق النقدي غير متوقعة."});
+      }
       if(treatment!=="NO_FIXTURE_IN_SCOPED_PERIOD"
           && treatment!=="EXACT_REVIEWED_COHORT_EXCLUDED") {
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
@@ -5444,6 +5448,10 @@ export const powerhubRouter = router({
             throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعارض نطاق الفرع في اتجاه التدفق النقدي."});
           }
           const treatment=record.fixtureTreatment;
+          if(record.accountingCertification!=="NOT_CERTIFIED"){
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+              message:"حالة الاعتماد المحاسبي لاتجاه النقد غير متوقعة."});
+          }
           const fixtureExcluded=number("fixtureExcludedMovements");
           if(!["NO_FIXTURE_IN_SCOPED_PERIOD","EXACT_REVIEWED_COHORT_EXCLUDED"].includes(String(treatment))
               || !Number.isSafeInteger(fixtureExcluded) || fixtureExcluded<0
