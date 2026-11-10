@@ -15,7 +15,7 @@ BEGIN
  OR (nov->>'orphanOperationalSourceCount')::bigint<>0
  OR (nov->>'unlinkedNonFixtureMovementCount')::bigint<>0
  OR (nov->>'fixtureExcludedCount')::bigint<>250000
- OR nov->>'fixtureVerificationStatus'<>'CRYPTOGRAPHICALLY_VERIFIED_TEST_COHORT'
+ OR nov->>'fixtureVerificationStatus'<>'HASH_ANCHORED_IMMUTABLE_TEST_COHORT'
  OR oct->>'status'<>'LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED'
  OR (oct->>'linkedMovementCount')::bigint<>4
  OR branch->>'status'<>'BLOCKED_ACCOUNT_MOVEMENT_AUDIT'
@@ -29,6 +29,9 @@ BEGIN
   PERFORM public.powerhub_financial_gl_company_movement_audit(1,1,'2026-13');
   RAISE EXCEPTION 'B4_2_BAD_MONTH_ACCEPTED';
  EXCEPTION WHEN SQLSTATE '22023' THEN NULL;END;
+ IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgname='powerhub_financial_gl_fixture_freeze_write' AND t.tgrelid='public.account_transactions'::regclass AND t.tgenabled IN ('O','A'))
+ OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgname='powerhub_financial_gl_fixture_freeze_truncate' AND t.tgrelid='public.account_transactions'::regclass AND t.tgenabled IN ('O','A'))
+ THEN RAISE EXCEPTION 'B4_2_FIXTURE_FREEZE_GUARD_MISSING';END IF;
  IF has_function_privilege('anon','public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)','EXECUTE')
  OR has_function_privilege('authenticated','public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)','EXECUTE')
  OR NOT has_function_privilege('service_role','public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)','EXECUTE')
