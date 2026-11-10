@@ -4011,6 +4011,9 @@ declare
   v_cost_cycle_before record;
   v_cost_month_before record;
   v_cost_custom_before record;
+  v_cycle_stock_count integer;
+  v_cycle_stock_liters numeric;
+  v_cycle_stock_cost numeric;
   v_expected_fuel_cost numeric(14,2);
   v_consumption_at timestamptz;
   v_consumption_date date;
@@ -4388,13 +4391,25 @@ begin
   select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
     10,100,'cycle',v_consumption_date,null,null,10000
   );
-  -- The test restores a wider 10-day cycle before this query. That window
-  -- now includes the 0.5L and 2L stock issues created by earlier independent
-  -- fixtures; the 5L fill itself was already present in the baseline.
+  -- The baseline was collected under a temporary WEEKLY cycle; the report
+  -- now uses restored EVERY_10_DAYS. These windows can coincide or differ
+  -- depending on the date CI runs. Compare against independent stock movements
+  -- in the *same* restored cycle, never a hardcoded delta between two windows.
+  select * into v_cycle_debug from public.powerhub_cycle_for_reading(
+    10,100,v_consumption_date::timestamp at time zone 'Asia/Gaza'
+  );
+  select count(*)::integer,coalesce(sum(m.quantity),0),coalesce(sum(m.total_cost_amount),0)
+  into v_cycle_stock_count,v_cycle_stock_liters,v_cycle_stock_cost
+  from public.inventory_stock_movements m
+  where m.tenant_id=10 and m.site_id=100 and m.generator_id=10000
+    and m.movement_type='fuel_consumption'
+    and m.occurred_at>=v_cycle_debug.cycle_start_at
+    and m.occurred_at<=v_cycle_debug.cycle_end_at;
   if v_cost_report.generator_id<>10000
-     or v_cost_report.movement_count<>v_cost_cycle_before.movement_count+3
-     or v_cost_report.recorded_consumption_liters-v_cost_cycle_before.recorded_consumption_liters<>2.5
-     or v_cost_report.recorded_consumption_cost-v_cost_cycle_before.recorded_consumption_cost<>9.76 then
+     or v_cost_report.movement_count<>v_cycle_stock_count
+     or v_cost_report.recorded_consumption_liters<>v_cycle_stock_liters
+     or v_cost_report.recorded_consumption_cost<>v_cycle_stock_cost
+     or v_cost_report.average_cost_per_liter<>round(v_cycle_stock_cost/nullif(v_cycle_stock_liters,0),4) then
     raise exception 'PHASE_B_FUEL_COST_CYCLE_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
       row_to_json(v_cost_report),row_to_json(v_cost_cycle_before),v_expected_fuel_cost;
   end if;
