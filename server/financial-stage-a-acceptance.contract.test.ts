@@ -40,6 +40,12 @@ const fixtureFastPreflightA43 = readFileSync(
 const fixtureFastAcceptanceA43 = readFileSync(
   "docs/security/sql/pr359-financial-a43-verified-fixture-fast-preflight-rollback.sql", "utf8",
 );
+const technicalBootstrapMigrationA44 = readFileSync(
+  "supabase/migrations/20261110171500_powerhub_financial_gl_prelaunch_technical_bootstrap.sql","utf8",
+);
+const technicalBootstrapRollbackA44 = readFileSync(
+  "docs/security/sql/pr359-financial-a44-prelaunch-bootstrap-rollback.sql","utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -585,6 +591,18 @@ describe("Phase A financial acceptance evidence", () => {
     expect(fixtureFastAcceptanceA43).toContain("PASS_ROLLBACK_ONLY");
     expect(fixtureFastAcceptanceA43).toContain("ROLLBACK;");
     expect(fixtureFastAcceptanceA43).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("requires tightly scoped prelaunch source projection without claimed certification", () => {
+    expect(technicalBootstrapMigrationA44).toContain("A44");
+    expect(technicalBootstrapMigrationA44).toContain("powerhub_financial_gl_prelaunch_tech_valid");
+    expect(technicalBootstrapMigrationA44).toContain("GL_PRELAUNCH_TECHNICAL_BOOTSTRAP_IMMUTABLE");
+    expect(technicalBootstrapMigrationA44).toContain("NOT_CERTIFIED");
+    expect(technicalBootstrapMigrationA44).toContain("ENABLE ROW LEVEL SECURITY");
+    expect(technicalBootstrapRollbackA44).toContain("A44_BOOTSTRAP_SCOPE_BYPASS");
+    expect(technicalBootstrapRollbackA44).toContain("A44_ENGINEERING_NOT_CLEAN");
+    expect(technicalBootstrapRollbackA44).toContain("ROLLBACK;");
+    expect(technicalBootstrapRollbackA44).not.toMatch(/\\bCOMMIT\\s*;/i);
   });
 
 });
