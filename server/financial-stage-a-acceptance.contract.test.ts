@@ -53,6 +53,9 @@ const bootstrapExpiryMigrationA46 = readFileSync("supabase/migrations/2026111017
 const bootstrapExpiryAcceptanceA46 = readFileSync("docs/security/sql/pr359-financial-a46-bootstrap-expiry-readonly.sql","utf8");
 const phaseA47FinalEngineering = readFileSync("docs/security/sql/pr359-financial-a47-engineering-closeout.sql", "utf8");
 const phaseA47AcceptanceReport = readFileSync("docs/roadmaps/powerhub-finance-phase-a-engineering-acceptance-20261110.md", "utf8");
+const financialStatementsB1Sql = readFileSync("supabase/migrations/20261110180332_powerhub_financial_gl_site_statements_b1.sql", "utf8");
+const financialStatementsB1Acceptance = readFileSync("docs/security/sql/pr359-financial-b1-gl-statements-rollback.sql", "utf8");
+const financialStatementsB1Ui = readFileSync("client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8");
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -649,6 +652,22 @@ describe("Phase A financial acceptance evidence", () => {
     expect(phaseA47AcceptanceReport).toContain("not a financial attestation");
     expect(phaseA47AcceptanceReport).toContain("READ ONLY");
     expect(phaseA47AcceptanceReport).toContain("21 committed GL entries");
+  });
+
+  it("builds phase-B1 GL statement projection with strict non-certified site scoping", () => {
+    expect(financialStatementsB1Sql).toContain("powerhub_financial_gl_site_statements");
+    expect(financialStatementsB1Sql).toContain("GL_B1_UNMAPPED_INCOME_OR_EXPENSE");
+    expect(financialStatementsB1Sql).toContain("GL_B1_FINANCIAL_EQUATION_UNBALANCED");
+    expect(financialStatementsB1Sql).toContain("NOT_CONFIGURED_OR_APPROVED");
+    expect(financialStatementsB1Sql).toContain("NOT_CONSOLIDATED");
+    expect(financialStatementsB1Acceptance).toContain("B1_CROSS_TENANT_BYPASS");
+    expect(financialStatementsB1Acceptance).toContain("B1_RPC_EXPOSED_TO_PUBLIC");
+    expect(financialStatementsB1Acceptance).toContain("PASS_ROLLBACK_ONLY");
+    expect(financialStatementsB1Ui).toContain("B1 — قائمة الدخل والمركز المالي الأوليان");
+    expect(financialStatementsB1Ui).toContain("enabled:enabled && showB1");
+    expect(runtime).toContain("financialGLSiteStatements: protectedProcedure");
+    expect(runtime).toContain("powerhub_financial_gl_site_statements");
+    expect(runtime).toContain("viewFinancialReports");
   });
 
 });

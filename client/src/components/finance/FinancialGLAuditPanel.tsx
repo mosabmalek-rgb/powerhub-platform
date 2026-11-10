@@ -90,6 +90,21 @@ export default function FinancialGLAuditPanel({
     enabled: enabled && showTrial, staleTime: 60_000,
     refetchOnWindowFocus: false, refetchOnReconnect: true,
   });
+  const [showB1, setShowB1] = useState(false);
+  const statements = trpc.powerhub.reports.financialGLSiteStatements.useQuery({siteId,period},{
+    enabled:enabled && showB1,staleTime:60_000,
+    refetchOnWindowFocus:false,refetchOnReconnect:true,
+  });
+  const b1Visible = showB1 && !statements.isFetching && !statements.isLoading
+    && !statements.isError && Boolean(statements.data);
+  const b1 = b1Visible ? object(statements.data) : {};
+  const b1Income = object(b1.incomeStatement);
+  const b1Position = object(b1.balanceSheet);
+  const b1Branch = object(b1.branchProfitability);
+  const b1Amount = (value:unknown) => {
+    const n = typeof value==="number" ? value : Number(value);
+    return Number.isFinite(n) ? n.toLocaleString("ar",{minimumFractionDigits:2,maximumFractionDigits:2}) : "غير متاح";
+  };
   const canShowCoverage = Boolean(coverage.data && !coverage.isError && !coverage.isFetching && !coverage.isLoading);
   const report = canShowCoverage ? object(coverage.data) : {};
   const integrity = object(report.sourceIntegrity);
@@ -240,6 +255,46 @@ export default function FinancialGLAuditPanel({
         <ul className="mt-2 list-disc space-y-1 pr-5">
           {blockers.map((issue, index) => <li key={index}>{issue}</li>)}
         </ul>
+      </div>
+      <div className="mt-3 rounded-md border border-white/10 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h4 className="text-sm font-semibold text-white">B1 — قائمة الدخل والمركز المالي الأوليان</h4>
+            <p className="mt-1 text-xs text-slate-400">من قيود GL فقط، للفترة والفرع المحددين. لا يشمل توزيع المصروف المركزي أو دمج الحسابات المشتركة.</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={()=>setShowB1(v=>!v)}>
+            {showB1 ? "إخفاء القوائم" : "عرض القوائم الأولية"}
+          </Button>
+        </div>
+        {showB1 && (statements.isFetching || statements.isLoading) ?
+          <p role="status" className="mt-3 text-sm text-slate-300">جارٍ احتساب القوائم من القيود المحاسبية...</p> : null}
+        {showB1 && statements.isError ?
+          <p role="alert" className="mt-3 text-sm text-rose-200">تعذر إعداد القوائم. لا تُعرض أرقام مخزنة أو ناقصة بدل النتائج الحالية.</p> : null}
+        {b1Visible ? <div className="mt-3 space-y-3 text-sm text-slate-200">
+          <p className="text-amber-200">بيان أولي غير معتمد محاسبيًا (NOT_CERTIFIED)، وليس صافي ربح نهائيًا.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-md border border-white/10 p-3">
+              <h5 className="font-semibold text-white">قائمة الدخل — {period}</h5>
+              <p className="mt-2">إيراد الخدمة: {b1Amount(b1Income.serviceRevenue)}</p>
+              <p>التكلفة المباشرة: {b1Amount(b1Income.directServiceCost)}</p>
+              <p>مجمل النتيجة: {b1Amount(b1Income.grossResult)}</p>
+              <p>الأجور: {b1Amount(b1Income.wages)}</p>
+              <p>الإهلاك والمخصصات: {b1Amount((Number(b1Income.depreciation)||0)+(Number(b1Income.provisions)||0))}</p>
+              <p>المصروفات غير التشغيلية: {b1Amount(b1Income.nonOperatingExpenses)}</p>
+              <p className="mt-2 font-semibold">النتيجة الأولية: {b1Amount(b1Income.provisionalNetResult)}</p>
+            </div>
+            <div className="rounded-md border border-white/10 p-3">
+              <h5 className="font-semibold text-white">المركز المالي حتى نهاية الفترة</h5>
+              <p className="mt-2">صافي الأصول: {b1Amount(b1Position.netAssets)}</p>
+              <p>الالتزامات: {b1Amount(b1Position.liabilities)}</p>
+              <p>حقوق الملكية المسجلة: {b1Amount(b1Position.postedEquity)}</p>
+              <p>النتيجة المتراكمة غير المقفلة: {b1Amount(b1Position.unclosedAccumulatedResult)}</p>
+              <p className="mt-2 font-semibold">فرق المعادلة: {b1Amount(b1Position.equationDifference)}</p>
+            </div>
+          </div>
+          <p className="text-xs text-amber-200">ربحية الفرع قبل توزيع المصروفات المركزية: {b1Amount(b1Branch.siteResultBeforeCentralAllocation)}.
+          التكاليف المركزية غير الموزعة غير محددة، وليست صفرًا مثبتًا. لا توجد قوائم موحدة للاشتراك بعد.</p>
+        </div> : null}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button size="sm" variant="outline" className="border-white/20 text-white"

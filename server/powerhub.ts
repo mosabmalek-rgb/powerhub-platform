@@ -5464,6 +5464,44 @@ export const powerhubRouter = router({
           message:"نتيجة توزيع الخدمة غير متسقة أو غير مسموح بعرضها."});
       return result;
     }),
+    // B1: on-demand, site-only statements. Distinct from cashflow and final P&L.
+    financialGLSiteStatements: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_site_statements",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر إعداد القوائم الأولية من الأستاذ العام؛ لن تُعرض نتائج ناقصة."});
+      const statement=data as Record<string,unknown>;
+      const income=statement.incomeStatement as Record<string,unknown>|undefined;
+      const position=statement.balanceSheet as Record<string,unknown>|undefined;
+      const branch=statement.branchProfitability as Record<string,unknown>|undefined;
+      const consolidation=statement.consolidation as Record<string,unknown>|undefined;
+      if(statement.tenantId!==access.tenantId || statement.siteId!==input.siteId
+        || statement.period!==input.period || statement.siteScope!=="SITE_ONLY"
+        || statement.accountingCertification!=="NOT_CERTIFIED"
+        || statement.isFinalProfit!==false || statement.isFinalBalanceSheet!==false
+        || statement.isCompleteAccrualStatement!==false
+        || statement.isMathematicallyBalanced!==true
+        || !Array.isArray(statement.accounts)
+        || !Number.isSafeInteger(Number(statement.glEntryCount))
+        || !income || income.isFinalProfit!==false
+        || !Number.isFinite(Number(income.provisionalNetResult))
+        || !position || position.isFinalBalanceSheet!==false
+        || Number(position.equationDifference)!==0
+        || !branch || branch.isFinalBranchProfit!==false
+        || branch.centralCostAllocationStatus!=="NOT_CONFIGURED_OR_APPROVED"
+        || !consolidation || consolidation.status!=="NOT_CONSOLIDATED"){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"القوائم الأولية غير متسقة مع نطاق الفرع أو دفتر الأستاذ؛ لم يُعتمد التقرير."});
+      }
+      return statement;
+    }),
     financialGLTrialBalance: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
