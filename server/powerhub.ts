@@ -23,7 +23,7 @@ import { probeMessagingConnection } from "./messaging-connection";
 import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPaymentReceiptTemplate, paymentReceiptTemplateParameters } from "./payment-receipt-message";
 import { normalizeInternationalPhone, phoneSearchVariants } from "../shared/phone";
 import { countUnconfirmedNeedsReviewPersistence, processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
-import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
+import { storageGet, storageGetSignedUrl, storagePut, storagePutPrivate, storageRemove } from "./storage";
 import { FINANCIAL_OPENING_MIME_EXTENSIONS, InvalidFinancialOpeningDocument, openingDocumentDetails, openingDocumentHashMatches, parseOpeningDocumentBase64, type FinancialOpeningMime } from "./financial-opening-evidence";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { isActivePlatformAdmin } from "./platform-admin";
@@ -5235,9 +5235,9 @@ export const powerhubRouter = router({
       const fileKey='financial-opening-evidence/'+access.tenantId+'/'+
         input.siteId+'/'+input.openingId+'/'+input.lineId+'/'+
         randomUUID()+'.'+FINANCIAL_OPENING_MIME_EXTENSIONS[input.mimeType as FinancialOpeningMime];
-      let uploaded:{key:string;url:string};
+      let uploaded:{key:string};
       try{
-        uploaded=await storagePut(fileKey,parsed.bytes,input.mimeType);
+        uploaded=await storagePutPrivate(fileKey,parsed.bytes,input.mimeType);
       }catch{
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر حفظ المستند في التخزين الخاص؛ يظل الدليل بانتظار الحيازة."});
       }
