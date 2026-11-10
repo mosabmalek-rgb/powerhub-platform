@@ -4825,7 +4825,9 @@ export const powerhubRouter = router({
       if (error || !data || typeof data !== "object" || Array.isArray(data)) {
         console.error("[PowerHub] finance cash-flow aggregate failed",{code:error?.code??"INVALID_RESPONSE"});
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
-          message:"تعذر تحميل التدفق النقدي للفترة؛ تحقق من ترحيل التقرير واتصال الخادم."});
+          message:String(error?.message??"").includes("GL_CASHFLOW_FIXTURE_REVIEW_REQUIRED")
+            ?"تحتوي الفترة على حركات أداء تجريبية؛ يلزم اعتماد عزلها من مراجع مستقل قبل عرض تدفق نقدي موثوق."
+            :"تعذر تحميل التدفق النقدي للفترة؛ تحقق من ترحيل التقرير واتصال الخادم."});
       }
       const result=data as Record<string,unknown>;
       if (Number(result.scopeSiteId)!==input.siteId) {
@@ -4837,12 +4839,28 @@ export const powerhubRouter = router({
           code:"INTERNAL_SERVER_ERROR",message:"استعلام التدفق النقدي أعاد مبلغاً غير صالح."});
         return v;
       };
+      const treatment=result.fixtureTreatment;
+      if(treatment!=="NO_FIXTURE_IN_SCOPED_PERIOD"
+          && treatment!=="EXACT_REVIEWED_COHORT_EXCLUDED") {
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تقرير التدفق النقدي غير محمي بتصنيف حركات الأداء؛ يلزم ترحيل قاعدة البيانات."});
+      }
+      const excluded=num("fixtureExcludedMovements");
+      if(!Number.isSafeInteger(excluded) || excluded<0
+          || (treatment==="EXACT_REVIEWED_COHORT_EXCLUDED" && excluded===0)
+          || (treatment==="NO_FIXTURE_IN_SCOPED_PERIOD" && excluded!==0)) {
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر التحقق من فصل الحركات التجريبية عن التدفق النقدي."});
+      }
       return {
         externalCashIn:num("externalCashIn"),
         externalCashOut:num("externalCashOut"),
         netCashFlow:num("netCashFlow"),
         internalTransferVolume:num("internalTransferVolume"),
         transactionCount:num("transactionCount"),
+        fixtureExcludedMovements:excluded,
+        fixtureTreatment:treatment,
+        accountingCertification:"NOT_CERTIFIED" as const,
         scopeNotice:"site_attributed_only" as const,
       };
     }),
@@ -5408,7 +5426,9 @@ export const powerhubRouter = router({
           });
           if (error || !data || typeof data!=="object" || Array.isArray(data)) {
             throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
-              message:"تعذر تحميل أحد أشهر التدفق النقدي؛ لن نعرض اتجاهاً جزئياً."});
+              message:String(error?.message??"").includes("GL_CASHFLOW_FIXTURE_REVIEW_REQUIRED")
+                ?"أحد أشهر الاتجاه يحتوي حركات أداء تجريبية غير معتمدة؛ لن نعرض اتجاهًا جزئيًا."
+                :"تعذر تحميل أحد أشهر التدفق النقدي؛ لن نعرض اتجاهاً جزئياً."});
           }
           const record=data as Record<string,unknown>;
           const number=(key:string)=>{
@@ -5422,6 +5442,15 @@ export const powerhubRouter = router({
           };
           if (number("scopeSiteId")!==input.siteId) {
             throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعارض نطاق الفرع في اتجاه التدفق النقدي."});
+          }
+          const treatment=record.fixtureTreatment;
+          const fixtureExcluded=number("fixtureExcludedMovements");
+          if(!["NO_FIXTURE_IN_SCOPED_PERIOD","EXACT_REVIEWED_COHORT_EXCLUDED"].includes(String(treatment))
+              || !Number.isSafeInteger(fixtureExcluded) || fixtureExcluded<0
+              || (treatment==="NO_FIXTURE_IN_SCOPED_PERIOD" && fixtureExcluded!==0)
+              || (treatment==="EXACT_REVIEWED_COHORT_EXCLUDED" && fixtureExcluded===0)) {
+            throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+              message:"تقرير الاتجاه النقدي يفتقر إلى إثبات تصنيف حركات الأداء."});
           }
           const externalCashIn=number("externalCashIn");
           const externalCashOut=number("externalCashOut");
