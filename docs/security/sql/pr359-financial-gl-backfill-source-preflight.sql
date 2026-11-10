@@ -73,7 +73,7 @@ WITH input AS (
  SELECT CASE WHEN (SELECT count(*) FROM unapplied)>2000
    THEN (1/0)::integer ELSE 1 END AS safe_count
 ), probed AS MATERIALIZED (
- SELECT b.source_type,b.id,b.at,
+ SELECT b.tenant_id,b.site_id,b.source_type,b.id,b.at,
    pg_temp.powerhub_gl_preflight_probe(
      b.tenant_id,b.site_id,b.source_type,b.id) AS probe
  FROM unapplied b CROSS JOIN checked
@@ -85,6 +85,50 @@ WITH input AS (
     THEN 'INTERNAL_TRANSFER_NOT_DIRECT_GL'
   WHEN p.probe->>'reason'='GL_STOCK_EVENT_ACCOUNTED_VIA_SUPPLIER_LEDGER_OR_UNSUPPORTED'
     THEN 'STOCK_REQUIRES_SUPPLIER_COVERAGE_CHECK'
+  -- A34: an unreconciled supplier return may simply be awaiting purchase GL.
+  -- Demote the blocker only after independently checking the posted return,
+  -- linked purchase/supplier, receipt count, reference and exact costs.
+  WHEN p.source_type='supplier_ledger'
+   AND p.probe->>'reason'='GL_SUPPLIER_RETURN_NOT_RECONCILED'
+   AND EXISTS (
+      SELECT 1
+      FROM public.supplier_ledger_entries sr
+      JOIN public.supplier_purchase_returns ret
+        ON ret.id=sr.supplier_return_id
+       AND ret.tenant_id=sr.tenant_id AND ret.site_id=sr.site_id
+       AND ret.purchase_id=sr.purchase_id AND ret.supplier_id=sr.supplier_id
+      JOIN public.supplier_purchases purchase
+        ON purchase.id=sr.purchase_id
+       AND purchase.tenant_id=sr.tenant_id AND purchase.site_id=sr.site_id
+       AND purchase.supplier_id=sr.supplier_id
+      WHERE sr.tenant_id=p.tenant_id AND sr.site_id=p.site_id
+       AND sr.id=p.id AND sr.entry_type='supplier_return'
+       AND purchase.status='received' AND ret.status='posted'
+       AND sr.reference_no=ret.return_number
+       AND sr.debit_amount>0 AND sr.credit_amount=0
+       AND ret.total_credit_amount=sr.debit_amount
+       AND ret.stock_cost_amount=sr.debit_amount
+       AND EXISTS (
+          SELECT 1 FROM public.supplier_ledger_entries prior
+          WHERE prior.tenant_id=sr.tenant_id AND prior.site_id=sr.site_id
+            AND prior.entry_type='purchase' AND prior.purchase_id=sr.purchase_id
+            AND prior.credit_amount=purchase.total_amount
+            AND prior.debit_amount=0
+       )
+       AND (
+          SELECT count(*) FROM public.inventory_stock_movements sm
+          WHERE sm.tenant_id=sr.tenant_id AND sm.site_id=sr.site_id
+            AND sm.purchase_id=sr.purchase_id AND sm.movement_type='supplier_return'
+            AND sm.reference_no=sr.reference_no
+       )>0
+       AND (
+          SELECT coalesce(sum(sm.total_cost_amount),0)
+          FROM public.inventory_stock_movements sm
+          WHERE sm.tenant_id=sr.tenant_id AND sm.site_id=sr.site_id
+            AND sm.purchase_id=sr.purchase_id AND sm.movement_type='supplier_return'
+            AND sm.reference_no=sr.reference_no
+       )=sr.debit_amount
+   ) THEN 'WAITING_FOR_PREREQUISITE_GL'
   WHEN p.probe->>'reason' IN ('GL_PAYMENT_INVOICE_NOT_POSTED',
     'GL_SUPPLIER_PAYMENT_PURCHASE_NOT_POSTED')
     THEN 'WAITING_FOR_PREREQUISITE_GL'
