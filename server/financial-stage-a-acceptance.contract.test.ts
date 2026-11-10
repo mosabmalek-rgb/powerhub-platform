@@ -97,6 +97,26 @@ describe("Phase A financial acceptance evidence", () => {
     expect(dashboard).toContain("sourceSubledgersIndependentlyVerified");
     expect(dashboard).toContain("performanceFixtureTagged");
   });
+  it("requires independent signed-in actors for the Staging fixture workflow", () => {
+    for (const contract of [
+      "financialGLFixtureStatus",
+      "financialGLFixturePrepare",
+      "financialGLFixtureReview",
+      "ctx.user.id",
+      "acknowledgedIndependentReview:z.literal(true)",
+      "powerhub_financial_gl_fixture_manifest_prepare",
+      "powerhub_financial_gl_fixture_manifest_review",
+      "GL_FIXTURE_SELF_REVIEW",
+    ]) expect(runtime).toContain(contract);
+    expect(runtime).toContain("https://iyuryuhaylhisjfcrwkz.supabase.co");
+    expect(runtime).toContain("financialCertification");
+    expect(dashboard).toContain("financialGLFixtureStatus");
+    expect(dashboard).toContain("financialGLFixturePrepare");
+    expect(dashboard).toContain("financialGLFixtureReview");
+    expect(dashboard).toContain("preparerIsCurrentUser");
+    expect(dashboard).toContain("مراجع آخر");
+    expect(dashboard).toContain("لا تزال القوائم المالية غير معتمدة");
+  });
   it("never presents a Staging performance fixture as operational cash flow without dual review", () => {
     for (const signal of [
       "GL_CASHFLOW_FIXTURE_REVIEW_REQUIRED",
