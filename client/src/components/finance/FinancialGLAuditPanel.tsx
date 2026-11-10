@@ -163,7 +163,9 @@ export default function FinancialGLAuditPanel({
             SHA-256: {fixture.data.manifestSha256}
           </p> : null}
           <p className="mt-2">
-            الحالة: {fixture.data.verified ? "تم التحقق من العزل المستقل والبصمة"
+            الحالة: {fixture.data.verified && fixture.data.verificationMode === "technical"
+              ? "تم التحقق تقنيًا من عزل بيانات الأداء الاختبارية، دون اعتماد بشري"
+              : fixture.data.verified ? "تم التحقق من العزل المستقل والبصمة"
               : fixture.data.status === "not_prepared" ? "لم يُعدّ السجل"
               : fixture.data.status === "pending" ? "بانتظار مراجع مستقل"
               : "فشل التحقق من البصمة أو الروابط"}.
@@ -190,6 +192,7 @@ export default function FinancialGLAuditPanel({
           </div> : null}
           {fixture.data.verified ? <p role="status" className="mt-2 text-emerald-200">
             تم التحقق من {numberText(fixture.data.fixtureCount)} حركة؛ لم تُحذف أي حركة، ولا تزال القوائم المالية غير معتمدة.
+            {fixture.data.verificationMode === "technical" ? " هذا فحص تقني لبيانات وهمية قبل الإطلاق، وليس موافقة مراجع بشري." : ""}
           </p> : null}
         </> : null}
         {prepareFixture.isError ? <p role="alert" className="mt-2 text-rose-200">{prepareFixture.error.message}</p> : null}

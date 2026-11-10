@@ -1,3 +1,9 @@
+const technicalFixtureA35 = readFileSync(
+  "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
+);
+const technicalAcceptanceA35 = readFileSync(
+  "docs/security/sql/pr359-financial-a35-technical-acceptance-readonly.sql", "utf8",
+);
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -419,6 +425,19 @@ describe("Phase A financial acceptance evidence", () => {
     expect(financePage).toContain("cashFlow.data.fixtureExcludedMovements");
     expect(financePage).toContain("موافقة مراجعة مستقلة");
     expect(financePage).toContain("ليس شهادة محاسبية نهائية");
+  });
+
+  it("distinguishes A35 technical prelaunch quarantine from human certification", () => {
+    expect(technicalFixtureA35).toContain("STAGING_PRELAUNCH_TECHNICAL");
+    expect(technicalFixtureA35).toContain("'humanReviewed'");
+    expect(technicalFixtureA35).toContain("'NOT_CERTIFIED'");
+    expect(technicalFixtureA35).toContain("powerhub_financial_gl_verify_staging_fixture");
+    expect(technicalFixtureA35).toContain("GL_STAGING_TECHNICAL_FULL_SHA_OR_BALANCE_INVALID");
+    expect(technicalFixtureA35).not.toMatch(/\\bDELETE\\s+FROM\\s+public[.]account_transactions\\b/i);
+    expect(technicalAcceptanceA35).toContain("remainingOperationalGaps");
+    expect(runtime).toContain('verificationMode:"technical"');
+    expect(runtime).toContain('proof.humanReviewed===false');
+    expect(dashboard).toContain('fixture.data.verificationMode === "technical"');
   });
 
 });

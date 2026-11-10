@@ -5498,9 +5498,36 @@ export const powerhubRouter = router({
         .maybeSingle();
       if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
         message:"تعذر قراءة سجل مراجعة عزل حركات الأداء."});
-      if(!data) return {status:"not_prepared" as const,manifestId:null as number|null,
-        fixtureCount:250000,manifestSha256:null as string|null,canReview:false,verified:false,reason:"NO_APPROVED_MANIFEST" as string,
-        preparerIsCurrentUser:false,reviewedAt:null as string|null};
+      if(!data){
+        // A35: Staging prelaunch test fixture evidence is technical, not
+        // an independent human review. Both paths share the full SHA verifier.
+        const response=await supabaseAdmin().rpc("powerhub_financial_gl_verify_staging_fixture",{
+          p_tenant_id:1,p_site_id:1,
+        });
+        if(response.error || !response.data || typeof response.data!=="object"
+          || Array.isArray(response.data)) throw new TRPCError({
+            code:"INTERNAL_SERVER_ERROR",message:"تعذر التحقق من حالة الاستبعاد التقني لمجموعة الأداء."});
+        const proof=response.data as Record<string,unknown>;
+        const technical=proof.verified===true &&
+          proof.verificationMode==="STAGING_PRELAUNCH_TECHNICAL" &&
+          proof.humanReviewed===false &&
+          Number(proof.quarantinedCount)===250000 &&
+          proof.financialCertification==="NOT_CERTIFIED";
+        if(technical){
+          return {status:"verified" as const,manifestId:null as number|null,
+            fixtureCount:250000,manifestSha256:String(proof.sha256),
+            canReview:false,verified:true,reason:String(proof.reason),
+            preparerIsCurrentUser:false,reviewedAt:null as string|null,
+            verificationMode:"technical" as const};
+        }
+        if(proof.verified===true) throw new TRPCError({
+          code:"INTERNAL_SERVER_ERROR",message:"دليل العزل لا يطابق مسار المراجعة المستقلة المتوقع."});
+        return {status:"not_prepared" as const,manifestId:null as number|null,
+          fixtureCount:250000,manifestSha256:null as string|null,canReview:false,
+          verified:false,reason:String(proof.reason??"NO_APPROVED_MANIFEST"),
+          preparerIsCurrentUser:false,reviewedAt:null as string|null,
+          verificationMode:"none" as const};
+      }
       if(data.status!=="pending" && data.status!=="verified") throw new TRPCError({
         code:"INTERNAL_SERVER_ERROR",message:"حالة سجل العزل غير معروفة."});
       let proof:Record<string,unknown>={verified:false,reason:"AWAITING_DIFFERENT_REVIEWER"};
