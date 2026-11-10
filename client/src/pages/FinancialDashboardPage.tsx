@@ -377,7 +377,7 @@ export default function FinancialDashboardPage() {
           تحديث الحركة
         </Button>
       </div>
-      {cashFlow.isError ? <div role="alert" className="mt-3 text-sm text-rose-200">تعذر التحقق من التدفقات النقدية؛ لا نعرض أرقاماً افتراضية.
+      {cashFlow.isError ? <div role="alert" className="mt-3 text-sm text-rose-200">{cashFlow.error?.message || "تعذر التحقق من التدفقات النقدية؛ لا نعرض أرقاماً افتراضية."}
         <Button size="sm" variant="outline" className="mr-2 text-white" onClick={() => void cashFlow.refetch()}>إعادة المحاولة</Button>
       </div> : null}
       {cashFlow.isLoading ? <p role="status" className="mt-3 text-sm text-slate-300">جارٍ جمع الحركات النقدية للفترة…</p> : null}
@@ -454,7 +454,7 @@ export default function FinancialDashboardPage() {
           </p>
           {cashFlowTrend.isLoading ? <p role="status" className="text-sm text-slate-300">جارٍ تحميل الاتجاهات الشهرية…</p> : null}
           {cashFlowTrend.isError ? <div role="alert" className="text-sm text-rose-200">
-            تعذر التحقق من جميع الأشهر؛ لا تُعرض بيانات جزئية.
+            {cashFlowTrend.error?.message || "تعذر التحقق من جميع الأشهر؛ لا تُعرض بيانات جزئية."}
             <Button size="sm" variant="outline" className="mr-2 text-white"
               onClick={() => void cashFlowTrend.refetch()}>إعادة المحاولة</Button>
           </div> : null}
