@@ -56,7 +56,51 @@ BEGIN
  IF NEW.storage_key NOT LIKE
   ('financial-opening-evidence/'||NEW.tenant_id||'/'||
    NEW.site_id||'/'||NEW.opening_id||'/'||NEW.opening_line_id||'/%')
-  OR NEW.storage_key !~ '^[a-zA-Z0-9/_-]+\\.(pdf|jpg|jpeg|png|webp)$'
+  OR NEW.storage_key !~ '^[a-zA-Z0-9/_-]+[.](pdf|jpg|jpeg|png|webp)
+ THEN RAISE EXCEPTION 'GL_OPENING_DOCUMENT_CUSTODY_STORAGE_SCOPE_INVALID'
+   USING ERRCODE='22023';END IF;
+ RETURN NEW;
+END;
+$guard$;
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_opening_document_custody_guard()
+ FROM PUBLIC,anon,authenticated;
+CREATE TRIGGER zz_gl_opening_document_custody_guard
+ BEFORE INSERT OR UPDATE OR DELETE
+ ON public.financial_gl_opening_document_custody
+ FOR EACH ROW EXECUTE FUNCTION public.powerhub_financial_gl_opening_document_custody_guard();
+CREATE TRIGGER zz_gl_opening_document_custody_truncate_guard
+ BEFORE TRUNCATE ON public.financial_gl_opening_document_custody
+ FOR EACH STATEMENT EXECUTE FUNCTION public.powerhub_financial_gl_immutable_guard();
+-- Approval cannot be obtained by typing a plausible SHA-256 while omitting
+-- source-file custody. Database checks presence/scope; the privileged server
+-- MUST independently re-download and re-hash the bytes before calling review.
+CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_opening_custody_review_gate()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
+SET search_path=pg_catalog,public,pg_temp AS $gate$
+BEGIN
+ IF NEW.review_status='verified' AND OLD.review_status='pending'
+ AND NOT EXISTS(
+   SELECT 1 FROM public.financial_gl_opening_document_custody c
+   WHERE c.evidence_id=NEW.id AND c.tenant_id=NEW.tenant_id
+     AND c.site_id=NEW.site_id AND c.opening_id=NEW.opening_id
+     AND c.opening_line_id=NEW.opening_line_id
+     AND c.document_sha256=NEW.source_document_sha256
+ ) THEN
+   RAISE EXCEPTION 'GL_OPENING_DOCUMENT_CUSTODY_REQUIRED'
+     USING ERRCODE='23514';
+ END IF;
+ RETURN NEW;
+END;
+$gate$;
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_opening_custody_review_gate()
+ FROM PUBLIC,anon,authenticated;
+CREATE TRIGGER zzz_gl_opening_document_custody_review_gate
+ BEFORE UPDATE ON public.financial_gl_opening_evidence
+ FOR EACH ROW EXECUTE FUNCTION public.powerhub_financial_gl_opening_custody_review_gate();
+COMMENT ON TABLE public.financial_gl_opening_document_custody IS
+ 'Immutable server-hashed private document custody. Independent external origin and source-subledger reconciliation are separate gates; never certifies accounting.';
+NOTIFY pgrst,'reload schema';
+
  THEN RAISE EXCEPTION 'GL_OPENING_DOCUMENT_CUSTODY_STORAGE_SCOPE_INVALID'
    USING ERRCODE='22023';END IF;
  RETURN NEW;
