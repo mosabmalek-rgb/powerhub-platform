@@ -5663,6 +5663,40 @@ export const powerhubRouter = router({
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم يؤكد الخادم اعتماد سياسة التوزيع."});
       return v;
     }),
+    // B4.2: verify every linked company-account transaction against its source and GL.
+    // Only post-verification synthetic fixture exclusion; no booking or certification.
+    financialGLCompanyMovementAudit: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_company_movement_audit",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تدقيق حركات حسابات الشركة؛ لم تُعتمد أي نتيجة جزئية."});
+      const v=data as Record<string,unknown>;
+      if(v.tenantId!==access.tenantId || v.siteId!==input.siteId ||
+        v.period!==input.period || v.accountingCertification!=="NOT_CERTIFIED" ||
+        v.isApproved!==false || v.isFinalBalanceSheet!==false ||
+        !["LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED","BLOCKED_ACCOUNT_MOVEMENT_AUDIT"].includes(String(v.status)) ||
+        !Number.isSafeInteger(Number(v.linkedMovementCount)) ||
+        !Number.isSafeInteger(Number(v.mismatchCount)) ||
+        !Number.isSafeInteger(Number(v.orphanOperationalSourceCount)) ||
+        !Number.isSafeInteger(Number(v.unlinkedNonFixtureMovementCount)) ||
+        !Number.isSafeInteger(Number(v.aggregateUnresolvedCount)) ||
+        !Number.isSafeInteger(Number(v.fixtureExcludedCount)) ||
+        !Array.isArray(v.mismatchExamples) || v.mismatchExamples.length>20 ||
+        !Array.isArray(v.accountBalancesLinkedOnly) || !Array.isArray(v.limitations) ||
+        (v.status==="LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED" &&
+          (Number(v.mismatchCount)!==0 || Number(v.orphanOperationalSourceCount)!==0 ||
+           Number(v.unlinkedNonFixtureMovementCount)!==0 || Number(v.aggregateUnresolvedCount)!==0)))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"نتيجة مطابقة حسابات الشركة غير متسقة مع نطاق الفرع أو أدلة GL."});
+      return v;
+    }),
     // B4.1: document-level GL source audit; no endorsement, no client RPC exposure.
     financialGLSubledgerDocumentAudit: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
