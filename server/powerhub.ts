@@ -5663,6 +5663,31 @@ export const powerhubRouter = router({
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم يؤكد الخادم اعتماد سياسة التوزيع."});
       return v;
     }),
+    // B4: bounded, on-demand, read-only comparison. No automated certification.
+    financialGLSubledgerReconciliation: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_subledger_reconciliation",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذرت مطابقة الدفاتر المساعدة؛ لم يتم إصدار نتيجة معتمدة."});
+      const v=data as Record<string,unknown>;
+      if(v.tenantId!==access.tenantId || v.siteId!==input.siteId
+        || v.period!==input.period || v.accountingCertification!=="NOT_CERTIFIED"
+        || v.isFinalBalanceSheet!==false || v.isApproved!==false
+        || !Array.isArray(v.checks) || v.checks.length!==5
+        || !["MATCHED_NUMERICALLY_NOT_CERTIFIED","BLOCKED_RECONCILIATION"].includes(String(v.status))
+        || !Number.isSafeInteger(Number(v.unresolvedCount))
+        || !Number.isSafeInteger(Number(v.differenceCount)))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"نتيجة المطابقة ناقصة أو لا تطابق الفرع المطلوب."});
+      return v;
+    }),
     financialGLSiteStatements: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
