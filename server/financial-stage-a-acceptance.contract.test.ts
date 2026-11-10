@@ -59,6 +59,12 @@ const financialStatementsB1Ui = readFileSync("client/src/components/finance/Fina
 const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
 const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
 const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
+const b51FastProofSql = readFileSync(
+  "supabase/migrations/20261110223326_powerhub_financial_b5_fast_staging_fixture_coverage.sql","utf8",
+);
+const b51FailClosedSql = readFileSync(
+  "docs/security/sql/pr359-financial-b5-fast-proof-negative-rollback.sql","utf8",
+);
 const b5EngineeringGate = readFileSync(
   "docs/security/sql/pr359-financial-b5-staging-engineering-gate.sql","utf8",
 );
@@ -731,6 +737,20 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
     expect(glAuditUiA45).toContain("b3Visible");
     expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
+  it("keeps B5.1 performance optimization tied to fail-closed immutable Staging proof", () => {
+    expect(b51FastProofSql).toContain("powerhub_financial_gl_fast_staging_fixture_proof");
+    expect(b51FastProofSql).toContain("powerhub_financial_gl_fixture_freeze_write");
+    expect(b51FastProofSql).toContain("powerhub_financial_gl_fixture_freeze_truncate");
+    expect(b51FastProofSql).toContain("zz_financial_gl_staging_technical_immutable");
+    expect(b51FastProofSql).toContain("v_audit:=public.powerhub_financial_gl_fast_staging_fixture_proof");
+    expect(b51FastProofSql).toContain("NOT_CERTIFIED");
+    expect(b51FastProofSql).toContain("TO service_role");
+    expect(b51FailClosedSql).toContain("B5_1_PROOF_NOT_BLOCKED_WITH_DISABLED_FREEZE");
+    expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_FAILURE_CLOSED_PASS");
+    expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_BROWSER_EXECUTE_EXPOSED");
+    expect(b51FailClosedSql).toContain("ROLLBACK;");
   });
 
   it("runs B5 as read-only Staging engineering acceptance without certifying financial statements", () => {
