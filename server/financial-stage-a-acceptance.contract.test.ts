@@ -1,12 +1,12 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
 const technicalAcceptanceA35 = readFileSync(
   "docs/security/sql/pr359-financial-a35-technical-acceptance-readonly.sql", "utf8",
 );
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-
 const sourceDateA32 = readFileSync(
   "docs/security/sql/pr359-financial-a32-opening-source-dates-readonly.sql", "utf8",
 );
@@ -110,7 +110,9 @@ describe("Phase A financial acceptance evidence", () => {
       "unreconciledSources",
       "openingEvidenceAudit",
       "sourceIntegrity",
-      "FIXTURE_REVIEW_PENDING",
+      "FIXTURE_VERIFICATION_PENDING",
+      "fixtureExclusionResolved",
+      "fixtureTechnicalVerification",
       "OPENING_NOT_POSTED",
       "SOURCE_GL_INCOMPLETE",
       "OPENING_SUBLEDGER_RECONCILIATION_PENDING",
