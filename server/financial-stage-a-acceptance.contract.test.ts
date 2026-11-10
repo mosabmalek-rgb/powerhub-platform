@@ -19,6 +19,7 @@ const openingSetupUi = readFileSync(
 const openingEvidenceUi = readFileSync(
   "client/src/components/finance/FinancialOpeningEvidenceWorkspace.tsx", "utf8",
 );
+const privateStorage = readFileSync("server/storage.ts", "utf8");
 const openingEvidenceRuntime = readFileSync(
   "server/financial-opening-evidence.ts", "utf8",
 );
@@ -71,6 +72,15 @@ describe("Phase A financial acceptance evidence", () => {
     ]) expect(sourceDateA32).toContain(marker);
     expect(sourceDateA32).not.toMatch(/\\b(?:INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\\b/i);
     expect(sourceDateA32).not.toContain("SECURITY DEFINER");
+  });
+  it("keeps opening custody uploads independent of URL signing", () => {
+    expect(privateStorage).toContain("export async function storagePutPrivate(");
+    expect(privateStorage).toContain("const uploaded = await storagePutPrivate(relKey, data, contentType);");
+    const privateUpload = privateStorage.split("export async function storagePutPrivate(")[1]
+      ?.split("export async function storagePut(")[0] ?? "";
+    expect(privateUpload).toContain(".upload(");
+    expect(privateUpload).not.toContain("storageGetSignedUrl(");
+    expect(runtime).toContain("uploaded=await storagePutPrivate(fileKey,parsed.bytes,input.mimeType)");
   });
   it("recovers ambiguous evidence custody writes only with persisted byte hash proof", () => {
     for(const marker of [
