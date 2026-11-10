@@ -5230,6 +5230,20 @@ export const powerhubRouter = router({
         custodyRecorded:true,alreadyRecorded:false,
         accountingCertification:"NOT_CERTIFIED" as const};
     }),
+    financialGLOpeningEvidenceFileUrl: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),evidenceId:z.number().int().positive(),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const admin=supabaseAdmin();
+      const {data,error}=await admin.from("financial_gl_opening_document_custody")
+        .select("storage_key").eq("tenant_id",access.tenantId)
+        .eq("site_id",input.siteId).eq("evidence_id",input.evidenceId)
+        .maybeSingle();
+      if(error || !data) throw new TRPCError({code:"NOT_FOUND",
+        message:"لا يوجد ملف محفوظ ضمن نطاق هذا الفرع."});
+      return {url:await storageGetSignedUrl(data.storage_key)};
+    }),
     financialGLOpeningEvidenceReview: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       evidenceId:z.number().int().positive(),
