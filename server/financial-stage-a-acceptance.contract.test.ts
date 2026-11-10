@@ -16,6 +16,12 @@ const payrollPositiveA38 = readFileSync(
 const engineeringAcceptanceA39 = readFileSync(
   "docs/security/sql/pr359-financial-a39-engineering-acceptance-rollback.sql", "utf8",
 );
+const payrollAdvanceCashDateA40 = readFileSync(
+  "docs/security/sql/pr359-financial-a40-advance-cash-date-rollback.sql", "utf8",
+);
+const payrollAdvanceGuardA40 = readFileSync(
+  "supabase/migrations/20261110145822_powerhub_payroll_advance_cash_date_crosscheck.sql", "utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -503,6 +509,18 @@ describe("Phase A financial acceptance evidence", () => {
     expect(engineeringAcceptanceA39).toContain("'humanApproved',false");
     expect(engineeringAcceptanceA39).toContain("ROLLBACK;");
     expect(engineeringAcceptanceA39).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("enforces real cash chronology for payroll advance deduction and blocks backdating", () => {
+    expect(payrollAdvanceGuardA40).toContain("tx.occurred_at AT TIME ZONE 'Asia/Gaza'");
+    expect(payrollAdvanceGuardA40).toContain("adj.disbursed_at AT TIME ZONE 'Asia/Gaza'");
+    expect(payrollAdvanceGuardA40).toContain("tx.related_expense_id IS NULL");
+    expect(payrollAdvanceCashDateA40).toContain("A40_LATE_CASH_POSTING_BACKDATED_AS_ADVANCE_ACCEPTED");
+    expect(payrollAdvanceCashDateA40).toContain("A40_FUTURE_DISBURSEMENT_ACCEPTED");
+    expect(payrollAdvanceCashDateA40).toContain("A40_VALID_CASH_DISBURSEMENT_REJECTED");
+    expect(payrollAdvanceCashDateA40).toContain("PASS_ROLLBACK_ONLY");
+    expect(payrollAdvanceCashDateA40).toContain("ROLLBACK;");
+    expect(payrollAdvanceCashDateA40).not.toMatch(/\\bCOMMIT\\s*;/i);
   });
 
 });
