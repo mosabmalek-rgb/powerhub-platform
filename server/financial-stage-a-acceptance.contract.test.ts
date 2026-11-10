@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const serviceRecognitionA37 = readFileSync(
+  "docs/security/sql/pr359-financial-a37-service-recognition-rollback-smoke.sql", "utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -440,6 +443,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(runtime).toContain('verificationMode:"technical"');
     expect(runtime).toContain('proof.humanReviewed===false');
     expect(dashboard).toContain('fixture.data.verificationMode === "technical"');
+  });
+
+  it("requires A37 full source reconciliation and October-only earned service on rollback", () => {
+    expect(serviceRecognitionA37).toContain("A37_SERVICE_RECOGNITION_REPLAY_NOT_IDEMPOTENT");
+    expect(serviceRecognitionA37).toContain("powerhub_financial_gl_recognize_billed_service");
+    expect(serviceRecognitionA37).toContain("'2026-10'");
+    expect(serviceRecognitionA37).toContain("'octoberServiceRecognitions',3");
+    expect(serviceRecognitionA37).toContain("unreconciledSourceCount')::bigint<>0");
+    expect(serviceRecognitionA37).toContain("ROLLBACK;");
+    expect(serviceRecognitionA37).toContain("'NOT_CERTIFIED'");
+    expect(serviceRecognitionA37).not.toMatch(/\\bCOMMIT\\s*;/i);
   });
 
 });
