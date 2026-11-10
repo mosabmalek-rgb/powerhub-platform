@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const installedSourceChain = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a24-rollback-source-chain.sql", "utf8",
+);
 const sourcePreflight = readFileSync(
   "docs/security/sql/pr359-financial-gl-backfill-source-preflight.sql", "utf8",
 );
@@ -26,6 +29,30 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("proves source posting and earned-service recognition on installed Staging with rollback", () => {
+    for(const signal of [
+      "BEGIN;",
+      "ROLLBACK;",
+      "A24_SOURCE_SITE_ALREADY_POSTED",
+      "powerhub_financial_gl_opening_create",
+      "powerhub_financial_gl_opening_post",
+      "powerhub_financial_gl_post_source",
+      "powerhub_financial_gl_recognize_billed_service",
+      "A24_DUPLICATE_SOURCE_POST",
+      "A24_SERVICE_REPLAY_INVALID",
+      "A24_OUT_OF_CYCLE_RECOGNITION_ACCEPTED",
+      "A24_INCOMPLETE_SERVICE_MONTH_ACCEPTED",
+      "GL_SERVICE_MONTH_OUTSIDE_CYCLE",
+      "GL_SERVICE_MONTH_NOT_COMPLETED",
+      "A24_FALSE_ACCOUNTING_CERTIFICATION_OR_TRIAL_DRIFT",
+      "STG-A24-TEST-NOT-CERTIFIED",
+      "BALANCED_NOT_CERTIFIED",
+    ]) expect(installedSourceChain).toContain(signal);
+    expect(installedSourceChain).not.toMatch(/\\b(?:UPDATE|DELETE|TRUNCATE)\\s+(?:FROM\\s+)?public\\./i);
+    expect(installedSourceChain).toContain("public.powerhub_financial_gl_trial_balance");
+    expect(installedSourceChain).toContain("accountingCertification");
+    expect(installedSourceChain).toContain("auth.users");
+  });
   it("preflights GL sources by dependency without mutating historical entries", () => {
     for (const signal of [
       "BEGIN;",
