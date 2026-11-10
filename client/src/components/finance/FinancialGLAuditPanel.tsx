@@ -60,6 +60,24 @@ export default function FinancialGLAuditPanel({
   siteId, period, active,
 }: { siteId: number; period: string; active: boolean }) {
   const [showTrial, setShowTrial] = useState(false);
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const fixtureEnabled = active && siteId === 1;
+  const fixture = trpc.powerhub.reports.financialGLFixtureStatus.useQuery({siteId}, {
+    enabled:fixtureEnabled, staleTime:0, refetchOnWindowFocus:false,
+  });
+  const utils=trpc.useUtils();
+  const prepareFixture = trpc.powerhub.reports.financialGLFixturePrepare.useMutation({
+    onSuccess:async()=>{await fixture.refetch();await utils.powerhub.reports.financialGLSourceCoverage.invalidate();}
+  });
+  const reviewFixture = trpc.powerhub.reports.financialGLFixtureReview.useMutation({
+    onSuccess:async()=>{
+      setReviewAcknowledged(false);
+      await fixture.refetch();
+      await utils.powerhub.reports.financialGLSourceCoverage.invalidate();
+      await utils.powerhub.reports.cashFlow.invalidate();
+      await utils.powerhub.reports.cashFlowTrend.invalidate();
+    },
+  });
   const enabled = active && siteId > 0 && /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
   const coverage = trpc.powerhub.reports.financialGLSourceCoverage.useQuery({ siteId, period }, {
     enabled, staleTime: 60_000, refetchOnWindowFocus: false, refetchOnReconnect: true,
@@ -128,6 +146,50 @@ export default function FinancialGLAuditPanel({
         {" "}المطابقة المستقلة: {report.isOpeningReconciled === true && opening.accountBalancesMatchedToOpening === true ? "مثبتة" : "غير مثبتة"}؛
         {" "}تغطية المصادر: {report.isSourceCoverageComplete === true ? "مكتملة ضمن نطاق الفحص" : "غير مكتملة"}.
       </p>
+      {fixtureEnabled ? <div className="mt-3 rounded-md border border-white/10 p-3 text-sm text-slate-200">
+        <h4 className="font-semibold text-white">فصل حركات الأداء التجريبية — Staging فقط</h4>
+        <p className="mt-2 text-xs text-slate-400">
+          لا تُحذف الحركات الأصلية. يتطلب الفصل مراجعة مستقلة من حساب آخر مخوّل، وهو لا يمثل اعتمادًا محاسبيًا نهائيًا.
+        </p>
+        {fixture.isLoading || fixture.isFetching ? <p role="status" className="mt-2">جارٍ التحقق من سجل الفصل…</p> : null}
+        {fixture.isError ? <p role="alert" className="mt-2 text-rose-200">
+          تعذر الوصول إلى حالة فصل حركات الأداء؛ لا يمكن إظهار نتيجة معتمدة.
+          <Button size="sm" variant="outline" className="mr-2" onClick={()=>void fixture.refetch()}>إعادة المحاولة</Button>
+        </p> : null}
+        {fixture.data && !fixture.isFetching && !fixture.isError ? <>
+          <p className="mt-2">
+            الحالة: {fixture.data.verified ? "تم التحقق من العزل المستقل والبصمة"
+              : fixture.data.status === "not_prepared" ? "لم يُعدّ السجل"
+              : fixture.data.status === "pending" ? "بانتظار مراجع مستقل"
+              : "فشل التحقق من البصمة أو الروابط"}.
+          </p>
+          {fixture.data.status === "not_prepared" ? <Button size="sm" variant="outline"
+            className="mt-2" disabled={prepareFixture.isPending}
+            onClick={()=>prepareFixture.mutate({siteId})}>
+            {prepareFixture.isPending ? "جارٍ إعداد السجل…" : "إعداد سجل فصل الأداء"}
+          </Button> : null}
+          {fixture.data.status === "pending" && fixture.data.preparerIsCurrentUser
+            ? <p className="mt-2 text-amber-200">أعددتَ السجل. يجب أن يسجل مراجع آخر دخوله لاعتماده.</p> : null}
+          {fixture.data.status === "pending" && fixture.data.canReview ? <div className="mt-3 space-y-2">
+            <label className="flex items-start gap-2 text-xs">
+              <input type="checkbox" checked={reviewAcknowledged}
+                onChange={(e)=>setReviewAcknowledged(e.target.checked)} />
+              <span>راجعتُ مصدر مجموعة الأداء وبصمتها واستقلالية هذا الاعتماد؛ أفهم أن ذلك لا يصدّق الأرصدة الافتتاحية أو الأرباح.</span>
+            </label>
+            <Button size="sm" variant="outline" disabled={!reviewAcknowledged || reviewFixture.isPending
+              || !fixture.data.manifestId}
+              onClick={()=>reviewFixture.mutate({siteId,manifestId:fixture.data!.manifestId!,
+                acknowledgedIndependentReview:true})}>
+              {reviewFixture.isPending ? "جارٍ إعادة التحقق من البصمة…" : "اعتماد فصل المجموعة كمراجع مستقل"}
+            </Button>
+          </div> : null}
+          {fixture.data.verified ? <p role="status" className="mt-2 text-emerald-200">
+            تم التحقق من {numberText(fixture.data.fixtureCount)} حركة؛ لم تُحذف أي حركة، ولا تزال القوائم المالية غير معتمدة.
+          </p> : null}
+        </> : null}
+        {prepareFixture.isError ? <p role="alert" className="mt-2 text-rose-200">{prepareFixture.error.message}</p> : null}
+        {reviewFixture.isError ? <p role="alert" className="mt-2 text-rose-200">{reviewFixture.error.message}</p> : null}
+      </div> : null}
       {Object.keys(evidenceReview).length > 0 ? <div className="mt-3 rounded-md border border-white/10 p-3 text-xs text-slate-200">
         <h4 className="font-semibold text-white">مستندات إثبات الافتتاحية والمراجعة المستقلة</h4>
         <p className="mt-2">حالة الإثبات: {String(evidenceReview.status ?? "غير محددة")}</p>
