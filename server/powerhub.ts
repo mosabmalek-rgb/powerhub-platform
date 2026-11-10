@@ -5076,6 +5076,19 @@ export const powerhubRouter = router({
     }),
     // A28: bind the actual private file bytes to immutable opening evidence.
     // The independent reviewer re-downloads the object before approving.
+    financialGLChartAccounts: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().from("financial_gl_accounts")
+        .select("code,name,account_class,normal_side")
+        .eq("tenant_id",access.tenantId).order("code",{ascending:true}).limit(250);
+      if(error||!data)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر قراءة دليل الحسابات؛ لا يمكن إنشاء افتتاحية برموز غير مؤكدة."});
+      return data.map(x=>({code:x.code,name:x.name,
+        accountClass:x.account_class,normalSide:x.normal_side}));
+    }),
     financialGLOpeningEvidenceWorkspace: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
     })).query(async ({ctx,input})=>{
@@ -5083,9 +5096,9 @@ export const powerhubRouter = router({
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
       const admin=supabaseAdmin();
       const {data:batch,error:batchError}=await admin.from("financial_gl_opening_batches")
-        .select("id,as_of_date,status")
+        .select("id,as_of_date,status,created_by_user_id")
         .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
-        .eq("status","posted").order("as_of_date",{ascending:true})
+        .neq("status","void").order("as_of_date",{ascending:true})
         .limit(1).maybeSingle();
       if(batchError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
         message:"تعذر قراءة الافتتاحية من دفتر الأستاذ."});
@@ -5117,7 +5130,9 @@ export const powerhubRouter = router({
           message:"تعذر تحميل حالة حفظ مستندات الافتتاحية."});
       const custodyById=new Map(custodies.map(v=>[Number(v.evidence_id),v]));
       return {
-        opening:{id:Number(batch.id),asOfDate:batch.as_of_date,status:"posted" as const},
+        opening:{id:Number(batch.id),asOfDate:batch.as_of_date,
+          status:batch.status as "draft"|"posted",
+          createdByCurrentUser:Number(batch.created_by_user_id)===ctx.user.id},
         lines:linesResult.data.map(l=>({
           id:Number(l.id),accountCode:l.account_code,side:l.side,
           amount:Number(l.amount),evidenceReference:l.evidence_reference,
