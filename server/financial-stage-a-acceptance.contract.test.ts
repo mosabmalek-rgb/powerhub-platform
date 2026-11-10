@@ -51,6 +51,8 @@ const durableAcceptanceCheckA45 = readFileSync("docs/security/sql/pr359-financia
 const glAuditUiA45 = readFileSync("client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8");
 const bootstrapExpiryMigrationA46 = readFileSync("supabase/migrations/20261110172614_powerhub_financial_gl_prelaunch_authorization_expiry_visibility.sql","utf8");
 const bootstrapExpiryAcceptanceA46 = readFileSync("docs/security/sql/pr359-financial-a46-bootstrap-expiry-readonly.sql","utf8");
+const phaseA47FinalEngineering = readFileSync("docs/security/sql/pr359-financial-a47-engineering-closeout.sql", "utf8");
+const phaseA47AcceptanceReport = readFileSync("docs/roadmaps/powerhub-finance-phase-a-engineering-acceptance-20261110.md", "utf8");
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -632,6 +634,21 @@ describe("Phase A financial acceptance evidence", () => {
     expect(bootstrapExpiryAcceptanceA46).not.toMatch(/\\bCOMMIT\\s*;/i);
     expect(glAuditUiA45).toContain("صلاحية الترحيل التقني الجديد");
     expect(glAuditUiA45).toContain("يلزم اعتماد افتتاحية موثقة");
+  });
+
+  it("retains stage-A final engineering evidence and blocks false certification", () => {
+    expect(phaseA47FinalEngineering).toContain("PASS_STAGING_ENGINEERING_ONLY");
+    expect(phaseA47FinalEngineering).toContain("A47_UNBALANCED_OR_INCOMPLETE_ENTRY");
+    expect(phaseA47FinalEngineering).toContain("A47_DUPLICATE_OPERATION_KEY");
+    expect(phaseA47FinalEngineering).toContain("A47_GL_RPC_EXPOSED_TO_CLIENT_ROLE");
+    expect(phaseA47FinalEngineering).toContain("A47_STAGING_SCOPE_BYPASS");
+    expect(phaseA47FinalEngineering).toContain("A47_BOOTSTRAP_NOT_BOUNDED");
+    expect(phaseA47FinalEngineering).toContain("NOT_CERTIFIED");
+    expect(phaseA47FinalEngineering).toContain("ROLLBACK;");
+    expect(phaseA47FinalEngineering).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(phaseA47AcceptanceReport).toContain("not a financial attestation");
+    expect(phaseA47AcceptanceReport).toContain("READ ONLY");
+    expect(phaseA47AcceptanceReport).toContain("21 committed GL entries");
   });
 
 });
