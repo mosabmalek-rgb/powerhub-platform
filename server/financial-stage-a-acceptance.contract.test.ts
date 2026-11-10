@@ -59,6 +59,12 @@ const financialStatementsB1Ui = readFileSync("client/src/components/finance/Fina
 const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
 const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
 const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
+const b45LinkedIndexSql = readFileSync(
+  "supabase/migrations/20261110220123_powerhub_financial_gl_b4_linked_movement_index.sql","utf8",
+);
+const b45IndexRegression = readFileSync(
+  "docs/security/sql/pr359-financial-b4-linked-index-readonly.sql","utf8",
+);
 const b43FastFixtureSql = readFileSync(
   "supabase/migrations/20261110214103_powerhub_financial_gl_b4_fast_fixture_guard.sql", "utf8",
 );
@@ -722,6 +728,16 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
     expect(glAuditUiA45).toContain("b3Visible");
     expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
+  it("ensures B4.5 selective index excludes unlinked synthetic rows without changing ledger results", () => {
+    expect(b45LinkedIndexSql).toContain("account_transactions_b4_linked_site_time_idx");
+    expect(b45LinkedIndexSql).toContain("related_payment_id IS NOT NULL");
+    expect(b45LinkedIndexSql).toContain("related_supplier_payment_id IS NOT NULL");
+    expect(b45LinkedIndexSql).toContain("related_expense_id IS NOT NULL");
+    expect(b45IndexRegression).toContain("B4_5_INDEX_AND_LEDGER_PASS");
+    expect(b45IndexRegression).toContain("B4_5_RECONCILIATION_CHANGED");
+    expect(b45IndexRegression).toContain("ROLLBACK;");
   });
 
   it("keeps B4.3 fast fixture skip tied to immutable hash proof and active guards", () => {
