@@ -1,6 +1,15 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const openingCustody = readFileSync(
+  "supabase/migrations/20261110133500_powerhub_financial_gl_opening_document_custody.sql", "utf8",
+);
+const openingEvidenceUi = readFileSync(
+  "client/src/components/finance/FinancialOpeningEvidenceWorkspace.tsx", "utf8",
+);
+const openingEvidenceRuntime = readFileSync(
+  "server/financial-opening-evidence.ts", "utf8",
+);
 const cashFlowAcceptance = readFileSync(
   "docs/security/sql/pr359-financial-gl-a26-cash-flow-rollback-acceptance.sql", "utf8",
 );
@@ -38,6 +47,46 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("makes uploaded opening custody immutable, server byte-verified and independently reviewed", () => {
+    for(const signal of [
+      "financial_gl_opening_document_custody",
+      "GL_OPENING_DOCUMENT_CUSTODY_HASH_MISMATCH",
+      "GL_OPENING_DOCUMENT_CUSTODY_REQUIRED",
+      "GL_OPENING_DOCUMENT_CUSTODY_IMMUTABLE",
+      "zzz_gl_opening_document_custody_review_gate",
+      "financial-opening-evidence/",
+      "ENABLE ROW LEVEL SECURITY",
+      "NOT_CERTIFIED",
+    ]) {
+      if(signal==="NOT_CERTIFIED") expect(runtime).toContain(signal);
+      else expect(openingCustody).toContain(signal);
+    }
+    for(const signal of [
+      "financialGLOpeningEvidenceUpload",
+      "financialGLOpeningEvidenceReview",
+      "financialGLOpeningEvidenceFileUrl",
+      "financialGLOpeningEvidenceWorkspace",
+      "parseOpeningDocumentBase64",
+      "openingDocumentHashMatches",
+      "openingDocumentDetails",
+      "storagePut",
+      ".download(",
+      "requireSupabaseSiteRole",
+      "accountingCertification:\"NOT_CERTIFIED\"",
+    ]) expect(runtime).toContain(signal);
+    expect(openingEvidenceRuntime).toContain('timingSafeEqual');
+    expect(openingEvidenceUi).toContain("financialGLOpeningEvidenceUpload");
+    expect(openingEvidenceUi).toContain("financialGLOpeningEvidenceReview");
+    expect(openingEvidenceUi).toContain("reviewEvidenceId===ev.id");
+    expect(dashboard).toContain("FinancialOpeningEvidenceWorkspace");
+    expect(sources).toContain("20261110133500_powerhub_financial_gl_opening_document_custody.sql");
+    expect(sources).toContain("GL_CI_A28_DOCUMENTLESS_APPROVAL");
+    expect(sources).toContain("GL_CI_A28_CUSTODY_HASH_BYPASS");
+    expect(openingCustody).not.toMatch(/\\bDELETE\\s+FROM\\s+public\\./i);
+    expect(openingCustody).not.toContain("DISABLE TRIGGER");
+    expect(openingCustody).not.toContain("CERTIFIED' AS");
+  });
+
   it("validates exact full-month, partial-day, and clean-period cash flows under rollback", () => {
     for (const signal of [
       "BEGIN;",
