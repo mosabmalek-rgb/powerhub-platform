@@ -58,6 +58,8 @@ const financialStatementsB1Acceptance = readFileSync("docs/security/sql/pr359-fi
 const financialStatementsB1Ui = readFileSync("client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8");
 const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
 const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
+const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
+const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -685,6 +687,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(runtime).toContain("financialGLCentralPolicyPreview: protectedProcedure");
     expect(runtime).toContain("financialGLCentralPolicyPrepare: protectedProcedure");
     expect(runtime).toContain("financialGLCentralPolicyApprove: protectedProcedure");
+  });
+
+  it("keeps B3 preliminary tenant rollup distinct from certified consolidation", () => {
+    expect(b3TenantRollupSql).toContain("PRELIMINARY_MULTI_SITE_ROLLUP");
+    expect(b3TenantRollupSql).toContain("GL_B3_AGGREGATE_UNBALANCED");
+    expect(b3TenantRollupSql).toContain("NOT_INDEPENDENTLY_RECONCILED");
+    expect(b3TenantRollupCheck).toContain("B3_PASS_ROLLBACK_ONLY");
+    expect(b3TenantRollupCheck).toContain("B3_EXPOSED_TO_PUBLIC");
+    expect(b3TenantRollupCheck).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLTenantRollup: protectedProcedure");
+    expect(runtime).toContain('v.companyAccountsIncluded!==false');
   });
 
 });

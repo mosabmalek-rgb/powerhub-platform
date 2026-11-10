@@ -5466,6 +5466,42 @@ export const powerhubRouter = router({
     }),
     // B1: on-demand, site-only statements. Distinct from cashflow and final P&L.
     // B2: site and central-site permissions are independently enforced.
+    // B3 preliminary rollup: check each active site, never leak unauthorized branches.
+    financialGLTenantRollup: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data:sites,error:sitesError}=await supabaseAdmin().from("sites")
+        .select("id").eq("tenant_id",access.tenantId).eq("status","active").limit(31);
+      if(sitesError || !sites || sites.length===0 || sites.length>30)
+        throw new TRPCError({code:"BAD_REQUEST",message:"تعذر تأكيد نطاق الفروع قبل تجميع الأرقام."});
+      for(const site of sites){
+        const member=await requireSupabaseSiteRole(ctx.user.id,Number(site.id),
+          ["owner","manager","accountant","viewer"],"viewFinancialReports");
+        if(member.tenantId!==access.tenantId)
+          throw new TRPCError({code:"FORBIDDEN",message:"فرع غير مخوّل ضمن التقرير."});
+      }
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_tenant_rollup",{
+        p_tenant_id:access.tenantId,p_period:input.period,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر حساب التجميع الأولي."});
+      const v=data as Record<string,unknown>;
+      const position=v.positionBeforeEliminations as Record<string,unknown>|undefined;
+      if(v.tenantId!==access.tenantId || v.period!==input.period ||
+       v.status!=="PRELIMINARY_MULTI_SITE_ROLLUP" ||
+       v.accountingCertification!=="NOT_CERTIFIED" ||
+       v.isConsolidatedFinancialStatements!==false ||
+       v.isFinalProfit!==false || v.isFinalBalanceSheet!==false ||
+       v.companyAccountsIncluded!==false ||
+       v.interSiteTransferEliminationStatus!=="NOT_INDEPENDENTLY_RECONCILED" ||
+       !Array.isArray(v.sites) || v.sites.length!==sites.length ||
+       v.siteCount!==sites.length || !position || Number(position.equationDifference)!==0)
+       throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"بيانات التجميع الأولي غير متسقة."});
+      return v;
+    }),
     financialGLCentralPolicyPreview: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),centralSiteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
