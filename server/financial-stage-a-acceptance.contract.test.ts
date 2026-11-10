@@ -59,6 +59,9 @@ const financialStatementsB1Ui = readFileSync("client/src/components/finance/Fina
 const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
 const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
 const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
+const b43FastFixtureSql = readFileSync(
+  "supabase/migrations/20261110214103_powerhub_financial_gl_b4_fast_fixture_guard.sql", "utf8",
+);
 const companyMovementB42Sql = readFileSync(
   "supabase/migrations/20261110213320_powerhub_financial_gl_b4_company_movement_provenance.sql","utf8",
 );
@@ -719,6 +722,18 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
     expect(glAuditUiA45).toContain("b3Visible");
     expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
+  it("keeps B4.3 fast fixture skip tied to immutable hash proof and active guards", () => {
+    expect(b43FastFixtureSql).toContain("HASH_ANCHORED_IMMUTABLE_TEST_COHORT");
+    expect(b43FastFixtureSql).toContain("powerhub_financial_gl_fixture_freeze_write");
+    expect(b43FastFixtureSql).toContain("powerhub_financial_gl_fixture_freeze_truncate");
+    expect(b43FastFixtureSql).toContain("zz_financial_gl_staging_technical_immutable");
+    expect(b43FastFixtureSql).toContain("f1b25e8562328a0f6e916beb4d54b2ee88366e78b4459c5d0ebc444616997df9");
+    expect(b43FastFixtureSql).toContain("v_fixture_unreviewed=250000");
+    expect(b43FastFixtureSql).toContain("UNVERIFIED_COHORT_BLOCKS_RECONCILIATION");
+    expect(companyMovementB42Acceptance).toContain("B4_2_FIXTURE_FREEZE_GUARD_MISSING");
+    expect(companyMovementB42Acceptance).toContain("HASH_ANCHORED_IMMUTABLE_TEST_COHORT");
   });
 
   it("guards B4.2 movement provenance and never silently excludes unverified fixture rows", () => {
