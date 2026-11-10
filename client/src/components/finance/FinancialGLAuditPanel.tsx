@@ -61,7 +61,8 @@ export default function FinancialGLAuditPanel({
 }: { siteId: number; period: string; active: boolean }) {
   const [showTrial, setShowTrial] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
-  const fixtureEnabled = active && siteId === 1;
+  const fixtureEnabled = active && siteId === 1
+    && import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/,"") === "https://iyuryuhaylhisjfcrwkz.supabase.co";
   const fixture = trpc.powerhub.reports.financialGLFixtureStatus.useQuery({siteId}, {
     enabled:fixtureEnabled, staleTime:0, refetchOnWindowFocus:false,
   });
