@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const sourceDateA32 = readFileSync(
+  "docs/security/sql/pr359-financial-a32-opening-source-dates-readonly.sql", "utf8",
+);
 const closureA31 = readFileSync(
   "docs/security/sql/pr359-financial-a31-staging-closure-readonly.sql", "utf8",
 );
@@ -56,6 +59,31 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("requires source-dated opening evidence, not a zero-net performance fixture shortcut", () => {
+    for(const marker of [
+      "READ_ONLY_TEST_DATA_NOT_CERTIFIED",
+      "STG-PERF-%",
+      "Asia/Gaza",
+      "accounts_created_after_opening",
+      "synthetic_before_opening",
+      "other_before_opening",
+      "requiresIndependentOpeningReconciliation",
+    ]) expect(sourceDateA32).toContain(marker);
+    expect(sourceDateA32).not.toMatch(/\\b(?:INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\\b/i);
+    expect(sourceDateA32).not.toContain("SECURITY DEFINER");
+  });
+  it("recovers ambiguous evidence custody writes only with persisted byte hash proof", () => {
+    for(const marker of [
+      "recoveredAfterAmbiguousWrite:true",
+      "recoveredAfterAmbiguousWrite:false",
+      "openingDocumentDetails(",
+      "openingDocumentHashMatches(",
+      "committed.storage_key",
+      "if(!recoveryError && committed",
+    ]) expect(runtime).toContain(marker);
+    expect(runtime).not.toContain("if(insertError) return {evidenceId");
+  });
+
   it("reports remaining Staging acceptance blockers without altering data or fabricating approval", () => {
     for(const marker of [
       "READ_ONLY_NOT_CERTIFICATION",
