@@ -64,7 +64,22 @@ export default function FinancialOpeningEvidenceWorkspace({
     onSuccess:async()=>{setReviewEvidenceId(null);setReviewNote("");await refresh();},
   });
   const selected=workspace.data?.lines.find(l=>l.id===lineId);
-  const evidence=workspace.data?.evidence??[];
+  // Do not use a previous site's cached evidence while access or refresh is unresolved.
+  const evidence = active && !workspace.isError && !workspace.isFetching && !workspace.isLoading
+    ? workspace.data?.evidence ?? [] : [];
+  const openingLines = active && !workspace.isError && !workspace.isFetching && !workspace.isLoading
+    ? workspace.data?.lines ?? [] : [];
+  const lineEvidenceStatus = openingLines.map(line=>{
+    const items=evidence.filter(ev=>ev.openingLineId===line.id);
+    const accepted=items.filter(ev=>ev.reviewStatus==="verified" && ev.custodyRecorded);
+    const attestedTotal=accepted.reduce((sum,ev)=>sum+ev.supportedAmount,0);
+    const matched=accepted.length>0 && items.every(ev=>ev.reviewStatus==="verified" && ev.custodyRecorded)
+      && Math.abs(attestedTotal-line.amount)<0.005;
+    return {line,matched,attestedTotal,custodyCount:items.filter(ev=>ev.custodyRecorded).length,
+      verifiedCount:accepted.length,totalCount:items.length};
+  });
+  const missingOpeningEvidenceLines=lineEvidenceStatus.filter(item=>!item.matched);
+
   return <section aria-label="مستندات الافتتاحية" className="mt-4 rounded-lg border border-white/10 p-3 text-sm text-slate-200" dir="rtl">
     <h4 className="font-semibold text-white">مستندات الافتتاحية — الحيازة والمراجعة المستقلة</h4>
     <p className="mt-2 text-xs text-amber-200">رفع المستند والتحقق من SHA-256 وموافقة مراجع مستقل لا يصدّق وحده أرصدة الدفاتر المساعدة، ولا يحوّل القوائم إلى قوائم مالية معتمدة.</p>
@@ -78,6 +93,22 @@ export default function FinancialOpeningEvidenceWorkspace({
       ? <p className="mt-2 text-amber-200">الافتتاحية مسودة؛ لا يُقبل إرفاق أدلة اعتماد نهائية قبل ترحيلها بواسطة مراجع مستقل.</p> : null}
     {workspace.data?.opening?.status==="posted" && !workspace.isFetching && !workspace.isError ? <>
       <p className="mt-2 text-xs">افتتاحية رقم {workspace.data.opening.id} بتاريخ {workspace.data.opening.asOfDate} — غير مصدّقة محاسبيًا.</p>
+      <div className="mt-3 rounded-md border border-amber-400/20 p-3 text-xs">
+        <h5 className="font-semibold text-white">فجوات إثبات الافتتاحية حسب الحساب والسطر</h5>
+        <p className="mt-1 text-amber-200">سطور تحتاج استكمال الأدلة: {missingOpeningEvidenceLines.length} من {lineEvidenceStatus.length}.
+          المطابقة أدناه تخص حيازة المستند ومراجعة المبلغ، ولا تعني إثبات رصيد الدفتر المساعد أو اعتماد المركز المالي.</p>
+        <div className="mt-2 space-y-2">{lineEvidenceStatus.map(item=><div key={item.line.id}
+          className="rounded border border-white/10 p-2">
+          <p>سطر {item.line.id} — حساب {item.line.accountCode} —
+            {item.line.side==="debit"?" مدين ":" دائن "}{item.line.amount.toFixed(2)} شيكل</p>
+          <p className={item.matched?"text-slate-300":"text-amber-200"}>
+            {item.matched?"مستندات محفوظة ومراجعة بالمبلغ المطلوب":"ينقص مستند محفوظ ومراجع أو يوجد اختلاف في المبلغ"}
+            ؛ الأدلة {item.totalCount}، الحيازة {item.custodyCount}،
+            المراجعات المقبولة ذات الحيازة {item.verifiedCount}،
+            مجموعها {item.attestedTotal.toFixed(2)} شيكل.
+          </p>
+        </div>)}</div>
+      </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <label className="text-xs">سطر الافتتاحية
           <select className="mt-1 w-full rounded border border-white/20 bg-[#1b2635] p-2 text-white"
