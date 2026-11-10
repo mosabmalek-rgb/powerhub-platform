@@ -25,7 +25,7 @@ atLeast(versionOf(dev, "vite"), [7, 3, 7], "vite");
 atLeast(versionOf(dev, "vitest"), [4, 1, 12], "vitest");
 
 const requiredOverrides = {
-  "fast-xml-parser": "5.11.2",
+  "fast-xml-parser": "5.12.0",
   "archiver-utils": "5.0.2",
   "archiver-utils@5.0.2>glob": "14.0.3",
   "exceljs@4.4.0>unzipper": "0.12.5",
@@ -96,6 +96,7 @@ const vulnerableLockEntries = [
   "qs@6.13.0",
   "undici@8.10.0",
   "fast-xml-parser@5.5.6",
+  "fast-xml-parser@5.11.2",
   "mermaid@11.12.0",
   "vite@7.3.6",
   "vitest@3.2.7",
@@ -119,7 +120,7 @@ if (lockfile.includes("minimatch@5.1.9")) {
 }
 
 const requiredPatchedLockEntries = [
-  "fast-xml-parser@5.11.2",
+  "fast-xml-parser@5.12.0",
   "archiver-utils@5.0.2",
   "glob@14.0.3",
   "unzipper@0.12.5",
