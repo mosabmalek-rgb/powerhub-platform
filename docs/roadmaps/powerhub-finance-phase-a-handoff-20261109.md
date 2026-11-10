@@ -1,3 +1,15 @@
+## A45 — قبول هندسي دائم موثق (10 نوفمبر 2026)
+
+- تم تطبيق A44 فعليًا على **Staging فقط**، وسُجلت تهيئة تقنية ثابتة `PRELAUNCH_TECHNICAL` للمستأجر/الفرع 1/1، مع `human_approved=false` و`accounting_certification=NOT_CERTIFIED` وانتهاء صلاحيتها بنهاية 30 نوفمبر 2026. لم تنشأ افتتاحية محاسبية معتمدة، ولم تُمَس Production.
+- نُشرت بصورة دائمة 18 حركة GL تشغيلية و3 اعترافات إيراد أكتوبر (21 قيدًا) في دفعات محمية بمعاملات، ونجحت إعادة محاولة جميع المصادر بلا تكرار. التقسيم: 4 فواتير، 6 دفعات، 5 حركات مورد، مصروف، راتب، وصرف مخزون، و3 اعترافات خدمة.
+- تدقيق Staging بعد الكتابة الدائمة: `unreconciledSourceCount=0`، `sourceIntegrity.isClean=true`، و`checkedEntries=21`، `driftedEntries=0`، `invalidSources=0`، `unauditedEntries=0`، وفرق ميزان المراجعة صفر. التغطية المالية الرسمية `isSourceCoverageComplete=false` و`isOpeningReconciled=false` بسبب غياب الافتتاحية الموثقة المستقلة؛ `accountingCertification=NOT_CERTIFIED`.
+- سُجل Audit دائم `STAGING_PRELAUNCH_GL_TECHNICAL_POSTING_A44` مع `user_id=NULL`، يوضح أن رقم المستخدم 4 استُعمل كمُنفّذ لا كمراجع بشري، ودون ادعاء اعتماد بشري.
+- ترحيل A45 الفعلي `20261110170636_powerhub_financial_gl_prelaunch_engineering_acceptance_status` فصل `technicalAcceptance.status=PASS_PRELAUNCH_ENGINEERING_ONLY` عن حالة التقارير المالية النهائية. اختبار `docs/security/sql/pr359-financial-a45-durable-acceptance-readonly.sql` يعيد الإثبات للبيانات الدائمة دون كتابة ويمنع تحويل النجاح الهندسي إلى شهادة.
+- جرى تصحيح اسم Migration A44 في Git إلى الرقم الفعلي المسجل على Staging: `supabase/migrations/20261110165044_powerhub_financial_gl_prelaunch_technical_bootstrap.sql` بدل `supabase/migrations/20261110171500_powerhub_financial_gl_prelaunch_technical_bootstrap.sql`، مع تحديث اختبارات الاستيراد، دون العبث بـ`supabase_migrations.schema_migrations`.
+- أضيف عرض واضح في `FinancialGLAuditPanel` للنتيجة الهندسية، مع إبقاء موانع الاعتماد المالي كما هي. لم تُختبر واجهة Vercel Preview مطابقة بعد؛ PR #359 بقي Draft وغير مدمج.
+
+---
+
 ## A44 — مرحلة فصل الترحيل التقني عن الافتتاحية المعتمدة (10 نوفمبر 2026)
 
 - ثبت نجاح CI الأربع للـSHA `83e546a865f205696ea511e3a3748cfea90f5558`، ونجح اختبار `ROLLBACK` لمسار تقني جديد: ترحيل 18 مصدرًا مع 3 اعترافات بإيراد أكتوبر داخل المعاملة، 21 قيدًا، صفر فجوات، فرق ميزان صفر، و`NOT_CERTIFIED`.

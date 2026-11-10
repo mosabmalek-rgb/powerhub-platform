@@ -104,6 +104,12 @@ export default function FinancialGLAuditPanel({
     || object(currentCash.fixtureQuarantine).verified === true;
   const opening = object(report.openingEvidenceAudit);
   const evidenceReview = object(opening.evidenceReview);
+  const technicalAcceptance = object(report.technicalAcceptance);
+  const engineeringAccepted = technicalAcceptance.status === "PASS_PRELAUNCH_ENGINEERING_ONLY"
+    && technicalAcceptance.isEngineeringAccepted === true
+    && technicalAcceptance.humanApproved === false
+    && technicalAcceptance.accountingCertification === "NOT_CERTIFIED"
+    && technicalAcceptance.isFinalFinancialAcceptance === false;
   const blockers = canShowCoverage ? accountingBlockers(report) : [];
   const canShowTrial = Boolean(trial.data && showTrial && !trial.isError && !trial.isFetching && !trial.isLoading);
   const trialData = canShowTrial ? object(trial.data) : {};
@@ -138,6 +144,19 @@ export default function FinancialGLAuditPanel({
           <strong className="mt-1 block text-xl text-white">{numberText(item.value)}</strong>
         </div>)}
       </div>
+      {engineeringAccepted ? <div role="status" className="mt-3 rounded-md border border-white/20 p-3 text-sm text-slate-200">
+        <h4 className="font-semibold text-white">القبول الهندسي لبيانات ما قبل الإطلاق — Staging</h4>
+        <p className="mt-2 text-xs">
+          تم حفظ {numberText(technicalAcceptance.postedGL)} قيد GL:
+          {" "}{numberText(technicalAcceptance.operationalSources)} مصدرًا تشغيليًا،
+          {" "}{numberText(technicalAcceptance.serviceRecognitionEntries)} اعترافات إيراد،
+          مع فرق ميزان {String(technicalAcceptance.balanceDifference ?? "غير متاح")} وصفر فجوات.
+        </p>
+        <p className="mt-2 text-xs text-amber-200">
+          نجاح تقني على بيانات وهمية، وليس افتتاحية معتمدة ولا مراجعة بشرية
+          ولا شهادة حسابات أو أرباح نهائية. ستظل موانع الاعتماد المحاسبي ظاهرة أدناه.
+        </p>
+      </div> : null}
       {taggedFixtures > 0 ? <p className="mt-3 text-xs text-slate-300">
         حالة الحركات الاصطناعية: {verifiedFixtureQuarantine && taggedFixtures === quarantinedFixtures
           ? `تم إثبات وعزل ${numberText(quarantinedFixtures)} حركة في فحص الأستاذ مع الاحتفاظ بالسجلات الأصلية وبصمتها، دون شهادة أرباح نهائية.`

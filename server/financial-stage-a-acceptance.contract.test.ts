@@ -41,11 +41,14 @@ const fixtureFastAcceptanceA43 = readFileSync(
   "docs/security/sql/pr359-financial-a43-verified-fixture-fast-preflight-rollback.sql", "utf8",
 );
 const technicalBootstrapMigrationA44 = readFileSync(
-  "supabase/migrations/20261110171500_powerhub_financial_gl_prelaunch_technical_bootstrap.sql","utf8",
+  "supabase/migrations/20261110165044_powerhub_financial_gl_prelaunch_technical_bootstrap.sql","utf8",
 );
 const technicalBootstrapRollbackA44 = readFileSync(
   "docs/security/sql/pr359-financial-a44-prelaunch-bootstrap-rollback.sql","utf8",
 );
+const prelaunchAcceptanceA45 = readFileSync("supabase/migrations/20261110170636_powerhub_financial_gl_prelaunch_engineering_acceptance_status.sql", "utf8");
+const durableAcceptanceCheckA45 = readFileSync("docs/security/sql/pr359-financial-a45-durable-acceptance-readonly.sql", "utf8");
+const glAuditUiA45 = readFileSync("client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8");
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -603,6 +606,19 @@ describe("Phase A financial acceptance evidence", () => {
     expect(technicalBootstrapRollbackA44).toContain("A44_ENGINEERING_NOT_CLEAN");
     expect(technicalBootstrapRollbackA44).toContain("ROLLBACK;");
     expect(technicalBootstrapRollbackA44).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("shows durable engineering acceptance without ever certifying accounts", () => {
+    expect(prelaunchAcceptanceA45).toContain("PASS_PRELAUNCH_ENGINEERING_ONLY");
+    expect(prelaunchAcceptanceA45).toContain("STAGING_PRELAUNCH_GL_TECHNICAL_POSTING_A44");
+    expect(prelaunchAcceptanceA45).toContain("'NOT_CERTIFIED'");
+    expect(prelaunchAcceptanceA45).toContain("'isFinalFinancialAcceptance',false");
+    expect(durableAcceptanceCheckA45).toContain("A45_ACCEPTANCE_FAILED_CLOSED");
+    expect(durableAcceptanceCheckA45).toContain("'2026-11'");
+    expect(durableAcceptanceCheckA45).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(glAuditUiA45).toContain("القبول الهندسي لبيانات ما قبل الإطلاق");
+    expect(glAuditUiA45).toContain("وليس افتتاحية معتمدة");
+    expect(glAuditUiA45).toContain("isFinalFinancialAcceptance === false");
   });
 
 });
