@@ -204,6 +204,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres financial_gl_operational_sources_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_gl_operational_sources_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_gl_operational_sources_integration.sql
 
+      - name: Verify fixture maker-checker expiry and privileged-write boundaries
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_fixture_membership_expiry_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_fixture_membership_expiry_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_fixture_membership_expiry.sql
+
       - name: Verify payroll approval maker-checker, idempotency, and scope in isolated PostgreSQL
         env:
           PGPASSWORD: postgres
@@ -727,6 +734,7 @@ jobs:
           PGDATABASE=financial_site_rls_scope_test node scripts/test-supabase-security-preflights.mjs company
           PGDATABASE=platform_support_identity_role_guard_test node scripts/test-supabase-security-preflights.mjs support
           PGDATABASE=default_privileges_acl_guard_test node scripts/test-supabase-security-preflights.mjs defaults
+          PGDATABASE=financial_fixture_membership_expiry_test node scripts/test-supabase-security-preflights.mjs finance
 
       - name: Verify notification RPC user ownership and JWT boundaries
         env:

@@ -5,6 +5,20 @@ import { spawnSync } from "node:child_process";
 // Run only after the named synthetic fixture in the PG17 integration workflow.
 // Every mutation below is rolled back; no target/project override is provided.
 const groups = {
+  finance: {
+    database: "financial_fixture_membership_expiry_test",
+    cases: [
+      ["20261110091920_powerhub_financial_review_membership_expiry.sql",
+        "ALTER TABLE public.tenant_members RENAME COLUMN expires_at TO unexpected_expiry;",
+        "GL_FIXTURE_EXPIRY_DEPENDENCY_MISSING", "22023"],
+      ["20261110091920_powerhub_financial_review_membership_expiry.sql",
+        "ALTER FUNCTION public.powerhub_financial_gl_fixture_manifest_prepare(bigint,bigint,bigint) SET search_path=public;",
+        "GL_FINANCIAL_REVIEW_SOURCE_DRIFT: public.powerhub_financial_gl_fixture_manifest_prepare(bigint,bigint,bigint)", "22023"],
+      ["20261110091920_powerhub_financial_review_membership_expiry.sql",
+        "ALTER FUNCTION public.powerhub_approve_payroll(bigint,bigint,bigint,bigint) SECURITY DEFINER;",
+        "GL_FINANCIAL_REVIEW_SOURCE_DRIFT: public.powerhub_approve_payroll(bigint,bigint,bigint,bigint)", "22023"],
+    ],
+  },
   supplier: {
     database: "inventory_supplier_site_scope_test",
     cases: [
@@ -66,13 +80,13 @@ const groups = {
   },
 };
 const group = groups[process.argv[2]];
-assert.ok(group, "Select supplier, company, support or defaults.");
+assert.ok(group, "Select finance, supplier, company, support or defaults.");
 assert.equal(process.env.PGHOST, "127.0.0.1");
 assert.equal(process.env.PGDATABASE, group.database);
 assert.match(process.env.PGPORT ?? "", /^\d+$/);
 assert.ok(process.env.PGUSER);
 
-for (const [file, setup, expected] of group.cases) {
+for (const [file, setup, expected, sqlState = "P0001"] of group.cases) {
   const encoded = Buffer.from(readFileSync(new URL("../supabase/migrations/" + file, import.meta.url)))
     .toString("base64");
   const query = `BEGIN;
@@ -83,7 +97,7 @@ BEGIN
   BEGIN
     EXECUTE convert_from(decode('${encoded}','base64'),'UTF8');
     RAISE EXCEPTION 'EXPECTED_SECURITY_MIGRATION_REJECTION_MISSING';
-  EXCEPTION WHEN raise_exception THEN
+  EXCEPTION WHEN SQLSTATE '${sqlState}' THEN
     IF SQLERRM <> '${expected}' THEN RAISE; END IF;
   END;
 END
