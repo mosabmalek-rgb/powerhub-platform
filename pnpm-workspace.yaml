@@ -7,7 +7,7 @@ patchedDependencies:
 overrides:
   nanoid@^5.0.0: 5.1.16
   nanoid@^3.0.0: 3.3.18
-  fast-xml-parser: 5.11.2
+  fast-xml-parser: 5.12.0
   archiver-utils: 5.0.2
   "archiver-utils@5.0.2>glob": 14.0.3
   "exceljs@4.4.0>unzipper": 0.12.5
