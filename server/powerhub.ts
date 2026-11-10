@@ -5379,8 +5379,12 @@ export const powerhubRouter = router({
           n=>Math.abs(n*100-Math.round(n*100))<0.000001,
           "يجب ألا يتجاوز المبلغ منزلتين عشريتين"),
         evidenceReference:z.string().trim().min(3).max(250),
-      })).min(2).max(500),
+      })).min(0).max(500).refine(lines => lines.length === 0 || lines.length >= 2,
+        "الافتتاحية إما صفرية دون سطور، أو تتضمن سطرين متوازنين على الأقل"),
     })).mutation(async ({ctx,input})=>{
+      if ((input.lines.length === 0) !== input.evidenceReference.startsWith("ZERO-OPENING:"))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"الافتتاحية الصفرية تحتاج مرجع ZERO-OPENING: ولا تسمح بأي سطور مالية مصطنعة."});
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageExpenses");
       const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_opening_create",{

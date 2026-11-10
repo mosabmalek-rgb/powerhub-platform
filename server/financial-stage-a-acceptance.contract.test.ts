@@ -28,6 +28,12 @@ const glActorGuardA41 = readFileSync(
 const glActorScopeA41 = readFileSync(
   "docs/security/sql/pr359-financial-a41-actor-scope-rollback.sql","utf8",
 );
+const zeroOpeningMigrationA42 = readFileSync(
+  "supabase/migrations/20261110154921_powerhub_financial_gl_zero_opening_no_fictitious_cents.sql","utf8",
+);
+const zeroOpeningAcceptanceA42 = readFileSync(
+  "docs/security/sql/pr359-financial-a42-zero-opening-full-rollback.sql","utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -544,6 +550,22 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glActorScopeA41).toContain("PASS_ROLLBACK_ONLY");
     expect(glActorScopeA41).toContain("ROLLBACK;");
     expect(glActorScopeA41).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("accepts source-backed zero opening without invented 0.01 and never certifies it", () => {
+    expect(zeroOpeningMigrationA42).toContain("powerhub_financial_gl_zero_opening_preflight");
+    expect(zeroOpeningMigrationA42).toContain("ZERO_OPENING_TECHNICAL_NOT_CERTIFIED");
+    expect(zeroOpeningMigrationA42).toContain("documented-zero-opening-v1");
+    expect(zeroOpeningMigrationA42).toContain("expected_line_count=0");
+    expect(zeroOpeningMigrationA42).toContain("v_count=0");
+    expect(zeroOpeningAcceptanceA42).toContain("'[]'::jsonb");
+    expect(zeroOpeningAcceptanceA42).toContain("'openingIsZero',true");
+    expect(zeroOpeningAcceptanceA42).toContain("A42_FALSE_FINANCIAL_CERTIFICATION");
+    expect(zeroOpeningAcceptanceA42).toContain("'financialCertification','NOT_CERTIFIED'");
+    expect(zeroOpeningAcceptanceA42).toContain("ROLLBACK;");
+    expect(zeroOpeningAcceptanceA42).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(runtime).toContain("input.lines.length === 0");
+    expect(runtime).toContain('input.evidenceReference.startsWith("ZERO-OPENING:")');
   });
 
 });
