@@ -32,7 +32,7 @@ describe("Supabase Storage adapter", () => {
 
     expect(upload).toHaveBeenCalledOnce();
     expect(upload).toHaveBeenCalledWith(
-      expect.stringMatching(/^financial-opening-evidence\\/1\\/1\\/23\\/24\\/evidence_[a-f0-9]{8}\\.pdf$/),
+      expect.stringMatching(new RegExp("^financial-opening-evidence/1/1/23/24/evidence_[a-f0-9]{8}[.]pdf$")),
       PDF,
       { contentType: "application/pdf", upsert: false },
     );
