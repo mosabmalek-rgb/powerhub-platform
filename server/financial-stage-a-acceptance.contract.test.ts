@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 const openingCustody = readFileSync(
   "supabase/migrations/20261110133500_powerhub_financial_gl_opening_document_custody.sql", "utf8",
 );
+const openingSetupUi = readFileSync(
+  "client/src/components/finance/FinancialOpeningSetupPanel.tsx", "utf8",
+);
 const openingEvidenceUi = readFileSync(
   "client/src/components/finance/FinancialOpeningEvidenceWorkspace.tsx", "utf8",
 );
@@ -47,6 +50,28 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("exposes scoped opening draft, independent post and void workflows without certification", () => {
+    for(const route of [
+      "financialGLChartAccounts",
+      "financialGLOpeningEvidenceWorkspace",
+      "financialGLOpeningCreate",
+      "financialGLOpeningPost",
+      "financialGLOpeningVoid",
+      "createdByCurrentUser",
+    ]) expect(runtime).toContain(route);
+    for(const signal of [
+      "financialGLOpeningCreate",
+      "financialGLOpeningPost",
+      "financialGLOpeningVoid",
+      "createdByCurrentUser",
+      "accountCode",
+      "opening-ui-",
+      "Math.abs(debit-credit)",
+    ]) expect(openingSetupUi).toContain(signal);
+    expect(openingEvidenceUi).toContain("FinancialOpeningSetupPanel");
+    expect(openingEvidenceUi).toContain('opening?.status==="posted"');
+    expect(openingSetupUi).not.toContain("CERTIFIED");
+  });
   it("makes uploaded opening custody immutable, server byte-verified and independently reviewed", () => {
     for(const signal of [
       "financial_gl_opening_document_custody",
