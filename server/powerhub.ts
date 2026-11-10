@@ -24,6 +24,7 @@ import { defaultPaymentReceiptSmsTemplate, renderPaymentReceiptMessage, renderPa
 import { normalizeInternationalPhone, phoneSearchVariants } from "../shared/phone";
 import { countUnconfirmedNeedsReviewPersistence, processNotificationById, processNotificationQueueForTenant } from "./notification-worker";
 import { storageGet, storageGetSignedUrl, storagePut, storageRemove } from "./storage";
+import { FINANCIAL_OPENING_MIME_EXTENSIONS, InvalidFinancialOpeningDocument, openingDocumentDetails, openingDocumentHashMatches, parseOpeningDocumentBase64, type FinancialOpeningMime } from "./financial-opening-evidence";
 import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto";
 import { isActivePlatformAdmin } from "./platform-admin";
 import { activeTenantMembershipOrFilter } from "./tenant-membership-expiry";
@@ -5072,6 +5073,159 @@ export const powerhubRouter = router({
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
           message:"لم تُؤكَّد مطابقة قيمة الخدمة مع قيد الأستاذ."});
       return result;
+    }),
+    // A28: bind the actual private file bytes to immutable opening evidence.
+    // The independent reviewer re-downloads the object before approving.
+    financialGLOpeningEvidenceUpload: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      openingId:z.number().int().positive(),
+      lineId:z.number().int().positive(),
+      sourceKind:z.enum([
+        "company_account_statement","subscriber_receivable_statement",
+        "inventory_valuation_statement","supplier_statement",
+        "payroll_liability_statement","tax_statement","equity_confirmation",
+        "fixed_asset_register","other_external_statement",
+      ]),
+      sourceReference:z.string().trim().min(12).max(250),
+      sourceAsOfDate:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      side:z.enum(["debit","credit"]),
+      amount:z.number().positive().finite().refine(v=>hasAtMostTwoDecimalPlaces(v)),
+      mimeType:z.enum(["application/pdf","image/jpeg","image/png","image/webp"]),
+      fileBase64:z.string().min(4).max(7_000_000),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      let parsed:ReturnType<typeof parseOpeningDocumentBase64>;
+      try{
+        parsed=parseOpeningDocumentBase64(input.fileBase64,input.mimeType);
+      }catch(error){
+        if(error instanceof InvalidFinancialOpeningDocument)
+          throw new TRPCError({code:"BAD_REQUEST",message:"الملف غير صالح أو تجاوز 5 ميغابايت؛ يسمح فقط PDF والصور المعتمدة."});
+        throw error;
+      }
+      const {data:id,error:evidenceError}=await supabaseAdmin().rpc(
+        "powerhub_financial_gl_opening_evidence_submit",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,
+          p_opening_id:input.openingId,p_line_id:input.lineId,
+          p_source_kind:input.sourceKind,p_source_reference:input.sourceReference,
+          p_document_sha256:parsed.sha256,p_source_as_of_date:input.sourceAsOfDate,
+          p_side:input.side,p_amount:input.amount,p_actor_id:ctx.user.id,
+        });
+      const evidenceId=Number(id);
+      if(evidenceError || !Number.isSafeInteger(evidenceId) || evidenceId<=0)
+        throw new TRPCError({code:"BAD_REQUEST",message:"تعذر ربط الملف بسطر الافتتاحية؛ تحقق من مطابقة القيمة والتاريخ والصلاحيات."});
+      const admin=supabaseAdmin();
+      const {data:existing,error:readError}=await admin
+        .from("financial_gl_opening_document_custody")
+        .select("evidence_id,tenant_id,site_id,opening_id,opening_line_id,storage_key,document_sha256,mime_type,byte_size")
+        .eq("evidence_id",evidenceId).maybeSingle();
+      if(readError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر التحقق من السجل السابق لحيازة ملف الافتتاحية."});
+      if(existing){
+        if(Number(existing.tenant_id)!==access.tenantId ||
+          Number(existing.site_id)!==input.siteId ||
+          Number(existing.opening_id)!==input.openingId ||
+          Number(existing.opening_line_id)!==input.lineId ||
+          existing.mime_type!==input.mimeType ||
+          Number(existing.byte_size)!==parsed.byteSize ||
+          !openingDocumentHashMatches(existing.document_sha256,parsed.sha256))
+          throw new TRPCError({code:"CONFLICT",message:"يوجد مستند مختلف مرتبط بدليل الافتتاحية؛ لا يجوز استبداله."});
+        const downloaded=await admin.storage.from(
+          process.env.SUPABASE_STORAGE_BUCKET ?? "powerhub-private"
+        ).download(existing.storage_key);
+        if(downloaded.error || !downloaded.data)
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"سجل حيازة المستند موجود ولكن ملفه غير متاح للتحقق."});
+        const verified=openingDocumentDetails(
+          Buffer.from(await downloaded.data.arrayBuffer()),input.mimeType);
+        if(verified.byteSize!==parsed.byteSize ||
+          !openingDocumentHashMatches(verified.sha256,parsed.sha256))
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"بصمة الملف المحفوظ لا تطابق سجل الحيازة."});
+        return {evidenceId,sha256:parsed.sha256,byteSize:parsed.byteSize,
+          custodyRecorded:true,alreadyRecorded:true,accountingCertification:"NOT_CERTIFIED" as const};
+      }
+      const fileKey='financial-opening-evidence/'+access.tenantId+'/'+
+        input.siteId+'/'+input.openingId+'/'+input.lineId+'/'+
+        randomUUID()+'.'+FINANCIAL_OPENING_MIME_EXTENSIONS[input.mimeType as FinancialOpeningMime];
+      let uploaded:{key:string;url:string};
+      try{
+        uploaded=await storagePut(fileKey,parsed.bytes,input.mimeType);
+      }catch{
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر حفظ المستند في التخزين الخاص؛ يظل الدليل بانتظار الحيازة."});
+      }
+      const {error:insertError}=await admin.from("financial_gl_opening_document_custody")
+        .insert({evidence_id:evidenceId,tenant_id:access.tenantId,
+          site_id:input.siteId,opening_id:input.openingId,
+          opening_line_id:input.lineId,storage_key:uploaded.key,
+          document_sha256:parsed.sha256,mime_type:input.mimeType,
+          byte_size:parsed.byteSize,recorded_by_user_id:ctx.user.id});
+      if(insertError){
+        // On ambiguous writes the object is retained for reconciliation;
+        // never delete an object that may be linked to a committed row.
+        console.error("[PowerHub] opening document custody write not confirmed",{
+          code:insertError.code,evidenceId});
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"حُفظ الملف لكن تعذر تأكيد ربطه بسجل الحيازة؛ أعد المحاولة للتحقق من الحالة."});
+      }
+      return {evidenceId,sha256:parsed.sha256,byteSize:parsed.byteSize,
+        custodyRecorded:true,alreadyRecorded:false,
+        accountingCertification:"NOT_CERTIFIED" as const};
+    }),
+    financialGLOpeningEvidenceReview: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      evidenceId:z.number().int().positive(),
+      accept:z.boolean(),
+      note:z.string().trim().min(12).max(1000),
+    })).mutation(async({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const admin=supabaseAdmin();
+      const {data:evidence,error:readError}=await admin.from("financial_gl_opening_evidence")
+        .select("id,tenant_id,site_id,opening_id,opening_line_id,source_document_sha256,review_status")
+        .eq("id",input.evidenceId).eq("tenant_id",access.tenantId)
+        .eq("site_id",input.siteId).maybeSingle();
+      if(readError || !evidence)
+        throw new TRPCError({code:"NOT_FOUND",message:"دليل الافتتاحية غير متاح في هذا الفرع."});
+      if(input.accept){
+        const {data:custody,error:custodyError}=await admin
+          .from("financial_gl_opening_document_custody")
+          .select("evidence_id,tenant_id,site_id,opening_id,opening_line_id,storage_key,document_sha256,mime_type,byte_size")
+          .eq("evidence_id",input.evidenceId).maybeSingle();
+        if(custodyError || !custody ||
+          Number(custody.tenant_id)!==access.tenantId ||
+          Number(custody.site_id)!==input.siteId ||
+          Number(custody.opening_id)!==Number(evidence.opening_id) ||
+          Number(custody.opening_line_id)!==Number(evidence.opening_line_id) ||
+          !openingDocumentHashMatches(custody.document_sha256,evidence.source_document_sha256))
+          throw new TRPCError({code:"BAD_REQUEST",message:"لا يمكن اعتماد دليل دون سجل حيازة مطابق للملف الأصلي."});
+        const {data:file,error:fileError}=await admin.storage
+          .from(process.env.SUPABASE_STORAGE_BUCKET ?? "powerhub-private")
+          .download(custody.storage_key);
+        if(fileError || !file)
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تنزيل المستند الأصلي للتحقق من بصمته."});
+        let proof:{byteSize:number;sha256:string};
+        try{
+          proof=openingDocumentDetails(Buffer.from(await file.arrayBuffer()),custody.mime_type);
+        }catch{
+          throw new TRPCError({code:"BAD_REQUEST",message:"محتوى المستند المخزن غير صالح للمراجعة."});
+        }
+        if(proof.byteSize!==Number(custody.byte_size) ||
+          !openingDocumentHashMatches(proof.sha256,custody.document_sha256))
+          throw new TRPCError({code:"BAD_REQUEST",message:"فشلت مطابقة البصمة الفعلية لملف الافتتاحية."});
+      }
+      const {data,error}=await admin.rpc("powerhub_financial_gl_opening_evidence_review",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_evidence_id:input.evidenceId,p_reviewer_id:ctx.user.id,
+        p_accept:input.accept,p_note:input.note,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذرت المراجعة؛ تحقق من استقلالية المراجع وصلاحياته وحالة المستند."});
+      const result=data as Record<string,unknown>;
+      if(Number(result.evidenceId)!==input.evidenceId ||
+        result.status!==(input.accept?"verified":"rejected"))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"نتيجة مراجعة المستند غير موثوقة."});
+      return {...result,documentBytesVerified:input.accept,
+        accountingCertification:"NOT_CERTIFIED" as const};
     }),
     financialGLOpeningCreate: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
