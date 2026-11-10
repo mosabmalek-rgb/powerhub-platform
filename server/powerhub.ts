@@ -5666,7 +5666,7 @@ export const powerhubRouter = router({
     // B4: bounded, on-demand, read-only comparison. No automated certification.
     financialGLSubledgerReconciliation: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
-      period:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
