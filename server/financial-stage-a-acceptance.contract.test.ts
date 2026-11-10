@@ -49,6 +49,8 @@ const technicalBootstrapRollbackA44 = readFileSync(
 const prelaunchAcceptanceA45 = readFileSync("supabase/migrations/20261110170636_powerhub_financial_gl_prelaunch_engineering_acceptance_status.sql", "utf8");
 const durableAcceptanceCheckA45 = readFileSync("docs/security/sql/pr359-financial-a45-durable-acceptance-readonly.sql", "utf8");
 const glAuditUiA45 = readFileSync("client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8");
+const bootstrapExpiryMigrationA46 = readFileSync("supabase/migrations/20261110172614_powerhub_financial_gl_prelaunch_authorization_expiry_visibility.sql","utf8");
+const bootstrapExpiryAcceptanceA46 = readFileSync("docs/security/sql/pr359-financial-a46-bootstrap-expiry-readonly.sql","utf8");
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -619,6 +621,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("القبول الهندسي لبيانات ما قبل الإطلاق");
     expect(glAuditUiA45).toContain("وليس افتتاحية معتمدة");
     expect(glAuditUiA45).toContain("isFinalFinancialAcceptance === false");
+  });
+
+  it("separates historical prelaunch engineering success from expiring posting authority", () => {
+    expect(bootstrapExpiryMigrationA46).toContain("technicalBootstrapActive");
+    expect(bootstrapExpiryMigrationA46).toContain("technicalBootstrapExpiresAt");
+    expect(bootstrapExpiryMigrationA46).toContain("newPostingRequiresDocumentaryOpening");
+    expect(bootstrapExpiryMigrationA46).toContain("powerhub_financial_gl_prelaunch_tech_valid");
+    expect(bootstrapExpiryAcceptanceA46).toContain("A46_EXPIRY_OR_CERTIFICATION_CONTRACT_FAILED");
+    expect(bootstrapExpiryAcceptanceA46).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(glAuditUiA45).toContain("صلاحية الترحيل التقني الجديد");
+    expect(glAuditUiA45).toContain("يلزم اعتماد افتتاحية موثقة");
   });
 
 });

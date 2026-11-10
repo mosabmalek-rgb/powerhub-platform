@@ -1,3 +1,13 @@
+## A46 — صلاحية الترحيل التقني ليست صلاحية دائمة (10 نوفمبر 2026)
+
+- اكتملت CI الأربع على A45 SHA `6aefd389a877a487cc2ee72c17741693156813cd`. نشرت Vercel معاينة مطابقة `dpl_8Vku6iNEhLzhC6XHDdwL684CCre7` بحالة READY (target preview)؛ لا يوجد حتى الآن اختبار تسجيل دخول/واجهة تفاعلية مثبت.
+- طبّق Staging الترحيل `20261110172614_powerhub_financial_gl_prelaunch_authorization_expiry_visibility`، وأضيفت في تقرير `technicalAcceptance` حقول `technicalBootstrapActive` و`technicalBootstrapExpiresAt` و`documentaryOpeningAvailable` و`newPostingRequiresDocumentaryOpening`.
+- القبول التاريخي `PASS_PRELAUNCH_ENGINEERING_ONLY` مستمر لإثبات اكتمال 21 قيدًا وتوازنها، لكنه **ليس** إذنًا دائمًا بالترحيل. مسار القاعدة `powerhub_financial_gl_prelaunch_tech_valid` يتحقق من الصلاحية الزمنية عند كل عملية جديدة، وبعد نهاية 30 نوفمبر يجب وجود افتتاحية مستندية معتمدة أو مسار اختبار جديد مأذون به.
+- الاختبار `docs/security/sql/pr359-financial-a46-bootstrap-expiry-readonly.sql` يرفض أي تعارض بين الوقت المسجل والحقول المعروضة، ويحافظ على `NOT_CERTIFIED` وعدم إصدار موافقة بشرية. الواجهة تُظهر بوضوح حالة صلاحية الترحيل دون خلطها مع شهادة مالية.
+- لا دمج ولا تعديل Production.
+
+---
+
 ## A45 — قبول هندسي دائم موثق (10 نوفمبر 2026)
 
 - تم تطبيق A44 فعليًا على **Staging فقط**، وسُجلت تهيئة تقنية ثابتة `PRELAUNCH_TECHNICAL` للمستأجر/الفرع 1/1، مع `human_approved=false` و`accounting_certification=NOT_CERTIFIED` وانتهاء صلاحيتها بنهاية 30 نوفمبر 2026. لم تنشأ افتتاحية محاسبية معتمدة، ولم تُمَس Production.

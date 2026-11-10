@@ -157,6 +157,14 @@ export default function FinancialGLAuditPanel({
           ولا شهادة حسابات أو أرباح نهائية. ستظل موانع الاعتماد المحاسبي ظاهرة أدناه.
         </p>
       </div> : null}
+      {engineeringAccepted ? <p className="mt-3 text-xs text-slate-300">
+        صلاحية الترحيل التقني الجديد: {technicalAcceptance.technicalBootstrapActive === true
+          ? "فعالة مؤقتًا" : "منتهية أو غير متاحة"}.
+        {" "}تنتهي صلاحيتها: {technicalAcceptance.technicalBootstrapExpiresAt
+          ? String(technicalAcceptance.technicalBootstrapExpiresAt) : "لا يوجد تاريخ"}.
+        {technicalAcceptance.newPostingRequiresDocumentaryOpening === true
+          ? " يلزم اعتماد افتتاحية موثقة قبل أي ترحيل جديد." : ""}
+      </p> : null}
       {taggedFixtures > 0 ? <p className="mt-3 text-xs text-slate-300">
         حالة الحركات الاصطناعية: {verifiedFixtureQuarantine && taggedFixtures === quarantinedFixtures
           ? `تم إثبات وعزل ${numberText(quarantinedFixtures)} حركة في فحص الأستاذ مع الاحتفاظ بالسجلات الأصلية وبصمتها، دون شهادة أرباح نهائية.`
