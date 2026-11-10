@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const sourcePreflight = readFileSync(
+  "docs/security/sql/pr359-financial-gl-backfill-source-preflight.sql", "utf8",
+);
 const provenance = readFileSync(
   "docs/security/sql/pr359-staging-performance-fixture-provenance-audit.sql", "utf8",
 );
@@ -23,6 +26,26 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("preflights GL sources by dependency without mutating historical entries", () => {
+    for (const signal of [
+      "BEGIN;",
+      "ROLLBACK;",
+      "pg_temp.powerhub_gl_preflight_probe",
+      "powerhub_financial_gl_source_plan",
+      "SOURCE_PLAN_VALID_NOT_POSTED",
+      "WAITING_FOR_PREREQUISITE_GL",
+      "INTERNAL_TRANSFER_NOT_DIRECT_GL",
+      "STOCK_REQUIRES_SUPPLIER_COVERAGE_CHECK",
+      "REQUIRES_SOURCE_REVIEW",
+      "NO_PERSISTENT_CHANGES_ALL_STATEMENTS_ROLLED_BACK",
+      "NOT_CERTIFIED",
+    ]) expect(sourcePreflight).toContain(signal);
+    expect(sourcePreflight).not.toMatch(/\\b(?:UPDATE|DELETE|TRUNCATE)\\s+(?:FROM\\s+)?public\\./i);
+    expect(sourcePreflight).not.toContain("powerhub_financial_gl_post_source(");
+    expect(sourcePreflight).not.toContain("powerhub_financial_gl_opening_create(");
+    expect(sourcePreflight).not.toContain("powerhub_financial_gl_fixture_manifest_review(");
+  });
+
   it("qualifies but never silently removes or relabels synthetic bank movements", () => {
     for (const evidence of [
       "d.count=250000",
