@@ -5663,6 +5663,38 @@ export const powerhubRouter = router({
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم يؤكد الخادم اعتماد سياسة التوزيع."});
       return v;
     }),
+    // B4.1: document-level GL source audit; no endorsement, no client RPC exposure.
+    financialGLSubledgerDocumentAudit: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_subledger_document_audit",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تدقيق مصادر المستندات المالية؛ لا توجد نتيجة معتمدة."});
+      const v=data as Record<string,unknown>;
+      const sample=v.mismatchExamples;
+      if(v.tenantId!==access.tenantId || v.siteId!==input.siteId ||
+        v.period!==input.period || v.accountingCertification!=="NOT_CERTIFIED" ||
+        v.isFinalBalanceSheet!==false || v.isApproved!==false ||
+        !["DOCUMENT_SOURCES_MATCHED_NOT_CERTIFIED","BLOCKED_DOCUMENT_RECONCILIATION"].includes(String(v.status)) ||
+        !Number.isSafeInteger(Number(v.sourceCount)) ||
+        !Number.isSafeInteger(Number(v.mismatchCount)) ||
+        !Number.isSafeInteger(Number(v.orphanGLEntryCount)) ||
+        !Number.isSafeInteger(Number(v.aggregateUnresolvedCount)) ||
+        !Array.isArray(sample) || sample.length>20 ||
+        !Array.isArray(v.limitations) ||
+        (v.status==="DOCUMENT_SOURCES_MATCHED_NOT_CERTIFIED" &&
+          (Number(v.mismatchCount)!==0 || Number(v.orphanGLEntryCount)!==0 ||
+           Number(v.aggregateUnresolvedCount)!==0)))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"نتيجة تدقيق المستندات ناقصة أو غير متسقة مع نطاق الفرع."});
+      return v;
+    }),
     // B4: bounded, on-demand, read-only comparison. No automated certification.
     financialGLSubledgerReconciliation: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
