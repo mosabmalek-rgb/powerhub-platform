@@ -22,6 +22,24 @@ describe("Supabase Storage adapter", () => {
     createSignedUrl.mockResolvedValue({ data: { signedUrl: "https://storage.example.test/signed" }, error: null });
   });
 
+  it("uploads opening custody bytes without signing before a reviewer requests access", async () => {
+    const { storagePutPrivate } = await import("./storage");
+    createSignedUrl.mockRejectedValue(new Error("signing temporarily unavailable"));
+
+    const result = await storagePutPrivate(
+      "financial-opening-evidence/1/1/23/24/evidence.pdf", PDF, "application/pdf",
+    );
+
+    expect(upload).toHaveBeenCalledOnce();
+    expect(upload).toHaveBeenCalledWith(
+      expect.stringMatching(/^financial-opening-evidence\\/1\\/1\\/23\\/24\\/evidence_[a-f0-9]{8}\\.pdf$/),
+      PDF,
+      { contentType: "application/pdf", upsert: false },
+    );
+    expect(result).toEqual({ key: "payment-receipts/1/INV-1_abcd1234.jpg" });
+    expect(createSignedUrl).not.toHaveBeenCalled();
+  });
+
   it("uploads a private attachment then returns a short-lived signed URL", async () => {
     const { storagePut } = await import("./storage");
 
