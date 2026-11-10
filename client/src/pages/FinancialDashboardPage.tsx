@@ -391,6 +391,12 @@ export default function FinancialDashboardPage() {
           <strong className="mt-2 block text-xl text-white">{format(row.value)} شيكل</strong>
         </div>)}
       </div> : null}
+      {cashFlow.data && !cashFlow.isError && cashFlow.data.fixtureExcludedMovements > 0 ? (
+        <p role="status" className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">
+          استُبعدت {format(cashFlow.data.fixtureExcludedMovements)} حركة أداء تجريبية بعد التحقق من بصمتها وموافقة مراجعة مستقلة.
+          التقرير نقدي تشغيلي، وليس شهادة محاسبية نهائية.
+        </p>
+      ) : null}
       <div className="mt-4 border-t border-white/10 pt-4">
         <Button size="sm" variant="outline" className="border-white/20 text-white"
           onClick={() => setShowCashComparison((value) => !value)}
