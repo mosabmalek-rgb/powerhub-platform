@@ -59,6 +59,9 @@ const financialStatementsB1Ui = readFileSync("client/src/components/finance/Fina
 const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
 const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
 const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
+const b5EngineeringGate = readFileSync(
+  "docs/security/sql/pr359-financial-b5-staging-engineering-gate.sql","utf8",
+);
 const b45LinkedIndexSql = readFileSync(
   "supabase/migrations/20261110220123_powerhub_financial_gl_b4_linked_movement_index.sql","utf8",
 );
@@ -728,6 +731,21 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
     expect(glAuditUiA45).toContain("b3Visible");
     expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
+  it("runs B5 as read-only Staging engineering acceptance without certifying financial statements", () => {
+    expect(b5EngineeringGate).toContain("B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED");
+    expect(b5EngineeringGate).toContain("B5_UNTRUTHFUL_CONSOLIDATION");
+    expect(b5EngineeringGate).toContain("B5_UNDOCUMENTED_OPENING_WAS_FALSIFIED");
+    expect(b5EngineeringGate).toContain("B5_TECHNICAL_VS_FINANCIAL_ACCEPTANCE_CONFUSED");
+    expect(b5EngineeringGate).toContain("B5_GL_RPC_PERMISSION_DRIFT");
+    expect(b5EngineeringGate).toContain("LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED");
+    expect(b5EngineeringGate).toContain("BLOCKED_ACCOUNT_MOVEMENT_AUDIT");
+    expect(b5EngineeringGate).toContain("NOT_INDEPENDENTLY_RECONCILED");
+    expect(b5EngineeringGate).toContain("NOT_CERTIFIED");
+    expect(b5EngineeringGate).toContain("BEGIN;");
+    expect(b5EngineeringGate).toContain("ROLLBACK;");
+    expect(b5EngineeringGate).not.toContain("COMMIT;");
   });
 
   it("ensures B4.5 selective index excludes unlinked synthetic rows without changing ledger results", () => {
