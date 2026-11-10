@@ -5034,6 +5034,9 @@ export const powerhubRouter = router({
         p_source_type:input.sourceType,p_source_id:input.sourceId,
         p_user_id:ctx.user.id,
       });
+      if(error && String(error.message??"").includes("GL_PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID"))
+        throw new TRPCError({code:"CONFLICT",
+          message:"لا يمكن ترحيل الرواتب: خصم السلفة غير مدعوم بحركة صرف موثقة ومطابقة. يجب تصحيح المصدر أولاً."});
       if(error || !data || typeof data!=="object" || Array.isArray(data))
         throw new TRPCError({code:"BAD_REQUEST",
           message:"تعذر ترحيل العملية إلى دفتر الأستاذ؛ تحقق من مستند المصدر والرصيد الافتتاحي وحالة الفترة."});
@@ -7276,6 +7279,7 @@ export const powerhubRouter = router({
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن إنشاء مسودة رواتب ضمنها." });
       if (errorText.includes("EMPLOYEE_OUT_OF_SCOPE_OR_INACTIVE")) throw new TRPCError({ code: "BAD_REQUEST", message: "توجد موظفة أو موظف غير نشط أو خارج الفرع المحدد." });
       if (errorText.includes("NEGATIVE_PAYROLL_NET")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن أن يكون صافي راتب الموظف سالباً." });
+      if (errorText.includes("PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID")) throw new TRPCError({ code: "CONFLICT", message: "لا يمكن احتساب خصم سلفة لم يُثبت صرفها أو لا تتطابق مع حركة الصرف والمبلغ. راجع سجل سلف الموظف قبل إنشاء الكشف." });
       if (errorText.includes("PAYROLL_PERIOD_ALREADY_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "يوجد كشف رواتب لهذه الفترة والفرع بالفعل." });
       if (errorText.includes("PAYROLL_OPEN_RUN_EXISTS")) throw new TRPCError({ code: "CONFLICT", message: "يوجد كشف رواتب غير مسدد لهذا الفرع. اعتمده وصرفه أو ألغِ المسودة أولاً لتحرير حجوزات السلف." });
       if (errorText.includes("DUPLICATE_PAYROLL_EMPLOYEE") || errorText.includes("INVALID_PAYROLL_DRAFT_INPUT")) throw new TRPCError({ code: "BAD_REQUEST", message: "بيانات مسودة الرواتب غير صحيحة." });
@@ -7305,6 +7309,7 @@ export const powerhubRouter = router({
       if (errorText.includes("PAYROLL_APPROVER_OUT_OF_TENANT") || errorText.includes("PAYROLL_APPROVAL_INVALID_SCOPE")) throw new TRPCError({ code: "FORBIDDEN", message: "حساب الاعتماد ليس مخولاً ضمن المستأجر والفرع." });
       if (errorText.includes("PAYROLL_APPROVAL_REPLAY_CONFLICT")) throw new TRPCError({ code: "CONFLICT", message: "سبق اعتماد كشف الرواتب بواسطة مسؤول مختلف، ولا يمكن تغيير جهة الاعتماد." });
       if (errorText.includes("PAYROLL_RUN_NOT_DRAFT")) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن اعتماد مسودة ليست في حالة مسودة." });
+      if (errorText.includes("PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID")) throw new TRPCError({ code: "CONFLICT", message: "لا يمكن اعتماد كشف الرواتب: توجد سلفة مخصومة لم يتم إثبات صرفها أو تطابقها مع حركة الحساب. راجع السلف أولاً." });
       if (errorText.includes("FINANCIAL_PERIOD_LOCKED")) throw new TRPCError({ code: "FORBIDDEN", message: "الفترة المالية مقفلة؛ لا يمكن اعتماد كشف الرواتب ضمنها." });
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر اعتماد كشف الرواتب في Supabase." });
     }),

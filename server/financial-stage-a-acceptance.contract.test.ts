@@ -469,6 +469,9 @@ describe("Phase A financial acceptance evidence", () => {
     expect(payrollAdvanceA38).toContain("tx.amount=adj.amount");
     expect(payrollAdvanceA38).toContain("tx.transaction_type='withdrawal'");
     expect(payrollRegressionA38).toContain("PASS_ROLLBACK_ONLY");
+    expect(runtime).toContain('errorText.includes("PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID")');
+    expect(runtime).toContain('GL_PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID');
+    expect(runtime).toContain('لا يمكن ترحيل الرواتب: خصم السلفة غير مدعوم');
     expect(payrollRegressionA38).toContain("ROLLBACK;");
     expect(payrollRegressionA38).not.toMatch(/\\bCOMMIT\\s*;/i);
     expect(serviceRecognitionA37).not.toContain('"accountCode":"1700","side":"debit","amount":100');
