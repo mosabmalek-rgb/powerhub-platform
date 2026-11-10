@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import FinancialOpeningSetupPanel from "./FinancialOpeningSetupPanel";
 
 const sourceKinds = [
   ["company_account_statement","كشف حساب نقدي / محفظة"],
@@ -70,8 +71,12 @@ export default function FinancialOpeningEvidenceWorkspace({
     {workspace.isLoading || workspace.isFetching ? <p role="status" className="mt-2">جارٍ فحص الافتتاحية وأدلتها…</p> : null}
     {workspace.isError ? <p role="alert" className="mt-2 text-rose-200">تعذر جلب الأدلة بأمان؛ لا تُعرض قائمة جزئية.</p> : null}
     {workspace.data && !workspace.isFetching && !workspace.isError && !workspace.data.opening
-      ? <p className="mt-2 text-amber-200">لا توجد افتتاحية منشورة لهذا الفرع؛ أنشئها واعتمدها أولًا من مسار الافتتاحيات.</p> : null}
-    {workspace.data?.opening && !workspace.isFetching && !workspace.isError ? <>
+      ? <p className="mt-2 text-amber-200">لا توجد افتتاحية فعالة لهذا الفرع؛ يمكنك إنشاء مسودة متوازنة أدناه، ثم اعتمادها من مستخدم آخر.</p> : null}
+    <FinancialOpeningSetupPanel siteId={siteId} active={active}
+      onChanged={async()=>{await refresh();}}/>
+    {workspace.data?.opening?.status==="draft" && !workspace.isFetching && !workspace.isError
+      ? <p className="mt-2 text-amber-200">الافتتاحية مسودة؛ لا يُقبل إرفاق أدلة اعتماد نهائية قبل ترحيلها بواسطة مراجع مستقل.</p> : null}
+    {workspace.data?.opening?.status==="posted" && !workspace.isFetching && !workspace.isError ? <>
       <p className="mt-2 text-xs">افتتاحية رقم {workspace.data.opening.id} بتاريخ {workspace.data.opening.asOfDate} — غير مصدّقة محاسبيًا.</p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <label className="text-xs">سطر الافتتاحية
