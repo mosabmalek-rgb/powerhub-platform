@@ -56,7 +56,7 @@ BEGIN
  IF NEW.storage_key NOT LIKE
   ('financial-opening-evidence/'||NEW.tenant_id||'/'||
    NEW.site_id||'/'||NEW.opening_id||'/'||NEW.opening_line_id||'/%')
-  OR NEW.storage_key !~ '^[a-zA-Z0-9/_-]+[.](pdf|jpg|jpeg|png|webp)
+  OR NEW.storage_key !~ '^[a-zA-Z0-9/_-]+[.](pdf|jpg|jpeg|png|webp)$'
  THEN RAISE EXCEPTION 'GL_OPENING_DOCUMENT_CUSTODY_STORAGE_SCOPE_INVALID'
    USING ERRCODE='22023';END IF;
  RETURN NEW;
