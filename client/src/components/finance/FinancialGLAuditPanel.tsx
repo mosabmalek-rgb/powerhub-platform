@@ -492,6 +492,13 @@ export default function FinancialGLAuditPanel({
           <p>صافي الأصول: {b1Amount(b3Position.netAssets)}؛ الالتزامات: {b1Amount(b3Position.liabilities)}.</p>
           <p>حقوق الملكية: {b1Amount(b3Position.postedEquity)}؛ النتيجة المتراكمة غير المقفلة: {b1Amount(b3Position.unclosedAccumulatedResult)}.</p>
           <p>فرق المعادلة: {b1Amount(b3Position.equationDifference)}.</p>
+          <p>تحويلات المخزون داخل الفرع: {numberText(b3.intraSiteWarehouseTransferCount)}،
+            بقيمة {b1Amount(b3.intraSiteWarehouseTransferValue)} شيكل،
+            فروقات اقتران الخروج/الدخول: {numberText(b3.intraSiteWarehouseTransferMismatchCount)}.</p>
+          <p>حالات تحويل بين الفروع مرشحة من GL: {numberText(b3.interSiteTransferCandidateCount)}.
+            عدم وجود مرشحات لا يُثبت إجراء تسويات مستقلة أو اكتمال القوائم الموحدة.</p>
+          {numeric(b3.intraSiteWarehouseTransferMismatchCount)!==0
+            ? <p role="alert" className="text-rose-200">توجد تحويلات مخزنية تحتاج تدقيقًا مستقلًا قبل أي اعتماد.</p> : null}
           <p className="text-xs text-amber-200">التحويلات بين الفروع والحسابات المشتركة لم تُطابق مستقلاً. التوزيع المركزي والضرائب والاعتماد النهائي غير مكتمل.</p>
         </div> : null}
       </div>
