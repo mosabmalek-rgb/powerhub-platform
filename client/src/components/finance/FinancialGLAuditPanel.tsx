@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw } from "lucide-react";
 import FinancialOpeningEvidenceWorkspace from "./FinancialOpeningEvidenceWorkspace";
+import FinancialCentralAllocationWorkspace from "./FinancialCentralAllocationWorkspace";
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -308,6 +309,7 @@ export default function FinancialGLAuditPanel({
           التكاليف المركزية غير الموزعة غير محددة، وليست صفرًا مثبتًا. لا توجد قوائم موحدة للاشتراك بعد.</p>
         </div> : null}
       </div>
+      <FinancialCentralAllocationWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
       <div className="mt-3 rounded-md border border-white/10 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>

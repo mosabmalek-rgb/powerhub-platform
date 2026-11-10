@@ -60,6 +60,7 @@ const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702
 const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
 const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
 const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
+const financialCentralB2Ui = readFileSync("client/src/components/finance/FinancialCentralAllocationWorkspace.tsx","utf8");
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -706,6 +707,21 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
     expect(glAuditUiA45).toContain("b3Visible");
     expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
+  it("gates B2 allocation workflow on scoped server permissions and independent approval", () => {
+    expect(runtime).toContain("financialGLCentralPolicyWorkspace: protectedProcedure");
+    expect(runtime).toContain("financial_gl_central_allocation_policies");
+    expect(runtime).toContain("financialGLCentralPolicyApprove: protectedProcedure");
+    expect(runtime).toContain("policyError || !rows || rows.length!==1");
+    expect(financialCentralB2Ui).toContain("toBasisPoints");
+    expect(financialCentralB2Ui).toContain("totalPoints === 10000");
+    expect(financialCentralB2Ui).toContain("sourceCandidatesTruncated");
+    expect(financialCentralB2Ui).toContain("preparedAcknowledged");
+    expect(financialCentralB2Ui).toContain("reviewAcknowledged");
+    expect(financialCentralB2Ui).toContain("operationKey");
+    expect(financialCentralB2Ui).toContain("workspace.refetch()");
+    expect(glAuditUiA45).toContain("<FinancialCentralAllocationWorkspace");
   });
 
 });

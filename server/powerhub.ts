@@ -5502,6 +5502,81 @@ export const powerhubRouter = router({
        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"بيانات التجميع الأولي غير متسقة."});
       return v;
     }),
+    // B2: management workspace. A server-side, tenant-scoped snapshot only.
+    // ALL active branches must be report-visible before revealing policy details.
+    financialGLCentralPolicyWorkspace: protectedProcedure.input(z.object({
+      centralSiteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const [branches,policies,entries]=await Promise.all([
+        supabaseAdmin().from("sites").select("id,name").eq("tenant_id",access.tenantId)
+          .eq("status","active").order("id",{ascending:true}).limit(51),
+        supabaseAdmin().from("financial_gl_central_allocation_policies")
+          .select("id,status,prepared_by,approved_by,source_entry_ids,weights,evidence_reference,created_at,approved_at")
+          .eq("tenant_id",access.tenantId).eq("central_site_id",input.centralSiteId)
+          .eq("period",input.period).limit(2),
+        supabaseAdmin().from("financial_gl_entries")
+          .select("id,source_id,period,source_type")
+          .eq("tenant_id",access.tenantId).eq("site_id",input.centralSiteId)
+          .eq("period",input.period).eq("source_type","expense")
+          .is("reverses_entry_id",null).order("id",{ascending:false}).limit(101),
+      ]);
+      if(branches.error || policies.error || entries.error ||
+        !branches.data || !policies.data || !entries.data ||
+        branches.data.length===0 || branches.data.length>50 ||
+        policies.data.length>1)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تأكيد الفروع أو مصادر المصروف والسياسة الحالية."});
+      for(const branch of branches.data){
+        const allowed=await requireSupabaseSiteRole(ctx.user.id,Number(branch.id),
+          ["owner","manager","accountant","viewer"],"viewFinancialReports");
+        if(allowed.tenantId!==access.tenantId)
+          throw new TRPCError({code:"FORBIDDEN",
+            message:"لا يُسمح بإعداد توزيع مالي يتضمن فروعًا خارج نطاق صلاحياتك."});
+      }
+      const current=policies.data[0];
+      if(current && (!Array.isArray(current.weights) ||
+        !Array.isArray(current.source_entry_ids) ||
+        !["draft","approved"].includes(current.status)))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"بيانات سياسة التوزيع غير متسقة."});
+      let currentPool:number|null=null;
+      if(current){
+        const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_central_pool_check",{
+          pt:access.tenantId,ps:input.centralSiteId,pp:input.period,
+          ids:current.source_entry_ids,weights:current.weights,
+        });
+        const pool=Number(data);
+        if(error || data==null || !Number.isFinite(pool) || pool<=0)
+          throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+            message:"لم تعد مصادر التكلفة المسجلة مطابقة؛ أوقف الاعتماد لحين مراجعتها."});
+        currentPool=pool;
+      }
+      const policy=current ? {
+        id:Number(current.id),status:current.status,
+        preparedBy:Number(current.prepared_by),
+        approvedBy:current.approved_by==null?null:Number(current.approved_by),
+        sourceEntryIds:current.source_entry_ids.map(Number),
+        weights:(current.weights as Array<{siteId:number;basisPoints:number}>)
+          .map(w=>({siteId:Number(w.siteId),basisPoints:Number(w.basisPoints)})),
+        evidenceReference:String(current.evidence_reference),
+        createdAt:String(current.created_at),approvedAt:current.approved_at,
+        centralCostPool:currentPool,
+      }:null;
+      return {
+        tenantId:access.tenantId,centralSiteId:input.centralSiteId,period:input.period,
+        accountingCertification:"NOT_CERTIFIED" as const,
+        currentUserId:ctx.user.id,
+        policy,
+        canApprove:policy?.status==="draft" && policy.preparedBy!==ctx.user.id,
+        sites:branches.data.map(b=>({id:Number(b.id),name:String(b.name)})),
+        sourceCandidates:entries.data.slice(0,100).map(e=>({
+          id:Number(e.id),sourceId:String(e.source_id),sourceType:String(e.source_type),
+        })),
+        sourceCandidatesTruncated:entries.data.length>100,
+      };
+    }),
     financialGLCentralPolicyPreview: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),centralSiteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
@@ -5560,6 +5635,23 @@ export const powerhubRouter = router({
     })).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
         ["owner","manager","accountant"],"manageExpenses");
+      // Authorization is independent of the central-site privilege. A manager
+      // must not approve allocations involving branches they cannot inspect.
+      const {data:rows,error:policyError}=await supabaseAdmin()
+        .from("financial_gl_central_allocation_policies")
+        .select("weights").eq("id",input.policyId).eq("tenant_id",access.tenantId)
+        .eq("central_site_id",input.centralSiteId).limit(2);
+      if(policyError || !rows || rows.length!==1 || !Array.isArray(rows[0].weights))
+        throw new TRPCError({code:"BAD_REQUEST",message:"تعذر تأكيد سياسة التوزيع المحددة."});
+      for(const weight of rows[0].weights as Array<{siteId:number}>){
+        const targetSite=Number(weight.siteId);
+        if(!Number.isSafeInteger(targetSite) || targetSite<=0)
+          throw new TRPCError({code:"BAD_REQUEST",message:"تحتوي السياسة على فرع غير صالح."});
+        const target=await requireSupabaseSiteRole(ctx.user.id,targetSite,
+          ["owner","manager","accountant","viewer"],"viewFinancialReports");
+        if(target.tenantId!==access.tenantId)
+          throw new TRPCError({code:"FORBIDDEN",message:"ليست لديك صلاحية مراجعة أحد الفروع المستفيدة."});
+      }
       const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_central_policy_approve",{
         pt:access.tenantId,ps:input.centralSiteId,policy_id:input.policyId,actor:ctx.user.id,
       });
