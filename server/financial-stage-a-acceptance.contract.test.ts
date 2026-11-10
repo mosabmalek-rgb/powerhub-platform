@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const closureA31 = readFileSync(
+  "docs/security/sql/pr359-financial-a31-staging-closure-readonly.sql", "utf8",
+);
 const openingA29 = readFileSync(
   "docs/security/sql/pr359-financial-gl-a29-opening-custody-rollback.sql", "utf8",
 );
@@ -53,6 +56,25 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("reports remaining Staging acceptance blockers without altering data or fabricating approval", () => {
+    for(const marker of [
+      "READ_ONLY_NOT_CERTIFICATION",
+      "qualifiedReviewers",
+      "verifiedFixtureManifests",
+      "postedOpenings",
+      "postedGLEntries",
+      "unreconciledSources",
+      "openingEvidenceAudit",
+      "sourceIntegrity",
+      "FIXTURE_REVIEW_PENDING",
+      "OPENING_NOT_POSTED",
+      "SOURCE_GL_INCOMPLETE",
+      "OPENING_SUBLEDGER_RECONCILIATION_PENDING",
+    ]) expect(closureA31).toContain(marker);
+    expect(closureA31).not.toMatch(/\\b(?:INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\\b/i);
+    expect(closureA31).not.toContain("SECURITY DEFINER");
+  });
+
   it("retains executed A29 Staging custody and independent checker regression", () => {
     for(const phrase of [
       "BEGIN;", "ROLLBACK;", "powerhub_financial_gl_opening_create",
