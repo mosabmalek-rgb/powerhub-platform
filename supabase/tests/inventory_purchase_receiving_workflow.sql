@@ -4398,13 +4398,34 @@ begin
   select * into v_cycle_debug from public.powerhub_cycle_for_reading(
     10,100,v_consumption_date::timestamp at time zone 'Asia/Gaza'
   );
-  select count(*)::integer,coalesce(sum(m.quantity),0),coalesce(sum(m.total_cost_amount),0)
+  -- Reconstruct the effective ledger independently of the reporting RPC:
+  -- exclude corrected/reversed issues and include legacy transfer-backed fills
+  -- exactly once. Both report and expected ledger use the same cycle window.
+  select count(*)::integer,coalesce(sum(effective.liters),0),
+    coalesce(sum(effective.cost),0)
   into v_cycle_stock_count,v_cycle_stock_liters,v_cycle_stock_cost
-  from public.inventory_stock_movements m
-  where m.tenant_id=10 and m.site_id=100 and m.generator_id=10000
-    and m.movement_type='fuel_consumption'
-    and m.occurred_at>=v_cycle_debug.cycle_start_at
-    and m.occurred_at<=v_cycle_debug.cycle_end_at;
+  from (
+    select m.quantity as liters,m.total_cost_amount as cost
+    from public.inventory_stock_movements m
+    where m.tenant_id=10 and m.site_id=100 and m.generator_id=10000
+      and m.movement_type='fuel_consumption'
+      and m.occurred_at>=v_cycle_debug.cycle_start_at
+      and m.occurred_at<=v_cycle_debug.cycle_end_at
+      and not exists (
+        select 1 from public.inventory_stock_movements reversal
+        where reversal.tenant_id=m.tenant_id and reversal.site_id=m.site_id
+          and reversal.reversal_of_movement_id=m.id
+      )
+    union all
+    select e.litres,e.total_cost_amount
+    from public.generator_fuel_events e
+    join public.inventory_stock_movements source on source.tenant_id=e.tenant_id
+      and source.id=e.source_movement_id and source.movement_type='issue'
+    where e.tenant_id=10 and e.site_id=100 and e.generator_id=10000
+      and e.stock_transfer_id is not null
+      and e.occurred_at>=v_cycle_debug.cycle_start_at
+      and e.occurred_at<=v_cycle_debug.cycle_end_at
+  ) effective;
   if v_cost_report.generator_id<>10000
      or v_cost_report.movement_count<>v_cycle_stock_count
      or v_cost_report.recorded_consumption_liters<>v_cycle_stock_liters
