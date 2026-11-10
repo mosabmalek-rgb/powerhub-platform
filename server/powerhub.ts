@@ -5209,7 +5209,7 @@ export const powerhubRouter = router({
       if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
         message:"تعذر قراءة سجل مراجعة عزل حركات الأداء."});
       if(!data) return {status:"not_prepared" as const,manifestId:null as number|null,
-        fixtureCount:250000,canReview:false,verified:false,reason:"NO_APPROVED_MANIFEST" as string,
+        fixtureCount:250000,manifestSha256:null as string|null,canReview:false,verified:false,reason:"NO_APPROVED_MANIFEST" as string,
         preparerIsCurrentUser:false,reviewedAt:null as string|null};
       if(data.status!=="pending" && data.status!=="verified") throw new TRPCError({
         code:"INTERNAL_SERVER_ERROR",message:"حالة سجل العزل غير معروفة."});
@@ -5228,6 +5228,7 @@ export const powerhubRouter = router({
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"سجل العزل لا يطابق المجموعة المعتمدة."});
       return {status:data.status as "pending"|"verified",manifestId:id,
         fixtureCount:Number(data.row_count),
+        manifestSha256:String(data.sha256),
         canReview:data.status==="pending" && Number(data.prepared_by_user_id)!==ctx.user.id,
         preparerIsCurrentUser:Number(data.prepared_by_user_id)===ctx.user.id,
         verified:data.status==="verified" && proof.verified===true &&
