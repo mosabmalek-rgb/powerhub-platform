@@ -100,21 +100,3 @@ CREATE TRIGGER zzz_gl_opening_document_custody_review_gate
 COMMENT ON TABLE public.financial_gl_opening_document_custody IS
  'Immutable server-hashed private document custody. Independent external origin and source-subledger reconciliation are separate gates; never certifies accounting.';
 NOTIFY pgrst,'reload schema';
-
- THEN RAISE EXCEPTION 'GL_OPENING_DOCUMENT_CUSTODY_STORAGE_SCOPE_INVALID'
-   USING ERRCODE='22023';END IF;
- RETURN NEW;
-END;
-$guard$;
-REVOKE ALL ON FUNCTION public.powerhub_financial_gl_opening_document_custody_guard()
- FROM PUBLIC,anon,authenticated;
-CREATE TRIGGER zz_gl_opening_document_custody_guard
- BEFORE INSERT OR UPDATE OR DELETE
- ON public.financial_gl_opening_document_custody
- FOR EACH ROW EXECUTE FUNCTION public.powerhub_financial_gl_opening_document_custody_guard();
-CREATE TRIGGER zz_gl_opening_document_custody_truncate_guard
- BEFORE TRUNCATE ON public.financial_gl_opening_document_custody
- FOR EACH STATEMENT EXECUTE FUNCTION public.powerhub_financial_gl_immutable_guard();
-COMMENT ON TABLE public.financial_gl_opening_document_custody IS
- 'Immutable server-hashed private document custody. Independent external origin and source-subledger reconciliation are separate gates; never certifies accounting.';
-NOTIFY pgrst,'reload schema';
