@@ -5248,15 +5248,48 @@ export const powerhubRouter = router({
           document_sha256:parsed.sha256,mime_type:input.mimeType,
           byte_size:parsed.byteSize,recorded_by_user_id:ctx.user.id});
       if(insertError){
-        // On ambiguous writes the object is retained for reconciliation;
-        // never delete an object that may be linked to a committed row.
+        // A32: a network timeout may have happened AFTER PostgreSQL committed
+        // the immutable custody row. Re-read and re-hash the stored bytes before
+        // reporting failure. Do not delete an object whose commit is uncertain.
+        const {data:committed,error:recoveryError}=await admin
+          .from("financial_gl_opening_document_custody")
+          .select("evidence_id,tenant_id,site_id,opening_id,opening_line_id,storage_key,document_sha256,mime_type,byte_size")
+          .eq("evidence_id",evidenceId).maybeSingle();
+        if(!recoveryError && committed &&
+          Number(committed.tenant_id)===access.tenantId &&
+          Number(committed.site_id)===input.siteId &&
+          Number(committed.opening_id)===input.openingId &&
+          Number(committed.opening_line_id)===input.lineId &&
+          committed.mime_type===input.mimeType &&
+          Number(committed.byte_size)===parsed.byteSize &&
+          openingDocumentHashMatches(committed.document_sha256,parsed.sha256)){
+          const {data:storedBytes,error:storedError}=await admin.storage
+            .from(process.env.SUPABASE_STORAGE_BUCKET ?? "powerhub-private")
+            .download(committed.storage_key);
+          if(!storedError && storedBytes){
+            try {
+              const storedProof=openingDocumentDetails(
+                Buffer.from(await storedBytes.arrayBuffer()),committed.mime_type);
+              if(storedProof.byteSize===parsed.byteSize &&
+                openingDocumentHashMatches(storedProof.sha256,parsed.sha256)){
+                return {evidenceId,sha256:parsed.sha256,byteSize:parsed.byteSize,
+                  custodyRecorded:true,alreadyRecorded:true,
+                  recoveredAfterAmbiguousWrite:true,
+                  accountingCertification:"NOT_CERTIFIED" as const};
+              }
+            } catch {
+              // A corrupt or missing object must never result in success.
+            }
+          }
+        }
         console.error("[PowerHub] opening document custody write not confirmed",{
-          code:insertError.code,evidenceId});
-        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
-          message:"حُفظ الملف لكن تعذر تأكيد ربطه بسجل الحيازة؛ أعد المحاولة للتحقق من الحالة."});
+          code:insertError.code,evidenceId,recoveryError:recoveryError?.code});
+        throw new TRPCError({code:recoveryError?"INTERNAL_SERVER_ERROR":"CONFLICT",
+          message:"تعذر تأكيد سجل الحيازة أو بصمة الملف المحفوظ. لم تُعتمد الأدلة؛ تحقق من الحالة قبل إعادة المحاولة."});
       }
       return {evidenceId,sha256:parsed.sha256,byteSize:parsed.byteSize,
         custodyRecorded:true,alreadyRecorded:false,
+        recoveredAfterAmbiguousWrite:false,
         accountingCertification:"NOT_CERTIFIED" as const};
     }),
     financialGLOpeningEvidenceFileUrl: protectedProcedure.input(z.object({
