@@ -22,6 +22,12 @@ const payrollAdvanceCashDateA40 = readFileSync(
 const payrollAdvanceGuardA40 = readFileSync(
   "supabase/migrations/20261110145822_powerhub_payroll_advance_cash_date_crosscheck.sql", "utf8",
 );
+const glActorGuardA41 = readFileSync(
+  "supabase/migrations/20261110152142_powerhub_financial_gl_actor_membership_guards.sql","utf8",
+);
+const glActorScopeA41 = readFileSync(
+  "docs/security/sql/pr359-financial-a41-actor-scope-rollback.sql","utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -521,6 +527,23 @@ describe("Phase A financial acceptance evidence", () => {
     expect(payrollAdvanceCashDateA40).toContain("PASS_ROLLBACK_ONLY");
     expect(payrollAdvanceCashDateA40).toContain("ROLLBACK;");
     expect(payrollAdvanceCashDateA40).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("rejects outsider and expired actor IDs at all five financial GL RPC boundaries", () => {
+    expect(glActorGuardA41).toContain("powerhub_financial_gl_authorized_actor");
+    expect(glActorGuardA41).toContain("GL_OPENING_ACTOR_FORBIDDEN");
+    expect(glActorGuardA41).toContain("GL_OPENING_APPROVER_FORBIDDEN");
+    expect(glActorGuardA41).toContain("GL_OPENING_VOID_ACTOR_FORBIDDEN");
+    expect(glActorGuardA41).toContain("GL_SOURCE_ACTOR_FORBIDDEN");
+    expect(glActorGuardA41).toContain("GL_SERVICE_ACTOR_FORBIDDEN");
+    expect(glActorGuardA41).toContain("m.membership_status='active'");
+    expect(glActorGuardA41).toContain("m.expires_at>statement_timestamp()");
+    expect(glActorScopeA41).toContain("A41_REVOKED_POST_ACCEPTED");
+    expect(glActorScopeA41).toContain("A41_EXPIRED_ACCEPTED");
+    expect(glActorScopeA41).toContain("A41_REPLAY_BYPASS_ACCEPTED");
+    expect(glActorScopeA41).toContain("PASS_ROLLBACK_ONLY");
+    expect(glActorScopeA41).toContain("ROLLBACK;");
+    expect(glActorScopeA41).not.toMatch(/\\bCOMMIT\\s*;/i);
   });
 
 });
