@@ -1,3 +1,16 @@
+## تحديث A27 — إثبات صفر فجوات GL مع إبقاء الافتتاحية غير معتمدة (10 نوفمبر 2026)
+
+- تحقق مباشر من PR #359: رأس ما قبل الجولة `236a8f4d253b1e9e2a40e81b8c9946df00dac219`، وبوابات GitHub الأربع ناجحة عليه. حالة Staging حتى الترحيل `20261110091920` دون إضافات دائمة.
+- جرى دمج إعداد بيانات A25 وA24 **داخل معاملة SQL واحدة مؤقتة** على Staging ثم تطبيق فحوص A27؛ نتيجة التنفيذ الفعلية: `unreconciledSourceCount=0`، `isSourceCoverageComplete=true`، `sourceIntegrity.isClean=true`، `checkedEntries=22`، `driftedEntries=0`، `unauditedEntries=0`، `trial.postedEntryCount=22`، `trial.difference=0.00`، ومجموعة `250000` حركة الأداء معزولة بManifest مؤقت ذي بصمة موثقة. لا قيود دائمة.
+- تقسيم القيود: افتتاحية 1، فواتير 4، تحصيلات 6، دفتر موردين 5، مخزون 1، مصروف 1، رواتب 1، واعتراف إيراد 3. تم التحقق من إعادة المحاولة دون تكرار في A24 ومنع المراجعة الذاتية والعضوية المنتهية في A25.
+- تم تنفيذ ملف `docs/security/sql/pr359-financial-gl-a27-unified-acceptance-assertions.sql` كفحوص موحدة عقب A24/A25 داخل المعاملة نفسها؛ تم التحقق من أن جميع حالات نقص أو انحراف المصادر تسبب فشلاً وأن `isOpeningStructurallyPosted=true` لا تؤدي إلى تصديق كاذب.
+- الافتتاحية التركيبية لا تحمل مصادقة حقيقية، ولذلك بقي `openingEvidenceAudit.status=INDEPENDENT_SUBLEDGER_RECONCILIATION_REQUIRED` و`isOpeningReconciled=false` و`sourceSubledgersIndependentlyVerified=false` و`accountingCertification=NOT_CERTIFIED`. هذه **النتيجة صحيحة ومتوقعة**.
+- المراجعة المصدرية بيّنت أن `20261110022000` و`20261110025000` تتعمدان إبقاء `sourceSubledgersIndependentlyVerified=false` و`isOpeningReconciled=false`؛ لا يمكن إعلان `ACCOUNTING_CERTIFIED` بمجرد إدخال مرفقات وHash أو تدوير الواجهة. يستلزم التصديق الفعلي نظام أدلة مستقلة قابل للتحقق ومطابقة الدفاتر المساعدة، ولا ينبغي تجاوز الحاجز أو استبداله بإقرار صوري.
+- أُضيف اختبار عقد في `server/financial-stage-a-acceptance.contract.test.ts` لملف A27. كل هذه الاختبارات تعمل دون `COMMIT` أو تغيير Production أو دمج PR؛ يجب تثبيت الأربع CI على رأس الفرع الجديد.
+- الإغلاق الهندسي للمصادر أصبح مثبتًا في المعاملة الاختبارية، لكنه لم يُطبّق **دائمًا** لأن ذلك يحتاج افتتاحية مصدرية مستقلة ومراجعتي Staging المخولتين. `PHASE_A_ACCEPTED=false`.
+
+---
+
 ## تحديث A26 — تطابق التدفق النقدي بعد عزل الأداء (10 نوفمبر 2026)
 
 - نُفّذ على Supabase Staging فحص `docs/security/sql/pr359-financial-gl-a26-cash-flow-rollback-acceptance.sql` داخل `BEGIN/ROLLBACK` بهويتين اختبار مستقلتين لمراجعة Manifest. لم ينتج اعتماد دائم.
