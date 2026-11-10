@@ -5551,7 +5551,8 @@ export const powerhubRouter = router({
         verified:data.status==="verified" && proof.verified===true &&
           Number(proof.quarantinedCount)===250000,
         reason:String(proof.reason??"UNKNOWN"),
-        reviewedAt:data.reviewed_at as string|null};
+        reviewedAt:data.reviewed_at as string|null,
+        verificationMode:"human" as const};
     }),
     financialGLFixturePrepare: protectedProcedure.input(siteScoped).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
