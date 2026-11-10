@@ -84,6 +84,8 @@ INSERT INTO public.tenant_members VALUES
  (901,9904,true,'active','owner');
 \ir ../migrations/20261110025000_powerhub_financial_gl_opening_independent_evidence.sql
 \ir ../migrations/20261110026000_powerhub_financial_staging_fixture_quarantine.sql
+\ir ../migrations/20261109150000_powerhub_financial_period_cash_flow.sql
+\ir ../migrations/20261110027000_powerhub_financial_cash_flow_fixture_guard.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
@@ -98,6 +100,43 @@ INSERT INTO public.account_transactions VALUES
  (501,901,9101,'2026-10-20T12:00:00Z',NULL,401,NULL,NULL,NULL,NULL,601,55,'collection'),
  (502,901,9101,'2026-10-20T12:00:00Z',NULL,NULL,701,NULL,NULL,NULL,601,12,'withdrawal'),
  (503,901,9101,'2026-10-20T12:00:00Z',NULL,NULL,NULL,1301,NULL,NULL,601,15,'withdrawal');
+-- A20: real cash-flow function against the disposable PostgreSQL schema.
+-- Non-fixture dates and tenants preserve actual cash amounts and provenance.
+DO $cash_guard$
+DECLARE v_flow jsonb;
+BEGIN
+ v_flow:=public.powerhub_financial_period_cash_flow(901,9101,
+   '2026-10-01'::timestamptz,'2026-11-01'::timestamptz);
+ IF (v_flow->>'externalCashIn')::numeric<>55
+    OR (v_flow->>'externalCashOut')::numeric<>27
+    OR (v_flow->>'netCashFlow')::numeric<>28
+    OR (v_flow->>'transactionCount')::bigint<>3
+    OR (v_flow->>'fixtureExcludedMovements')::bigint<>0
+    OR v_flow->>'fixtureTreatment'<>'NO_FIXTURE_IN_SCOPED_PERIOD'
+    OR v_flow->>'accountingCertification'<>'NOT_CERTIFIED'
+ THEN RAISE EXCEPTION 'A20 clean cash-flow result drift: %',v_flow; END IF;
+END;
+$cash_guard$;
+-- Even a single fixture-like row must never bypass an unapproved manifest.
+-- There is no Staging mutation: disposable PostgreSQL and outer ROLLBACK only.
+INSERT INTO public.tenants(id) VALUES(1);
+INSERT INTO public.sites(id,tenant_id,status) VALUES(1,1,'active');
+INSERT INTO public.account_transactions VALUES
+ (900001,1,1,'2026-05-01T12:00:00Z','STG-PERF-20261105-000001',
+  NULL,NULL,NULL,NULL,NULL,601,1,'collection');
+DO $cash_reject$
+BEGIN
+ BEGIN
+   PERFORM public.powerhub_financial_period_cash_flow(1,1,
+     '2026-05-01'::timestamptz,'2026-06-01'::timestamptz);
+   RAISE EXCEPTION 'A20_UNREVIEWED_FIXTURE_WAS_NOT_BLOCKED';
+ EXCEPTION WHEN SQLSTATE '23514' THEN
+   IF SQLERRM NOT LIKE 'GL_CASHFLOW_FIXTURE_REVIEW_REQUIRED:%' THEN
+     RAISE;
+   END IF;
+ END;
+END;
+$cash_reject$;
 INSERT INTO public.inventory_items VALUES(801,901,'expense_on_issue');
 INSERT INTO public.supplier_purchases VALUES(901,901,9101,'received',40),
  (902,901,9101,'confirmed',20);
