@@ -100,6 +100,15 @@ export default function FinancialGLAuditPanel({
   const b4Data = showB4 && !b4Result.isFetching && !b4Result.isLoading
     && !b4Result.isError ? object(b4Result.data) : {};
   const b4Checks = Array.isArray(b4Data.checks) ? b4Data.checks : [];
+  const [showB4Documents,setShowB4Documents] = useState(false);
+  const b4Documents = trpc.powerhub.reports.financialGLSubledgerDocumentAudit.useQuery({siteId,period},{
+    enabled:enabled && showB4Documents,
+    staleTime:60_000,refetchOnWindowFocus:false,refetchOnReconnect:true,
+  });
+  const b4DocumentData = showB4Documents && !b4Documents.isLoading &&
+    !b4Documents.isFetching && !b4Documents.isError ? object(b4Documents.data) : {};
+  const b4DocumentSamples = Array.isArray(b4DocumentData.mismatchExamples)
+    ? b4DocumentData.mismatchExamples : [];
   const [showB3, setShowB3] = useState(false);
   const rollup = trpc.powerhub.reports.financialGLTenantRollup.useQuery({siteId,period},{
     enabled:enabled && showB3,staleTime:60_000,
@@ -352,6 +361,52 @@ export default function FinancialGLAuditPanel({
             })}</tbody>
           </table></div>
           <p className="text-xs text-amber-200">المطابقة إجمالية، وليست مراجعة مستقلة لكل مستند. الحسابات المشتركة والائتمانات التاريخية والتغييرات اللاحقة تحتاج تدقيقًا منفصلًا قبل الاعتماد.</p>
+        </div> : null}
+      </div>
+      <div className="mt-3 rounded-md border border-white/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-white">B4 — تدقيق مصادر القيود والمستندات</h4>
+            <p className="mt-1 text-xs text-slate-400">مطابقة الفواتير والتحصيلات والموردين واستهلاك المخزون مع GL؛ فحص اختياري وغير معتمد.</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={()=>setShowB4Documents(v=>!v)}>
+            {showB4Documents ? "إخفاء فحص المصادر" : "تدقيق مصادر المستندات"}
+          </Button>
+        </div>
+        {showB4Documents && (b4Documents.isLoading || b4Documents.isFetching)
+          ? <p role="status" className="mt-3 text-sm text-slate-300">جارٍ التحقق من مصادر القيود...</p> : null}
+        {showB4Documents && b4Documents.isError
+          ? <p role="alert" className="mt-3 text-sm text-rose-200">تعذر تدقيق المستندات؛ لن تُعرض نتيجة قديمة أو جزئية.</p> : null}
+        {showB4Documents && b4DocumentData.status ? <div className="mt-3 space-y-2 text-sm text-white">
+          <p className="text-amber-200">{b4DocumentData.status === "DOCUMENT_SOURCES_MATCHED_NOT_CERTIFIED"
+            ? "المصادر المشمولة متطابقة حسابيًا دون اعتماد مالي"
+            : "المطابقة محجوبة؛ توجد فروقات أو مصادر غير مكتملة"}</p>
+          <p>عدد المصادر المدققة: {numberText(b4DocumentData.sourceCount)}،
+            فروقات المصادر: {numberText(b4DocumentData.mismatchCount)}،
+            قيود بلا مصدر مطابق: {numberText(b4DocumentData.orphanGLEntryCount)}.</p>
+          <p>حركات التحويل المخزني: {numberText(b4DocumentData.transferMovementCount)}،
+            صافي تكلفتها: {String(b4DocumentData.transferCostNet ?? "غير متاح")} شيكل.</p>
+          {b4DocumentSamples.length ? <div className="overflow-x-auto">
+            <table className="w-full text-right text-xs">
+              <thead><tr className="border-b border-white/20">
+                <th className="p-2">نوع المصدر</th><th className="p-2">رقم المصدر</th>
+                <th className="p-2">المبلغ</th><th className="p-2">سبب الاختلاف</th>
+              </tr></thead>
+              <tbody>{b4DocumentSamples.map((raw:unknown,index:number)=>{
+                const d=object(raw);
+                return <tr key={String(d.sourceType)+":"+String(d.sourceId)+":"+index}
+                  className="border-b border-white/10">
+                  <td className="p-2">{String(d.sourceType ?? "—")}</td>
+                  <td className="p-2">{String(d.sourceId ?? "—")}</td>
+                  <td className="p-2">{String(d.expectedAmount ?? "—")}</td>
+                  <td className="p-2">{String(d.reason ?? "غير محدد")}</td>
+                </tr>;
+              })}</tbody>
+            </table>
+          </div> : null}
+          {b4DocumentData.examplesTruncated === true
+            ? <p className="text-xs text-amber-200">توجد فروقات إضافية؛ عُرضت أول 20 حالة فقط.</p> : null}
+          <p className="text-xs text-amber-200">هذا تدقيق مصادر جزئي لا يشمل جميع أنواع القيود ولا يغني عن أدلة الافتتاحية أو مراجعة الحسابات النقدية لكل مستند. التصديق المالي غير متاح.</p>
         </div> : null}
       </div>
       <FinancialCentralAllocationWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
