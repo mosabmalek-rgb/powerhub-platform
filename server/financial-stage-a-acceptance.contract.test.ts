@@ -736,6 +736,15 @@ describe("Phase A financial acceptance evidence", () => {
     expect(companyMovementB42Acceptance).toContain("HASH_ANCHORED_IMMUTABLE_TEST_COHORT");
   });
 
+  it("reports per-line opening custody gaps without asserting financial certification", () => {
+    expect(openingEvidenceUi).toContain("missingOpeningEvidenceLines");
+    expect(openingEvidenceUi).toContain("lineEvidenceStatus");
+    expect(openingEvidenceUi).toContain("ev.reviewStatus===\"verified\" && ev.custodyRecorded");
+    expect(openingEvidenceUi).toContain("مستندات محفوظة ومراجعة بالمبلغ المطلوب");
+    expect(openingEvidenceUi).toContain("لا تعني إثبات رصيد الدفتر المساعد");
+    expect(openingEvidenceUi).toContain("!workspace.isFetching && !workspace.isLoading");
+  });
+
   it("validates opening evidence date input without double escaping the regex", () => {
     const route=runtime.slice(
       runtime.indexOf("financialGLOpeningEvidenceUpload: protectedProcedure"),
