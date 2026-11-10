@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const openingA29 = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a29-opening-custody-rollback.sql", "utf8",
+);
 const openingCustody = readFileSync(
   "supabase/migrations/20261110133500_powerhub_financial_gl_opening_document_custody.sql", "utf8",
 );
@@ -50,6 +53,20 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("retains executed A29 Staging custody and independent checker regression", () => {
+    for(const phrase of [
+      "BEGIN;", "ROLLBACK;", "powerhub_financial_gl_opening_create",
+      "powerhub_financial_gl_opening_post", "powerhub_financial_gl_opening_evidence_submit",
+      "powerhub_financial_gl_opening_evidence_review",
+      "GL_OPENING_DOCUMENT_CUSTODY_REQUIRED",
+      "GL_OPENING_DOCUMENT_CUSTODY_HASH_MISMATCH",
+      "GL_OPENING_EVIDENCE_REVIEW_NOT_INDEPENDENT",
+      "sourceSubledgersIndependentlyVerified",
+      "A29_FALSE_ACCOUNTING_CERTIFICATION",
+    ]) expect(openingA29).toContain(phrase);
+    expect(openingA29).not.toContain("COMMIT;");
+    expect(openingA29).not.toContain("DISABLE TRIGGER");
+  });
   it("exposes scoped opening draft, independent post and void workflows without certification", () => {
     for(const route of [
       "financialGLChartInitialize",
