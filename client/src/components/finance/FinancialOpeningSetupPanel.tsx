@@ -24,6 +24,9 @@ export default function FinancialOpeningSetupPanel({siteId,active,onChanged}:{
   const chart=trpc.powerhub.reports.financialGLChartAccounts.useQuery({siteId},{
     enabled:active&&siteId>0&&workspace.data?.opening===null,staleTime:300000,
   });
+  const chartInitialize=trpc.powerhub.reports.financialGLChartInitialize.useMutation({
+    onSuccess:async()=>{await chart.refetch();},
+  });
   const refreshed=async()=>{await workspace.refetch();await onChanged();};
   const create=trpc.powerhub.reports.financialGLOpeningCreate.useMutation({onSuccess:refreshed});
   const post=trpc.powerhub.reports.financialGLOpeningPost.useMutation({onSuccess:refreshed});
@@ -89,6 +92,15 @@ export default function FinancialOpeningSetupPanel({siteId,active,onChanged}:{
         <span>مدين: {debit.toFixed(2)}</span><span>دائن: {credit.toFixed(2)}</span>
         <span>الفرق: {(debit-credit).toFixed(2)}</span>
       </div>
+      {chart.data?.length===0?<div className="mt-2 rounded border border-amber-400/20 p-2 text-xs">
+        <p>دليل الحسابات لم يُهيأ بعد لهذا الاشتراك. يجب تهيئته قبل إدخال الافتتاحية.</p>
+        <Button variant="outline" size="sm" className="mt-2"
+          disabled={busy||chartInitialize.isPending}
+          onClick={()=>chartInitialize.mutate({siteId})}>
+          {chartInitialize.isPending?"جارٍ التهيئة…":"تهيئة دليل الحسابات"}
+        </Button>
+      </div>:null}
+      {chartInitialize.isError?<p role="alert" className="text-rose-200">{chartInitialize.error.message}</p>:null}
       {chart.isError?<p role="alert">تعذر تحميل دليل الحسابات.</p>:null}
       <Button size="sm" variant="outline" disabled={!valid||busy||chart.isFetching}
         onClick={()=>create.mutate({siteId,asOfDate:date,evidenceReference:reference.trim(),
