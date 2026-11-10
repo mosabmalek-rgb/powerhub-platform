@@ -5076,6 +5076,20 @@ export const powerhubRouter = router({
     }),
     // A28: bind the actual private file bytes to immutable opening evidence.
     // The independent reviewer re-downloads the object before approving.
+    financialGLChartInitialize: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+    })).mutation(async({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_seed_chart",{
+        p_tenant_id:access.tenantId,
+      });
+      if(error || Number(data)!==23)
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر تهيئة دليل الحسابات أو يوجد تعارض مع سياسات الحسابات المعتمدة."});
+      return {chartValidated:true,accountCount:23,
+        accountingCertification:"NOT_CERTIFIED" as const};
+    }),
     financialGLChartAccounts: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
     })).query(async ({ctx,input})=>{
