@@ -736,6 +736,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(companyMovementB42Acceptance).toContain("HASH_ANCHORED_IMMUTABLE_TEST_COHORT");
   });
 
+  it("validates opening evidence date input without double escaping the regex", () => {
+    const route=runtime.slice(
+      runtime.indexOf("financialGLOpeningEvidenceUpload: protectedProcedure"),
+      runtime.indexOf("financialGLOpeningEvidenceFileUrl: protectedProcedure"),
+    );
+    expect(route).toContain(String.raw`sourceAsOfDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)`);
+    expect(route).not.toContain(String.raw`sourceAsOfDate:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/)`);
+    expect(/^\d{4}-\d{2}-\d{2}$/.test("2026-01-01")).toBe(true);
+    expect(/^\d{4}-\d{2}-\d{2}$/.test("2026/01/01")).toBe(false);
+  });
+
   it("guards B4.2 movement provenance and never silently excludes unverified fixture rows", () => {
     expect(companyMovementB42Sql).toContain("powerhub_financial_gl_company_movement_audit");
     expect(companyMovementB42Sql).toContain("powerhub_financial_gl_verify_staging_fixture");
