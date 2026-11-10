@@ -34,6 +34,12 @@ const zeroOpeningMigrationA42 = readFileSync(
 const zeroOpeningAcceptanceA42 = readFileSync(
   "docs/security/sql/pr359-financial-a42-zero-opening-full-rollback.sql","utf8",
 );
+const fixtureFastPreflightA43 = readFileSync(
+  "supabase/migrations/20261110160749_powerhub_financial_gl_verified_fixture_fast_zero_preflight.sql", "utf8",
+);
+const fixtureFastAcceptanceA43 = readFileSync(
+  "docs/security/sql/pr359-financial-a43-verified-fixture-fast-preflight-rollback.sql", "utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -566,6 +572,19 @@ describe("Phase A financial acceptance evidence", () => {
     expect(zeroOpeningAcceptanceA42).not.toMatch(/\\bCOMMIT\\s*;/i);
     expect(runtime).toContain("input.lines.length === 0");
     expect(runtime).toContain('input.evidenceReference.startsWith("ZERO-OPENING:")');
+  });
+
+  it("keeps A43 zero-opening preflight fast without weakening synthetic SHA custody", () => {
+    expect(fixtureFastPreflightA43).toContain("A43_STAGING_FIXTURE_SHA_MISMATCH");
+    expect(fixtureFastPreflightA43).toContain("GL_VERIFIED_FIXTURE_COHORT_IMMUTABLE");
+    expect(fixtureFastPreflightA43).toContain("BEFORE TRUNCATE");
+    expect(fixtureFastPreflightA43).toContain("account_transactions_nonfixture_opening_idx");
+    expect(fixtureFastPreflightA43).toContain("financial_gl_staging_technical_exclusions");
+    expect(fixtureFastAcceptanceA43).toContain("A43_NONFIXTURE_PRIOR_ACTIVITY_IGNORED");
+    expect(fixtureFastAcceptanceA43).toContain("A43_NEW_FIXTURE_INSERT_ALLOWED");
+    expect(fixtureFastAcceptanceA43).toContain("PASS_ROLLBACK_ONLY");
+    expect(fixtureFastAcceptanceA43).toContain("ROLLBACK;");
+    expect(fixtureFastAcceptanceA43).not.toMatch(/\\bCOMMIT\\s*;/i);
   });
 
 });
