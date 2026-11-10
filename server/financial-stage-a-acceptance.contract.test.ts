@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const stagedManifestAcceptance = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a25-manifest-rollback-acceptance.sql", "utf8",
+);
 const installedSourceChain = readFileSync(
   "docs/security/sql/pr359-financial-gl-a24-rollback-source-chain.sql", "utf8",
 );
@@ -29,6 +32,25 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("keeps exact fixture maker-checker and 27-source evidence rollback-only", () => {
+    for(const signal of [
+      "BEGIN;",
+      "ROLLBACK;",
+      "A25_SELF_REVIEW_ACCEPTED",
+      "A25_EXPIRED_REVIEWER_ACCEPTED",
+      "powerhub_financial_gl_fixture_manifest_prepare",
+      "powerhub_financial_gl_fixture_manifest_review",
+      "powerhub_financial_gl_verify_staging_fixture",
+      "quarantinedTestMovements",
+      "unreconciledSourceCount",
+      "NOT_CERTIFIED",
+      "250000",
+      "27",
+    ]) expect(stagedManifestAcceptance).toContain(signal);
+    expect(stagedManifestAcceptance).not.toContain("TRUNCATE");
+    expect(stagedManifestAcceptance).not.toContain("COMMIT;");
+    expect(stagedManifestAcceptance).not.toContain("DISABLE TRIGGER");
+  });
   it("proves source posting and earned-service recognition on installed Staging with rollback", () => {
     for(const signal of [
       "BEGIN;",
