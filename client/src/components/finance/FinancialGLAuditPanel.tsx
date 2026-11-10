@@ -109,6 +109,16 @@ export default function FinancialGLAuditPanel({
     !b4Documents.isFetching && !b4Documents.isError ? object(b4Documents.data) : {};
   const b4DocumentSamples = Array.isArray(b4DocumentData.mismatchExamples)
     ? b4DocumentData.mismatchExamples : [];
+  const [showB4Cash,setShowB4Cash] = useState(false);
+  const b4Cash = trpc.powerhub.reports.financialGLCompanyMovementAudit.useQuery({siteId,period},{
+    enabled:enabled && showB4Cash,
+    staleTime:60_000,refetchOnWindowFocus:false,refetchOnReconnect:true,
+  });
+  const b4CashData = showB4Cash && !b4Cash.isLoading &&
+    !b4Cash.isFetching && !b4Cash.isError ? object(b4Cash.data) : {};
+  const b4CashExamples = Array.isArray(b4CashData.mismatchExamples) ? b4CashData.mismatchExamples : [];
+  const b4CashAccounts = Array.isArray(b4CashData.accountBalancesLinkedOnly)
+    ? b4CashData.accountBalancesLinkedOnly : [];
   const [showB3, setShowB3] = useState(false);
   const rollup = trpc.powerhub.reports.financialGLTenantRollup.useQuery({siteId,period},{
     enabled:enabled && showB3,staleTime:60_000,
@@ -407,6 +417,56 @@ export default function FinancialGLAuditPanel({
           {b4DocumentData.examplesTruncated === true
             ? <p className="text-xs text-amber-200">توجد فروقات إضافية؛ عُرضت أول 20 حالة فقط.</p> : null}
           <p className="text-xs text-amber-200">هذا تدقيق مصادر جزئي لا يشمل جميع أنواع القيود ولا يغني عن أدلة الافتتاحية أو مراجعة الحسابات النقدية لكل مستند. التصديق المالي غير متاح.</p>
+        </div> : null}
+      </div>
+      <div className="mt-3 rounded-md border border-white/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-white">B4 — مطابقة حركات حسابات الشركة ومستنداتها</h4>
+            <p className="mt-1 text-xs text-slate-400">تدقيق الحركات الموثقة مع التحصيلات والموردين والمصروفات وقيود GL، عند الطلب فقط.</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={()=>setShowB4Cash(v=>!v)}>
+            {showB4Cash ? "إخفاء مطابقة الحسابات" : "تدقيق حسابات الشركة"}
+          </Button>
+        </div>
+        {showB4Cash && (b4Cash.isLoading || b4Cash.isFetching)
+          ? <p role="status" className="mt-3 text-sm text-slate-300">جارٍ مطابقة حركات الحسابات بمستنداتها...</p> : null}
+        {showB4Cash && b4Cash.isError
+          ? <p role="alert" className="mt-3 text-sm text-rose-200">تعذرت مطابقة حركات الحسابات؛ لن تُعرض نتائج جزئية أو قديمة.</p> : null}
+        {showB4Cash && b4CashData.status ? <div className="mt-3 space-y-2 text-sm text-white">
+          <p className="text-amber-200">{b4CashData.status === "LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED"
+            ? "الحركات المشمولة مطابقة حسابيًا دون اعتماد مالي"
+            : "المطابقة محجوبة لوجود نقص أو فروقات يجب مراجعتها"} — NOT_CERTIFIED.</p>
+          <p>حركات مرتبطة مدققة: {numberText(b4CashData.linkedMovementCount)}،
+            فروقات: {numberText(b4CashData.mismatchCount)}،
+            مصادر بلا حركة مقابلة: {numberText(b4CashData.orphanOperationalSourceCount)}،
+            حركات غير مرتبطة: {numberText(b4CashData.unlinkedNonFixtureMovementCount)}.</p>
+          <p>حركات أداء مستبعدة بعد التحقق: {numberText(b4CashData.fixtureExcludedCount)}؛
+            حالة التحقق: {String(b4CashData.fixtureVerificationStatus ?? "غير متاح")}.</p>
+          {b4CashAccounts.length ? <div className="overflow-x-auto"><table className="w-full text-right text-xs">
+            <thead><tr className="border-b border-white/20">
+              <th className="p-2">الحساب</th><th className="p-2">النوع</th>
+              <th className="p-2">الحركات المرتبطة</th><th className="p-2">صافي الحركات المرتبطة</th>
+            </tr></thead>
+            <tbody>{b4CashAccounts.map((raw:unknown,index:number)=>{
+              const d=object(raw);return <tr key={String(d.accountId)+":"+index} className="border-b border-white/10">
+                <td className="p-2">{String(d.accountId ?? "—")}</td>
+                <td className="p-2">{String(d.accountType ?? "—")}</td>
+                <td className="p-2">{numberText(d.linkedMovementCount)}</td>
+                <td className="p-2">{String(d.netLinkedAmount ?? "غير متاح")}</td>
+              </tr>;
+            })}</tbody>
+          </table></div> : null}
+          {b4CashExamples.length ? <div className="space-y-1">
+            <p className="text-xs font-semibold text-rose-200">الحركات غير المطابقة:</p>
+            {b4CashExamples.map((raw:unknown,index:number)=>{
+              const d=object(raw);return <p key={String(d.transactionId)+":"+index} className="text-xs text-rose-200">
+                الحركة {String(d.transactionId ?? "—")} — {String(d.reason ?? "غير معروف")}
+              </p>;
+            })}
+          </div> : null}
+          {b4CashData.examplesTruncated===true ? <p className="text-xs text-amber-200">أُظهرت أول 20 حالة فقط؛ بقية الفروقات بحاجة تدقيق.</p> : null}
+          <p className="text-xs text-amber-200">GL لا يميز كل محفظة على حدة؛ المطابقة تغطي الحركات المرتبطة بالمصادر ولا تغني عن أدلة الافتتاحية أو الاعتماد المالي المستقل.</p>
         </div> : null}
       </div>
       <FinancialCentralAllocationWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
