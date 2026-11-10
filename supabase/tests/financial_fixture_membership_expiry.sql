@@ -298,6 +298,16 @@ BEGIN
  IF NOT rejected THEN RAISE EXCEPTION 'EXPIRED_OPENING_EVIDENCE_DIRECT_REVIEW';END IF;
  IF (SELECT review_status FROM public.financial_gl_opening_evidence WHERE id=evidence_id)<>'pending'
  THEN RAISE EXCEPTION 'EXPIRED_REVIEW_LEFT_APPROVED_EVIDENCE';END IF;
+ -- A28: the expiry test also needs a matching private custody record before
+ -- an active reviewer may approve. This is disposable SQL-only evidence;
+ -- the actual server independently re-downloads the stored file.
+ INSERT INTO public.financial_gl_opening_document_custody(
+   evidence_id,tenant_id,site_id,opening_id,opening_line_id,storage_key,
+   document_sha256,mime_type,byte_size,recorded_by_user_id
+ ) VALUES (evidence_id,901,9101,batch_id,line_id,
+   'financial-opening-evidence/901/9101/'||batch_id||'/'||
+   line_id||'/'||evidence_id||'.pdf',
+   repeat('a',64),'application/pdf',128,9904);
 END;
 $evidence_review$;
 RESET ROLE;
