@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+const cashFlowAcceptance = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a26-cash-flow-rollback-acceptance.sql", "utf8",
+);
 const stagedManifestAcceptance = readFileSync(
   "docs/security/sql/pr359-financial-gl-a25-manifest-rollback-acceptance.sql", "utf8",
 );
@@ -32,6 +35,26 @@ const sources = readFileSync(
 );
 
 describe("Phase A financial acceptance evidence", () => {
+  it("validates exact full-month, partial-day, and clean-period cash flows under rollback", () => {
+    for (const signal of [
+      "BEGIN;",
+      "ROLLBACK;",
+      "A26_UNREVIEWED_CASH_FLOW_ALLOWED",
+      "A26_REVIEW_REPLAY_FAILED",
+      "A26_FULL_MONTH_FIXTURE_NOT_EXCLUDED",
+      "A26_PARTIAL_DAY_EXCLUSION_DRIFT",
+      "A26_NO_FIXTURE_MONTH_CHANGED",
+      "powerhub_financial_period_cash_flow_raw",
+      "powerhub_financial_period_cash_flow",
+      "powerhub_financial_gl_verify_staging_fixture",
+      "fixtureEvidenceSha256",
+      "fixtureExcludedMovements",
+      "NOT_CERTIFIED",
+    ]) expect(cashFlowAcceptance).toContain(signal);
+    expect(cashFlowAcceptance).not.toContain("COMMIT;");
+    expect(cashFlowAcceptance).not.toContain("DISABLE TRIGGER");
+    expect(cashFlowAcceptance).not.toMatch(/\\b(?:DELETE|TRUNCATE)\\s+(?:FROM\\s+)?public\\./i);
+  });
   it("keeps exact fixture maker-checker and 27-source evidence rollback-only", () => {
     for(const signal of [
       "BEGIN;",
