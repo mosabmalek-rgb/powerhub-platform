@@ -1,4 +1,5 @@
--- A37: extended staging-only GL posting smoke test. Every write rolls back.
+-- A37/A38: extended staging-only GL posting smoke test. Every write rolls back.
+-- A38 removes a nonexistent salary advance asset from the synthetic opening.
 -- Distinct existing test actors are only used to exercise role separation;
 -- this is NEVER financial evidence or an attestation by these users.
 -- Assumes the prelaunch synthetic tenant/site fixture (1/1) and November 2026.
@@ -16,7 +17,7 @@ BEGIN
    'QA-ROLLBACK-NOT-CERTIFIED-20261110',
    'Synthetic opening for rollback-only testing, never financial certification',
    'qa-a37-opening-rollback-20261110',
-   '[{"accountCode":"1700","side":"debit","amount":100,"evidenceReference":"QA-ROLLBACK-ONLY"},{"accountCode":"3100","side":"credit","amount":100,"evidenceReference":"QA-ROLLBACK-ONLY"}]'::jsonb);
+   '[{"accountCode":"1010","side":"debit","amount":0.01,"evidenceReference":"QA-ROLLBACK-ONLY"},{"accountCode":"3100","side":"credit","amount":0.01,"evidenceReference":"QA-ROLLBACK-ONLY"}]'::jsonb);
  PERFORM public.powerhub_financial_gl_opening_post(1,1,(
    SELECT id FROM public.financial_gl_opening_batches WHERE tenant_id=1 AND site_id=1
      AND operation_key='qa-a37-opening-rollback-20261110'),260);

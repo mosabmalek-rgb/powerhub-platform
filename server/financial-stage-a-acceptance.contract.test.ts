@@ -4,6 +4,12 @@ import { describe, expect, it } from "vitest";
 const serviceRecognitionA37 = readFileSync(
   "docs/security/sql/pr359-financial-a37-service-recognition-rollback-smoke.sql", "utf8",
 );
+const payrollAdvanceA38 = readFileSync(
+  "supabase/migrations/20261110141819_powerhub_payroll_disbursed_advance_integrity.sql", "utf8",
+);
+const payrollRegressionA38 = readFileSync(
+  "docs/security/sql/pr359-financial-a38-advance-integrity-rollback.sql", "utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -454,6 +460,19 @@ describe("Phase A financial acceptance evidence", () => {
     expect(serviceRecognitionA37).toContain("ROLLBACK;");
     expect(serviceRecognitionA37).toContain("'NOT_CERTIFIED'");
     expect(serviceRecognitionA37).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("rejects unsupported payroll salary-advance deductions at draft, approval and GL", () => {
+    expect(payrollAdvanceA38).toContain("powerhub_payroll_advance_allocations_valid");
+    expect(payrollAdvanceA38).toContain("PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID");
+    expect(payrollAdvanceA38).toContain("GL_PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID");
+    expect(payrollAdvanceA38).toContain("tx.amount=adj.amount");
+    expect(payrollAdvanceA38).toContain("tx.transaction_type='withdrawal'");
+    expect(payrollRegressionA38).toContain("PASS_ROLLBACK_ONLY");
+    expect(payrollRegressionA38).toContain("ROLLBACK;");
+    expect(payrollRegressionA38).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(serviceRecognitionA37).not.toContain('"accountCode":"1700","side":"debit","amount":100');
+    expect(serviceRecognitionA37).toContain('"accountCode":"1010","side":"debit","amount":0.01');
   });
 
 });
