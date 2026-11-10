@@ -5179,7 +5179,7 @@ export const powerhubRouter = router({
         "fixed_asset_register","other_external_statement",
       ]),
       sourceReference:z.string().trim().min(12).max(250),
-      sourceAsOfDate:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      sourceAsOfDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       side:z.enum(["debit","credit"]),
       amount:z.number().positive().finite().refine(v=>hasAtMostTwoDecimalPlaces(v)),
       mimeType:z.enum(["application/pdf","image/jpeg","image/png","image/webp"]),
