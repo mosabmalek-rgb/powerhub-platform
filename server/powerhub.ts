@@ -5465,6 +5465,76 @@ export const powerhubRouter = router({
       return result;
     }),
     // B1: on-demand, site-only statements. Distinct from cashflow and final P&L.
+    // B2: site and central-site permissions are independently enforced.
+    financialGLCentralPolicyPreview: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),centralSiteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const central=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      if(central.tenantId!==access.tenantId) throw new TRPCError({code:"FORBIDDEN",
+        message:"لا يسمح بعرض تكلفة مركزية من اشتراك مختلف."});
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_central_policy_preview",{
+        pt:access.tenantId,ps:input.siteId,pp:input.period,central_site:input.centralSiteId,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر احتساب التوزيع الإداري."});
+      const value=data as Record<string,unknown>;
+      if(value.tenantId!==access.tenantId || value.siteId!==input.siteId || value.period!==input.period
+        || value.accountingCertification!=="NOT_CERTIFIED"
+        || value.doesNotPostGL!==true || value.isFinalBranchProfit!==false
+        || !["NOT_CONFIGURED","DRAFT_NOT_APPROVED","MANAGEMENT_ALLOCATION_APPROVED"].includes(String(value.status)))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"نتيجة التوزيع الإداري غير موثوقة."});
+      return value;
+    }),
+    financialGLCentralPolicyPrepare: protectedProcedure.input(z.object({
+      centralSiteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      evidenceReference:z.string().trim().min(8).max(250),
+      operationKey:z.string().trim().min(8).max(180),
+      sourceEntryIds:z.array(z.number().int().positive()).min(1).max(100),
+      weights:z.array(z.object({siteId:z.number().int().positive(),
+        basisPoints:z.number().int().min(1).max(10000)})).min(2).max(50),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      for(const weight of input.weights){
+        const target=await requireSupabaseSiteRole(ctx.user.id,weight.siteId,
+          ["owner","manager","accountant"],"viewFinancialReports");
+        if(target.tenantId!==access.tenantId)throw new TRPCError({code:"FORBIDDEN",
+          message:"لا يمكن تخصيص تكلفة لفرع خارج الاشتراك أو دون إذن."});
+      }
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_central_policy_prepare",{
+        pt:access.tenantId,ps:input.centralSiteId,pp:input.period,actor:ctx.user.id,
+        evidence:input.evidenceReference,opkey:input.operationKey,
+        ids:input.sourceEntryIds,weights:input.weights,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",message:"لم يتم إنشاء سياسة توزيع، تحقق من الأدلة ومجموع النسب."});
+      const v=data as Record<string,unknown>;
+      if(!Number.isSafeInteger(Number(v.policyId)) || !["draft","approved"].includes(String(v.status))
+        || v.accountingCertification!=="NOT_CERTIFIED")
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تأكيد إنشاء سياسة التوزيع."});
+      return v;
+    }),
+    financialGLCentralPolicyApprove: protectedProcedure.input(z.object({
+      centralSiteId:z.number().int().positive(),policyId:z.number().int().positive(),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_central_policy_approve",{
+        pt:access.tenantId,ps:input.centralSiteId,policy_id:input.policyId,actor:ctx.user.id,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",message:"تعذر اعتماد السياسة؛ يجب أن يكون المعتمد مختلفًا عن معدّها."});
+      const v=data as Record<string,unknown>;
+      if(Number(v.policyId)!==input.policyId || v.status!=="approved"
+        || v.accountingCertification!=="NOT_CERTIFIED")
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"لم يؤكد الخادم اعتماد سياسة التوزيع."});
+      return v;
+    }),
     financialGLSiteStatements: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),

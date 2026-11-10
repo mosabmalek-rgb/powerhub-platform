@@ -56,6 +56,8 @@ const phaseA47AcceptanceReport = readFileSync("docs/roadmaps/powerhub-finance-ph
 const financialStatementsB1Sql = readFileSync("supabase/migrations/20261110180332_powerhub_financial_gl_site_statements_b1.sql", "utf8");
 const financialStatementsB1Acceptance = readFileSync("docs/security/sql/pr359-financial-b1-gl-statements-rollback.sql", "utf8");
 const financialStatementsB1Ui = readFileSync("client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8");
+const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
+const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -668,6 +670,21 @@ describe("Phase A financial acceptance evidence", () => {
     expect(runtime).toContain("financialGLSiteStatements: protectedProcedure");
     expect(runtime).toContain("powerhub_financial_gl_site_statements");
     expect(runtime).toContain("viewFinancialReports");
+  });
+
+  it("safeguards B2 central policy preparation, independent review and management-only reporting", () => {
+    expect(phaseB2CentralPolicySql).toContain("powerhub_financial_gl_central_pool_check");
+    expect(phaseB2CentralPolicySql).toContain("B2_WEIGHTS_NOT_100_PERCENT");
+    expect(phaseB2CentralPolicySql).toContain("B2_SELF_APPROVAL_DENIED");
+    expect(phaseB2CentralPolicySql).toContain("B2_IMMUTABLE");
+    expect(phaseB2CentralPolicySql).toContain("doesNotPostGL");
+    expect(phaseB2CentralPolicyAcceptance).toContain("B2_PASS_ROLLBACK_ONLY");
+    expect(phaseB2CentralPolicyAcceptance).toContain("B2_TENANT_BYPASS");
+    expect(phaseB2CentralPolicyAcceptance).toContain("B2_PUBLIC_EXECUTE");
+    expect(phaseB2CentralPolicyAcceptance).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCentralPolicyPreview: protectedProcedure");
+    expect(runtime).toContain("financialGLCentralPolicyPrepare: protectedProcedure");
+    expect(runtime).toContain("financialGLCentralPolicyApprove: protectedProcedure");
   });
 
 });
