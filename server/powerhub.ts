@@ -5076,6 +5076,66 @@ export const powerhubRouter = router({
     }),
     // A28: bind the actual private file bytes to immutable opening evidence.
     // The independent reviewer re-downloads the object before approving.
+    financialGLOpeningEvidenceWorkspace: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const admin=supabaseAdmin();
+      const {data:batch,error:batchError}=await admin.from("financial_gl_opening_batches")
+        .select("id,as_of_date,status")
+        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+        .eq("status","posted").order("as_of_date",{ascending:true})
+        .limit(1).maybeSingle();
+      if(batchError) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر قراءة الافتتاحية من دفتر الأستاذ."});
+      if(!batch) return {opening:null,lines:[],evidence:[],
+        accountingCertification:"NOT_CERTIFIED" as const};
+      const [linesResult,evidenceResult]=await Promise.all([
+        admin.from("financial_gl_opening_lines")
+          .select("id,account_code,side,amount,evidence_reference")
+          .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+          .eq("opening_id",batch.id).order("sequence_number",{ascending:true}),
+        admin.from("financial_gl_opening_evidence")
+          .select("id,opening_line_id,source_kind,source_reference,source_document_sha256,supported_amount,prepared_by_user_id,review_status,reviewed_by_user_id")
+          .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+          .eq("opening_id",batch.id).order("id",{ascending:true}),
+      ]);
+      if(linesResult.error || evidenceResult.error ||
+        !linesResult.data || !evidenceResult.data)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر التحقق من سطور الافتتاحية وأدلتها؛ لن نعرض بيانات جزئية."});
+      const ids=evidenceResult.data.map(e=>e.id);
+      const {data:custodies,error:custodyError}=ids.length
+        ? await admin.from("financial_gl_opening_document_custody")
+          .select("evidence_id,document_sha256,byte_size")
+          .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+          .eq("opening_id",batch.id).in("evidence_id",ids)
+        : {data:[],error:null};
+      if(custodyError || !custodies)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تحميل حالة حفظ مستندات الافتتاحية."});
+      const custodyById=new Map(custodies.map(v=>[Number(v.evidence_id),v]));
+      return {
+        opening:{id:Number(batch.id),asOfDate:batch.as_of_date,status:"posted" as const},
+        lines:linesResult.data.map(l=>({
+          id:Number(l.id),accountCode:l.account_code,side:l.side,
+          amount:Number(l.amount),evidenceReference:l.evidence_reference,
+        })),
+        evidence:evidenceResult.data.map(e=>({
+          id:Number(e.id),openingLineId:Number(e.opening_line_id),
+          sourceKind:e.source_kind,sourceReference:e.source_reference,
+          sha256:e.source_document_sha256,
+          supportedAmount:Number(e.supported_amount),
+          reviewStatus:e.review_status,
+          preparedByCurrentUser:Number(e.prepared_by_user_id)===ctx.user.id,
+          reviewedByCurrentUser:Number(e.reviewed_by_user_id)===ctx.user.id,
+          custodyRecorded:custodyById.has(Number(e.id)) &&
+            custodyById.get(Number(e.id))?.document_sha256===e.source_document_sha256,
+        })),
+        accountingCertification:"NOT_CERTIFIED" as const,
+      };
+    }),
     financialGLOpeningEvidenceUpload: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       openingId:z.number().int().positive(),
