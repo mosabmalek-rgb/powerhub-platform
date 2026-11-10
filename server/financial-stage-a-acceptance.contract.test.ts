@@ -13,6 +13,9 @@ const dashboard = readFileSync(
 const quarantine = readFileSync(
   "supabase/migrations/20261110026000_powerhub_financial_staging_fixture_quarantine.sql", "utf8",
 );
+const auditedCashFlow = readFileSync(
+  "supabase/migrations/20261110027000_powerhub_financial_cash_flow_fixture_guard.sql", "utf8",
+);
 const sources = readFileSync(
   "supabase/tests/financial_gl_operational_sources_integration.sql", "utf8",
 );
@@ -92,4 +95,27 @@ describe("Phase A financial acceptance evidence", () => {
     expect(dashboard).toContain("sourceSubledgersIndependentlyVerified");
     expect(dashboard).toContain("performanceFixtureTagged");
   });
+  it("never presents a Staging performance fixture as operational cash flow without dual review", () => {
+    for (const signal of [
+      "GL_CASHFLOW_FIXTURE_REVIEW_REQUIRED",
+      "powerhub_financial_gl_verify_staging_fixture",
+      "GL_CASHFLOW_FIXTURE_SUBTRACTION_INVALID",
+      "GL_CASHFLOW_RAW_TOTALS_INVALID",
+      "powerhub_financial_period_cash_flow_raw",
+      "v_has_fixture",
+      "v_fixture_in",
+      "v_fixture_out",
+      "v_fixture_count",
+      "EXACT_REVIEWED_COHORT_EXCLUDED",
+      "NO_FIXTURE_IN_SCOPED_PERIOD",
+      "NOT_CERTIFIED",
+      "p_period_start >= p_period_end_exclusive",
+    ]) expect(auditedCashFlow).toContain(signal);
+    expect(auditedCashFlow).not.toMatch(/\\bDELETE\\s+FROM\\b/i);
+    expect(auditedCashFlow).not.toMatch(/\\bTRUNCATE\\b/i);
+    expect(auditedCashFlow).not.toContain("DISABLE TRIGGER");
+    expect(auditedCashFlow).toContain("REVOKE ALL ON FUNCTION public.powerhub_financial_period_cash_flow(");
+    expect(auditedCashFlow).toContain("REVOKE ALL ON FUNCTION public.powerhub_financial_period_cash_flow_raw(");
+  });
+
 });
