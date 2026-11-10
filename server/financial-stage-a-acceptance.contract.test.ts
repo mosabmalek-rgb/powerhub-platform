@@ -59,6 +59,12 @@ const financialStatementsB1Ui = readFileSync("client/src/components/finance/Fina
 const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
 const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
 const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
+const b4DocumentSourceSql = readFileSync(
+  "supabase/migrations/20261110211645_powerhub_financial_gl_b4_document_source_audit.sql", "utf8",
+);
+const b4DocumentSourceRegression = readFileSync(
+  "docs/security/sql/pr359-financial-b4-document-source-audit-rollback.sql", "utf8",
+);
 const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
 const financialCentralB2Ui = readFileSync("client/src/components/finance/FinancialCentralAllocationWorkspace.tsx","utf8");
 const technicalFixtureA35 = readFileSync(
@@ -707,6 +713,26 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
     expect(glAuditUiA45).toContain("b3Visible");
     expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
+  it("guards B4.1 document-source auditing and never labels it certified", () => {
+    expect(b4DocumentSourceSql).toContain("powerhub_financial_gl_subledger_document_audit");
+    expect(b4DocumentSourceSql).toContain("GL_B4_DOCUMENT_INVALID_SCOPE");
+    expect(b4DocumentSourceSql).toContain("BLOCKED_DOCUMENT_RECONCILIATION");
+    expect(b4DocumentSourceSql).toContain("NOT_CERTIFIED");
+    expect(b4DocumentSourceSql).toContain("REVOKE ALL");
+    expect(b4DocumentSourceSql).toContain("TO service_role");
+    expect(b4DocumentSourceRegression).toContain("B4_1_PASS_ROLLBACK_ONLY");
+    expect(b4DocumentSourceRegression).toContain("B4_1_CROSS_TENANT_BYPASS");
+    expect(b4DocumentSourceRegression).toContain("B4_1_RPC_EXECUTE_EXPOSURE");
+    expect(b4DocumentSourceRegression).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLSubledgerDocumentAudit: protectedProcedure");
+    expect(runtime).toContain("powerhub_financial_gl_subledger_document_audit");
+    expect(runtime).toContain('"viewFinancialReports"');
+    expect(glAuditUiA45).toContain("financialGLSubledgerDocumentAudit.useQuery");
+    expect(glAuditUiA45).toContain("enabled:enabled && showB4Documents");
+    expect(glAuditUiA45).toContain("B4 — تدقيق مصادر القيود والمستندات");
+    expect(glAuditUiA45).toContain("b4Documents.isError");
   });
 
   it("gates B2 allocation workflow on scoped server permissions and independent approval", () => {
