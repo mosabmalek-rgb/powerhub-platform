@@ -13,6 +13,9 @@ const payrollRegressionA38 = readFileSync(
 const payrollPositiveA38 = readFileSync(
   "docs/security/sql/pr359-financial-a38-positive-disbursement-rollback.sql", "utf8",
 );
+const engineeringAcceptanceA39 = readFileSync(
+  "docs/security/sql/pr359-financial-a39-engineering-acceptance-rollback.sql", "utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -488,6 +491,18 @@ describe("Phase A financial acceptance evidence", () => {
     expect(payrollPositiveA38).toContain("'PASS_ROLLBACK_ONLY'");
     expect(payrollPositiveA38).toContain("ROLLBACK;");
     expect(payrollPositiveA38).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("keeps engineering rollback acceptance separate from financial certification", () => {
+    expect(engineeringAcceptanceA39).toContain("ENGINEERING_PASS_ROLLBACK_ONLY");
+    expect(engineeringAcceptanceA39).toContain("A39_FALSE_FINANCIAL_CERTIFICATION");
+    expect(engineeringAcceptanceA39).toContain("A39_DETERMINISTIC_SUBLEDGER_ACCOUNT_MISMATCH");
+    expect(engineeringAcceptanceA39).toContain("powerhub_financial_gl_source_integrity");
+    expect(engineeringAcceptanceA39).toContain("sourceSubledgersIndependentlyVerified");
+    expect(engineeringAcceptanceA39).toContain("'financialCertification','NOT_CERTIFIED'");
+    expect(engineeringAcceptanceA39).toContain("'humanApproved',false");
+    expect(engineeringAcceptanceA39).toContain("ROLLBACK;");
+    expect(engineeringAcceptanceA39).not.toMatch(/\\bCOMMIT\\s*;/i);
   });
 
 });
