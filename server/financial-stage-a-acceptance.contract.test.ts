@@ -16,6 +16,8 @@ const quarantine = readFileSync(
 const auditedCashFlow = readFileSync(
   "supabase/migrations/20261110027000_powerhub_financial_cash_flow_fixture_guard.sql", "utf8",
 );
+const runtime = readFileSync("server/powerhub.ts", "utf8");
+const financePage = readFileSync("client/src/pages/FinancialDashboardPage.tsx", "utf8");
 const sources = readFileSync(
   "supabase/tests/financial_gl_operational_sources_integration.sql", "utf8",
 );
@@ -116,6 +118,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(auditedCashFlow).not.toContain("DISABLE TRIGGER");
     expect(auditedCashFlow).toContain("REVOKE ALL ON FUNCTION public.powerhub_financial_period_cash_flow(");
     expect(auditedCashFlow).toContain("REVOKE ALL ON FUNCTION public.powerhub_financial_period_cash_flow_raw(");
+  });
+
+  it("surfaces fixture restrictions to the browser without partial or false cash-flow success", () => {
+    expect(runtime).toContain("GL_CASHFLOW_FIXTURE_REVIEW_REQUIRED");
+    expect(runtime).toContain("تحتوي الفترة على حركات أداء تجريبية");
+    expect(runtime).toContain("fixtureExcludedMovements:excluded");
+    expect(runtime).toContain("EXACT_REVIEWED_COHORT_EXCLUDED");
+    expect(runtime).toContain("تقرير الاتجاه النقدي يفتقر إلى إثبات تصنيف حركات الأداء");
+    expect(financePage).toContain("cashFlow.data.fixtureExcludedMovements");
+    expect(financePage).toContain("موافقة مراجعة مستقلة");
+    expect(financePage).toContain("ليس شهادة محاسبية نهائية");
   });
 
 });
