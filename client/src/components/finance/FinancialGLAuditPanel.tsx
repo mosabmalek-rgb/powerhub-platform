@@ -158,6 +158,9 @@ export default function FinancialGLAuditPanel({
           <Button size="sm" variant="outline" className="mr-2" onClick={()=>void fixture.refetch()}>إعادة المحاولة</Button>
         </p> : null}
         {fixture.data && !fixture.isFetching && !fixture.isError ? <>
+          {fixture.data.manifestSha256 ? <p className="mt-2 break-all font-mono text-xs text-slate-300" dir="ltr">
+            SHA-256: {fixture.data.manifestSha256}
+          </p> : null}
           <p className="mt-2">
             الحالة: {fixture.data.verified ? "تم التحقق من العزل المستقل والبصمة"
               : fixture.data.status === "not_prepared" ? "لم يُعدّ السجل"
