@@ -72,11 +72,14 @@ function validateUpload(
   return { normalizedContentType, byteLength };
 }
 
-export async function storagePut(
+// Financial custody does not need a signed URL until an authorized reviewer
+// explicitly opens the object. Avoid treating a successful upload as failed
+// when a separate signed-link request is unavailable.
+export async function storagePutPrivate(
   relKey: string,
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream",
-): Promise<{ key: string; url: string }> {
+): Promise<{ key: string }> {
   const key = appendHashSuffix(normalizeKey(relKey));
   const { normalizedContentType } = validateUpload(data, contentType);
   const { data: uploaded, error } = await supabaseAdmin().storage
@@ -86,8 +89,16 @@ export async function storagePut(
   if (error || !uploaded) {
     throw new Error(`Supabase Storage upload failed: ${error?.message ?? "unknown error"}`);
   }
+  return { key: uploaded.path };
+}
 
-  return { key: uploaded.path, url: await storageGetSignedUrl(uploaded.path) };
+export async function storagePut(
+  relKey: string,
+  data: Buffer | Uint8Array | string,
+  contentType = "application/octet-stream",
+): Promise<{ key: string; url: string }> {
+  const uploaded = await storagePutPrivate(relKey, data, contentType);
+  return { key: uploaded.key, url: await storageGetSignedUrl(uploaded.key) };
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
