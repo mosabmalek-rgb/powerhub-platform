@@ -5191,6 +5191,106 @@ export const powerhubRouter = router({
           message:"ميزان المراجعة غير متوازن أو لا يطابق بيانات الفرع."});
       return trial;
     }),
+    // A21: exact Staging cohort review. Both actors are taken from authenticated
+    // sessions, not user-controlled input or inferred from fixture metadata.
+    // The read path never grants accounting certification.
+    financialGLFixtureStatus: protectedProcedure.input(siteScoped).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      if(access.tenantId!==1 || input.siteId!==1 ||
+        process.env.SUPABASE_URL?.replace(/\\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
+        throw new TRPCError({code:"FORBIDDEN",message:"مراجعة مجموعة الأداء التجريبية متاحة لبيئة Staging المحددة فقط."});
+      }
+      const {data,error}=await supabaseAdmin()
+        .from("financial_gl_staging_fixture_manifests")
+        .select("id,status,row_count,sha256,prepared_by_user_id,reviewed_by_user_id,reviewed_at")
+        .eq("tenant_id",1).eq("site_id",1).eq("cohort_key","STG-PERF-20261105")
+        .maybeSingle();
+      if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر قراءة سجل مراجعة عزل حركات الأداء."});
+      if(!data) return {status:"not_prepared" as const,manifestId:null as number|null,
+        fixtureCount:250000,canReview:false,verified:false,reason:"NO_APPROVED_MANIFEST" as string,
+        preparerIsCurrentUser:false,reviewedAt:null as string|null};
+      if(data.status!=="pending" && data.status!=="verified") throw new TRPCError({
+        code:"INTERNAL_SERVER_ERROR",message:"حالة سجل العزل غير معروفة."});
+      let proof:Record<string,unknown>={verified:false,reason:"AWAITING_DIFFERENT_REVIEWER"};
+      if(data.status==="verified"){
+        const response=await supabaseAdmin().rpc("powerhub_financial_gl_verify_staging_fixture",{
+          p_tenant_id:1,p_site_id:1,
+        });
+        if(response.error || !response.data || typeof response.data!=="object"
+          || Array.isArray(response.data)) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر إعادة التحقق من بصمة حركات الأداء."});
+        proof=response.data as Record<string,unknown>;
+      }
+      const id=Number(data.id);
+      if(!Number.isSafeInteger(id)||id<=0 || Number(data.row_count)!==250000)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"سجل العزل لا يطابق المجموعة المعتمدة."});
+      return {status:data.status as "pending"|"verified",manifestId:id,
+        fixtureCount:Number(data.row_count),
+        canReview:data.status==="pending" && Number(data.prepared_by_user_id)!==ctx.user.id,
+        preparerIsCurrentUser:Number(data.prepared_by_user_id)===ctx.user.id,
+        verified:data.status==="verified" && proof.verified===true &&
+          Number(proof.quarantinedCount)===250000,
+        reason:String(proof.reason??"UNKNOWN"),
+        reviewedAt:data.reviewed_at as string|null};
+    }),
+    financialGLFixturePrepare: protectedProcedure.input(siteScoped).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      if(access.tenantId!==1 || input.siteId!==1 ||
+        process.env.SUPABASE_URL?.replace(/\\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
+        throw new TRPCError({code:"FORBIDDEN",message:"لا يمكن إعداد عزل تجريبي خارج Staging."});
+      }
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_fixture_manifest_prepare",{
+        p_tenant_id:1,p_site_id:1,p_actor_id:ctx.user.id,
+      });
+      if(error || !Number.isSafeInteger(Number(data)) || Number(data)<=0)
+        throw new TRPCError({code:"BAD_REQUEST",message:"تعذر إعداد سجل العزل؛ راجع الصلاحيات وحالة البيانات."});
+      return {manifestId:Number(data),status:"pending_or_existing" as const,
+        accountingCertification:"NOT_CERTIFIED" as const};
+    }),
+    financialGLFixtureReview: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      manifestId:z.number().int().positive(),
+      acknowledgedIndependentReview:z.literal(true),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      if(access.tenantId!==1 || input.siteId!==1 ||
+        process.env.SUPABASE_URL?.replace(/\\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
+        throw new TRPCError({code:"FORBIDDEN",message:"لا يمكن مراجعة العزل التجريبي خارج Staging."});
+      }
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_fixture_manifest_review",{
+        p_tenant_id:1,p_site_id:1,p_id:input.manifestId,p_reviewer_id:ctx.user.id,
+      });
+      if(error || !data || typeof data!=="object" || Array.isArray(data)) {
+        throw new TRPCError({code:error?.message?.includes("GL_FIXTURE_SELF_REVIEW")?"FORBIDDEN":"BAD_REQUEST",
+          message:error?.message?.includes("GL_FIXTURE_SELF_REVIEW")
+            ?"يجب أن يراجع المجموعة شخص مستقل عن مُعد السجل."
+            :error?.message?.includes("GL_FIXTURE_REVIEW_CONTENT_MISMATCH")
+            ?"تغير محتوى مجموعة الأداء أو بصمتها؛ تم إلغاء الاعتماد بالكامل."
+            :"تعذرت المراجعة المستقلة لسجل العزل."});
+      }
+      const result=data as Record<string,unknown>;
+      if(result.status!=="verified" || Number(result.manifestId)!==input.manifestId){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم يؤكد الخادم اعتماد سجل العزل."});
+      }
+      const proof=await supabaseAdmin().rpc("powerhub_financial_gl_verify_staging_fixture",{
+        p_tenant_id:1,p_site_id:1,
+      });
+      const checked=proof.data as Record<string,unknown>|null;
+      if(proof.error || !checked || checked.verified!==true
+        || Number(checked.quarantinedCount)!==250000
+        || checked.financialCertification!=="NOT_CERTIFIED"){
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تمت المراجعة لكن تعذر إعادة التحقق من مجموعة الأداء. لا تعتبرها معتمدة حتى إعادة الفحص."});
+      }
+      return {manifestId:input.manifestId,verified:true,
+        quarantinedTestMovements:250000,
+        accountingCertification:"NOT_CERTIFIED" as const};
+    }),
     financialGLSourceCoverage: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
