@@ -90,6 +90,18 @@ export default function FinancialGLAuditPanel({
     enabled: enabled && showTrial, staleTime: 60_000,
     refetchOnWindowFocus: false, refetchOnReconnect: true,
   });
+  const [showB3, setShowB3] = useState(false);
+  const rollup = trpc.powerhub.reports.financialGLTenantRollup.useQuery({siteId,period},{
+    enabled:enabled && showB3,staleTime:60_000,
+    refetchOnWindowFocus:false,refetchOnReconnect:true,
+  });
+  const b3Visible = showB3 && !rollup.isFetching && !rollup.isLoading
+    && !rollup.isError && rollup.data?.status === "PRELIMINARY_MULTI_SITE_ROLLUP"
+    && rollup.data?.accountingCertification === "NOT_CERTIFIED"
+    && rollup.data?.isConsolidatedFinancialStatements === false;
+  const b3 = b3Visible ? object(rollup.data) : {};
+  const b3Income = object(b3.incomeStatement);
+  const b3Position = object(b3.positionBeforeEliminations);
   const [showB1, setShowB1] = useState(false);
   const statements = trpc.powerhub.reports.financialGLSiteStatements.useQuery({siteId,period},{
     enabled:enabled && showB1,staleTime:60_000,
@@ -294,6 +306,31 @@ export default function FinancialGLAuditPanel({
           </div>
           <p className="text-xs text-amber-200">ربحية الفرع قبل توزيع المصروفات المركزية: {b1Amount(b1Branch.siteResultBeforeCentralAllocation)}.
           التكاليف المركزية غير الموزعة غير محددة، وليست صفرًا مثبتًا. لا توجد قوائم موحدة للاشتراك بعد.</p>
+        </div> : null}
+      </div>
+      <div className="mt-3 rounded-md border border-white/10 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h4 className="text-sm font-semibold text-white">B3 — إجمالي الفروع الأولي قبل التسويات</h4>
+            <p className="mt-1 text-xs text-slate-400">لا يُعاد احتساب أرصدة حسابات الشركة المشتركة. لا يشمل إلغاء التحويلات الداخلية أو اعتماد القوائم الموحدة.</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={()=>setShowB3(v=>!v)}>
+            {showB3 ? "إخفاء تجميع الفروع" : "عرض تجميع الفروع"}
+          </Button>
+        </div>
+        {showB3 && (rollup.isLoading || rollup.isFetching)
+          ? <p role="status" className="mt-3 text-sm text-slate-300">جارٍ احتساب تجميع الفروع المصرح بها...</p> : null}
+        {showB3 && rollup.isError
+          ? <p role="alert" className="mt-3 text-sm text-rose-200">تعذر التحقق من صلاحيات جميع الفروع أو إتمام التجميع؛ لا تُعرض أرقام قديمة أو جزئية.</p> : null}
+        {b3Visible ? <div className="mt-3 space-y-2 text-sm text-slate-200">
+          <p className="text-amber-200">تجميع أولي غير معتمد (NOT_CERTIFIED)، وليس قائمة مالية موحدة نهائية.</p>
+          <p>عدد الفروع المشمولة: {numberText(b3.siteCount)}، قيود GL: {numberText(b3.glEntryCount)}.</p>
+          <p>الإيراد: {b1Amount(b3Income.serviceRevenue)}؛ التكلفة المباشرة: {b1Amount(b3Income.directServiceCost)}.</p>
+          <p>النتيجة الأولية قبل التسويات: {b1Amount(b3Income.provisionalNetResultBeforeEliminations)}.</p>
+          <p>صافي الأصول: {b1Amount(b3Position.netAssets)}؛ الالتزامات: {b1Amount(b3Position.liabilities)}.</p>
+          <p>حقوق الملكية: {b1Amount(b3Position.postedEquity)}؛ النتيجة المتراكمة غير المقفلة: {b1Amount(b3Position.unclosedAccumulatedResult)}.</p>
+          <p>فرق المعادلة: {b1Amount(b3Position.equationDifference)}.</p>
+          <p className="text-xs text-amber-200">التحويلات بين الفروع والحسابات المشتركة لم تُطابق مستقلاً. التوزيع المركزي والضرائب والاعتماد النهائي غير مكتمل.</p>
         </div> : null}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-3">

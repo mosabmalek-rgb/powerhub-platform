@@ -700,4 +700,12 @@ describe("Phase A financial acceptance evidence", () => {
     expect(runtime).toContain('v.companyAccountsIncluded!==false');
   });
 
+  it("renders B3 rollup only on demand with explicit non-certification", () => {
+    expect(glAuditUiA45).toContain("financialGLTenantRollup.useQuery");
+    expect(glAuditUiA45).toContain("enabled:enabled && showB3");
+    expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
+    expect(glAuditUiA45).toContain("b3Visible");
+    expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
 });
