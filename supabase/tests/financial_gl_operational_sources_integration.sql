@@ -86,6 +86,7 @@ INSERT INTO public.tenant_members VALUES
 \ir ../migrations/20261110026000_powerhub_financial_staging_fixture_quarantine.sql
 \ir ../migrations/20261109150000_powerhub_financial_period_cash_flow.sql
 \ir ../migrations/20261110027000_powerhub_financial_cash_flow_fixture_guard.sql
+\ir ../migrations/20261110133500_powerhub_financial_gl_opening_document_custody.sql
 
 BEGIN;
 INSERT INTO public.company_accounts VALUES(601,901,'cash');
@@ -510,6 +511,41 @@ BEGIN
        'Attempted same-person document review');
    EXCEPTION WHEN SQLSTATE '22023' THEN blocked:=true;END;
    IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_A18_SELF_REVIEW_ACCEPTED';END IF;
+   -- A28: Evidence review MUST fail if the source file was never
+   -- registered in custody. This database fixture proves the gate only;
+   -- production server additionally downloads and hashes actual file bytes.
+   blocked:=false;
+   BEGIN
+     PERFORM public.powerhub_financial_gl_opening_evidence_review(
+       901,9101,evidence_id,9903,true,'Independent supporting document reviewed');
+   EXCEPTION WHEN SQLSTATE '23514' THEN
+     IF SQLERRM='GL_OPENING_DOCUMENT_CUSTODY_REQUIRED' THEN
+       blocked:=true;
+     ELSE RAISE;END IF;
+   END;
+   IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_A28_DOCUMENTLESS_APPROVAL';END IF;
+   blocked:=false;
+   BEGIN
+     INSERT INTO public.financial_gl_opening_document_custody(
+       evidence_id,tenant_id,site_id,opening_id,opening_line_id,
+       storage_key,document_sha256,mime_type,byte_size,recorded_by_user_id
+     ) VALUES(evidence_id,901,9101,(opening->>'openingId')::bigint,
+       evidence_line,'financial-opening-evidence/901/9101/'||
+       (opening->>'openingId')||'/'||evidence_line||'/'||evidence_id||'.pdf',
+       repeat('b',64),'application/pdf',128,9904);
+   EXCEPTION WHEN SQLSTATE '23514' THEN
+     IF SQLERRM='GL_OPENING_DOCUMENT_CUSTODY_HASH_MISMATCH' THEN
+       blocked:=true;
+     ELSE RAISE;END IF;
+   END;
+   IF NOT blocked THEN RAISE EXCEPTION 'GL_CI_A28_CUSTODY_HASH_BYPASS';END IF;
+   INSERT INTO public.financial_gl_opening_document_custody(
+     evidence_id,tenant_id,site_id,opening_id,opening_line_id,
+     storage_key,document_sha256,mime_type,byte_size,recorded_by_user_id
+   ) VALUES(evidence_id,901,9101,(opening->>'openingId')::bigint,
+     evidence_line,'financial-opening-evidence/901/9101/'||
+     (opening->>'openingId')||'/'||evidence_line||'/'||evidence_id||'.pdf',
+     repeat('a',64),'application/pdf',128,9904);
    evidence_result:=public.powerhub_financial_gl_opening_evidence_review(
      901,9101,evidence_id,9903,true,
      'Independent supporting document reviewed');
