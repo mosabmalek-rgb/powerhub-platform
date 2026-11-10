@@ -5198,7 +5198,7 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageExpenses");
       if(access.tenantId!==1 || input.siteId!==1 ||
-        process.env.SUPABASE_URL?.replace(/\\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
+        process.env.SUPABASE_URL?.replace(/\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
         throw new TRPCError({code:"FORBIDDEN",message:"مراجعة مجموعة الأداء التجريبية متاحة لبيئة Staging المحددة فقط."});
       }
       const {data,error}=await supabaseAdmin()
@@ -5239,7 +5239,7 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageExpenses");
       if(access.tenantId!==1 || input.siteId!==1 ||
-        process.env.SUPABASE_URL?.replace(/\\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
+        process.env.SUPABASE_URL?.replace(/\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
         throw new TRPCError({code:"FORBIDDEN",message:"لا يمكن إعداد عزل تجريبي خارج Staging."});
       }
       const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_fixture_manifest_prepare",{
@@ -5258,7 +5258,7 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageExpenses");
       if(access.tenantId!==1 || input.siteId!==1 ||
-        process.env.SUPABASE_URL?.replace(/\\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
+        process.env.SUPABASE_URL?.replace(/\/$/,"")!=="https://iyuryuhaylhisjfcrwkz.supabase.co"){
         throw new TRPCError({code:"FORBIDDEN",message:"لا يمكن مراجعة العزل التجريبي خارج Staging."});
       }
       const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_fixture_manifest_review",{
