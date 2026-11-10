@@ -59,6 +59,12 @@ const financialStatementsB1Ui = readFileSync("client/src/components/finance/Fina
 const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
 const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
 const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
+const companyMovementB42Sql = readFileSync(
+  "supabase/migrations/20261110213320_powerhub_financial_gl_b4_company_movement_provenance.sql","utf8",
+);
+const companyMovementB42Acceptance = readFileSync(
+  "docs/security/sql/pr359-financial-b4-company-movement-rollback.sql","utf8",
+);
 const b4DocumentSourceSql = readFileSync(
   "supabase/migrations/20261110211645_powerhub_financial_gl_b4_document_source_audit.sql", "utf8",
 );
@@ -713,6 +719,26 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
     expect(glAuditUiA45).toContain("b3Visible");
     expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
+  it("guards B4.2 movement provenance and never silently excludes unverified fixture rows", () => {
+    expect(companyMovementB42Sql).toContain("powerhub_financial_gl_company_movement_audit");
+    expect(companyMovementB42Sql).toContain("powerhub_financial_gl_verify_staging_fixture");
+    expect(companyMovementB42Sql).toContain("UNVERIFIED_COHORT_BLOCKS_RECONCILIATION");
+    expect(companyMovementB42Sql).toContain("MISSING_OR_DUPLICATE_GL_ENTRY");
+    expect(companyMovementB42Sql).toContain("GL_CASH_SIDE_AMOUNT_OR_PERIOD_MISMATCH");
+    expect(companyMovementB42Sql).toContain("NOT_CERTIFIED");
+    expect(companyMovementB42Sql).toContain("TO service_role");
+    expect(companyMovementB42Acceptance).toContain("B4_2_PASS_ROLLBACK_ONLY");
+    expect(companyMovementB42Acceptance).toContain("B4_2_TENANT_BYPASS");
+    expect(companyMovementB42Acceptance).toContain("B4_2_RPC_EXECUTE_EXPOSURE");
+    expect(companyMovementB42Acceptance).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCompanyMovementAudit: protectedProcedure");
+    expect(runtime).toContain("powerhub_financial_gl_company_movement_audit");
+    expect(glAuditUiA45).toContain("financialGLCompanyMovementAudit.useQuery");
+    expect(glAuditUiA45).toContain("enabled:enabled && showB4Cash");
+    expect(glAuditUiA45).toContain("B4 — مطابقة حركات حسابات الشركة ومستنداتها");
+    expect(glAuditUiA45).toContain("b4Cash.isError");
   });
 
   it("guards B4.1 document-source auditing and never labels it certified", () => {
