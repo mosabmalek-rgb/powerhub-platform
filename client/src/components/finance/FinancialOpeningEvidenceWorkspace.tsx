@@ -45,8 +45,8 @@ export default function FinancialOpeningEvidenceWorkspace({
   const [sourceReference,setSourceReference]=useState("");
   const [documentFile,setDocumentFile]=useState<File|null>(null);
   const [reviewNote,setReviewNote]=useState("");
-  const [reviewAcknowledged,setReviewAcknowledged]=useState(false);
-  const [openedUrl,setOpenedUrl]=useState<{id:number;url:string}|null>(null);
+  const [reviewEvidenceId,setReviewEvidenceId]=useState<number|null>(null);
+  const [openedUrl,setOpenedUrl]=useState<{siteId:number;id:number;url:string}|null>(null);
   const [localError,setLocalError]=useState("");
   const workspace=trpc.powerhub.reports.financialGLOpeningEvidenceWorkspace.useQuery({siteId},{
     enabled:active && siteId>0,refetchOnWindowFocus:false,staleTime:0,
@@ -60,7 +60,7 @@ export default function FinancialOpeningEvidenceWorkspace({
     onSuccess:async()=>{setDocumentFile(null);setSourceReference("");await refresh();},
   });
   const review=trpc.powerhub.reports.financialGLOpeningEvidenceReview.useMutation({
-    onSuccess:async()=>{setReviewAcknowledged(false);setReviewNote("");await refresh();},
+    onSuccess:async()=>{setReviewEvidenceId(null);setReviewNote("");await refresh();},
   });
   const selected=workspace.data?.lines.find(l=>l.id===lineId);
   const evidence=workspace.data?.evidence??[];
@@ -137,21 +137,21 @@ export default function FinancialOpeningEvidenceWorkspace({
                 setLocalError("");
                 const file=await utils.powerhub.reports.financialGLOpeningEvidenceFileUrl
                   .fetch({siteId,evidenceId:ev.id});
-                setOpenedUrl({id:ev.id,url:file.url});
+                setOpenedUrl({siteId,id:ev.id,url:file.url});
               }catch{setLocalError("تعذر فتح الملف المصرح به.");}
             }}>جلب رابط الاطلاع على المستند</Button> : null}
-          {openedUrl?.id===ev.id ? <a className="mr-2 underline" target="_blank"
+          {openedUrl?.siteId===siteId && openedUrl.id===ev.id ? <a className="mr-2 underline" target="_blank"
             rel="noopener noreferrer" href={openedUrl.url}>فتح المستند للمراجعة</a> : null}
           {ev.reviewStatus==="pending" && !ev.preparedByCurrentUser ? <div className="mt-2 space-y-2">
             <label className="flex items-start gap-2">
-              <input type="checkbox" checked={reviewAcknowledged}
-                onChange={e=>setReviewAcknowledged(e.target.checked)} />
+              <input type="checkbox" checked={reviewEvidenceId===ev.id}
+                onChange={e=>setReviewEvidenceId(e.target.checked?ev.id:null)} />
               راجعت الملف ومصدره ومبلغ السطر بصورة مستقلة. لا أعتبره شهادة للقوائم المالية.
             </label>
             <textarea className="w-full rounded border border-white/20 bg-[#1b2635] p-2"
               value={reviewNote} onChange={e=>setReviewNote(e.target.value)}
               placeholder="ملاحظة المراجع، لا تقل عن 12 حرفًا" maxLength={1000} />
-            <Button size="sm" variant="outline" disabled={!reviewAcknowledged ||
+            <Button size="sm" variant="outline" disabled={reviewEvidenceId!==ev.id ||
               !ev.custodyRecorded || reviewNote.trim().length<12 || review.isPending}
               onClick={()=>review.mutate({siteId,evidenceId:ev.id,
                 accept:true,note:reviewNote.trim()})}>
