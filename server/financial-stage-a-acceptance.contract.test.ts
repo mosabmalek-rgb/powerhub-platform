@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 const cashFlowAcceptance = readFileSync(
   "docs/security/sql/pr359-financial-gl-a26-cash-flow-rollback-acceptance.sql", "utf8",
 );
+const unifiedAcceptance = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a27-unified-acceptance-assertions.sql", "utf8",
+);
 const stagedManifestAcceptance = readFileSync(
   "docs/security/sql/pr359-financial-gl-a25-manifest-rollback-acceptance.sql", "utf8",
 );
@@ -54,6 +57,25 @@ describe("Phase A financial acceptance evidence", () => {
     expect(cashFlowAcceptance).not.toContain("COMMIT;");
     expect(cashFlowAcceptance).not.toContain("DISABLE TRIGGER");
     expect(cashFlowAcceptance).not.toMatch(/\\b(?:DELETE|TRUNCATE)\\s+(?:FROM\\s+)?public\\./i);
+  });
+  it("pins complete operational GL coverage while refusing fabricated opening certification", () => {
+    for(const signal of [
+      "A27_SOURCE_COVERAGE_OR_GL_INTEGRITY_DRIFT",
+      "A27_FALSE_ACCOUNTING_CERTIFICATION",
+      "unreconciledSourceCount",
+      "isSourceCoverageComplete",
+      "sourceIntegrity",
+      "driftedEntries",
+      "unauditedEntries",
+      "quarantinedTestMovements",
+      "isOpeningReconciled",
+      "sourceSubledgersIndependentlyVerified",
+      "INDEPENDENT_SUBLEDGER_RECONCILIATION_REQUIRED",
+      "NOT_CERTIFIED",
+      "trialDifference",
+    ]) expect(unifiedAcceptance).toContain(signal);
+    expect(unifiedAcceptance).not.toMatch(/\\b(?:INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\\b/i);
+    expect(unifiedAcceptance).not.toContain("DISABLE TRIGGER");
   });
   it("keeps exact fixture maker-checker and 27-source evidence rollback-only", () => {
     for(const signal of [
