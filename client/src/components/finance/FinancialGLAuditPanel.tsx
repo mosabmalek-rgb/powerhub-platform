@@ -91,6 +91,15 @@ export default function FinancialGLAuditPanel({
     enabled: enabled && showTrial, staleTime: 60_000,
     refetchOnWindowFocus: false, refetchOnReconnect: true,
   });
+  const [showB4, setShowB4] = useState(false);
+  const b4Result = trpc.powerhub.reports.financialGLSubledgerReconciliation.useQuery(
+    {siteId,period},{
+      enabled:enabled && showB4,staleTime:60_000,
+      refetchOnWindowFocus:false,refetchOnReconnect:true,
+    });
+  const b4Data = showB4 && !b4Result.isFetching && !b4Result.isLoading
+    && !b4Result.isError ? object(b4Result.data) : {};
+  const b4Checks = Array.isArray(b4Data.checks) ? b4Data.checks : [];
   const [showB3, setShowB3] = useState(false);
   const rollup = trpc.powerhub.reports.financialGLTenantRollup.useQuery({siteId,period},{
     enabled:enabled && showB3,staleTime:60_000,
@@ -307,6 +316,42 @@ export default function FinancialGLAuditPanel({
           </div>
           <p className="text-xs text-amber-200">ربحية الفرع قبل توزيع المصروفات المركزية: {b1Amount(b1Branch.siteResultBeforeCentralAllocation)}.
           التكاليف المركزية غير الموزعة غير محددة، وليست صفرًا مثبتًا. لا توجد قوائم موحدة للاشتراك بعد.</p>
+        </div> : null}
+      </div>
+      <div className="mt-3 rounded-md border border-white/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-white">B4 — مطابقة الدفاتر المساعدة</h4>
+            <p className="mt-1 text-xs text-slate-400">فحص اختياري للأرصدة حتى نهاية الفترة؛ لا يصدر اعتمادًا ماليًا ولا ينشئ قيودًا.</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={()=>setShowB4(v=>!v)}>
+            {showB4 ? "إخفاء المطابقة" : "مطابقة الأرصدة"}
+          </Button>
+        </div>
+        {showB4 && (b4Result.isFetching || b4Result.isLoading)
+          ? <p role="status" className="mt-3 text-sm text-slate-300">جارٍ فحص الدفاتر المساعدة...</p> : null}
+        {showB4 && b4Result.isError
+          ? <p role="alert" className="mt-3 text-sm text-rose-200">فشل فحص المطابقة، ولا تُعرض أرصدة قديمة أو نتائج جزئية.</p> : null}
+        {b4Checks.length === 5 ? <div className="mt-3 space-y-2 text-sm text-white">
+          <p className="text-amber-200">النتيجة: {b4Data.status === "MATCHED_NUMERICALLY_NOT_CERTIFIED"
+            ? "تطابق حسابي أولي غير معتمد" : "توجد فروقات أو مصادر تحتاج مراجعة"} — NOT_CERTIFIED.</p>
+          <div className="overflow-x-auto"><table className="w-full text-right text-xs">
+            <thead><tr className="border-b border-white/20">
+              <th className="p-2">الحساب</th><th className="p-2">GL</th>
+              <th className="p-2">المساعد</th><th className="p-2">الفرق</th><th className="p-2">الحالة</th>
+            </tr></thead>
+            <tbody>{b4Checks.map((raw:unknown)=>{
+              const check=object(raw);
+              return <tr key={String(check.code)} className="border-b border-white/10">
+                <td className="p-2">{String(check.label ?? check.code)}</td>
+                <td className="p-2">{String(check.glBalance ?? "غير متاح")}</td>
+                <td className="p-2">{String(check.subledgerBalance ?? "غير متاح")}</td>
+                <td className="p-2">{String(check.difference ?? "غير متاح")}</td>
+                <td className="p-2">{check.status === "MATCHED" ? "مطابق" : "تحتاج مراجعة"}</td>
+              </tr>;
+            })}</tbody>
+          </table></div>
+          <p className="text-xs text-amber-200">المطابقة إجمالية، وليست مراجعة مستقلة لكل مستند. الحسابات المشتركة والائتمانات التاريخية والتغييرات اللاحقة تحتاج تدقيقًا منفصلًا قبل الاعتماد.</p>
         </div> : null}
       </div>
       <FinancialCentralAllocationWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
