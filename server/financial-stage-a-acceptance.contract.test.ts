@@ -52,8 +52,10 @@ const sources = readFileSync(
 describe("Phase A financial acceptance evidence", () => {
   it("exposes scoped opening draft, independent post and void workflows without certification", () => {
     for(const route of [
+      "financialGLChartInitialize",
       "financialGLChartAccounts",
       "financialGLOpeningEvidenceWorkspace",
+      "financialGLChartInitialize",
       "financialGLOpeningCreate",
       "financialGLOpeningPost",
       "financialGLOpeningVoid",
