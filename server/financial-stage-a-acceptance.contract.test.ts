@@ -10,6 +10,9 @@ const payrollAdvanceA38 = readFileSync(
 const payrollRegressionA38 = readFileSync(
   "docs/security/sql/pr359-financial-a38-advance-integrity-rollback.sql", "utf8",
 );
+const payrollPositiveA38 = readFileSync(
+  "docs/security/sql/pr359-financial-a38-positive-disbursement-rollback.sql", "utf8",
+);
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
 );
@@ -476,6 +479,15 @@ describe("Phase A financial acceptance evidence", () => {
     expect(payrollRegressionA38).not.toMatch(/\\bCOMMIT\\s*;/i);
     expect(serviceRecognitionA37).not.toContain('"accountCode":"1700","side":"debit","amount":100');
     expect(serviceRecognitionA37).toContain('"accountCode":"1010","side":"debit","amount":0.01');
+  });
+
+  it("accepts an advance only when a matched withdrawal is evidenced before payroll", () => {
+    expect(payrollPositiveA38).toContain("disbursement_transaction_id=v_tx");
+    expect(payrollPositiveA38).toContain("A38_VALID_DISBURSEMENT_FALSELY_REJECTED");
+    expect(payrollPositiveA38).toContain("powerhub_financial_gl_source_plan");
+    expect(payrollPositiveA38).toContain("'PASS_ROLLBACK_ONLY'");
+    expect(payrollPositiveA38).toContain("ROLLBACK;");
+    expect(payrollPositiveA38).not.toMatch(/\\bCOMMIT\\s*;/i);
   });
 
 });
