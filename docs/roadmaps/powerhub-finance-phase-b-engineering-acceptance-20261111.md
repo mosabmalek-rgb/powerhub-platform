@@ -126,6 +126,19 @@
 
 ---
 
+## 2026-11-12 — B4.9.3 and B5.4 engineering closure evidence
+
+- B4.9 GL transfer posting and B4 subledger matching are now callable from the financial audit's user-initiated, site/period-keyed UI. The server enforces tenant/site membership, `manageExpenses` and `viewFinancialReports`, limits candidate results to 25 per cursor page, verifies source ID and GL posting server-side, and never claims success without a returned GL entry ID. The table is NOT a certification workflow.
+- The original transfer RPC computes an MD5 payload hash from the input decimal *scale*, while persisted account movements use `numeric(14,2)`. B4.9.2 checks hashes of the **identical amount value** at permissible textual scales 0–6 while preserving tenant, source/destination IDs, actor and description. Test `B49_CANDIDATES_PENDING_POSTED_PASS_ROLLBACK` confirms **12.3** source value posted and reconciled despite 12.30 storage. The forged transfer test remains rejected.
+- B4.9.3 corrected a narrower-than-product account type guard: `cash`, `jawwal_pay`, `palpay`, `bank_of_palestine`, `other` are supported per account constraint. Source cash maps to 1010; all other near-cash accounts map to 1020, with the original source, amount and provenance validated. Test `B49_JAWWAL_PAY_TRANSFER_MATCHED_PASS_ROLLBACK` passed using the real transfer RPC with synthetic Jawwal Pay account. Staging migration `20261112103607` applied and committed to Git.
+- B5.4 found a further large query bottleneck: `powerhub_financial_gl_company_movement_audit` repeatedly counted all 250,000 historical benchmark transactions. It now uses the fixed, signed/immutable Staging cohort proof only after the complete May 2026 fixture window; it counts all rows normally if proof/cutoff conditions fail. Before/after MD5 of full B4 cash audit result **identical**. Migration `20261112104342` applied and committed.
+- Explicit fail-closed negative `B54_AUDIT_FIXTURE_FAIL_CLOSED_PASS_ROLLBACK`: disabling the immutable freeze trigger within rollback caused the report to count the cohort as unverified, return `BLOCKED_ACCOUNT_MOVEMENT_AUDIT`, and exclude **zero** rows; normal status returned only when the freeze guard was restored. No trigger permanently disabled.
+- An earlier mixed concurrent-read sample saw ~8,385.53 ms for the B4 cash audit (before B5.4). The subsequent mixed sample after B5.4 returned B4 cash audit **442.084 / 526.056 / 416.157 ms**, B3 rollup 1,093.258 ms, B4 site reconciliation 348.828 ms, prior raw gaps 229.027 ms. No PostgreSQL temporary disk blocks were generated. These are **samples**, not proven authenticated browser p95 or SLA under sustained multi-user load.
+- Both B4.9 and B5.4 regression scripts, source-key validations and CI static contracts are committed. All synthetic test transfers and account rows were rolled back. PR #359 remains Draft, Production untouched.
+- **Open full financial B scope**: independently posted and audited cross-site due-from/due-to elimination journal workflow (B3), authorized append-only reversal/disposition of site 2's unsupported 2,000 ILS test opening (B4), and representative sustained performance acceptance (B5). Existing statement label `NOT_CERTIFIED` remains correct. Earlier user browser verification predates the B4.9 UI and is not evidence of its current click-path review.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
