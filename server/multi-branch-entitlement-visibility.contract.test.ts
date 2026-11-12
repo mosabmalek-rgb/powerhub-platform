@@ -11,6 +11,9 @@ const company=read("client/src/pages/CompanyAccountsPage.tsx");
 const staff=read("client/src/pages/SettingsPage.tsx");
 const gl=read("client/src/components/finance/FinancialGLAuditPanel.tsx");
 const dashboard=read("client/src/pages/FinancialDashboardPage.tsx");
+const workspace=read("client/src/pages/Home.tsx");
+const operations=read("client/src/pages/OperationsPage.tsx");
+const quickActions=read("client/src/pages/QuickActionsPage.tsx");
 
 describe("one-site subscription limit takes precedence",()=>{
   it("forces effective single-site even if admin enabled and legacy branches remain",()=>{
@@ -58,6 +61,14 @@ describe("subscription-controlled multi-branch surfaces",()=>{
     expect(gl).toContain("{hasMultipleSites ? <>");
     expect(dashboard).toContain("multiBranchAccess.data?.enabled===true");
     expect(dashboard).toContain("hasMultipleBranches && showAllBranches");
+  });
+  it("removes multi-site switchers from dashboard, operational work and quick actions",()=>{
+    expect(workspace).toContain("const canUseAllBranches = Boolean(multiBranchEnabled");
+    expect(workspace).toContain("isAuthenticated && multiBranchEnabled &&");
+    expect(operations).toContain("{multiBranchEnabled ? <select");
+    expect(quickActions).toContain("multiBranchEnabled && (sitesQuery.data?.length ?? 0)>1 ? <select");
+    expect(quickActions).toContain("{multiBranchEnabled ? <div");
+    expect(quickActions).toContain("{multiBranchEnabled ? <Button");
   });
   it("hides all-branch report filter, comparison and exported section",()=>{
     expect(reports).toContain("multiBranchEnabled && tenantSites.length>1 ? <select");
