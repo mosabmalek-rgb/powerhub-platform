@@ -46,7 +46,13 @@ export default function FinancialDashboardPage() {
       current && site.tenantId === current.tenantId && site.status !== "archived"
     );
   }, [sites.data, siteId]);
-  const hasMultipleBranches = tenantSites.length > 1;
+  const multiBranchAccess=trpc.powerhub.sites.multiBranchAccess.useQuery({siteId},{
+    enabled:Boolean(isAuthenticated && siteId),staleTime:60_000,
+    refetchOnReconnect:true,refetchOnWindowFocus:false,
+  });
+  const hasMultipleBranches = multiBranchAccess.isSuccess &&
+    multiBranchAccess.data?.enabled===true &&
+    multiBranchAccess.data?.siteId===siteId && tenantSites.length>1;
   const allBranchesPosition = trpc.powerhub.reports.allSitesCurrentPosition.useQuery({ siteId }, {
     enabled: Boolean(isAuthenticated && siteId && hasMultipleBranches && showAllBranches),
     staleTime: 120_000, refetchOnWindowFocus: false, refetchOnReconnect: true,
@@ -251,7 +257,7 @@ export default function FinancialDashboardPage() {
           {hasMultipleBranches ? <label className="text-xs text-slate-300">الفرع
             <select aria-label="فرع المركز المالي" className="mt-1 block min-w-36 rounded-lg border border-white/15 bg-[#0D1117] px-2 py-2 text-white"
               value={siteId} onChange={(event) => setSelectedSiteId(Number(event.target.value))}>
-              {(sites.data ?? []).map(site => <option key={site.id} value={site.id}>{site.name}</option>)}
+              {tenantSites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}
             </select>
           </label> : null}
           <Button size="sm" variant="outline" onClick={exportCurrentPositionCsv}
