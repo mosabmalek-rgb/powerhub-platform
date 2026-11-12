@@ -95,6 +95,12 @@ const b4DocumentSourceRegression = readFileSync(
 const b33SourceTransferSql = readFileSync(
   "supabase/migrations/20261112083854_powerhub_financial_gl_b3_inter_site_source_visibility.sql","utf8",
 );
+const b34TransferAlignmentSql = readFileSync(
+  "supabase/migrations/20261112091332_powerhub_financial_b3_transfer_type_alignment.sql","utf8",
+);
+const b34RealTransferSql = readFileSync(
+  "docs/security/sql/pr359-financial-b3-real-transfer-rpc-rollback.sql","utf8",
+);
 const b33PositiveSourceSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-positive-cross-site-source-rollback.sql","utf8",
 );
@@ -753,6 +759,18 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b3TenantRollupCheck).toContain("ROLLBACK;");
     expect(runtime).toContain("financialGLTenantRollup: protectedProcedure");
     expect(runtime).toContain('v.companyAccountsIncluded!==false');
+  });
+
+  it("accepts actual transfer_out/in movement types without false financial certification", () => {
+    expect(b34TransferAlignmentSql).toContain("src.transaction_type IS DISTINCT FROM 'transfer_out'");
+    expect(b34TransferAlignmentSql).toContain("dst.transaction_type IS DISTINCT FROM 'transfer_in'");
+    expect(b34RealTransferSql).toContain("powerhub_transfer_company_accounts_idempotent");
+    expect(b34RealTransferSql).toContain("B3_4_REAL_RPC_TRANSFER_TYPES_PASS_ROLLBACK");
+    expect(b34RealTransferSql).toContain("B3_4_VALID_TRANSFER_REJECTED");
+    expect(b34RealTransferSql).toContain("NOT_CERTIFIED");
+    expect(b34RealTransferSql).toContain("ROLLBACK;");
+    expect(b33PositiveSourceSql).toContain("'transfer_out',20");
+    expect(b33PositiveSourceSql).toContain("'transfer_in',20");
   });
 
   it("requires independent GL proof even for correctly paired two-site transfers", () => {
