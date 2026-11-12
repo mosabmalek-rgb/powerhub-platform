@@ -837,7 +837,9 @@ describe("Phase A financial acceptance evidence", () => {
     expect(openingEvidenceUi).toContain("ev.reviewStatus===\"verified\" && ev.custodyRecorded");
     expect(openingEvidenceUi).toContain("مستندات محفوظة ومراجعة بالمبلغ المطلوب");
     expect(openingEvidenceUi).toContain("لا تعني إثبات رصيد الدفتر المساعد");
-    expect(openingEvidenceUi).toContain("!workspace.isFetching && !workspace.isLoading");
+    expect(openingEvidenceUi).toContain("&& !workspace.isLoading && !workspace.isFetching && workspace.data !== undefined");
+    expect(openingEvidenceUi).toContain("const evidence = workspaceReady");
+    expect(openingEvidenceUi).toContain("const openingLines = workspaceReady");
   });
 
   it("validates opening evidence date input without double escaping the regex", () => {
