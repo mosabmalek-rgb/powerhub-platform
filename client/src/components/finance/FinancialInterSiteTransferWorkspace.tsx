@@ -30,6 +30,12 @@ export default function FinancialInterSiteTransferWorkspace({
   const [reviewSourceId, setReviewSourceId] = useState(0);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [notice, setNotice] = useState("");
+  const [evidenceReference, setEvidenceReference] = useState("");
+  const [draftSourceId, setDraftSourceId] = useState(0);
+  const [draftConfirmed, setDraftConfirmed] = useState(false);
+  const [approveEliminationId, setApproveEliminationId] = useState(0);
+  const [approveConfirmed, setApproveConfirmed] = useState(false);
+  const eliminationKey = useRef<string | null>(null);
   const operationKey = useRef<string | null>(null);
   const utils = trpc.useUtils();
   const enabled = active && expanded && siteId > 0;
@@ -93,6 +99,29 @@ export default function FinancialInterSiteTransferWorkspace({
     },
     onError: () => setNotice(""),
   });
+  const prepareElimination = trpc.powerhub.reports.financialGLPrepareInterSiteElimination.useMutation({
+    onSuccess: async (result) => {
+      const v = object(result);
+      setNotice(`تم حفظ مسودة الاستبعاد رقم ${String(v.eliminationId ?? "")}. يتطلب اعتمادها مستخدمًا آخر.`);
+      setDraftConfirmed(false);
+      setDraftSourceId(0);
+      eliminationKey.current = null;
+      await invalidate();
+    },
+    onError: () => setNotice(""),
+  });
+  const approveElimination = trpc.powerhub.reports.financialGLApproveInterSiteElimination.useMutation({
+    onSuccess: async (result) => {
+      const v = object(result);
+      setNotice(v.alreadyApproved === true
+        ? "التسوية معتمدة مسبقًا، ولم تُكرر قيود الاستبعاد."
+        : "تم اعتماد قيدَي الاستبعاد خارج دفاتر الفروع. القوائم المالية ما زالت غير مصدقة.");
+      setApproveEliminationId(0);
+      setApproveConfirmed(false);
+      await invalidate();
+    },
+    onError: () => setNotice(""),
+  });
   const proof = object(object(rollup.data).interSiteGLProof);
   const ready = enabled && !rollup.isLoading && !rollup.isFetching
     && !rollup.isError && object(rollup.data).accountingCertification === "NOT_CERTIFIED"
@@ -102,6 +131,10 @@ export default function FinancialInterSiteTransferWorkspace({
     ? proof.mismatchExamples.map(object).filter(x =>
        x.reason === "SOURCE_UNPOSTED_GL"
        && validId(x.fromSiteId) === siteId && validId(x.sourceId) > 0)
+    : [];
+  const matched = ready && Array.isArray(proof.matchedSources)
+    ? proof.matchedSources.map(object).filter(x =>
+      validId(x.fromSiteId)===siteId && validId(x.sourceId)>0)
     : [];
   const inputStyle = "w-full rounded border border-white/25 bg-slate-900 px-2 py-2 text-sm text-white";
   const resetSelection = () => { setConfirmed(false);operationKey.current=null;setNotice(""); };
@@ -204,6 +237,73 @@ export default function FinancialInterSiteTransferWorkspace({
         {post.isError ? <p role="alert" className="text-rose-200">
           رفض الخادم ترحيل GL؛ تحقق من المراجع المستقل وصلاحيات الفرعين وبصمة المصدر.
         </p> : null}
+      </div>
+      <div className="border-t border-white/15 pt-3 space-y-3">
+        <h5 className="font-semibold text-white">B3.11 — إعداد واعتماد الاستبعاد بين الفروع</h5>
+        <p className="text-xs text-amber-200">
+          تظهر القيود المزدوجة المتطابقة هنا. يُنشئ المُعدّ مسودة استبعاد متوازنة
+          ويعتمدها مستخدم آخر مخوّل في الفرعين. لا تُعد قوائم موحدة نهائية.
+        </p>
+        {ready ? matched.map(x=><div key={validId(x.sourceId)}
+          className="rounded border border-white/10 p-2 space-y-2">
+          <p>تحويل رقم {validId(x.sourceId)} — {amountText(x.amount)} شيكل
+            — حالة الاستبعاد: {String(x.eliminationStatus ?? "غير مُعدّ")}</p>
+          {x.eliminationStatus==="not_prepared" ? <>
+            {draftSourceId===validId(x.sourceId) ? <>
+              <label>مرجع المستند
+                <input className={inputStyle} value={evidenceReference}
+                  maxLength={250} onChange={e=>{
+                    setEvidenceReference(e.target.value);eliminationKey.current=null;
+                    setDraftConfirmed(false);
+                  }} placeholder="مرجع دليل التسوية المستقل" />
+              </label>
+              <label className="flex items-start gap-2 text-xs">
+                <input type="checkbox" checked={draftConfirmed}
+                  onChange={e=>setDraftConfirmed(e.target.checked)} />
+                تحققت من طرفَي GL ومرجع التسوية. المسودة لا تعتمد القوائم المالية.
+              </label>
+              <Button size="sm" disabled={!draftConfirmed
+                ||evidenceReference.trim().length<8||prepareElimination.isPending}
+                onClick={()=>{
+                  const key=eliminationKey.current??crypto.randomUUID();
+                  eliminationKey.current=key;
+                  prepareElimination.mutate({
+                    fromSiteId:siteId,sourceId:validId(x.sourceId),
+                    evidenceReference:evidenceReference.trim(),
+                    operationKey:key,confirmEvidence:true,
+                  });
+                }}>حفظ مسودة الاستبعاد</Button>
+            </> : <Button size="sm" variant="outline"
+              disabled={prepareElimination.isPending}
+              onClick={()=>{setDraftSourceId(validId(x.sourceId));
+                setDraftConfirmed(false);setNotice("");}}>
+              إعداد تسوية</Button>}
+          </> : null}
+          {x.eliminationStatus==="draft" && validId(x.eliminationId)>0 ? <>
+            {approveEliminationId===validId(x.eliminationId) ? <>
+              <label className="flex items-start gap-2 text-xs">
+                <input type="checkbox" checked={approveConfirmed}
+                  onChange={e=>setApproveConfirmed(e.target.checked)} />
+                راجعت قيدَي الاستبعاد ومصدرهما كمستخدم مستقل عن مُعدّ المسودة.
+              </label>
+              <Button size="sm" disabled={!approveConfirmed||approveElimination.isPending}
+                onClick={()=>approveElimination.mutate({
+                  fromSiteId:siteId,eliminationId:validId(x.eliminationId),
+                  confirmIndependentReview:true,
+                })}>اعتماد تسوية الاستبعاد</Button>
+            </> : <Button size="sm" variant="outline"
+              onClick={()=>{setApproveEliminationId(validId(x.eliminationId));
+                setApproveConfirmed(false);setNotice("");}}>
+              مراجعة واعتماد</Button>}
+          </> : null}
+          {x.eliminationStatus==="approved" ? <p className="text-xs text-amber-200">
+            تمت مراجعة الاستبعاد. لا يزال اعتماد القوائم الموحدة منفصلًا.
+          </p> : null}
+        </div>) : null}
+        {prepareElimination.isError||approveElimination.isError
+          ? <p role="alert" className="text-rose-200">
+            رفض الخادم إعداد التسوية أو اعتمادها. لن تُعرض نتيجة نجاح غير مؤكدة.
+          </p> : null}
       </div>
       {notice ? <p role="status" className="text-amber-200">{notice}</p> : null}
       <p className="text-xs text-amber-200">
