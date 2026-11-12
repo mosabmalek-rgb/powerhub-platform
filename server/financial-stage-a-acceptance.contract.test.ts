@@ -1073,7 +1073,9 @@ describe("Phase A financial acceptance evidence", () => {
 
   it("renders B3 rollup only on demand with explicit non-certification", () => {
     expect(glAuditUiA45).toContain("financialGLTenantRollup.useQuery");
-    expect(glAuditUiA45).toContain("enabled:enabled && showB3");
+    expect(glAuditUiA45).toContain("enabled:enabled && hasMultipleSites && showB3");
+    expect(glAuditUiA45).toContain("financialGLSiteScope.useQuery({siteId}");
+    expect(glAuditUiA45).toContain("{hasMultipleSites ? <>");
     expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
     expect(glAuditUiA45).toContain("b3Visible");
     expect(glAuditUiA45).toContain("rollup.isError");
