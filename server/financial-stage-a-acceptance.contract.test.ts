@@ -92,6 +92,12 @@ const b4DocumentSourceSql = readFileSync(
 const b4DocumentSourceRegression = readFileSync(
   "docs/security/sql/pr359-financial-b4-document-source-audit-rollback.sql", "utf8",
 );
+const b33SourceTransferSql = readFileSync(
+  "supabase/migrations/20261112083854_powerhub_financial_gl_b3_inter_site_source_visibility.sql","utf8",
+);
+const b33TransferFaultSql = readFileSync(
+  "docs/security/sql/pr359-financial-b3-source-transfer-fault-rollback.sql","utf8",
+);
 const b31TransferProofSql = readFileSync(
   "supabase/migrations/20261110225954_powerhub_financial_b3_warehouse_transfer_source_proof.sql","utf8",
 );
@@ -744,6 +750,19 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b3TenantRollupCheck).toContain("ROLLBACK;");
     expect(runtime).toContain("financialGLTenantRollup: protectedProcedure");
     expect(runtime).toContain('v.companyAccountsIncluded!==false');
+  });
+
+  it("guards operational cross-site source transfers without falsely certifying GL eliminations", () => {
+    expect(b33SourceTransferSql).toContain("company_account_movement_operations");
+    expect(b33SourceTransferSql).toContain("invalidOperationalTransferPairCount");
+    expect(b33SourceTransferSql).toContain("NO_CROSS_SITE_SOURCE_OBSERVED_NOT_CERTIFIED");
+    expect(b33SourceTransferSql).toContain("CROSS_SITE_TRANSFER_REQUIRES_GL_ELIMINATION_PROOF");
+    expect(b33SourceTransferSql).toContain("INVALID_OPERATIONAL_PAIR_BLOCKS_ELIMINATION");
+    expect(b33TransferFaultSql).toContain("B3_3_INVALID_TRANSFER_PAIR_PASS_ROLLBACK");
+    expect(b33TransferFaultSql).toContain("B3_3_BROKEN_TRANSFER_NOT_DETECTED");
+    expect(b33TransferFaultSql).toContain("ROLLBACK;");
+    expect(glAuditUiA45).toContain("أزواج غير متطابقة");
+    expect(glAuditUiA45).toContain("هذا لا يعني اعتماد التسويات");
   });
 
   it("classifies paired warehouse transfers separately from inter-site GL eliminations", () => {
