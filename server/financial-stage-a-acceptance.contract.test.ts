@@ -118,6 +118,9 @@ const b35ForgedPayloadSql = readFileSync("docs/security/sql/pr359-financial-b35-
 const b34RealTransferSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-real-transfer-rpc-rollback.sql","utf8",
 );
+const b37EliminationMathSql = readFileSync(
+ "docs/security/sql/pr359-financial-b37-cross-site-elimination-math-rollback.sql","utf8",
+);
 const b36SameSiteBlockSql = readFileSync(
   "docs/security/sql/pr359-financial-b36-cross-site-same-site-post-denied-rollback.sql","utf8",
 );
@@ -841,6 +844,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b34RealTransferSql).toContain("ROLLBACK;");
     expect(b33PositiveSourceSql).toContain("'transfer_out',20");
     expect(b33PositiveSourceSql).toContain("'transfer_in',20");
+  });
+
+  it("proves B3.7 inter-site due-to/due-from journal arithmetic only under rollback", () => {
+    expect(b37EliminationMathSql).toContain("B3_7_CROSS_SITE_DUE_FROM_TO_ELIMINATION_MATH_PASS_ROLLBACK");
+    expect(b37EliminationMathSql).toContain("'1350'");
+    expect(b37EliminationMathSql).toContain("'2350'");
+    expect(b37EliminationMathSql).toContain("v_due_asset");
+    expect(b37EliminationMathSql).toContain("v_due_liability");
+    expect(b37EliminationMathSql).toContain("NOT_CERTIFIED");
+    expect(b37EliminationMathSql).toContain("ROLLBACK;");
+    expect(b37EliminationMathSql).not.toContain("COMMIT;");
   });
 
   it("rejects cross-site operational sources from same-site GL posting until a dedicated elimination model exists", () => {
