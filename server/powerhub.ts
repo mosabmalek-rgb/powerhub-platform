@@ -5050,6 +5050,103 @@ export const powerhubRouter = router({
         }>;
       };
     }),
+    // B3.11: independent site-authorized elimination journal workspace.
+    // This is a consolidation-only journal, and NEVER posts new branch GL.
+    financialGLPrepareInterSiteElimination: protectedProcedure.input(z.object({
+      fromSiteId:z.number().int().positive(),
+      sourceId:z.number().int().positive(),
+      evidenceReference:z.string().trim().min(8).max(250),
+      operationKey:z.string().uuid(),
+      confirmEvidence:z.literal(true),
+    })).mutation(async ({ctx,input})=>{
+      const from=await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      const {data:source,error:sourceError}=await supabaseAdmin()
+        .from("account_transactions").select("site_id,tenant_id")
+        .eq("tenant_id",from.tenantId).eq("site_id",input.fromSiteId)
+        .eq("id",input.sourceId).eq("transaction_type","transfer_out").maybeSingle();
+      if(sourceError||!source)throw new TRPCError({code:"BAD_REQUEST",
+        message:"لا يوجد مصدر مالي موثق لهذا الفرع."});
+      const {data:op,error:opError}=await supabaseAdmin()
+        .from("company_account_movement_operations")
+        .select("counterpart_transaction_id")
+        .eq("tenant_id",from.tenantId).eq("site_id",input.fromSiteId)
+        .eq("primary_transaction_id",input.sourceId).eq("operation_type","transfer").maybeSingle();
+      if(opError||!op||!Number.isSafeInteger(Number(op.counterpart_transaction_id)))
+        throw new TRPCError({code:"BAD_REQUEST",message:"لا توجد عملية تحويل متقابلة مثبتة."});
+      const {data:to,error:toError}=await supabaseAdmin()
+        .from("account_transactions").select("site_id,tenant_id")
+        .eq("tenant_id",from.tenantId).eq("id",op.counterpart_transaction_id)
+        .eq("transaction_type","transfer_in").maybeSingle();
+      const toSiteId=Number(to?.site_id);
+      if(toError||!Number.isSafeInteger(toSiteId)||toSiteId<=0||toSiteId===input.fromSiteId)
+        throw new TRPCError({code:"BAD_REQUEST",message:"تعذر إثبات الفرع المقابل."});
+      const toAccess=await requireSupabaseSiteRole(ctx.user.id,toSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,toSiteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      if(toAccess.tenantId!==from.tenantId)
+        throw new TRPCError({code:"FORBIDDEN",message:"الفرع المقابل خارج الاشتراك."});
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_gl_inter_site_elimination_prepare",{
+          pt:from.tenantId,ps:input.sourceId,actor:ctx.user.id,
+          evidence:input.evidenceReference,opkey:input.operationKey,
+        });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"لم تُحفظ مسودة الاستبعاد؛ تحقق من مطابقة مصدر التحويل وقيدي GL."});
+      const v=data as Record<string,unknown>;
+      if(!Number.isSafeInteger(Number(v.eliminationId))
+        ||Number(v.eliminationId)<=0
+        ||!["draft","approved"].includes(String(v.status))
+        ||v.accountingCertification!=="NOT_CERTIFIED"
+        ||(v.alreadyPrepared!==true&&v.alreadyPrepared!==false))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"نتيجة إعداد التسوية غير متسقة."});
+      return v;
+    }),
+    financialGLApproveInterSiteElimination: protectedProcedure.input(z.object({
+      fromSiteId:z.number().int().positive(),
+      eliminationId:z.number().int().positive(),
+      confirmIndependentReview:z.literal(true),
+    })).mutation(async ({ctx,input})=>{
+      const from=await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      const {data:draft,error:draftError}=await supabaseAdmin()
+        .from("financial_gl_inter_site_eliminations")
+        .select("id,tenant_id,from_site_id,to_site_id,prepared_by_user_id,status")
+        .eq("tenant_id",from.tenantId).eq("from_site_id",input.fromSiteId)
+        .eq("id",input.eliminationId).maybeSingle();
+      if(draftError||!draft)throw new TRPCError({code:"NOT_FOUND",
+        message:"لا توجد مسودة استبعاد في نطاق الفرع."});
+      if(Number(draft.prepared_by_user_id)===ctx.user.id)
+        throw new TRPCError({code:"FORBIDDEN",
+          message:"يجب أن يكون معتمد التسوية مستخدمًا آخر غير المُعدّ."});
+      const to=await requireSupabaseSiteRole(ctx.user.id,Number(draft.to_site_id),
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,Number(draft.to_site_id),
+        ["owner","manager","accountant"],"viewFinancialReports");
+      if(to.tenantId!==from.tenantId)
+        throw new TRPCError({code:"FORBIDDEN",message:"نطاق اعتماد التسوية غير صالح."});
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_gl_inter_site_elimination_approve",{
+          pt:from.tenantId,elimination_id:input.eliminationId,checker:ctx.user.id,
+        });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر اعتماد التسوية؛ لا يمكن تجاوز تحقق القيود والمراجعة المستقلة."});
+      const v=data as Record<string,unknown>;
+      if(Number(v.eliminationId)!==input.eliminationId
+       ||v.status!=="approved"||v.accountingCertification!=="NOT_CERTIFIED"
+       ||(v.alreadyApproved!==true&&v.alreadyApproved!==false))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم تتطابق نتيجة اعتماد التسوية مع المستند."});
+      return v;
+    }),
     // B3.10: source creation only; GL posting requires an independent checker.
     financialGLCreateInterSiteTransfer: protectedProcedure.input(z.object({
       fromSiteId:z.number().int().positive(),
