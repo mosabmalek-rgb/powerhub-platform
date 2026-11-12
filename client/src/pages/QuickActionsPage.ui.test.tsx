@@ -31,7 +31,7 @@ vi.mock("@/lib/offline-connectivity", () => ({ usePowerHubConnectivity: () => ({
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
-      sites: { list: { useQuery: () => ({ data: state.sitesError ? undefined : [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: state.sitesError, error: state.sitesError ? new Error("فشل النقل") : undefined, refetch: state.refetchSites }) } },
+      sites: { list: { useQuery: () => ({ data: state.sitesError ? undefined : [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: state.sitesError, error: state.sitesError ? new Error("فشل النقل") : undefined, refetch: state.refetchSites }) }, multiBranchAccess: { useQuery: () => ({ data: { siteId: 1, enabled: false, activeSiteCount: 1 }, isLoading: false, isSuccess: true, isError: false, isFetching: false }) } },
       staff: { myAccess: { useQuery: () => ({ data: state.accessError || state.accessDenied ? undefined : state.access, isLoading: false, isError: state.accessError || state.accessDenied, error: state.accessDenied ? { data: { code: "FORBIDDEN" } } : state.accessError ? new Error("فشل النقل") : undefined, refetch: state.refetchAccess }) } },
       quickActions: { preferences: { useQuery: () => ({ data: state.preferencesError && !state.preservePreferencesOnError ? undefined : { actionIds: state.preferences }, isLoading: false, isError: state.preferencesError, error: state.preferencesError ? new Error("فشل النقل") : undefined, refetch: state.refetchPreferences }) }, savePreferences: { useMutation: () => ({ mutate: state.savePreferences, isPending: false }) } },
     },
