@@ -126,6 +126,15 @@ const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-p
 const b48ReversalSimulationSql = readFileSync(
   "docs/security/sql/pr359-financial-b4-posted-opening-reversal-simulation-rollback.sql","utf8",
 );
+const b492CandidatesSql = readFileSync(
+  "docs/security/sql/pr359-financial-b49-candidates-rollback.sql","utf8",
+);
+const b492MigrationSql = readFileSync(
+  "supabase/migrations/20261112102934_powerhub_financial_b49_transfer_decimal_scale_and_candidates.sql","utf8",
+);
+const b49Ui = readFileSync(
+  "client/src/components/finance/FinancialCashTransferPostingWorkspace.tsx","utf8",
+);
 const b49PostSql = readFileSync(
   "docs/security/sql/pr359-financial-b49-account-transfer-posting-rollback.sql","utf8",
 );
@@ -1011,6 +1020,26 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("enabled:enabled && showB4Documents");
     expect(glAuditUiA45).toContain("B4 — تدقيق مصادر القيود والمستندات");
     expect(glAuditUiA45).toContain("b4Documents.isError");
+  });
+
+  it("presents only verified site-scoped B4.9 transfer candidates before GL posting", () => {
+    expect(b492MigrationSql).toContain("generate_series(0,6)");
+    expect(b492MigrationSql).toContain("powerhub_financial_gl_cash_transfer_candidates");
+    expect(b492MigrationSql).toContain("p_before_source_id");
+    expect(b492MigrationSql).toContain("TO service_role");
+    expect(b492CandidatesSql).toContain("B49_CANDIDATES_PENDING_POSTED_PASS_ROLLBACK");
+    expect(b492CandidatesSql).toContain("B49_CANDIDATE_LIST_POSTED_INVALID");
+    expect(b492CandidatesSql).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCashTransferCandidates: protectedProcedure");
+    expect(runtime).toContain('"viewFinancialReports"');
+    expect(runtime).toContain('"manageExpenses"');
+    expect(b49Ui).toContain("financialGLCashTransferCandidates.useQuery");
+    expect(b49Ui).toContain("financialGLPostSource.useMutation");
+    expect(b49Ui).toContain('sourceType: "account_movement"');
+    expect(b49Ui).toContain("const ready = enabled && !candidates.isLoading");
+    expect(b49Ui).toContain("confirmedSourceId === item.sourceId");
+    expect(b49Ui).toContain("!acknowledged || post.isPending");
+    expect(glAuditUiA45).toContain("<FinancialCashTransferPostingWorkspace");
   });
 
   it("posts real company transfers once, then reconciles B4 with strict source proof", () => {
