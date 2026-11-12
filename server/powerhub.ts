@@ -202,7 +202,9 @@ export function resolveBranchPolicy(input: {
   const overrideLimit = input.tenantSetting?.maxBranchesOverride;
   const maxBranches = Number.isInteger(overrideLimit) && (overrideLimit ?? 0) >= 1 ? overrideLimit! : planLimit;
   const platformEnabled = input.platformSetting?.isEnabled ?? false;
-  const isEnabled = input.tenantSetting?.isEnabledOverride ?? (platformEnabled && planLimit > 1);
+  // The effective one-branch quota always overrides any explicit enable flag.
+  const isEnabled = maxBranches > 1 &&
+    (input.tenantSetting?.isEnabledOverride ?? (platformEnabled && planLimit > 1));
   const currentCount = input.currentCount ?? 0;
   return {
     isEnabled,
