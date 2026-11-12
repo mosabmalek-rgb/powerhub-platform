@@ -113,6 +113,8 @@ const b33SourceTransferSql = readFileSync(
 const b34TransferAlignmentSql = readFileSync(
   "supabase/migrations/20261112091332_powerhub_financial_b3_transfer_type_alignment.sql","utf8",
 );
+const b35TransferProvenanceSql = readFileSync("supabase/migrations/20261112111111_powerhub_financial_b35_transfer_source_provenance_hardening.sql","utf8");
+const b35ForgedPayloadSql = readFileSync("docs/security/sql/pr359-financial-b35-forged-transfer-payload-rollback.sql","utf8");
 const b34RealTransferSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-real-transfer-rpc-rollback.sql","utf8",
 );
@@ -810,6 +812,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b3TenantRollupCheck).toContain("ROLLBACK;");
     expect(runtime).toContain("financialGLTenantRollup: protectedProcedure");
     expect(runtime).toContain('v.companyAccountsIncluded!==false');
+  });
+
+  it("requires B3.5 independently validated transfer provenance and rejects forged source payloads", () => {
+    expect(b35TransferProvenanceSql).toContain("src.created_by_user_id IS DISTINCT FROM op.created_by_user_id");
+    expect(b35TransferProvenanceSql).toContain("dst.created_by_user_id IS DISTINCT FROM op.created_by_user_id");
+    expect(b35TransferProvenanceSql).toContain("company_account_sites");
+    expect(b35TransferProvenanceSql).toContain("op.payload_hash=md5");
+    expect(b35TransferProvenanceSql).toContain("NOT_CERTIFIED");
+    expect(b35ForgedPayloadSql).toContain("B3_5_FORGED_TRANSFER_SOURCE_BLOCKED_PASS_ROLLBACK");
+    expect(b35ForgedPayloadSql).toContain("INVALID_OPERATIONAL_PAIR_BLOCKS_ELIMINATION");
+    expect(b35ForgedPayloadSql).toContain("ROLLBACK;");
   });
 
   it("accepts actual transfer_out/in movement types without false financial certification", () => {
