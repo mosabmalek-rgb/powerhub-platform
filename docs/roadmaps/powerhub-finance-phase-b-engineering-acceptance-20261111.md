@@ -50,6 +50,19 @@
 
 ---
 
+## 2026-11-12 — User browser acceptance + B3.3 source-pair evidence
+
+- User confirmed the browser has been checked. **Recorded as user-reported browser verification**, not a claim that we observed two independent authenticated user sessions or collected click-path screenshots.
+- Prior head `53c119fac914bc7bbbf90df234247e29bd61020f` had all four GitHub CI gates SUCCESS and a matching READY Preview before the changes below.
+- B3.3 adds cross-site **operational source** indicators to the existing preliminary tenant rollup: count of actual company-account transfer operations, count and total amount of those spanning sites, malformed source pair count, and an explicit evidence classification. Both the audit and UI never label zero candidates as independent GL elimination approval.
+- The Staging dataset currently has **0 company-account transfer operation rows**: `NO_CROSS_SITE_SOURCE_OBSERVED_NOT_CERTIFIED`. It still has **2 intra-site warehouse transfers** with 170 ILS total, which are a separate operational category, not inter-site GL elimination evidence.
+- Executed a controlled negative fixture inside `BEGIN/ROLLBACK`: created a synthetic transfer operation pointing at two unrelated receipt transactions; B3.3 detected 1 invalid source pair, set `interSiteSourcePairIntegrity=false`, and left `NOT_CERTIFIED`. Test result: `B3_3_INVALID_TRANSFER_PAIR_PASS_ROLLBACK`. No persistent transfer was created.
+- Staging migration `20261112083854_powerhub_financial_gl_b3_inter_site_source_visibility.sql` applied and committed to PR #359, plus UI warning and CI contract. The full B5 engineering gate was extended for B3.3 fields and re-executed: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- **Acceptance boundary:** These are source visibility and negative checks, NOT evidence of a correctly eliminated positive cross-site transaction. A positive two-site source/GL elimination test and accounting treatment of the unsupported 2,000 ILS synthetic opening remain outside the certified acceptance. Do not create fictional evidence, relabel this as consolidated statements, or deploy Production.
+- CI must be verified on the new SHA. PR #359 stays Draft/unmerged.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
