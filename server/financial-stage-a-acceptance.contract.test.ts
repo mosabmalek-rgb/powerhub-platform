@@ -127,6 +127,15 @@ const b3111LinesSql = readFileSync(
 const b3112AliasFixSql = readFileSync(
  "supabase/migrations/20261112124134_powerhub_financial_b3112_elimination_line_alias_fix.sql","utf8",
 );
+const b411CorrectionReadinessSql = readFileSync(
+ "supabase/migrations/20261112133754_powerhub_financial_b411_source_backed_correction_readiness.sql","utf8",
+);
+const b411CorrectionReadinessTest = readFileSync(
+ "docs/security/sql/pr359-financial-b411-correction-readiness-rollback.sql","utf8",
+);
+const b411CorrectionUi = readFileSync(
+ "client/src/components/finance/FinancialGLCorrectionReadinessWorkspace.tsx","utf8",
+);
 const b56ReferenceIndexSql = readFileSync(
  "supabase/migrations/20261112132131_powerhub_financial_b56_company_account_reference_prefix_index.sql","utf8",
 );
@@ -904,6 +913,22 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b34RealTransferSql).toContain("ROLLBACK;");
     expect(b33PositiveSourceSql).toContain("'transfer_out',20");
     expect(b33PositiveSourceSql).toContain("'transfer_in',20");
+  });
+
+  it("keeps B4.11 correction readiness read-only, source-first and tenant-site scoped", () => {
+    expect(b411CorrectionReadinessSql).toContain("powerhub_financial_gl_correction_readiness");
+    expect(b411CorrectionReadinessSql).toContain("ACCRUAL_SOURCE_OR_GL_INTEGRITY_BLOCKED");
+    expect(b411CorrectionReadinessSql).toContain("ALREADY_REVERSED");
+    expect(b411CorrectionReadinessSql).toContain("canReverseGLDirectly");
+    expect(b411CorrectionReadinessSql).toContain("REVOKE ALL");
+    expect(b411CorrectionReadinessTest).toContain("B411_SOURCE_FIRST_CORRECTION_READINESS_PASS_ROLLBACK");
+    expect(b411CorrectionReadinessTest).toContain("B411_READONLY_AUDIT_MUTATED_GL");
+    expect(b411CorrectionReadinessTest).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCorrectionReadiness: protectedProcedure");
+    expect(runtime).toContain("powerhub_financial_gl_correction_readiness");
+    expect(b411CorrectionUi).toContain("financialGLCorrectionReadiness.useQuery");
+    expect(b411CorrectionUi).toContain("canPrepareAccrualSourceReversal");
+    expect(glAuditUiA45).toContain("FinancialGLCorrectionReadinessWorkspace");
   });
 
   it("keeps the B5.6 indexed fixture coverage exact and explicitly non-certified", () => {
