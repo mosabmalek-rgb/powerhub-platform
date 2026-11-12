@@ -95,6 +95,9 @@ const b4DocumentSourceRegression = readFileSync(
 const b33SourceTransferSql = readFileSync(
   "supabase/migrations/20261112083854_powerhub_financial_gl_b3_inter_site_source_visibility.sql","utf8",
 );
+const b33PositiveSourceSql = readFileSync(
+  "docs/security/sql/pr359-financial-b3-positive-cross-site-source-rollback.sql","utf8",
+);
 const b33TransferFaultSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-source-transfer-fault-rollback.sql","utf8",
 );
@@ -750,6 +753,14 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b3TenantRollupCheck).toContain("ROLLBACK;");
     expect(runtime).toContain("financialGLTenantRollup: protectedProcedure");
     expect(runtime).toContain('v.companyAccountsIncluded!==false');
+  });
+
+  it("requires independent GL proof even for correctly paired two-site transfers", () => {
+    expect(b33PositiveSourceSql).toContain("CROSS_SITE_TRANSFER_REQUIRES_GL_ELIMINATION_PROOF");
+    expect(b33PositiveSourceSql).toContain("B3_3_POSITIVE_CROSS_SITE_SOURCE_BLOCKED_PASS_ROLLBACK");
+    expect(b33PositiveSourceSql).toContain("B3_3_POSITIVE_SOURCE_NOT_CLASSIFIED");
+    expect(b33PositiveSourceSql).toContain("canBeCertifiedConsolidation");
+    expect(b33PositiveSourceSql).toContain("ROLLBACK;");
   });
 
   it("guards operational cross-site source transfers without falsely certifying GL eliminations", () => {
