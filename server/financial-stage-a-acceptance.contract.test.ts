@@ -130,6 +130,9 @@ const b3112AliasFixSql = readFileSync(
 const b394ApprovedPreviewSql = readFileSync(
  "supabase/migrations/20261112124448_powerhub_financial_b394_elimination_review_visibility.sql","utf8",
 );
+const b3111SecuritySql = readFileSync(
+ "docs/security/sql/pr359-financial-b3111-immutable-elimination-security-rollback.sql","utf8",
+);
 const b311ReviewSql = readFileSync(
  "docs/security/sql/pr359-financial-b311-independent-elimination-rollback.sql","utf8",
 );
@@ -903,6 +906,11 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b394ApprovedPreviewSql).toContain("matchedSources");
     expect(b394ApprovedPreviewSql).toContain("approvedEliminationAmount");
     expect(b311ReviewSql).toContain("B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK");
+    expect(b3111SecuritySql).toContain("B3111_IMMUTABLE_ELIMINATION_AND_RBAC_PASS_ROLLBACK");
+    expect(b3111SecuritySql).toContain("B3111_ELIMINATION_LINE_DELETE_ALLOWED");
+    expect(b3111SecuritySql).toContain("B3111_APPROVED_HEADER_MUTATED");
+    expect(b3111SecuritySql).toContain("B3111_UNAUTHORIZED_CHECKER_ACCEPTED");
+    expect(b3111SecuritySql).toContain("ROLLBACK;");
     expect(b394ApprovedReviewSql).toContain("B394_APPROVED_ELIMINATION_VISIBILITY_INVALID");
     expect(b394ApprovedReviewSql).toContain("ROLLBACK;");
     expect(runtime).toContain("financialGLPrepareInterSiteElimination: protectedProcedure");
