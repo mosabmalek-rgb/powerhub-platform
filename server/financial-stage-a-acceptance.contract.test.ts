@@ -65,6 +65,9 @@ const b51FastProofSql = readFileSync(
 const b51FailClosedSql = readFileSync(
   "docs/security/sql/pr359-financial-b5-fast-proof-negative-rollback.sql","utf8",
 );
+const b52RepeatabilitySql = readFileSync(
+  "docs/security/sql/pr359-financial-b5-repeat-read-consistency-rollback.sql","utf8",
+);
 const b5EngineeringGate = readFileSync(
   "docs/security/sql/pr359-financial-b5-staging-engineering-gate.sql","utf8",
 );
@@ -779,6 +782,16 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_FAILURE_CLOSED_PASS");
     expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_BROWSER_EXECUTE_EXPOSED");
     expect(b51FailClosedSql).toContain("ROLLBACK;");
+  });
+
+  it("guards B5.2 read repeatability and no false consolidation under reexecution", () => {
+    expect(b52RepeatabilitySql).toContain("B5_2_REPEAT_READ_CONSISTENCY_PASS_NOT_CERTIFIED");
+    expect(b52RepeatabilitySql).toContain("B5_2_INCONSISTENT_REPEAT_READ");
+    expect(b52RepeatabilitySql).toContain("B5_2_UNJUSTIFIED_ACCOUNTING_CERTIFICATION");
+    expect(b52RepeatabilitySql).toContain("B5_2_READ_CHANGED_FINANCIAL_LEDGER");
+    expect(b52RepeatabilitySql).toContain("PRELIMINARY_MULTI_SITE_ROLLUP");
+    expect(b52RepeatabilitySql).toContain("ROLLBACK;");
+    expect(b52RepeatabilitySql).not.toContain("COMMIT;");
   });
 
   it("runs B5 as read-only Staging engineering acceptance without certifying financial statements", () => {
