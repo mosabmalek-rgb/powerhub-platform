@@ -9,6 +9,8 @@ on:
       - "scripts/b5-disposable-payroll-load.sh"
       - "scripts/b5-disposable-payroll-race.sh"
       - "supabase/tests/b5_disposable_payroll_load_*"
+      - "supabase/tests/b5_disposable_collection_load_*"
+      - "scripts/b5-disposable-collection-load.sh"
       - ".github/workflows/b5-synthetic-financial-load.yml"
   pull_request:
     branches: [main]
@@ -18,6 +20,8 @@ on:
       - "scripts/b5-disposable-payroll-load.sh"
       - "scripts/b5-disposable-payroll-race.sh"
       - "supabase/tests/b5_disposable_payroll_load_*"
+      - "supabase/tests/b5_disposable_collection_load_*"
+      - "scripts/b5-disposable-collection-load.sh"
       - ".github/workflows/b5-synthetic-financial-load.yml"
 permissions:
   contents: read
@@ -74,3 +78,11 @@ jobs:
         env:
           PGDATABASE: powerhub_b5_synthetic_payroll_test
         run: bash scripts/b5-disposable-payroll-race.sh
+      - name: Create disposable collection database with actual hardened payment RPC
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_b5_synthetic_collection_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_b5_synthetic_collection_test --set ON_ERROR_STOP=1 --file supabase/tests/b5_disposable_collection_load_setup.sql
+      - name: Load 1000 invoice collections and check exactly-once ledger effects
+        env:
+          PGDATABASE: powerhub_b5_synthetic_collection_test
+        run: bash scripts/b5-disposable-collection-load.sh
