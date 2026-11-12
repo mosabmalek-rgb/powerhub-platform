@@ -17,8 +17,10 @@ describe("B4.16 supplier source correction server guard and rollback evidence",(
     expect(start).toBeGreaterThan(0);
     expect(end).toBeGreaterThan(start);
     expect(code.match(/\.mutation\(async/g)).toHaveLength(2);
-    expect(code.match(/"manageSupplierPayments"/g)).toHaveLength(2);
-    expect(code.match(/"viewFinancialReports"/g)).toHaveLength(2);
+    expect(code.match(/"manageSupplierPayments"/g)).toHaveLength(3);
+    expect(code.match(/"viewFinancialReports"/g)).toHaveLength(3);
+    expect(code.match(/"reverseSupplierPayments"/g)).toHaveLength(3);
+    expect(code).toContain("financialSupplierPaymentCorrectionPending: protectedProcedure");
     expect(code).toContain("p_tenant_id:access.tenantId");
     expect(code).toContain("p_user_id:ctx.user.id");
     expect(code).toContain("p_approver_id:ctx.user.id");
