@@ -441,7 +441,66 @@ const state = vi.hoisted(() => {
 
 const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn(), processById: vi.fn() }));
 
-vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => state.client }));
+// The access RPC is the single DB-fresh snapshot replacing several older
+// from("users"/"tenant_members"/"staff_profiles") calls. The generic test
+// adapter synthesizes the same scoped JSON from the test tables on every call,
+// without recording it as a business-operation RPC.
+vi.mock("./supabase-admin", () => ({
+  supabaseAdmin: () => ({
+    ...state.client,
+    rpc: (name: string, args: Record<string, unknown>) => {
+      if (name !== "powerhub_site_access_snapshot") return state.client.rpc(name, args);
+      const rows = (key: string): Record<string, unknown>[] =>
+        (state.tables[key] ?? []) as Record<string, unknown>[];
+      const uid = Number(args.p_user_id);
+      const sid = Number(args.p_site_id);
+      const site = rows("sites").find((row) => Number(row.id) === sid);
+      const tenantId = Number(site?.tenant_id);
+      const user = rows("users").find((row) => Number(row.id) === uid);
+      const memberships = rows("tenant_members").filter((row) =>
+        Number(row.tenant_id) === tenantId && Number(row.user_id) === uid &&
+        row.is_active === true && row.membership_status === "active" &&
+        (row.expires_at === null || new Date(String(row.expires_at)).getTime() > Date.now()));
+      const member = memberships.at(-1);
+      const subscriptions = rows("tenant_subscriptions").filter((row) => Number(row.tenant_id) === tenantId);
+      const subscription = subscriptions.sort((a, b) =>
+        Date.parse(String(b.ends_at ?? 0)) - Date.parse(String(a.ends_at ?? 0)))[0];
+      const profiles = rows("staff_profiles").filter((row) =>
+        Number(row.tenant_id) === tenantId && Number(row.user_id) === uid &&
+        row.is_active === true && row.archived_at == null &&
+        (row.site_id == null || Number(row.site_id) === sid));
+      const profileIds = new Set(profiles.map((row) => Number(row.id)));
+      return Promise.resolve({
+        data: {
+          user: user ? { role: user.role, platform_role: user.platform_role ?? null,
+            account_status: user.account_status } : null,
+          site: site ? { tenant_id: site.tenant_id, status: site.status,
+            invoice_due_days: site.invoice_due_days,
+            invoice_due_hours: site.invoice_due_hours } : null,
+          membership: member ? { role: member.role, expires_at: member.expires_at ?? null,
+            is_active: member.is_active, membership_status: member.membership_status } : null,
+          subscription: subscription ? { status: subscription.status,
+            ends_at: subscription.ends_at, read_only_until: subscription.read_only_until ?? null } : null,
+          member_overrides: rows("tenant_member_capability_overrides").filter((row) =>
+            Number(row.tenant_id) === tenantId && Number(row.user_id) === uid),
+          staff_profiles: profiles.map((row) => ({
+            id: row.id, site_id: row.site_id ?? null, role: row.role,
+            permissions: row.permissions ?? null, custom_role_id: row.custom_role_id ?? null,
+            suspension_started_at: row.suspension_started_at ?? null,
+            suspension_ends_at: row.suspension_ends_at ?? null,
+          })),
+          staff_overrides: rows("staff_profile_capability_overrides").filter((row) =>
+            Number(row.tenant_id) === tenantId && profileIds.has(Number(row.profile_id))),
+          custom_roles: rows("custom_permission_roles").filter((row) =>
+            Number(row.tenant_id) === tenantId && row.is_active === true &&
+            profiles.some((profile) => Number(profile.custom_role_id) === Number(row.id))),
+          role_policies: rows("platform_role_policies"),
+        },
+        error: null,
+      });
+    },
+  }),
+}));
 vi.mock("./db", () => ({ getDb: vi.fn(async () => { throw new Error("MySQL must not be called"); }), syncSupabaseUser: vi.fn() }));
 vi.mock("./notification-worker", () => ({ processNotificationById: notificationWorker.processById, processNotificationQueueForTenant: notificationWorker.processQueue }));
 
