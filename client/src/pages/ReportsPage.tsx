@@ -113,7 +113,7 @@ export default function ReportsPage() {
   const baseEnabled = Boolean(branchId && isAuthenticated && startDate <= endDate);
   const branchReportQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "branch" });
   const allReportQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate, endDate }, { enabled: baseEnabled && scope === "all" && canUseAllBranches });
-  const activeQuery = scope === "all" ? allReportQuery : branchReportQuery;
+  const activeQuery = scope === "all" && canUseAllBranches ? allReportQuery : branchReportQuery;
   const reportAccessDenied = [activeQuery.error?.data?.code, roleQuery.error?.data?.code, accessQuery.error?.data?.code]
     .some((code) => code === "FORBIDDEN" || code === "UNAUTHORIZED");
   const reportRevisionQuery = trpc.powerhub.dashboard.deltaRevision.useQuery(
@@ -138,15 +138,15 @@ export default function ReportsPage() {
   }) : undefined;
   const report = reportAccessDenied ? undefined : liveReport ?? cachedSnapshotForCurrentScope?.report as FinancialReport | undefined;
   const usingCachedReport = !liveReport && Boolean(cachedSnapshotForCurrentScope);
-  const scopeName = scope === "all" ? `جميع الأفرع (${report?.scope?.branchCount ?? sitesQuery.data?.length ?? 0})` : sitesQuery.data?.find((site) => site.id === branchId)?.name ?? "الفرع المحدد";
+  const scopeName = scope === "all" && canUseAllBranches ? `جميع الأفرع (${report?.scope?.branchCount ?? tenantSites.length})` : sitesQuery.data?.find((site) => site.id === branchId)?.name ?? "الفرع المحدد";
   const alternateBranchId = comparisonSiteId ?? tenantSites.find((site) => site.id !== branchId)?.id ?? null;
   const comparisonPeriodEnabled = baseEnabled && comparisonMode === "period" && comparisonStartDate <= comparisonEndDate;
   const comparisonBranchEnabled = Boolean(isAuthenticated && comparisonMode === "branch" && canCompareBranches && alternateBranchId && startDate <= endDate);
   const comparisonPeriodBranchQuery = trpc.powerhub.reports.range.useQuery({ siteId: branchId ?? 0, startDate: comparisonStartDate, endDate: comparisonEndDate }, { enabled: comparisonPeriodEnabled && scope === "branch" });
   const comparisonPeriodAllQuery = trpc.powerhub.reports.allBranchesRange.useQuery({ siteId: branchId ?? 0, startDate: comparisonStartDate, endDate: comparisonEndDate }, { enabled: comparisonPeriodEnabled && scope === "all" && canUseAllBranches });
   const comparisonBranchQuery = trpc.powerhub.reports.range.useQuery({ siteId: alternateBranchId ?? 0, startDate, endDate }, { enabled: comparisonBranchEnabled });
-  const comparisonActiveQuery = comparisonMode === "branch" ? comparisonBranchQuery
-    : scope === "all" ? comparisonPeriodAllQuery : comparisonPeriodBranchQuery;
+  const comparisonActiveQuery = comparisonMode === "branch" && canCompareBranches ? comparisonBranchQuery
+    : scope === "all" && canUseAllBranches ? comparisonPeriodAllQuery : comparisonPeriodBranchQuery;
   const comparisonReport = hasAuthoritativeServerRead(comparisonActiveQuery)
     ? comparisonActiveQuery.data as FinancialReport | undefined
     : undefined;
@@ -176,7 +176,7 @@ export default function ReportsPage() {
     check: checkComparisonBranchRevision,
     realtimeTopic: isExplicitAuthorizationDenial(comparisonBranchRevisionQuery.error) ? null : comparisonBranchRevisionQuery.data?.realtimeTopic,
   });
-  const comparisonScopeName = comparisonMode === "branch" ? sitesQuery.data?.find((site) => site.id === alternateBranchId)?.name ?? "الفرع المقارن" : `${scopeName} — ${comparisonStartDate} إلى ${comparisonEndDate}`;
+  const comparisonScopeName = comparisonMode === "branch" && canCompareBranches ? tenantSites.find((site) => site.id === alternateBranchId)?.name ?? "الفرع المقارن" : `${scopeName} — ${comparisonStartDate} إلى ${comparisonEndDate}`;
   const brandingQuery = trpc.powerhub.reportBranding.get.useQuery({ siteId: branchId ?? 0 }, { enabled: Boolean(branchId && isAuthenticated) });
   const brandingMutation = trpc.powerhub.reportBranding.update.useMutation({ onSuccess: async () => { await brandingQuery.refetch(); toast.success("تم تحديث هوية التقرير الرسمية."); }, onError: (error) => toast.error(error.message) });
 
