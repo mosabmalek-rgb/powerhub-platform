@@ -1,5 +1,18 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B4.11 source-first correction readiness
+
+- Verified the previous B5.6 head `5318516555f8d4e6f39af76364c6e74584227edd` passed **all 4 CI workflows**, with a SHA-matched READY Vercel Preview. PR #359 remained Draft, unmerged. Staging retained exactly 25 GL entries / 51 lines and no permanent cross-site operations or eliminations.
+- Inspected posted GL and the existing `powerhub_financial_accrual_journal_reverse` + `powerhub_financial_gl_post_accrual` functions. An approved reversal must originate in the operational accrual subledger, be independently approved, and then post into GL. An unrestricted generic GL reversal would break operational/source-to-GL integrity.
+- Applied and registered Staging migration `20261112133754_powerhub_financial_b411_source_backed_correction_readiness.sql`. It provides **read-only**, service-role-only, tenant/site/period-bounded `powerhub_financial_gl_correction_readiness` with 1–50 row keyset pagination. It recognizes already reversed entries, reversal entries, insufficient opening evidence, unsupported generic corrections, intact approved accrual sources that are eligible for a *source* reversal, pending source reversals, and source-vs-GL fingerprint mismatches. It **never posts GL entries** or issues financial certification.
+- Guarded actual approved accrual details against original GL fingerprint and exact journal sides/amounts, as well as period/site scope. A reversal available indication is **not** financial approval; the existing maker/checker source workflow remains compulsory.
+- `B411_SOURCE_FIRST_CORRECTION_READINESS_PASS_ROLLBACK` passed: original synthetic accrual GL 169 correctly reports `ALREADY_REVERSED` with linked GL 170; GL 170 reports `REVERSAL_ENTRY_IMMUTABLE`; main site keyset paging is limited; 51-row requests are rejected; 25 GL entries and 51 lines remained unchanged.
+- Added protected, `viewFinancialReports`-authorized tRPC `financialGLCorrectionReadiness` with strict response validation; added read-only `FinancialGLCorrectionReadinessWorkspace` to financial audit UI. The user cannot perform generic GL posting from this view. Registered CI contracts for migration, rollback SQL, endpoint and UI.
+- **Not completed by B4.11:** a generalized source-specific correction process for all invoices, payments, supplier, stock, and cash operations; two distinct authenticated users confirming corrections in the browser; year-end close / tax review. The B4 approval gate remains open, with `NOT_CERTIFIED` retained.
+
+---
+
+
 ## 2026-11-12 — B5.6 reference-prefix performance evidence
 
 - Confirmed PR #359 was Draft/unmerged with four successful CI workflows and a SHA-matched READY Vercel Preview at `1cf1359c5863191a53c7f877b1b65ea28938573e` **before** new performance commits.
