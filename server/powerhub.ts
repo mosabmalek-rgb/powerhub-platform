@@ -5637,7 +5637,7 @@ export const powerhubRouter = router({
              "MATCHED_DUE_FROM_TO_PRELIMINARY_ONLY","BLOCKED_INTEGRITY"].includes(String(proof.status)))
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
           message:"دليل الاستبعاد بين الفروع غير متسق، لم تُعرض نتائج غير متحقق منها."});
-      return {...v,interSiteGLProof:proof};
+      return {...v,interSiteGLProof:proof} as Record<string,unknown>;
     }),
     // B2: management workspace. A server-side, tenant-scoped snapshot only.
     // ALL active branches must be report-visible before revealing policy details.
