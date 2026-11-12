@@ -514,3 +514,27 @@ The original B5 synthetic workflow also verifies a signed negative suite: reusin
 **Still open before financial B certification:** an atomic maker/checker posted-GL supplier-payment correction workflow (B4), actual purchase/warehouse receipt/fuel tank and maintenance life-cycle load, authenticated end-to-end tRPC request p95/p99, independent B2/B3 browser-role acceptance, and formally approved accounting evidence. `NOT_CERTIFIED` remains the correct status.
 
 This work generated **no Vercel preview** and did not change either Staging or Production data; PR #359 remains Draft.
+
+---
+
+## 2026-11-12 — B5.10 single-branch supplier diesel purchase-to-cash synthetic gate
+
+Added a complete transaction-chain synthetic workload for the **actual warehouse/supplier purchase and payment RPCs**, in existing CI's disposable `inventory_purchase_receiving_test` PostgreSQL database, not on Staging or Production. It tests a diesel inventory item (`PUR-WF-ITEM-01`), warehouse (`PUR-WF-MAIN`) and supplier (`PUR-WF-SUP`).
+
+Implementation:
+- `supabase/tests/b5_disposable_supplier_purchase_load_prepare.sql`: a strict disposable DB gate, actual source-backed `powerhub_inventory_create_purchase`, `powerhub_inventory_confirm_purchase`, `powerhub_inventory_receive_purchase`, `powerhub_inventory_record_supplier_payment`, four-backend measurement capture.
+- `scripts/b5-disposable-supplier-purchase-load.sh`: 4 SQL sessions x 25 complete purchase/receive/pay requests.
+- `supabase/tests/b5_disposable_supplier_purchase_load_assertions.sql`: 99 first-time posted purchase/payment/warehouse receipt/stock-movement/supplier-ledger/cash-withdrawal/allocation records with exact source links, one identical replay, 1.5 amount once and all other amounts 1.00, 99.5 total purchasing and cash outflow, permission boundary, forged-replay negative test.
+- Integrated in `.github/workflows/reading-cycle-sql-integration.yml`, after all existing disposable inventory source tests. No new preview.
+
+First verified successful run: `43267053053` on commit `670c94347f57a50a328cac8a9278b94a22390fa8`. Exact output:
+
+```text
+B5_SUPPLIER_PURCHASE_RECEIPT_PAYMENT_DISPOSABLE_FIXTURE_READY
+100|8.95|133.65|162.79|163.650
+B5_SUPPLIER_100_PURCHASE_RECEIPT_PAYMENT_99_FIRST_1_REPLAY_PASS
+```
+
+These five columns are: total calls, sample p50 ms, sample p95 ms, sample p99 ms, and maximum ms of the **full SQL purchase-confirm-stock receive-payment transaction chain** (not a single isolated RPC). These observed values are not authenticated API/browser production latency or formal SLA. A subsequent forged-idempotency-key negative suite was added and must pass on the final head before certifying the updated gate. The current production GL-posted supplier reversal remains **fail-closed** and is **not** solved by this load test.
+
+Phase B continues to require B4.14+ original-GL-linked and independently approved atomic supplier payment correction, final B2/B3 authenticated browser-role acceptance, and complete human-reviewed accounting certification. `NOT_CERTIFIED` must remain. No Production deploy, merge or preview.
