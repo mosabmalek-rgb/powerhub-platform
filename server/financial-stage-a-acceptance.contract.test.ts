@@ -89,6 +89,12 @@ const b4DocumentSourceSql = readFileSync(
 const b4DocumentSourceRegression = readFileSync(
   "docs/security/sql/pr359-financial-b4-document-source-audit-rollback.sql", "utf8",
 );
+const b31TransferProofSql = readFileSync(
+  "supabase/migrations/20261110225954_powerhub_financial_b3_warehouse_transfer_source_proof.sql","utf8",
+);
+const b32TransferFaultSql = readFileSync(
+  "docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql","utf8",
+);
 const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
 const financialCentralB2Ui = readFileSync("client/src/components/finance/FinancialCentralAllocationWorkspace.tsx","utf8");
 const technicalFixtureA35 = readFileSync(
@@ -729,6 +735,22 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b3TenantRollupCheck).toContain("ROLLBACK;");
     expect(runtime).toContain("financialGLTenantRollup: protectedProcedure");
     expect(runtime).toContain('v.companyAccountsIncluded!==false');
+  });
+
+  it("classifies paired warehouse transfers separately from inter-site GL eliminations", () => {
+    expect(b31TransferProofSql).toContain("intraSiteWarehouseTransferMismatchCount");
+    expect(b31TransferProofSql).toContain("INTRA_SITE_STOCK_TRANSFER_NOT_GL_ELIMINATION");
+    expect(b31TransferProofSql).toContain("warehouseTransfersPaired");
+    expect(b31TransferProofSql).toContain("interSiteTransfersReviewed',false");
+    expect(b3TenantRollupCheck).toContain("intraSiteWarehouseTransferMismatchCount");
+    expect(b3TenantRollupCheck).toContain("B3_PASS_ROLLBACK_ONLY");
+    expect(b32TransferFaultSql).toContain("B3_2_MISMATCH_NOT_DETECTED");
+    expect(b32TransferFaultSql).toContain("B3_2_FAULT_INJECTION_PASS_ROLLBACK");
+    expect(b32TransferFaultSql).toContain("ROLLBACK;");
+    expect(b5EngineeringGate).toContain("intraSiteWarehouseTransferMismatchCount");
+    expect(b5EngineeringGate).toContain("warehouseTransfersPaired");
+    expect(glAuditUiA45).toContain("فروقات اقتران الخروج/الدخول");
+    expect(glAuditUiA45).toContain("عدم وجود مرشحات لا يُثبت إجراء تسويات مستقلة");
   });
 
   it("renders B3 rollup only on demand with explicit non-certification", () => {
