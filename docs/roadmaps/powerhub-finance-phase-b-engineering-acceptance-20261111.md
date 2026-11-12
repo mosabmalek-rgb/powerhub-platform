@@ -631,3 +631,16 @@ Phase B continues to require B4.14+ original-GL-linked and independently approve
 ### Final closure guard
 
 **Phase B engineering work is substantially advanced, but full operational/browser acceptance is OPEN and financial statements remain `NOT_CERTIFIED`.** No actual human approval is implied by synthetic SQL identities. Keep PR #359 Draft and unmerged, and do not publish Production until the user explicitly authorizes it and unresolved acceptance checks are satisfied.
+
+
+---
+
+## 2026-11-12 — Owner acceptance exception: two-account Preview test waived
+
+**Decision (explicit owner instruction):** Do not execute the live Preview test using two independently authenticated user accounts as a Phase B closure prerequisite. Record this **WAIVED_BY_OWNER / NOT_EXECUTED**, never PASS. This waiver is limited to the *manual two-account test on the new Vercel Preview*; it is **not** authorization to remove, relax, or bypass runtime maker/checker controls, tenant/site scope checks, independent approval, permissions, RLS, audit logs, idempotency, or source-backed financial verification.
+
+- Existing SQL synthetic dual-actor, concurrency, scope/isolation and rollback tests; React mocked-transport UX tests; and server/DB guard tests continue to run and remain mandatory CI gates.
+- The absence of a live two-account Preview session is an **accepted residual operational risk**: real authentication/cookie/session/route behavior and human maker/checker handoff have not been demonstrated end-to-end. Do not claim that behavior was tested or certified.
+- Latest completed pre-waiver verification: PR #359 head `dced28f8ec513391a4501f8ada8d1c9298b16e58`, 5/5 GitHub workflows successful on the same SHA, Vercel Preview deployment `dpl_22hmbRtDLYRH2zL8b9GjCS6UT8Lx` READY with that exact SHA. Staging B4.16 migration and rollback evidence previously recorded.
+- **Remaining Phase B gates unaffected:** validate Preview runtime Supabase frontend/service-role destination without exposing secrets; record HTTP end-to-end B5 network-inclusive p50/p95/p99 under representative synthetic workload; complete any outstanding reconciliation/fail-closed audit evidence and final engineering acceptance record. Independent accounting review and documentary approval remain separate and `NOT_CERTIFIED` until genuinely obtained.
+- Keep PR #359 Draft/unmerged, no Production release, no genuine SMS or money movements, no permanent artificial financial approvals. The waiver must never be interpreted as a security exception or financial accounting certification.
