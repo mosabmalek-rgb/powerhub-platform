@@ -644,3 +644,28 @@ Phase B continues to require B4.14+ original-GL-linked and independently approve
 - Latest completed pre-waiver verification: PR #359 head `dced28f8ec513391a4501f8ada8d1c9298b16e58`, 5/5 GitHub workflows successful on the same SHA, Vercel Preview deployment `dpl_22hmbRtDLYRH2zL8b9GjCS6UT8Lx` READY with that exact SHA. Staging B4.16 migration and rollback evidence previously recorded.
 - **Remaining Phase B gates unaffected:** validate Preview runtime Supabase frontend/service-role destination without exposing secrets; record HTTP end-to-end B5 network-inclusive p50/p95/p99 under representative synthetic workload; complete any outstanding reconciliation/fail-closed audit evidence and final engineering acceptance record. Independent accounting review and documentary approval remain separate and `NOT_CERTIFIED` until genuinely obtained.
 - Keep PR #359 Draft/unmerged, no Production release, no genuine SMS or money movements, no permanent artificial financial approvals. The waiver must never be interpreted as a security exception or financial accounting certification.
+
+
+---
+
+## 2026-11-12 — Preview environment connectivity and bounded HTTP acceptance (read-only)
+
+- Author confirmed the branch's environment variables were configured. No sensitive values were decrypted or printed.
+- The tested preview is deployment `dpl_22hmbRtDLYRH2zL8b9GjCS6UT8Lx` at `https://powerhub-platform-4r57fqbmc-mosabmalek-rgb.vercel.app`, state `READY`, deployed code SHA `dced28f8ec513391a4501f8ada8d1c9298b16e58`. The intervening commit `48aaec56ef0299f4a8bc37ae211ee3fe77ac619c` changed the acceptance document only; it is NOT the deployment's exact SHA.
+- From an isolated short-lived Vercel Sandbox (`sbx_R5Fd7es7ndyIdW2KOPahaDjVPrTX`, `sin1`, outbound network restricted to this Preview hostname), live HTTP GET checks returned:
+  - `/api/health`: HTTP 200, `status=ok`.
+  - `/api/ready`: HTTP 200, `application=true`, `supabaseConfig=true`, `supabaseConnectivity=true`; the health path verifies the publishable-key connection, **not** privileged service-role transactions.
+  - `/api/trpc/powerhub.reports.financialSupplierPaymentCorrectionPending` without authentication: HTTP 401, tRPC `UNAUTHORIZED`; no financial record was returned.
+- Inspected actual delivered JavaScript asset `/assets/supabase-la8UqDtN.js`, without disclosing any keys. Its compiled client Supabase URL is `https://iyuryuhaylhisjfcrwkz.supabase.co`, the same Staging project as the branch's plain `SUPABASE_URL`. Source `server/supabase-admin.ts` also has a fail-closed Preview origin-mismatch check. The sensitive service-role value was **not** read or independently authenticated in this exercise.
+- Performed bounded, cache-disabled read-only GET requests, `24` measured samples on each of three routes (`72/72` expected statuses), at `4` concurrent requests, measuring the full external HTTP round trip on the same Sandbox:
+
+| HTTP GET target (all synthetic/no sign-in) | Accepted / attempted | p50 (ms) | sample p95 (ms) | sample p99 (ms) | max (ms) |
+|---|---:|---:|---:|---:|---:|
+| `/api/health` 200 | 24/24 | 32.18 | 772.34 | 982.63 | 982.63 |
+| `/api/ready` 200 | 24/24 | 63.01 | 156.20 | 846.72 | 846.72 |
+| unauthenticated correction-queue 401 | 24/24 | 24.05 | 42.88 | 61.19 | 61.19 |
+
+- These are **read-only availability and authentication-denial latencies**, not authenticated finance mutation latencies or a B5 financial API SLO. No financial mutation was attempted; the prior owner waiver explicitly covers the *two independent Preview accounts* test only.
+- Verified unchanged Staging tenant-1 baseline afterward: `25` GL entries, `51` GL lines, `0` permanent supplier corrections, `0` B2 central policies, `0` B3 elimination records; B4.16 stored SQL MD5 remains `3b542841326a7bfa1ab2d37ed73f11e2`. Cash audit remains `LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED`. No financial certification was generated.
+- Sandbox was stopped after the test; no further preview deployment, merge, Production action, external SMS, or real money movement was performed.
+- **Outstanding B5 engineering performance gate:** an explicitly scoped, non-production, authenticated financial HTTP workload with representative data and network-inclusive p50/p95/p99; its absence must be recorded as `NOT_EXECUTED`, not as PASS. The two-user manual Preview test remains `WAIVED_BY_OWNER`. Accounting approval remains `NOT_CERTIFIED`.
