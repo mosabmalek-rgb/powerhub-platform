@@ -31,6 +31,8 @@ INSERT INTO public.tenant_members VALUES
  (901,9903,true,'active'),(901,9904,true,'active'),(902,9910,true,'active');
 INSERT INTO public.payroll_runs(id,tenant_id,site_id,period,status,created_by_user_id)
 SELECT 10000+n,901,9101,'2026-11','draft',9901 FROM generate_series(1,400) AS n;
+INSERT INTO public.payroll_runs(id,tenant_id,site_id,period,status,created_by_user_id)
+VALUES (10401,901,9101,'2026-11','draft',9901);
 
 CREATE TABLE public.b5_payroll_samples(
  worker integer NOT NULL CHECK(worker BETWEEN 1 AND 4),
