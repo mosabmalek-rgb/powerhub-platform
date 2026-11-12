@@ -10,11 +10,15 @@ describe("tenant subscription gate integration contract", () => {
     const resolverStart = source.indexOf("async function resolveSupabaseSiteAccessDetails");
     expect(resolverStart).toBeGreaterThanOrEqual(0);
     const resolverSource = source.slice(resolverStart);
-    expect(resolverSource).toContain("requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true })");
-    expect(resolverSource).toContain("Promise.all");
-    expect(resolverSource).toContain("tenant_members");
-    expect(resolverSource).toContain(".or(activeTenantMembershipOrFilter())");
-    expect(resolverSource).toContain("if (!membership || !isTenantMembershipUnexpired(membership))");
+    expect(resolverSource).toContain('"powerhub_site_access_snapshot"');
+    expect(resolverSource).toContain("const subscription = snapshot.subscription");
+    expect(resolverSource).toContain('subscription.status === "trial" || subscription.status === "active"');
+    expect(resolverSource).toContain('subscription?.status === "cancelled"');
+    expect(resolverSource).toContain("isTenantMembershipUnexpired(member)");
+    const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261113002000_powerhub_b520_site_access_single_snapshot.sql"), "utf8");
+    expect(migration).toContain("m.membership_status='active'");
+    expect(migration).toContain("m.expires_at>now()");
+    expect(migration).toContain("sub.ends_at DESC NULLS LAST");
   });
 
   it("keeps site listing and quota projections bound to unexpired memberships", () => {
