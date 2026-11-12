@@ -475,3 +475,42 @@ On commit `2f552d4f15463781ae3b37e10a517ab23e548462`, run `43259323547` complete
 **Scope and interpretation:** This is real execution of the actual database financial-account RPCs against **synthetic local data**. It does not include network, tRPC authorization middleware, browser rendering, SQL load at production volume, invoice payment approval, supplier purchasing, inventory fuel maintenance, or payroll workload percentages. It therefore **closes the artificial-account-movement concurrency smoke gate**, but not B5's full representative, authenticated financial transactional SLA. The 5-second p95 / 10-second p99 checks in this smoke test are test ceilings, not an agreed final product SLA.
 
 **Next needed:** a staged, synthetic, safe authenticated API workload for the other common transactions with idempotency and isolation; B4 source-backed posted supplier payment corrections; independent B2/B3 browser acceptance. Do not require actual customers, real payments or a production release to generate these fixtures. No preview was generated in this batch.
+
+
+---
+
+## 2026-11-12 — B5.9 synthetic source-RPC load (customer-free prelaunch acceptance)
+
+The platform is not launched, and authentic customer activity must **not** be a requirement for prelaunch financial engineering acceptance. Completed actual PostgreSQL RPC load tests on **disposable PostgreSQL 17 GitHub Actions service databases**, without Supabase Staging mutations, Vercel previews, SMS or genuine payments.
+
+### Implemented and passed on GitHub Actions
+
+The existing `.github/workflows/b5-synthetic-financial-load.yml` now covers four separate transactional workloads and their source-specific integrity assertions:
+
+1. **Company accounts** — 1,000 requests, 999 first-time operations, one identical idempotent replay; deposits, withdrawals and same-branch transfers. Four independent connections, linked operation/audit/transaction rows and cash/wallet balance reconciliation. 99.5% whole amounts and 0.5% one-decimal amounts.
+2. **Payroll approval** — 400 unique approvals, four identical replays, four independent workers, exactly one audit event per approved payroll. Explicitly rejected maker=self-checker, foreign-tenant and suspended approvers, wrong-site access and forged second-approver replays. A separate **two-reviewer race on the same payroll** proved exactly one winner and one conflict, with a single audit event. This is the actual `powerhub_approve_payroll` SQL migration, not a mock. No wages are paid.
+3. **Invoice collection** — 1,000 requests, **999 genuine DB inserts and one replay**, using the hardened `20261025101844_powerhub_payment_idempotency_replay_hardening.sql` `powerhub_create_payment` RPC. Verified paid invoice status and balances, exact one cash movement, exact one payment audit and offline operation ledger per source, tenant/site isolation, 99.5% whole amounts, 0.5% one-decimal amounts, forged-key rejection, over-collection rejection, cross-tenant denial and RPC browser ACL. This fixture does not use the legacy billing-test payment stub.
+4. **Classified expenses** — 1,000 requests, **999 real DB expense inserts and one replay**, using the actual classified/idempotent expense RPC migrations. Each expense creates exactly one linked company-account withdrawal and audit. Verified classification, source linkage, balance and exact replay, 99.5% whole and 0.5% one-decimal amounts, foreign-tenant rejection, overdraft rejection and browser ACL. These expense categories include fuel/maintenance but **are not a substitute for testing the inventory supplier-purchase, fuel-stock or maintenance-work-order lifecycle**.
+
+**Successful merged synthetic workflow execution**: GitHub run `43265368983`, commit `cd85936d1024ee90a75804317cae42407c1c4580`. Observed per-call database-level latency in the disposable runner (not an API/browser SLA):
+
+| Operation | Calls | p50 ms | sample p95 ms | sample p99 ms | Max ms |
+|---|---:|---:|---:|---:|---:|
+| Deposit | 600 | 1.49 | 2.57 | 304.20 | 407.645 |
+| Same-site account transfer | 100 | 1.71 | 3.55 | 5.47 | 5.608 |
+| Withdrawal | 300 | 1.43 | 2.21 | 30.21 | 326.474 |
+| Payroll approval + four replay calls | 404 | 0.12 | 0.43 | 1.46 | 2.663 |
+| Invoice collection | 1,000 | 1.03 | 2.12 | 11.68 | 30.296 |
+| Classified expense + linked account withdrawal | 1,000 | 2.71 | 6.25 | 26.16 | 115.079 |
+
+Note the **account-movement p99 outlier** in one workflow execution; do not summarize all queries as universally 2–5 ms or mark B5 certified based on brief synthetic runs. This is real PostgreSQL RPC processing, **not** authenticated tRPC/React/browser throughput nor a production-sized 250k dataset, and the observed sample p95/p99 are not service-level commitments.
+
+The original B5 synthetic workflow also verifies a signed negative suite: reusing a key with changed payload, overdrawing an account, cross-tenant invocation, and client-role direct function execution are denied with no side effects. The payroll same-run race additionally ensures a distinct reviewer cannot overwrite approval.
+
+### Engineering disposition
+
+**Closed now:** repeatable automated prelaunch database-level workload for common account movements, invoice collections, expenses, payroll approval (including real two-actor contention). No actual customers required.
+
+**Still open before financial B certification:** an atomic maker/checker posted-GL supplier-payment correction workflow (B4), actual purchase/warehouse receipt/fuel tank and maintenance life-cycle load, authenticated end-to-end tRPC request p95/p99, independent B2/B3 browser-role acceptance, and formally approved accounting evidence. `NOT_CERTIFIED` remains the correct status.
+
+This work generated **no Vercel preview** and did not change either Staging or Production data; PR #359 remains Draft.
