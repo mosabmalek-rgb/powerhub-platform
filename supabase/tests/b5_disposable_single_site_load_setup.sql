@@ -55,7 +55,7 @@ INSERT INTO public.company_account_sites VALUES(1,100,10),(1,200,10);
 CREATE TABLE public.b5_measurements(
  worker_id integer NOT NULL CHECK(worker_id BETWEEN 1 AND 4),
  backend_pid integer NOT NULL,
- iteration integer NOT NULL CHECK(iteration BETWEEN 1 AND 25),
+ iteration integer NOT NULL CHECK(iteration BETWEEN 1 AND 250),
  operation text NOT NULL CHECK(operation IN('deposit','withdrawal','transfer')),
  replayed boolean NOT NULL,
  transaction_id bigint NOT NULL,
@@ -79,10 +79,10 @@ DECLARE
  v_elapsed numeric;
 BEGIN
  IF current_database()<>'powerhub_b5_synthetic_load_test'
-   OR p_worker NOT BETWEEN 1 AND 4 OR p_iteration NOT BETWEEN 1 AND 25
+   OR p_worker NOT BETWEEN 1 AND 4 OR p_iteration NOT BETWEEN 1 AND 250
  THEN RAISE EXCEPTION 'B5_INVALID_DISPOSABLE_SCOPE' USING ERRCODE='22023'; END IF;
- -- 99 first-time operations and one exact idempotent replay out of 100.
- v_key_index:=CASE WHEN p_worker=4 AND p_iteration=25 THEN 1 ELSE p_iteration END;
+ -- 999 first-time operations and one exact idempotent replay out of 1,000.
+ v_key_index:=CASE WHEN p_worker=4 AND p_iteration=250 THEN 1 ELSE p_iteration END;
  v_operation:=CASE WHEN v_key_index%10<6 THEN 'deposit'
                    WHEN v_key_index%10<9 THEN 'withdrawal' ELSE 'transfer' END;
  v_key:=md5('B5-single-branch-synthetic:'||p_worker||':'||v_key_index)::uuid;
@@ -102,7 +102,7 @@ BEGIN
      'B5-SYN-'||p_worker||'-'||v_key_index,v_key);
  END IF;
  v_elapsed:=round(extract(epoch from clock_timestamp()-v_started)::numeric*1000,3);
- IF v_first IS NULL OR v_replayed IS DISTINCT FROM (p_worker=4 AND p_iteration=25)
+ IF v_first IS NULL OR v_replayed IS DISTINCT FROM (p_worker=4 AND p_iteration=250)
  THEN RAISE EXCEPTION 'B5_FIRST_POST_OR_REPLAY_MISMATCH'; END IF;
  INSERT INTO public.b5_measurements
    (worker_id,backend_pid,iteration,operation,replayed,transaction_id,elapsed_ms)
