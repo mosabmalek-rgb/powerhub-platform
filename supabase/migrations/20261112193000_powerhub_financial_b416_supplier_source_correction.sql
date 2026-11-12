@@ -819,6 +819,7 @@ DECLARE
  b public.financial_accrual_journals%ROWTYPE;
  n_original integer; n_reversal integer; n_linked integer; has_diff boolean;
  sha_original text; sha_reversal text;
+ v_supplier_payment_id bigint;
 BEGIN
  IF p_tenant_id IS NULL OR p_tenant_id<=0 OR p_site_id IS NULL OR p_site_id<=0
     OR p_original_id IS NULL OR p_original_id<=0 OR p_reversal_id IS NULL
@@ -951,13 +952,13 @@ $function$
        WHERE sl.tenant_id=p_tenant_id AND sl.site_id=p_site_id
        AND sl.id::text=o.source_id AND sl.entry_type='payment')
    THEN RETURN 'BLOCKED_INTEGRITY'; END IF;
-   SELECT sl.supplier_payment_id INTO n_original
+   SELECT sl.supplier_payment_id INTO v_supplier_payment_id
    FROM public.supplier_ledger_entries sl
    WHERE sl.tenant_id=p_tenant_id AND sl.site_id=p_site_id
      AND sl.id::text=r.source_id AND sl.entry_type='reversal';
-   IF n_original IS NULL OR
+   IF v_supplier_payment_id IS NULL OR
      public.powerhub_financial_supplier_payment_correction_proof(
-       p_tenant_id,p_site_id,n_original)<>'SOURCE_BACKED_REVERSAL_VALID'
+       p_tenant_id,p_site_id,v_supplier_payment_id)<>'SOURCE_BACKED_REVERSAL_VALID'
    THEN RETURN 'BLOCKED_INTEGRITY';END IF;
    RETURN 'SOURCE_BACKED_REVERSAL_VALID';
  END IF;
