@@ -12,6 +12,27 @@ const staff=read("client/src/pages/SettingsPage.tsx");
 const gl=read("client/src/components/finance/FinancialGLAuditPanel.tsx");
 const dashboard=read("client/src/pages/FinancialDashboardPage.tsx");
 
+describe("one-site subscription limit takes precedence",()=>{
+  it("forces effective single-site even if admin enabled and legacy branches remain",()=>{
+    const start=router.indexOf("export function resolveBranchPolicy(");
+    const end=router.indexOf("async function requireTenantMultiBranchEntitlement(",start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const implementation=router.slice(start,end);
+    expect(implementation).toContain("const maxBranches =");
+    expect(implementation).toContain("const isEnabled = maxBranches > 1 &&");
+    expect(implementation).toContain("isEnabledOverride ?? (platformEnabled && planLimit > 1)");
+  });
+  it("does not unlock finance or role grants based on legacy multi-site rows",()=>{
+    expect(router).toContain("enabled:policy.isEnabled===true && policy.maxBranches>1");
+    expect(router).toContain("if(policy.isEnabled!==true || policy.maxBranches<=1)");
+    expect(menu).toContain('shouldShowBranchManagement(branchPolicy.data, displayUser.role)');
+    expect(reports).toContain("const canUseAllBranches = multiBranchEnabled");
+    expect(company).toContain("multiBranchAccess.data?.enabled===true");
+    expect(staff).toContain('allBranches: multiBranchEnabled && data.get("allBranches") === "on"');
+  });
+});
+
 describe("subscription-controlled multi-branch surfaces",()=>{
   it("sources eligibility from tenant's platform, package and override policies, not site count alone",()=>{
     const route=router.slice(router.indexOf("multiBranchAccess: protectedProcedure"),router.indexOf("branchPolicy: protectedProcedure"));
