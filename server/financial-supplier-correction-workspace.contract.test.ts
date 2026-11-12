@@ -33,5 +33,9 @@ describe("B4.16 supplier payment documented correction workspace",()=>{
     expect(panel).toContain("FinancialSupplierPaymentCorrectionWorkspace");
     expect(panel).toContain("تصحيح القيد المحاسبي للمورد");
     expect(panel).toContain("canReverseSupplierPayments");
+    expect(panel).toContain("canViewSupplierCorrectionFinancialReports");
+    expect(panel).toContain("canManageSupplierPayments&&canReverseSupplierPayments&&canViewSupplierCorrectionFinancialReports");
+    const inventoryPage=readFileSync("client/src/pages/InventoryWorkspacePage.tsx","utf8");
+    expect(inventoryPage).toContain("canViewSupplierCorrectionFinancialReports={canViewSupplierCorrectionFinancialReports}");
   });
 });
