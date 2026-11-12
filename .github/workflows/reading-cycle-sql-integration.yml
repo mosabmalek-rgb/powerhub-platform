@@ -363,6 +363,8 @@ jobs:
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_stocktake_count_concurrency.sql
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/migrations/20261022090000_powerhub_inventory_foreign_key_indexes.sql
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_foreign_key_indexes.sql
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname inventory_purchase_receiving_test --set ON_ERROR_STOP=1 --file supabase/tests/b5_disposable_supplier_purchase_load_prepare.sql
+          PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=inventory_purchase_receiving_test bash scripts/b5-disposable-supplier-purchase-load.sh
 
       - name: Verify supplier purchasing, receipts, returns, payments, and ledger are branch-scoped for direct reads
         env:
