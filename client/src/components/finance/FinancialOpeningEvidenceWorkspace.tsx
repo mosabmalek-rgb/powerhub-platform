@@ -102,12 +102,12 @@ export default function FinancialOpeningEvidenceWorkspace({
         <div className="mt-2 space-y-2">{lineEvidenceStatus.map(item=><div key={item.line.id}
           className="rounded border border-white/10 p-2">
           <p>سطر {item.line.id} — حساب {item.line.accountCode} —
-            {item.line.side==="debit"?" مدين ":" دائن "}{item.line.amount.toFixed(2)} شيكل</p>
+            {item.line.side==="debit"?" مدين ":" دائن "}{item.line.amount.toLocaleString("ar", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} شيكل</p>
           <p className={item.matched?"text-slate-300":"text-amber-200"}>
             {item.matched?"مستندات محفوظة ومراجعة بالمبلغ المطلوب":"ينقص مستند محفوظ ومراجع أو يوجد اختلاف في المبلغ"}
             ؛ الأدلة {item.totalCount}، الحيازة {item.custodyCount}،
             المراجعات المقبولة ذات الحيازة {item.verifiedCount}،
-            مجموعها {item.attestedTotal.toFixed(2)} شيكل.
+            مجموعها {item.attestedTotal.toLocaleString("ar", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} شيكل.
           </p>
         </div>)}</div>
       </div>
@@ -121,7 +121,7 @@ export default function FinancialOpeningEvidenceWorkspace({
             }}>
             <option value="">اختر السطر</option>
             {workspace.data.lines.map(l=><option key={l.id} value={l.id}>
-              {l.accountCode} — {l.side==="debit"?"مدين":"دائن"} — {l.amount.toFixed(2)}
+              {l.accountCode} — {l.side==="debit"?"مدين":"دائن"} — {l.amount.toLocaleString("ar", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
             </option>)}
           </select>
         </label>
