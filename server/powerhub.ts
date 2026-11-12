@@ -5217,6 +5217,25 @@ export const powerhubRouter = router({
         ||(result.status==="posted")!==result.alreadyPosted)
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
           message:"لم تُؤكّد قاعدة البيانات طلب تصحيح المورد."});
+      // The RPC response is not financial proof by itself. Read back the
+      // exact tenant/site, maker, idempotency key and source document.
+      const {data:stored,error:storedError}=await supabaseAdmin()
+        .from("financial_supplier_payment_corrections")
+        .select("id,tenant_id,site_id,payment_id,requested_by_user_id,operation_key,reason,status")
+        .eq("id",Number(result.correctionId))
+        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+        .eq("payment_id",input.paymentId).maybeSingle();
+      if(storedError||!stored
+        ||Number(stored.id)!==Number(result.correctionId)
+        ||Number(stored.tenant_id)!==access.tenantId
+        ||Number(stored.site_id)!==input.siteId
+        ||Number(stored.payment_id)!==input.paymentId
+        ||Number(stored.requested_by_user_id)!==ctx.user.id
+        ||stored.operation_key!==input.operationKey
+        ||stored.reason!==input.reason
+        ||stored.status!==result.status)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر إثبات تطابق طلب التصحيح مع المستند والمُعدّ؛ تحقّق من حالة الطلب قبل إعادة المحاولة."});
       return result as {
         correctionId:number;status:"pending_review"|"posted";
         alreadyRequested:boolean;alreadyPosted:boolean;
@@ -5251,6 +5270,37 @@ export const powerhubRouter = router({
         ||result.accountingCertification!=="NOT_CERTIFIED")
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
           message:"لا يوجد إثبات صالح لاكتمال قيد تصحيح المورد."});
+      // A returned GL entry id is not enough to report success. Require
+      // the persisted independent reviewer, matching reversal IDs, and
+      // source-backed ledger/cash/GL proof after the atomic database commit.
+      const {data:posted,error:postedError}=await supabaseAdmin()
+        .from("financial_supplier_payment_corrections")
+        .select("id,tenant_id,site_id,payment_id,status,approved_by_user_id,reversal_gl_entry_id,refund_transaction_id,reversal_supplier_ledger_entry_id")
+        .eq("id",input.correctionId)
+        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+        .eq("status","posted").maybeSingle();
+      if(postedError||!posted
+        ||Number(posted.id)!==input.correctionId
+        ||Number(posted.tenant_id)!==access.tenantId
+        ||Number(posted.site_id)!==input.siteId
+        ||Number(posted.approved_by_user_id)!==ctx.user.id
+        ||Number(posted.reversal_gl_entry_id)!==Number(result.entryId)
+        ||!Number.isSafeInteger(Number(posted.payment_id))||Number(posted.payment_id)<=0
+        ||!Number.isSafeInteger(Number(posted.refund_transaction_id))
+        ||Number(posted.refund_transaction_id)<=0
+        ||!Number.isSafeInteger(Number(posted.reversal_supplier_ledger_entry_id))
+        ||Number(posted.reversal_supplier_ledger_entry_id)<=0)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم تُثبَت سلامة القيد المعكوس والاسترداد بعد الاعتماد؛ أعِد فحص حالة الدفعة."});
+      const {data:sourceProof,error:proofError}=await supabaseAdmin().rpc(
+        "powerhub_financial_supplier_payment_correction_proof",{
+          p_tenant_id:access.tenantId,
+          p_site_id:input.siteId,
+          p_payment_id:Number(posted.payment_id),
+        });
+      if(proofError||sourceProof!=="SOURCE_BACKED_REVERSAL_VALID")
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"إثبات عكس GL والمورد وحركة الاسترداد غير مكتمل؛ لا يمكن إعلان نجاح الاعتماد."});
       return result as {
         correctionId:number;status:"posted";entryId:number;
         alreadyPosted:boolean;accountingCertification:"NOT_CERTIFIED";
