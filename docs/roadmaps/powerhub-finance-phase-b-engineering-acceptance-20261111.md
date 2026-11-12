@@ -1,5 +1,17 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B3.5 verifiable transfer-source provenance
+
+- Independently verified current PR head before changes: `2d4697199ce825982ea631a649bab480f9cb5a05` with 4/4 successful GitHub workflows and a matching READY Vercel Preview.
+- Discovered the B3 transfer source-pair check did not validate source operation MD5 payload, creator identity, transaction descriptions, mapped account site eligibility, site status, or movement-period consistency. A synthetically paired transfer with arbitrary MD5 could pass the pair-integrity flag even though it remained uncertified.
+- Applied and registered additive Staging migration `20261112111111_powerhub_financial_b35_transfer_source_provenance_hardening`. The new B3 checker compares actual RPC-aligned MD5 payload across permissible input decimal scales (0–6), both actor IDs, account-site maps and movement dates; it fails closed into `INVALID_OPERATIONAL_PAIR_BLOCKS_ELIMINATION`. It **never creates GL entries, never certifies consolidation and never accepts fabricated human review**.
+- Ran four SQL test scenarios against the applied Staging function, all passing in `BEGIN/ROLLBACK`: `B3_3_POSITIVE_CROSS_SITE_SOURCE_BLOCKED_PASS_ROLLBACK`, `B3_4_REAL_RPC_TRANSFER_TYPES_PASS_ROLLBACK`, `B3_3_INVALID_TRANSFER_PAIR_PASS_ROLLBACK`, and new `B3_5_FORGED_TRANSFER_SOURCE_BLOCKED_PASS_ROLLBACK`. The positive synthetic fixture now has a valid source hash; a forged hash is explicitly detected.
+- Committed migration, positive/negative regressions and CI contract assertions to the existing Draft PR #359. **New commit CI and SHA-matched Preview must be verified separately.**
+- Open gates unchanged: real independently authorized inter-site due-to/due-from elimination posting and review, authorized append-only correction of unsupported 2,000 ILS site-2 opening, B2 two-login authenticated browser flow and representative sustained performance tests. Accounting certification remains `NOT_CERTIFIED`. No Production changes, PR unmerged.
+
+---
+
+
 **Date:** 2026-11-11 (Asia/Gaza)  
 **Pull request:** #359, Draft, **not merged**  
 **Environment:** Staging only, all records are prelaunch synthetic test data  
