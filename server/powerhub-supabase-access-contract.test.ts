@@ -53,8 +53,11 @@ describe("Staff profile server-access boundary", () => {
     const start = powerhubSupabaseSource.indexOf("async function resolveSupabaseSiteAccessDetails");
     const end = powerhubSupabaseSource.indexOf("export async function resolveSupabaseSiteAccess(", start);
     const helper = powerhubSupabaseSource.slice(start, end);
-    expect(helper).toContain('.is("archived_at", null)');
-    expect(helper).toContain("isSuspended(new Date()");
+    const migration = readFileSync(join(here, "..", "supabase", "migrations", "20261113002000_powerhub_b520_site_access_single_snapshot.sql"), "utf8");
+    expect(helper).toContain("snapshot.staff_profiles");
+    expect(helper).toContain("isSuspended(now");
+    expect(migration).toContain("sp.archived_at IS NULL");
+    expect(migration).toContain("sp.is_active");
   });
 
   it("must omit archived and suspended profiles from the accessible-site list", () => {
@@ -82,7 +85,8 @@ describe("Platform role policy consistency for inventory reads", () => {
   it("uses policy-filtered capability resolution instead of the unfiltered site resolver", () => {
     expect(powerhubSupabaseSource).toContain("export async function resolveSupabaseSiteCapabilityAccess");
     expect(powerhubSupabaseSource).toContain("export async function requireSupabaseSiteAnyCapability");
-    expect(powerhubSupabaseSource).toContain('.in("capability", grantedCapabilities)');
+    expect(powerhubSupabaseSource).toContain("allowedCapabilities: grantedCapabilities.filter((capability) =>");
+    expect(powerhubSupabaseSource).toContain("!access.deniedCapabilities.includes(capability)");
     expect(inventoryRouterSource).not.toContain("resolveSupabaseSiteAccess");
     expect(inventoryRouterSource).toContain("requireSupabaseSiteAnyCapability");
     expect(inventoryRouterSource).toContain("resolveSupabaseSiteCapabilityAccess");
@@ -92,8 +96,10 @@ describe("Platform role policy consistency for inventory reads", () => {
     const start = powerhubSupabaseSource.indexOf("export async function resolveSupabaseSiteCapabilityAccess");
     const end = powerhubSupabaseSource.indexOf("export async function requireSupabaseSiteAnyCapability", start);
     const resolver = powerhubSupabaseSource.slice(start, end);
-    expect(resolver).toContain('if (error) {');
-    expect(resolver).toContain('code: "INTERNAL_SERVER_ERROR"');
+    const siteResolverStart = powerhubSupabaseSource.indexOf("async function resolveSupabaseSiteAccessDetails");
+    const siteResolver = powerhubSupabaseSource.slice(siteResolverStart, start);
+    expect(siteResolver).toContain('if (error || !data || typeof data !== "object"');
+    expect(siteResolver).toContain('code: "INTERNAL_SERVER_ERROR"');
     expect(resolver).toContain("if (access.isPlatformAdmin) return { ...access, allowedCapabilities: capabilities }");
     expect(resolver).toContain("resolveSupabaseSiteAccessDetails(userId, siteId)");
   });
