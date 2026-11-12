@@ -497,6 +497,14 @@ export default function FinancialGLAuditPanel({
             فروقات اقتران الخروج/الدخول: {numberText(b3.intraSiteWarehouseTransferMismatchCount)}.</p>
           <p>حالات تحويل بين الفروع مرشحة من GL: {numberText(b3.interSiteTransferCandidateCount)}.
             عدم وجود مرشحات لا يُثبت إجراء تسويات مستقلة أو اكتمال القوائم الموحدة.</p>
+          <p>عمليات تحويل حسابات الشركة الموثقة: {numberText(b3.companyTransferSourceOperationCount)}؛
+            منها تحويلات تشغيلية بين فرعين: {numberText(b3.crossSiteOperationalTransferCount)}؛
+            بقيمة {b1Amount(b3.crossSiteOperationalTransferAmount)} شيكل؛
+            أزواج غير متطابقة: {numberText(b3.invalidOperationalTransferPairCount)}.</p>
+          {numeric(b3.invalidOperationalTransferPairCount)!==0 ||
+           numeric(b3.crossSiteOperationalTransferCount)!==0
+            ? <p role="alert" className="text-rose-200">توجد تحويلات تحتاج مطابقة مستقلة من المصدرين مع قيود GL قبل أي اعتماد.</p>
+            : <p className="text-xs text-amber-200">لا توجد تحويلات بين فروع مثبتة في مصادر التشغيل الاختبارية الحالية؛ هذا لا يعني اعتماد التسويات.</p>}
           {numeric(b3.intraSiteWarehouseTransferMismatchCount)!==0
             ? <p role="alert" className="text-rose-200">توجد تحويلات مخزنية تحتاج تدقيقًا مستقلًا قبل أي اعتماد.</p> : null}
           <p className="text-xs text-amber-200">التحويلات بين الفروع والحسابات المشتركة لم تُطابق مستقلاً. التوزيع المركزي والضرائب والاعتماد النهائي غير مكتمل.</p>
