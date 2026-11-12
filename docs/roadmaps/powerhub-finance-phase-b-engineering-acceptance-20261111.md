@@ -100,6 +100,18 @@
 
 ---
 
+## 2026-11-12 — B4.7 cash-transfer correction, B4.8 opening reversal simulation, and operational amount display
+
+- Browser validation is user-reported; real independent two-user browser-role coverage remains subject to scope confirmation.
+- **B4.7:** The real company-account transfer RPC creates `transfer_out` and `transfer_in`. B4 previously called them unknown and did not include their signed operational cash/wallet effects. The Staging function now recognizes these as known types, computes signed source balances, and returns `BLOCKED_UNPOSTED_ACCOUNT_TRANSFER` for both cash and wallet until a supported GL journal exists. Test `B4_7_TRANSFER_RECOGNIZED_BUT_GL_BLOCKED_ROLLBACK_PASS` passed with a synthetic 17.33 ILS RPC transfer. B5 gate remained `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- Staging recorded two generated migrations with the same B4.7 name, versions `20261112094941` and `20261112095117`. Both are represented by idempotent final-definition SQL files in Git. This duplicate sequence is explicitly tracked for future migration hygiene; do not rewrite applied migration history silently.
+- **B4.8:** A posted synthetic opening cannot be voided by the draft-only void RPC. An append-only correction/reversal was simulated for original GL entry 168 (site 9000000000099, 2,000 ILS), with exact opposite lines and `reverses_entry_id=168`. This eliminated the *numeric* cash difference but did not certify source evidence. Test `B4_8_POSTED_TEST_OPENING_REVERSAL_SIMULATION_PASS` passed inside `BEGIN/ROLLBACK`. No permanent GL reversal or fabricated authorization was saved. A production-ready controlled correction workflow remains outstanding.
+- **Display policy from user:** operational money amounts usually have no fraction (~99.5%); a small minority have one decimal (~0.5%). Modified B1/B3/B4 audit, B2 central costs and opening-evidence **display only** to use `minimumFractionDigits:0, maximumFractionDigits:2`: integer values show with no decimal, one-decimal values keep one, genuine 2-decimal sums remain intact. B2 allocation percentages continue using exact basis points and up to 2 decimal percentage digits. Storage, API amounts, GL postings and idempotency hashes unchanged. Contract tests enforce the UI choice.
+- Invariants after rollback remained 24 GL entries / 49 lines; 0 central policies, 0 company-transfer operations, 0 second-site opening evidence and custody documents.
+- **B is not financially certified:** no independently proven inter-site elimination workflow; isolated posted opening requires authorized reversal process, and concurrency/performance thresholds are not accepted. CI/Preview must be checked at the latest head. PR #359 stays Draft and Production was not touched.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
