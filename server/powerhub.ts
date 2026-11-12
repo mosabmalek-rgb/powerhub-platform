@@ -5195,6 +5195,8 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageSupplierPayments");
       await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"reverseSupplierPayments");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"viewFinancialReports");
       const {data,error}=await supabaseAdmin().rpc(
         "powerhub_financial_supplier_payment_correction_request",{
@@ -5229,6 +5231,8 @@ export const powerhubRouter = router({
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"manageSupplierPayments");
       await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"reverseSupplierPayments");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant"],"viewFinancialReports");
       const {data,error}=await supabaseAdmin().rpc(
         "powerhub_financial_supplier_payment_correction_approve_post",{
@@ -5251,6 +5255,52 @@ export const powerhubRouter = router({
         correctionId:number;status:"posted";entryId:number;
         alreadyPosted:boolean;accountingCertification:"NOT_CERTIFIED";
       };
+    }),
+    // B4.16: independent reviewer queue, server-scoped; never expose all tenants.
+    financialSupplierPaymentCorrectionPending: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      beforeId:z.number().int().positive().optional(),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageSupplierPayments");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"reverseSupplierPayments");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      let query=supabaseAdmin().from("financial_supplier_payment_corrections")
+        .select("id,tenant_id,site_id,payment_id,requested_by_user_id,original_gl_entry_id,amount,reason,status,requested_at")
+        .eq("tenant_id",access.tenantId).eq("site_id",input.siteId)
+        .eq("status","pending_review").order("id",{ascending:false}).limit(26);
+      if(input.beforeId)query=query.lt("id",input.beforeId);
+      const {data,error}=await query;
+      if(error||!Array.isArray(data))throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر تحميل طلبات تصحيح الموردين؛ لا يُعرض سجل مخزن كأنه محدث."});
+      if(data.some((raw)=>{
+        const item=raw as Record<string,unknown>;
+        return item.tenant_id!==access.tenantId||item.site_id!==input.siteId
+          ||item.status!=="pending_review"
+          ||!Number.isSafeInteger(Number(item.id))||Number(item.id)<=0
+          ||!Number.isSafeInteger(Number(item.payment_id))||Number(item.payment_id)<=0
+          ||!Number.isSafeInteger(Number(item.requested_by_user_id))
+          ||Number(item.requested_by_user_id)<=0
+          ||!Number.isSafeInteger(Number(item.original_gl_entry_id))
+          ||Number(item.original_gl_entry_id)<=0
+          ||typeof item.reason!=="string"||item.reason.length<10
+          ||!Number.isFinite(Number(item.amount))||Number(item.amount)<=0;
+      }))throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"فشل التحقق من نطاق أو بيانات طلبات تصحيح الموردين."});
+      const items=data.slice(0,25).map(item=>({
+        correctionId:Number(item.id),paymentId:Number(item.payment_id),
+        requestedByUserId:Number(item.requested_by_user_id),
+        originalGLEntryId:Number(item.original_gl_entry_id),
+        amount:String(item.amount),reason:String(item.reason),
+        requestedAt:String(item.requested_at),
+        status:"pending_review" as const,
+      }));
+      return {siteId:input.siteId,tenantId:access.tenantId,
+        accountingCertification:"NOT_CERTIFIED" as const,items,
+        hasMore:data.length>25,
+        nextBeforeId:data.length>25?items[items.length-1]?.correctionId??null:null};
     }),
     // B4.9: site-filtered transfer source discovery for safe, user-initiated GL posting.
     financialGLCashTransferCandidates: protectedProcedure.input(z.object({

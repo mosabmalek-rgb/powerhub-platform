@@ -7,6 +7,7 @@ import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/
 import { CreditCard, Loader2, RefreshCw, RotateCcw, Wallet } from "lucide-react";
 import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { toast } from "sonner";
+import FinancialSupplierPaymentCorrectionWorkspace from "@/components/finance/FinancialSupplierPaymentCorrectionWorkspace";
 
 type PayableRow = {
   document_type: "purchase_invoice" | "opening_balance";
@@ -98,6 +99,7 @@ export default function InventorySupplierPaymentsPanel({
   const [openingReference, setOpeningReference] = useState("");
   const [openingNotes, setOpeningNotes] = useState("");
   const [reversalReasons, setReversalReasons] = useState<Record<number, string>>({});
+  const [correctionPaymentId,setCorrectionPaymentId]=useState<number|null>(null);
 
   const batchOptionsQuery = trpc.powerhub.inventory.listSupplierPaymentBatchOptions.useQuery(
     { siteId },
@@ -376,6 +378,10 @@ export default function InventorySupplierPaymentsPanel({
                         <Button type="button" size="sm" variant="outline" disabled={serverWriteBlocked || reversePayment.isPending || (reversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => { if (ensureServerWriteAllowed()) reversePayment.mutate({ siteId, paymentId: payment.id, reason: reversalReasons[payment.id].trim() }); }}>
                           {reversePayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <RotateCcw className="ml-2 h-4 w-4" />} عكس الدفعة
                         </Button>
+                        <Button type="button" size="sm" variant="outline"
+                          disabled={serverWriteBlocked} onClick={()=>{
+                            if(ensureServerWriteAllowed())setCorrectionPaymentId(payment.id);
+                          }}>تصحيح القيد المحاسبي للمورد</Button>
                       </div>}
                     </td>
                   </tr>;
@@ -384,6 +390,10 @@ export default function InventorySupplierPaymentsPanel({
             </div>}
         </CardContent>
       </Card>
+      {canManageSupplierPayments&&canReverseSupplierPayments?
+        <FinancialSupplierPaymentCorrectionWorkspace siteId={siteId}
+          isAuthenticated={isAuthenticated} selectedPaymentId={correctionPaymentId}/>
+        :null}
     </div>
   );
 }

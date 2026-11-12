@@ -582,3 +582,15 @@ Phase B continues to require B4.14+ original-GL-linked and independently approve
 - Added protected server request and independent approval routes with both manageSupplierPayments and viewFinancialReports in the authenticated tenant/site, server-derived actor, explicit user review confirmation and fail-closed DB result validation. No generic GL reversal endpoint.
 - Added server contract and reusable staging-only rollback SQL regression. The regression exercises the already registered B4.16 schema without persisting any financial writes.
 - OPEN: post-commit five-green CI and exact-SHA Preview; authenticated two-account API/browser testing, formal B2/B3 maker-checker acceptance, full B5 network-inclusive latency and human certification. Do not merge or publish Production; keep NOT_CERTIFIED.
+
+
+---
+
+## 2026-11-12 — B4.16 supplier UI, authenticated reviewer queue, and scope hardening
+
+- Previously verified 5462de65433fdbe7b26a549e82ede838c1ff5e38 with all **five** CI workflows successful; Staging version 20261112193000 remains applied.
+- Identified missing operational flow: B4.16 server mutations had no navigable supplier-payment UI, and the existing supplier-history direct reverse button correctly cannot reverse posted-GL supplier payments. Added explicit on-demand GL correction action from supplier history, without making hidden multi-branch features visible.
+- Added FinancialSupplierPaymentCorrectionWorkspace: on-demand source/GL readiness, exact payment ID, documented cash-refund reference and reason, pending queue, distinct maker/checker confirmation, idempotency key, online-only mutations, no offline financial fallback, invalidation of supplier and GL reports after success.
+- Added tenant/site-scoped pending reviewer query. Server validates returned scope and pending status and caps page to 25. Server now checks reverseSupplierPayments in **addition** to manageSupplierPayments and viewFinancialReports on each new correction mutation and queue read.
+- UI denies self approval (and SQL separately enforces it); no auto-post or certified status is shown. Reviewers must independently establish cash refund evidence; the free-text reference is NOT verified documentary storage or human certification.
+- Added client/server source contract test. Pending gate: same-SHA CI, real browser users (two independent identities), verified preview staging isolation, representative B5 authenticated end-to-end latency, B2/B3 multi-branch maker/checker and formal accounting evidence. No merge/Production.
