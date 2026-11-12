@@ -68,6 +68,12 @@ const b51FailClosedSql = readFileSync(
 const b53FastPriorSql = readFileSync(
   "supabase/migrations/20261112093106_powerhub_financial_b5_fast_prior_coverage_without_250k_rescan.sql","utf8",
 );
+const b54AuditSql = readFileSync(
+  "supabase/migrations/20261112104342_powerhub_financial_b54_fast_cash_audit_fixture_proof.sql","utf8",
+);
+const b54GuardTestSql = readFileSync(
+  "docs/security/sql/pr359-financial-b54-audit-fixture-guard-rollback.sql","utf8",
+);
 const b53NonfixtureSql = readFileSync(
   "docs/security/sql/pr359-financial-b5-nonfixture-visibility-rollback.sql","utf8",
 );
@@ -875,6 +881,18 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_FAILURE_CLOSED_PASS");
     expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_BROWSER_EXECUTE_EXPOSED");
     expect(b51FailClosedSql).toContain("ROLLBACK;");
+  });
+
+  it("guards B5.4 fast cash audit against losing immutable test cohort proof", () => {
+    expect(b54AuditSql).toContain("powerhub_financial_gl_fast_staging_fixture_proof");
+    expect(b54AuditSql).toContain("v_fixture_unreviewed:=250000");
+    expect(b54AuditSql).toContain("v_fixture_verified:=false");
+    expect(b54AuditSql).toContain("v_fixture_rows:=0");
+    expect(b54AuditSql).toContain("TO service_role");
+    expect(b54GuardTestSql).toContain("B54_AUDIT_FIXTURE_FAIL_CLOSED_PASS_ROLLBACK");
+    expect(b54GuardTestSql).toContain("B54_DISABLED_GUARD_NOT_BLOCKED");
+    expect(b54GuardTestSql).toContain("UNVERIFIED_COHORT_BLOCKS_RECONCILIATION");
+    expect(b54GuardTestSql).toContain("ROLLBACK;");
   });
 
   it("keeps new unlinked, non-fixture historical cash sources visible", () => {
