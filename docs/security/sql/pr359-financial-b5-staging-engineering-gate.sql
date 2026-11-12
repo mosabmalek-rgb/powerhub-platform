@@ -1,5 +1,5 @@
 -- B5: end-to-end read-only GL acceptance gate for the *synthetic* Staging tenant.
--- This asserts truthful "blocked" status; it DOES NOT certify any financial statements.
+-- Numerical test-opening correction does NOT certify any financial statements.
 -- Run against Staging inside a rolled-back transaction. Must not be used as a
 -- production seed, human approval, or replacement for browser/parallel sessions.
 BEGIN;
@@ -21,8 +21,8 @@ DECLARE
 BEGIN
   IF (SELECT count(*) FROM public.sites
       WHERE tenant_id=1 AND status='active')<>2
-    OR (SELECT count(*) FROM public.financial_gl_entries WHERE tenant_id=1)<>24
-    OR (SELECT count(*) FROM public.financial_gl_lines WHERE tenant_id=1)<>49
+    OR (SELECT count(*) FROM public.financial_gl_entries WHERE tenant_id=1)<>25
+    OR (SELECT count(*) FROM public.financial_gl_lines WHERE tenant_id=1)<>51
     OR EXISTS (SELECT 1 FROM public.financial_gl_central_allocation_policies
        WHERE tenant_id=1)
   THEN RAISE EXCEPTION 'B5_STAGING_BASELINE_CHANGED'; END IF;
@@ -53,7 +53,7 @@ BEGIN
      OR roll->>'accountingCertification'<>'NOT_CERTIFIED'
      OR (roll->>'isConsolidatedFinancialStatements')::boolean IS DISTINCT FROM false
      OR (roll->>'siteCount')::bigint<>2
-     OR (roll->>'glEntryCount')::bigint<>24
+     OR (roll->>'glEntryCount')::bigint<>25
      OR (roll->>'intraSiteWarehouseTransferCount')::bigint<>2
      OR (roll->>'intraSiteWarehouseTransferValue')::numeric<>170
      OR (roll->>'intraSiteWarehouseTransferMismatchCount')::bigint<>0
@@ -100,18 +100,39 @@ BEGIN
      OR cash_1->>'fixtureVerificationStatus'<>'HASH_ANCHORED_IMMUTABLE_TEST_COHORT'
   THEN RAISE EXCEPTION 'B5_PRIMARY_SITE_RECONCILIATION_REGRESSION'; END IF;
 
-  IF account_2->>'status'<>'BLOCKED_RECONCILIATION'
-     OR (account_2->>'differenceCount')::bigint<>1
-     OR (SELECT (j->>'difference')::numeric FROM jsonb_array_elements(account_2->'checks') j
-         WHERE j->>'code'='1010')<>2000
-     OR doc_2->>'status'<>'BLOCKED_DOCUMENT_RECONCILIATION'
-     OR cash_2->>'status'<>'BLOCKED_ACCOUNT_MOVEMENT_AUDIT'
-     OR (cash_2->>'aggregateUnresolvedCount')::bigint<>1
+  -- B4.10: the synthetic opening was corrected by append-only GL reversal.
+  -- Audit, exact provenance, numerical matching and lack of human approval remain explicit.
+  IF account_2->>'status'<>'MATCHED_NUMERICALLY_NOT_CERTIFIED'
+     OR (account_2->>'differenceCount')::bigint<>0
+     OR (account_2->>'unresolvedCount')::bigint<>0
+     OR jsonb_array_length(account_2->'checks')<>5
+     OR EXISTS(SELECT 1 FROM jsonb_array_elements(account_2->'checks') j
+          WHERE j->>'status'<>'MATCHED' OR (j->>'difference')::numeric<>0)
+     OR doc_2->>'status'<>'DOCUMENT_SOURCES_MATCHED_NOT_CERTIFIED'
+     OR (doc_2->>'mismatchCount')::bigint<>0
+     OR cash_2->>'status'<>'LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED'
+     OR (cash_2->>'aggregateUnresolvedCount')::bigint<>0
+     OR NOT EXISTS(SELECT 1 FROM public.financial_gl_entries e
+          JOIN public.financial_gl_entries original ON original.id=e.reverses_entry_id
+          WHERE e.tenant_id=1 AND e.site_id=9000000000099
+            AND e.source_type='correction' AND e.reverses_entry_id=168
+            AND e.operation_key='gl:correction:staging-opening19:technical:v1'
+            AND e.accounting_policy_version='staging-prelaunch-technical-disposition-v1'
+            AND original.source_type='opening_balance' AND original.source_id='19'
+            AND original.source_fingerprint='56991cd37e9f908daac5853fc1ca64cbc5bdb7f92f3c399c31713c4e1dd1048e')
+     OR (SELECT count(*) FROM public.audit_logs a
+          JOIN public.financial_gl_entries e ON e.id=a.entity_id::bigint
+          WHERE a.tenant_id=1 AND a.site_id=9000000000099
+            AND a.action='STAGING_PRELAUNCH_TEST_OPENING_TECHNICAL_REVERSAL'
+            AND a.user_id IS NULL AND a.after_data->>'humanApproved'='false'
+            AND a.after_data->>'accountingCertification'='NOT_CERTIFIED'
+            AND e.reverses_entry_id=168)<>1
      OR EXISTS (SELECT 1 FROM public.financial_gl_opening_evidence
         WHERE tenant_id=1 AND site_id=9000000000099)
      OR EXISTS (SELECT 1 FROM public.financial_gl_opening_document_custody
         WHERE tenant_id=1 AND site_id=9000000000099)
-  THEN RAISE EXCEPTION 'B5_UNDOCUMENTED_OPENING_WAS_FALSIFIED'; END IF;
+     OR public.powerhub_financial_gl_opening_evidence_status(1,9000000000099,'2026-11')->>'isIndependentlyReconciled'<>'false'
+  THEN RAISE EXCEPTION 'B5_SYNTHETIC_OPENING_DISPOSITION_INTEGRITY_FAILURE'; END IF;
   IF EXISTS(SELECT 1 FROM pg_proc f WHERE f.pronamespace='public'::regnamespace
       AND f.proname IN (
         'powerhub_financial_gl_tenant_rollup',
