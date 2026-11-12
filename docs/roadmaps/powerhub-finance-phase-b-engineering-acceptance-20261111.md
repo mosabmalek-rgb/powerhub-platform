@@ -594,3 +594,40 @@ Phase B continues to require B4.14+ original-GL-linked and independently approve
 - Added tenant/site-scoped pending reviewer query. Server validates returned scope and pending status and caps page to 25. Server now checks reverseSupplierPayments in **addition** to manageSupplierPayments and viewFinancialReports on each new correction mutation and queue read.
 - UI denies self approval (and SQL separately enforces it); no auto-post or certified status is shown. Reviewers must independently establish cash refund evidence; the free-text reference is NOT verified documentary storage or human certification.
 - Added client/server source contract test. Pending gate: same-SHA CI, real browser users (two independent identities), verified preview staging isolation, representative B5 authenticated end-to-end latency, B2/B3 multi-branch maker/checker and formal accounting evidence. No merge/Production.
+
+
+---
+
+## 2026-11-12 — Phase B post-B4.16 verification and explicit acceptance matrix
+
+### Verified latest pre-documentation code head
+
+- Commit `1de8cc7b42340a81cad38bd1c1f0d780deb0a06f` has **five completed successful workflow runs on the same SHA**:
+  - PowerHub CI: GitHub Actions run `43282907548`.
+  - Reading Cycle PostgreSQL Integration: `43282907659`.
+  - PowerHub Security: `43282907382`.
+  - Supabase Admin Guard: `43282907580`.
+  - B5 Synthetic Financial Load: `43282907309`.
+- Earlier failed PowerHub CI at `f802393567cf33b479b0265e469c2ceb58003643` was the contract test that still expected only two B4.16 routes. Added server-side reviewer queue as the third route, so the contract was updated to check all three permissions and the `reverseSupplierPayments` guard. The subsequent full CI passed without dropping authorization checks.
+- Re-executed checked-in rollback tests directly against the actual Staging PostgreSQL environment (each returned its explicit PASS marker):
+  - `pr359-financial-b2-two-actor-negative-rollback.sql`: `B2_1_TWO_ACTOR_NEGATIVE_PASS_ROLLBACK`.
+  - `pr359-financial-b311-independent-elimination-rollback.sql`: `B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK`.
+  - `pr359-financial-b395-orphan-elimination-fail-closed-rollback.sql`: `B395_ORPHAN_APPROVED_ELIMINATION_FAIL_CLOSED_PASS_ROLLBACK`.
+- Staging post-test tenant-1 persistent baseline: **25 GL entries, 51 GL lines, 0 B2 central policies for November, 0 B3 elimination headers, 0 B4.16 supplier corrections**. No finance approval or synthetic GL reversal persisted.
+- Staging company movement audit `(tenant=1,site=1,period=2026-11)` returned `LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED`, accounting certification `NOT_CERTIFIED`. Supplier payment #5 remains posted with original GL #857 unchanged.
+- Confirmed exact Staging migration `20261112193000` exists with stored SQL MD5 `3b542841326a7bfa1ab2d37ed73f11e2`; all supplier correction functions refuse direct `anon` and `authenticated` SQL `EXECUTE` and retain only `service_role` access.
+- No READY Vercel Preview matching the exact latest code head was returned by the deployment list query. Do not substitute earlier READY Preview SHA evidence. The service-role Preview key association also requires independent Staging verification before authenticated financial operations.
+
+### B1–B5 engineering gate disposition
+
+| Gate | Proven here | Remains open |
+|---|---|---|
+| B1 | Structural financial statement generation, GL scope and noncertified reporting covered by earlier tests | Independent financial review and authenticated browser output acceptance |
+| B2 | Two distinct SQL test identities, replay rejection, self-approval and unauthorized approval denial, policy preview, no GL posting; SQL rollback passed now | Independent authenticated maker/checker sessions and actual UI rendering |
+| B3 | Real two-site source-to-GL + independently reviewed elimination under rollback; orphan exclusion fail-closed passed now | Authenticated cross-site browser roles, branch-entitlement gating and UI proof |
+| B4 | B4.16 migration applied; source-linked supplier correction atomicity, replay, ledger/cash/GL proof and ACL tested; UI/API contract CI passed | Authenticated tRPC/browser end-to-end; review of exceptional source corrections outside supplier payments; independent evidence of real refund for production use |
+| B5 | 5/5 CI, disposable four-session financial workload, 100 supplier purchase/receipt/payment chain, Staging invariant/rollback checks | Sustained authenticated API/browser p50/p95/p99 under realistic concurrency, tail latency risk and formal product performance budget |
+
+### Final closure guard
+
+**Phase B engineering work is substantially advanced, but full operational/browser acceptance is OPEN and financial statements remain `NOT_CERTIFIED`.** No actual human approval is implied by synthetic SQL identities. Keep PR #359 Draft and unmerged, and do not publish Production until the user explicitly authorizes it and unresolved acceptance checks are satisfied.
