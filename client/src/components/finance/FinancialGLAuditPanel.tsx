@@ -146,6 +146,8 @@ export default function FinancialGLAuditPanel({
   const b1Position = object(b1.balanceSheet);
   const b1Branch = object(b1.branchProfitability);
   const b1Amount = (value:unknown) => {
+    // NULL marks withheld/unverified accounting values, never a numeric zero.
+    if(value===null || value===undefined || value==="")return "غير متاح";
     const n = typeof value==="number" ? value : Number(value);
     return Number.isFinite(n) ? n.toLocaleString("ar",{minimumFractionDigits:0,maximumFractionDigits:2}) : "غير متاح";
   };
@@ -519,9 +521,20 @@ export default function FinancialGLAuditPanel({
               زوجا القيد المتطابقان: {numberText(b3InterSiteProof.matchedPairCount)}؛
               قيود معلقة: {numberText(b3InterSiteProof.pendingPairCount)}؛
               أزواج غير صالحة: {numberText(b3InterSiteProof.invalidPairCount)}؛
-              قيود يتيمة: {numberText(b3InterSiteProof.orphanGLEntryCount)}.</p>
+              قيود يتيمة: {numberText(b3InterSiteProof.orphanGLEntryCount)}؛
+              تسويات استبعاد يتيمة: {numberText(b3InterSiteProof.orphanEliminationCount)}.</p>
             <p>مستحق من فرع مطابق: {b1Amount(b3InterSiteProof.matchedDueFrom)} شيكل؛
               مستحق لفرع مطابق: {b1Amount(b3InterSiteProof.matchedDueTo)} شيكل.</p>
+            <p>استبعادات مستقلة معتمدة: {b1Amount(b3InterSiteProof.approvedEliminationAmount)} شيكل؛
+              مسودات قيد المراجعة: {numberText(b3InterSiteProof.draftEliminationCount)}.</p>
+            {b3InterSiteProof.status==="BLOCKED_INTEGRITY" ? <p role="alert" className="text-rose-200">
+              توجد قيود أو تسويات يتيمة/غير مطابقة. حُجب مبلغ الاستبعاد المعتمد، ولا يُعامل المبلغ غير المتاح كصفر.
+            </p> : <p>المركز بعد الاستبعادات المعتمدة فقط (غير مصدق):
+              الأصول {b1Amount(typeof b3InterSiteProof.approvedEliminationAssetReduction==="number"
+                ? Number(b3Position.netAssets)-Number(b3InterSiteProof.approvedEliminationAssetReduction):null)}؛
+              الالتزامات {b1Amount(typeof b3InterSiteProof.approvedEliminationLiabilityReduction==="number"
+                ? Number(b3Position.liabilities)-Number(b3InterSiteProof.approvedEliminationLiabilityReduction):null)}.
+            </p>}
             <p>تخفيض الأصول في الاستبعاد التجريبي: {b1Amount(b3InterSiteProof.eliminationPreviewAssetReduction)}؛
               تخفيض الالتزامات: {b1Amount(b3InterSiteProof.eliminationPreviewLiabilityReduction)}.</p>
             {b3InterSiteProof.status==="BLOCKED_INTEGRITY"
