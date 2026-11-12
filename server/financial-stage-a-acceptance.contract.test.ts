@@ -127,6 +127,12 @@ const b3111LinesSql = readFileSync(
 const b3112AliasFixSql = readFileSync(
  "supabase/migrations/20261112124134_powerhub_financial_b3112_elimination_line_alias_fix.sql","utf8",
 );
+const b395OrphanGuardSql = readFileSync(
+ "supabase/migrations/20261112130226_powerhub_financial_b395_orphan_elimination_fail_closed.sql","utf8",
+);
+const b395OrphanNegativeSql = readFileSync(
+ "docs/security/sql/pr359-financial-b395-orphan-elimination-fail-closed-rollback.sql","utf8",
+);
 const b394ApprovedPreviewSql = readFileSync(
  "supabase/migrations/20261112124448_powerhub_financial_b394_elimination_review_visibility.sql","utf8",
 );
@@ -905,6 +911,12 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b3112AliasFixSql).toContain("eli.elimination_id=d.id");
     expect(b394ApprovedPreviewSql).toContain("matchedSources");
     expect(b394ApprovedPreviewSql).toContain("approvedEliminationAmount");
+    expect(b395OrphanGuardSql).toContain("v_orphan_eliminations");
+    expect(b395OrphanGuardSql).toContain("orphanEliminationCount");
+    expect(b395OrphanGuardSql).toContain("BLOCKED_INTEGRITY");
+    expect(b395OrphanNegativeSql).toContain("B395_ORPHAN_APPROVED_ELIMINATION_FAIL_CLOSED_PASS_ROLLBACK");
+    expect(b395OrphanNegativeSql).toContain("approvedEliminationAmount");
+    expect(b395OrphanNegativeSql).toContain("ROLLBACK;");
     expect(b311ReviewSql).toContain("B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK");
     expect(b3111SecuritySql).toContain("B3111_IMMUTABLE_ELIMINATION_AND_RBAC_PASS_ROLLBACK");
     expect(b3111SecuritySql).toContain("B3111_ELIMINATION_LINE_DELETE_ALLOWED");
