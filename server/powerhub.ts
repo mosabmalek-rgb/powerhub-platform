@@ -5014,7 +5014,7 @@ export const powerhubRouter = router({
     financialGLPostSource: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       sourceType:z.enum(["invoice","payment","expense","stock_movement",
-        "supplier_ledger","payroll","payroll_payment"]),
+        "supplier_ledger","payroll","payroll_payment","account_movement"]),
       sourceId:z.number().int().positive(),
     })).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
@@ -5024,7 +5024,8 @@ export const powerhubRouter = router({
       const sourceCapability=input.sourceType==="invoice"?"issueInvoices"
         :input.sourceType==="payment"?"collectPayments"
         :input.sourceType==="payroll" || input.sourceType==="payroll_payment"
-          ?"managePayroll":null;
+          ?"managePayroll"
+        :input.sourceType==="account_movement"?"manageExpenses":null;
       if(sourceCapability){
         await requireSupabaseSiteRole(ctx.user.id,input.siteId,
           ["owner","manager","accountant"],sourceCapability);
