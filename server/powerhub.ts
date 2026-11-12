@@ -5784,6 +5784,22 @@ export const powerhubRouter = router({
     // B1: on-demand, site-only statements. Distinct from cashflow and final P&L.
     // B2: site and central-site permissions are independently enforced.
     // B3 preliminary rollup: check each active site, never leak unauthorized branches.
+    // B5 / single-branch first: tenant-scoped branch complexity for financial UX.
+    // A platform admin's global visible-site count is never a tenant scope.
+    financialGLSiteScope: protectedProcedure.input(siteScoped).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error,count}=await supabaseAdmin().from("sites")
+        .select("id",{count:"exact"}).eq("tenant_id",access.tenantId)
+        .eq("status","active").order("id",{ascending:true}).limit(31);
+      if(error || !data || typeof count!=="number" ||
+         !Number.isSafeInteger(count) || count<1 || count>30 ||
+         data.length!==count || !data.some(site=>Number(site.id)===input.siteId))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر تأكيد عدد الفروع التابعة للاشتراك؛ أُخفيت أدوات التجميع حتى إعادة التحقق."});
+      return {siteId:input.siteId,activeSiteCount:count,
+        hasMultipleActiveSites:count>1};
+    }),
     financialGLTenantRollup: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
