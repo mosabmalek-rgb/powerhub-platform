@@ -320,3 +320,17 @@ An actual browser experience and sustained concurrent-load test have **not** bee
 **Full Phase B:** **NOT COMPLETE** until the open requirements above are accepted and documented.
 
 Keep this distinction visible in all dashboards and deployment notes.
+
+
+---
+
+## 2026-11-12 — B4.12 reversal provenance fail-closed acceptance
+
+- Reverified the last pre-change head `95c7389221136d0ba947ed78dbd86cfdbc352ac2`: PowerHub CI, PostgreSQL Integration, PowerHub Security and Supabase Admin Guard all succeeded; corresponding Vercel Preview was READY. **These are not CI/Preview certifications for B4.12.**
+- Created migration `20261112141000_powerhub_financial_b412_reversal_provenance_guard.sql` on PR #359 and applied its SQL to the verified `powerhub-staging-dr` project `iyuryuhaylhisjfcrwkz` in an atomic transaction using the **repository version identifier** `20261112141000`. The migration history record exists. No Production change or PR merge.
+- Added `powerhub_financial_gl_reversal_source_proof`: invoker-rights and `service_role` only; verifies same tenant/site, original/reversal direction and period, exactly one linked reversal, full inverse GL lines with duplicate multiplicities, positive amounts, and original/reverse SHA fingerprints. Accruals require both posted source journals, exact reversal link, cross-approved actors and matching SHA-256 source fingerprints.
+- B4.11 read-only readiness now distinguishes `SOURCE_BACKED_REVERSAL_VALID` from `GL_INVERSE_ONLY_SOURCE_UNATTESTED` and `BLOCKED_INTEGRITY`. This is fail-closed: an unproven or invalid existing reversal is **not** described as independently verified. No browser GL reversal button has been added.
+- The synthetic second-site opening #168 and correction #890 have exact inverse GL lines but no independently attested original document: status `EXISTING_REVERSAL_SOURCE_REVIEW_REQUIRED`, **not** financial approval. Accrual #169 / reversal #170 pass source-backed proof; both remain immutable.
+- Saved standalone rollback regression `docs/security/sql/pr359-financial-b412-reversal-provenance-rollback.sql`. Its result on live Staging was `B412_REVERSAL_PROVENANCE_GUARD_PASS_ROLLBACK`, including correct accrual, blocked forged/cross-site source, opening warning, pagination limit and unchanged 25 GL entries / 51 lines.
+- Financial audit UI now gives Arabic explanatory labels for the three new review/integrity statuses.
+- `NOT_CERTIFIED` remains mandatory. Outstanding: source-specific correction workflows for invoice, payment, supplier, stock, expense and payroll; independent browser checker acceptance for B2/B3; sustained measured multi-user B5 and verified four CI/READY Preview gates on the new final SHA. The B4.12 SQL does not create human approval.
