@@ -112,6 +112,20 @@
 
 ---
 
+## 2026-11-12 — B4.9 posted company-account transfers: source-backed GL and UI
+
+- Prior verified head `cb74c4be5fd70a02b17c8359b5c320579b080323` passed the four CI gates and had matching READY Preview. These old results do **not** establish success on the new branch head.
+- Implemented `account_movement` in the existing `powerhub_financial_gl_source_plan` and `powerhub_financial_gl_post_source` pathway for **intra-site** company-account transfers. It uses the actual `transfer_out/in` source pair; two linked account movements; exact tenant, site, account, amount, operation, source fingerprint; existing locking, privileges, balanced lines, immutable GL and idempotent replay. Transfers from cash to wallet debit `1020` and credit `1010` with **no additional revenue or expense**. Cross-site transfers are intentionally rejected pending their own elimination model.
+- B4 reconciliation now counts a transfer as matched **only after** finding one correctly fingerprinted `account_movement` GL entry with two exact opposing lines and an independently matching source pair. Without GL, it continues reporting `BLOCKED_UNPOSTED_ACCOUNT_TRANSFER`. No false certification.
+- Executed real-source E2E SQL: `B49_TRANSFER_GL_RECONCILIATION_PASS_ROLLBACK`: 17.30 ILS transfer, first GL post, idempotent retry with same entry, both source balances numerically reconciled, zero unposted transfer count, and `NOT_CERTIFIED`. Tested forged operation rejection: `B49_FORGED_TRANSFER_BLOCKED_PASS_ROLLBACK`.
+- Found and fixed a decimal-scale mismatch: the old transfer RPC hash uses the input textual decimal precision (`12.3`) while the persisted movement uses `numeric(14,2)` (`12.30`). The validator now accepts only hashes computed from the same numeric value at representable input scales 0–6 while preserving the original actor, accounts, description and operation key. Tested `12.3` using real source RPC.
+- Added a **user-initiated GL posting workspace** to the financial audit, with a server-authenticated, tenant/site-scoped and paginated candidate RPC `powerhub_financial_gl_cash_transfer_candidates`, explicit checkbox confirmation before posting, no stale financial actions on failed fetch, and no claimed success before the server acknowledges GL. The UI is keyed by site+period and invalidates B4 reconciliation after posting. Candidate test: `B49_CANDIDATES_PENDING_POSTED_PASS_ROLLBACK`.
+- Staging applied migrations **20261112101831**, **20261112102257**, **20261112102934** and their exact files were committed to PR #359. CI contract tests added. No Production write or merged PR.
+- **Open for Phase B full accounting closure:** independently supported and tested inter-site due-to/due-from and consolidation elimination journals, controlled disposition of the second synthetic site's unsupported 2,000 ILS opening, repeatable concurrent performance thresholds. User-reported browser checking predates the new B4.9 UI and does not prove this UI was visually tested.
+- **Financial certification remains NOT_CERTIFIED**, despite successful engineering acceptance of the tested source/GL path.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
