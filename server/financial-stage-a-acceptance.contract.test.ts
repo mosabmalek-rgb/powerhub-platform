@@ -131,6 +131,9 @@ const b32TransferFaultSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql","utf8",
 );
 const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
+const b410TechnicalCorrectionSql = readFileSync(
+  "docs/security/sql/pr359-financial-b410-staging-only-technical-opening-correction.sql","utf8",
+);
 const b48ReversalSimulationSql = readFileSync(
   "docs/security/sql/pr359-financial-b4-posted-opening-reversal-simulation-rollback.sql","utf8",
 );
@@ -939,11 +942,12 @@ describe("Phase A financial acceptance evidence", () => {
   it("runs B5 as read-only Staging engineering acceptance without certifying financial statements", () => {
     expect(b5EngineeringGate).toContain("B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED");
     expect(b5EngineeringGate).toContain("B5_UNTRUTHFUL_CONSOLIDATION");
-    expect(b5EngineeringGate).toContain("B5_UNDOCUMENTED_OPENING_WAS_FALSIFIED");
+    expect(b5EngineeringGate).toContain("B5_SYNTHETIC_OPENING_DISPOSITION_INTEGRITY_FAILURE");
+    expect(b5EngineeringGate).toContain("STAGING_PRELAUNCH_TEST_OPENING_TECHNICAL_REVERSAL");
     expect(b5EngineeringGate).toContain("B5_TECHNICAL_VS_FINANCIAL_ACCEPTANCE_CONFUSED");
     expect(b5EngineeringGate).toContain("B5_GL_RPC_PERMISSION_DRIFT");
     expect(b5EngineeringGate).toContain("LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED");
-    expect(b5EngineeringGate).toContain("BLOCKED_ACCOUNT_MOVEMENT_AUDIT");
+    expect(b5EngineeringGate).toContain("staging-prelaunch-technical-disposition-v1");
     expect(b5EngineeringGate).toContain("NOT_INDEPENDENTLY_RECONCILED");
     expect(b5EngineeringGate).toContain("NOT_CERTIFIED");
     expect(b5EngineeringGate).toContain("BEGIN;");
@@ -1113,6 +1117,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b47CashTransferSql).toContain("B4_7_TRANSFER_RECOGNIZED_BUT_GL_BLOCKED_ROLLBACK_PASS");
     expect(b47CashTransferSql).toContain("B4_7_TRANSFER_CLASSIFICATION_FAIL");
     expect(b47CashTransferSql).toContain("ROLLBACK;");
+  });
+
+  it("checks B4.10 prelaunch fixture correction as immutable, idempotent and explicitly non-certified", () => {
+    expect(b410TechnicalCorrectionSql).toContain("STAGING_ONLY_ENVIRONMENT_GUARD");
+    expect(b410TechnicalCorrectionSql).toContain("STAGING_PRELAUNCH_TEST_OPENING_TECHNICAL_REVERSAL");
+    expect(b410TechnicalCorrectionSql).toContain("humanApproved',false");
+    expect(b410TechnicalCorrectionSql).toContain("reverses_entry_id");
+    expect(b410TechnicalCorrectionSql).toContain("STAGING_REVERSAL_OR_AUDIT_INTEGRITY_FAILURE");
+    expect(b410TechnicalCorrectionSql).toContain("NOT_CERTIFIED");
+    expect(b410TechnicalCorrectionSql).toContain("ROLLBACK;");
+    expect(b410TechnicalCorrectionSql).not.toContain("\\nCOMMIT;");
   });
 
   it("proves a posted test opening can only be offset with auditable balanced reversal", () => {
