@@ -63,11 +63,13 @@ export default function FinancialOpeningEvidenceWorkspace({
   const review=trpc.powerhub.reports.financialGLOpeningEvidenceReview.useMutation({
     onSuccess:async()=>{setReviewEvidenceId(null);setReviewNote("");await refresh();},
   });
-  const selected=workspace.data?.lines.find(l=>l.id===lineId);
+  const workspaceReady = active && siteId>0 && !workspace.isError
+    && !workspace.isLoading && !workspace.isFetching && workspace.data !== undefined;
+  const selected=workspaceReady ? workspace.data?.lines.find(l=>l.id===lineId) : undefined;
   // Do not use a previous site's cached evidence while access or refresh is unresolved.
-  const evidence = active && !workspace.isError && !workspace.isFetching && !workspace.isLoading
+  const evidence = workspaceReady
     ? workspace.data?.evidence ?? [] : [];
-  const openingLines = active && !workspace.isError && !workspace.isFetching && !workspace.isLoading
+  const openingLines = workspaceReady
     ? workspace.data?.lines ?? [] : [];
   const lineEvidenceStatus = openingLines.map(line=>{
     const items=evidence.filter(ev=>ev.openingLineId===line.id);
@@ -85,13 +87,13 @@ export default function FinancialOpeningEvidenceWorkspace({
     <p className="mt-2 text-xs text-amber-200">رفع المستند والتحقق من SHA-256 وموافقة مراجع مستقل لا يصدّق وحده أرصدة الدفاتر المساعدة، ولا يحوّل القوائم إلى قوائم مالية معتمدة.</p>
     {workspace.isLoading || workspace.isFetching ? <p role="status" className="mt-2">جارٍ فحص الافتتاحية وأدلتها…</p> : null}
     {workspace.isError ? <p role="alert" className="mt-2 text-rose-200">تعذر جلب الأدلة بأمان؛ لا تُعرض قائمة جزئية.</p> : null}
-    {workspace.data && !workspace.isFetching && !workspace.isError && !workspace.data.opening
+    {workspaceReady && workspace.data && !workspace.data.opening
       ? <p className="mt-2 text-amber-200">لا توجد افتتاحية فعالة لهذا الفرع؛ يمكنك إنشاء مسودة متوازنة أدناه، ثم اعتمادها من مستخدم آخر.</p> : null}
     <FinancialOpeningSetupPanel siteId={siteId} active={active}
       onChanged={async()=>{await refresh();}}/>
-    {workspace.data?.opening?.status==="draft" && !workspace.isFetching && !workspace.isError
+    {workspaceReady && workspace.data?.opening?.status==="draft"
       ? <p className="mt-2 text-amber-200">الافتتاحية مسودة؛ لا يُقبل إرفاق أدلة اعتماد نهائية قبل ترحيلها بواسطة مراجع مستقل.</p> : null}
-    {workspace.data?.opening?.status==="posted" && !workspace.isFetching && !workspace.isError ? <>
+    {workspaceReady && workspace.data?.opening?.status==="posted" ? <>
       <p className="mt-2 text-xs">افتتاحية رقم {workspace.data.opening.id} بتاريخ {workspace.data.opening.asOfDate} — غير مصدّقة محاسبيًا.</p>
       <div className="mt-3 rounded-md border border-amber-400/20 p-3 text-xs">
         <h5 className="font-semibold text-white">فجوات إثبات الافتتاحية حسب الحساب والسطر</h5>
@@ -142,10 +144,10 @@ export default function FinancialOpeningEvidenceWorkspace({
         </label>
       </div>
       <Button size="sm" variant="outline" className="mt-3" disabled={
-        !selected || !documentFile || documentFile.size>5*1024*1024 ||
+        !workspaceReady || !selected || !documentFile || documentFile.size>5*1024*1024 ||
         sourceReference.trim().length<12 || upload.isPending
       } onClick={async()=>{
-        if(!selected || !documentFile || !workspace.data?.opening)return;
+        if(!workspaceReady || !selected || !documentFile || !workspace.data?.opening)return;
         setLocalError("");
         try{
           const mime=documentFile.type;
