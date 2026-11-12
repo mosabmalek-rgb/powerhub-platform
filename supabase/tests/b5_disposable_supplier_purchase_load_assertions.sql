@@ -69,6 +69,35 @@ BEGIN
   'EXECUTE')
  THEN RAISE EXCEPTION 'B5_SUPPLIER_PAYMENT_RPC_EXPOSED_TO_BROWSER'; END IF;
 END $assert$;
+
+-- Fault injection after the workload: a previously posted payment cannot be
+-- reissued under its original idempotency key with different financial data.
+-- All attempted writes must roll back and leave the 99 linked source records unchanged.
+DO $negative$
+DECLARE v_purchase bigint;v_payment bigint;v_before bigint;v_after bigint;
+BEGIN
+ IF current_database()<>'inventory_purchase_receiving_test'
+ THEN RAISE EXCEPTION 'B5_SUPPLIER_NEGATIVE_WRONG_DATABASE'; END IF;
+ SELECT purchase_id,payment_id INTO v_purchase,v_payment
+ FROM public.b5_supplier_load_samples WHERE worker=1 AND iteration=1;
+ SELECT count(*) INTO v_before FROM public.supplier_payments p
+ WHERE p.tenant_id=10 AND p.operation_key LIKE 'b5:supplier:payment:%';
+ BEGIN
+  PERFORM public.powerhub_inventory_record_supplier_payment(
+   10,100,2,v_purchase,1000,2,current_date,'B5-SUP-PAY-1',
+   'Synthetic supplier payment','b5:supplier:payment:1');
+  RAISE EXCEPTION 'B5_SUPPLIER_FORGED_REPLAY_ACCEPTED' USING ERRCODE='XX000';
+ EXCEPTION WHEN SQLSTATE 'P0001' THEN
+  IF SQLERRM<>'IDEMPOTENCY_KEY_REUSED' THEN RAISE; END IF;
+ END;
+ SELECT count(*) INTO v_after FROM public.supplier_payments p
+ WHERE p.tenant_id=10 AND p.operation_key LIKE 'b5:supplier:payment:%';
+ IF v_after<>v_before OR v_before<>99
+ OR (SELECT amount FROM public.supplier_payments WHERE id=v_payment)<>1
+ THEN RAISE EXCEPTION 'B5_SUPPLIER_FORGED_REPLAY_LEFT_FINANCIAL_EFFECT'; END IF;
+END $negative$;
+SELECT 'B5_SUPPLIER_FORGED_REPLAY_ROLLBACK_PASS' AS result;
+
 SELECT count(*) samples,
  round(percentile_cont(.5) WITHIN GROUP(ORDER BY elapsed_ms)::numeric,2) p50_ms,
  round(percentile_cont(.95) WITHIN GROUP(ORDER BY elapsed_ms)::numeric,2) sample_p95_ms,
