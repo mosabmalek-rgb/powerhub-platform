@@ -32,6 +32,14 @@ BEGIN
  THEN RAISE EXCEPTION 'B5_SIDE_EFFECTS_NOT_EXACTLY_ONCE ops=% tx=% audit=% transfers=%',
  movement_ops,tx_rows,audits,transfers; END IF;
 
+ -- Exactly 995 requests use whole amounts, 5 requests use one decimal.
+ -- The sole replay matches a whole-amount original, so all five fractional
+ -- operations must create exactly five movements.
+ IF (SELECT count(*) FROM public.account_transactions WHERE amount=1.5 AND tenant_id=1)<>5
+ OR EXISTS(SELECT 1 FROM public.account_transactions WHERE tenant_id=1
+    AND amount NOT IN (1.00,1.50))
+ THEN RAISE EXCEPTION 'B5_CURRENCY_PRECISION_DISTRIBUTION_DRIFT'; END IF;
+
  IF EXISTS(SELECT 1 FROM public.account_transactions WHERE tenant_id<>1 OR site_id<>10)
  OR EXISTS(SELECT 1 FROM public.company_account_movement_operations WHERE tenant_id<>1 OR site_id<>10)
  THEN RAISE EXCEPTION 'B5_TENANT_SITE_ESCAPE'; END IF;
