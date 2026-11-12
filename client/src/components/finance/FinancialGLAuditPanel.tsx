@@ -290,7 +290,7 @@ export default function FinancialGLAuditPanel({
           مراجعة المستندات وإجمالياتها لا تكفي وحدها للتصديق؛ يتطلب إثباتًا مستقلًا لمصدر المستند وتاريخه وصحته.
         </p>
       </div> : null}
-      <FinancialOpeningEvidenceWorkspace siteId={siteId} active={active} />
+      <FinancialOpeningEvidenceWorkspace key={siteId} siteId={siteId} active={active} />
       <div className="mt-3 rounded-md border border-rose-400/20 p-3 text-sm text-rose-100">
         <h4 className="font-semibold">موانع الاعتماد المثبتة</h4>
         <ul className="mt-2 list-disc space-y-1 pr-5">
