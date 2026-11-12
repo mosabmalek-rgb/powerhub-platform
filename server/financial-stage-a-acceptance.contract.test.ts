@@ -912,6 +912,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(companyMovementB42Acceptance).toContain("HASH_ANCHORED_IMMUTABLE_TEST_COHORT");
   });
 
+  it("omits trailing decimal zeros in finance displays while retaining up to two real decimal places", () => {
+    // Display only: avoid changing source values, GL precision or B2 percentage basis points.
+    expect(glAuditUiA45).toContain('minimumFractionDigits:0,maximumFractionDigits:2');
+    expect(financialCentralB2Ui).toContain('minimumFractionDigits: 0, maximumFractionDigits: 2');
+    expect(openingEvidenceUi).toContain('minimumFractionDigits: 0, maximumFractionDigits: 2');
+    expect(financialCentralB2Ui).toContain('weight.basisPoints / 100).toFixed(2)');
+    expect(financialCentralB2Ui).toContain('totalPoints / 100).toFixed(2)');
+    expect(glAuditUiA45).not.toContain('minimumFractionDigits:2,maximumFractionDigits:2');
+    expect(openingEvidenceUi).not.toContain('toFixed(2)');
+  });
+
   it("guards site switches and stale finance query states before financial actions", () => {
     expect(glAuditUiA45).toContain("<FinancialOpeningEvidenceWorkspace key={siteId}");
     expect(glAuditUiA45).toContain('key={`${siteId}:${period}`} siteId={siteId}');
