@@ -14,7 +14,7 @@ const displayMoney = (value: unknown) => {
   if (value === null || value === undefined || value === "") return "غير متاح";
   const n = Number(value);
   return Number.isFinite(n)
-    ? n.toLocaleString("ar", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    ? n.toLocaleString("ar", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
     : "غير متاح";
 };
 const newOperationKey = () =>
