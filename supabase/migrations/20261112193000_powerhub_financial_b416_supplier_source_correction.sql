@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS public.financial_supplier_payment_corrections (
  original_gl_fingerprint text NOT NULL CHECK(original_gl_fingerprint ~ '^[0-9a-f]{64}$'),
  amount numeric(14,2) NOT NULL CHECK(amount>0),
  status text NOT NULL DEFAULT 'pending_review'
-   CHECK(status IN ('pending_review','posted')),
+   CHECK(status IN ('pending_review','posting','posted')),
  approved_by_user_id bigint REFERENCES public.users(id),
  approved_at timestamptz,
  refund_transaction_id bigint,
@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS public.financial_supplier_payment_corrections (
  CONSTRAINT supplier_correction_posted_evidence CHECK (
    (status='pending_review' AND approved_by_user_id IS NULL AND approved_at IS NULL
     AND refund_transaction_id IS NULL AND reversal_supplier_ledger_entry_id IS NULL
+    AND reversal_gl_entry_id IS NULL)
+   OR
+   (status='posting' AND approved_by_user_id IS NOT NULL AND approved_at IS NOT NULL
+    AND refund_transaction_id IS NOT NULL AND reversal_supplier_ledger_entry_id IS NOT NULL
     AND reversal_gl_entry_id IS NULL)
    OR
    (status='posted' AND approved_by_user_id IS NOT NULL AND approved_at IS NOT NULL
@@ -254,7 +258,7 @@ BEGIN
   reversed_by_user_id=p_approver_id,reversal_reason=c.reason,updated_at=clock_timestamp()
  WHERE tenant_id=p_tenant_id AND site_id=p_site_id AND id=p.id;
  UPDATE public.financial_supplier_payment_corrections
- SET status='posted',approved_by_user_id=p_approver_id,approved_at=clock_timestamp(),
+ SET status='posting',approved_by_user_id=p_approver_id,approved_at=clock_timestamp(),
  refund_transaction_id=v_refund,reversal_supplier_ledger_entry_id=v_sl
  WHERE id=c.id;
  -- The balance-preserving GL source is posted before the end of the SAME transaction.
@@ -263,7 +267,7 @@ BEGIN
  IF v_post->>'status'<>'posted' OR (v_post->>'alreadyPosted')::boolean IS DISTINCT FROM false
  THEN RAISE EXCEPTION 'B416_CORRECTION_GL_POST_INCOMPLETE' USING ERRCODE='23514';END IF;
  UPDATE public.financial_supplier_payment_corrections
- SET reversal_gl_entry_id=(v_post->>'entryId')::bigint WHERE id=c.id;
+ SET status='posted',reversal_gl_entry_id=(v_post->>'entryId')::bigint WHERE id=c.id;
  IF public.powerhub_financial_supplier_payment_correction_proof(
   p_tenant_id,p_site_id,p.id)<>'SOURCE_BACKED_REVERSAL_VALID'
  THEN RAISE EXCEPTION 'B416_CORRECTION_POSTED_PROOF_FAILED' USING ERRCODE='23514';END IF;
