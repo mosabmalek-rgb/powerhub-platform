@@ -118,6 +118,27 @@ const b35ForgedPayloadSql = readFileSync("docs/security/sql/pr359-financial-b35-
 const b34RealTransferSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-real-transfer-rpc-rollback.sql","utf8",
 );
+const b311LedgerSql = readFileSync(
+ "supabase/migrations/20261112122842_powerhub_financial_b311_independent_elimination_ledger.sql","utf8",
+);
+const b3111LinesSql = readFileSync(
+ "supabase/migrations/20261112123206_powerhub_financial_b3111_balanced_elimination_lines_and_audit.sql","utf8",
+);
+const b3112AliasFixSql = readFileSync(
+ "supabase/migrations/20261112124134_powerhub_financial_b3112_elimination_line_alias_fix.sql","utf8",
+);
+const b394ApprovedPreviewSql = readFileSync(
+ "supabase/migrations/20261112124448_powerhub_financial_b394_elimination_review_visibility.sql","utf8",
+);
+const b311ReviewSql = readFileSync(
+ "docs/security/sql/pr359-financial-b311-independent-elimination-rollback.sql","utf8",
+);
+const b394ApprovedReviewSql = readFileSync(
+ "docs/security/sql/pr359-financial-b394-approved-elimination-report-rollback.sql","utf8",
+);
+const b3WorkspaceUi = readFileSync(
+ "client/src/components/finance/FinancialInterSiteTransferWorkspace.tsx","utf8",
+);
 const b39AuditSql = readFileSync(
  "supabase/migrations/20261112120914_powerhub_financial_b39_inter_site_posting_proof_audit.sql","utf8",
 );
@@ -868,6 +889,29 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b34RealTransferSql).toContain("ROLLBACK;");
     expect(b33PositiveSourceSql).toContain("'transfer_out',20");
     expect(b33PositiveSourceSql).toContain("'transfer_in',20");
+  });
+
+  it("guards the independent B3.11 consolidation-only elimination ledger and UI", () => {
+    expect(b311LedgerSql).toContain("financial_gl_inter_site_eliminations");
+    expect(b311LedgerSql).toContain("financial_gl_inter_site_elimination_prepare");
+    expect(b311LedgerSql).toContain("financial_gl_inter_site_elimination_approve");
+    expect(b311LedgerSql).toContain("financial_gl_inter_site_approval_independent");
+    expect(b3111LinesSql).toContain("financial_gl_inter_site_elimination_lines");
+    expect(b3111LinesSql).toContain("GL_B311_ELIMINATION_LINES_UNBALANCED");
+    expect(b3111LinesSql).toContain("GL_B311_ELIMINATION_LINE_IMMUTABLE");
+    expect(b3112AliasFixSql).toContain("eli.elimination_id=d.id");
+    expect(b394ApprovedPreviewSql).toContain("matchedSources");
+    expect(b394ApprovedPreviewSql).toContain("approvedEliminationAmount");
+    expect(b311ReviewSql).toContain("B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK");
+    expect(b394ApprovedReviewSql).toContain("B394_APPROVED_ELIMINATION_VISIBILITY_INVALID");
+    expect(b394ApprovedReviewSql).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLPrepareInterSiteElimination: protectedProcedure");
+    expect(runtime).toContain("financialGLApproveInterSiteElimination: protectedProcedure");
+    expect(runtime).toContain('requireSupabaseSiteRole(ctx.user.id,Number(draft.to_site_id)');
+    expect(b3WorkspaceUi).toContain("financialGLPrepareInterSiteElimination.useMutation");
+    expect(b3WorkspaceUi).toContain("financialGLApproveInterSiteElimination.useMutation");
+    expect(b3WorkspaceUi).toContain("confirmIndependentReview:true");
+    expect(b3WorkspaceUi).toContain("NOT_CERTIFIED");
   });
 
   it("keeps B3.9 elimination preview source-backed, read-only and non-certified", () => {
