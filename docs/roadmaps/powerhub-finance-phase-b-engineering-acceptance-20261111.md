@@ -16,6 +16,18 @@
 
 ---
 
+## 2026-11-12 — B2.1 independent-actor SQL acceptance
+
+- Last verified pre-change PR head was `95ff9f09e725d02d17d682cf58d42094247579cf`; all four CI checks passed on that head and its Vercel Preview was READY.
+- Re-ran B2/B3/B3.2/B5 tests on synthetic Staging using `BEGIN/ROLLBACK`; they passed with results `B2_1_TWO_ACTOR_NEGATIVE_PASS_ROLLBACK`, `B3_PASS_ROLLBACK_ONLY`, `B3_2_FAULT_INJECTION_PASS_ROLLBACK`, `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- B2.1 used **two separate existing synthetic tenant actor IDs 4 and 260** through actual PostgreSQL RPCs: unauthorized prepare/approval were denied; maker self-approval was denied; the independent test checker approved inside the transaction; draft was not prematurely reported approved; exact retry reused the policy; modified payload or changed operation key caused conflicts; the GL entry/line counts were unchanged. The transaction was rolled back, leaving no central policy or synthetic human approval.
+- SQL source: `docs/security/sql/pr359-financial-b2-two-actor-negative-rollback.sql`. Static contract assertions were added in `server/financial-stage-a-acceptance.contract.test.ts`.
+- **IMPORTANT acceptance boundary:** invoking SQL with distinct actor IDs is **not** the same as two authenticated users interacting in the browser with authorization scoped by `requireSupabaseSiteRole`. E2E browser verification on the matching current Preview is still required.
+- No real accounting evidence or signed opening documentation exists for the 2,000 ILS synthetic second-site opening; it still must be reported as unreconciled. B3 remains preliminary and inter-site eliminations unreviewed. No merge and no Production change.
+- The four CI gates must be checked again on the final SHA after this documentation update.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
