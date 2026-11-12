@@ -96,6 +96,7 @@ function mapPurchaseDatabaseError(
   }
   const message = error?.message ?? "";
   const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN"; message: string }> = {
+    SUPPLIER_PAYMENT_POSTED_GL_SOURCE_REVERSAL_REQUIRED: { code: "CONFLICT", message: "لا يمكن عكس دفعة المورد لأن قيدها المحاسبي مُرحّل. لم تُنفّذ أي حركة عكس. يلزم مسار تصحيح محاسبي معتمد يحافظ على دفتر المورد والأستاذ العام." },
     AUTO_RECEIPT_REQUEST_INVALID: { code: "BAD_REQUEST", message: "تحقق من المخزن والتاريخ وبنود الاستلام التلقائي." },
     AUTO_RECEIPT_PAYMENT_MODE_INVALID: { code: "BAD_REQUEST", message: "الشراء الفوري يتطلب حسابًا وتاريخ دفع صالحين." },
     AUTO_RECEIPT_WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن المحدد غير نشط أو لا يتبع الفرع." },
