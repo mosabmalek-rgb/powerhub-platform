@@ -96,6 +96,9 @@ const b32TransferFaultSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql","utf8",
 );
 const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
+const b21TwoActorNegative = readFileSync(
+  "docs/security/sql/pr359-financial-b2-two-actor-negative-rollback.sql","utf8",
+);
 const financialCentralB2Ui = readFileSync("client/src/components/finance/FinancialCentralAllocationWorkspace.tsx","utf8");
 const technicalFixtureA35 = readFileSync(
   "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
@@ -870,6 +873,21 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("enabled:enabled && showB4Documents");
     expect(glAuditUiA45).toContain("B4 — تدقيق مصادر القيود والمستندات");
     expect(glAuditUiA45).toContain("b4Documents.isError");
+  });
+
+  it("proves B2 independent actor, idempotency and no-GL-posting negative cases", () => {
+    expect(b21TwoActorNegative).toContain("B2_1_UNAUTHORIZED_PREPARE_ACCEPTED");
+    expect(b21TwoActorNegative).toContain("B2_1_IDEMPOTENCY_PAYLOAD_DRIFT_ACCEPTED");
+    expect(b21TwoActorNegative).toContain("B2_1_SELF_APPROVAL_ACCEPTED");
+    expect(b21TwoActorNegative).toContain("B2_1_UNAUTHORIZED_APPROVAL_ACCEPTED");
+    expect(b21TwoActorNegative).toContain("B2_1_DRAFT_LEAKED_INTO_REPORT");
+    expect(b21TwoActorNegative).toContain("B2_1_DISTINCT_REVIEWER_FAILED");
+    expect(b21TwoActorNegative).toContain("B2_1_GL_MUTATED_BY_MANAGERIAL_POLICY");
+    expect(b21TwoActorNegative).toContain("B2_1_TWO_ACTOR_NEGATIVE_PASS_ROLLBACK");
+    expect(b21TwoActorNegative).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCentralPolicyPrepare: protectedProcedure");
+    expect(runtime).toContain("financialGLCentralPolicyApprove: protectedProcedure");
+    expect(runtime).toContain("requireSupabaseSiteRole(ctx.user.id");
   });
 
   it("gates B2 allocation workflow on scoped server permissions and independent approval", () => {
