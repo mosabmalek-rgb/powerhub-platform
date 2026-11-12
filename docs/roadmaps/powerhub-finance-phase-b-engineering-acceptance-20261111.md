@@ -538,3 +538,33 @@ B5_SUPPLIER_100_PURCHASE_RECEIPT_PAYMENT_99_FIRST_1_REPLAY_PASS
 These five columns are: total calls, sample p50 ms, sample p95 ms, sample p99 ms, and maximum ms of the **full SQL purchase-confirm-stock receive-payment transaction chain** (not a single isolated RPC). These observed values are not authenticated API/browser production latency or formal SLA. A subsequent forged-idempotency-key negative suite was added and must pass on the final head before certifying the updated gate. The current production GL-posted supplier reversal remains **fail-closed** and is **not** solved by this load test.
 
 Phase B continues to require B4.14+ original-GL-linked and independently approved atomic supplier payment correction, final B2/B3 authenticated browser-role acceptance, and complete human-reviewed accounting certification. `NOT_CERTIFIED` must remain. No Production deploy, merge or preview.
+
+
+---
+
+## 2026-11-12 — B4.15 supplier payment posted-GL correction preflight, source verified
+
+**Scope:** Read-only source-linked assessment, not operational reversal or financial certification.
+
+**Implemented on PR #359:**
+- Migration `20261112191500_powerhub_financial_b415_supplier_payment_correction_preflight.sql`: source-specific RPC `powerhub_financial_supplier_payment_correction_readiness(tenant,site,payment)`, restricted to `service_role`.
+- Server query `financialSupplierPaymentCorrectionReadiness` in `server/powerhub.ts`: requires **both** tenant/site `viewFinancialReports` and `manageSupplierPayments`, and validates every critical scope and fail-closed status field; no correction mutation endpoint added.
+- Contract tests `server/financial-supplier-correction-readiness.contract.test.ts` and replay-safe Staging SQL regression `docs/security/sql/pr359-financial-b415-supplier-correction-readiness-rollback.sql`.
+- Separate tests confirm the preflight never creates cash transactions, GL entries or lines, reversal ledger rows, or false financial approvals.
+
+**Verified on Staging using `BEGIN/ROLLBACK` first**, with marker `B415_SOURCE_LINKED_READ_ONLY_NEGATIVE_PASS_ROLLBACK`. It rejects an unknown payment, a payment under a different site, a cross-tenant request, and direct `anon`/`authenticated` execute grants. It also checks original GL and subledger counts remain unchanged.
+
+**Applied and recorded exact Git repository migration version `20261112191500` on Staging** `iyuryuhaylhisjfcrwkz` after the five GitHub gates succeeded on commit `3df10c3af3e72ea61bc620d14fe9d4ebec74d82c`. The migration was applied and its history row written in one PostgreSQL transaction, guarded by the preceding `20261112180000` version and tenant-1 accounting baseline (25 GL entries and 51 GL lines). One complete SQL statement is stored under the exact version; md5 of registered SQL: `f2bf6717922d6a0eb6e0a8736669e4da`. Production was untouched.
+
+**Real Staging source proof, supplier payment `#5`:**
+- Payment amount: **210.00**; original supplier ledger payment event `#20`.
+- Original posted GL `#857`: debit **2300** 210.00; credit **1010** 210.00.
+- Source-plan SHA-256 equals immutable GL source fingerprint: `a1ea7fb3b8b9c01c56bc726394be8a0b993fc96776534f257624941274975fc4`.
+- Source evidence status: `SOURCE_VERIFIED_WORKFLOW_NOT_IMPLEMENTED`; flags `sourceEvidenceVerified=true`, `canPostCorrection=false`, `canReverseGLDirectly=false`, `makerCheckerRequired=true`, `requiresDocumentedCashRefund=true`, `correctionWorkflowImplemented=false`, `accountingCertification=NOT_CERTIFIED`.
+- **No correction GL, supplier reversal, compensating cash deposit, or financial approval was fabricated.**
+
+**The principal B4 blocker remains open:** implement independently approved, atomic, source-specific supplier reversal and opposite GL lines while preserving original source integrity and verified supplier/cash balances. The original B4.14/14.1 refusal must remain in effect until that correction path is audited, tested with two independent actors, replayed and verified under concurrency and period lock. Do not relabel a successful diagnostic as a posted correction or a certified financial closing.
+
+**B5 supplier negative proof:** PostgreSQL Integration run `43268380188` passed the additional `B5_SUPPLIER_FORGED_REPLAY_ROLLBACK_PASS` and `B5_SUPPLIER_100_PURCHASE_RECEIPT_PAYMENT_99_FIRST_1_REPLAY_PASS` with 100 full supplier purchase/confirm/receipt/payment requests across four backend sessions. Recorded full chain sample p50 **11.53ms**, sample p95 **49.14ms**, sample p99 **123.14ms**, max **130.243ms**; these are SQL test-runner timings, not authenticated API/browser SLA.
+
+**No Vercel Preview, PR merge, or Production release** occurred. Accountants have not independently certified Phase B; `NOT_CERTIFIED` is mandatory.
