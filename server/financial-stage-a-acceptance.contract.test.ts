@@ -126,6 +126,12 @@ const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-p
 const b48ReversalSimulationSql = readFileSync(
   "docs/security/sql/pr359-financial-b4-posted-opening-reversal-simulation-rollback.sql","utf8",
 );
+const b493JawwalSql = readFileSync(
+  "docs/security/sql/pr359-financial-b49-jawwal-pay-transfer-rollback.sql","utf8",
+);
+const b493TypesSql = readFileSync(
+  "supabase/migrations/20261112103607_powerhub_financial_b49_all_company_account_types.sql","utf8",
+);
 const b492CandidatesSql = readFileSync(
   "docs/security/sql/pr359-financial-b49-candidates-rollback.sql","utf8",
 );
@@ -1020,6 +1026,15 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("enabled:enabled && showB4Documents");
     expect(glAuditUiA45).toContain("B4 — تدقيق مصادر القيود والمستندات");
     expect(glAuditUiA45).toContain("b4Documents.isError");
+  });
+
+  it("keeps B4.9 financial postings valid for Jawwal Pay and bank-style accounts", () => {
+    expect(b493TypesSql).toContain("'jawwal_pay'");
+    expect(b493TypesSql).toContain("'bank_of_palestine'");
+    expect(b493TypesSql).toContain("'other'");
+    expect(b493JawwalSql).toContain("B49_JAWWAL_PAY_TRANSFER_MATCHED_PASS_ROLLBACK");
+    expect(b493JawwalSql).toContain("B49_JAWWAL_TRANSFER_NOT_RECONCILED");
+    expect(b493JawwalSql).toContain("ROLLBACK;");
   });
 
   it("presents only verified site-scoped B4.9 transfer candidates before GL posting", () => {
