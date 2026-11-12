@@ -41,7 +41,11 @@ export default function FinancialCentralAllocationWorkspace({
       refetchOnReconnect: true,
     },
   );
-  const policy = workspace.data?.policy ?? null;
+  // Never expose or act on cached financial policy while the route is inactive,
+  // loading, or failing authorization/refetch for its current site and period.
+  const workspaceReady = enabled && !workspace.isLoading &&
+    !workspace.isFetching && !workspace.isError && workspace.data !== undefined;
+  const policy = workspaceReady ? workspace.data.policy : null;
   const approvalActive = policy?.status === "approved" && enabled;
   const preview = trpc.powerhub.reports.financialGLCentralPolicyPreview.useQuery(
     { siteId, centralSiteId: siteId, period }, {
@@ -64,7 +68,7 @@ export default function FinancialCentralAllocationWorkspace({
     onSuccess: refreshOnMutation,
     onError: () => { void workspace.refetch(); },
   });
-  const sites = workspace.data?.sites ?? [];
+  const sites = workspaceReady ? workspace.data.sites : [];
   const selectedWeights = sites.flatMap((site) => {
     const raw = percentages[site.id] ?? "";
     const points = toBasisPoints(raw);
@@ -74,7 +78,7 @@ export default function FinancialCentralAllocationWorkspace({
   const invalidPercent = Object.values(percentages).some(
     (raw) => raw.trim() !== "" && toBasisPoints(raw) === null,
   );
-  const isReady = Boolean(workspace.data && !workspace.isLoading && !workspace.isFetching && !workspace.isError);
+  const isReady = workspaceReady;
   const mayPrepare = isReady && !policy && !workspace.data?.sourceCandidatesTruncated && !invalidPercent && totalPoints === 10000
     && selectedWeights.length >= 2 && selectedSources.length >= 1
     && evidence.trim().length >= 8 && evidence.trim().length <= 250
