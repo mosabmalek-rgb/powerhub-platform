@@ -1,5 +1,16 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B3.7 positive cross-site due-from/due-to accounting proof
+
+- Ran a **positive synthetic double-entry experiment** inside `BEGIN/ROLLBACK`, with a properly fingerprinted cross-site transfer of **20 ILS** from the primary site's cash account to the isolated second site's wallet account. No persistent account mapping, transfer, account or GL records were created.
+- The experiment temporarily added chart accounts **1350** (due from another site, asset) and **2350** (due to another site, liability), then added two GL journal entries: **site 1: Dr 1350 / Cr 1010 20**, **site 2: Dr 1020 / Cr 2350 20**. Each journal was balanced.
+- The preliminary multi-site rollup showed exactly **+20 net assets and +20 liabilities**, reflecting the inter-site claim and obligation. Mathematically eliminating **Dr 2350 / Cr 1350 20** returned those consolidated figures to the prior baseline, while retaining `NOT_CERTIFIED`, `isConsolidatedFinancialStatements=false` and the explicit elimination-proof warning.
+- Verified no change to the 25 GL entries / 51 lines after `ROLLBACK`. Saved executable SQL at `docs/security/sql/pr359-financial-b37-cross-site-elimination-math-rollback.sql` and CI contract assertions.
+- **Engineering interpretation:** this validates the double-entry signs and elimination arithmetic, **not** a production-capable cross-site transfer RPC, independently reviewed consolidation journal, legal/accounting approval, account-chart deployment or authenticated browser UI. Those are still required for full B3 closure.
+
+---
+
+
 ## 2026-11-12 — B3.6 cross-site posting guard regression
 
 - Exercised a valid, correctly fingerprinted two-site test transfer source in `BEGIN/ROLLBACK`.
