@@ -65,6 +65,12 @@ const b51FastProofSql = readFileSync(
 const b51FailClosedSql = readFileSync(
   "docs/security/sql/pr359-financial-b5-fast-proof-negative-rollback.sql","utf8",
 );
+const b53FastPriorSql = readFileSync(
+  "supabase/migrations/20261112093106_powerhub_financial_b5_fast_prior_coverage_without_250k_rescan.sql","utf8",
+);
+const b53FallbackSql = readFileSync(
+  "docs/security/sql/pr359-financial-b5-fast-prior-fallback-rollback.sql","utf8",
+);
 const b52RepeatabilitySql = readFileSync(
   "docs/security/sql/pr359-financial-b5-repeat-read-consistency-rollback.sql","utf8",
 );
@@ -830,6 +836,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_FAILURE_CLOSED_PASS");
     expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_BROWSER_EXECUTE_EXPOSED");
     expect(b51FailClosedSql).toContain("ROLLBACK;");
+  });
+
+  it("never excludes unsupported fixtures when B5.3 fast proof is unavailable", () => {
+    expect(b53FastPriorSql).toContain("powerhub_financial_gl_fast_staging_fixture_proof");
+    expect(b53FastPriorSql).toContain("v_fixture_proof");
+    expect(b53FastPriorSql).toContain("v_prior_cash:=v_prior_cash+250000");
+    expect(b53FastPriorSql).toContain("Unproven, altered or out-of-window cohorts are never excluded");
+    expect(b53FallbackSql).toContain("B5_3_FAST_PROOF_FAILED_TO_CLOSE");
+    expect(b53FallbackSql).toContain("B5_3_RAW_FALLBACK_PRESERVES_UNRESOLVED_PASS_ROLLBACK");
+    expect(b53FallbackSql).toContain("DISABLE TRIGGER powerhub_financial_gl_fixture_freeze_write");
+    expect(b53FallbackSql).toContain("ROLLBACK;");
   });
 
   it("guards B5.2 read repeatability and no false consolidation under reexecution", () => {
