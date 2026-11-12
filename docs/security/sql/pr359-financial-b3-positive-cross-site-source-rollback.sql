@@ -11,12 +11,12 @@ BEGIN
  INSERT INTO public.account_transactions
  (id,tenant_id,site_id,account_id,transaction_type,amount,description,reference_no,related_account_id,created_by_user_id,occurred_at)
  VALUES
- (900000000009123,1,1,5,'transfer_out',20,'B3 cross-site synthetic outgoing','STG-B3.3-SOURCE-OUT',6,4,'2026-11-11T12:00:00+00'),
- (900000000009124,1,9000000000099,6,'transfer_in',20,'B3 cross-site synthetic incoming','STG-B3.3-SOURCE-IN',5,4,'2026-11-11T12:00:00+00');
+ (900000000009123,1,1,5,'transfer_out',20,'B3 cross-site synthetic paired transfer','STG-B3.3-SOURCE-OUT',6,4,'2026-11-11T12:00:00+00'),
+ (900000000009124,1,9000000000099,6,'transfer_in',20,'B3 cross-site synthetic paired transfer','STG-B3.3-SOURCE-IN',5,4,'2026-11-11T12:00:00+00');
  INSERT INTO public.company_account_movement_operations
  (tenant_id,operation_key,site_id,created_by_user_id,operation_type,payload_hash,primary_transaction_id,counterpart_transaction_id)
  VALUES(1,'2b41750f-c2da-4b45-b4a0-6a53d43698ef',1,4,'transfer',
- repeat('b',32),900000000009123,900000000009124);
+ md5(jsonb_build_object('tenantId',1,'siteId',1,'userId',4,'fromAccountId',5,'toAccountId',6,'amount',20,'description','B3 cross-site synthetic paired transfer')::text),900000000009123,900000000009124);
  result:=public.powerhub_financial_gl_tenant_rollup(1,'2026-11');
  IF (result->>'companyTransferSourceOperationCount')::bigint<>1
  OR (result->>'crossSiteOperationalTransferCount')::bigint<>1
