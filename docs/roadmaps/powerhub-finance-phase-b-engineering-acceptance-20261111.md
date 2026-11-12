@@ -1,5 +1,20 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B4.10 durable Staging-only synthetic opening correction
+
+- User reconfirmed there is no launch or real user transaction history; **Staging financial records are entirely synthetic** and may be changed for acceptance tests. No Production write, release, or merge was authorized.
+- The isolated synthetic second-site opening batch **19**, source GL entry **168**, had unverified cash 2,000 ILS and capital 2,000 ILS. A verified, scoped **append-only** inverse journal was committed to Staging using the guarded script `docs/security/sql/pr359-financial-b410-staging-only-technical-opening-correction.sql`. The original opening and its history remain unchanged.
+- The correction checked the exact site name, batch reference, source SHA-256, original entry/line amounts and posting, and absence of an existing reversal. It inserted debit **3100 = 2,000** / credit **1010 = 2,000**, linked `reverses_entry_id=168`, with a deterministic operation key/fingerprint and exactly one **system-attributed technical** audit event. The event explicitly sets `humanApproved=false`, `accountingCertification=NOT_CERTIFIED`, and `productionAllowed=false`. A technical `posted_by_user_id` is NOT a human-review approval.
+- Verified both the rollback dry-run and the actual **COMMIT on Staging**. Result `B4_10_STAGING_TECHNICAL_REVERSAL_VERIFIED_NOT_CERTIFIED`. Persistent GL now **25 entries / 51 lines**, one matching reversal and one technical audit row; **0 fabricated opening evidence**. Site-2 cash difference and all 5 supported B4 subledger differences are **zero**; B4 document/cash audits now report matching without certification.
+- Updated B5 engineering gate to demand a valid reversal, its explicit audit and zero subledger mismatch **without permitting** fabricated evidence or final-accounting approval. Re-executed the revised gate on durable Staging: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- Updated B4.8 duplicate-reversal negative test (second reversal correctly rejected), B4.6 prohibited-evidence negative test, and B3 preliminary rolled-up figures after this synthetic correction: 25 entries, net assets **4,070.50**, liabilities **7,119**, equity **0**, accumulated result **-3,048.50**, equation difference zero. B3 remains `PRELIMINARY_MULTI_SITE_ROLLUP` with `NOT_CERTIFIED`.
+- All tests were executed inside rollback except the one explicitly authorized **technical Staging correction**. The helper SQL stored in GitHub deliberately ends in `ROLLBACK` to prevent accidental reapplication; an audited, explicit `COMMIT` was used only in this synthetic correction operation.
+- **Still open:** historic original opening has no independently attested documents (although its numeric effect is now reversed); no genuine independent 2-user browser proof for B2; no standalone cross-site due-to/due-from journal and elimination acceptance; no sustained authenticated multi-user performance SLA evidence. These open gates must not be represented as certified.
+- Required post-change check: four CI workflows on the new final PR SHA and SHA-matched READY Preview.
+
+---
+
+
 ## 2026-11-12 — B3.5 verifiable transfer-source provenance
 
 - Independently verified current PR head before changes: `2d4697199ce825982ea631a649bab480f9cb5a05` with 4/4 successful GitHub workflows and a matching READY Vercel Preview.
