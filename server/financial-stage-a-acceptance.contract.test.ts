@@ -118,6 +118,18 @@ const b35ForgedPayloadSql = readFileSync("docs/security/sql/pr359-financial-b35-
 const b34RealTransferSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-real-transfer-rpc-rollback.sql","utf8",
 );
+const b39AuditSql = readFileSync(
+ "supabase/migrations/20261112120914_powerhub_financial_b39_inter_site_posting_proof_audit.sql","utf8",
+);
+const b391AuditFixSql = readFileSync(
+ "supabase/migrations/20261112121003_powerhub_financial_b391_audit_alias_scope_fix.sql","utf8",
+);
+const b392IntraSiteFixSql = readFileSync(
+ "supabase/migrations/20261112121237_powerhub_financial_b392_exclude_intra_site_from_inter_site_preview.sql","utf8",
+);
+const b39PositiveAuditSql = readFileSync(
+ "docs/security/sql/pr359-financial-b39-positive-gl-audit-rollback.sql","utf8",
+);
 const b38PostingSql = readFileSync(
  "supabase/migrations/20261112115946_powerhub_financial_b38_source_paired_inter_site_double_entry.sql","utf8",
 );
@@ -856,6 +868,23 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b34RealTransferSql).toContain("ROLLBACK;");
     expect(b33PositiveSourceSql).toContain("'transfer_out',20");
     expect(b33PositiveSourceSql).toContain("'transfer_in',20");
+  });
+
+  it("keeps B3.9 elimination preview source-backed, read-only and non-certified", () => {
+    expect(b39AuditSql).toContain("powerhub_financial_gl_inter_site_posting_audit");
+    expect(b39AuditSql).toContain("MATCHED_DUE_FROM_TO_PRELIMINARY_ONLY");
+    expect(b39AuditSql).toContain("GL_PAIR_MISSING_OR_MISMATCHED");
+    expect(b391AuditFixSql).toContain("op2.counterpart_transaction_id");
+    expect(b392IntraSiteFixSql).toContain("CONTINUE");
+    expect(b39PositiveAuditSql).toContain("B39_INTER_SITE_POSTING_AUDIT_PASS_ROLLBACK");
+    expect(b39PositiveAuditSql).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLPostInterSiteTransfer: protectedProcedure");
+    expect(runtime).toContain('powerhub_financial_gl_post_inter_site_source');
+    expect(runtime).toContain('powerhub_financial_gl_inter_site_posting_audit');
+    expect(runtime).toContain("confirmSourceReview:z.literal(true)");
+    expect(runtime).toContain('requireSupabaseSiteRole(ctx.user.id,toSiteId');
+    expect(glAuditUiA45).toContain("b3InterSiteProof");
+    expect(glAuditUiA45).toContain("B3.9 — إثبات مستحق من/مستحق لفرع");
   });
 
   it("enforces B3.8 source provenance, two-site reviewer and atomic paired GL entries", () => {
