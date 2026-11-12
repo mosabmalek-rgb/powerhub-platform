@@ -2321,6 +2321,43 @@ export const powerhubRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return listSupabaseAccessibleSites(ctx.user.id, isActivePlatformAdmin(ctx.user));
     }),
+    // Entitlement for every authorized tenant role, not just owners. A site
+    // count is not evidence that an unlicensed tenant may use multi-site UX.
+    multiBranchAccess: protectedProcedure.input(siteScoped).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","collector","technician","viewer"]);
+      const admin=supabaseAdmin();
+      const [subscription,platformSetting,tenantSetting,activeSites]=await Promise.all([
+        admin.from("tenant_subscriptions").select("package_code")
+          .eq("tenant_id",access.tenantId).maybeSingle(),
+        admin.from("platform_settings").select("is_enabled,value")
+          .eq("setting_key","branch_feature").maybeSingle(),
+        admin.from("tenant_branch_settings")
+          .select("is_enabled_override,max_branches_override,disabled_behavior")
+          .eq("tenant_id",access.tenantId).maybeSingle(),
+        admin.from("sites").select("id",{count:"exact",head:true})
+          .eq("tenant_id",access.tenantId).eq("status","active"),
+      ]);
+      if(subscription.error || platformSetting.error || tenantSetting.error ||
+         activeSites.error || typeof activeSites.count!=="number" ||
+         !Number.isSafeInteger(activeSites.count) || activeSites.count<1)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر التحقق من سياسة الاشتراك؛ تم حجب أدوات تعدد المواقع."});
+      const policy=resolveBranchPolicy({
+        plan:(subscription.data?.package_code??"basic") as SubscriptionPlan,
+        platformSetting:platformSetting.data?
+          {isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,
+        tenantSetting:tenantSetting.data?{
+          isEnabledOverride:tenantSetting.data.is_enabled_override,
+          maxBranchesOverride:tenantSetting.data.max_branches_override,
+          disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended",
+        }:null,
+        currentCount:activeSites.count,
+      });
+      return {siteId:input.siteId,
+        enabled:policy.isEnabled===true && policy.maxBranches>1,
+        activeSiteCount:activeSites.count};
+    }),
     branchPolicy: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,["owner"]);
       const admin=supabaseAdmin();
