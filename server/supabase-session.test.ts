@@ -27,7 +27,7 @@ describe("Supabase session authentication", () => {
 
     await expect(authenticateSupabaseRequest({ headers: { authorization: "Bearer supabase-token" } } as never)).resolves.toEqual(synchronizedUser);
     expect(state.getClaims).toHaveBeenCalledWith("supabase-token");
-    expect(state.syncUser).toHaveBeenCalledWith({ id: "supabase-user-id", email: "admin@powerhub.test", name: "مدير المنصة" });
+    expect(state.syncUser).toHaveBeenCalledWith({ id: "supabase-user-id", email: "admin@powerhub.test", name: "مدير المنصة" }, {});
   });
 
 
