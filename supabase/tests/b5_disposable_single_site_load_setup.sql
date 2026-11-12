@@ -77,6 +77,7 @@ DECLARE
  v_second bigint;
  v_replayed boolean;
  v_elapsed numeric;
+ v_amount numeric(14,2);
 BEGIN
  IF current_database()<>'powerhub_b5_synthetic_load_test'
    OR p_worker NOT BETWEEN 1 AND 4 OR p_iteration NOT BETWEEN 1 AND 250
@@ -87,18 +88,20 @@ BEGIN
                    WHEN v_key_index%10<9 THEN 'withdrawal' ELSE 'transfer' END;
  v_key:=md5('B5-single-branch-synthetic:'||p_worker||':'||v_key_index)::uuid;
  v_desc:='B5 fixture worker '||p_worker||' operation '||v_key_index;
+ -- Operational currency usage: 99.5% whole amounts and 0.5% one-decimal amounts.
+ v_amount:=CASE WHEN p_worker=1 AND v_key_index IN (50,100,150,200,250) THEN 1.5 ELSE 1 END;
  v_started:=clock_timestamp();
  IF v_operation='transfer' THEN
    SELECT from_transaction_id,to_transaction_id,replayed
      INTO v_first,v_second,v_replayed
    FROM public.powerhub_transfer_company_accounts_idempotent(
-     1,10,7,100,200,1.00,v_desc,v_key);
+     1,10,7,100,200,v_amount,v_desc,v_key);
    IF v_second IS NULL OR v_second=v_first
    THEN RAISE EXCEPTION 'B5_TRANSFER_PAIR_INCOMPLETE'; END IF;
  ELSE
    SELECT transaction_id,replayed INTO v_first,v_replayed
    FROM public.powerhub_add_account_movement_idempotent(
-     1,10,7,100,v_operation,1.00,v_desc,
+     1,10,7,100,v_operation,v_amount,v_desc,
      'B5-SYN-'||p_worker||'-'||v_key_index,v_key);
  END IF;
  v_elapsed:=round(extract(epoch from clock_timestamp()-v_started)::numeric*1000,3);
