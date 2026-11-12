@@ -54,6 +54,12 @@ BEGIN
      OR (roll->>'isConsolidatedFinancialStatements')::boolean IS DISTINCT FROM false
      OR (roll->>'siteCount')::bigint<>2
      OR (roll->>'glEntryCount')::bigint<>24
+     OR (roll->>'intraSiteWarehouseTransferCount')::bigint<>2
+     OR (roll->>'intraSiteWarehouseTransferValue')::numeric<>170
+     OR (roll->>'intraSiteWarehouseTransferMismatchCount')::bigint<>0
+     OR (roll->'readiness'->>'warehouseTransfersPaired')::boolean IS DISTINCT FROM true
+     OR roll->>'warehouseTransferClassification'<>'INTRA_SITE_STOCK_TRANSFER_NOT_GL_ELIMINATION'
+     OR (roll->>'interSiteTransferCandidateCount')::bigint<>0
      OR roll->>'interSiteTransferEliminationStatus'<>'NOT_INDEPENDENTLY_RECONCILED'
      OR (roll->'readiness'->>'canBeCertifiedConsolidation')::boolean IS DISTINCT FROM false
      OR (roll->'positionBeforeEliminations'->>'equationDifference')::numeric<>0
