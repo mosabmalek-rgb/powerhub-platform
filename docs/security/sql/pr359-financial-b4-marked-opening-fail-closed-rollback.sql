@@ -11,7 +11,7 @@ BEGIN
  SELECT count(*) INTO baseline_custody FROM public.financial_gl_opening_document_custody
   WHERE tenant_id=1 AND site_id=9000000000099;
  SELECT count(*) INTO baseline_gl FROM public.financial_gl_entries WHERE tenant_id=1;
- IF baseline_evidence<>0 OR baseline_custody<>0 OR baseline_gl<>24
+ IF baseline_evidence<>0 OR baseline_custody<>0 OR baseline_gl<>25
  THEN RAISE EXCEPTION 'B4_6_FIXTURE_BASELINE_CHANGED'; END IF;
  BEGIN
   PERFORM public.powerhub_financial_gl_opening_evidence_submit(
@@ -27,7 +27,8 @@ BEGIN
  balance_json:=public.powerhub_financial_gl_subledger_reconciliation(1,9000000000099,'2026-11');
  IF (status_json->>'allLinesAttested')::boolean IS DISTINCT FROM false
     OR (status_json->>'isIndependentlyReconciled')::boolean IS DISTINCT FROM false
-    OR balance_json->>'status'<>'BLOCKED_RECONCILIATION'
+    OR balance_json->>'status'<>'MATCHED_NUMERICALLY_NOT_CERTIFIED'
+    OR (balance_json->>'differenceCount')::bigint<>0
     OR (SELECT count(*) FROM public.financial_gl_opening_evidence
         WHERE tenant_id=1 AND site_id=9000000000099)<>baseline_evidence
     OR (SELECT count(*) FROM public.financial_gl_opening_document_custody
