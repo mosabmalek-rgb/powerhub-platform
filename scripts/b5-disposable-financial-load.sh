@@ -15,7 +15,7 @@ start="$(date +%s)"
 for worker in 1 2 3 4; do
   {
     echo 'SET ROLE service_role;'
-    for iteration in $(seq 1 25); do
+    for iteration in $(seq 1 250); do
       printf 'SELECT public.b5_execute_synthetic_movement(%d,%d);\n' "$worker" "$iteration"
     done
     echo 'RESET ROLE;'
@@ -29,7 +29,7 @@ if [[ "$failed" != 0 ]]; then
   exit 1
 fi
 for worker in 1 2 3 4; do
-  [[ "$(grep -c '^B5_OK$' "$dir/out-$worker" || true)" == 25 ]] ||
+  [[ "$(grep -c '^B5_OK$' "$dir/out-$worker" || true)" == 250 ]] ||
     { echo "B5_WORKER_RESULT_MISMATCH $worker" >&2; exit 1; }
 done
 echo "B5 four concurrent SQL backends finished in $(($(date +%s)-start)) seconds"
