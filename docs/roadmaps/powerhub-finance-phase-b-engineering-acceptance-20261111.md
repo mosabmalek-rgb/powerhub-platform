@@ -1,5 +1,19 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B3.9.5 orphan elimination fail-closed + UI null discipline
+
+- Verified the previous `62851e9ac0d3e7629aea2f66659d7ef96b3dd253` PR head completed **4/4 GitHub CI**. No SHA-matched Vercel Preview was returned for that commit. This is historical CI evidence, **not** evidence for the newer commits below.
+- Identified a reconciliation gap: the B3.9.4 report checked approved eliminations attached to matched transfers, but could overlook an approved elimination header whose operational source or pair of site GL entries was missing.
+- Applied and registered additive Staging migration `20261112130226_powerhub_financial_b395_orphan_elimination_fail_closed.sql`. The report now counts independently detected orphan elimination headers in `orphanEliminationCount`, returns `BLOCKED_INTEGRITY`, and suppresses `approvedEliminationAmount` / approved asset and liability reductions with **NULL (not zero)** if any invalid source, orphan GL, or orphan elimination exists. It does not alter or certify the GL.
+- Tested `B395_ORPHAN_APPROVED_ELIMINATION_FAIL_CLOSED_PASS_ROLLBACK`: a synthetically inserted `approved` elimination without genuine source or matching GL must return orphan count 1, `BLOCKED_INTEGRITY`, null approved amounts, `NOT_CERTIFIED` and unchanged branch GL. The test passed inside `ROLLBACK`.
+- Re-ran `B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK`, `B394_APPROVED_ELIMINATION_VISIBILITY_INVALID` and `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`: passed after the migration.
+- Hardened UI: null/withheld accounting amounts render **غير متاح**, never zero. The transfer-review and elimination-approval workspace stops actions when the independent proof shows `BLOCKED_INTEGRITY` or orphan elimination records. The audit panel displays orphan count, approved elimination amount, and an expressly non-certified after-elimination preview only when the proof is valid. Added CI assertions.
+- Verified durable Staging baseline remained **25 GL entries / 51 GL lines; zero inter-site transfer operations or elimination records**. No Production changes and PR remains Draft.
+- **Open:** complete 4/4 CI on the final commit, SHA-matched Preview authenticated-browser maker/checker acceptance (B2 and B3), stable B5 concurrent latency SLO and any outstanding B4 generalized reversal review. Do not mark the overall phase finally certified or merged.
+
+---
+
+
 ## 2026-11-12 — B3.10/B3.11 source, dual-site GL and independent elimination journal
 
 - Implemented and applied Staging **B3.10** source creation RPC, both-site checks, exclusive account mapping, source-funds check, lock-aware operation key and equal paired account movements. Discovered cross-site audit trigger would reject a different-site counterpart under `toTransactionId`. Fixed safely in **B3.10.1** by preserving the counterpart ID as `counterpartTransactionId`; did **not** relax the original site-isolation trigger.
