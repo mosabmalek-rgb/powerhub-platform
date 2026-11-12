@@ -106,7 +106,16 @@ async function acceptPendingInvitations(input: { id: string; email: string | nul
   }
 }
 
-export async function syncSupabaseProfile(input: { id: string; email?: string | null; name?: string | null }) {
+/**
+ * Read the current application user on EVERY authenticated API request.
+ * In particular this never memoizes accountStatus, role or forced-password-reset.
+ * Bootstrap-only writes (profile creation/identity reconciliation and invitation
+ * acceptance) run via auth.me or auth.claimDevice, not on ordinary report GETs.
+ */
+export async function syncSupabaseProfile(
+  input: { id: string; email?: string | null; name?: string | null },
+  options: { bootstrap?: boolean } = {},
+) {
   const email = input.email?.trim().toLowerCase() ?? null;
   const name = input.name?.trim() || email?.split("@")[0] || null;
   const admin = supabaseAdmin();
@@ -114,6 +123,14 @@ export async function syncSupabaseProfile(input: { id: string; email?: string | 
     admin.from("users")
       .select(PROFILE_COLUMNS).eq("auth_user_id", input.id).maybeSingle());
   if (lookupError) throw new Error(lookupError.message || "تعذر تحميل ملف مستخدم Supabase.");
+
+  // No write side effects, invitation RPCs, or signin timestamp updates
+  // during ordinary API reads. A missing profile must be initialized through
+  // the explicit login/bootstrap route, not silently created by a report GET.
+  if (!options.bootstrap) {
+    if (!existing) throw new Error("تعذر تحميل ملف المستخدم؛ يجب إكمال تهيئة تسجيل الدخول.");
+    return mapSupabaseProfile(existing as UserRow);
+  }
 
   const now = Date.now();
   const previousSignIn = existing?.last_signed_in ? new Date(existing.last_signed_in).getTime() : 0;
