@@ -5135,6 +5135,56 @@ export const powerhubRouter = router({
         }>;
       };
     }),
+    // B4.15: read-only financial source evidence. Never exposes a correction mutation.
+    financialSupplierPaymentCorrectionReadiness: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      paymentId:z.number().int().positive(),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageSupplierPayments");
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_supplier_payment_correction_readiness",{
+          p_tenant_id:access.tenantId,
+          p_site_id:input.siteId,
+          p_payment_id:input.paymentId,
+        });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر فحص مستند تصحيح دفعة المورد؛ لم تُنشأ أي حركة عكس."});
+      const result=data as Record<string,unknown>;
+      if(result.tenantId!==access.tenantId
+        ||result.siteId!==input.siteId
+        ||result.paymentId!==input.paymentId
+        ||result.accountingCertification!=="NOT_CERTIFIED"
+        ||result.canPostCorrection!==false
+        ||result.canReverseGLDirectly!==false
+        ||result.correctionWorkflowImplemented!==false
+        ||result.makerCheckerRequired!==true
+        ||result.requiresDocumentedCashRefund!==true
+        ||typeof result.sourceEvidenceVerified!=="boolean"
+        ||typeof result.status!=="string"
+        ||(result.sourceEvidenceVerified===true &&
+          (result.status!=="SOURCE_VERIFIED_WORKFLOW_NOT_IMPLEMENTED"
+            ||!Number.isSafeInteger(Number(result.originalGLEntryId))
+            ||Number(result.originalGLEntryId)<=0
+            ||!Number.isSafeInteger(Number(result.supplierLedgerEntryId))
+            ||Number(result.supplierLedgerEntryId)<=0
+            ||typeof result.originalGLFingerprint!=="string"
+            ||!/^[0-9a-f]{64}$/.test(result.originalGLFingerprint))))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تقرير تدقيق دفعة المورد غير متسق؛ مُنع أي تصحيح أو اعتماد."});
+      return result as {
+        tenantId:number;siteId:number;paymentId:number;
+        supplierLedgerEntryId:number|null;originalGLEntryId:number|null;
+        originalGLFingerprint:string|null;originalGLEntryPeriod:string|null;
+        paymentAmount:number|null;status:string;sourceEvidenceVerified:boolean;
+        canPostCorrection:false;canReverseGLDirectly:false;
+        makerCheckerRequired:true;requiresDocumentedCashRefund:true;
+        correctionWorkflowImplemented:false;accountingCertification:"NOT_CERTIFIED";
+      };
+    }),
     // B4.9: site-filtered transfer source discovery for safe, user-initiated GL posting.
     financialGLCashTransferCandidates: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
