@@ -29,12 +29,12 @@ describe("single-site finance first, multi-site isolation retained", () => {
     expect(panel).toContain("{hasMultipleSites ? <>");
     expect(panel).toContain("<FinancialCentralAllocationWorkspace");
     expect(panel).toContain("<FinancialInterSiteTransferWorkspace");
-    expect(panel).toContain("siteScope.data?.activeSiteCount===1");
+    expect(panel).toContain("multiBranchAccess.data?.enabled===true");
   });
 
   it("fails closed for unknown scope, without disabling site-only audits", () => {
-    expect(panel).toContain("siteScope.isError");
-    expect(panel).toContain("حُجبت أدوات التحويل والتجميع");
+    expect(panel).toContain("multiBranchAccess.isSuccess &&");
+    expect(panel).toContain("multiBranchAccess.data?.siteId===siteId");
     expect(panel).toContain("financialGLSubledgerReconciliation.useQuery");
     expect(panel).toContain("financialGLCompanyMovementAudit.useQuery");
     expect(panel).toContain("financialGLSiteStatements.useQuery");
