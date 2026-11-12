@@ -26,6 +26,14 @@ describe("B4.16 supplier source correction server guard and rollback evidence",(
     expect(code).toContain("p_approver_id:ctx.user.id");
     expect(code).toContain("confirmIndependentReview:z.literal(true)");
     expect(code).toContain('result.accountingCertification!=="NOT_CERTIFIED"');
+    expect(code).toContain('stored.operation_key!==input.operationKey');
+    expect(code).toContain('stored.reason!==input.reason');
+    expect(code).toContain('Number(stored.requested_by_user_id)!==ctx.user.id');
+    expect(code).toContain('Number(posted.approved_by_user_id)!==ctx.user.id');
+    expect(code).toContain('Number(posted.reversal_gl_entry_id)!==Number(result.entryId)');
+    expect(code).toContain('"powerhub_financial_supplier_payment_correction_proof"');
+    expect(code).toContain('sourceProof!=="SOURCE_BACKED_REVERSAL_VALID"');
+    expect(code).toContain('.eq("tenant_id",access.tenantId).eq("site_id",input.siteId)');
     expect(code).not.toContain("canReverseGLDirectly:true");
   });
   it("keeps corrections source-linked, atomic, and not certified",()=>{
