@@ -87,6 +87,19 @@
 
 ---
 
+## 2026-11-12 — B5.3 prior-gap optimization with exact ledger invariants
+
+- Starting head `f39afe0c7b5493b1804fcf593102c63365753c5c`: **all four CI gates successful**, Vercel Preview READY, PR Draft/unmerged.
+- Discovered the unclassified prior-account-movement report scans 250,000 benchmark rows in the synthetic tenant (historical May 2026 records) despite existing exclusion bookkeeping. These rows are immutable and SHA-256 anchored; unrelated accounts/site/periods must never inherit their exemption.
+- Applied Staging migration `20261112093106_powerhub_financial_b5_fast_prior_coverage_without_250k_rescan.sql`, committed exact SQL. The raw gap source now uses the existing guarded proof for **tenant=1/site=1 and a historical window containing the entire May fixture**. It counts all non-fixture movements through the existing partial index and adds the anchored 250,000 historical rows back to its *raw* figures. If the proof is not verified, it performs the original full counting path, without excluding anything.
+- Compared digest of **raw gap result, filtered gap result, and B3 rollup before/after change**; all three were exactly equal. The raw gap continued showing 250,000 unclassified and tagged test movements; filtered report continued showing zero unresolved, with the quarantine clearly described. No false financial certification.
+- Disabled `powerhub_financial_gl_fixture_freeze_write` **inside BEGIN/ROLLBACK**; the fast proof failed, the raw gap still counted all 250,000 as unresolved, and the filtered gap no longer excluded them. Re-enabled the trigger inside the test, verified recovery. Result `B5_3_RAW_FALLBACK_PRESERVES_UNRESOLVED_PASS_ROLLBACK`. The guard is active after rollback.
+- **Performance limitation:** measured raw prior-gap query near 6,346 ms before and 4,955 ms after in two runs, but these are highly variable. Filtered prior-gap query after was 490 ms and B3 rollup 634 ms. This does not prove a stable p95 or closure of B5 concurrency performance. Do not claim a guaranteed speedup.
+- Test contract added. No change to 24 GL entries/49 lines, no B2 central allocations, no manufactured site-2 opening evidence; Production unchanged.
+- Outstanding full-B closure: site-2 2,000 ILS opening requires a formally authorized accounting disposition; independent GL elimination entries for cross-site transfers remain unimplemented/unproven; repeatable load benchmarks and post-change green CI on the final SHA are still required.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
