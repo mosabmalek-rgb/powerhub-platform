@@ -127,6 +127,12 @@ const b3111LinesSql = readFileSync(
 const b3112AliasFixSql = readFileSync(
  "supabase/migrations/20261112124134_powerhub_financial_b3112_elimination_line_alias_fix.sql","utf8",
 );
+const b56ReferenceIndexSql = readFileSync(
+ "supabase/migrations/20261112132131_powerhub_financial_b56_company_account_reference_prefix_index.sql","utf8",
+);
+const b56SourceGuardSql = readFileSync(
+ "docs/security/sql/pr359-financial-b56-staging-reference-index-source-guard-rollback.sql","utf8",
+);
 const b395OrphanGuardSql = readFileSync(
  "supabase/migrations/20261112130226_powerhub_financial_b395_orphan_elimination_fail_closed.sql","utf8",
 );
@@ -898,6 +904,16 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b34RealTransferSql).toContain("ROLLBACK;");
     expect(b33PositiveSourceSql).toContain("'transfer_out',20");
     expect(b33PositiveSourceSql).toContain("'transfer_in',20");
+  });
+
+  it("keeps the B5.6 indexed fixture coverage exact and explicitly non-certified", () => {
+    expect(b56ReferenceIndexSql).toContain("account_transactions_tenant_site_reference_prefix_idx");
+    expect(b56ReferenceIndexSql).toContain("text_pattern_ops");
+    expect(b56SourceGuardSql).toContain("B56_INDEXED_STAGING_SOURCE_GUARD_PASS_ROLLBACK");
+    expect(b56SourceGuardSql).toContain("250000");
+    expect(b56SourceGuardSql).toContain("HASH_ANCHORED");
+    expect(b56SourceGuardSql).toContain("NOT_CERTIFIED");
+    expect(b56SourceGuardSql).toContain("ROLLBACK;");
   });
 
   it("guards the independent B3.11 consolidation-only elimination ledger and UI", () => {
