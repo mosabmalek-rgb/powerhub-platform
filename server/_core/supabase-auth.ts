@@ -155,7 +155,10 @@ export function isDefinitiveSupabaseAccessTokenRejection(error: unknown): boolea
  * Verifies a browser Supabase access token and keeps its application profile in
  * sync. This deliberately has no dependency on the legacy OAuth/session SDK.
  */
-export async function authenticateSupabaseRequest(req: Pick<Request, "headers">): Promise<SupabaseProfileUser> {
+export async function authenticateSupabaseRequest(
+  req: Pick<Request, "headers">,
+  options: { bootstrap?: boolean } = {},
+): Promise<SupabaseProfileUser> {
   const startedAt = performance.now();
   const authHeader = req.headers.authorization;
   if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
@@ -198,7 +201,7 @@ export async function authenticateSupabaseRequest(req: Pick<Request, "headers">)
     id: claims.sub,
     email: claims.email,
     name: metadataName ?? claims.email.split("@")[0],
-  }));
+  }, options));
   const profileMs = Math.round(performance.now() - profileStartedAt);
   const totalMs = Math.round(performance.now() - startedAt);
 
