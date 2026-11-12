@@ -408,3 +408,10 @@ Each of the four sessions saw exactly one response digest per procedure and `NOT
 - A supported, source-backed GL correction workflow for already-posted supplier payment reversals (B4.14/14.1 currently fail closed), and source-specific exceptional correction paths elsewhere.
 - Sustained authenticated and transactional p95/p99 workload representative of collection, payment approval, deposits/withdrawals, expenses, fuel, maintenance, payroll, advances and report reads, with an agreed performance budget.
 - All four GitHub CI checks and an exact-SHA READY Preview **on the latest head** before final closure. No Production changes and no automatic certification.
+
+
+### B5.7 repeatable performance sample artifact
+
+- Checked in `docs/security/sql/pr359-financial-b57-concurrent-gl-read-worker-rollback.sql` to make each direct database worker reproducible. It fails closed if five sequential digests for an operation diverge or any `accountingCertification` ceases to be `NOT_CERTIFIED`; all local measurement records are rolled back.
+- Independently executed one additional Staging worker: cash audit sample p50 **233.73 ms**, sample p95 **5,056.23 ms**, maximum **6,247.504 ms**, and subledger p50 **181.15 ms**, maximum **313.663 ms**. Both had identical response fingerprints across their five calls.
+- This confirms the previously observed *intermittent slow-tail risk* on the company movement audit. It does **not** show a general median regression, establish stable p95/p99, or measure the real transactional collection path. Keep B5 open and investigate this outlier using long-running-query instrumentation/EXPLAIN and authenticated application load before acceptance.
