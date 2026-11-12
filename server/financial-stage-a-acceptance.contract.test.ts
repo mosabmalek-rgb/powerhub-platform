@@ -96,6 +96,9 @@ const b32TransferFaultSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql","utf8",
 );
 const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
+const b46MarkedOpeningSql = readFileSync(
+  "docs/security/sql/pr359-financial-b4-marked-opening-fail-closed-rollback.sql","utf8",
+);
 const b21TwoActorNegative = readFileSync(
   "docs/security/sql/pr359-financial-b2-two-actor-negative-rollback.sql","utf8",
 );
@@ -886,6 +889,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("enabled:enabled && showB4Documents");
     expect(glAuditUiA45).toContain("B4 — تدقيق مصادر القيود والمستندات");
     expect(glAuditUiA45).toContain("b4Documents.isError");
+  });
+
+  it("blocks fake accounting evidence for a NOT-CERTIFIED synthetic opening", () => {
+    expect(b46MarkedOpeningSql).toContain("B4_6_FALSE_EVIDENCE_ACCEPTED");
+    expect(b46MarkedOpeningSql).toContain("GL_OPENING_EVIDENCE_SOURCE_OR_SCOPE_INVALID");
+    expect(b46MarkedOpeningSql).toContain("B4_6_UNDOCUMENTED_OPENING_WAS_CERTIFIED");
+    expect(b46MarkedOpeningSql).toContain("B4_6_MARKED_OPENING_FAIL_CLOSED_PASS_ROLLBACK");
+    expect(b46MarkedOpeningSql).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLOpeningEvidenceUpload: protectedProcedure");
+    expect(runtime).toContain("financialGLOpeningEvidenceReview: protectedProcedure");
+    expect(openingEvidenceUi).toContain("const workspaceReady = active && siteId>0");
   });
 
   it("proves B2 independent actor, idempotency and no-GL-posting negative cases", () => {
