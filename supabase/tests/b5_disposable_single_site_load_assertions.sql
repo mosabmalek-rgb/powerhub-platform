@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- B5 post-load checks for 100 actual account movement RPC calls (99 distinct + 1 replay).
+-- B5 post-load checks for 1000 actual account movement RPC calls (999 distinct + 1 replay).
 -- Applies exclusively to disposable PostgreSQL database, never Supabase Staging/Production.
 DO $b5$
 DECLARE
@@ -15,20 +15,20 @@ BEGIN
    count(*) FILTER(WHERE operation='transfer' AND NOT replayed)
  INTO n,sessions,replays,first_posts,transfers
  FROM public.b5_measurements;
- IF n<>100 OR sessions<>4 OR replays<>1 OR first_posts<>99
- THEN RAISE EXCEPTION 'B5_100_CALLS_4_SESSIONS_99_NEW_1_REPLAY_FAILED: % % % %',
+ IF n<>1000 OR sessions<>4 OR replays<>1 OR first_posts<>999
+ THEN RAISE EXCEPTION 'B5_1000_CALLS_4_SESSIONS_999_NEW_1_REPLAY_FAILED: % % % %',
  n,sessions,first_posts,replays; END IF;
  IF NOT EXISTS(
    SELECT 1 FROM public.b5_measurements a
    JOIN public.b5_measurements b ON a.worker_id=b.worker_id
-   AND b.iteration=25 AND a.transaction_id=b.transaction_id
+   AND b.iteration=250 AND a.transaction_id=b.transaction_id
    WHERE a.worker_id=4 AND a.iteration=1 AND b.replayed
  ) THEN RAISE EXCEPTION 'B5_IDEMPOTENCY_REPLAY_DIFFERENT_TRANSACTION'; END IF;
 
  SELECT count(*) INTO movement_ops FROM public.company_account_movement_operations WHERE tenant_id=1;
  SELECT count(*) INTO tx_rows FROM public.account_transactions WHERE tenant_id=1;
  SELECT count(*) INTO audits FROM public.audit_logs WHERE tenant_id=1;
- IF movement_ops<>99 OR tx_rows<>99+transfers OR audits<>99
+ IF movement_ops<>999 OR tx_rows<>999+transfers OR audits<>999
  THEN RAISE EXCEPTION 'B5_SIDE_EFFECTS_NOT_EXACTLY_ONCE ops=% tx=% audit=% transfers=%',
  movement_ops,tx_rows,audits,transfers; END IF;
 
@@ -77,4 +77,4 @@ SELECT operation,count(*) request_count,
  round(percentile_cont(.99) WITHIN GROUP(ORDER BY elapsed_ms)::numeric,2) sample_p99_ms,
  max(elapsed_ms) maximum_ms,count(*) FILTER(WHERE replayed) replay_count
 FROM public.b5_measurements GROUP BY operation ORDER BY operation;
-SELECT 'B5_SYNTHETIC_SINGLE_SITE_100_REQUESTS_99_FIRST_TIME_1_REPLAY_4_BACKENDS_PASS' AS result;
+SELECT 'B5_SYNTHETIC_SINGLE_SITE_1000_REQUESTS_999_FIRST_TIME_1_REPLAY_4_BACKENDS_PASS' AS result;
