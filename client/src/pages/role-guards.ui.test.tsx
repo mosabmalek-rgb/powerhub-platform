@@ -715,7 +715,10 @@ describe("role guards in administration UI", () => {
     for (const testCase of cases) {
       const view = render(<OperationsPage section={testCase.section} />);
       const enabled = mocks.queryCalls.filter((call) => call.enabled === true).map((call) => call.key).sort();
-      expect(enabled, `enabled query set for ${testCase.section}`).toEqual([...testCase.expected].sort());
+      expect(enabled.filter(key=>key!=="sites.multiBranchAccess"),
+        `operational data queries for ${testCase.section}`).toEqual([...testCase.expected].sort());
+      expect(enabled.filter(key=>key==="sites.multiBranchAccess"),
+        `single tenant-scope entitlement check for ${testCase.section}`).toEqual(["sites.multiBranchAccess"]);
       view.unmount();
       mocks.queryCalls.length = 0;
     }
