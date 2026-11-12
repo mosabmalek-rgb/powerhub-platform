@@ -123,6 +123,12 @@ const b32TransferFaultSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql","utf8",
 );
 const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
+const b47CashTransferSql = readFileSync(
+  "docs/security/sql/pr359-financial-b4-transfer-source-not-posted-rollback.sql","utf8",
+);
+const b47TransferMigrationSql = readFileSync(
+  "supabase/migrations/20261112095117_powerhub_financial_b4_cash_transfer_source_classification.sql","utf8",
+);
 const b46MarkedOpeningSql = readFileSync(
   "docs/security/sql/pr359-financial-b4-marked-opening-fail-closed-rollback.sql","utf8",
 );
@@ -979,6 +985,17 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("enabled:enabled && showB4Documents");
     expect(glAuditUiA45).toContain("B4 — تدقيق مصادر القيود والمستندات");
     expect(glAuditUiA45).toContain("b4Documents.isError");
+  });
+
+  it("recognizes actual B4 cash transfer types but refuses to certify unposted GL", () => {
+    expect(b47TransferMigrationSql).toContain("BLOCKED_UNPOSTED_ACCOUNT_TRANSFER");
+    expect(b47TransferMigrationSql).toContain("unpostedTransferMovements");
+    expect(b47TransferMigrationSql).toContain("'transfer_in'");
+    expect(b47TransferMigrationSql).toContain("'transfer_out'");
+    expect(b47CashTransferSql).toContain("powerhub_transfer_company_accounts_idempotent");
+    expect(b47CashTransferSql).toContain("B4_7_TRANSFER_RECOGNIZED_BUT_GL_BLOCKED_ROLLBACK_PASS");
+    expect(b47CashTransferSql).toContain("B4_7_TRANSFER_CLASSIFICATION_FAIL");
+    expect(b47CashTransferSql).toContain("ROLLBACK;");
   });
 
   it("blocks fake accounting evidence for a NOT-CERTIFIED synthetic opening", () => {
