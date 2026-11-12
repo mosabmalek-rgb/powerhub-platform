@@ -104,8 +104,8 @@ BEGIN
  IF v_first IS NULL OR v_replayed IS DISTINCT FROM (p_worker=4 AND p_iteration=25)
  THEN RAISE EXCEPTION 'B5_FIRST_POST_OR_REPLAY_MISMATCH'; END IF;
  INSERT INTO public.b5_measurements
-   (worker_id,iteration,operation,replayed,transaction_id,elapsed_ms)
- VALUES(p_worker,p_iteration,v_operation,v_replayed,v_first,v_elapsed);
+   (worker_id,backend_pid,iteration,operation,replayed,transaction_id,elapsed_ms)
+ VALUES(p_worker,pg_backend_pid(),p_iteration,v_operation,v_replayed,v_first,v_elapsed);
  RETURN 'B5_OK';
 END $b5$;
 REVOKE ALL ON FUNCTION public.b5_execute_synthetic_movement(integer,integer)
