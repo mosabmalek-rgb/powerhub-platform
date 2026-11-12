@@ -126,6 +126,18 @@ const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-p
 const b48ReversalSimulationSql = readFileSync(
   "docs/security/sql/pr359-financial-b4-posted-opening-reversal-simulation-rollback.sql","utf8",
 );
+const b49PostSql = readFileSync(
+  "docs/security/sql/pr359-financial-b49-account-transfer-posting-rollback.sql","utf8",
+);
+const b49ForgedSql = readFileSync(
+  "docs/security/sql/pr359-financial-b49-forged-transfer-negative-rollback.sql","utf8",
+);
+const b49MigrationSql = readFileSync(
+  "supabase/migrations/20261112101831_powerhub_financial_b49_source_paired_cash_transfer_posting.sql","utf8",
+);
+const b491GuardSql = readFileSync(
+  "supabase/migrations/20261112102257_powerhub_financial_b49_transfer_source_payload_guard.sql","utf8",
+);
 const b47CashTransferSql = readFileSync(
   "docs/security/sql/pr359-financial-b4-transfer-source-not-posted-rollback.sql","utf8",
 );
@@ -999,6 +1011,22 @@ describe("Phase A financial acceptance evidence", () => {
     expect(glAuditUiA45).toContain("enabled:enabled && showB4Documents");
     expect(glAuditUiA45).toContain("B4 — تدقيق مصادر القيود والمستندات");
     expect(glAuditUiA45).toContain("b4Documents.isError");
+  });
+
+  it("posts real company transfers once, then reconciles B4 with strict source proof", () => {
+    expect(b49MigrationSql).toContain("powerhub_financial_gl_source_plan");
+    expect(b49MigrationSql).toContain("company-transfer-paired-no-income-or-expense-v1");
+    expect(b49MigrationSql).toContain("glVerifiedTransferPairs");
+    expect(b491GuardSql).toContain("op.payload_hash=md5(");
+    expect(b491GuardSql).toContain("source_fingerprint=encode(sha256(");
+    expect(b49PostSql).toContain("powerhub_transfer_company_accounts_idempotent");
+    expect(b49PostSql).toContain("B49_TRANSFER_GL_RECONCILIATION_PASS_ROLLBACK");
+    expect(b49PostSql).toContain("B49_MISSING_GL_NOT_BLOCKED");
+    expect(b49PostSql).toContain("alreadyPosted");
+    expect(b49ForgedSql).toContain("B49_FORGED_TRANSFER_BLOCKED_PASS_ROLLBACK");
+    expect(b49ForgedSql).toContain("ROLLBACK;");
+    expect(runtime).toContain('"payroll_payment","account_movement"');
+    expect(runtime).toContain('input.sourceType==="account_movement"?"manageExpenses"');
   });
 
   it("recognizes actual B4 cash transfer types but refuses to certify unposted GL", () => {
