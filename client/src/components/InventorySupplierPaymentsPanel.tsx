@@ -71,11 +71,13 @@ export default function InventorySupplierPaymentsPanel({
   isAuthenticated,
   canManageSupplierPayments,
   canReverseSupplierPayments,
+  canViewSupplierCorrectionFinancialReports,
 }: {
   siteId: number;
   isAuthenticated: boolean;
   canManageSupplierPayments: boolean;
   canReverseSupplierPayments: boolean;
+  canViewSupplierCorrectionFinancialReports: boolean;
 }) {
   const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
   const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
@@ -378,10 +380,11 @@ export default function InventorySupplierPaymentsPanel({
                         <Button type="button" size="sm" variant="outline" disabled={serverWriteBlocked || reversePayment.isPending || (reversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => { if (ensureServerWriteAllowed()) reversePayment.mutate({ siteId, paymentId: payment.id, reason: reversalReasons[payment.id].trim() }); }}>
                           {reversePayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <RotateCcw className="ml-2 h-4 w-4" />} عكس الدفعة
                         </Button>
-                        <Button type="button" size="sm" variant="outline"
-                          disabled={serverWriteBlocked} onClick={()=>{
-                            if(ensureServerWriteAllowed())setCorrectionPaymentId(payment.id);
-                          }}>تصحيح القيد المحاسبي للمورد</Button>
+                        {canViewSupplierCorrectionFinancialReports ?
+                          <Button type="button" size="sm" variant="outline"
+                            disabled={serverWriteBlocked} onClick={()=>{
+                              if(ensureServerWriteAllowed())setCorrectionPaymentId(payment.id);
+                            }}>تصحيح القيد المحاسبي للمورد</Button> : null}
                       </div>}
                     </td>
                   </tr>;
@@ -390,7 +393,7 @@ export default function InventorySupplierPaymentsPanel({
             </div>}
         </CardContent>
       </Card>
-      {canManageSupplierPayments&&canReverseSupplierPayments?
+      {canManageSupplierPayments&&canReverseSupplierPayments&&canViewSupplierCorrectionFinancialReports?
         <FinancialSupplierPaymentCorrectionWorkspace siteId={siteId}
           isAuthenticated={isAuthenticated} selectedPaymentId={correctionPaymentId}/>
         :null}
