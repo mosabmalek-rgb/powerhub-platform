@@ -1,7 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, powerCapabilityLabels, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
-import { getPolicyAllowedCapabilities } from "./powerhub-role-policy";
 import { recordTenantSearchMetric } from "./tenant-search-telemetry";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
