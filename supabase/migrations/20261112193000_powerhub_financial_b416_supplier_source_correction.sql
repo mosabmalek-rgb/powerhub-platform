@@ -802,7 +802,7 @@ BEGIN
     'sourceFingerprint',encode(sha256(convert_to(v_payload::text,'UTF8')),'hex'),
     'accountingCertification','NOT_CERTIFIED');
 END;
-$function$
+$function$;
 
 
 -- B4.16: independent reversal source provenance for supplier payment.
@@ -964,5 +964,4 @@ $function$
  END IF;
  RETURN 'GL_INVERSE_ONLY_SOURCE_UNATTESTED';
 END;
-$function$
-
+$function$;
