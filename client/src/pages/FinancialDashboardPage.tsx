@@ -227,10 +227,10 @@ export default function FinancialDashboardPage() {
       ["أرصدة دائنة للمشتركين", snapshot.subscriberCreditLiability],
       ["تأمينات المشتركين", snapshot.securityDepositLiability],
       ["الرواتب المعتمدة غير المدفوعة", snapshot.approvedPayrollPayable],
-      ["عدد الحسابات المشتركة أو غير الحصرية", snapshot.sharedAccountCount],
+      ["عدد الحسابات غير الحصرية", snapshot.sharedAccountCount],
       [],
-      ["الحساب", "الرصيد بالشيكل", "مشترك بين الفروع"],
-      ...snapshot.accounts.map((account) => [account.name, account.balance, account.shared ? "نعم" : "لا"]),
+      ["الحساب", "الرصيد بالشيكل", ...(hasMultipleBranches ? ["مشترك بين الفروع"] : [])],
+      ...snapshot.accounts.map((account) => [account.name, account.balance, ...(hasMultipleBranches ? [account.shared ? "نعم" : "لا"] : [])]),
     ];
     const csv = rows.map(row => row.map(cell => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
@@ -295,8 +295,7 @@ export default function FinancialDashboardPage() {
               <p className="mt-2 text-xs text-slate-400">{help}</p></CardContent></Card>)}
         </div>
         {currentPosition.data.sharedAccountCount > 0 ? <p className="mt-3 text-xs text-amber-200">
-          تنبيه: {format(currentPosition.data.sharedAccountCount)} من حسابات الشركة مشتركة أو متاحة لأكثر من فرع؛
-          مجموع الأرصدة ليس نقدية مستقلة لهذا الفرع، ولا يجوز جمعه مرة أخرى في تقرير فروع آخر.
+          {hasMultipleBranches ? <>تنبيه: {format(currentPosition.data.sharedAccountCount)} من حسابات الشركة مشتركة أو متاحة لأكثر من فرع؛ مجموع الأرصدة ليس نقدية مستقلة لهذا الفرع، ولا يجوز جمعه مرة أخرى في تقرير فروع آخر.</> : <>تنبيه: توجد حسابات غير حصرية ضمن الأرصدة المعروضة؛ تجنب مضاعفة احتساب مبالغها.</>}
         </p> : null}
         <details className="mt-3 rounded-lg border border-white/10 p-3">
           <summary className="cursor-pointer text-sm font-semibold text-white">
