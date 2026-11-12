@@ -119,6 +119,7 @@ export default function InventoryWorkspacePage() {
   const canReceiveInventory = effectiveSupplierAccess?.permissions.includes("receiveInventory") ?? false;
   const canManageSupplierPayments = effectiveSupplierAccess?.permissions.includes("manageSupplierPayments") ?? false;
   const canReverseSupplierPayments = effectiveSupplierAccess?.permissions.includes("reverseSupplierPayments") ?? false;
+  const canViewSupplierCorrectionFinancialReports = effectiveSupplierAccess?.permissions.includes("viewFinancialReports") ?? false;
   const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;
   const canViewPurchaseFinancials = canViewPurchases || canManageSupplierPayments;
   const utils = trpc.useUtils();
@@ -478,7 +479,7 @@ export default function InventoryWorkspacePage() {
             </TabsContent>
 
             {canManageSupplierPayments ? <TabsContent value="supplierPayments" className="space-y-4">
-              <InventorySupplierPaymentsPanel siteId={siteId} isAuthenticated={isAuthenticated} canManageSupplierPayments={canManageSupplierPayments} canReverseSupplierPayments={canReverseSupplierPayments} />
+              <InventorySupplierPaymentsPanel siteId={siteId} isAuthenticated={isAuthenticated} canManageSupplierPayments={canManageSupplierPayments} canReverseSupplierPayments={canReverseSupplierPayments} canViewSupplierCorrectionFinancialReports={canViewSupplierCorrectionFinancialReports} />
             </TabsContent> : null}
 
             {canViewInventory ? <TabsContent value="warehouses" className="space-y-4">
