@@ -11,10 +11,10 @@ BEGIN
   OR roll->>'accountingCertification'<>'NOT_CERTIFIED'
   OR (roll->>'isConsolidatedFinancialStatements')::boolean IS DISTINCT FROM false
   OR (roll->>'siteCount')::bigint<>2
-  OR (roll->>'glEntryCount')::bigint<>24
-  OR (roll->'positionBeforeEliminations'->>'netAssets')::numeric<>6070.50
+  OR (roll->>'glEntryCount')::bigint<>25
+  OR (roll->'positionBeforeEliminations'->>'netAssets')::numeric<>4070.50
   OR (roll->'positionBeforeEliminations'->>'liabilities')::numeric<>7119
-  OR (roll->'positionBeforeEliminations'->>'postedEquity')::numeric<>2000
+  OR (roll->'positionBeforeEliminations'->>'postedEquity')::numeric<>0
   OR (roll->'positionBeforeEliminations'->>'unclosedAccumulatedResult')::numeric<>-3048.50
   OR (roll->'positionBeforeEliminations'->>'equationDifference')::numeric<>0
   OR (roll->'incomeStatement'->>'provisionalNetResultBeforeEliminations')::numeric<>
