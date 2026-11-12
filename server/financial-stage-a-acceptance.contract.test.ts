@@ -118,6 +118,9 @@ const b35ForgedPayloadSql = readFileSync("docs/security/sql/pr359-financial-b35-
 const b34RealTransferSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-real-transfer-rpc-rollback.sql","utf8",
 );
+const b36SameSiteBlockSql = readFileSync(
+  "docs/security/sql/pr359-financial-b36-cross-site-same-site-post-denied-rollback.sql","utf8",
+);
 const b33PositiveSourceSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-positive-cross-site-source-rollback.sql","utf8",
 );
@@ -838,6 +841,14 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b34RealTransferSql).toContain("ROLLBACK;");
     expect(b33PositiveSourceSql).toContain("'transfer_out',20");
     expect(b33PositiveSourceSql).toContain("'transfer_in',20");
+  });
+
+  it("rejects cross-site operational sources from same-site GL posting until a dedicated elimination model exists", () => {
+    expect(b36SameSiteBlockSql).toContain("powerhub_financial_gl_source_plan");
+    expect(b36SameSiteBlockSql).toContain("GL_COMPANY_TRANSFER_PAIR_INVALID_OR_CROSS_SITE");
+    expect(b36SameSiteBlockSql).toContain("B3_6_CROSS_SITE_SAME_SITE_POST_DENIED_PASS_ROLLBACK");
+    expect(b36SameSiteBlockSql).toContain("NOT_CERTIFIED");
+    expect(b36SameSiteBlockSql).toContain("ROLLBACK;");
   });
 
   it("requires independent GL proof even for correctly paired two-site transfers", () => {
