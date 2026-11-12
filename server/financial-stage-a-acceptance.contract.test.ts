@@ -911,7 +911,7 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b56ReferenceIndexSql).toContain("text_pattern_ops");
     expect(b56SourceGuardSql).toContain("B56_INDEXED_STAGING_SOURCE_GUARD_PASS_ROLLBACK");
     expect(b56SourceGuardSql).toContain("250000");
-    expect(b56SourceGuardSql).toContain("HASH_ANCHORED");
+    expect(b56SourceGuardSql).toContain("fast_staging_fixture_proof");
     expect(b56SourceGuardSql).toContain("NOT_CERTIFIED");
     expect(b56SourceGuardSql).toContain("ROLLBACK;");
   });
