@@ -68,7 +68,7 @@ function Router() {
       <Route path={"/portal"} component={SubscriberPortalPage} />
       <Route path={"/subscriber-statement/:subscriberId"}>{() => <RouteAccessGate><SubscriberAccountStatementPage /></RouteAccessGate>}</Route>
       <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
-      <Route path={"/branches"}>{() => <RouteAccessGate><BranchesPage /></RouteAccessGate>}</Route>
+      <Route path={"/branches"}>{() => <RouteAccessGate multiBranchOnly><BranchesPage /></RouteAccessGate>}</Route>
       <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>
       <Route path={"/generators"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="generators" /></RouteAccessGate>}</Route>
       <Route path={"/readings"}>{() => <RouteAccessGate><MeterReadingsPage /></RouteAccessGate>}</Route>
