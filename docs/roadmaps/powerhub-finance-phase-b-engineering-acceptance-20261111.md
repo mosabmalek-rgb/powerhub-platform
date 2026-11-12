@@ -38,6 +38,18 @@
 
 ---
 
+## 2026-11-12 — B5.2 final-gate revalidation and concurrency evidence
+
+- Confirmed PR #359 head `fee7a544eb5375737f7f3ae39b9350b9cce99cc8` was **4/4 CI SUCCESS**, Draft, unmerged, with a SHA-matched READY Vercel Preview before the B5.2 changes.
+- Re-executed four independent synthetic Staging acceptance scripts in rollback transactions: `B2_1_TWO_ACTOR_NEGATIVE_PASS_ROLLBACK`, `B3_2_FAULT_INJECTION_PASS_ROLLBACK`, `B4_6_MARKED_OPENING_FAIL_CLOSED_PASS_ROLLBACK`, and `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. All passed. Real GL remained 24 entries / 49 lines, B2 policies zero, second-site evidence/custody zero, company movements 250,009.
+- Ran 4 parallel database read requests for B3 rollup, B4 primary-site subledger and B4 cash audit. **All 4 returned identical MD5 digests per report**; no false `NOT_CERTIFIED` transitions. This verifies concurrent *read result consistency*, not authenticated user isolation, peak load capacity, or stable latency.
+- `EXPLAIN ANALYZE` for 4 concurrent B3 calls returned **11,410.529 / 3,533.875 / 372.741 / 534.849 ms**. Three later sequential calls returned **475.487 / 347.918 / 342.698 ms**. The high cold/concurrent latency means **B5 performance cannot be closed as an established SLA**.
+- Ran new rollback SQL `docs/security/sql/pr359-financial-b5-repeat-read-consistency-rollback.sql` and confirmed `B5_2_REPEAT_READ_CONSISTENCY_PASS_NOT_CERTIFIED`; corresponding CI contract test added. This gate confirms no GL mutation and deterministic repeat data with `NOT_CERTIFIED`.
+- **No financial certification or real UI E2E is evidenced.** Opening #19 on site 9000000000099 is intentionally labeled unproven and cannot be attested by manufactured evidence; independent inter-site GL eliminations and authenticated two-user browser B2 review are still open. Production unchanged and PR #359 remains Draft.
+- Next decisive work: browser E2E on a SHA-matching Preview, repeatable representative concurrent load with thresholds, and scope-specific inter-site accounting fixtures built as true *new test movements* with no false certification. CI success on this earlier head does not apply to subsequent commits.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
