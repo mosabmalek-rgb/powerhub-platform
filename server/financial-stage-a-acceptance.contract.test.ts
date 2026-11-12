@@ -123,6 +123,9 @@ const b32TransferFaultSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql","utf8",
 );
 const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
+const b48ReversalSimulationSql = readFileSync(
+  "docs/security/sql/pr359-financial-b4-posted-opening-reversal-simulation-rollback.sql","utf8",
+);
 const b47CashTransferSql = readFileSync(
   "docs/security/sql/pr359-financial-b4-transfer-source-not-posted-rollback.sql","utf8",
 );
@@ -1007,6 +1010,15 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b47CashTransferSql).toContain("B4_7_TRANSFER_RECOGNIZED_BUT_GL_BLOCKED_ROLLBACK_PASS");
     expect(b47CashTransferSql).toContain("B4_7_TRANSFER_CLASSIFICATION_FAIL");
     expect(b47CashTransferSql).toContain("ROLLBACK;");
+  });
+
+  it("proves a posted test opening can only be offset with auditable balanced reversal", () => {
+    expect(b48ReversalSimulationSql).toContain("reverses_entry_id");
+    expect(b48ReversalSimulationSql).toContain("B4_8_POSTED_TEST_OPENING_REVERSAL_SIMULATION_PASS");
+    expect(b48ReversalSimulationSql).toContain("B4_8_FALSE_REVERSAL_ACCEPTANCE");
+    expect(b48ReversalSimulationSql).toContain("isIndependentlyReconciled");
+    expect(b48ReversalSimulationSql).toContain("NOT_CERTIFIED");
+    expect(b48ReversalSimulationSql).toContain("ROLLBACK;");
   });
 
   it("blocks fake accounting evidence for a NOT-CERTIFIED synthetic opening", () => {
