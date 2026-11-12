@@ -1,5 +1,21 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B3.10/B3.11 source, dual-site GL and independent elimination journal
+
+- Implemented and applied Staging **B3.10** source creation RPC, both-site checks, exclusive account mapping, source-funds check, lock-aware operation key and equal paired account movements. Discovered cross-site audit trigger would reject a different-site counterpart under `toTransactionId`. Fixed safely in **B3.10.1** by preserving the counterpart ID as `counterpartTransactionId`; did **not** relax the original site-isolation trigger.
+- Full `B310_REAL_SOURCE_TO_GL_AND_AUDIT_PASS_ROLLBACK` passed for **12.3 ILS**; maker **4**, separate GL reviewer **260**, idempotent source creation, idempotent dual-site GL replay, B3.9 independently matched pair. **No synthetic transactions persisted**.
+- Added protected tRPC `financialGLCreateInterSiteTransfer` and UI `FinancialInterSiteTransferWorkspace`, with separately authenticated review procedure `financialGLPostInterSiteTransfer`. Branch/site permission checks remain on server and SQL, UI confirmation cannot bypass them.
+- Implemented and applied **B3.11** dedicated `financial_gl_inter_site_eliminations` records with unique source/operation/gl links, immutable original evidence, preparer and independent approver, source revalidation on approval, and status `draft/approved`. Does **not** write elimination lines into any site GL.
+- Applied **B3.11.1**, dedicated immutable, two-line elimination journal: `Dr 2350 / Cr 1350` at equal amounts, audit rows for prepare and approve, fail-closed line verification. An ambiguous PL/pgSQL `elimination_id` argument was fixed and applied as **B3.11.2**.
+- `B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK` passed: valid synthetic source, two site GL entries, preparation, self-approval rejected, independent approval by actor 260, idempotent re-approval, with `NOT_CERTIFIED`.
+- **B3.9.4** audit/rollup reports bounded `matchedSources` with referenced elimination status and verified `approvedEliminationAmount`, still flags `NOT_CERTIFIED` and never claims consolidated statements. `B394_APPROVED_ELIMINATION_VISIBILITY_INVALID` assertion passed after approval on rollback.
+- Added `financialGLPrepareInterSiteElimination` and `financialGLApproveInterSiteElimination` authenticated server mutations, both with site/capability checks and original maker/checker separation. The finance workspace now shows matched transfer sources and distinct draft vs independent approval controls, using the tenant's verified B3 rollup.
+- Persistent Staging baseline after all rollback tests: 25 GL entries / 51 GL lines; 0 persisted company transfer operations; 0 persisted elimination headers / lines. No Production writes and no PR merge.
+- **Open gates:** browser authentication with two genuinely distinct sessions, B2 distribution policy maker/checker browser exercise, representative B5 latency/p95 under concurrency and full balance/settlement certification; tax and financial close policies. This B3 path can receive independently reviewed elimination journals but is **not** a final certified consolidated P&L/balance sheet. New SHA-matched 4/4 CI and Vercel Preview remain to be re-verified.
+
+---
+
+
 ## 2026-11-12 — B3.8/B3.9 operational cross-site GL and verified audit
 
 - The preceding B3.7 experiment proved the accounting signs only. This follow-up **implemented** a service-role-only SQL RPC `powerhub_financial_gl_post_inter_site_source` that posts **two balanced site-scoped GL entries atomically** from a separately persisted and validated operational transfer pair. The actual applied Staging migrations are `20261112115946` and the `20261112120316` qualified-extensions digest fix.
