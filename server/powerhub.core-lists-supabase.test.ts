@@ -1282,7 +1282,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يقرأ وصول الموظف وامتداد الفروع وسجل تغييرات الصلاحيات من Supabase دون MySQL", async () => {
-    state.tables.users = [{ id: 2, role: "user" }];
+    state.tables.users = [{ id: 2, role: "user", platform_role: null, account_status: "active" }];
     state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active", expires_at: null }];
     state.tables.staff_profiles = [{ id: 120, tenant_id: 20, user_id: 2, site_id: null, role: "manager", permissions: ["manageSubscribers"], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null }];
     const staffCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
