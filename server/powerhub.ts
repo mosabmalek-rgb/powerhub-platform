@@ -215,7 +215,7 @@ export function resolveBranchPolicy(input: {
 }
 
 
-async function requireMultiBranchStaffEntitlement(tenantId:number) {
+async function requireTenantMultiBranchEntitlement(tenantId:number) {
   const admin=supabaseAdmin();
   const [subscription,platformSetting,tenantSetting]=await Promise.all([
     admin.from("tenant_subscriptions").select("package_code").eq("tenant_id",tenantId).maybeSingle(),
@@ -1825,7 +1825,7 @@ export const powerhubRouter = router({
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) }))
       .mutation(async ({ ctx, input }) => {
         const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-        if(input.allBranches) await requireMultiBranchStaffEntitlement(access.tenantId);
+        if(input.allBranches) await requireTenantMultiBranchEntitlement(access.tenantId);
         const { error } = await supabaseAdmin().rpc("powerhub_assign_existing_staff", {
           p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_target_user_id: input.userId,
           p_role: input.role, p_all_branches: input.allBranches,
@@ -1844,7 +1844,7 @@ export const powerhubRouter = router({
       }),
     create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), email: z.string().email(), name: z.string().trim().min(2).max(160), temporaryPassword: z.string().min(8).max(128), role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      if(input.allBranches) await requireMultiBranchStaffEntitlement(access.tenantId);
+      if(input.allBranches) await requireTenantMultiBranchEntitlement(access.tenantId);
       const admin = supabaseAdmin();
       const email = input.email.trim().toLowerCase();
       const { data: existingUser } = await admin.from("users").select("id, auth_user_id, email").eq("email", email).maybeSingle();
@@ -4815,6 +4815,7 @@ export const powerhubRouter = router({
       const anchor = await requireSupabaseSiteRole(
         ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports"
       );
+      await requireTenantMultiBranchEntitlement(anchor.tenantId);
       const accessible = await listSupabaseAccessibleSites(ctx.user.id, isActivePlatformAdmin(ctx.user));
       const candidateSites = accessible
         .filter(site => site.tenantId === anchor.tenantId && site.status !== "archived")
@@ -5182,6 +5183,7 @@ export const powerhubRouter = router({
     })).mutation(async ({ctx,input})=>{
       const from=await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
         ["owner","manager","accountant"],"manageExpenses");
+      await requireTenantMultiBranchEntitlement(from.tenantId);
       await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
         ["owner","manager","accountant"],"viewFinancialReports");
       const {data:source,error:sourceError}=await supabaseAdmin()
@@ -5235,6 +5237,7 @@ export const powerhubRouter = router({
     })).mutation(async ({ctx,input})=>{
       const from=await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
         ["owner","manager","accountant"],"manageExpenses");
+      await requireTenantMultiBranchEntitlement(from.tenantId);
       await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
         ["owner","manager","accountant"],"viewFinancialReports");
       const {data:draft,error:draftError}=await supabaseAdmin()
@@ -5286,6 +5289,7 @@ export const powerhubRouter = router({
           message:"يجب اختلاف الفرعين والحسابين لإجراء تحويل بين فرعين."});
       const origin=await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
         ["owner","manager","accountant"],"manageExpenses");
+      await requireTenantMultiBranchEntitlement(origin.tenantId);
       await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
         ["owner","manager","accountant"],"viewFinancialReports");
       const destination=await requireSupabaseSiteRole(ctx.user.id,input.toSiteId,
@@ -5330,6 +5334,7 @@ export const powerhubRouter = router({
     })).mutation(async ({ctx,input})=>{
       const origin=await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
         ["owner","manager","accountant"],"manageExpenses");
+      await requireTenantMultiBranchEntitlement(origin.tenantId);
       await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
         ["owner","manager","accountant"],"viewFinancialReports");
       const {data:source,error:sourceError}=await supabaseAdmin()
@@ -5872,6 +5877,7 @@ export const powerhubRouter = router({
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      await requireTenantMultiBranchEntitlement(access.tenantId);
       const {data:sites,error:sitesError}=await supabaseAdmin().from("sites")
         .select("id").eq("tenant_id",access.tenantId).eq("status","active").limit(31);
       if(sitesError || !sites || sites.length===0 || sites.length>30)
@@ -5934,6 +5940,7 @@ export const powerhubRouter = router({
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
         ["owner","manager","accountant"],"manageExpenses");
+      await requireTenantMultiBranchEntitlement(access.tenantId);
       const [branches,policies,entries]=await Promise.all([
         supabaseAdmin().from("sites").select("id,name").eq("tenant_id",access.tenantId)
           .eq("status","active").order("id",{ascending:true}).limit(51),
@@ -6007,6 +6014,7 @@ export const powerhubRouter = router({
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      await requireTenantMultiBranchEntitlement(access.tenantId);
       const central=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
       if(central.tenantId!==access.tenantId) throw new TRPCError({code:"FORBIDDEN",
@@ -6035,6 +6043,7 @@ export const powerhubRouter = router({
     })).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
         ["owner","manager","accountant"],"manageExpenses");
+      await requireTenantMultiBranchEntitlement(access.tenantId);
       for(const weight of input.weights){
         const target=await requireSupabaseSiteRole(ctx.user.id,weight.siteId,
           ["owner","manager","accountant"],"viewFinancialReports");
@@ -6059,6 +6068,7 @@ export const powerhubRouter = router({
     })).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.centralSiteId,
         ["owner","manager","accountant"],"manageExpenses");
+      await requireTenantMultiBranchEntitlement(access.tenantId);
       // Authorization is independent of the central-site privilege. A manager
       // must not approve allocations involving branches they cannot inspect.
       const {data:rows,error:policyError}=await supabaseAdmin()
@@ -6831,6 +6841,7 @@ export const powerhubRouter = router({
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }).refine((input) => input.startDate <= input.endDate, { message: "يجب أن يكون تاريخ البداية قبل تاريخ النهاية." })).query(async ({ ctx, input }) => {
       const { tenantId } = await requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports");
+      await requireTenantMultiBranchEntitlement(tenantId);
       const { start, endExclusive } = reportDateRange(input.startDate, input.endDate);
       const { data: siteRows, error: sitesError } = await supabaseAdmin().from("sites").select("id, name").eq("tenant_id", tenantId).neq("status", "archived");
       if (sitesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أفرع المستأجر من Supabase." });
