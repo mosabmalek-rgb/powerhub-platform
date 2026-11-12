@@ -1,5 +1,10 @@
 -- B4.16: independently reviewed supplier-payment correction, atomic source/cash/GL reversal.
 -- Requires B4.15 and pre-existing source backed GL. No historical auto-correction.
+-- One and only one compensating cash deposit may be referenced for a supplier payment.
+CREATE UNIQUE INDEX IF NOT EXISTS b416_supplier_refund_tenant_reference_unique
+ ON public.account_transactions(tenant_id,reference_no)
+ WHERE transaction_type='deposit' AND reference_no LIKE 'REV-SUPPLIER-PAYMENT-%';
+
 CREATE TABLE IF NOT EXISTS public.financial_supplier_payment_corrections (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  tenant_id bigint NOT NULL,
@@ -118,6 +123,11 @@ BEGIN
  (SELECT * FROM reverse_group EXCEPT SELECT * FROM original_group)
  ) INTO v_inv;
  IF v_inv THEN RETURN 'B416_GL_LINES_NOT_INVERSE';END IF;
+ IF (SELECT count(*) FROM public.account_transactions t
+    WHERE t.tenant_id=p_tenant_id AND t.site_id=p_site_id
+      AND t.account_id=p.company_account_id AND t.transaction_type='deposit'
+      AND t.reference_no='REV-SUPPLIER-PAYMENT-'||p.id)<>1
+ THEN RETURN 'B416_REFUND_REFERENCE_NOT_UNIQUE';END IF;
  BEGIN
    v_plan:=public.powerhub_financial_gl_source_plan(p_tenant_id,p_site_id,'supplier_ledger',sl.id);
  EXCEPTION WHEN OTHERS THEN
@@ -253,6 +263,14 @@ BEGIN
  IF gl.period>v_current_period THEN
    RAISE EXCEPTION 'B416_CORRECTION_ORIGINAL_PERIOD_IN_FUTURE' USING ERRCODE='22023';END IF;
  v_reference:='REV-SUPPLIER-PAYMENT-'||p.id;
+ IF EXISTS(SELECT 1 FROM public.account_transactions t
+   WHERE t.tenant_id=p_tenant_id AND t.reference_no=v_reference
+     AND t.transaction_type='deposit')
+ OR EXISTS(SELECT 1 FROM public.supplier_ledger_entries sl
+   WHERE sl.tenant_id=p_tenant_id AND sl.site_id=p_site_id
+     AND sl.supplier_payment_id=p.id AND sl.entry_type='reversal')
+ THEN RAISE EXCEPTION 'B416_PREEXISTING_UNVERIFIED_REFUND_OR_REVERSAL'
+    USING ERRCODE='23505';END IF;
  INSERT INTO public.account_transactions(
  tenant_id,site_id,account_id,transaction_type,amount,description,reference_no,
  created_by_user_id,occurred_at)
