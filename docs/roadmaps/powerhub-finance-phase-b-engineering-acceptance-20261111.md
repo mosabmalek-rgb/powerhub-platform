@@ -1,5 +1,16 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B3.6 cross-site posting guard regression
+
+- Exercised a valid, correctly fingerprinted two-site test transfer source in `BEGIN/ROLLBACK`.
+- Called the actual `powerhub_financial_gl_source_plan(1,1,'account_movement',source_id)` with the cross-site source; PostgreSQL correctly refused to plan it as an **intra-site** transfer with `GL_COMPANY_TRANSFER_PAIR_INVALID_OR_CROSS_SITE`.
+- Verified no additional GL entry was posted and the B3 rollup remained `PRELIMINARY_MULTI_SITE_ROLLUP`, `NOT_CERTIFIED`.
+- Added regression `docs/security/sql/pr359-financial-b36-cross-site-same-site-post-denied-rollback.sql` and CI contract assertions. This protects against an incorrect double counting / unbalanced journal shortcut.
+- **Important limitation:** the correct dedicated dual-site due-from/due-to posting and independent consolidation elimination workflow is **not yet implemented**; this result proves only safe rejection of the wrong posting path. Do not mark B3 final.
+
+---
+
+
 ## 2026-11-12 — B5.5 post-correction read consistency and performance sampling
 
 - Re-executed the durable B5 Staging engineering SQL gate after B4.10: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. Ran B4.6 no-fabricated-opening-evidence, B4.8 only-one-reversal, B3 preliminary rollup, B2 independent-actor SQL, B3.3 cross-site source, B3.5 forged source, and B5.2 repeat-read regression successfully. The B4.6 and B4.8 fixtures were updated for the durable 25-entry / 51-line baseline; **no active GL was mutated during these rollback tests**.
@@ -177,7 +188,10 @@
 
 ---
 
-## What has been verified
+## Historical baseline before B4.10 (superseded numbers)
+
+The following figures and B4 site-2 BLOCKED status describe the **pre-correction test baseline**, not the present durable Staging state. Current numbers are 25 GL entries, 51 lines, 0 supported subledger balance differences; original opening evidence remains unauthenticated and certification remains NOT_CERTIFIED.
+
 
 | Scope | Direct evidence | Status |
 |---|---|---|
@@ -213,7 +227,7 @@ An actual browser experience and sustained concurrent-load test have **not** bee
 
 1. **B2:** E2E interactive prepare/approve with **two distinct authenticated user identities**. SQL regression does not prove button behavior, authenticated review or permissions in the browser.
 2. **B3:** independently sourced inter-site transfer eliminations; accounting for shared central balances and preventing double count; tax mapping; verified consolidation. Current result remains preliminary even if transfer candidates count is zero.
-3. **B4:** the 2,000 cash opening test entry on site `9000000000099` must have independently verifiable auxiliary evidence, or remain explicitly unresolved. Do not invent a human reviewer, uploaded statement, matching account transaction or false zero-difference entry merely to pass.
+3. **B4:** the original unsubstantiated 2,000 opening was technically reversed in Staging with independently checked numeric and audit integrity; the original source evidence is still missing. No human approval, original statement, or final certification is implied. A generalized controlled reversal workflow is still required before launch.
 4. **B5:** matching Vercel preview and E2E tests, multi-user isolation, repeated load tests / concurrency under thresholds, and all four CI gates **on final SHA**. A successful old SHA is not evidence for a new head.
 5. **Production:** no migration, no SMS, no live financial posting, no merge without express approval.
 
