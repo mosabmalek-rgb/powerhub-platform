@@ -776,3 +776,29 @@ Phase B continues to require B4.14+ original-GL-linked and independently approve
 - Diagnostic 4-way concurrent read-only PostgreSQL calls showed highly variable single-function time: immutable fixture proof ~2625.8ms, source coverage ~5885.9ms, subledger reconciliation ~827.2ms, site statements ~1292.7ms. Samples are not representative p95 and demonstrate remaining database contention under concurrency despite earlier single-SQL speedups.
 - CI at B5.19 test commit `a2b7548555f894ff6ee505d739dafc3bf6a546f1`: Admin Guard and B5 Synthetic Financial Load completed success; Security, PostgreSQL Integration and PowerHub CI still in progress when checked. Do not substitute their earlier success for this SHA.
 - Baseline remains `B5_REAL_AUTHENTICATED_HTTP=FAIL`, `ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED`, `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. No Production changes, no external SMS or money movements, no financial booking. A new real authenticated HTTPS retry of all three routes, with recorded network-inclusive latencies and the approved p95 budget, remains required; keep PR #359 Draft.
+
+
+## 2026-11-13 — B5.20 unified profile and site authorization hardening (Staging only)
+
+This batch follows the **FAILED** authenticated B5 rerun and B5.19 same-device serialized-lease improvements. It reduces repeated network round trips on normal authorized report requests without moving privileges to client or allowing stale role decisions.
+
+**Implemented in PR #359 (Draft, not merged):**
+- Normal tRPC context requests still verify Supabase JWT claims, then obtain a **fresh users row** for role, account status and forced-password status. They do **not** call invitation-acceptance RPCs, update `last_signed_in` or insert/update identities. Profile bootstrap (including the earlier guarded invitation/profile reconciliation) runs at the explicit `auth.me` or `auth.claimDevice` endpoints only. Missing normal-request profile fails closed rather than inserting one from a financial GET.
+- `powerhub_site_access_snapshot(userId,siteId)` returns the current user's state, site tenant scope, active/unexpired tenant membership, latest relevant tenant subscription, owner overrides, tenant/site staff profiles, per-profile overrides, active custom role permissions, and platform role policy decisions in **one** SQL snapshot. This is a `SECURITY INVOKER`, `STABLE`, **service_role-only** RPC with `PUBLIC/anon/authenticated` EXECUTE revoked; it never trusts a JWT-provided role or tenantId. One server-side role/capability decision uses this fresh database result; no long-lived cached ACL or permission bypass.
+- Site authorization reuses the single current policy snapshot for `requireSupabaseSiteRole`, all-capability and any-capability decisions, failing closed on missing/unexpected RPC results. Platform administrators retain the existing live active-platform-identity guard. Expired membership, suspended staff and disallowed subscriptions remain denied; cancelled subscription retains its read-only access window, with write endpoints remaining subject to existing retention guards. Tenant/site key filtering remains mandatory for the report RPCs.
+- B5.19 single-device lease is unchanged: same-device recent lease may be read without repeated exclusive writes; a second device must still pass the serialized row/advisory-lock claim. No account/device IDs or secrets are logged.
+
+**Staging-only migration:**
+`20261113002000_powerhub_b520_site_access_single_snapshot.sql` applied and registered using original Git filename/version; recorded migration MD5 `31df5f86595530a9bbe54e3e1dc0d736`. No Production changes.
+
+**Verified SQL evidence:**
+- Snapshot returns tenant 1 when asked for Staging site 1 and validates live membership, account status and scope.
+- In a transaction rolled back in full, revoking an active tenant membership immediately yielded a null membership in the next snapshot; changing account to `disabled` immediately returned the new account state.
+- Within a separate rollback transaction, inserting a `viewFinancialReports` owner policy deny immediately appeared in the next snapshot. These tests had no persistent IAM or financial mutations.
+- `anon` EXECUTE: false; `authenticated` EXECUTE: false; `service_role` EXECUTE: true.
+- Four concurrent PostgreSQL timing probes on the snapshot: 162.324ms, 5.402ms, 5.305ms, 5.403ms. **Not p95 or HTTPS**; the higher first sample is not discarded.
+- Financial baseline after B5.20: 25 GL entries, 51 GL lines, zero supplier corrections, zero inter-site eliminations. Accounting: `NOT_CERTIFIED`.
+
+**Test updates:** source contracts, profile/session/bootstrap tests, fresh policy revocation, staff mock RPC and rollback Staging SQL test were rewritten to match the new authorized behavior, rather than adding a production fallback to an uninstalled or forbidden RPC. Historical test suite failures were narrowed from 110 to 3, and the final three stale test fixtures/contracts were then corrected. The final GitHub CI result must still be independently checked on the newest SHA; do not infer success from earlier or running workflows.
+
+**Still open:** B5 real authenticated HTTP acceptance remains `FAIL`. The installed DB-only changes do not establish API latency improvement or a successful 100-sample/4-concurrency run on a deployment containing the new server code. Deploy one consolidated **Preview only after the required CI gates pass**, then rerun the three report routes with real authorized single-device Staging auth, zero errors and explicit p95 threshold. No production merge, release, SMS, financial booking or human accounting certification.
