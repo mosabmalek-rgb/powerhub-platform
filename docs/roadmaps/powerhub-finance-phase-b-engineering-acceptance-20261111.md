@@ -438,3 +438,40 @@ Each of the four sessions saw exactly one response digest per procedure and `NOT
 - The implementation is committed and CI is being rerun on the latest head; a prior revision had a TypeScript error in the staff page from conditional JSX, which was corrected, along with a nullable sites list access. Do **not** report the latest head as CI-approved until all four checks succeed on that exact SHA.
 - No Production deployments, financial source changes, or data deletion occurred in this UI/ACL round.
 - B2/B3 authenticated browser evidence and B4 supplier posted-GL correction plus B5 sustained performance are still independent acceptance gates. No financial certification.
+
+
+---
+
+## 2026-11-12 — B5.8 synthetic four-session financial-account load on disposable PostgreSQL
+
+**No user-generated or production financial traffic is necessary for this prelaunch gate.** Inspected the existing code: `scripts/powerhub-capacity-smoke.mjs` measures the health endpoint only, so its p95/p99 are **not financial transaction** latencies. The codebase already tests real PostgreSQL account-movement, invoice-payment, payroll, inventory and financial-source functions in disposable CI databases; however, those suites are largely correctness and limited-concurrency tests, not representative authenticated end-to-end throughput.
+
+Added a new CI workflow `.github/workflows/b5-synthetic-financial-load.yml` using a throwaway PostgreSQL 17 container, actual `powerhub_add_account_movement_idempotent` and `powerhub_transfer_company_accounts_idempotent` migrations, and a strict localhost-only, database-name-only runner. It **never** targets a deployed Supabase or Vercel endpoint and sends no SMS or real payment.
+
+Files:
+- `supabase/tests/b5_disposable_single_site_load_setup.sql`
+- `supabase/tests/b5_disposable_single_site_load_assertions.sql`
+- `scripts/b5-disposable-financial-load.sh`
+- `.github/workflows/b5-synthetic-financial-load.yml`
+
+### Actual successful GitHub Actions execution
+
+On commit `2f552d4f15463781ae3b37e10a517ab23e548462`, run `43259323547` completed **successfully**:
+
+- Four **distinct PostgreSQL backend sessions**; **1,000 successful actual RPC calls** (600 deposits, 300 withdrawals, 100 same-site account transfers).
+- **999 first-time operations and exactly 1 idempotent replay**. No duplicate operation, audit, or financial transaction; transfer-out and transfer-in remain exact paired entries.
+- Verified tenant/site isolation, account-to-transaction provenance, cash + wallet reconciliation, and result identity of replay against the first posting.
+- Recorded per-RPC database latency (ms) in the disposable database:
+
+| RPC type | Requests | p50 ms | observed p95 ms | observed p99 ms | maximum ms |
+|---|---:|---:|---:|---:|---:|
+| Deposit | 600 | 1.87 | 2.96 | 5.18 | 8.079 |
+| Withdrawal | 300 | 1.89 | 2.89 | 3.54 | 4.206 |
+| Transfer between accounts, same branch | 100 | 2.05 | 3.14 | 5.17 | 5.633 |
+
+- Final marker: `B5_SYNTHETIC_SINGLE_SITE_1000_REQUESTS_999_FIRST_TIME_1_REPLAY_4_BACKENDS_PASS`.
+- Preliminary 100-call run `43258974516` also passed; a previous failing run revealed a missing `backend_pid` field in the measurement table, which was fixed and retested rather than bypassed.
+
+**Scope and interpretation:** This is real execution of the actual database financial-account RPCs against **synthetic local data**. It does not include network, tRPC authorization middleware, browser rendering, SQL load at production volume, invoice payment approval, supplier purchasing, inventory fuel maintenance, or payroll workload percentages. It therefore **closes the artificial-account-movement concurrency smoke gate**, but not B5's full representative, authenticated financial transactional SLA. The 5-second p95 / 10-second p99 checks in this smoke test are test ceilings, not an agreed final product SLA.
+
+**Next needed:** a staged, synthetic, safe authenticated API workload for the other common transactions with idempotency and isolation; B4 source-backed posted supplier payment corrections; independent B2/B3 browser acceptance. Do not require actual customers, real payments or a production release to generate these fixtures. No preview was generated in this batch.
