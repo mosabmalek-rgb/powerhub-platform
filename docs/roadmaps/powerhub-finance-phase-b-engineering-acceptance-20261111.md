@@ -334,3 +334,17 @@ Keep this distinction visible in all dashboards and deployment notes.
 - Saved standalone rollback regression `docs/security/sql/pr359-financial-b412-reversal-provenance-rollback.sql`. Its result on live Staging was `B412_REVERSAL_PROVENANCE_GUARD_PASS_ROLLBACK`, including correct accrual, blocked forged/cross-site source, opening warning, pagination limit and unchanged 25 GL entries / 51 lines.
 - Financial audit UI now gives Arabic explanatory labels for the three new review/integrity statuses.
 - `NOT_CERTIFIED` remains mandatory. Outstanding: source-specific correction workflows for invoice, payment, supplier, stock, expense and payroll; independent browser checker acceptance for B2/B3; sustained measured multi-user B5 and verified four CI/READY Preview gates on the new final SHA. The B4.12 SQL does not create human approval.
+
+
+---
+
+## 2026-11-12 — B4.13 exact accrual GL-line source attestation
+
+- Reverified commit `d7ae1381e64adce0ff754198acb65eb650d20b70`: all four GitHub required workflows passed. A Vercel Preview matching that SHA was not found; browser acceptance remains open.
+- Found a real false-positive in B4.12 by testing on the live *pre-fix* Staging function: two accrual GL entries can be simultaneously reclassified to a different account while retaining zero net balance and exact inverse lines. The original helper returned `SOURCE_BACKED_REVERSAL_VALID` even though those GL lines no longer matched their independently approved source journal. The adversarial test produced expected pre-fix failure `B413_FORGED_BALANCED_PAIR_ACCEPTED`; the enclosing SQL transaction was rolled back.
+- Added `supabase/migrations/20261112153000_powerhub_financial_b413_accrual_gl_line_source_proof.sql` in PR #359 and applied precisely that SQL to the verified Staging project. Its history record has version `20261112153000` and stores the complete source SQL text (7102 characters); no dynamically generated version or production changes.
+- This migration retains the B4.12 invoker / service_role scope but requires **both** original/reversal GL entries to contain exactly two lines matching their respective accrual journal's debit code, credit code, amount and direction. Exact inverse GL lines and SHA-256 journal fingerprints remain mandatory.
+- Regression `docs/security/sql/pr359-financial-b413-source-paired-gl-forgery-rollback.sql` now passes on the actual migrated Staging function, returning `B413_BALANCED_BUT_SOURCE_FORGED_GL_REJECTED_PASS_ROLLBACK`. It disables the GL-line immutability trigger only inside a rollback transaction, mutates both sides of a balanced pair, and verifies fail-closed readiness classification. The trigger is confirmed enabled after rollback.
+- Existing B4.12 acceptance remains `B412_REVERSAL_PROVENANCE_GUARD_PASS_ROLLBACK`; B5 regression remains `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. Durable tenant-1 GL: 25 entries, 51 lines, unchanged. Correct accrual 169/170 remains `SOURCE_BACKED_REVERSAL_VALID`.
+- **These are engineering evidence only**. Final financial certification remains `NOT_CERTIFIED`. Source-specific corrections outside accrual reversals, B2/B3 independent authenticated browser checker flows, and representative sustained B5 performance are still pending.
+- Check final GitHub CI and matching Vercel Preview on the new final SHA before claiming release-readiness. PR #359 remains Draft and unmerged; Production was not touched.
