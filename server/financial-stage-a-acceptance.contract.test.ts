@@ -815,6 +815,19 @@ describe("Phase A financial acceptance evidence", () => {
     expect(companyMovementB42Acceptance).toContain("HASH_ANCHORED_IMMUTABLE_TEST_COHORT");
   });
 
+  it("guards site switches and stale finance query states before financial actions", () => {
+    expect(glAuditUiA45).toContain("<FinancialOpeningEvidenceWorkspace key={siteId}");
+    expect(glAuditUiA45).toContain('key={`${siteId}:${period}`} siteId={siteId}');
+    expect(openingEvidenceUi).toContain("const workspaceReady = active && siteId>0");
+    expect(openingEvidenceUi).toContain("const selected=workspaceReady ?");
+    expect(openingEvidenceUi).toContain('workspaceReady && workspace.data?.opening?.status==="posted"');
+    expect(openingEvidenceUi).toContain("!workspaceReady || !selected || !documentFile");
+    expect(financialCentralB2Ui).toContain("const workspaceReady = enabled && !workspace.isLoading");
+    expect(financialCentralB2Ui).toContain("const policy = workspaceReady && workspace.data");
+    expect(financialCentralB2Ui).toContain("const sites = workspaceReady && workspace.data");
+    expect(financialCentralB2Ui).toContain("const isReady = workspaceReady;");
+  });
+
   it("reports per-line opening custody gaps without asserting financial certification", () => {
     expect(openingEvidenceUi).toContain("missingOpeningEvidenceLines");
     expect(openingEvidenceUi).toContain("lineEvidenceStatus");
