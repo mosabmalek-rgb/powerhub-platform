@@ -85,6 +85,16 @@ export default function FinancialGLAuditPanel({
     },
   });
   const enabled = active && siteId > 0 && /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
+  // Tenant-scoped on-demand scope detection. Never infer tenant scope from a
+  // global site list; permission failure hides all inter-site actions.
+  const siteScope = trpc.powerhub.reports.financialGLSiteScope.useQuery({siteId},{
+    enabled,staleTime:60_000,refetchOnWindowFocus:false,refetchOnReconnect:true,
+  });
+  const hasMultipleSites = siteScope.isSuccess &&
+    siteScope.data?.hasMultipleActiveSites===true &&
+    Number(siteScope.data?.activeSiteCount)>1 &&
+    siteScope.data?.siteId===siteId;
+
   const coverage = trpc.powerhub.reports.financialGLSourceCoverage.useQuery({ siteId, period }, {
     enabled, staleTime: 60_000, refetchOnWindowFocus: false, refetchOnReconnect: true,
   });
@@ -124,7 +134,7 @@ export default function FinancialGLAuditPanel({
     ? b4CashData.accountBalancesLinkedOnly : [];
   const [showB3, setShowB3] = useState(false);
   const rollup = trpc.powerhub.reports.financialGLTenantRollup.useQuery({siteId,period},{
-    enabled:enabled && showB3,staleTime:60_000,
+    enabled:enabled && hasMultipleSites && showB3,staleTime:60_000,
     refetchOnWindowFocus:false,refetchOnReconnect:true,
   });
   const b3Visible = showB3 && !rollup.isFetching && !rollup.isLoading
@@ -478,6 +488,7 @@ export default function FinancialGLAuditPanel({
       <FinancialGLCorrectionReadinessWorkspace key={`correction:${siteId}:${period}`} siteId={siteId} period={period} active={active} />
       <FinancialCashTransferPostingWorkspace key={`transfer:${siteId}:${period}`}
         siteId={siteId} period={period} active={active} />
+      {hasMultipleSites ? <>
       <FinancialCentralAllocationWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
       <FinancialInterSiteTransferWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
       <div className="mt-3 rounded-md border border-white/10 p-3">
@@ -547,6 +558,14 @@ export default function FinancialGLAuditPanel({
           <p className="text-xs text-amber-200">التحويلات بين الفروع والحسابات المشتركة لم تُطابق مستقلاً. التوزيع المركزي والضرائب والاعتماد النهائي غير مكتمل.</p>
         </div> : null}
       </div>
+      </> : null}
+      {siteScope.isSuccess && siteScope.data?.activeSiteCount===1 ? <p className="mt-3 text-xs text-slate-400">
+        هذا الاشتراك يضم فرعًا واحدًا؛ أدوات توزيع المصروفات والتحويلات بين الفروع غير مطلوبة لهذا النطاق.
+      </p> : null}
+      {(siteScope.isError || (siteScope.isSuccess && !hasMultipleSites &&
+        siteScope.data?.activeSiteCount!==1)) ? <p role="alert" className="mt-3 text-xs text-rose-200">
+        لم يتم التحقق من نطاق الفروع. حُجبت أدوات التحويل والتجميع، ويمكن متابعة تدقيق الفرع الحالي.
+      </p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button size="sm" variant="outline" className="border-white/20 text-white"
           onClick={() => setShowTrial(v => !v)}>
