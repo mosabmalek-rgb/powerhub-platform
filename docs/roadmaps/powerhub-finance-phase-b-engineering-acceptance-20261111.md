@@ -415,3 +415,26 @@ Each of the four sessions saw exactly one response digest per procedure and `NOT
 - Checked in `docs/security/sql/pr359-financial-b57-concurrent-gl-read-worker-rollback.sql` to make each direct database worker reproducible. It fails closed if five sequential digests for an operation diverge or any `accountingCertification` ceases to be `NOT_CERTIFIED`; all local measurement records are rolled back.
 - Independently executed one additional Staging worker: cash audit sample p50 **233.73 ms**, sample p95 **5,056.23 ms**, maximum **6,247.504 ms**, and subledger p50 **181.15 ms**, maximum **313.663 ms**. Both had identical response fingerprints across their five calls.
 - This confirms the previously observed *intermittent slow-tail risk* on the company movement audit. It does **not** show a general median regression, establish stable p95/p99, or measure the real transactional collection path. Keep B5 open and investigate this outlier using long-running-query instrumentation/EXPLAIN and authenticated application load before acceptance.
+
+
+---
+
+## 2026-11-12 — Final product rule: effective branch limit 1 means single-site subscription
+
+**Owner decision:** if the *effective subscription branch quota* is exactly **1**, the customer is **not a multi-branch customer**, even when legacy Staging data contains multiple site records or an enable override is set. Entitlement must come from server-side branch policy, **not** from counting existing site records.
+
+### Implemented on PR #359 (not yet merged)
+
+- `resolveBranchPolicy` now makes `maxBranches > 1` a strict prerequisite to `isEnabled`, so even `isEnabledOverride=true` cannot turn a one-branch quota into multi-branch access. Existing archived/test records cannot defeat this rule.
+- `sites.multiBranchAccess` checks the current authenticated user's tenant and resolves package/platform/tenant override policy. Missing policy reads fail closed.
+- Direct `/branches` access is guarded; menus, financial site comparison, B3 rollup, inter-site GL actions, central allocation workspace, company-account branch links/filters, team-wide branch grants, and multi-branch report sections/export columns are hidden for ineligible subscriptions.
+- Multi-site financial RPCs and staff `allBranches=true` mutation paths validate the same tenant entitlement server-side, not only in React. Branch-local collection, deposits/withdrawals, supplier operations and normal finance pages remain visible.
+- Added `server/multi-branch-entitlement-visibility.contract.test.ts` covering the limit-one override condition and UI/server access contracts. Updated the existing single-site contract after removing unnecessary multi-branch disclosure.
+- The platform admin remains able to configure the subscription through admin-only tools; the *tenant user interface* remains single-site until the admin actually raises the effective subscription limit and enables the feature.
+
+### Verification status
+
+- GitHub PR #359 remains Draft and unmerged.
+- The implementation is committed and CI is being rerun on the latest head; a prior revision had a TypeScript error in the staff page from conditional JSX, which was corrected, along with a nullable sites list access. Do **not** report the latest head as CI-approved until all four checks succeed on that exact SHA.
+- No Production deployments, financial source changes, or data deletion occurred in this UI/ACL round.
+- B2/B3 authenticated browser evidence and B4 supplier posted-GL correction plus B5 sustained performance are still independent acceptance gates. No financial certification.
