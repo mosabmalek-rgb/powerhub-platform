@@ -5612,7 +5612,32 @@ export const powerhubRouter = router({
        !Array.isArray(v.sites) || v.sites.length!==sites.length ||
        v.siteCount!==sites.length || !position || Number(position.equationDifference)!==0)
        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"بيانات التجميع الأولي غير متسقة."});
-      return v;
+      // B3.9 independently reconcile operational transfer pairs with both GL
+      // journals. This preview does NOT post eliminations or certify statements.
+      const {data:postingProof,error:postingError}=await supabaseAdmin().rpc(
+        "powerhub_financial_gl_inter_site_posting_audit",{
+          p_tenant_id:access.tenantId,p_period:input.period,
+        });
+      if(postingError||!postingProof||typeof postingProof!=="object"
+        ||Array.isArray(postingProof))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر التحقق المستقل من قيود التحويل بين الفروع."});
+      const proof=postingProof as Record<string,unknown>;
+      if(proof.tenantId!==access.tenantId||proof.period!==input.period
+         ||proof.accountingCertification!=="NOT_CERTIFIED"
+         ||proof.isConsolidatedFinancialStatements!==false
+         ||proof.isFinalFinancialAcceptance!==false
+         ||proof.doesNotPostEliminationGL!==true
+         ||!Number.isSafeInteger(Number(proof.sourceCount))
+         ||!Number.isSafeInteger(Number(proof.invalidPairCount))
+         ||!Number.isSafeInteger(Number(proof.matchedPairCount))
+         ||!Number.isSafeInteger(Number(proof.pendingPairCount))
+         ||!Number.isSafeInteger(Number(proof.orphanGLEntryCount))
+         ||!["NO_INTER_SITE_SOURCE_OBSERVED","SOURCE_AWAITS_DUAL_SITE_GL",
+             "MATCHED_DUE_FROM_TO_PRELIMINARY_ONLY","BLOCKED_INTEGRITY"].includes(String(proof.status)))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"دليل الاستبعاد بين الفروع غير متسق، لم تُعرض نتائج غير متحقق منها."});
+      return {...v,interSiteGLProof:proof};
     }),
     // B2: management workspace. A server-side, tenant-scoped snapshot only.
     // ALL active branches must be report-visible before revealing policy details.
