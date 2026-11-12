@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 const STATUS_AR: Record<string,string> = {
   ALREADY_REVERSED: "تم تسجيل عكس مستقل لهذا القيد",
   REVERSAL_ENTRY_IMMUTABLE: "هذا القيد هو قيد عكس، وليس مصدرًا لعكس جديد",
+  EXISTING_REVERSAL_SOURCE_REVIEW_REQUIRED: "يوجد قيد عكسي متوازن لكن إثبات المصدر والاعتماد المستقل غير مكتمل",
+  REVERSAL_ENTRY_SOURCE_REVIEW_REQUIRED: "قيد عكسي متوازن، ولا يُعد اعتمادًا ماليًا للمصدر الأصلي",
+  EXISTING_REVERSAL_INTEGRITY_BLOCKED: "حُجب تصنيف العكس: خلل في سلامة القيد المقابل أو المصدر",
   ACCRUAL_SOURCE_REVERSAL_AVAILABLE: "يمكن إنشاء مسودة عكس من مصدر الاستحقاق",
   ACCRUAL_SOURCE_REVERSAL_PENDING: "يوجد عكس للمصدر؛ تحقق من الموافقة والترحيل",
   ACCRUAL_SOURCE_OR_GL_INTEGRITY_BLOCKED: "عدم تطابق مصدر الاستحقاق مع القيد — محجوب",
