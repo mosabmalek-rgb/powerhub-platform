@@ -72,7 +72,7 @@ describe("financial capability enforcement", () => {
     const access = read("server/powerhub-supabase.ts");
     expect(access).toContain("export async function requireSupabaseAllBranchesRole(");
     expect(access).toContain("permissions.includes(capability)");
-    expect(access).toContain('eq("capability", capability)');
+    expect(access).toContain("access.deniedCapabilities.includes(capability)");
     expect(access).toContain("staff_profile_capability_overrides");
     expect(access).toContain('const policyCapability = capability ?? "viewFinancialReports"');
     expect(access).toContain("permissions.filter((item) => item !== policyCapability)");
