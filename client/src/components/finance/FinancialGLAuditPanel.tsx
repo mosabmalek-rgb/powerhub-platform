@@ -5,6 +5,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import FinancialOpeningEvidenceWorkspace from "./FinancialOpeningEvidenceWorkspace";
 import FinancialCentralAllocationWorkspace from "./FinancialCentralAllocationWorkspace";
 import FinancialCashTransferPostingWorkspace from "./FinancialCashTransferPostingWorkspace";
+import FinancialInterSiteTransferWorkspace from "./FinancialInterSiteTransferWorkspace";
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -474,6 +475,7 @@ export default function FinancialGLAuditPanel({
       <FinancialCashTransferPostingWorkspace key={`transfer:${siteId}:${period}`}
         siteId={siteId} period={period} active={active} />
       <FinancialCentralAllocationWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
+      <FinancialInterSiteTransferWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
       <div className="mt-3 rounded-md border border-white/10 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
