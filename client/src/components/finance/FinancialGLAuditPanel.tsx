@@ -144,7 +144,7 @@ export default function FinancialGLAuditPanel({
   const b1Branch = object(b1.branchProfitability);
   const b1Amount = (value:unknown) => {
     const n = typeof value==="number" ? value : Number(value);
-    return Number.isFinite(n) ? n.toLocaleString("ar",{minimumFractionDigits:2,maximumFractionDigits:2}) : "غير متاح";
+    return Number.isFinite(n) ? n.toLocaleString("ar",{minimumFractionDigits:0,maximumFractionDigits:2}) : "غير متاح";
   };
   const canShowCoverage = Boolean(coverage.data && !coverage.isError && !coverage.isFetching && !coverage.isLoading);
   const report = canShowCoverage ? object(coverage.data) : {};
