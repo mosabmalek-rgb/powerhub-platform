@@ -200,7 +200,6 @@ BEGIN
    'amount',v_src.amount,'alreadyPosted',false,
    'accountingCertification','NOT_CERTIFIED',
    'consolidationEliminationPosted',false);
-END;$function$
-
+END;$function$;
 REVOKE ALL ON FUNCTION public.powerhub_financial_gl_post_inter_site_source(bigint,bigint,bigint,bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_post_inter_site_source(bigint,bigint,bigint,bigint) TO service_role;
