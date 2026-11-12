@@ -68,6 +68,9 @@ const b51FailClosedSql = readFileSync(
 const b53FastPriorSql = readFileSync(
   "supabase/migrations/20261112093106_powerhub_financial_b5_fast_prior_coverage_without_250k_rescan.sql","utf8",
 );
+const b53NonfixtureSql = readFileSync(
+  "docs/security/sql/pr359-financial-b5-nonfixture-visibility-rollback.sql","utf8",
+);
 const b53FallbackSql = readFileSync(
   "docs/security/sql/pr359-financial-b5-fast-prior-fallback-rollback.sql","utf8",
 );
@@ -836,6 +839,13 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_FAILURE_CLOSED_PASS");
     expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_BROWSER_EXECUTE_EXPOSED");
     expect(b51FailClosedSql).toContain("ROLLBACK;");
+  });
+
+  it("keeps new unlinked, non-fixture historical cash sources visible", () => {
+    expect(b53NonfixtureSql).toContain("B5_3_NONFIXTURE_MOVEMENT_VISIBLE_PASS_ROLLBACK");
+    expect(b53NonfixtureSql).toContain("B5_3_NONFIXTURE_HIDDEN_OR_MUTATED");
+    expect(b53NonfixtureSql).toContain("unclassifiedAccountMovements");
+    expect(b53NonfixtureSql).toContain("ROLLBACK;");
   });
 
   it("never excludes unsupported fixtures when B5.3 fast proof is unavailable", () => {
