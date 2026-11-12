@@ -1,5 +1,20 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B3.8/B3.9 operational cross-site GL and verified audit
+
+- The preceding B3.7 experiment proved the accounting signs only. This follow-up **implemented** a service-role-only SQL RPC `powerhub_financial_gl_post_inter_site_source` that posts **two balanced site-scoped GL entries atomically** from a separately persisted and validated operational transfer pair. The actual applied Staging migrations are `20261112115946` and the `20261112120316` qualified-extensions digest fix.
+- **Source integrity:** original and counterpart movements, active site-locked company account mapping, matching amounts/description/period/tenant/account links, actual transfer-operation MD5 payload at decimal scales 0–6, different maker and checker, checker authorized at both sites, period locks, deterministic advisory locking, exact journal fingerprint, replay checks and correction-on-conflict denial. GL uses 1350 debit / source cash credit and destination cash debit / 2350 credit; no income or expense generated.
+- Added `financialGLPostInterSiteTransfer` protected tRPC mutation with `confirmSourceReview=true`, **both sites independently authorized** using `manageExpenses` and `viewFinancialReports`, actual checker identity from authenticated context, and source/paired branch checks. This does **not** create the underlying cross-site operational transfer or auto-approve it. No unvalidated two-site financial mutation is exposed to a client.
+- Positive rollback E2E `B38_POSITIVE_AND_REPLAY_PASS_ROLLBACK` passed: 20 ILS, exactly two balanced GL journals, idempotent retry without new entries, maker self-review rejected, NOT_CERTIFIED retained. Negative `B38_NEGATIVE_SOURCE_SCOPE_AND_REPLAY_PASS_ROLLBACK` passed, proving forged payload and wrong site-account mapping rejected. All synthetic data (including temporary mapping) was reverted.
+- Added read-only, service-only `powerhub_financial_gl_inter_site_posting_audit` with applied migrations `20261112120914`, `20261112121003`, `20261112121237`. It independently validates each source/GL pair, detects pending/invalid/orphan journals and returns only **mathematical elimination preview**, never a posted elimination or certified consolidation.
+- Positive `B39_INTER_SITE_POSTING_AUDIT_PASS_ROLLBACK` checked a correct two-site 20 ILS source and dual GL journal. Found and fixed a potential false warning: valid same-site transfers must not be counted as inter-site sources. Existing B3.4 real same-site RPC test now asserts this and passed. Existing B5 Staging engineering gate also passed after the new SQL.
+- The authenticated B3 rollup now invokes the audit **after checking access to every active site**, fails closed if the evidence result is unavailable or malformed, and returns `interSiteGLProof`. The UI shows matched/pending/invalid pairs and equal due-from/due-to elimination *previews* while retaining `PRELIMINARY_MULTI_SITE_ROLLUP` and `NOT_CERTIFIED`. CI contract assertions added.
+- **Acceptance boundary:** source creation for a genuine cross-site account transfer is not yet exposed as a complete authenticated operation; an approved standalone *consolidation elimination journal* is not implemented; independent B2 authenticated maker/checker browser flow and B5 sustained concurrency are not yet proven. Do not mark complete B3 financial consolidation or deploy Production. PR #359 remains Draft and unmerged.
+- Newly committed code/SQL requires 4/4 GitHub CI on the **new final SHA**; old successful workflow conclusions do not apply.
+
+---
+
+
 ## 2026-11-12 — B3.7 positive cross-site due-from/due-to accounting proof
 
 - Ran a **positive synthetic double-entry experiment** inside `BEGIN/ROLLBACK`, with a properly fingerprinted cross-site transfer of **20 ILS** from the primary site's cash account to the isolated second site's wallet account. No persistent account mapping, transfer, account or GL records were created.
