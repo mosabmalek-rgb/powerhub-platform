@@ -11,6 +11,8 @@ on:
       - "supabase/tests/b5_disposable_payroll_load_*"
       - "supabase/tests/b5_disposable_collection_load_*"
       - "scripts/b5-disposable-collection-load.sh"
+      - "supabase/tests/b5_disposable_expense_load_*"
+      - "scripts/b5-disposable-expense-load.sh"
       - ".github/workflows/b5-synthetic-financial-load.yml"
   pull_request:
     branches: [main]
@@ -22,6 +24,8 @@ on:
       - "supabase/tests/b5_disposable_payroll_load_*"
       - "supabase/tests/b5_disposable_collection_load_*"
       - "scripts/b5-disposable-collection-load.sh"
+      - "supabase/tests/b5_disposable_expense_load_*"
+      - "scripts/b5-disposable-expense-load.sh"
       - ".github/workflows/b5-synthetic-financial-load.yml"
 permissions:
   contents: read
@@ -86,3 +90,11 @@ jobs:
         env:
           PGDATABASE: powerhub_b5_synthetic_collection_test
         run: bash scripts/b5-disposable-collection-load.sh
+      - name: Create disposable expense database with actual classified and offline-safe RPCs
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_b5_synthetic_expense_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_b5_synthetic_expense_test --set ON_ERROR_STOP=1 --file supabase/tests/b5_disposable_expense_load_setup.sql
+      - name: Load 1000 operating expenses and assert paired cash withdrawals
+        env:
+          PGDATABASE: powerhub_b5_synthetic_expense_test
+        run: bash scripts/b5-disposable-expense-load.sh
