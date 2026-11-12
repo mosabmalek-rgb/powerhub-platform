@@ -1,5 +1,16 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B5.5 post-correction read consistency and performance sampling
+
+- Re-executed the durable B5 Staging engineering SQL gate after B4.10: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. Ran B4.6 no-fabricated-opening-evidence, B4.8 only-one-reversal, B3 preliminary rollup, B2 independent-actor SQL, B3.3 cross-site source, B3.5 forged source, and B5.2 repeat-read regression successfully. The B4.6 and B4.8 fixtures were updated for the durable 25-entry / 51-line baseline; **no active GL was mutated during these rollback tests**.
+- Four different concurrent `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` PostgreSQL calls observed: B3 rollup **5,598.898 ms**; main site B4 subledger **2,091.181 ms**; main site B4 account audit **552.100 ms**; second site B4 subledger **79.811 ms**. Every corresponding root plan reported **0 PostgreSQL temporary-written blocks**.
+- Three subsequent sequential B3 rollup measurements: **1,045.711 / 385.686 / 415.497 ms**, also 0 temp-written blocks. These mixed concurrent and sequential samples indicate highly variable cold/concurrency behavior, rather than a reproducible stable p95.
+- B5.2 repeat-read consistency gate passed on the new durable Staging baseline; GL remained 25/51 and accounting certification remained `NOT_CERTIFIED`.
+- **Not demonstrated:** long-run p95/p99 SLO, browser route latency under production-like concurrency, two independent logged-in-user review flows, or a SHA-matched fresh Vercel Preview. Do not infer full B5 performance acceptance from these database samples.
+
+---
+
+
 ## 2026-11-12 — B4.10 durable Staging-only synthetic opening correction
 
 - User reconfirmed there is no launch or real user transaction history; **Staging financial records are entirely synthetic** and may be changed for acceptance tests. No Production write, release, or merge was authorized.
