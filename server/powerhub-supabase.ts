@@ -107,120 +107,114 @@ type ResolvedSupabaseSiteAccess = {
   invoiceDueHours: number;
   usesPermissionOverride: boolean;
   isPlatformAdmin: boolean;
+  deniedCapabilities: PowerCapability[];
+};
+
+// B5.20: one database-fresh snapshot per authorization decision. No permission
+// TTL or cross-request cache. RPC is service_role-only and SECURITY INVOKER.
+type SiteAccessSnapshot = {
+  user: { role: string; platform_role: string | null; account_status: string } | null;
+  site: { tenant_id: number; status: string; invoice_due_days: number; invoice_due_hours: number | null } | null;
+  membership: { role: string; expires_at: string | null; is_active: boolean; membership_status: string } | null;
+  subscription: { status: string; ends_at: string | null; read_only_until: string | null } | null;
+  member_overrides: { capability: string; is_allowed: boolean }[];
+  staff_profiles: { id: number; site_id: number | null; role: string; permissions: unknown; custom_role_id: number | null; suspension_started_at: string | null; suspension_ends_at: string | null }[];
+  staff_overrides: { profile_id: number; capability: string; is_allowed: boolean }[];
+  custom_roles: { id: number; permissions: unknown }[];
+  role_policies: { role: string; capability: string; is_allowed: boolean }[];
 };
 
 async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number): Promise<ResolvedSupabaseSiteAccess> {
-  const accessStartedAt = performance.now();
-  let userAndSiteMs = 0;
-  let membershipAndSubscriptionMs = 0;
-  let staffProfilesMs = 0;
-  let permissionResolutionMs = 0;
-  const reportSlowAccess = (outcome: "platform_admin" | "owner" | "staff") => {
-    const totalMs = Math.round(performance.now() - accessStartedAt);
-    if (totalMs < 800) return;
-    // Do not log user, tenant, or site identifiers or any permission contents.
-    console.warn("[PowerHub access latency]", {
-      stage: "resolveSupabaseSiteAccessDetails",
-      outcome,
-      totalMs,
-      userAndSiteMs,
-      membershipAndSubscriptionMs,
-      staffProfilesMs,
-      permissionResolutionMs,
+  const startedAt = performance.now();
+  const { data, error } = await supabaseAdmin().rpc("powerhub_site_access_snapshot", {
+    p_user_id: userId, p_site_id: siteId,
+  });
+  if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صلاحيات الفرع في Supabase." });
+  }
+  const snapshot = data as SiteAccessSnapshot;
+  const user = snapshot.user;
+  const site = snapshot.site;
+  if (!user || user.account_status !== "active") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب معطل أو لا يملك حق الوصول." });
+  }
+  if (!site || !Number.isSafeInteger(Number(site.tenant_id)) || Number(site.tenant_id) <= 0) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+  }
+  const tenantId = Number(site.tenant_id);
+  const invoiceDueDays = Number(site.invoice_due_days);
+  const invoiceDueHours = Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, invoiceDueDays * 24)));
+  const platformAdmin = isActivePlatformAdmin({
+    role: user.role, platformRole: user.platform_role, accountStatus: user.account_status,
+  });
+  const reportLatency = (outcome: "owner" | "staff" | "platform_admin") => {
+    const totalMs = Math.round(performance.now() - startedAt);
+    if (totalMs >= 800) console.warn("[PowerHub access latency]", {
+      stage: "powerhub_site_access_snapshot", outcome, totalMs,
     });
   };
-  const admin = supabaseAdmin();
-  const identityAndSiteStartedAt = performance.now();
-  const [{ data: user, error: userError }, site] = await Promise.all([
-    admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle(),
-    getSupabaseSite(siteId),
-  ]);
-  userAndSiteMs = Math.round(performance.now() - identityAndSiteStartedAt);
-  if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المستخدم من Supabase." });
-  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "ملف المستخدم غير متاح." });
-  const platformAdmin = isActivePlatformAdmin({ role: user.role, platformRole: user.platform_role, accountStatus: user.account_status });
   if (platformAdmin) {
-    reportSlowAccess("platform_admin");
-    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, usesPermissionOverride: false, isPlatformAdmin: true };
-  }
-
-  // Membership and subscription are independent checks once the site's tenant is known.
-  // Run them concurrently to avoid adding one network round trip to every protected operation.
-  const membershipAndSubscriptionStartedAt = performance.now();
-  const [membershipResult] = await Promise.all([
-    admin.from("tenant_members")
-      .select("role,expires_at,tenant_member_capability_overrides(capability,is_allowed)").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle(),
-    requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true }),
-  ]);
-  membershipAndSubscriptionMs = Math.round(performance.now() - membershipAndSubscriptionStartedAt);
-  const { data: membership, error: membershipError } = membershipResult;
-  if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
-  if (!membership || !isTenantMembershipUnexpired(membership)) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة أو أن مدة العضوية قد انتهت." });
-
-  if (membership.role === "owner") {
-    const ownerOverrides = Array.isArray((membership as any).tenant_member_capability_overrides)
-      ? (membership as any).tenant_member_capability_overrides.map((override: { capability: string; is_allowed: boolean }) => ({
-          capability: override.capability,
-          is_allowed: Boolean(override.is_allowed),
-        }))
-      : [];
-    const permissions = applyStaffCapabilityOverrides(allCapabilities, ownerOverrides);
-    reportSlowAccess("owner");
+    reportLatency("platform_admin");
     return {
-      role: "owner",
-      permissions,
-      tenantId: site.tenantId,
-      invoiceDueDays: site.invoiceDueDays,
-      invoiceDueHours: site.invoiceDueHours,
-      usesPermissionOverride: ownerOverrides.length > 0,
-      isPlatformAdmin: false,
+      role: "owner", permissions: allCapabilities, tenantId,
+      invoiceDueDays, invoiceDueHours, usesPermissionOverride: false,
+      isPlatformAdmin: true, deniedCapabilities: [],
     };
   }
-
-  const staffProfilesStartedAt = performance.now();
-  const { data: profiles, error: profileError } = await admin.from("staff_profiles")
-    .select("id, role, permissions, custom_role_id, archived_at, suspension_started_at, suspension_ends_at, site_id")
-    .eq("tenant_id", site.tenantId).eq("user_id", userId)
-    .eq("is_active", true).is("archived_at", null);
-  staffProfilesMs = Math.round(performance.now() - staffProfilesStartedAt);
-  if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيين المستخدم في Supabase." });
-  const profile = (profiles ?? []).find((item) => Number(item.site_id) === siteId) ?? (profiles ?? []).find((item) => item.site_id === null);
+  const member = snapshot.membership;
+  if (!member || !member.is_active || member.membership_status !== "active" ||
+      !isTenantMembershipUnexpired(member)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة أو أن مدة العضوية قد انتهت." });
+  }
+  const subscription = snapshot.subscription;
+  const now = new Date();
+  const activeSubscription = subscription &&
+    (subscription.status === "trial" || subscription.status === "active") &&
+    subscription.ends_at && Number.isFinite(Date.parse(subscription.ends_at)) &&
+    Date.parse(subscription.ends_at) > now.getTime();
+  const retainedReadOnly = subscription?.status === "cancelled" &&
+    subscription.read_only_until && Number.isFinite(Date.parse(subscription.read_only_until)) &&
+    Date.parse(subscription.read_only_until) > now.getTime();
+  if (!activeSubscription && !retainedReadOnly) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "انتهى اشتراك مساحة العمل أو تم إيقافه. يرجى تجديد الاشتراك للمتابعة." });
+  }
+  const asList = <T>(items: T[] | undefined): T[] => Array.isArray(items) ? items : [];
+  const policyDeny = (role: PowerRole) => asList(snapshot.role_policies)
+    .filter((x) => x.role === role && x.is_allowed === false)
+    .map((x) => x.capability)
+    .filter((cap): cap is PowerCapability => allCapabilities.includes(cap as PowerCapability));
+  if (member.role === "owner") {
+    const ownerOverrides = asList(snapshot.member_overrides);
+    const permissions = applyStaffCapabilityOverrides(allCapabilities, ownerOverrides);
+    reportLatency("owner");
+    return {
+      role: "owner", permissions, tenantId, invoiceDueDays, invoiceDueHours,
+      usesPermissionOverride: ownerOverrides.length > 0, isPlatformAdmin: false,
+      deniedCapabilities: policyDeny("owner"),
+    };
+  }
+  const profiles = asList(snapshot.staff_profiles);
+  const profile = profiles.find((p) => Number(p.site_id) === siteId) ??
+    profiles.find((p) => p.site_id === null);
   if (!profile) throw new TRPCError({ code: "FORBIDDEN", message: "لا يوجد تعيين فعال لك في هذه المحطة." });
-  if (isSuspended(new Date(), dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at))) {
-    throw new TRPCError({ code: "FORBIDDEN", message: `تم توقيف حسابك مؤقتاً حتى ${new Date(profile.suspension_ends_at!).toLocaleString("ar-IQ")}.` });
+  if (isSuspended(now, dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذا التعيين موقوف مؤقتًا." });
   }
-  // NULL means "inherit from custom role"; [] is an explicit deny-all override.
-  const hasExplicitPermissions = profile.permissions !== null && profile.permissions !== undefined;
   const role = asPowerRole(profile.role);
-  const usesPermissionOverride = hasExplicitPermissions || Boolean(profile.custom_role_id);
-  let permissions = hasExplicitPermissions ? asPermissions(profile.permissions) : defaultCapabilitiesForRole(role);
-
-  // Load custom-role permissions and per-profile capability overrides concurrently.
-  // Explicit per-profile entries are applied last, so the platform admin can grant
-  // or deny a capability for one account without mutating the reusable role.
-  const customRoleStartedAt = performance.now();
-  const [customRoleResult, userOverridesResult] = await Promise.all([
-    !hasExplicitPermissions && profile.custom_role_id
-      ? admin.from("custom_permission_roles").select("permissions")
-          .eq("id", profile.custom_role_id).eq("tenant_id", site.tenantId).eq("is_active", true).maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-    admin.from("staff_profile_capability_overrides")
-      .select("capability,is_allowed")
-      .eq("tenant_id", site.tenantId)
-      .eq("profile_id", profile.id),
-  ]);
-  permissionResolutionMs = Math.round(performance.now() - customRoleStartedAt);
-  if (customRoleResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
-  if (userOverridesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استثناءات صلاحيات المستخدم من Supabase." });
-  if (!hasExplicitPermissions && profile.custom_role_id) {
-    permissions = asPermissions(customRoleResult.data?.permissions);
+  const explicit = profile.permissions !== null && profile.permissions !== undefined;
+  let permissions = explicit ? asPermissions(profile.permissions) : defaultCapabilitiesForRole(role);
+  if (!explicit && profile.custom_role_id) {
+    const custom = asList(snapshot.custom_roles).find((c) => Number(c.id) === Number(profile.custom_role_id));
+    permissions = asPermissions(custom?.permissions);
   }
-  permissions = applyStaffCapabilityOverrides(
-    permissions,
-    (userOverridesResult.data ?? []).map((override) => ({ capability: override.capability, is_allowed: Boolean(override.is_allowed) })),
-  );
-  reportSlowAccess("staff");
-  return { role, permissions, usesPermissionOverride: usesPermissionOverride || (userOverridesResult.data ?? []).length > 0, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, isPlatformAdmin: false };
+  const overrides = asList(snapshot.staff_overrides).filter((o) => Number(o.profile_id) === Number(profile.id));
+  permissions = applyStaffCapabilityOverrides(permissions, overrides);
+  reportLatency("staff");
+  return {
+    role, permissions, tenantId, invoiceDueDays, invoiceDueHours,
+    usesPermissionOverride: explicit || Boolean(profile.custom_role_id) || overrides.length > 0,
+    isPlatformAdmin: false, deniedCapabilities: policyDeny(role),
+  };
 }
 
 export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean }> {
@@ -239,11 +233,8 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   if (!platformAdmin && !capability && !allowed.includes(access.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
   }
-  if (!platformAdmin && capability) {
-    const { data: policy, error: policyError } = await supabaseAdmin().from("platform_role_policies")
-      .select("is_allowed").eq("role", access.role).eq("capability", capability).maybeSingle();
-    if (policyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
-    if (policy && !policy.is_allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+  if (!platformAdmin && capability && access.deniedCapabilities.includes(capability)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
   }
   return { role: access.role, permissions: access.permissions, tenantId: access.tenantId, usesPermissionOverride: access.usesPermissionOverride, invoiceDueDays: access.invoiceDueDays, invoiceDueHours: access.invoiceDueHours };
 }
