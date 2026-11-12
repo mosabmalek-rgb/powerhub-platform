@@ -5,6 +5,17 @@
 **Environment:** Staging only, all records are prelaunch synthetic test data  
 **Result:** **B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED**. This is evidence of a tested engineering baseline, **not** completed Phase B financial acceptance, audited statements or permission to deploy Production.
 
+## 2026-11-12 — B3.2 warehouse pair fault injection and B5 guard
+
+- All four GitHub CI gates passed on the prior tested head `0d666468fee4cdb73aa616664d4880539f9d85b0`. The B3.1 database migration `20261110225954` was recorded on Staging.
+- The B3.1 report now separately counts **2 intra-site warehouse transfers valued at 170 ILS** whose source/destination movements match, with **0 pair discrepancies** and **0 candidate inter-site GL entries**. This is **not** evidence that inter-site consolidation eliminations were independently reconciled.
+- Executed an actual Staging synthetic fault injection in `BEGIN/ROLLBACK`: changed transfer #2 from 70.00 to 70.01, verified `intraSiteWarehouseTransferMismatchCount=1` and `warehouseTransfersPaired=false`, while `accountingCertification=NOT_CERTIFIED`; result `B3_2_FAULT_INJECTION_PASS_ROLLBACK`. No change persisted.
+- Saved the reusable regression in `docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql`. Updated the B5 Staging engineering gate to verify the paired count, sum, zero mismatch, classification, and continued non-certification. B5 gate re-executed and returned `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- Added Vitest contract assertions for the migration, fault test, B5 gate and UI warnings. CI must be confirmed again on the new final SHA, not inferred from the old passed SHA.
+- B2 authenticated two-user browser review, missing 2,000 ILS opening documentation, standalone inter-site elimination evidence, and sustained concurrent E2E performance remain open. **Phase B is not financially certified.** PR #359 stays Draft; Production untouched.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
