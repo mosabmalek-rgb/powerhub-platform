@@ -10,6 +10,7 @@ const validId = (v: unknown): number => {
   return Number.isSafeInteger(n) && n > 0 ? n : 0;
 };
 const amountText = (v: unknown) => {
+  if(v===null || v===undefined || v==="")return "غير متاح";
   const n = Number(v);
   return Number.isFinite(n) ? n.toLocaleString("ar", {
     minimumFractionDigits: 0, maximumFractionDigits: 2,
@@ -126,7 +127,9 @@ export default function FinancialInterSiteTransferWorkspace({
   const ready = enabled && !rollup.isLoading && !rollup.isFetching
     && !rollup.isError && object(rollup.data).accountingCertification === "NOT_CERTIFIED"
     && proof.accountingCertification === "NOT_CERTIFIED"
-    && proof.isConsolidatedFinancialStatements === false;
+    && proof.isConsolidatedFinancialStatements === false
+    && proof.status !== "BLOCKED_INTEGRITY"
+    && Number(proof.orphanEliminationCount ?? 0) === 0;
   const candidates = ready && Array.isArray(proof.mismatchExamples)
     ? proof.mismatchExamples.map(object).filter(x =>
        x.reason === "SOURCE_UNPOSTED_GL"
@@ -214,6 +217,11 @@ export default function FinancialInterSiteTransferWorkspace({
         {rollup.isError ? <p role="alert" className="text-rose-200">
           فشل التدقيق. حُجبت إجراءات الترحيل على النتائج غير المؤكدة.
         </p> : null}
+        {proof.status==="BLOCKED_INTEGRITY" || Number(proof.orphanEliminationCount ?? 0)>0
+          ? <p role="alert" className="text-rose-200">
+              كشف التدقيق قيودًا أو تسويات استبعاد غير مرتبطة بمصادر صحيحة.
+              عُلّقت إجراءات الترحيل والاعتماد لحين التصحيح.
+            </p> : null}
         {ready && candidates.length===0 ? <p className="text-xs">لا توجد تحويلات معلقة لهذا الفرع ضمن أول 20 حالة معلّقة/غير صالحة.</p> : null}
         {ready ? candidates.map(item=><div key={validId(item.sourceId)}
           className="rounded border border-white/10 p-2 space-y-2">
