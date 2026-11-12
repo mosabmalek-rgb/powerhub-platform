@@ -917,6 +917,13 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b395OrphanNegativeSql).toContain("B395_ORPHAN_APPROVED_ELIMINATION_FAIL_CLOSED_PASS_ROLLBACK");
     expect(b395OrphanNegativeSql).toContain("approvedEliminationAmount");
     expect(b395OrphanNegativeSql).toContain("ROLLBACK;");
+    expect(glAuditUiA45).toContain('value===null || value===undefined || value===""');
+    expect(glAuditUiA45).toContain("orphanEliminationCount");
+    expect(glAuditUiA45).toContain("approvedEliminationAmount");
+    expect(glAuditUiA45).toContain('b3InterSiteProof.status==="BLOCKED_INTEGRITY"');
+    expect(b3WorkspaceUi).toContain('proof.status !== "BLOCKED_INTEGRITY"');
+    expect(b3WorkspaceUi).toContain('proof.orphanEliminationCount');
+    expect(b3WorkspaceUi).toContain("عُلّقت إجراءات الترحيل والاعتماد");
     expect(b311ReviewSql).toContain("B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK");
     expect(b3111SecuritySql).toContain("B3111_IMMUTABLE_ELIMINATION_AND_RBAC_PASS_ROLLBACK");
     expect(b3111SecuritySql).toContain("B3111_ELIMINATION_LINE_DELETE_ALLOWED");
