@@ -246,16 +246,10 @@ export async function requireSupabaseSiteCapabilities(userId: number, siteId: nu
   const missing = capabilities.find((capability) => !access.permissions.includes(capability));
   if (missing) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
 
-  // Resolve all capability policies in parallel after one membership/subscription/site lookup.
-  const policies = await Promise.all(capabilities.map((capability) =>
-    supabaseAdmin().from("platform_role_policies")
-      .select("is_allowed").eq("role", access.role).eq("capability", capability).maybeSingle()
-  ));
-  for (const policyResult of policies) {
-    if (policyResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
-    if (policyResult.data && !policyResult.data.is_allowed) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
-    }
+  // Platform policy denials are part of the same fresh authorization RPC.
+  // Avoid additional network round trips for sensitive multi-capability gates.
+  if (capabilities.some((capability) => access.deniedCapabilities.includes(capability))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
   }
   return access;
 }
@@ -276,17 +270,10 @@ export async function resolveSupabaseSiteCapabilityAccess(
   const grantedCapabilities = capabilities.filter((capability) => access.permissions.includes(capability));
   if (!grantedCapabilities.length) return { ...access, allowedCapabilities: [] };
 
-  const { data: policies, error } = await supabaseAdmin().from("platform_role_policies")
-    .select("capability,is_allowed")
-    .eq("role", access.role)
-    .in("capability", grantedCapabilities);
-  if (error) {
-    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
-  }
-
   return {
     ...access,
-    allowedCapabilities: getPolicyAllowedCapabilities(capabilities, access.permissions, policies ?? []),
+    allowedCapabilities: grantedCapabilities.filter((capability) =>
+      !access.deniedCapabilities.includes(capability)),
   };
 }
 
