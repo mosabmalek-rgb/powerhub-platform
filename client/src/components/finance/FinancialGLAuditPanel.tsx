@@ -90,7 +90,13 @@ export default function FinancialGLAuditPanel({
   const siteScope = trpc.powerhub.reports.financialGLSiteScope.useQuery({siteId},{
     enabled,staleTime:60_000,refetchOnWindowFocus:false,refetchOnReconnect:true,
   });
-  const hasMultipleSites = siteScope.isSuccess &&
+  const multiBranchAccess=trpc.powerhub.sites.multiBranchAccess.useQuery({siteId},{
+    enabled,staleTime:60_000,refetchOnWindowFocus:false,refetchOnReconnect:true,
+  });
+  const hasMultipleSites = multiBranchAccess.isSuccess &&
+    multiBranchAccess.data?.enabled===true &&
+    multiBranchAccess.data?.siteId===siteId &&
+    siteScope.isSuccess &&
     siteScope.data?.hasMultipleActiveSites===true &&
     Number(siteScope.data?.activeSiteCount)>1 &&
     siteScope.data?.siteId===siteId;
@@ -559,13 +565,6 @@ export default function FinancialGLAuditPanel({
         </div> : null}
       </div>
       </> : null}
-      {siteScope.isSuccess && siteScope.data?.activeSiteCount===1 ? <p className="mt-3 text-xs text-slate-400">
-        هذا الاشتراك يضم فرعًا واحدًا؛ أدوات توزيع المصروفات والتحويلات بين الفروع غير مطلوبة لهذا النطاق.
-      </p> : null}
-      {(siteScope.isError || (siteScope.isSuccess && !hasMultipleSites &&
-        siteScope.data?.activeSiteCount!==1)) ? <p role="alert" className="mt-3 text-xs text-rose-200">
-        لم يتم التحقق من نطاق الفروع. حُجبت أدوات التحويل والتجميع، ويمكن متابعة تدقيق الفرع الحالي.
-      </p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button size="sm" variant="outline" className="border-white/20 text-white"
           onClick={() => setShowTrial(v => !v)}>
