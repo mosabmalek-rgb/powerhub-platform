@@ -85,4 +85,58 @@ SELECT operation,count(*) request_count,
  round(percentile_cont(.99) WITHIN GROUP(ORDER BY elapsed_ms)::numeric,2) sample_p99_ms,
  max(elapsed_ms) maximum_ms,count(*) FILTER(WHERE replayed) replay_count
 FROM public.b5_measurements GROUP BY operation ORDER BY operation;
+
+-- Post-load fault injection on the disposable database: no forged idempotency,
+-- overdraft or cross-site write may add even one business or audit entry.
+DO $b5_negative$
+DECLARE t_before bigint; o_before bigint; a_before bigint;
+BEGIN
+ IF current_database()<>'powerhub_b5_synthetic_load_test'
+ THEN RAISE EXCEPTION 'B5_NEGATIVE_TEST_WRONG_DATABASE'; END IF;
+ SELECT count(*) INTO t_before FROM public.account_transactions WHERE tenant_id=1;
+ SELECT count(*) INTO o_before FROM public.company_account_movement_operations WHERE tenant_id=1;
+ SELECT count(*) INTO a_before FROM public.audit_logs WHERE tenant_id=1;
+
+ BEGIN
+  PERFORM public.powerhub_add_account_movement_idempotent(
+   1,10,7,100,'deposit',2.00,'B5 fixture worker 2 operation 10',
+   'B5-SYN-2-10',md5('B5-single-branch-synthetic:2:10')::uuid);
+  RAISE EXCEPTION 'B5_FORGED_IDEMPOTENCY_PAYLOAD_ACCEPTED' USING ERRCODE='22023';
+ EXCEPTION WHEN SQLSTATE 'P0001' THEN
+  IF SQLERRM<>'IDEMPOTENCY_KEY_REUSED' THEN RAISE; END IF;
+ END;
+
+ BEGIN
+  PERFORM public.powerhub_add_account_movement_idempotent(
+   1,10,7,100,'withdrawal',99999999.99,'B5 synthetic overdraft','B5-NEG-OVERDRAW',
+   'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'::uuid);
+  RAISE EXCEPTION 'B5_OVERDRAFT_ACCEPTED' USING ERRCODE='22023';
+ EXCEPTION WHEN SQLSTATE 'P0001' THEN
+  IF SQLERRM<>'INSUFFICIENT_ACCOUNT_BALANCE' THEN RAISE; END IF;
+ END;
+
+ BEGIN
+  PERFORM public.powerhub_add_account_movement_idempotent(
+   2,10,7,100,'deposit',1.00,'B5 cross tenant injection','B5-NEG-TENANT',
+   'dddddddd-dddd-4ddd-8ddd-dddddddddddd'::uuid);
+  RAISE EXCEPTION 'B5_CROSS_TENANT_ACCEPTED' USING ERRCODE='22023';
+ EXCEPTION WHEN SQLSTATE 'P0001' THEN
+  IF SQLERRM<>'SITE_OUT_OF_SCOPE' THEN RAISE; END IF;
+ END;
+
+ IF (SELECT count(*) FROM public.account_transactions WHERE tenant_id=1)<>t_before
+ OR (SELECT count(*) FROM public.company_account_movement_operations WHERE tenant_id=1)<>o_before
+ OR (SELECT count(*) FROM public.audit_logs WHERE tenant_id=1)<>a_before
+ THEN RAISE EXCEPTION 'B5_NEGATIVE_FAULT_INJECTION_LEFT_FINANCIAL_SIDE_EFFECTS'; END IF;
+
+ IF has_function_privilege('anon',
+    'public.powerhub_add_account_movement_idempotent(bigint,bigint,bigint,bigint,text,numeric,text,text,uuid)',
+    'EXECUTE')
+ OR has_function_privilege('authenticated',
+    'public.powerhub_add_account_movement_idempotent(bigint,bigint,bigint,bigint,text,numeric,text,text,uuid)',
+    'EXECUTE')
+ THEN RAISE EXCEPTION 'B5_BROWSER_CAN_INVOKE_PRIVILEGED_FINANCIAL_RPC'; END IF;
+END $b5_negative$;
+SELECT 'B5_SYNTHETIC_FAULT_INJECTION_REPLAY_OVERDRAFT_TENANT_ACL_PASS' AS result;
+
 SELECT 'B5_SYNTHETIC_SINGLE_SITE_1000_REQUESTS_999_FIRST_TIME_1_REPLAY_4_BACKENDS_PASS' AS result;
