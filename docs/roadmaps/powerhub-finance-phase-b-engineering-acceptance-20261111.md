@@ -74,6 +74,19 @@
 
 ---
 
+## 2026-11-12 — B3.4 correction based on the production transfer RPC
+
+- All four CI gates were GREEN on the preceding head `9bdf8e1071dc29121f6ce93c5de0696be818fb14`; the associated Vercel Preview was READY. These older results **do not** certify the new head.
+- Discovered a false-negative risk in B3.3: the rollup's source pair predicate expected `withdrawal` + `collection`, while the actual `powerhub_transfer_company_accounts_idempotent` RPC creates `transfer_out` + `transfer_in`. Changed the source comparator to the actual operation types, without relaxing matching of tenant, site, account, amount, and counterpart.
+- Applied and registered Staging migration `20261112091332_powerhub_financial_b3_transfer_type_alignment.sql` and committed the exact SQL to PR #359. No Production changes.
+- Directly called the **real transfer RPC** in a Staging `BEGIN/ROLLBACK` transaction for an intra-site 20 ILS transfer: paired movements were recognized without mismatches, `NOT_CERTIFIED` remained, and GL count was unchanged. Result: `B3_4_REAL_RPC_TRANSFER_TYPES_PASS_ROLLBACK`.
+- Corrected the prior synthetic cross-site fixture to use `transfer_out/in` and confirmed `B3_3_POSITIVE_CROSS_SITE_SOURCE_BLOCKED_PASS_ROLLBACK`. The invalid-pair regression `B3_3_INVALID_TRANSFER_PAIR_PASS_ROLLBACK` also passed.
+- Re-ran B5 on Staging after these corrections: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. Tests were added to the contract suite.
+- **Still not final:** no approved standalone inter-site GL elimination entries; opening #19 on the isolated second site has no independently verified document and continues to block acceptance; representative load under concurrent users not proven. User confirmed browser checking, but distinct authenticated checker session is not independently evidenced.
+- PR #359 remains Draft/unmerged. New SHA needs full CI and Preview checks before acceptance.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
