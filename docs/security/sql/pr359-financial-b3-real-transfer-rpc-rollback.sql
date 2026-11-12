@@ -12,6 +12,9 @@ BEGIN
  IF op.from_transaction_id IS NULL OR op.to_transaction_id IS NULL OR op.replayed
  THEN RAISE EXCEPTION 'B3_4_RPC_NO_PAIR'; END IF;
  s:=public.powerhub_financial_gl_tenant_rollup(1,'2026-11');
+ -- The B3.9 audit must not count this same-site transfer as a consolidation candidate.
+ IF (public.powerhub_financial_gl_inter_site_posting_audit(1,'2026-11')->>'sourceCount')::bigint<>0
+ THEN RAISE EXCEPTION 'B39_INTRA_SITE_MISCLASSIFIED'; END IF;
  IF (s->>'companyTransferSourceOperationCount')::bigint<>1
  OR (s->>'invalidOperationalTransferPairCount')::bigint<>0
  OR (s->>'crossSiteOperationalTransferCount')::bigint<>0
