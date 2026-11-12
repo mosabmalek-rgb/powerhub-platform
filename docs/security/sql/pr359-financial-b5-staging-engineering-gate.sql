@@ -60,6 +60,11 @@ BEGIN
      OR (roll->'readiness'->>'warehouseTransfersPaired')::boolean IS DISTINCT FROM true
      OR roll->>'warehouseTransferClassification'<>'INTRA_SITE_STOCK_TRANSFER_NOT_GL_ELIMINATION'
      OR (roll->>'interSiteTransferCandidateCount')::bigint<>0
+     OR (roll->>'companyTransferSourceOperationCount')::bigint<>0
+     OR (roll->>'crossSiteOperationalTransferCount')::bigint<>0
+     OR (roll->>'invalidOperationalTransferPairCount')::bigint<>0
+     OR roll->>'interSiteSourceEvidenceStatus'<>'NO_CROSS_SITE_SOURCE_OBSERVED_NOT_CERTIFIED'
+     OR (roll->'readiness'->>'interSiteSourcePairIntegrity')::boolean IS DISTINCT FROM true
      OR roll->>'interSiteTransferEliminationStatus'<>'NOT_INDEPENDENTLY_RECONCILED'
      OR (roll->'readiness'->>'canBeCertifiedConsolidation')::boolean IS DISTINCT FROM false
      OR (roll->'positionBeforeEliminations'->>'equationDifference')::numeric<>0
