@@ -5011,6 +5011,61 @@ export const powerhubRouter = router({
     }),
     // A3: on-demand, server-aggregated source coverage; never a certified P&L.
     // A3: explicit, source-derived posting. No automatic historical backfill.
+    // B4.11 read-only source-first reversal and correction readiness.
+    // The browser cannot generate a generic correction journal.
+    financialGLCorrectionReadiness: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      beforeEntryId:z.number().int().positive().optional(),
+      limit:z.number().int().min(1).max(50).default(25),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_gl_correction_readiness",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,
+          p_period:input.period,p_limit:input.limit,
+          p_before_entry_id:input.beforeEntryId??null,
+        });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر التحقق من حالة تصحيح القيود؛ لم تُعرض نتائج غير موثقة."});
+      const result=data as Record<string,unknown>;
+      if(result.tenantId!==access.tenantId||result.siteId!==input.siteId
+        ||result.period!==input.period||result.glOnlyReversalAllowed!==false
+        ||result.isFinalFinancialAcceptance!==false
+        ||result.accountingCertification!=="NOT_CERTIFIED"
+        ||!Array.isArray(result.items)||result.items.length>input.limit
+        ||Number(result.returnedCount)!==result.items.length
+        ||typeof result.hasMore!=="boolean"
+        ||(result.hasMore===true &&
+           (!Number.isSafeInteger(Number(result.nextBeforeEntryId)) ||
+            Number(result.nextBeforeEntryId)<=0))
+        ||result.items.some(item=>{
+          if(!item||typeof item!=="object"||Array.isArray(item))return true;
+          const v=item as Record<string,unknown>;
+          return !Number.isSafeInteger(Number(v.entryId))
+            ||Number(v.entryId)<=0||v.period!==input.period
+            ||v.canReverseGLDirectly!==false
+            ||v.accountingCertification!=="NOT_CERTIFIED"
+            ||typeof v.status!=="string";
+        }))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تقرير التصحيح غير متسق مع دفتر الأستاذ أو الصلاحيات."});
+      return result as {
+        tenantId:number;siteId:number;period:string;
+        returnedCount:number;hasMore:boolean;nextBeforeEntryId:number|null;
+        glOnlyReversalAllowed:false;isFinalFinancialAcceptance:false;
+        accountingCertification:"NOT_CERTIFIED";
+        items:Array<{
+          entryId:number;period:string;sourceType:string;sourceId:string;
+          reversesEntryId:number|null;existingReversalEntryId:number|null;
+          status:string;reasonCode:string;canReverseGLDirectly:false;
+          canPrepareAccrualSourceReversal:boolean;
+          accountingCertification:"NOT_CERTIFIED";
+        }>;
+      };
+    }),
     // B4.9: site-filtered transfer source discovery for safe, user-initiated GL posting.
     financialGLCashTransferCandidates: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
