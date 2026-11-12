@@ -54,6 +54,7 @@ INSERT INTO public.company_account_sites VALUES(1,100,10),(1,200,10);
 
 CREATE TABLE public.b5_measurements(
  worker_id integer NOT NULL CHECK(worker_id BETWEEN 1 AND 4),
+ backend_pid integer NOT NULL,
  iteration integer NOT NULL CHECK(iteration BETWEEN 1 AND 25),
  operation text NOT NULL CHECK(operation IN('deposit','withdrawal','transfer')),
  replayed boolean NOT NULL,
