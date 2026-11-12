@@ -107,7 +107,7 @@ describe("ملف مستخدم Supabase", () => {
     state.upsert.mockReturnValue({ select: () => ({ single: async () => ({ data: profile, error: null }) }) });
     state.rpc.mockReset().mockResolvedValue({ data: null, error: { code: "PGRST202", message: "Could not find the public.powerhub_accept_pending_platform_invitation() function in the schema cache" } });
 
-    await expect(syncSupabaseProfile({ id: "auth-user-42", email: "USER@example.com", name: "User" })).resolves.toMatchObject({
+    await expect(syncSupabaseProfile({ id: "auth-user-42", email: "USER@example.com", name: "User" }, { bootstrap: true })).resolves.toMatchObject({
       id: 42,
       openId: "auth-user-42",
       accountStatus: "active",
@@ -134,7 +134,7 @@ describe("ملف مستخدم Supabase", () => {
     state.upsert.mockReturnValue({ select: () => ({ single: async () => ({ data: profile, error: null }) }) });
     state.rpc.mockResolvedValue({ data: null, error: { code: "42883", message: "function does not exist" } });
 
-    await expect(syncSupabaseProfile({ id: "auth-user-43", email: "user43@example.com", name: "User" })).resolves.toMatchObject({ id: 43 });
+    await expect(syncSupabaseProfile({ id: "auth-user-43", email: "user43@example.com", name: "User" }, { bootstrap: true })).resolves.toMatchObject({ id: 43 });
   });
 
   it("still surfaces invitation RPC failures other than missing-function compatibility gaps", async () => {
@@ -156,6 +156,6 @@ describe("ملف مستخدم Supabase", () => {
     state.upsert.mockReturnValue({ select: () => ({ single: async () => ({ data: profile, error: null }) }) });
     state.rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "permission denied" } });
 
-    await expect(syncSupabaseProfile({ id: "auth-user-44", email: "user44@example.com", name: "User" })).rejects.toThrow("permission denied");
+    await expect(syncSupabaseProfile({ id: "auth-user-44", email: "user44@example.com", name: "User" }, { bootstrap: true })).rejects.toThrow("permission denied");
   });
 });
