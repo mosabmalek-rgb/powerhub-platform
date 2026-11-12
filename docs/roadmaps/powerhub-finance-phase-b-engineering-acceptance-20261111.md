@@ -28,6 +28,16 @@
 
 ---
 
+## 2026-11-12 — B4.6 prohibited evidence + B2/B4 stale-state isolation
+
+- The previously green head `e13d38b8db1a0eb2ff80b87d52057e3448efb220` had four successful CI gates and a matching READY Preview.
+- Finance UI: `FinancialOpeningEvidenceWorkspace` is now keyed by site ID so selected files, document details and temporary review state cannot carry over to a different site. Both opening evidence actions and B2 policy details now fail closed while site/period query data is inactive, loading, refetching or errored. Static contract assertions guard these behaviors. A true logged-in multi-user browser exercise is still outstanding.
+- **B4.6 Staging negative acceptance:** posted test opening `19` at site `9000000000099` remains marked `NOT-CERTIFIED`; the database guard correctly rejects any attempt to submit nominal "evidence" to a synthetic/unverified opening (`GL_OPENING_EVIDENCE_SOURCE_OR_SCOPE_INVALID`). The test verifies no custody, no evidence rows, no GL change, `BLOCKED_RECONCILIATION` and no independent attestation. Executed `B4_6_MARKED_OPENING_FAIL_CLOSED_PASS_ROLLBACK`, in `BEGIN/ROLLBACK`, and stored `docs/security/sql/pr359-financial-b4-marked-opening-fail-closed-rollback.sql`.
+- An earlier attempt to submit synthetic paper-like evidence was **rejected by the intended PostgreSQL guard**; the proper solution was to assert that rejection, not disable the guard or manufacture approval. This is a financial integrity pass, not completed site opening reconciliation.
+- Pending: repeat CI on latest SHA, confirm matching Preview; actual browser authentication and reviewer workflows; independent inter-site GL eliminations; unresolved test opening; sustained performance E2E. PR #359 remains Draft, no Production changes.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
