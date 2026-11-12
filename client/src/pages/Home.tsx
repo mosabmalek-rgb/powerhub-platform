@@ -185,7 +185,17 @@ export function WorkspaceHome() {
     await Promise.all(quotaQueries.filter(({ query }) => query.isError).map(({ query }) => query.refetch()));
   };
 
-  const canUseAllBranches = Boolean(allBranchAccessQuery.data?.isGlobal && (accessibleSiteSnapshot?.length ?? 0) > 1);
+  const multiBranchAccess=trpc.powerhub.sites.multiBranchAccess.useQuery({siteId:siteId??0},{
+    enabled:Boolean(isAuthenticated && siteId && !dashboardScopeDenied &&
+      !user?.mustChangePassword && user?.role!=="admin"),
+    staleTime:60_000,refetchOnReconnect:true,refetchOnWindowFocus:false,
+  });
+  const multiBranchEnabled=multiBranchAccess.isSuccess &&
+    multiBranchAccess.data?.enabled===true &&
+    multiBranchAccess.data?.siteId===siteId &&
+    (multiBranchAccess.data?.activeSiteCount??0)>1;
+  const canUseAllBranches = Boolean(multiBranchEnabled &&
+    allBranchAccessQuery.data?.isGlobal && (accessibleSiteSnapshot?.length ?? 0) > 1);
   const selectedScope = scope === "all" && canUseAllBranches ? "all" : "branch";
   const dashboardPeriod = useDashboardKpiPeriod(siteId);
   const allBranchesSummaryQuery = trpc.powerhub.dashboard.allBranchesSummary.useQuery({ siteId: siteId ?? 0 }, { enabled: Boolean(isAuthenticated && siteId && selectedScope === "all" && !dashboardScopeDenied && !user?.mustChangePassword), staleTime: 30_000 });
@@ -569,7 +579,7 @@ export function WorkspaceHome() {
   return <DashboardLayout><div className="space-y-6 pb-12">
     <header className="flex flex-col gap-5 rounded-[24px] border border-white/8 bg-[#111823]/75 p-5 shadow-panel backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-6">
       <div className="flex items-start gap-4"><div className="mt-0.5 lg:hidden"><PowerHubLogo compact /></div><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Zap className="h-4 w-4 fill-current" />مركز الأداء المالي</div><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">الفوترة والتحصيل تحت السيطرة</h1><p className="mt-2 text-sm text-slate-400">تابع المستحقات والتحصيل والمتأخرات وحالة الفروع من شاشة واحدة.</p></div></div>
-      <div className="flex flex-wrap items-center gap-2">{isAuthenticated && accessibleSiteSnapshot?.length ? <select aria-label="اختيار الفرع أو الملخص المجمع" value={selectedScope === "all" ? "all" : String(siteId ?? "")} onChange={(event) => { const value = event.target.value; if (value === "all") setScope("all"); else { setScope("branch"); setSiteId(Number(value)); } }} className="h-10 max-w-56 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{canUseAllBranches && <option className="bg-[#111823]" value="all">جميع الأفرع (ملخص مجمّع)</option>}{accessibleSiteSnapshot.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <span className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300"><CalendarDays className="ml-2 h-4 w-4" />اليوم</span>}<Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-200 hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={() => setLocation("/quick-actions")}><Zap className="ml-2 h-4 w-4" />الإجراءات السريعة</Button></div>
+      <div className="flex flex-wrap items-center gap-2">{isAuthenticated && multiBranchEnabled && (accessibleSiteSnapshot?.length ?? 0)>1 ? <select aria-label="اختيار الفرع أو الملخص المجمع" value={selectedScope === "all" ? "all" : String(siteId ?? "")} onChange={(event) => { const value = event.target.value; if (value === "all") setScope("all"); else { setScope("branch"); setSiteId(Number(value)); } }} className="h-10 max-w-56 rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300 outline-none">{canUseAllBranches && <option className="bg-[#111823]" value="all">جميع الأفرع (ملخص مجمّع)</option>}{accessibleSiteSnapshot.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select> : <span className="inline-flex h-10 items-center rounded-xl border border-white/10 bg-white/[0.02] px-3 text-sm font-bold text-slate-300"><CalendarDays className="ml-2 h-4 w-4" />اليوم</span>}<Button variant="outline" className="border-white/10 bg-white/[0.02] text-slate-200 hover:border-[#F5B800]/40 hover:bg-[#F5B800]/10 hover:text-[#F5B800]" onClick={() => setLocation("/quick-actions")}><Zap className="ml-2 h-4 w-4" />الإجراءات السريعة</Button></div>
     </header>
 
 
