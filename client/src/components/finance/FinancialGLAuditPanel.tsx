@@ -132,6 +132,7 @@ export default function FinancialGLAuditPanel({
   const b3 = b3Visible ? object(rollup.data) : {};
   const b3Income = object(b3.incomeStatement);
   const b3Position = object(b3.positionBeforeEliminations);
+  const b3InterSiteProof = object(b3.interSiteGLProof);
   const [showB1, setShowB1] = useState(false);
   const statements = trpc.powerhub.reports.financialGLSiteStatements.useQuery({siteId,period},{
     enabled:enabled && showB1,staleTime:60_000,
@@ -510,6 +511,22 @@ export default function FinancialGLAuditPanel({
             : <p className="text-xs text-amber-200">لا توجد تحويلات بين فروع مثبتة في مصادر التشغيل الاختبارية الحالية؛ هذا لا يعني اعتماد التسويات.</p>}
           {numeric(b3.intraSiteWarehouseTransferMismatchCount)!==0
             ? <p role="alert" className="text-rose-200">توجد تحويلات مخزنية تحتاج تدقيقًا مستقلًا قبل أي اعتماد.</p> : null}
+          <div className="rounded-md border border-white/15 p-3 space-y-1" aria-label="تدقيق قيود التحويلات بين الفروع">
+            <p className="font-medium text-white">B3.9 — إثبات مستحق من/مستحق لفرع (معاينة استبعاد فقط)</p>
+            <p>عمليات المصدر: {numberText(b3InterSiteProof.sourceCount)}؛
+              زوجا القيد المتطابقان: {numberText(b3InterSiteProof.matchedPairCount)}؛
+              قيود معلقة: {numberText(b3InterSiteProof.pendingPairCount)}؛
+              أزواج غير صالحة: {numberText(b3InterSiteProof.invalidPairCount)}؛
+              قيود يتيمة: {numberText(b3InterSiteProof.orphanGLEntryCount)}.</p>
+            <p>مستحق من فرع مطابق: {b1Amount(b3InterSiteProof.matchedDueFrom)} شيكل؛
+              مستحق لفرع مطابق: {b1Amount(b3InterSiteProof.matchedDueTo)} شيكل.</p>
+            <p>تخفيض الأصول في الاستبعاد التجريبي: {b1Amount(b3InterSiteProof.eliminationPreviewAssetReduction)}؛
+              تخفيض الالتزامات: {b1Amount(b3InterSiteProof.eliminationPreviewLiabilityReduction)}.</p>
+            {b3InterSiteProof.status==="BLOCKED_INTEGRITY"
+              || b3InterSiteProof.status==="SOURCE_AWAITS_DUAL_SITE_GL"
+              ? <p role="alert" className="text-rose-200">توجد مصادر أو قيود لم تكتمل مطابقتها؛ لا يمكن اعتماد التجميع.</p>
+              : <p className="text-amber-200">تطابق القيود لا يغني عن قيد استبعاد مستقل ومراجعة الضرائب والاعتماد المالي النهائي.</p>}
+          </div>
           <p className="text-xs text-amber-200">التحويلات بين الفروع والحسابات المشتركة لم تُطابق مستقلاً. التوزيع المركزي والضرائب والاعتماد النهائي غير مكتمل.</p>
         </div> : null}
       </div>
