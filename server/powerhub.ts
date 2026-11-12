@@ -5050,6 +5050,78 @@ export const powerhubRouter = router({
         }>;
       };
     }),
+    // B3.8 cross-site source posting: authenticated reviewer with capabilities
+    // at BOTH sites, never the original maker. This does not post eliminations.
+    financialGLPostInterSiteTransfer: protectedProcedure.input(z.object({
+      fromSiteId:z.number().int().positive(),
+      sourceId:z.number().int().positive(),
+      confirmSourceReview:z.literal(true),
+    })).mutation(async ({ctx,input})=>{
+      const origin=await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      const {data:source,error:sourceError}=await supabaseAdmin()
+        .from("account_transactions").select("site_id,tenant_id")
+        .eq("tenant_id",origin.tenantId).eq("id",input.sourceId)
+        .eq("site_id",input.fromSiteId).eq("transaction_type","transfer_out").maybeSingle();
+      if(sourceError||!source)
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"مصدر التحويل غير موجود أو لا يتبع الفرع المحدد."});
+      const {data:op,error:opError}=await supabaseAdmin()
+        .from("company_account_movement_operations")
+        .select("created_by_user_id,counterpart_transaction_id")
+        .eq("tenant_id",origin.tenantId).eq("site_id",input.fromSiteId)
+        .eq("operation_type","transfer").eq("primary_transaction_id",input.sourceId)
+        .maybeSingle();
+      if(opError||!op||!Number.isSafeInteger(Number(op.counterpart_transaction_id)))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"لم يتم العثور على طرفي التحويل الأصليين."});
+      if(Number(op.created_by_user_id)===ctx.user.id)
+        throw new TRPCError({code:"FORBIDDEN",
+          message:"لا يستطيع مُنشئ التحويل ترحيله بنفسه إلى الأستاذ."});
+      const {data:counterpart,error:counterpartError}=await supabaseAdmin()
+        .from("account_transactions").select("site_id,tenant_id")
+        .eq("tenant_id",origin.tenantId)
+        .eq("id",op.counterpart_transaction_id)
+        .eq("transaction_type","transfer_in").maybeSingle();
+      const toSiteId=Number(counterpart?.site_id);
+      if(counterpartError||!Number.isSafeInteger(toSiteId)||toSiteId<=0
+         ||toSiteId===input.fromSiteId)
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"لم تتأكد هوية الفرع المستفيد."});
+      const recipient=await requireSupabaseSiteRole(ctx.user.id,toSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,toSiteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      if(recipient.tenantId!==origin.tenantId)
+        throw new TRPCError({code:"FORBIDDEN",
+          message:"لا يمكن ترحيل تحويل بين اشتراكين مختلفين."});
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_gl_post_inter_site_source",{
+          p_tenant_id:origin.tenantId,p_from_site_id:input.fromSiteId,
+          p_source_id:input.sourceId,p_checker_id:ctx.user.id,
+        });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"رُفض الترحيل؛ تحقق من المصدر، الصلاحيات، ربط الحسابات، والفترة المالية."});
+      const value=data as Record<string,unknown>;
+      if(value.accountingCertification!=="NOT_CERTIFIED" ||
+        value.consolidationEliminationPosted!==false ||
+        !Number.isSafeInteger(Number(value.fromEntryId)) ||
+        !Number.isSafeInteger(Number(value.toEntryId)) ||
+        Number(value.fromEntryId)<=0 || Number(value.toEntryId)<=0 ||
+        Number(value.sourceId)!==input.sourceId ||
+        Number(value.counterpartId)!==Number(op.counterpart_transaction_id) ||
+        (value.alreadyPosted!==true&&value.alreadyPosted!==false))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم تكتمل مطابقة طرفي قيد التحويل؛ لا يمكن إعلان نجاح جزئي."});
+      return value as {
+        fromEntryId:number;toEntryId:number;sourceId:number;counterpartId:number;
+        amount:number;period:string;alreadyPosted:boolean;
+        accountingCertification:"NOT_CERTIFIED";consolidationEliminationPosted:false;
+      };
+    }),
     financialGLPostSource: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       sourceType:z.enum(["invoice","payment","expense","stock_movement",
