@@ -669,3 +669,28 @@ Phase B continues to require B4.14+ original-GL-linked and independently approve
 - Verified unchanged Staging tenant-1 baseline afterward: `25` GL entries, `51` GL lines, `0` permanent supplier corrections, `0` B2 central policies, `0` B3 elimination records; B4.16 stored SQL MD5 remains `3b542841326a7bfa1ab2d37ed73f11e2`. Cash audit remains `LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED`. No financial certification was generated.
 - Sandbox was stopped after the test; no further preview deployment, merge, Production action, external SMS, or real money movement was performed.
 - **Outstanding B5 engineering performance gate:** an explicitly scoped, non-production, authenticated financial HTTP workload with representative data and network-inclusive p50/p95/p99; its absence must be recorded as `NOT_EXECUTED`, not as PASS. The two-user manual Preview test remains `WAIVED_BY_OWNER`. Accounting approval remains `NOT_CERTIFIED`.
+
+
+---
+## 2026-11-12 — B5 measured performance tail: full Phase B engineering acceptance remains OPEN
+
+**Scope:** The owner waived only the two-independent-account Preview manual test; no waiver for B5 actual financial HTTP latency or safety controls was requested.
+
+- Verified prior head 2bcc5aadbedad35680bd297e44b938b8e11ff1a9 with five successful same-SHA workflows: PowerHub CI 43294005284, PostgreSQL Integration 43294005292, Security 43294005004, Admin Guard 43294005139, B5 Synthetic Financial Load 43294005042.
+- Re-executed staging-safe SQL gates: B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED and B416_ATOMIC_SOURCE_CORRECTION_NEGATIVE_REPLAY_PASS_ROLLBACK; both passed, with no retained synthetic correction.
+- Staging baseline before the diagnostics: 25 GL entries / 51 lines for tenant 1, zero supplier corrections / B2 policies / B3 eliminations, B4.16 migration SQL MD5 3b542841326a7bfa1ab2d37ed73f11e2.
+- Four concurrent, read-only PostgreSQL test sessions each executed eight company-movement audit calls inside BEGIN/ROLLBACK. Each required status LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED and accountingCertification NOT_CERTIFIED.
+
+| Worker | Calls | p50 ms | observed p95 ms | observed p99 ms | max ms |
+|---|---:|---:|---:|---:|---:|
+| 1 | 8 | 370.08 | 3946.90 | 5443.19 | 5817.27 |
+| 2 | 8 | 364.10 | 1097.49 | 1405.04 | 1481.93 |
+| 3 | 8 | 365.44 | 445.38 | 468.56 | 474.35 |
+| 4 | 8 | 371.85 | 419.80 | 432.12 | 435.20 |
+
+- Small sample sizes do not establish stable p95/p99, and these are database-call times, **not** network-inclusive financial transaction HTTP times. Observed worst-case 5.817 seconds remains an explicit B5 slow-tail risk.
+- Read-only EXPLAIN ANALYZE: full company-movement audit about 648 ms / 42163 shared buffer hits; immutable staging fixture proof about 105 ms / 4304 hits; GL subledger reconciliation about 261 ms / 14911 hits; unlinked nonfixture movement count about 0.10 ms using account_transactions_nonfixture_opening_idx. These are individual plans, not proven bottleneck attribution under load.
+- Financial-source correctness and immutable benchmark cohort proof must never be bypassed for performance. Any query optimization must preserve identical full result fingerprints, reversals, scope controls, rollback-negative tests and migration discipline.
+- Prior Preview HTTP success (72/72 safe read/denied responses) proved health, public Supabase connectivity and unauthenticated financial endpoint refusal; it is not an authenticated finance mutation latency SLO.
+- **Disposition:** B1–B4 and B5 disposable SQL/concurrency correctness are supported at the tested engineering scope. B5 authenticated finance HTTP p50/p95/p99 remains NOT_EXECUTED; database audit long-tail variance is unresolved. Therefore entire Phase B remains ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED rather than CLOSED. Independent accounting review remains NOT_CERTIFIED.
+- PR #359 stays Draft/unmerged; no Production release, genuine SMS, real financial movement or synthetic human certification.
