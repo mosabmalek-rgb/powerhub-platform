@@ -95,7 +95,7 @@ BEGIN
    OR sl.entry_type<>'reversal' OR sl.supplier_id<>p.supplier_id
    OR sl.supplier_payment_id<>p.id OR sl.credit_amount<>p.amount OR sl.debit_amount<>0
    OR sl.entry_key IS DISTINCT FROM 'supplier-payment-reversal:'||p.id
-   OR refund.related_supplier_payment_id IS DISTINCT FROM p.id
+   OR refund.related_supplier_payment_id IS NOT NULL
    OR refund.account_id<>p.company_account_id
    OR refund.transaction_type<>'deposit' OR refund.amount<>p.amount
    OR refund.reference_no IS DISTINCT FROM 'REV-SUPPLIER-PAYMENT-'||p.id
@@ -240,10 +240,10 @@ BEGIN
  v_reference:='REV-SUPPLIER-PAYMENT-'||p.id;
  INSERT INTO public.account_transactions(
  tenant_id,site_id,account_id,transaction_type,amount,description,reference_no,
- related_supplier_payment_id,created_by_user_id,occurred_at)
+ created_by_user_id,occurred_at)
  VALUES(p_tenant_id,p_site_id,p.company_account_id,'deposit',p.amount,
  'تصحيح دفعة مورد معتمد #'||p.id||' — '||c.reason,
- v_reference,p.id,p_approver_id,clock_timestamp())
+ v_reference,p_approver_id,clock_timestamp())
  RETURNING id INTO v_refund;
  INSERT INTO public.supplier_ledger_entries(
  tenant_id,site_id,supplier_id,entry_type,credit_amount,debit_amount,
@@ -613,7 +613,7 @@ BEGIN
        OR v_original_gl.source_id IS DISTINCT FROM v_origin_sl.id::text
        OR v_original_gl.source_fingerprint IS DISTINCT FROM corr.original_gl_fingerprint
        OR v_refund_tx.account_id<>sp.company_account_id
-       OR v_refund_tx.related_supplier_payment_id<>sp.id
+       OR v_refund_tx.related_supplier_payment_id IS NOT NULL
        OR v_refund_tx.transaction_type<>'deposit'
        OR v_refund_tx.amount<>sp.amount
        OR v_refund_tx.reference_no IS DISTINCT FROM 'REV-SUPPLIER-PAYMENT-'||sp.id
