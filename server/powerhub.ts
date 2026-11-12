@@ -5050,6 +5050,59 @@ export const powerhubRouter = router({
         }>;
       };
     }),
+    // B3.10: source creation only; GL posting requires an independent checker.
+    financialGLCreateInterSiteTransfer: protectedProcedure.input(z.object({
+      fromSiteId:z.number().int().positive(),
+      toSiteId:z.number().int().positive(),
+      fromAccountId:z.number().int().positive(),
+      toAccountId:z.number().int().positive(),
+      amount:z.number().finite().positive().max(100_000_000)
+        .refine(x=>Math.round(x*100)/100===x,"حد أقصى منزلتان عشريتان"),
+      description:z.string().trim().min(2).max(255),
+      operationKey:z.string().uuid(),
+      confirmTransfer:z.literal(true),
+    })).mutation(async ({ctx,input})=>{
+      if(input.fromSiteId===input.toSiteId ||
+        input.fromAccountId===input.toAccountId)
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"يجب اختلاف الفرعين والحسابين لإجراء تحويل بين فرعين."});
+      const origin=await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,input.fromSiteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      const destination=await requireSupabaseSiteRole(ctx.user.id,input.toSiteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,input.toSiteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      if(origin.tenantId!==destination.tenantId)
+        throw new TRPCError({code:"FORBIDDEN",
+          message:"لا يمكن إجراء تحويل مالي بين اشتراكين مختلفين."});
+      await requireCompanyAccountSiteScope(origin,input.fromSiteId,[input.fromAccountId]);
+      await requireCompanyAccountSiteScope(destination,input.toSiteId,[input.toAccountId]);
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_transfer_company_accounts_inter_site_idempotent",{
+          p_tenant_id:origin.tenantId,
+          p_from_site_id:input.fromSiteId,p_to_site_id:input.toSiteId,
+          p_user_id:ctx.user.id,
+          p_from_account_id:input.fromAccountId,p_to_account_id:input.toAccountId,
+          p_amount:input.amount,p_description:input.description,
+          p_operation_key:input.operationKey,
+        });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"BAD_REQUEST",
+          message:"تعذر إنشاء مصدر التحويل بين الفرعين؛ تحقق من الرصيد وربط الحسابات وحالة الفترة."});
+      const v=data as Record<string,unknown>;
+      if(!Number.isSafeInteger(Number(v.sourceId)) ||
+         !Number.isSafeInteger(Number(v.counterpartId)) ||
+         Number(v.sourceId)<=0||Number(v.counterpartId)<=0||
+         v.fromSiteId!==input.fromSiteId||v.toSiteId!==input.toSiteId||
+         Number(v.amount)!==input.amount||
+         (v.alreadyCreated!==true&&v.alreadyCreated!==false))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم يتم التحقق من طرفَي التحويل، لا يمكن إعلان نجاح جزئي."});
+      return {...v,accountingCertification:"NOT_CERTIFIED" as const,
+        requiresIndependentGLReview:true as const} as Record<string,unknown>;
+    }),
     // B3.8 cross-site source posting: authenticated reviewer with capabilities
     // at BOTH sites, never the original maker. This does not post eliminations.
     financialGLPostInterSiteTransfer: protectedProcedure.input(z.object({
