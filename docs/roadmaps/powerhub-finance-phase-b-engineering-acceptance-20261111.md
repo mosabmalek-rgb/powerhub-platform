@@ -370,3 +370,41 @@ Keep this distinction visible in all dashboards and deployment notes.
 - Added `20261112180000_powerhub_financial_b4141_supplier_reversal_replay_guard.sql` on PR #359, moving the posted-GL refusal before either RPC's `reversed` / `posted` status branch. This blocks false-success replays for already-reversed or tampered records while leaving original GL unchanged. The migration was applied and registered by exact version on Staging.
 - Verified `B4141_TAMPERED_REPLAY_BLOCKED_PASS_ROLLBACK` by simulating an already-reversed supplier payment inside `BEGIN/ROLLBACK`; both direct and flexible RPCs return SQLSTATE 22023 instead of claiming replay success. Re-ran B4.14 guard and B5 engineering acceptance: `B414_SUPPLIER_GL_REVERSAL_REQUIRED_FAIL_CLOSED_PASS_ROLLBACK` and `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
 - This is **not** a completed correction mechanism for supplier payments. It is an explicit accounting integrity guard until source-backed, fully auditable and idempotent GL reversal is implemented and accepted. Independent B2/B3 browser acceptance and B5 sustained load tests also remain open. Production untouched and PR #359 still Draft.
+
+
+---
+
+## 2026-11-12 — B5 usage-weighted acceptance and single-site-first interface
+
+### Customer/transaction operating assumptions supplied by product owner
+
+- Approximately **90% of future customers operate a single active branch** (expected production usage, **not** an inference from Staging).
+- Approximately **99% of future financial activities** will be invoice collection, payment documentation approval, company account deposit/withdrawal, expenses, fuel and maintenance purchasing, payroll, and employee advances.
+- Approximately **99% of transactions are accepted on the first attempt and never adjusted**. Source-specific corrections are rare and require safe exception workflows; these assumptions **must not** bypass ACL, tenant/site isolation, idempotency, atomicity, source fingerprints, posting safeguards, or period locks.
+
+### Implemented
+
+- Added the tenant-scoped authenticated `reports.financialGLSiteScope` procedure, requiring `viewFinancialReports` for the selected site before it reads active site count. Query is restricted to the verified tenant, requires the selected site in its result, and fails closed for ambiguous/truncated results. A platform-wide site count must never be used as a tenant complexity signal.
+- Updated `FinancialGLAuditPanel` so central allocations, inter-site transfer workspace, and the B3 multi-site rollup remain unmounted/unfetched when a verified tenant has exactly one active site. They remain available for authorized multi-site tenants. If scope cannot be verified, cross-site UI is hidden but site-local B1/B4 auditing remains accessible.
+- Added `server/financial-single-site-fast-path.contract.test.ts` for scoped permission checks, conditional query enabling, and fail-closed UI.
+- No database changes or production migration needed for this route/UI update.
+
+### B5 short concurrent-read sample (direct Staging PostgreSQL, not browser p95)
+
+Ran **4 independent simultaneous SQL sessions**, each performing five runs of `powerhub_financial_gl_company_movement_audit(1,1,'2026-11')` and five runs of `powerhub_financial_gl_subledger_reconciliation(1,1,'2026-11')`, each session with read-only measurement data confined to a `ROLLBACK` transaction.
+
+| Worker | Cash audit p50 (ms) | Cash audit p95 est. (ms) | Cash audit maximum (ms) | Subledger p50 (ms) | Subledger max (ms) |
+|---|---:|---:|---:|---:|---:|
+| 1 | 275.05 | 5,147.48 | 6,356.651 | 177.41 | 254.567 |
+| 2 | 236.31 | 337.45 | 361.899 | 180.83 | 208.861 |
+| 3 | 228.70 | 324.98 | 348.946 | 174.82 | 194.576 |
+| 4 | 233.28 | 299.07 | 315.145 | 182.46 | 199.781 |
+
+Each of the four sessions saw exactly one response digest per procedure and `NOT_CERTIFIED`; no divergence was observed **within sessions**. The extreme cash-audit tail must remain investigated. Five runs per session are insufficient to claim a statistically representative p95/p99, and no full authenticated browser SLA or sustained load test has been proven. The existing 250,000-row immutable test cohort was not removed or quarantined further.
+
+### Still open
+
+- E2E browser scenario with a genuine single-site authenticated tenant plus dual-account multi-site maker/checker tests (B2/B3).
+- A supported, source-backed GL correction workflow for already-posted supplier payment reversals (B4.14/14.1 currently fail closed), and source-specific exceptional correction paths elsewhere.
+- Sustained authenticated and transactional p95/p99 workload representative of collection, payment approval, deposits/withdrawals, expenses, fuel, maintenance, payroll, advances and report reads, with an agreed performance budget.
+- All four GitHub CI checks and an exact-SHA READY Preview **on the latest head** before final closure. No Production changes and no automatic certification.
