@@ -5011,6 +5011,45 @@ export const powerhubRouter = router({
     }),
     // A3: on-demand, server-aggregated source coverage; never a certified P&L.
     // A3: explicit, source-derived posting. No automatic historical backfill.
+    // B4.9: site-filtered transfer source discovery for safe, user-initiated GL posting.
+    financialGLCashTransferCandidates: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      beforeSourceId:z.number().int().positive().optional(),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageExpenses");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_gl_cash_transfer_candidates",{
+          pt:access.tenantId,ps:input.siteId,pp:input.period,
+          p_before_source_id:input.beforeSourceId??null,
+        });
+      if(error || !data || typeof data!=="object" || Array.isArray(data))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر جلب تحويلات الحسابات من المصدر. لم تُعرض بيانات مخزنة غير متحقق منها."});
+      const result=data as Record<string,unknown>;
+      if(result.tenantId!==access.tenantId ||
+        result.siteId!==input.siteId || result.period!==input.period ||
+        result.accountingCertification!=="NOT_CERTIFIED" ||
+        !Array.isArray(result.items) || typeof result.hasMore!=="boolean"
+        || result.items.length>25 ||
+        result.items.some(item=>typeof item!=="object"||item===null||
+          !Number.isSafeInteger(Number((item as Record<string,unknown>).sourceId))))
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"فشل التحقق من نطاق أو اكتمال نتائج تحويلات الحسابات."});
+      return result as {
+        tenantId:number;siteId:number;period:string;accountingCertification:"NOT_CERTIFIED";
+        hasMore:boolean;nextBeforeSourceId:number|null;
+        items:Array<{
+          sourceId:number;amount:number;occurredAt:string;
+          sourceAccountId:number;destinationAccountId:number;
+          sourceAccountName:string;destinationAccountName:string;
+          glEntryId:number|null;status:"PENDING_GL"|"GL_ENTRY_PRESENT";
+        }>;
+      };
+    }),
     financialGLPostSource: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       sourceType:z.enum(["invoice","payment","expense","stock_movement",
