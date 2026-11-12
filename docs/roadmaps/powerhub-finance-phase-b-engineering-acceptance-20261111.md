@@ -1,5 +1,18 @@
 # PowerHub — Phase B engineering evidence / acceptance ledger
 
+## 2026-11-12 — B5.6 reference-prefix performance evidence
+
+- Confirmed PR #359 was Draft/unmerged with four successful CI workflows and a SHA-matched READY Vercel Preview at `1cf1359c5863191a53c7f877b1b65ea28938573e` **before** new performance commits.
+- Examined actual B1/B3 call graph: `powerhub_financial_gl_site_statements` obtains `powerhub_financial_gl_source_coverage`, which calls `powerhub_financial_gl_prior_operational_gaps`; both invoke immutable performance-cohort provenance guards. Measured main-site sequential/parallel variability; source-coverage path must never be bypassed merely for latency.
+- Pre-index PostgreSQL `EXPLAIN (ANALYZE,BUFFERS)` for the exact fixture reference-prefix count: **262.116 ms**, parallel sequential scan (~11,510 shared hit blocks). Applied and Git-committed generic `account_transactions_tenant_site_reference_prefix_idx` (tenant, site, reference number with `text_pattern_ops`, non-null references) as actual Staging migration `20261112132131_powerhub_financial_b56_company_account_reference_prefix_index.sql`.
+- Post-index first cold plan incurred **1,623.329 ms / 2,224 shared read blocks** while loading the new index. Subsequent warm `Index Only Scan` samples: **101.339 / 66.254 / 65.576 ms**, ~2,232 shared hits and ~131 heap fetches. These are *individual query samples*, not stable browser p95 or a claim of guaranteed speedup under concurrency.
+- Source-level checks after the index: fixture `verified=true`, exact 250,000 quarantined **synthetic performance records**, anchored SHA-256 unchanged, `humanReviewed=false`, `financialCertification=NOT_CERTIFIED`; prior-operational unclassified and unresolved counts **0**; 25 GL entries; position-before-eliminations assets **4,070.50**, liabilities **7,119.00**, equation difference **0**. The full fixture rows remain in the database.
+- Added and executed `B56_INDEXED_STAGING_SOURCE_GUARD_PASS_ROLLBACK`: verifies actual index validity, fixture provenance, prior accounting coverage, unmodified GL counts and non-certified rollup. Added CI contract protection for migration and SQL gate. No real Production mutations or business transactions.
+- Related, *not directly comparable* EXPLAIN samples of main-site source statement / prior gaps / rollup remain variable. The B5 production-like authenticated multi-user latency SLO and p95 are still **OPEN**. This is a scoped database optimization, not final B5 acceptance.
+
+---
+
+
 ## 2026-11-12 — B3.9.5 orphan elimination fail-closed + UI null discipline
 
 - Verified the previous `62851e9ac0d3e7629aea2f66659d7ef96b3dd253` PR head completed **4/4 GitHub CI**. No SHA-matched Vercel Preview was returned for that commit. This is historical CI evidence, **not** evidence for the newer commits below.
