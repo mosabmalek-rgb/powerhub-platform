@@ -118,6 +118,18 @@ const b35ForgedPayloadSql = readFileSync("docs/security/sql/pr359-financial-b35-
 const b34RealTransferSql = readFileSync(
   "docs/security/sql/pr359-financial-b3-real-transfer-rpc-rollback.sql","utf8",
 );
+const b38PostingSql = readFileSync(
+ "supabase/migrations/20261112115946_powerhub_financial_b38_source_paired_inter_site_double_entry.sql","utf8",
+);
+const b381ExtensionSql = readFileSync(
+ "supabase/migrations/20261112120316_powerhub_financial_b381_qualified_digest_in_inter_site_posting.sql","utf8",
+);
+const b38PositiveSql = readFileSync(
+ "docs/security/sql/pr359-financial-b38-cross-site-post-and-replay-rollback.sql","utf8",
+);
+const b38NegativeSql = readFileSync(
+ "docs/security/sql/pr359-financial-b38-negative-source-scope-rollback.sql","utf8",
+);
 const b37EliminationMathSql = readFileSync(
  "docs/security/sql/pr359-financial-b37-cross-site-elimination-math-rollback.sql","utf8",
 );
@@ -844,6 +856,22 @@ describe("Phase A financial acceptance evidence", () => {
     expect(b34RealTransferSql).toContain("ROLLBACK;");
     expect(b33PositiveSourceSql).toContain("'transfer_out',20");
     expect(b33PositiveSourceSql).toContain("'transfer_in',20");
+  });
+
+  it("enforces B3.8 source provenance, two-site reviewer and atomic paired GL entries", () => {
+    expect(b38PostingSql).toContain("powerhub_financial_gl_post_inter_site_source");
+    expect(b38PostingSql).toContain("GL_B38_SOURCE_PAIR_OR_FINGERPRINT_INVALID");
+    expect(b38PostingSql).toContain("GL_B38_SITE_ACCOUNT_MAPPING_AMBIGUOUS");
+    expect(b38PostingSql).toContain("GL_B38_PARTIAL_OR_TAMPERED_REPLAY");
+    expect(b38PostingSql).toContain("powerhub_financial_gl_authorized_actor");
+    expect(b381ExtensionSql).toContain("extensions.digest(");
+    expect(b381ExtensionSql).toContain("REVOKE ALL");
+    expect(b38PositiveSql).toContain("B38_POSITIVE_AND_REPLAY_PASS_ROLLBACK");
+    expect(b38NegativeSql).toContain("B38_NEGATIVE_SOURCE_SCOPE_AND_REPLAY_PASS_ROLLBACK");
+    expect(b38NegativeSql).toContain("B38_FORGED_SOURCE_ACCEPTED");
+    expect(b38NegativeSql).toContain("B38_WRONG_SITE_ACCOUNT_ACCEPTED");
+    expect(b38PositiveSql).toContain("ROLLBACK;");
+    expect(b38NegativeSql).toContain("ROLLBACK;");
   });
 
   it("proves B3.7 inter-site due-to/due-from journal arithmetic only under rollback", () => {
