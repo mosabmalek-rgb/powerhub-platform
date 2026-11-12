@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   sitesQuery: { data: [{ id: 1 }] as { id: number }[] | undefined, isLoading: false, isError: false, refetch: vi.fn() },
   featureAccessQuery: { data: { support_chat: true, powerhub_ai_assistant: true } as Record<string, boolean> | undefined, isLoading: false, isError: false, refetch: vi.fn() },
   sitesUseQuery: vi.fn(),
+  multiBranchUseQuery: vi.fn(),
+  multiBranchQuery: { data: {siteId:1,enabled:false}, isLoading:false, isFetching:false, isError:false },
   featureAccessUseQuery: vi.fn(),
 }));
 
@@ -24,7 +26,7 @@ vi.mock("wouter", () => ({ useLocation: () => ["/readings", state.setLocation] }
 vi.mock("@/hooks/useBranchFilter", () => ({ useBranchFilter: () => ({ branchId: state.branchId }) }));
 vi.mock("@/lib/trpc", () => ({
   trpc: { powerhub: {
-    sites: { list: { useQuery: (...args: unknown[]) => { state.sitesUseQuery(...args); return state.sitesQuery; } } },
+    sites: { list: { useQuery: (...args: unknown[]) => { state.sitesUseQuery(...args); return state.sitesQuery; } }, multiBranchAccess: { useQuery: (...args: unknown[]) => { state.multiBranchUseQuery(...args); return state.multiBranchQuery; } } },
     staff: { myFeatureAccess: { useQuery: (...args: unknown[]) => { state.featureAccessUseQuery(...args); return state.featureAccessQuery; } } },
   } },
 }));
@@ -34,7 +36,8 @@ afterEach(() => {
   state.user = null; state.isAuthenticated = false; state.loading = false; state.branchId = 1;
   state.sitesQuery = { data: [{ id: 1 }], isLoading: false, isError: false, refetch: vi.fn() };
   state.featureAccessQuery = { data: { support_chat: true, powerhub_ai_assistant: true }, isLoading: false, isError: false, refetch: vi.fn() };
-  state.setLocation.mockClear(); state.sitesUseQuery.mockClear(); state.featureAccessUseQuery.mockClear();
+  state.multiBranchQuery = { data: {siteId:1,enabled:false}, isLoading:false, isFetching:false, isError:false };
+  state.setLocation.mockClear(); state.sitesUseQuery.mockClear(); state.featureAccessUseQuery.mockClear(); state.multiBranchUseQuery.mockClear();
 });
 
 describe("RouteAccessGate", () => {
@@ -90,4 +93,36 @@ describe("RouteAccessGate", () => {
     expect(screen.queryByText("مركز الدردشة")).not.toBeInTheDocument();
     expect(screen.getByText("جارٍ التحقق من إتاحة الميزة…")).toBeInTheDocument();
   });
+  it("hides the multi-branch route whenever the subscription limit is one", () => {
+    state.user = { role: "user" }; state.isAuthenticated = true;
+    render(<RouteAccessGate multiBranchOnly><p>إدارة الأفرع</p></RouteAccessGate>);
+    expect(screen.queryByText("إدارة الأفرع")).not.toBeInTheDocument();
+    expect(screen.getByText("هذه الصفحة غير متاحة لهذا الاشتراك")).toBeInTheDocument();
+    expect(state.multiBranchUseQuery).toHaveBeenCalledWith({siteId:1},expect.objectContaining({enabled:true}));
+  });
+
+  it("never renders multi-branch content from an unknown or loading entitlement", () => {
+    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.multiBranchQuery = { data: {siteId:1,enabled:true}, isLoading:false, isFetching:true, isError:false };
+    const view = render(<RouteAccessGate multiBranchOnly><p>إدارة الأفرع</p></RouteAccessGate>);
+    expect(screen.queryByText("إدارة الأفرع")).not.toBeInTheDocument();
+    expect(screen.getByText("جارٍ التحقق من إتاحة الخدمة…")).toBeInTheDocument();
+    view.unmount();
+    state.multiBranchQuery = { data: {siteId:1,enabled:true}, isLoading:false, isFetching:false, isError:true };
+    render(<RouteAccessGate multiBranchOnly><p>إدارة الأفرع</p></RouteAccessGate>);
+    expect(screen.queryByText("إدارة الأفرع")).not.toBeInTheDocument();
+    expect(screen.getByText("هذه الصفحة غير متاحة لهذا الاشتراك")).toBeInTheDocument();
+  });
+
+  it("allows the multi-site workspace only for the selected site and positive entitlement", () => {
+    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.multiBranchQuery = { data: {siteId:1,enabled:true}, isLoading:false, isFetching:false, isError:false };
+    const v = render(<RouteAccessGate multiBranchOnly><p>إدارة الأفرع</p></RouteAccessGate>);
+    expect(screen.getByText("إدارة الأفرع")).toBeInTheDocument();
+    v.unmount();
+    state.multiBranchQuery = { data: {siteId:99,enabled:true}, isLoading:false, isFetching:false, isError:false };
+    render(<RouteAccessGate multiBranchOnly><p>إدارة الأفرع</p></RouteAccessGate>);
+    expect(screen.queryByText("إدارة الأفرع")).not.toBeInTheDocument();
+  });
+
 });
