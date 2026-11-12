@@ -7,6 +7,8 @@ on:
       - "supabase/tests/b5_disposable_single_site_load_*"
       - "scripts/b5-disposable-financial-load.sh"
       - "scripts/b5-disposable-payroll-load.sh"
+      - "scripts/b5-disposable-payroll-race.sh"
+      - "supabase/tests/b5_disposable_payroll_load_*"
       - ".github/workflows/b5-synthetic-financial-load.yml"
   pull_request:
     branches: [main]
@@ -14,6 +16,8 @@ on:
       - "supabase/tests/b5_disposable_single_site_load_*"
       - "scripts/b5-disposable-financial-load.sh"
       - "scripts/b5-disposable-payroll-load.sh"
+      - "scripts/b5-disposable-payroll-race.sh"
+      - "supabase/tests/b5_disposable_payroll_load_*"
       - ".github/workflows/b5-synthetic-financial-load.yml"
 permissions:
   contents: read
@@ -66,3 +70,7 @@ jobs:
         env:
           PGDATABASE: powerhub_b5_synthetic_payroll_test
         run: bash scripts/b5-disposable-payroll-load.sh
+      - name: Race distinct reviewers on the same payroll, verify one winner only
+        env:
+          PGDATABASE: powerhub_b5_synthetic_payroll_test
+        run: bash scripts/b5-disposable-payroll-race.sh
