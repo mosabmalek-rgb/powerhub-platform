@@ -213,6 +213,7 @@ DECLARE c public.financial_supplier_payment_corrections%ROWTYPE;
  ca public.company_accounts%ROWTYPE;
  v_info jsonb;v_post jsonb;v_refund bigint;v_sl bigint;v_current_period text;
  v_existing_count integer;v_reference text;v_platform_role text;
+ v_now timestamptz;
 BEGIN
  IF p_tenant_id<=0 OR p_site_id<=0 OR p_correction_id<=0 OR p_approver_id<=0
  THEN RAISE EXCEPTION 'B416_CORRECTION_APPROVAL_INVALID' USING ERRCODE='22023';END IF;
@@ -262,6 +263,9 @@ BEGIN
  AND tenant_id=p_tenant_id AND site_id=p_site_id;
  IF gl.period>v_current_period THEN
    RAISE EXCEPTION 'B416_CORRECTION_ORIGINAL_PERIOD_IN_FUTURE' USING ERRCODE='22023';END IF;
+ v_now:=clock_timestamp();
+ IF to_char(v_now AT TIME ZONE 'Asia/Gaza','YYYY-MM')<>v_current_period
+ THEN RAISE EXCEPTION 'B416_CORRECTION_PERIOD_CHANGED_WHILE_WAITING' USING ERRCODE='40001';END IF;
  v_reference:='REV-SUPPLIER-PAYMENT-'||p.id;
  IF EXISTS(SELECT 1 FROM public.account_transactions t
    WHERE t.tenant_id=p_tenant_id AND t.reference_no=v_reference
@@ -276,7 +280,7 @@ BEGIN
  created_by_user_id,occurred_at)
  VALUES(p_tenant_id,p_site_id,p.company_account_id,'deposit',p.amount,
  'تصحيح دفعة مورد معتمد #'||p.id||' — '||c.reason,
- v_reference,p_approver_id,clock_timestamp())
+ v_reference,p_approver_id,v_now)
  RETURNING id INTO v_refund;
  INSERT INTO public.supplier_ledger_entries(
  tenant_id,site_id,supplier_id,entry_type,credit_amount,debit_amount,
@@ -284,14 +288,14 @@ BEGIN
  occurred_at,created_by_user_id)
  VALUES(p_tenant_id,p_site_id,p.supplier_id,'reversal',p.amount,0,
   p.id,NULL,'supplier-payment-reversal:'||p.id,p.reference_no,
-  'تصحيح دفعة المورد #'||p.id||' — '||c.reason,clock_timestamp(),p_approver_id)
+  'تصحيح دفعة المورد #'||p.id||' — '||c.reason,v_now,p_approver_id)
  RETURNING id INTO v_sl;
  UPDATE public.supplier_payments
- SET status='reversed',reversed_at=clock_timestamp(),
-  reversed_by_user_id=p_approver_id,reversal_reason=c.reason,updated_at=clock_timestamp()
+ SET status='reversed',reversed_at=v_now,
+  reversed_by_user_id=p_approver_id,reversal_reason=c.reason,updated_at=v_now
  WHERE tenant_id=p_tenant_id AND site_id=p_site_id AND id=p.id;
  UPDATE public.financial_supplier_payment_corrections
- SET status='posting',approved_by_user_id=p_approver_id,approved_at=clock_timestamp(),
+ SET status='posting',approved_by_user_id=p_approver_id,approved_at=v_now,
  refund_transaction_id=v_refund,reversal_supplier_ledger_entry_id=v_sl
  WHERE id=c.id;
  -- The balance-preserving GL source is posted before the end of the SAME transaction.
