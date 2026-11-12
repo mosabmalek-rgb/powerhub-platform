@@ -941,13 +941,8 @@ BEGIN
  END IF;
  IF o.source_type='supplier_ledger' OR r.source_type='supplier_ledger' THEN
    IF o.source_type<>'supplier_ledger' OR r.source_type<>'supplier_ledger'
-     OR o.source_id !~ '^[0-9]+
-END;
-$function$
- OR r.source_id !~ '^[0-9]+
-END;
-$function$
-
+     OR o.source_id !~ '^[0-9]+$'
+     OR r.source_id !~ '^[0-9]+$'
      OR NOT EXISTS(SELECT 1 FROM public.supplier_ledger_entries sl
        WHERE sl.tenant_id=p_tenant_id AND sl.site_id=p_site_id
        AND sl.id::text=o.source_id AND sl.entry_type='payment')
