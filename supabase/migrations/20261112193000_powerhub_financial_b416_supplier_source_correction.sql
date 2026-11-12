@@ -148,6 +148,21 @@ BEGIN
  THEN RAISE EXCEPTION 'B416_CORRECTION_MAKER_FORBIDDEN' USING ERRCODE='42501';END IF;
  PERFORM pg_advisory_xact_lock(hashtextextended(
    'powerhub:supplier-correction:'||p_tenant_id||':'||p_site_id||':'||p_payment_id,0));
+ -- Posted requests replay only after the source-linked GL/cash reversal is proven.
+ -- The original preflight intentionally rejects already-reversed payment sources.
+ SELECT * INTO c FROM public.financial_supplier_payment_corrections
+ WHERE tenant_id=p_tenant_id AND site_id=p_site_id AND payment_id=p_payment_id
+ FOR UPDATE;
+ IF FOUND AND c.status='posted' THEN
+   IF c.requested_by_user_id<>p_user_id OR c.operation_key<>v_key
+      OR c.reason<>v_reason OR
+      public.powerhub_financial_supplier_payment_correction_proof(
+        p_tenant_id,p_site_id,p_payment_id)<>'SOURCE_BACKED_REVERSAL_VALID'
+   THEN RAISE EXCEPTION 'B416_CORRECTION_REQUEST_CONFLICT' USING ERRCODE='23505';END IF;
+   RETURN jsonb_build_object('correctionId',c.id,'status','posted',
+    'alreadyRequested',true,'alreadyPosted',true,
+    'accountingCertification','NOT_CERTIFIED');
+ END IF;
  v:=public.powerhub_financial_supplier_payment_correction_readiness(
    p_tenant_id,p_site_id,p_payment_id);
  IF v->>'status'<>'SOURCE_VERIFIED_WORKFLOW_NOT_IMPLEMENTED'
