@@ -23,6 +23,17 @@ function isStandalonePublicInvoiceLookup(req: CreateExpressContextOptions["req"]
   return candidates.some((candidate) => candidate.replace(/^\/+|\/+$/g, "") === "powerhub.invoices.publicByToken");
 }
 
+/**
+ * Only explicit authentication/bootstrap entry points may reconcile profile
+ * identity and pending invitations. Ordinary tRPC GETs must not write the
+ * profile or claim onboarding invitations on each page/report request.
+ */
+function isExplicitAuthBootstrap(req: CreateExpressContextOptions["req"]): boolean {
+  const pathname = req.originalUrl.split("?", 1)[0].replace(/^\/api\/trpc\/?/, "");
+  return [req.path, pathname].some((candidate) =>
+    /^(auth\.me|auth\.claimDevice)$/.test(candidate.replace(/^\/+|\/+$/g, "")));
+}
+
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
@@ -31,7 +42,7 @@ export async function createContext(
 
   if (!isStandalonePublicInvoiceLookup(opts.req)) {
     try {
-      user = await authenticateSupabaseRequest(opts.req);
+      user = await authenticateSupabaseRequest(opts.req, { bootstrap: isExplicitAuthBootstrap(opts.req) });
     } catch (error) {
       user = null;
       // Missing/invalid credentials remain unauthenticated. Network, configuration,
