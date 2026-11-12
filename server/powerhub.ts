@@ -214,6 +214,33 @@ export function resolveBranchPolicy(input: {
   };
 }
 
+
+async function requireMultiBranchStaffEntitlement(tenantId:number) {
+  const admin=supabaseAdmin();
+  const [subscription,platformSetting,tenantSetting]=await Promise.all([
+    admin.from("tenant_subscriptions").select("package_code").eq("tenant_id",tenantId).maybeSingle(),
+    admin.from("platform_settings").select("is_enabled,value").eq("setting_key","branch_feature").maybeSingle(),
+    admin.from("tenant_branch_settings").select("is_enabled_override,max_branches_override,disabled_behavior")
+      .eq("tenant_id",tenantId).maybeSingle(),
+  ]);
+  if(subscription.error || platformSetting.error || tenantSetting.error) {
+    throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+      message:"تعذر التحقق من إتاحة تعدد الفروع لهذا الاشتراك."});
+  }
+  const policy=resolveBranchPolicy({
+    plan:(subscription.data?.package_code??"basic") as SubscriptionPlan,
+    platformSetting:platformSetting.data?
+      {isEnabled:platformSetting.data.is_enabled,value:platformSetting.data.value}:null,
+    tenantSetting:tenantSetting.data?{
+      isEnabledOverride:tenantSetting.data.is_enabled_override,
+      maxBranchesOverride:tenantSetting.data.max_branches_override,
+      disabledBehavior:tenantSetting.data.disabled_behavior as "read_only"|"suspended",
+    }:null,
+  });
+  if(policy.isEnabled!==true || policy.maxBranches<=1)
+    throw new TRPCError({code:"FORBIDDEN",message:"هذا الاشتراك لا يتيح منح صلاحية جميع الفروع."});
+}
+
 export function reportDateRange(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00.000Z`);
   const endExclusive = new Date(`${endDate}T00:00:00.000Z`);
@@ -1798,6 +1825,7 @@ export const powerhubRouter = router({
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) }))
       .mutation(async ({ ctx, input }) => {
         const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+        if(input.allBranches) await requireMultiBranchStaffEntitlement(access.tenantId);
         const { error } = await supabaseAdmin().rpc("powerhub_assign_existing_staff", {
           p_tenant_id: access.tenantId, p_site_id: input.siteId, p_actor_user_id: ctx.user.id, p_target_user_id: input.userId,
           p_role: input.role, p_all_branches: input.allBranches,
@@ -1816,6 +1844,7 @@ export const powerhubRouter = router({
       }),
     create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), email: z.string().email(), name: z.string().trim().min(2).max(160), temporaryPassword: z.string().min(8).max(128), role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      if(input.allBranches) await requireMultiBranchStaffEntitlement(access.tenantId);
       const admin = supabaseAdmin();
       const email = input.email.trim().toLowerCase();
       const { data: existingUser } = await admin.from("users").select("id, auth_user_id, email").eq("email", email).maybeSingle();
