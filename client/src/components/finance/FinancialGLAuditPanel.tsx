@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw } from "lucide-react";
 import FinancialOpeningEvidenceWorkspace from "./FinancialOpeningEvidenceWorkspace";
 import FinancialCentralAllocationWorkspace from "./FinancialCentralAllocationWorkspace";
+import FinancialCashTransferPostingWorkspace from "./FinancialCashTransferPostingWorkspace";
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -469,6 +470,8 @@ export default function FinancialGLAuditPanel({
           <p className="text-xs text-amber-200">GL لا يميز كل محفظة على حدة؛ المطابقة تغطي الحركات المرتبطة بالمصادر ولا تغني عن أدلة الافتتاحية أو الاعتماد المالي المستقل.</p>
         </div> : null}
       </div>
+      <FinancialCashTransferPostingWorkspace key={`transfer:${siteId}:${period}`}
+        siteId={siteId} period={period} active={active} />
       <FinancialCentralAllocationWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
       <div className="mt-3 rounded-md border border-white/10 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
