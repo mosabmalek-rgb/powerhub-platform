@@ -69,6 +69,14 @@ export default function CompanyAccountsPage() {
   const { isOnline } = usePowerHubConnectivity();
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const siteId = sites.data?.[0]?.id ?? 0;
+  const multiBranchAccess=trpc.powerhub.sites.multiBranchAccess.useQuery({siteId},{
+    enabled:Boolean(siteId && isAuthenticated),staleTime:60_000,
+    refetchOnReconnect:true,refetchOnWindowFocus:false,
+  });
+  const multiBranchEnabled=multiBranchAccess.isSuccess &&
+    multiBranchAccess.data?.siteId===siteId &&
+    multiBranchAccess.data?.enabled===true &&
+    (multiBranchAccess.data?.activeSiteCount??0)>1;
   const [branchFilter, setBranchFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -261,7 +269,7 @@ export default function CompanyAccountsPage() {
   const submitCreate = () => {
     const value = Number(createOpeningBalance);
     if (!Number.isFinite(value) || value < 0) return toast.error("أدخل رصيداً افتتاحياً صحيحاً يساوي صفراً أو أكثر.");
-    create.mutate({ siteId, name: name.trim(), accountType: accountType as "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "other", phoneNumber: newPhone, openingBalance: value, siteIds: selectedSites.length ? selectedSites : [siteId] });
+    create.mutate({ siteId, name: name.trim(), accountType: accountType as "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "other", phoneNumber: newPhone, openingBalance: value, siteIds: multiBranchEnabled && selectedSites.length ? selectedSites : [siteId] });
   };
 
   const submitMovement = () => {
@@ -294,8 +302,8 @@ export default function CompanyAccountsPage() {
   };
 
   const exportCsv = () => {
-    const header = "الحساب,نوع الحساب,رقم الجوال,الفروع,الرصيد\n";
-    const body = filtered.map((row) => [row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "", row.linkedSites.map((site) => site.siteName).join(" | "), Number(row.balance).toFixed(2)].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+    const header = multiBranchEnabled ? "الحساب,نوع الحساب,رقم الجوال,الفروع,الرصيد\n" : "الحساب,نوع الحساب,رقم الجوال,الرصيد\n";
+    const body = filtered.map((row) => [row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "", ...(multiBranchEnabled ? [row.linkedSites.map((site) => site.siteName).join(" | ")] : []), Number(row.balance).toFixed(2)].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob(["\ufeff" + header + body], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -307,11 +315,11 @@ export default function CompanyAccountsPage() {
   const exportExcel = async () => {
     const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("حسابات الشركة", { views: [{ rightToLeft: true }] });
-    sheet.addRow(["الحساب", "نوع الحساب", "رقم الجوال", "الفروع", "الرصيد"]);
-    filtered.forEach((row) => sheet.addRow([row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "غير مرتبط", row.linkedSites.map((site) => site.siteName).join("، ") || "غير محدد", Number(row.balance)]));
+    sheet.addRow(["الحساب", "نوع الحساب", "رقم الجوال", ...(multiBranchEnabled ? ["الفروع"] : []), "الرصيد"]);
+    filtered.forEach((row) => sheet.addRow([row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "غير مرتبط", ...(multiBranchEnabled ? [row.linkedSites.map((site) => site.siteName).join("، ") || "غير محدد"] : []), Number(row.balance)]));
     sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
-    sheet.columns = [{ width: 24 }, { width: 20 }, { width: 20 }, { width: 35 }, { width: 16 }];
+    sheet.columns = [{ width: 24 }, { width: 20 }, { width: 20 }, ...(multiBranchEnabled ? [{width:35}] : []), { width: 16 }];
     const url = URL.createObjectURL(new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -321,7 +329,7 @@ export default function CompanyAccountsPage() {
     toast.success("تم تصدير كشف الحساب إلى Excel.");
   };
 
-  const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(labels[row.accountType]??row.accountType)}</td><td>${escapeHtml(row.phoneNumber??"—")}</td><td>${escapeHtml(row.linkedSites.map(site=>site.siteName).join("، ")||"—")}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
+  const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th>${multiBranchEnabled ? "<th>الفروع</th>" : ""}<th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(labels[row.accountType]??row.accountType)}</td><td>${escapeHtml(row.phoneNumber??"—")}</td>${multiBranchEnabled ? `<td>${escapeHtml(row.linkedSites.map(site=>site.siteName).join("، ")||"—")}</td>` : ""}<td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
 
   const fetchAllTransactionsForExport = async (maximumRows = 50_000) => {
     if (!selectedAccount || !movementRangeReady || !movementDatesValid) throw new Error("لا يمكن تصدير كشف الحركات قبل تحديد فترة صحيحة.");
@@ -517,14 +525,14 @@ tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
               <select value={accountType} onChange={(event) => setAccountType(event.target.value)} className="h-10 rounded-xl border border-white/10 bg-[#0D1117] px-3 text-sm text-white"><option value="cash">كاش</option><option value="jawwal_pay">جوال بي</option><option value="palpay">بال بي</option><option value="bank_of_palestine">بنك فلسطين</option><option value="other">حساب آخر</option></select>
               <Input dir="ltr" value={newPhone} onChange={(event) => setNewPhone(event.target.value)} placeholder="رقم الجوال المرتبط" className="border-white/10 bg-[#0D1117] text-white" />
               <label className="grid gap-1 text-xs text-slate-300"><span>الرصيد الافتتاحي (شيكل)</span><Input dir="ltr" type="number" min="0" step="0.01" value={createOpeningBalance} onChange={(event) => setCreateOpeningBalance(event.target.value)} className="border-white/10 bg-[#0D1117] text-white" /></label>
-              <div className="rounded-xl border border-white/10 p-3 md:col-span-2"><p className="mb-2 text-sm font-bold text-white">الفروع المرتبطة</p><div className="flex flex-wrap gap-2">{(sites.data ?? []).map((site) => <label key={site.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={selectedSites.includes(site.id)} onChange={(event) => setSelectedSites((current) => event.target.checked ? [...current, site.id] : current.filter((id) => id !== site.id))} />{site.name}</label>)}</div></div>
+              {multiBranchEnabled ? <div className="rounded-xl border border-white/10 p-3 md:col-span-2"><p className="mb-2 text-sm font-bold text-white">الفروع المرتبطة</p><div className="flex flex-wrap gap-2">{(sites.data ?? []).map((site) => <label key={site.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={selectedSites.includes(site.id)} onChange={(event) => setSelectedSites((current) => event.target.checked ? [...current, site.id] : current.filter((id) => id !== site.id))} />{site.name}</label>)}</div></div> : null}
               <Button disabled={create.isPending} onClick={submitCreate} className="bg-emerald-600 font-bold text-white md:col-span-2">{create.isPending ? "جارٍ الإنشاء…" : "حفظ الحساب ورصيده الافتتاحي"}</Button>
             </CardContent>
           </Card>
         )}
 
         <div className="flex flex-wrap items-end gap-3 print:hidden">
-          <select value={branchFilter} onChange={(event) => { setBranchFilter(event.target.value); resetTransactionPagination(); }} className="h-10 rounded-xl border border-white/10 bg-[#111823] px-3 text-sm text-white"><option value="">كل الفروع</option>{(sites.data ?? []).map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select>
+          {multiBranchEnabled ? <select value={branchFilter} onChange={(event) => { setBranchFilter(event.target.value); resetTransactionPagination(); }} className="h-10 rounded-xl border border-white/10 bg-[#111823] px-3 text-sm text-white"><option value="">كل الفروع</option>{(sites.data ?? []).map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select> : null}
           <label className="grid gap-1 text-xs text-slate-300"><span>من تاريخ</span><Input dir="ltr" type="date" value={fromDate} onChange={(event) => { setFromDate(event.target.value); resetTransactionPagination(); }} className="h-10 w-40 border-white/10 bg-[#111823] text-white" /></label>
           <label className="grid gap-1 text-xs text-slate-300"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={toDate} onChange={(event) => { setToDate(event.target.value); resetTransactionPagination(); }} className="h-10 w-40 border-white/10 bg-[#111823] text-white" /></label>
           <Button variant="outline" onClick={() => { setBranchFilter(""); setFromDate(""); setToDate(""); resetTransactionPagination(); }} className="border-white/15 text-white">مسح الفلاتر</Button>
@@ -540,7 +548,7 @@ tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
               <div className="flex items-center justify-between gap-3"><span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-extrabold shadow-sm ${theme.badge}`}><BrandIcon className="h-4 w-4" />{theme.shortLabel}</span><span className="font-bold text-white print:text-black">{account.name}</span></div>
               <p className="mt-5 text-xs text-white/80 print:text-slate-600">الرصيد المتاح</p><p className="mt-1 text-2xl font-extrabold text-white print:text-slate-900">{money(Number(account.balance))} ش</p>
               <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">افتتاحي: {money(Number(account.openingBalance ?? 0))} ش</p>
-              <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">النوع: {labels[account.accountType] ?? account.accountType}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">النطاق: {account.linkedSites.length ? account.linkedSites.map((site) => site.siteName).join("، ") : "عام على مستوى الشركة"}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">توثيق الدفع: {account.allowPaymentDocumentation ? "ظاهر" : "مخفي"}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">الجوال: {account.phoneNumber ?? "غير مرتبط"}</p>
+              <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">النوع: {labels[account.accountType] ?? account.accountType}</p>{multiBranchEnabled ? <p className="mt-2 text-xs text-white/80 print:text-slate-600">النطاق: {account.linkedSites.length ? account.linkedSites.map((site) => site.siteName).join("، ") : "عام على مستوى الشركة"}</p> : null}<p className="mt-2 text-xs text-white/80 print:text-slate-600">توثيق الدفع: {account.allowPaymentDocumentation ? "ظاهر" : "مخفي"}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">الجوال: {account.phoneNumber ?? "غير مرتبط"}</p>
             </button>;
           })}
         </div>
@@ -590,7 +598,7 @@ tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
                         </Button>
                       </div>
 
-                      <div className="rounded-xl border border-white/10 p-3 2xl:col-span-4">
+                      {multiBranchEnabled ? <div className="rounded-xl border border-white/10 p-3 2xl:col-span-4">
                         <p className="mb-2 text-sm font-bold text-white">الفروع المرتبطة</p>
                         <div className="flex flex-wrap gap-x-4 gap-y-2">
                           {(sites.data ?? []).map((site) => (
@@ -603,7 +611,7 @@ tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
                         <Button className="mt-3 w-full bg-[#F5B800] font-bold text-[#0D1117]" onClick={() => updateSites.mutate({ siteId, accountId: selectedAccount.id, siteIds: selectedSites.length ? selectedSites : [siteId] })} disabled={updateSites.isPending}>
                           {updateSites.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الفروع المرتبطة
                         </Button>
-                      </div>
+                      </div> : null}
 
                       <div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.03] p-3 2xl:col-span-2">
                         <p className="text-sm font-bold text-white">الظهور في توثيق الدفع</p>
