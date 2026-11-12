@@ -63,6 +63,17 @@
 
 ---
 
+## 2026-11-12 — B3.3 positive cross-site source test
+
+- Added a **valid two-sided test transfer** of 20 ILS from site 1 to site `9000000000099`, with separate company-account transactions and a cross-site wallet-site mapping, entirely in `BEGIN/ROLLBACK`. The two movements were paired to the same transfer-operation key.
+- Verified `companyTransferSourceOperationCount=1`, `crossSiteOperationalTransferCount=1`, `crossSiteOperationalTransferAmount=20`, `invalidOperationalTransferPairCount=0`, and `interSiteSourceEvidenceStatus=CROSS_SITE_TRANSFER_REQUIRES_GL_ELIMINATION_PROOF`.
+- Even a valid cross-site source does **not** certify independent inter-site GL elimination. `canBeCertifiedConsolidation=false`, `isConsolidatedFinancialStatements=false`, `accountingCertification=NOT_CERTIFIED`, GL count unchanged. Test result: `B3_3_POSITIVE_CROSS_SITE_SOURCE_BLOCKED_PASS_ROLLBACK`.
+- Added permanent regression SQL at `docs/security/sql/pr359-financial-b3-positive-cross-site-source-rollback.sql` and Vitest contract assertions. No test source remains in Staging after rollback.
+- The remaining work is accounting-grade matching of actual inter-site posting/elimination journal entries (currently not implemented as a certified B3 consolidation), and settlement of the separately blocked synthetic opening for site 2. This positive synthetic source test is **engineering proof**, not final consolidation acceptance.
+- The user's browser check is acknowledged; no assumptions are made about separate reviewer credentials beyond the evidence available.
+
+---
+
 ## What has been verified
 
 | Scope | Direct evidence | Status |
