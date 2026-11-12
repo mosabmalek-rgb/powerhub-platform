@@ -6,7 +6,7 @@ const migration=readFileSync(
   "supabase/migrations/20261112191500_powerhub_financial_b415_supplier_payment_correction_preflight.sql","utf8"
 );
 const routeStart=router.indexOf("financialSupplierPaymentCorrectionReadiness: protectedProcedure");
-const routeEnd=router.indexOf("// B4.9: site-filtered transfer",routeStart);
+const routeEnd=router.indexOf("// B4.16: source-specific posted-GL supplier correction",routeStart);
 const route=router.slice(routeStart,routeEnd);
 
 describe("B4.15 supplier payment correction evidence, read-only and fail closed",()=>{
