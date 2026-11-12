@@ -5185,6 +5185,73 @@ export const powerhubRouter = router({
         correctionWorkflowImplemented:false;accountingCertification:"NOT_CERTIFIED";
       };
     }),
+    // B4.16: source-specific posted-GL supplier correction, not a generic GL reversal.
+    financialSupplierPaymentCorrectionRequest: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      paymentId:z.number().int().positive(),
+      reason:z.string().trim().min(10).max(500),
+      operationKey:z.string().trim().min(8).max(160),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageSupplierPayments");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_supplier_payment_correction_request",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,
+          p_payment_id:input.paymentId,p_user_id:ctx.user.id,
+          p_reason:input.reason,p_operation_key:input.operationKey,
+        });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"CONFLICT",
+          message:"تعذّر إعداد التصحيح؛ تحقق من مصدر المورد والصلاحيات والفترة المالية."});
+      const result=data as Record<string,unknown>;
+      if(!Number.isSafeInteger(Number(result.correctionId))
+        ||Number(result.correctionId)<=0
+        ||!["pending_review","posted"].includes(String(result.status))
+        ||typeof result.alreadyRequested!=="boolean"
+        ||typeof result.alreadyPosted!=="boolean"
+        ||result.accountingCertification!=="NOT_CERTIFIED"
+        ||(result.status==="posted")!==result.alreadyPosted)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم تُؤكّد قاعدة البيانات طلب تصحيح المورد."});
+      return result as {
+        correctionId:number;status:"pending_review"|"posted";
+        alreadyRequested:boolean;alreadyPosted:boolean;
+        accountingCertification:"NOT_CERTIFIED";
+      };
+    }),
+    financialSupplierPaymentCorrectionApprovePost: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      correctionId:z.number().int().positive(),
+      confirmIndependentReview:z.literal(true),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"manageSupplierPayments");
+      await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc(
+        "powerhub_financial_supplier_payment_correction_approve_post",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,
+          p_correction_id:input.correctionId,p_approver_id:ctx.user.id,
+        });
+      if(error||!data||typeof data!=="object"||Array.isArray(data))
+        throw new TRPCError({code:"CONFLICT",
+          message:"تعذّر الاعتماد الذري؛ مُنع النجاح الجزئي. تحقق من فصل المُعد عن المعتمد وصحة المصدر."});
+      const result=data as Record<string,unknown>;
+      if(Number(result.correctionId)!==input.correctionId
+        ||result.status!=="posted"
+        ||!Number.isSafeInteger(Number(result.entryId))
+        ||Number(result.entryId)<=0
+        ||typeof result.alreadyPosted!=="boolean"
+        ||result.accountingCertification!=="NOT_CERTIFIED")
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لا يوجد إثبات صالح لاكتمال قيد تصحيح المورد."});
+      return result as {
+        correctionId:number;status:"posted";entryId:number;
+        alreadyPosted:boolean;accountingCertification:"NOT_CERTIFIED";
+      };
+    }),
     // B4.9: site-filtered transfer source discovery for safe, user-initiated GL posting.
     financialGLCashTransferCandidates: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),

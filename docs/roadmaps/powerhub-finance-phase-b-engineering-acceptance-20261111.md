@@ -568,3 +568,17 @@ Phase B continues to require B4.14+ original-GL-linked and independently approve
 **B5 supplier negative proof:** PostgreSQL Integration run `43268380188` passed the additional `B5_SUPPLIER_FORGED_REPLAY_ROLLBACK_PASS` and `B5_SUPPLIER_100_PURCHASE_RECEIPT_PAYMENT_99_FIRST_1_REPLAY_PASS` with 100 full supplier purchase/confirm/receipt/payment requests across four backend sessions. Recorded full chain sample p50 **11.53ms**, sample p95 **49.14ms**, sample p99 **123.14ms**, max **130.243ms**; these are SQL test-runner timings, not authenticated API/browser SLA.
 
 **No Vercel Preview, PR merge, or Production release** occurred. Accountants have not independently certified Phase B; `NOT_CERTIFIED` is mandatory.
+
+
+---
+
+## 2026-11-12 — B4.16 source-linked supplier payment correction, Staging
+
+- Verified prior PR #359 head a2b03c9fc83723fb381a3b521e940478997c57ec with five successful workflows: PowerHub CI, PostgreSQL Integration, Security, Admin Guard, B5 Synthetic Financial Load.
+- Applied migration 20261112193000_powerhub_financial_b416_supplier_source_correction.sql to Staging project iyuryuhaylhisjfcrwkz with exact version and stored source as ONE statement in supabase_migrations.schema_migrations. Registered SQL MD5: 3b542841326a7bfa1ab2d37ed73f11e2.
+- Guarded Staging source and migration history: tenant 1 kept 25 GL entries/51 GL lines; payment 5 (210.00) remained posted; zero permanent supplier corrections created.
+- Before permanent schema application, ran B4.16 DDL in rollback (compiled), then positive synthetic source correction and two negative/scope/fingerprint/cash-audit validations, each wholly inside BEGIN/ROLLBACK. Markers: B416_SOURCE_CORRECTION_ATOMIC_REPLAY_PASS_ROLLBACK and B416_NEGATIVE_SCOPE_FINGERPRINT_GL_CASH_AUDIT_PASS_ROLLBACK.
+- Synthetic test identities maker 4 and checker 260 are database fixtures only. They do NOT represent human accounting approvals. Original GL 857 fingerprint unchanged, independent reversed GL proof valid, idempotent replay had no duplicate cash/GL. Accounting status NOT_CERTIFIED.
+- Added protected server request and independent approval routes with both manageSupplierPayments and viewFinancialReports in the authenticated tenant/site, server-derived actor, explicit user review confirmation and fail-closed DB result validation. No generic GL reversal endpoint.
+- Added server contract and reusable staging-only rollback SQL regression. The regression exercises the already registered B4.16 schema without persisting any financial writes.
+- OPEN: post-commit five-green CI and exact-SHA Preview; authenticated two-account API/browser testing, formal B2/B3 maker-checker acceptance, full B5 network-inclusive latency and human certification. Do not merge or publish Production; keep NOT_CERTIFIED.
