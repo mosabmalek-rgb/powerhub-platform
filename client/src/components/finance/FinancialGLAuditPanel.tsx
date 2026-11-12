@@ -6,6 +6,7 @@ import FinancialOpeningEvidenceWorkspace from "./FinancialOpeningEvidenceWorkspa
 import FinancialCentralAllocationWorkspace from "./FinancialCentralAllocationWorkspace";
 import FinancialCashTransferPostingWorkspace from "./FinancialCashTransferPostingWorkspace";
 import FinancialInterSiteTransferWorkspace from "./FinancialInterSiteTransferWorkspace";
+import FinancialGLCorrectionReadinessWorkspace from "./FinancialGLCorrectionReadinessWorkspace";
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -474,6 +475,7 @@ export default function FinancialGLAuditPanel({
           <p className="text-xs text-amber-200">GL لا يميز كل محفظة على حدة؛ المطابقة تغطي الحركات المرتبطة بالمصادر ولا تغني عن أدلة الافتتاحية أو الاعتماد المالي المستقل.</p>
         </div> : null}
       </div>
+      <FinancialGLCorrectionReadinessWorkspace key={`correction:${siteId}:${period}`} siteId={siteId} period={period} active={active} />
       <FinancialCashTransferPostingWorkspace key={`transfer:${siteId}:${period}`}
         siteId={siteId} period={period} active={active} />
       <FinancialCentralAllocationWorkspace key={`${siteId}:${period}`} siteId={siteId} period={period} active={active} />
