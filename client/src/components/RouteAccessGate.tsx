@@ -16,9 +16,10 @@ type RouteAccessGateProps = {
   supportOnly?: boolean;
   financeAdminOnly?: boolean;
   featureKey?: "support_chat" | "powerhub_ai_assistant";
+  multiBranchOnly?: boolean;
 };
 
-export function RouteAccessGate({ children, platformAdminOnly = false, supportOnly = false, financeAdminOnly = false, featureKey }: RouteAccessGateProps) {
+export function RouteAccessGate({ children, platformAdminOnly = false, supportOnly = false, financeAdminOnly = false, featureKey, multiBranchOnly = false }: RouteAccessGateProps) {
   const {
     user,
     isAuthenticated,
@@ -67,6 +68,9 @@ export function RouteAccessGate({ children, platformAdminOnly = false, supportOn
     return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى المساحة المناسبة…</h1><p className="mt-2 text-sm text-slate-400">سجّل الدخول أولاً للوصول إلى واجهات التشغيل والصلاحيات الخاصة بحسابك.</p></div></main>;
   }
 
+  if (multiBranchOnly && user && user.role !== "admin") {
+    return <MultiBranchRouteGate>{children}</MultiBranchRouteGate>;
+  }
   if (featureKey && user && user.role !== "admin") {
     return <TenantFeatureAccessGate featureKey={featureKey}>{children}</TenantFeatureAccessGate>;
   }
@@ -108,6 +112,33 @@ function TenantFeatureAccessGate({
   }
   if (featureAccess.data[featureKey] !== true) {
     return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div className="max-w-md"><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">الميزة غير متاحة لهذا الاشتراك</h1><p className="mt-2 text-sm leading-7 text-slate-400">تم إيقاف الوصول إلى هذه الميزة وفق إعدادات المنصة أو الباقة أو التحكم الخاص بمساحة العمل.</p><button type="button" onClick={() => window.location.assign("/workspace")} className="mt-5 rounded-xl border border-white/15 px-5 py-3 text-sm font-bold text-slate-200">العودة إلى لوحة العمل</button></div></main>;
+  }
+  return <>{children}</>;
+}
+
+function MultiBranchRouteGate({children}:{children:React.ReactNode}) {
+  const sites=trpc.powerhub.sites.list.useQuery(undefined,{
+    refetchOnMount:"always",refetchOnReconnect:true,refetchOnWindowFocus:true,
+  });
+  const {branchId}=useBranchFilter(sites.data);
+  const siteId=sites.data?.find(site=>site.id===branchId)?.id??sites.data?.[0]?.id??0;
+  const entitlement=trpc.powerhub.sites.multiBranchAccess.useQuery({siteId},{
+    enabled:siteId>0,refetchOnMount:"always",refetchOnReconnect:true,
+    refetchOnWindowFocus:true,
+  });
+  if(sites.isLoading || entitlement.isLoading || entitlement.isFetching) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-200" dir="rtl">جارٍ التحقق من إتاحة الخدمة…</main>;
+  }
+  // Never disclose the multi-site workspace on stale/offline/denied eligibility.
+  if(sites.isError || entitlement.isError || !siteId ||
+     entitlement.data?.siteId!==siteId || entitlement.data?.enabled!==true) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl">
+      <div className="max-w-md">
+        <h1 className="text-lg font-bold text-white">هذه الصفحة غير متاحة لهذا الاشتراك</h1>
+        <button type="button" onClick={()=>window.location.assign("/workspace")}
+          className="mt-5 rounded-xl border border-white/15 px-5 py-3 text-sm font-bold text-slate-200">العودة إلى لوحة العمل</button>
+      </div>
+    </main>;
   }
   return <>{children}</>;
 }
