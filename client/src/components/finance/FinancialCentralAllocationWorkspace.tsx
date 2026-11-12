@@ -45,7 +45,7 @@ export default function FinancialCentralAllocationWorkspace({
   // loading, or failing authorization/refetch for its current site and period.
   const workspaceReady = enabled && !workspace.isLoading &&
     !workspace.isFetching && !workspace.isError && workspace.data !== undefined;
-  const policy = workspaceReady ? workspace.data.policy : null;
+  const policy = workspaceReady && workspace.data ? workspace.data.policy : null;
   const approvalActive = policy?.status === "approved" && enabled;
   const preview = trpc.powerhub.reports.financialGLCentralPolicyPreview.useQuery(
     { siteId, centralSiteId: siteId, period }, {
@@ -68,7 +68,7 @@ export default function FinancialCentralAllocationWorkspace({
     onSuccess: refreshOnMutation,
     onError: () => { void workspace.refetch(); },
   });
-  const sites = workspaceReady ? workspace.data.sites : [];
+  const sites = workspaceReady && workspace.data ? workspace.data.sites : [];
   const selectedWeights = sites.flatMap((site) => {
     const raw = percentages[site.id] ?? "";
     const points = toBasisPoints(raw);
