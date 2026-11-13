@@ -46,8 +46,7 @@ function statement(raw: unknown,tenantId:number,siteId:number,period:string) {
      typeof s.hasPostedData!=="boolean"||
      !Number.isSafeInteger(s.unreconciledSourceCount))
     throw new InvalidGLComparison("INVALID_GL_STATEMENT_SCOPE_OR_COMPLETENESS");
-  const metrics=Object.fromEntries(metricNames.map(key=>[key,amount(income[key])]))
-    as Record<typeof metricNames[number],number>;
+  const metrics=Object.fromEntries(metricNames.map(key=>[key,amount(income[key])])) as Record<typeof metricNames[number],number>;
   if (Math.abs(metrics.serviceRevenue-metrics.directServiceCost-metrics.grossResult)>0.001 ||
       Math.abs(metrics.operatingResult-metrics.nonOperatingExpenses-metrics.provisionalNetResult)>0.001)
     throw new InvalidGLComparison("INVALID_GL_INCOME_RECONCILIATION");

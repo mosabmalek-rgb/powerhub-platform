@@ -114,7 +114,7 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
   }
   // Never re-use a prior result after an input change.
   setStartFingerprint("");setRequested({siteId,currentPeriod:period,previousPeriod:previous});
-  void compare.refetch();
+
  };
  const exportReport=async(type:"csv"|"xlsx"|"pdf")=>{
   if(!requested||!allowed||!data)return;
@@ -136,7 +136,7 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
     const {default:ExcelJS}=await import("exceljs");
     const workbook=new ExcelJS.Workbook();workbook.creator="PowerHub";
     const sheet=workbook.addWorksheet("مقارنة المحاسبة",{views:[{rightToLeft:true}]});
-    rows.forEach(r=>sheet.addRow(r.map(v=>v??"")));
+    rows.forEach(r=>sheet.addRow(r.map(v=>v===null||v===undefined?"":String(v))));
     sheet.columns=[{width:42},{width:32},{width:19},{width:19},{width:22}];
     sheet.getRow(18).font={bold:true};sheet.getRow(30).font={bold:true};
     const buffer=await workbook.xlsx.writeBuffer();
