@@ -28,6 +28,7 @@ export function validateGLTrend(raw:unknown,input:Input){
   throw new InvalidGLTrend("INVALID_RESPONSE");
  const d=raw as Record<string,unknown>;
  const siteIds=[...input.siteIds].sort((a,b)=>a-b);
+ const responseSiteIds=Array.isArray(d.siteIds)?d.siteIds:[];
  if(siteIds.length<1||siteIds.length>30||new Set(siteIds).size!==siteIds.length||
     siteIds.some(id=>!Number.isSafeInteger(id)||id<=0)||
     !Number.isSafeInteger(input.tenantId)||input.tenantId<=0||
@@ -38,8 +39,8 @@ export function validateGLTrend(raw:unknown,input:Input){
     d.months!==input.months||d.endPeriod!==input.endPeriod||
     d.startPeriod!==periods[0]||typeof d.tenantName!=="string"||
     !Array.isArray(d.siteIds)||!Array.isArray(d.rows)||
-    d.siteIds.length!==siteIds.length||
-    siteIds.some(id=>!d.siteIds.includes(id))||
+    responseSiteIds.length!==siteIds.length||
+    siteIds.some(id=>!responseSiteIds.includes(id))||
     d.rows.length!==siteIds.length*periods.length||
     d.source!=="POSTED_GL_FULL_PERIOD_AGGREGATES"||
     d.status!=="PRELIMINARY_GL_TREND_UNVERIFIED_SOURCES"||
@@ -59,7 +60,7 @@ export function validateGLTrend(raw:unknown,input:Input){
   if(typeof r.siteId!=="number"||!siteIds.includes(r.siteId)||
      !periods.includes(String(r.period))||seen.has(key)||
      typeof r.siteName!=="string"||!r.siteName.trim()||
-     !Number.isSafeInteger(r.glEntryCount)||r.glEntryCount<0||
+     typeof r.glEntryCount!=="number"||!Number.isSafeInteger(r.glEntryCount)||r.glEntryCount<0||
      r.hasPostedData!==(r.glEntryCount>0)||
      r.isFinalProfit!==false||r.isCompleteAccrualStatement!==false||
      !["SINGLE_VERSION","MIXED_POLICY","UNPROVEN"].includes(String(r.recognitionPolicyStatus)))
@@ -82,7 +83,11 @@ export function validateGLTrend(raw:unknown,input:Input){
    hasPostedData:r.hasPostedData as boolean,
    recognitionPolicyVersion:r.recognitionPolicyVersion as string|null,
    recognitionPolicyStatus:r.recognitionPolicyStatus as string,
-   ...values};
+   serviceRevenue:values.serviceRevenue,directServiceCost:values.directServiceCost,
+   grossResult:values.grossResult,wages:values.wages,
+   depreciation:values.depreciation,provisions:values.provisions,
+   nonOperatingExpenses:values.nonOperatingExpenses,operatingResult:values.operatingResult,
+   provisionalNetResult:values.provisionalNetResult};
  });
  for(const siteId of siteIds)for(const period of periods)
   if(!seen.has(siteId+":"+period))throw new InvalidGLTrend("INCOMPLETE_TREND_CUBE");
