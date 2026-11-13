@@ -3,6 +3,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { supabaseAdmin } from "../supabase-admin";
 import { claimPowerHubDevice } from "../auth-device-claim";
+import { measureB5Stage } from "../b5-request-trace";
 import { requirePlatformCapability } from "../platform-capability";
 import { isActivePlatformAdmin, isActivePlatformIdentity, isActivePlatformSupport } from "../platform-admin";
 import type { TrpcContext } from "./context";
@@ -40,13 +41,13 @@ async function enforceSingleDeviceSession(ctx: TrpcContext) {
   const claimKey = `${ctx.user!.openId}:${deviceId}`;
   let claim = requestClaims.get(claimKey);
   if (!claim) {
-    claim = claimPowerHubDevice({
+    claim = measureB5Stage("deviceClaim", () => claimPowerHubDevice({
       operation: "authenticatedProcedure.deviceClaim",
       userId: ctx.user!.openId,
       deviceId,
       rpcErrorMessage: "تعذر التحقق من جلسة الجهاز.",
       timeoutMessage: "انتهت مهلة التحقق من جلسة الجهاز. أعد المحاولة.",
-    });
+    }));
     // Keep both success and failure for this request only so a batch cannot fan out
     // repeated device RPCs or produce inconsistent decisions within the same request.
     requestClaims.set(claimKey, claim);
@@ -98,12 +99,12 @@ async function readMaintenanceSettingForRequest(ctx: TrpcContext) {
 
   let pending = maintenanceSettingByRequest.get(request);
   if (!pending) {
-    pending = (async () => {
+    pending = measureB5Stage("maintenanceRead", async () => {
       const { data, error } = await supabaseAdmin().from("platform_settings")
         .select("is_enabled, message").eq("setting_key", "maintenance_mode").maybeSingle();
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من وضع الصيانة في Supabase." });
       return data;
-    })();
+    });
     maintenanceSettingByRequest.set(request, pending);
   }
   return pending;
