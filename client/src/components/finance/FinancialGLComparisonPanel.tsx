@@ -61,13 +61,13 @@ function reportRows(data:Report):unknown[][]{
   ["عدد قيود الفترة الحالية",data.currentGLEntryCount],
   ["عدد قيود الفترة السابقة",data.previousGLEntryCount],
   [],
-  ["المؤشر","الحالي","السابق","الفرق","نسبة الفرق"],
+  ["المؤشر","الحالي","السابق","الفرق","نسبة الفرق (%)"],
   ...data.metrics.map(m=>[metricLabels[m.key]??m.key,m.current,m.previous,m.delta,
-   m.percentage===null?"غير قابل للحساب":m.percentage/100]),
+   m.percentage===null?"غير قابل للحساب":m.percentage]),
   [],
-  ["الحساب","التصنيف","الحالي","السابق","الفرق","نسبة الفرق"],
+  ["الحساب","التصنيف","الحالي","السابق","الفرق","نسبة الفرق (%)"],
   ...data.accountRows.map(a=>[a.code+" — "+a.name,a.accountClass,a.current,a.previous,a.delta,
-   a.percentage===null?"غير قابل للحساب":a.percentage/100]),
+   a.percentage===null?"غير قابل للحساب":a.percentage]),
  ];
 }
 function makePdfElement(data:Report){

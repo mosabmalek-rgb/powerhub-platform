@@ -99,7 +99,16 @@ export function validateGLMonthlyComparison(
      d.recognitionPolicyVersion.length>0 &&
      d.currentRecognitionPolicyVersion===d.recognitionPolicyVersion &&
      d.previousRecognitionPolicyVersion===d.recognitionPolicyVersion;
-  const clear=current.hasPostedData&&previous.hasPostedData&&
+  // The SQL server itself enforces the Gaza end-of-month cutoff. The TS
+  // contract independently checks that a running month cannot be exportable.
+  const generatedAt=new Date(String(d.generatedAt));
+  const gazaParts=new Intl.DateTimeFormat("en-CA",{
+    timeZone:"Asia/Gaza",year:"numeric",month:"2-digit",day:"2-digit"
+  }).formatToParts(generatedAt);
+  const get=(type:string)=>gazaParts.find(p=>p.type===type)?.value??"";
+  const currentGazaDay=get("year")+"-"+get("month")+"-"+get("day");
+  const monthCompleted=current.periodEnd<currentGazaDay;
+  const clear=monthCompleted&&current.hasPostedData&&previous.hasPostedData&&
     current.isSourceCoverageComplete&&previous.isSourceCoverageComplete&&
     current.unreconciledSourceCount===0&&previous.unreconciledSourceCount===0&&compatible;
   if((d.status==="COMPARABLE_PRELIMINARY")!==clear||

@@ -20,7 +20,7 @@ function report(overrides:Record<string,unknown>={}){
     previousReviewStatus:"locked",recognitionPolicyVersion:"gaza-invoice-service-calendar-days-v1",
     currentRecognitionPolicyVersion:"gaza-invoice-service-calendar-days-v1",
     previousRecognitionPolicyVersion:"gaza-invoice-service-calendar-days-v1",
-    currency:"ILS",periodTimeZone:"Asia/Gaza",generatedAt:"2026-11-13T20:20:00Z",
+    currency:"ILS",periodTimeZone:"Asia/Gaza",generatedAt:"2026-12-05T20:20:00Z",
     sourceSnapshotAtomic:true,snapshotFingerprint:"a".repeat(32),
     accountingBasis:"POSTED_GL_ACCRUAL",accountingCertification:"NOT_CERTIFIED",
     isFinalFinancialStatement:false,status:"COMPARABLE_PRELIMINARY",canExport:true,blockers:[],
@@ -34,6 +34,13 @@ describe("Master finance Phase C / GL monthly comparison",()=>{
     current:120,previous:0,delta:120,percentage:null});
   expect(x.accountRows).toHaveLength(1);
   expect(x.accountingCertification).toBe("NOT_CERTIFIED");
+ });
+ it("rejects a current month not yet ended in Gaza even if GL looks complete",()=>{
+   expect(()=>validateGLMonthlyComparison(report({generatedAt:"2026-11-13T20:20:00Z"}),scope)).toThrow(
+     "GL_COMPARISON_STATUS_CONTRADICTS_SOURCE");
+   const blocked=report({generatedAt:"2026-11-13T20:20:00Z",status:"BLOCKED",canExport:false,
+     blockers:["CURRENT_PERIOD_NOT_ENDED_GAZA"]});
+   expect(validateGLMonthlyComparison(blocked,scope).canExport).toBe(false);
  });
  it("respects leap-year and year-boundary calendar months",()=>{
   expect(previousGLMonth("2024-03")).toBe("2024-02");
