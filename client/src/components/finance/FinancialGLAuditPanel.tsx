@@ -7,6 +7,7 @@ import FinancialCentralAllocationWorkspace from "./FinancialCentralAllocationWor
 import FinancialCashTransferPostingWorkspace from "./FinancialCashTransferPostingWorkspace";
 import FinancialInterSiteTransferWorkspace from "./FinancialInterSiteTransferWorkspace";
 import FinancialGLCorrectionReadinessWorkspace from "./FinancialGLCorrectionReadinessWorkspace";
+import FinancialGLComparisonPanel from "./FinancialGLComparisonPanel";
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -359,6 +360,7 @@ export default function FinancialGLAuditPanel({
           التكاليف المركزية غير الموزعة غير محددة، وليست صفرًا مثبتًا. لا توجد قوائم موحدة للاشتراك بعد.</p>
         </div> : null}
       </div>
+      <FinancialGLComparisonPanel siteId={siteId} period={period} active={active} />
       <div className="mt-3 rounded-md border border-white/10 p-3">
         <div className="flex items-center justify-between gap-3">
           <div>

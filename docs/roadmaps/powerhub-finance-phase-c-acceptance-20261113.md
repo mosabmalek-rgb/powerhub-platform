@@ -55,3 +55,12 @@ Existing administrative PDF/CSV and cashflow UI are not substitutes for the abov
 - Human review of documentary opening balances, depreciation, provisions and certified profit is still `NOT_CERTIFIED`.
 - The master-plan Phase C comparisons and exports remain open.
 - Production release, PR merge, formal accounting sign-off and user-facing claims of certified profit remain prohibited absent their independent gates and approval.
+
+
+## 6. Master C implementation slice (2026-11-13, pending CI and migration)
+- Code commit `ac843b09eb06d53c910f24a12fb3c81e95b04f18`: PostgreSQL GL two-period snapshot, server permission guard and fresh-fingerprint export precondition. These are new work, **not** C1–C5 acceptance evidence.
+- Migration `20261113204500_powerhub_financial_gl_monthly_comparison_c` is source-controlled and **NOT YET APPLIED** to Staging or Production. Must run via the protected version-exact migration workflow, not an ad-hoc schema update.
+- The SQL reads complete published GL aggregates and proves matching service-recognition policy versions by source type. Missing prior-period recognized service, missing coverage, or unbalanced posted entries block export rather than manufacturing zero or a percentage.
+- Comparison is allowed to display provisional values with clearly flagged blockers; only provably comparable current/previous periods can be exported. All results are `NOT_CERTIFIED`.
+- The export action always re-reads the server-side source and verifies the requested snapshot fingerprint. No browser-side paging sums or cross-site access.
+- **Acceptance gates remain OPEN** pending: TypeScript/tests/CI on final head, protected Staging migration, real RPC SQL proof, authenticated HTTPS and download/PDF/Excel multi-page verification, large-volume/performance, and multi-site trend acceptance. No claim of `MASTER_FINANCE_PHASE_C=PASS`.

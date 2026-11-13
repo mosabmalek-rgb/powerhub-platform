@@ -6444,8 +6444,8 @@ export const powerhubRouter = router({
     // Master finance C: server-only complete GL aggregation, on-demand, no cached exports.
     financialGLMonthlyComparison: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
-      currentPeriod:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
-      previousPeriod:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+      currentPeriod:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      previousPeriod:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
@@ -6463,8 +6463,8 @@ export const powerhubRouter = router({
     // A mutation forces a fresh read on every download and rejects a stale snapshot.
     financialGLMonthlyComparisonExport: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
-      currentPeriod:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
-      previousPeriod:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+      currentPeriod:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      previousPeriod:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
       expectedFingerprint:z.string().regex(/^[0-9a-f]{32}$/),
     })).mutation(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
