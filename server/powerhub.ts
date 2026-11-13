@@ -17,6 +17,7 @@ import { reviewFinancialPayrollMonth, InvalidPayrollReview } from "./financial-p
 import { summarizeAccrualComponents, summarizeInvoiceServiceCycleCoverage, isIssuedFinancialInvoiceStatus, InvalidAccrualComponents } from "./financial-accrual-components";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildFinancialCloseReadiness } from "./financial-close-readiness";
+import { validateGLMonthlyComparison } from "./financial-gl-comparison";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
@@ -6438,6 +6439,52 @@ export const powerhubRouter = router({
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
           message:"نتيجة المطابقة ناقصة أو لا تطابق الفرع المطلوب."});
       return v;
+    }),
+
+    // Master finance C: server-only complete GL aggregation, on-demand, no cached exports.
+    financialGLMonthlyComparison: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      currentPeriod:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+      previousPeriod:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_monthly_comparison",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_current_period:input.currentPeriod,p_previous_period:input.previousPeriod,
+      });
+      if(error||!data)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر تأكيد مصدر المقارنة المحاسبية؛ لا تُعرض نتيجة جزئية."});
+      try{return validateGLMonthlyComparison(data,{tenantId:access.tenantId,siteId:input.siteId,
+        currentPeriod:input.currentPeriod,previousPeriod:input.previousPeriod});}
+      catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"نتيجة المقارنة المحاسبية غير متسقة مع الأستاذ العام."});}
+    }),
+    // A mutation forces a fresh read on every download and rejects a stale snapshot.
+    financialGLMonthlyComparisonExport: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      currentPeriod:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+      previousPeriod:z.string().regex(/^\\d{4}-(0[1-9]|1[0-2])$/),
+      expectedFingerprint:z.string().regex(/^[0-9a-f]{32}$/),
+    })).mutation(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_monthly_comparison",{
+        p_tenant_id:access.tenantId,p_site_id:input.siteId,
+        p_current_period:input.currentPeriod,p_previous_period:input.previousPeriod,
+      });
+      if(error||!data)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"فشل التحقق من مصدر ملف التصدير؛ لم يُنتج ملف."});
+      let result:ReturnType<typeof validateGLMonthlyComparison>;
+      try{result=validateGLMonthlyComparison(data,{tenantId:access.tenantId,siteId:input.siteId,
+        currentPeriod:input.currentPeriod,previousPeriod:input.previousPeriod},
+        input.expectedFingerprint);}
+      catch{throw new TRPCError({code:"PRECONDITION_FAILED",
+        message:"تغيرت بيانات الأستاذ أو تعذر التحقق من لقطة المصدر؛ حدّث التقرير قبل التصدير."});}
+      if(!result.canExport||result.status!=="COMPARABLE_PRELIMINARY")
+        throw new TRPCError({code:"PRECONDITION_FAILED",
+          message:"يوجد نقص في دليل السياسة أو تغطية المصدر؛ تصدير المقارنة محجوب."});
+      return result;
     }),
     financialGLSiteStatements: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
