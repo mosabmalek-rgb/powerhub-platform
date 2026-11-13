@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import AccrualAccountingPanel from "@/components/finance/AccrualAccountingPanel";
 import FinancialGLAuditPanel from "@/components/finance/FinancialGLAuditPanel";
+import { selectFinancialSiteId } from "@/lib/finance-site-selection";
 
 const format = (value: unknown) => Number(value ?? 0).toLocaleString("ar", { maximumFractionDigits: 2 });
 const iso = (date: Date) => {
@@ -37,7 +38,7 @@ export default function FinancialDashboardPage() {
   const { isAuthenticated, loading } = useAuth();
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
-  const siteId = (selectedSiteId && sites.data?.some(site => site.id === selectedSiteId) ? selectedSiteId : sites.data?.[0]?.id) ?? 0;
+  const siteId = selectFinancialSiteId(sites.data, selectedSiteId);
   // The ordinary one-branch experience never issues the multi-branch query.
   const [showAllBranches, setShowAllBranches] = useState(false);
   const tenantSites = useMemo(() => {

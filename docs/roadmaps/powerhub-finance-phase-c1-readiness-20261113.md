@@ -25,10 +25,12 @@ These are **synthetic Staging measurements**, not audited financial metrics or P
 - Acceptance marker: `C1_STAGING_READ_ONLY_CLOSE_BLOCKERS_PASS_NOT_CERTIFIED`. This proves the existing **read** preflight against Staging; it does not test closing mutations, an external accountant, different tenant, or live browser experience.
 - No schema migration, accounting write, approval, altered permissions, Prod deployment, or Preview generated.
 
-## Next C slices (not yet delivered)
+## C1–C5 implementation path
 1. C2: server-only unified readiness contract with explicit `BLOCKED/REVIEW_REQUIRED/READY_FOR_INDEPENDENT_REVIEW` and enumerated blockers, validation of all source evidence and no automatic approval.
 2. C3: UI that displays source blockers and documentary evidence, last refresh and non-certification; authorization denial must clear scoped stale rows.
 3. C4: concurrent close-vs-source-change negative tests, maker/checker, idempotency and replay protection; prevent cross-period/cross-site leakage.
 4. C5: authenticated Preview E2E and representative read/write performance evidence without real money transfers; independent human accounting review remains separate.
 
 **Launch boundary:** Phase C may progress while B operational acceptance is documented as OPEN; no one may turn a synthetic preflight into a certified balance, genuine period lock or Production release.
+
+For the latest execution evidence, outstanding protected Staging release and acceptance matrix, see [Phase C acceptance](powerhub-finance-phase-c-acceptance-20261113.md). The original C1 baseline above remains a point-in-time observation.
