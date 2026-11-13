@@ -13,7 +13,7 @@ const ROUTES = [
 ] as const;
 type RouteName = typeof ROUTES[number];
 type Errors = { http500:number; http502:number; http503:number; http504:number; timeout:number; other:number };
-type Result = { route:RouteName; attempted:number; http200:number; p50:number|null; p95:number|null; p99:number|null; max:number|null; errors:Errors; status:"COMPLETE"|"FAIL" };
+type Result = { route:RouteName; phase:string; attempted:number; http200:number; p50:number|null; p95:number|null; p99:number|null; max:number|null; errors:Errors; status:"COMPLETE"|"FAIL"; slowTraces:string[] };
 const emptyErrors = ():Errors => ({http500:0,http502:0,http503:0,http504:0,timeout:0,other:0});
 const percentile = (numbers:number[],p:number) => {
   const sorted=[...numbers].sort((a,b)=>a-b);
@@ -55,12 +55,13 @@ export default function B5HttpAcceptancePage(){
   const [progress,setProgress]=useState("لم يبدأ الاختبار");
   const [results,setResults]=useState<Result[]>([]);
   const [failure,setFailure]=useState<string|null>(null);
+  const [mode,setMode]=useState<"diagnostic"|"acceptance"|null>(null);
   const allowed=!loading && isAuthenticated && user?.email==="owner.e2e@powerhub-staging.example.com"
     && /^powerhub-platform-[a-z0-9]+-mosabmalek-rgb\.vercel\.app$/.test(window.location.hostname);
 
-  async function run(){
+  async function run(selectedMode:"diagnostic"|"acceptance"){
     if(!allowed || running)return;
-    setRunning(true);setResults([]);setFailure(null);setProgress("فحص الجاهزية والجلسة");
+    setMode(selectedMode);setRunning(true);setResults([]);setFailure(null);setProgress("فحص الجاهزية والجلسة");
     try{
       const readyResponse=await fetch("/api/ready",{method:"GET",cache:"no-store",signal:AbortSignal.timeout(8000)});
       const ready=await readyResponse.json();
@@ -76,8 +77,9 @@ export default function B5HttpAcceptancePage(){
         const url=`/api/trpc/powerhub.reports.${name}?input=${encodeURIComponent(JSON.stringify({json:{siteId:1,period:"2026-11"}}))}`;
         const started=performance.now();
         const response=await fetch(url,{method:"GET",headers,cache:"no-store",redirect:"manual",signal:AbortSignal.timeout(8000)});
-        validate(response.status,await response.text(),name);
-        return Math.round((performance.now()-started)*100)/100;
+        const body=await response.text();
+        validate(response.status,body,name);
+        return {duration:Math.round((performance.now()-started)*100)/100,trace:response.headers.get("X-PowerHub-B5-Trace")};
       };
       // Stop before load if even one report fails its individual HTTPS preflight.
       for(const name of ROUTES){
@@ -86,27 +88,35 @@ export default function B5HttpAcceptancePage(){
       }
       const collected:Result[]=[];
       for(const name of ROUTES){
-        const durations:number[]=[],errors=emptyErrors();
-        let attempted=0;
-        for(let i=0;i<100;i+=4){
-          setProgress(`${name}: ${i}/100`);
-          const batch=await Promise.allSettled(Array.from({length:4},()=>call(name)));
-          attempted+=batch.length;
-          for(const item of batch){
-            if(item.status==="fulfilled")durations.push(item.value);
-            else classify(item.reason,errors);
+        const phases=selectedMode==="diagnostic"
+          ? [{label:"10 × 1",count:10,concurrency:1},{label:"10 × 4",count:10,concurrency:4}]
+          : [{label:"100 × 4",count:100,concurrency:4}];
+        for(const phase of phases){
+          const samples:{duration:number;trace:string|null}[]=[],errors=emptyErrors();
+          let attempted=0;
+          for(let i=0;i<phase.count;i+=phase.concurrency){
+            setProgress(`${name} — ${phase.label}: ${i}/${phase.count}`);
+            const batch=await Promise.allSettled(Array.from({length:Math.min(phase.concurrency,phase.count-i)},()=>call(name)));
+            attempted+=batch.length;
+            for(const item of batch){
+              if(item.status==="fulfilled")samples.push(item.value);
+              else classify(item.reason,errors);
+            }
+            if(attempted!==samples.length)break;
           }
-          if(attempted!==durations.length)break;
+          const durations=samples.map(x=>x.duration);
+          const result:Result={route:name,phase:phase.label,attempted,http200:durations.length,
+            p50:percentile(durations,.5),p95:percentile(durations,.95),
+            p99:percentile(durations,.99),max:percentile(durations,1),errors,
+            status:durations.length===phase.count?"COMPLETE":"FAIL",
+            slowTraces:samples.filter(x=>x.trace).sort((a,b)=>b.duration-a.duration).slice(0,3).map(x=>`${x.trace} (${x.duration}ms)`) };
+          collected.push(result);setResults([...collected]);
+          if(result.status==="FAIL")break;
         }
-        const result:Result={route:name,attempted,http200:durations.length,
-          p50:percentile(durations,.5),p95:percentile(durations,.95),
-          p99:percentile(durations,.99),max:percentile(durations,1),errors,
-          status:durations.length===100?"COMPLETE":"FAIL"};
-        collected.push(result);setResults([...collected]);
-        if(result.status==="FAIL")break;
+        if(collected.at(-1)?.status==="FAIL")break;
       }
-      setProgress(collected.length===3 && collected.every(x=>x.status==="COMPLETE")
-        ?"اكتمل القياس؛ قرار p95 بانتظار الحد المعتمد":"توقف القياس عند أول دفعة فاشلة");
+      setProgress(collected.length===(selectedMode==="diagnostic"?6:3) && collected.every(x=>x.status==="COMPLETE")
+        ?"اكتمل القياس؛ راجع p95 وسجلات مراحل الخادم":"توقف القياس عند أول دفعة فاشلة");
     }catch(error){
       const code=classify(error,emptyErrors());
       setFailure(code);setProgress("فشل شرط التحقق المسبق؛ لم يبدأ الحمل أو توقف قبل استكماله");
@@ -117,15 +127,18 @@ export default function B5HttpAcceptancePage(){
   return <main dir="rtl" className="min-h-screen bg-[#0D1117] p-8 text-white">
     <h1 className="text-2xl font-bold">B5 — قياس HTTPS المصادق</h1>
     <p className="mt-3">اشتراك 1 · فرع 1 · 2026-11 · 100 طلب لكل تقرير · تزامن 4 · مهلة 8000ms · GET فقط.</p>
-    <p className="mt-2 text-amber-300">القياس لا يقرر حد p95 أو التصديق المحاسبي. شغّله بعد التحقق من خط أساس GL.</p>
-    <button type="button" disabled={running} onClick={()=>void run()}
-      className="mt-5 rounded bg-[#F5B800] px-4 py-2 font-bold text-black disabled:opacity-50">{running?"جارٍ القياس...":"بدء قياس القراءة فقط"}</button>
+    <p className="mt-2 text-amber-300">حد قبول p95 لكل تقرير 3000ms. ابدأ بالتشخيص المحدود وراجع سجلات المراحل قبل القبول الكامل؛ لا يتغير التصديق المحاسبي.</p>
+    <div className="mt-5 flex gap-3"><button type="button" disabled={running} onClick={()=>void run("diagnostic")}
+      className="rounded bg-[#F5B800] px-4 py-2 font-bold text-black disabled:opacity-50">تشخيص محدود: 10 × 1 ثم 10 × 4</button>
+    <button type="button" disabled={running} onClick={()=>void run("acceptance")}
+      className="rounded border border-white px-4 py-2 font-bold disabled:opacity-50">قبول كامل: 100 × 4</button></div>
+    {mode?<p className="mt-2">النمط: {mode==="diagnostic"?"تشخيص محدود":"قبول كامل"}</p>:null}
     <p role="status" className="mt-4">{progress}</p>
     {failure?<p role="alert" className="mt-2 text-red-300">رمز الفشل: {failure}</p>:null}
     <div className="mt-6 overflow-x-auto"><table className="w-full border-collapse text-left" dir="ltr"><thead><tr>
-      {["Route","Attempted","HTTP 200","p50 ms","p95 ms","p99 ms","Max ms","500","502","503","504","Timeout","Other","Status"].map(x=><th key={x} className="border p-2">{x}</th>)}
+      {["Route","Phase","Attempted","HTTP 200","p50 ms","p95 ms","p99 ms","Max ms","500","502","503","504","Timeout","Other","Status","Slow trace IDs"].map(x=><th key={x} className="border p-2">{x}</th>)}
     </tr></thead><tbody>{results.map(x=><tr key={x.route}>
-      {[x.route,x.attempted,x.http200,x.p50,x.p95,x.p99,x.max,x.errors.http500,x.errors.http502,x.errors.http503,x.errors.http504,x.errors.timeout,x.errors.other,x.status].map((v,i)=><td key={i} className="border p-2">{v??"—"}</td>)}
+      {[x.route,x.phase,x.attempted,x.http200,x.p50,x.p95,x.p99,x.max,x.errors.http500,x.errors.http502,x.errors.http503,x.errors.http504,x.errors.timeout,x.errors.other,x.status,x.slowTraces.join("; ")].map((v,i)=><td key={i} className="border p-2">{v??"—"}</td>)}
     </tr>)}</tbody></table></div>
   </main>;
 }
