@@ -8,6 +8,8 @@ on:
       - "scripts/b5-disposable-financial-load.sh"
       - "scripts/b5-financial-http-benchmark.mjs"
       - "scripts/b5-financial-http-benchmark.test.mjs"
+      - "scripts/c5-close-readiness-http-benchmark.mjs"
+      - "scripts/c5-close-readiness-http-benchmark.test.mjs"
       - "scripts/b5-disposable-payroll-load.sh"
       - "scripts/b5-disposable-payroll-race.sh"
       - "supabase/tests/b5_disposable_payroll_load_*"
@@ -29,6 +31,8 @@ on:
       - "scripts/b5-disposable-financial-load.sh"
       - "scripts/b5-financial-http-benchmark.mjs"
       - "scripts/b5-financial-http-benchmark.test.mjs"
+      - "scripts/c5-close-readiness-http-benchmark.mjs"
+      - "scripts/c5-close-readiness-http-benchmark.test.mjs"
       - "scripts/b5-disposable-payroll-load.sh"
       - "scripts/b5-disposable-payroll-race.sh"
       - "supabase/tests/b5_disposable_payroll_load_*"
@@ -116,4 +120,4 @@ jobs:
         run: bash scripts/b5-disposable-expense-load.sh
 
       - name: Verify fail-closed financial HTTP harness (mocked transport, no credentials)
-        run: node --test scripts/b5-financial-http-benchmark.test.mjs
+        run: node --test scripts/b5-financial-http-benchmark.test.mjs scripts/c5-close-readiness-http-benchmark.test.mjs
