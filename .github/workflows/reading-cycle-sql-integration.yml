@@ -197,6 +197,18 @@ jobs:
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_gl_two_session_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_gl_two_session_setup.sql
           bash supabase/tests/financial_gl_two_session_concurrency.sh
 
+      - name: Verify C6 two-session period close, maker-checker, invoice denial, replay and post-lock drift
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: financial_c6_two_session_close_test
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_c6_two_session_close_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_c6_two_session_close_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_c6_two_session_close_setup.sql
+          bash supabase/tests/financial_c6_two_session_close.sh
+
       - name: Verify operational source GL and month recognition with real migrations
         env:
           PGPASSWORD: postgres
