@@ -57,9 +57,9 @@ Existing administrative PDF/CSV and cashflow UI are not substitutes for the abov
 - Production release, PR merge, formal accounting sign-off and user-facing claims of certified profit remain prohibited absent their independent gates and approval.
 
 
-## 6. Master C implementation slice (2026-11-13, pending CI and migration)
+## 6. Master C implementation slice (2026-11-13, initial code state; superseded by section 8)
 - Code commit `ac843b09eb06d53c910f24a12fb3c81e95b04f18`: PostgreSQL GL two-period snapshot, server permission guard and fresh-fingerprint export precondition. These are new work, **not** C1–C5 acceptance evidence.
-- Migration `20261113204500_powerhub_financial_gl_monthly_comparison_c` is source-controlled and **NOT YET APPLIED** to Staging or Production. Must run via the protected version-exact migration workflow, not an ad-hoc schema update.
+- Migration `20261113204500_powerhub_financial_gl_monthly_comparison_c` was **NOT YET APPLIED at this initial implementation timestamp**; section 8 records the subsequently verified Staging installation.
 - The SQL reads complete published GL aggregates and proves matching service-recognition policy versions by source type. Missing prior-period recognized service, missing coverage, or unbalanced posted entries block export rather than manufacturing zero or a percentage.
 - Comparison is allowed to display provisional values with clearly flagged blockers; only provably comparable current/previous periods can be exported. All results are `NOT_CERTIFIED`.
 - The export action always re-reads the server-side source and verifies the requested snapshot fingerprint. No browser-side paging sums or cross-site access.
@@ -71,3 +71,41 @@ Existing administrative PDF/CSV and cashflow UI are not substitutes for the abov
 - Multi-site comparison requires the tenant multi-branch entitlement and independently verified report access to **every** active site; one-site subscriptions see no multi-site comparison choice.
 - Every period keeps missing-posting/policy states visible, and the trend is explicitly \`PRELIMINARY_GL_TREND_UNVERIFIED_SOURCES\` with \`NOT_CERTIFIED\`. It is not a source-reconciled export, certified profit, or consolidated financial statement; central costs are not silently allocated.
 - The implementation is a source-code delivery pending newest-head CI, the protected exact migration \`20261113204500\`, installed Staging SQL regression and authenticated browser validation. **No master Phase C engineering PASS yet.**
+
+
+## 8. Verified continuation after owner-applied Staging migration (2026-11-13)
+
+**Scope:** original master Phase C comparisons, site trends and exports; not C1–C5 close-readiness. The runtime tested here is commit \`1d74ff42d50f26d3688e3d369e7071750af56458\` on PR #359. No Production deployment, merge, final profits or human accounting approval.
+
+### Verifiable staging and CI evidence
+
+| Gate | Evidence on this round | Verdict |
+|---|---|---|
+| Exact versioned migration | Supabase Staging migration ledger has \`20261113204500\` with source name \`powerhub_financial_gl_monthly_comparison_c\`; both PostgreSQL RPC signatures exist. | \`PASS_STAGING_APPLIED\` |
+| RPC access control | Staging \`has_function_privilege\` explicitly reports \`anon=false\`, \`authenticated=false\`, \`service_role=true\` for both compare and trend. | \`PASS_DB_ACL\` |
+| Missing service-recognition evidence | Site 1, 2026-11 vs 2026-10 returns \`BLOCKED\`, \`canExport=false\`, three blockers (\`RECOGNITION_POLICY_NOT_PROVEN\`, \`CURRENT_PERIOD_NOT_ENDED_GAZA\`, \`UNVERIFIED_SOURCE_COVERAGE\`), \`NOT_CERTIFIED\`. | \`PASS_LIVE_NEGATIVE_SCOPE\` |
+| Scope/period/replay negative tests | Read-only PostgreSQL DO checked stable same-source fingerprint, cross-tenant rejection, duplicate/nonexistent site rejection, invalid month count, reversed period, and both ACLs. | \`PASS_STAGING_READONLY\` |
+| Exact source reconciliation | Independent joined GL line aggregation compared 6 site-month rows over sites 1 and 9000000000099 / 2026-09..11; 0 count/revenue/direct-cost/net mismatches. This is a **limited sample**, not 1000-row reconciliation. | \`PASS_SAMPLED_6_OF_6\` |
+| SQL execution sample | Staging EXPLAIN ANALYZE compare 172.408 ms, 12-month two-site trend 32.314 ms (single warm sample; not HTTP p95 or scale guarantee). | \`MEASURED_ONLY\` |
+| Tests on actual C migration | Disposable PostgreSQL CI \`43508850125\` and \`43508859940\` succeeded, including C SQL ACL, policy, fingerprint and site cube proof. | \`PASS_DISPOSABLE_SQL\` |
+| Runtime CI | [PowerHub CI #43508850064](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/43508850064) \`SUCCESS\` with TypeScript, Vitest, and production build; Security \`43508860012\`, Admin Guard \`43508860072\`, B5 Synthetic \`43508860218\`, PostgreSQL Integration \`43508859940\` also \`SUCCESS\` on same code SHA. | \`PASS_CI\` |
+| Vercel Preview | New Preview \`dpl_69aUGe6sXQDcXryCMSE9CwH5mp9v\` is READY for runtime SHA \`1d74ff42...\`; HTTPS \`/api/health\` returned HTTP 200. | \`PASS_PREVIEW_HEALTH\` |
+| Real authorized finance API | An attempt to fetch API through Vercel's protected deployment helper stopped at Vercel Authentication, before reaching PowerHub session/API. No genuine finance API acceptance was collected. | \`NOT_EXECUTED\` |
+| Real browser downloads | No successful authenticated end-to-end PDF/XLSX/CSV download evidence. Unit tests use 1100 synthetic accounts, Excel workbook roundtrip, CSV safety and bounded PDF page model; actual PDF rasterization/download with browser must be checked separately. | \`OPEN_LIVE_E2E\` |
+| Large throughput | No full 1100-GL-entry HTTP p95 benchmark on the current Preview and no real browser 63-page rendering budget measurement. | \`OPEN_PERFORMANCE\` |
+
+### Updated export implementation
+
+- Shared deterministic row constructor for CSV/XLSX/PDF; Arabic RTL report metadata includes tenant/site identity, scope, dates, fiscal currency, accounting policy, review statuses, generation time and source fingerprint.
+- Numeric Excel and CSV values remain numeric; strings are escaped/CSV-formula guarded. XLSX test writes and reloads 1100 accounts, checks final row/negative numbers and unit of percentages.
+- PDF now creates at most 18 GL account rows in each bounded canvas slice, with every page containing the provisional/NOT_CERTIFIED warning and fingerprint. A paginated jsPDF renderer generates page numbers; generic PDF report behavior elsewhere is unchanged.
+- Export remains fail-closed on stale source fingerprint and incomplete policy. **Do not generate artificial service-recognition entries on the current financial Staging data merely to enable an export**.
+
+### Release decision
+
+- \`MASTER_FINANCE_PHASE_C_IMPLEMENTATION=SUBSTANTIAL_AND_TESTED\`
+- \`MASTER_FINANCE_PHASE_C_DB_STAGING=PASS\`
+- \`MASTER_FINANCE_PHASE_C_FINAL_ACCEPTANCE=OPEN\` pending authentic finance HTTP/session and actual PDF/Excel/CSV download plus large-volume budget.
+- \`ACCOUNTING_CERTIFICATION=NOT_CERTIFIED\`
+- Previously documented close-readiness C6 and live UI waivers remain \`WAIVED_BY_OWNER_NOT_EXECUTED\`, never \`PASS\`.
+- PR #359 remains Draft/unmerged; Production unchanged. No broad acceptance or merge until independent approval of the remaining gates.

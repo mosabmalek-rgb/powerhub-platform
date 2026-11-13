@@ -365,3 +365,11 @@
 - **تقييم العناصر الخمسة في قسم C أعلاه: `NOT_EXECUTED` لقبول Staging النهائي و`IN_PROGRESS` للتنفيذ الجزئي فقط.** لا تُحوّل خاناتها إلى PASS.
 - `20261113204500_powerhub_financial_gl_monthly_comparison_c.sql` موجود في PR، يحتاج تشغيلًا محميًا على Staging قبل تجربة API والتنزيل.
 - مفقود: اتجاهات الفروع ومتعدد الفروع وفق الباقة، اختبارات تنزيل PDF/Excel متعددة الصفحات، الحجم الكبير، تطابق الملف مع دفتر الأستاذ الحي، وCI النهائية على نفس الرأس. لا دمج ولا Production.
+
+
+## Master Phase C status update — 13 Nov 2026 (after Staging migration)
+- Exact \`20261113204500\` source-controlled SQL applied in Staging and verified; PostgreSQL compare/trend read models installed with service-only EXECUTE.
+- Full site-month trend, multi-site entitlement/tenant safeguards and GL two-month comparison are implemented and CI tested on \`1d74ff42\`.
+- CSV/XLSX/PDF exports now have deterministic provenance rows, Excel 1100-account roundtrip test, and bounded numbered PDF pages. These are code/CI results only.
+- Staging blocked-export result and 6-of-6 GL reconciliation verified. Authenticated finance HTTP, real in-browser downloads and multi-page PDF rendering/performance remain **OPEN**, so Phase C is **NOT COMPLETE** and its acceptance checkboxes should remain unchecked until those gates are met.
+- Accounting statements remain \`NOT_CERTIFIED\`. No production writes/PR merge.
