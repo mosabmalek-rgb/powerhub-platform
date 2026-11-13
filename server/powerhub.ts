@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
+import { measureB5Stage } from "./b5-request-trace";
 import { measureSlowStage, withAbortSignalIfSupported, withTimeout } from "./performance-telemetry";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { calculateCompanyAccountBalance } from "./company-account-utils";
@@ -6324,9 +6325,9 @@ export const powerhubRouter = router({
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
-      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_company_movement_audit",{
+      const {data,error}=await measureB5Stage("financialRpc", () => supabaseAdmin().rpc("powerhub_financial_gl_company_movement_audit",{
         p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
-      });
+      }));
       if(error || !data || typeof data!=="object" || Array.isArray(data))
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
           message:"تعذر تدقيق حركات حسابات الشركة؛ لم تُعتمد أي نتيجة جزئية."});
@@ -6389,9 +6390,9 @@ export const powerhubRouter = router({
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
-      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_subledger_reconciliation",{
+      const {data,error}=await measureB5Stage("financialRpc", () => supabaseAdmin().rpc("powerhub_financial_gl_subledger_reconciliation",{
         p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
-      });
+      }));
       if(error || !data || typeof data!=="object" || Array.isArray(data))
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
           message:"تعذرت مطابقة الدفاتر المساعدة؛ لم يتم إصدار نتيجة معتمدة."});
@@ -6413,9 +6414,9 @@ export const powerhubRouter = router({
     })).query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
-      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_site_statements",{
+      const {data,error}=await measureB5Stage("financialRpc", () => supabaseAdmin().rpc("powerhub_financial_gl_site_statements",{
         p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
-      });
+      }));
       if(error || !data || typeof data!=="object" || Array.isArray(data))
         throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
           message:"تعذر إعداد القوائم الأولية من الأستاذ العام؛ لن تُعرض نتائج ناقصة."});
