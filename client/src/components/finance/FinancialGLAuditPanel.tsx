@@ -8,6 +8,7 @@ import FinancialCashTransferPostingWorkspace from "./FinancialCashTransferPostin
 import FinancialInterSiteTransferWorkspace from "./FinancialInterSiteTransferWorkspace";
 import FinancialGLCorrectionReadinessWorkspace from "./FinancialGLCorrectionReadinessWorkspace";
 import FinancialGLComparisonPanel from "./FinancialGLComparisonPanel";
+import FinancialGLTrendPanel from "./FinancialGLTrendPanel";
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -361,6 +362,7 @@ export default function FinancialGLAuditPanel({
         </div> : null}
       </div>
       <FinancialGLComparisonPanel siteId={siteId} period={period} active={active} />
+      <FinancialGLTrendPanel siteId={siteId} period={period} active={active} hasMultipleSites={hasMultipleSites} />
       <div className="mt-3 rounded-md border border-white/10 p-3">
         <div className="flex items-center justify-between gap-3">
           <div>

@@ -64,3 +64,10 @@ Existing administrative PDF/CSV and cashflow UI are not substitutes for the abov
 - Comparison is allowed to display provisional values with clearly flagged blockers; only provably comparable current/previous periods can be exported. All results are `NOT_CERTIFIED`.
 - The export action always re-reads the server-side source and verifies the requested snapshot fingerprint. No browser-side paging sums or cross-site access.
 - **Acceptance gates remain OPEN** pending: TypeScript/tests/CI on final head, protected Staging migration, real RPC SQL proof, authenticated HTTPS and download/PDF/Excel multi-page verification, large-volume/performance, and multi-site trend acceptance. No claim of `MASTER_FINANCE_PHASE_C=PASS`.
+
+
+## 7. Phase C month/site trends, source-only implementation
+- Added full PostgreSQL site/month aggregates for 1–12 months, maximum 30 authorized active sites, no first-page client aggregation, no fetching at ordinary dashboard load.
+- Multi-site comparison requires the tenant multi-branch entitlement and independently verified report access to **every** active site; one-site subscriptions see no multi-site comparison choice.
+- Every period keeps missing-posting/policy states visible, and the trend is explicitly \`PRELIMINARY_GL_TREND_UNVERIFIED_SOURCES\` with \`NOT_CERTIFIED\`. It is not a source-reconciled export, certified profit, or consolidated financial statement; central costs are not silently allocated.
+- The implementation is a source-code delivery pending newest-head CI, the protected exact migration \`20261113204500\`, installed Staging SQL regression and authenticated browser validation. **No master Phase C engineering PASS yet.**
