@@ -65,6 +65,8 @@ BEGIN
  ELSIF v_cur_policy<>v_prev_policy
  THEN v_blockers:=array_append(v_blockers,'RECOGNITION_POLICY_MISMATCH');
  END IF;
+ IF (v_current->>'periodEnd')::date >= (statement_timestamp() AT TIME ZONE 'Asia/Gaza')::date
+ THEN v_blockers:=array_append(v_blockers,'CURRENT_PERIOD_NOT_ENDED_GAZA');END IF;
  IF (v_current->>'hasPostedData')::boolean IS DISTINCT FROM true
     OR (v_previous->>'hasPostedData')::boolean IS DISTINCT FROM true
  THEN v_blockers:=array_append(v_blockers,'NO_POSTED_GL_IN_ONE_PERIOD');END IF;
@@ -130,4 +132,160 @@ $function$;
 REVOKE ALL ON FUNCTION public.powerhub_financial_gl_monthly_comparison(bigint,bigint,text,text)
  FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_monthly_comparison(bigint,bigint,text,text)
+ TO service_role;
+
+
+-- C: bounded, single-query, multi-site GL series for authorized sites only.
+-- No series is a consolidated or certified statement; no browser pagination.
+CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_monthly_trend(
+ p_tenant_id bigint,p_site_ids bigint[],p_end_period text,p_months integer DEFAULT 6
+) RETURNS jsonb
+LANGUAGE plpgsql STABLE
+SET search_path TO 'pg_catalog','public','pg_temp'
+AS $function$
+DECLARE
+ v_start text;
+ v_bad_count bigint;
+ v_rows jsonb;
+ v_site_count integer;
+ v_tenant_name text;
+BEGIN
+ IF p_tenant_id IS NULL OR p_tenant_id<=0
+    OR p_site_ids IS NULL OR coalesce(array_length(p_site_ids,1),0)<1
+    OR array_length(p_site_ids,1)>30 OR array_position(p_site_ids,NULL) IS NOT NULL
+    OR p_months IS NULL OR p_months<1 OR p_months>12
+    OR p_end_period IS NULL OR p_end_period !~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
+ THEN RAISE EXCEPTION 'GL_C_TREND_INVALID_INPUT' USING ERRCODE='22023'; END IF;
+ SELECT count(*) INTO v_site_count FROM public.sites s
+ WHERE s.tenant_id=p_tenant_id AND s.status='active' AND s.id=ANY(p_site_ids);
+ IF v_site_count<>array_length(p_site_ids,1) OR
+    (SELECT count(DISTINCT t.id) FROM unnest(p_site_ids) t(id))<>v_site_count
+ THEN RAISE EXCEPTION 'GL_C_TREND_CROSS_TENANT_OR_DUPLICATE_SITE' USING ERRCODE='42501';END IF;
+ SELECT name INTO STRICT v_tenant_name FROM public.tenants WHERE id=p_tenant_id;
+ v_start:=to_char(((p_end_period||'-01')::date
+   - make_interval(months => p_months-1))::date,'YYYY-MM');
+
+ -- Fail closed on missing, unbalanced, malformed or foreign posted GL lines.
+ WITH entry_checks AS (
+   SELECT e.id,count(l.id) line_count,
+    coalesce(sum(CASE WHEN l.side='debit' THEN l.amount
+                      WHEN l.side='credit' THEN -l.amount ELSE 0 END),0) signed_net,
+    count(*) FILTER (WHERE l.id IS NOT NULL AND
+      (l.tenant_id<>e.tenant_id OR l.site_id<>e.site_id
+       OR l.side NOT IN('credit','debit') OR l.amount<=0
+       OR a.code IS NULL OR a.account_class NOT IN
+        ('asset','liability','equity','revenue','expense')
+       OR (a.account_class='revenue' AND a.code<>'4100')
+       OR (a.account_class='expense' AND a.code NOT IN
+        ('5100','5200','5300','5400','6100')))) invalid_lines
+   FROM public.financial_gl_entries e
+   LEFT JOIN public.financial_gl_lines l ON l.entry_id=e.id
+   LEFT JOIN public.financial_gl_accounts a
+      ON a.tenant_id=l.tenant_id AND a.code=l.account_code
+   WHERE e.tenant_id=p_tenant_id AND e.site_id=ANY(p_site_ids)
+     AND e.period BETWEEN v_start AND p_end_period
+   GROUP BY e.id
+ )
+ SELECT count(*) INTO v_bad_count FROM entry_checks
+ WHERE line_count<2 OR signed_net<>0 OR invalid_lines>0;
+ IF v_bad_count>0 THEN
+   RAISE EXCEPTION 'GL_C_TREND_UNBALANCED_OR_UNCLASSIFIED_SOURCE' USING ERRCODE='23514';
+ END IF;
+
+ WITH month_series AS (
+    SELECT to_char(d::date,'YYYY-MM') period
+    FROM generate_series((v_start||'-01')::date,
+      (p_end_period||'-01')::date, interval '1 month') d
+ ),
+ sites_scope AS (
+    SELECT s.id site_id,s.name site_name FROM public.sites s
+    WHERE s.tenant_id=p_tenant_id AND s.id=ANY(p_site_ids) AND s.status='active'
+ ),
+ gl_monthly AS (
+   SELECT e.site_id,e.period,count(DISTINCT e.id)::bigint entry_count,
+     coalesce(sum(CASE WHEN a.account_class='revenue'
+        THEN CASE WHEN l.side='credit' THEN l.amount ELSE -l.amount END
+        ELSE 0 END),0) revenue,
+     coalesce(sum(CASE WHEN a.code='5100'
+        THEN CASE WHEN l.side='debit' THEN l.amount ELSE -l.amount END
+        ELSE 0 END),0) direct_cost,
+     coalesce(sum(CASE WHEN a.code='5200'
+        THEN CASE WHEN l.side='debit' THEN l.amount ELSE -l.amount END
+        ELSE 0 END),0) wages,
+     coalesce(sum(CASE WHEN a.code='5300'
+        THEN CASE WHEN l.side='debit' THEN l.amount ELSE -l.amount END
+        ELSE 0 END),0) depreciation,
+     coalesce(sum(CASE WHEN a.code='5400'
+        THEN CASE WHEN l.side='debit' THEN l.amount ELSE -l.amount END
+        ELSE 0 END),0) provisions,
+     coalesce(sum(CASE WHEN a.code='6100'
+        THEN CASE WHEN l.side='debit' THEN l.amount ELSE -l.amount END
+        ELSE 0 END),0) nonoperating
+   FROM public.financial_gl_entries e
+   JOIN public.financial_gl_lines l
+     ON l.entry_id=e.id AND l.tenant_id=e.tenant_id AND l.site_id=e.site_id
+   JOIN public.financial_gl_accounts a
+     ON a.tenant_id=e.tenant_id AND a.code=l.account_code
+   WHERE e.tenant_id=p_tenant_id AND e.site_id=ANY(p_site_ids)
+     AND e.period BETWEEN v_start AND p_end_period
+   GROUP BY e.site_id,e.period
+ ),
+ policy AS (
+   SELECT e.site_id,e.period,
+      count(DISTINCT nullif(e.accounting_policy_version,'')) versions,
+      count(*) FILTER(WHERE nullif(e.accounting_policy_version,'') IS NULL) missing,
+      min(nullif(e.accounting_policy_version,'')) version
+   FROM public.financial_gl_entries e
+   WHERE e.tenant_id=p_tenant_id AND e.site_id=ANY(p_site_ids)
+     AND e.period BETWEEN v_start AND p_end_period
+     AND e.source_type='service_recognition'
+   GROUP BY e.site_id,e.period
+ ),
+ full_rows AS (
+   SELECT s.site_id,s.site_name,m.period,
+     coalesce(g.entry_count,0)::bigint n,
+     coalesce(g.revenue,0)::numeric revenue,
+     coalesce(g.direct_cost,0)::numeric direct_cost,
+     coalesce(g.wages,0)::numeric wages,
+     coalesce(g.depreciation,0)::numeric depreciation,
+     coalesce(g.provisions,0)::numeric provisions,
+     coalesce(g.nonoperating,0)::numeric nonoperating,
+     CASE WHEN p.versions=1 AND p.missing=0 THEN p.version ELSE null END version,
+     CASE WHEN p.versions=1 AND p.missing=0 THEN 'SINGLE_VERSION'
+          WHEN coalesce(p.versions,0)=0 THEN 'UNPROVEN'
+          ELSE 'MIXED_POLICY' END policy_status
+   FROM sites_scope s CROSS JOIN month_series m
+   LEFT JOIN gl_monthly g ON g.site_id=s.site_id AND g.period=m.period
+   LEFT JOIN policy p ON p.site_id=s.site_id AND p.period=m.period
+ )
+ SELECT jsonb_agg(jsonb_build_object(
+   'siteId',site_id,'siteName',site_name,'period',period,'glEntryCount',n,
+   'hasPostedData',n>0,'serviceRevenue',revenue,
+   'directServiceCost',direct_cost,
+   'grossResult',revenue-direct_cost,'wages',wages,
+   'depreciation',depreciation,'provisions',provisions,
+   'nonOperatingExpenses',nonoperating,
+   'operatingResult',revenue-direct_cost-wages-depreciation-provisions,
+   'provisionalNetResult',revenue-direct_cost-wages-depreciation-provisions-nonoperating,
+   'recognitionPolicyVersion',version,'recognitionPolicyStatus',policy_status,
+   'isFinalProfit',false,'isCompleteAccrualStatement',false
+ ) ORDER BY site_id,period)
+ INTO v_rows FROM full_rows;
+ IF jsonb_array_length(coalesce(v_rows,'[]'::jsonb))<>v_site_count*p_months
+ THEN RAISE EXCEPTION 'GL_C_TREND_RESULT_INCOMPLETE' USING ERRCODE='23514';END IF;
+ RETURN jsonb_build_object(
+   'tenantId',p_tenant_id,'tenantName',v_tenant_name,
+   'siteIds',to_jsonb(p_site_ids),'siteCount',v_site_count,'months',p_months,
+   'startPeriod',v_start,'endPeriod',p_end_period,'rows',v_rows,
+   'source','POSTED_GL_FULL_PERIOD_AGGREGATES',
+   'status','PRELIMINARY_GL_TREND_UNVERIFIED_SOURCES',
+   'sourceCoverageVerified',false,'centralCostAllocationIncluded',false,
+   'isConsolidatedFinancialStatement',false,'accountingCertification','NOT_CERTIFIED',
+   'isFinalProfit',false,'generatedAt',statement_timestamp(),
+   'periodTimeZone','Asia/Gaza','currency','ILS','sourceSnapshotAtomic',true);
+END
+$function$;
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_monthly_trend(bigint,bigint[],text,integer)
+ FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_monthly_trend(bigint,bigint[],text,integer)
  TO service_role;

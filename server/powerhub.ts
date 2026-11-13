@@ -18,6 +18,7 @@ import { summarizeAccrualComponents, summarizeInvoiceServiceCycleCoverage, isIss
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildFinancialCloseReadiness } from "./financial-close-readiness";
 import { validateGLMonthlyComparison } from "./financial-gl-comparison";
+import { validateGLTrend } from "./financial-gl-trend";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
@@ -6442,6 +6443,49 @@ export const powerhubRouter = router({
     }),
 
     // Master finance C: server-only complete GL aggregation, on-demand, no cached exports.
+
+    // Phase C: no default dashboard fetch. A complete PostgreSQL aggregation,
+    // scoped to one site or all independently authorized sites of an entitled tenant.
+    financialGLMonthlyTrend: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      endPeriod:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+      months:z.number().int().min(1).max(12).default(6),
+      allSites:z.boolean().default(false),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      let siteIds=[input.siteId];
+      if(input.allSites){
+        await requireTenantMultiBranchEntitlement(access.tenantId);
+        const {data:sites,error:sitesError}=await supabaseAdmin().from("sites")
+          .select("id").eq("tenant_id",access.tenantId).eq("status","active")
+          .order("id",{ascending:true}).limit(31);
+        if(sitesError||!sites||sites.length<2||sites.length>30)
+          throw new TRPCError({code:"FORBIDDEN",
+            message:"تعذر إثبات أهلية الاشتراك أو نطاق الفروع للمقارنة."});
+        siteIds=sites.map(s=>Number(s.id));
+        for(const id of siteIds){
+          const member=await requireSupabaseSiteRole(ctx.user.id,id,
+            ["owner","manager","accountant","viewer"],"viewFinancialReports");
+          if(member.tenantId!==access.tenantId)
+            throw new TRPCError({code:"FORBIDDEN",
+              message:"لا يمكن مقارنة فروع غير مخولة أو من اشتراك آخر."});
+        }
+      }
+      const {data,error}=await supabaseAdmin().rpc("powerhub_financial_gl_monthly_trend",{
+        p_tenant_id:access.tenantId,p_site_ids:siteIds,
+        p_end_period:input.endPeriod,p_months:input.months,
+      });
+      if(error||!data)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+        message:"تعذر تكوين الاتجاه المحاسبي الكامل من قاعدة البيانات."});
+      try {
+        return validateGLTrend(data,{tenantId:access.tenantId,siteIds,
+          endPeriod:input.endPeriod,months:input.months,allSites:input.allSites});
+      } catch {
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"المقارنة المالية لا تطابق حدود الاشتراك والفترة أو مصدر الأستاذ العام."});
+      }
+    }),
     financialGLMonthlyComparison: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),
       currentPeriod:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
