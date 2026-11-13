@@ -6486,10 +6486,12 @@ export const powerhubRouter = router({
       if(error) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
         message:"تعذر قراءة سجل مراجعة عزل حركات الأداء."});
       if(!data){
-        // A35: Staging prelaunch test fixture evidence is technical, not
-        // an independent human review. Both paths share the full SHA verifier.
-        const response=await supabaseAdmin().rpc("powerhub_financial_gl_verify_staging_fixture",{
-          p_tenant_id:1,p_site_id:1,
+        // The exact Staging cohort was SHA-verified before its rows were frozen.
+        // Read the guarded, indexed proof here instead of rehashing 250k rows
+        // on every dashboard visit. Human-reviewed manifests retain the full
+        // verifier below, and a failed fast proof never excludes any movement.
+        const response=await supabaseAdmin().rpc("powerhub_financial_gl_fast_staging_fixture_proof",{
+          pt:1,ps:1,
         });
         if(response.error || !response.data || typeof response.data!=="object"
           || Array.isArray(response.data)) throw new TRPCError({

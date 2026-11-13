@@ -61,6 +61,34 @@ describe("authenticated Staging fixture routes", () => {
     expect(state.rpc).not.toHaveBeenCalled();
     expect(state.from).not.toHaveBeenCalled();
   });
+  it("reads the frozen technical proof without rehashing the cohort on dashboard visits", async () => {
+    const query = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn() };
+    query.select.mockReturnValue(query);
+    query.eq.mockReturnValue(query);
+    query.maybeSingle.mockResolvedValue({ data: null, error: null });
+    state.from.mockReturnValue(query);
+    state.rpc.mockResolvedValue({ data: { verified: true, quarantinedCount: 250000,
+      sha256: "a".repeat(64), verificationMode: "STAGING_PRELAUNCH_TECHNICAL",
+      humanReviewed: false, financialCertification: "NOT_CERTIFIED",
+      reason: "HASH_ANCHORED_IMMUTABLE_STAGING_TEST_COHORT" }, error: null });
+    await expect(caller().financialGLFixtureStatus({ siteId: 1 })).resolves.toMatchObject({
+      verified: true, fixtureCount: 250000, verificationMode: "technical",
+    });
+    expect(state.rpc).toHaveBeenCalledExactlyOnceWith(
+      "powerhub_financial_gl_fast_staging_fixture_proof", { pt: 1, ps: 1 });
+  });
+  it("never excludes the cohort when the frozen proof fails", async () => {
+    const query = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn() };
+    query.select.mockReturnValue(query);
+    query.eq.mockReturnValue(query);
+    query.maybeSingle.mockResolvedValue({ data: null, error: null });
+    state.from.mockReturnValue(query);
+    state.rpc.mockResolvedValue({ data: { verified: false, quarantinedCount: 0,
+      reason: "FAST_PROOF_UNAVAILABLE_OR_DRIFTED" }, error: null });
+    await expect(caller().financialGLFixtureStatus({ siteId: 1 })).resolves.toMatchObject({
+      verified: false, status: "not_prepared", verificationMode: "none",
+    });
+  });
   it("derives the preparer from the authenticated identity and strips spoofed input", async () => {
     state.rpc.mockResolvedValue({ data: 33, error: null });
     await expect(caller().financialGLFixturePrepare({
