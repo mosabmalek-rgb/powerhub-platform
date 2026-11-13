@@ -1,28 +1,57 @@
-# PowerHub — Phase C engineering acceptance ledger
+# PowerHub — C acceptance ledger: separated scopes and evidence (13 November 2026)
 
-**Date:** 2026-11-13. **Scope:** PR #359, Supabase Staging only. **Decision:** OPEN, not finally accepted. `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
+**PR #359 / Branch:** `feat/auth-local-first-single-pr`.
+**Verified final evidence baseline:** `e745c111044c6d1f39c5fc65ee28d601c122a058`.
+**Engineering disposition:** `C_CLOSE_SCOPED_ACCEPTED_WITH_OWNER_WAIVERS`.
+**Full Phase C per financial master plan:** `C_COMPARISONS_EXPORTS_NOT_YET_ACCEPTED`.
+**Financial certification:** `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
+**Delivery:** PR OPEN/Draft/unmerged; Production not touched.
 
-## Verified preliminary evidence
+## 1. Scope reconciliation with the two plans
 
-- On head `26c976a8f94aa6b383484e70b62cad0efaeddc44`, the five required CI workflows passed. The SHA-matched Preview deployment `dpl_8nRVBwujzHX2TGHyUfszoofdnCJC` was READY. Recheck both on every later code commit.
-- `/api/ready` on that Preview reported application, Supabase configuration and connectivity ready over HTTPS. A genuine Staging owner session reached the C5 acceptance page after releasing the previous device lease for that fixture account. No bearer or refresh token was copied into the record.
-- The read-only Staging C1 SQL returned `C1_STAGING_READ_ONLY_CLOSE_BLOCKERS_PASS_NOT_CERTIFIED`. GL baseline before and after: 25 entries, 51 lines, debit 18073.50, credit 18073.50; 0 saved period reviews, 0 supplier corrections, 0 inter-site eliminations, 0 accrual audit events. This verifies a read preflight, not a close.
-- Five targeted test files passed 34 cases for the readiness contract, HTTP response proof, accrual components and device fast claim. A separate site-selection regression checks deterministic primary-site choice.
-- Protected Staging versioned migration workflow [run #43](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/43490929743) was dispatched with target `staging`, source PR `359`, and exact C4 migration path. It is waiting for an authorized independent environment review; the version `20261113203000` was absent from the Staging ledger at the last query. No break-glass or direct schema application is permitted.
+**Close-readiness stream C1–C5** in this PR is *not* identical to **"المرحلة C — المقارنات والتصدير"** in `docs/roadmaps/financial-phase2-phase3-acceptance-20261109.md`. These scopes cannot be interchangeable in an acceptance decision.
 
-## C3 scope finding and correction
+The engineering close-readiness implementation is accepted **only within its evidenced scope** (Staging provisional accounting, read-only readiness, non-certified review, guarded independent period lock, owner-approved testing exceptions). Do **not** describe it as complete certified month-end accounting.
 
-The E2E owner has both site 1 and a later isolated synthetic fixture site 9000000000099. Accessible sites are returned newest first. With multi-site entitlement off, the main financial dashboard hides its site selector and previously defaulted to that fixture, showing zeros while the live site-1 source report has one incomplete invoice and one unclassified stock movement. `selectFinancialSiteId` now chooses the oldest active site ID by default and honors a valid explicit selection. The new Preview must be inspected after CI to verify that the actual Arabic blocker counts come from site 1.
+The master finance Phase C checklist also requires comparable periods and policy provenance, branch/period trends, PDF RTL and Excel/CSV complete exports, source-to-file reconciliation, source snapshot identifiers, pagination, authorization and large dataset downloads. Existing cash-flow compare and administrative PDF/CSV export buttons in `FinancialDashboardPage.tsx` are **partial preexisting functions**; they do not prove all those additional accounting-level acceptance criteria. Consequently **full master-plan Phase C remains OPEN**. Do not quietly amend master-plan unchecked items to PASS.
 
-## Acceptance matrix
+## 2. Verified engineering gates — closing-readiness stream
 
-| Gate | Current result | Required remaining evidence |
-| --- | --- | --- |
-| C1 engineering | PARTIAL | Full negative close scenarios and rollback assertions after C4 |
-| C2 engineering | PARTIAL | Live variant checks, isolation and stale-permission response |
-| C3 UI acceptance | INCONCLUSIVE | New SHA Preview with site 1, four UI states and server error recovery |
-| C4 Staging migration | NOT_EXECUTED | Protected reviewer approval, successful run and exact ledger version/name |
-| C4 security/concurrency | NOT_EXECUTED | Installed-schema rollback marker and real concurrent/replay/source-change checks |
-| C5 authenticated HTTPS | NOT_EXECUTED | 10×1, 10×4, then 100×4 on successful SHA; 8000ms timeout and p95 ≤3000ms for Phase C |
+| Gate | Evidence | Actual verdict |
+|---|---|---|
+| C1: source and period readiness | Re-ran `docs/security/sql/pr359-financial-c1-staging-close-readiness-readonly.sql` against Staging on 2026-11-13; returned `C1_STAGING_READ_ONLY_CLOSE_BLOCKERS_PASS_NOT_CERTIFIED`. Includes source blockers, non-final flags, balanced GL and scope. | `PASS_IN_TESTED_SCOPE` |
+| C2: protected readiness contract | `powerhub.reports.accrualCloseReadiness` guarded by `viewFinancialReports`; source-shape validation and failure rejection; 5/5 CI on final SHA. Real browser uses authorized tenant 1/site 1, period 2026-11 with `BLOCKED`, not certified. | `PASS_IN_TESTED_SCOPE` |
+| C3: visible blocked-state on actual Preview | Site-1 selection corrected; genuine authenticated Preview showed unfinished invoice and unclassified inventory issue, disabled close action, preliminary/unapproved statement. | `PASS_BLOCKED_VARIANT_ONLY`; remaining four-state/revocation tests waived below |
+| C4: installed DB lock and access | Protected Staging workflow #43 `43490929743` applied exact migration `20261113203000_powerhub_financial_c4_period_close_integrity_guard`. Confirmed ledger + `anon=false`, `authenticated=false`, `service_role=true`. Re-ran installed-schema `docs/security/sql/pr359-financial-c4-lock-guard-rollback.sql`: `C4_SOURCE_LOCK_MAKER_CHECKER_REPLAY_PASS_ROLLBACK`. Sequential maker/checker, self-approval rejection, same-reviewer replay, site scope, cutoff and unfinished month, zero saved financial approvals. | `PASS_SEQUENTIAL_ROLLBACK_SCOPE` |
+| C5: authenticated browser HTTPS | [PR proof](https://github.com/mosabmalek-rgb/powerhub-platform/pull/359#issuecomment-6863164959); deployed Preview `dpl_CNNaifoscEYgkiXdLkXT3nUaWQBw` on code commit `d2d88d8c0d973638ffc3f0c8c9d1f6cbe2254233`. 100/100 correct GET, concurrency 4, p50 392.6ms, p95 **648.3ms**, p99 814.5ms, maximum 946.4ms, 0 errors/timeouts, accepted budget p95 ≤3000ms. No writes or credential exposure. | `C5_AUTHENTICATED_HTTP=PASS` on tested code SHA |
+| Current CI | Five workflows all `SUCCESS` on **e745c111044c6d1f39c5fc65ee28d601c122a058**: PowerHub CI, PostgreSQL Integration, Security, Admin Guard and B5 Synthetic Financial Load. | `CI=PASS` on final evidence SHA |
+| Current Staging ledger | Direct read-only SQL: 25 GL entries / 51 lines, debit=credit=18,073.50, 0 stored review approvals. C4 migration installed. | `BASELINE_PRESERVED` |
+| PR technical discussion | Nine of nine review threads resolved, no APPROVED review recorded; PR remains Draft. | `REVIEW_THREADS_RESOLVED_NOT_MERGE_APPROVED` |
 
-The two-account Preview check is `WAIVED_BY_OWNER / NOT_EXECUTED`; server and database isolation and separation-of-duties checks remain required. No GL posting, collections, mock approval, Production deployment or PR merge was performed. Do not infer accounting certification from a balanced preliminary snapshot or CI success.
+The last commit `e745c111` changed only test/waiver documentation tree relative to the C5-tested runtime SHA, not the C2/C3/C4/C5 application runtime. Real HTTPS acceptance is *not* automatically extended to any future runtime-modifying commit.
+
+## 3. Explicit owner waivers — never PASS
+
+Source: `docs/roadmaps/powerhub-finance-phase-c-owner-waivers-20261113.md` and [PR record](https://github.com/mosabmalek-rgb/powerhub-platform/pull/359#issuecomment-6863528811).
+
+- `C6_TWO_INDEPENDENT_POSTGRES_SESSION_CLOSE_RACE=WAIVED_BY_OWNER_NOT_EXECUTED`: no positive claim about two-backend close/source-writer serializability.
+- `C3_FOUR_UI_STATE_LIVE_AND_STALE_ERROR_TESTS=WAIVED_BY_OWNER_NOT_EXECUTED`: only actual `BLOCKED` state is browser-proven, other states and stale-result/revocation scenarios are not live-accepted.
+- Previously waived two-independent-account Preview exercise remains `WAIVED_BY_OWNER_NOT_EXECUTED`; server/DB tenant/site and maker/checker protections remain mandatory.
+
+No disabling of the actual database guard, period advisory lock, one-device policy, ACL, RBAC or idempotency. **Waiver does not eliminate risk**: log these as explicit residual release risks.
+
+## 4. Outstanding acceptance per master Phase C plan (comparisons and exports)
+
+1. Same-policy comparative accrual periods, correct percentages with denominator zero, transparent status and Gaza-local cutoff.
+2. Source-backed period/site trend and branch comparison (only for entitled multi-site subscriptions), on-demand with server-side full aggregates rather than first-page browser totals.
+3. PDF Arabic RTL and Excel/CSV exports including identity, tenant/site, period, currency, filters, policy version, non-certification, generation time, snapshot identifier, pages and footers.
+4. Exact UI/export/GL source reconciliation, refusal of stale, incomplete, unauthorized or cross-tenant exports; large multi-page download and performance regression.
+
+Existing administrative PDF/CSV and cashflow UI are not substitutes for the above accounting-level tests. **Do not announce blanket `PHASE_C=PASS`**.
+
+## 5. Release and sign-off boundary
+
+- Scoped close-readiness engineering acceptance is **recorded** with waivers; it is not accounting approval or full feature-complete according to `docs/دورة التطوير باستخدام شات جي بي تي.md`.
+- Human review of documentary opening balances, depreciation, provisions and certified profit is still `NOT_CERTIFIED`.
+- The master-plan Phase C comparisons and exports remain open.
+- Production release, PR merge, formal accounting sign-off and user-facing claims of certified profit remain prohibited absent their independent gates and approval.
