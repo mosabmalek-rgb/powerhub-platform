@@ -35,6 +35,7 @@ const blockerLabels:Record<string,string>={
 const num=(x:number)=>x.toLocaleString("ar",{minimumFractionDigits:2,maximumFractionDigits:2});
 const pct=(x:number|null)=>x===null?"غير قابل للحساب (المقام صفر)":x.toLocaleString("ar")+"%";
 const csvCell=(value:unknown)=>{
+ if(typeof value==="number"&&Number.isFinite(value))return String(value);
  const text=String(value??"");
  // Guard against Excel/Sheets CSV formula injection while preserving Unicode labels.
  const safe=/^[\s]*[=+@\t\r-]/.test(text)?"'"+text:text;
@@ -136,7 +137,7 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
     const {default:ExcelJS}=await import("exceljs");
     const workbook=new ExcelJS.Workbook();workbook.creator="PowerHub";
     const sheet=workbook.addWorksheet("مقارنة المحاسبة",{views:[{rightToLeft:true}]});
-    rows.forEach(r=>sheet.addRow(r.map(v=>v===null||v===undefined?"":String(v))));
+    rows.forEach(r=>sheet.addRow(r.map(v=>typeof v==="number"?v:String(v??""))));
     sheet.columns=[{width:42},{width:32},{width:19},{width:19},{width:22}];
     sheet.getRow(18).font={bold:true};sheet.getRow(30).font={bold:true};
     const buffer=await workbook.xlsx.writeBuffer();
