@@ -193,15 +193,19 @@ export async function authenticateSupabaseRequest(
       claims.role !== "authenticated") {
     throw ForbiddenError("Invalid Supabase access token");
   }
+  // Capture validated scalar claims before passing them into an async callback;
+  // TypeScript cannot preserve property narrowing through a deferred closure.
+  const verifiedSubject = claims.sub;
+  const verifiedEmail = claims.email;
   const metadata = claims.user_metadata;
   const metadataName = metadata && typeof metadata === "object" && "name" in metadata &&
     typeof metadata.name === "string" ? metadata.name : undefined;
 
   const profileStartedAt = performance.now();
   const user = await measureB5Stage("profileRead", () => withAuthUpstreamDeadline("auth.profileSync", syncSupabaseProfile({
-    id: claims.sub,
-    email: claims.email,
-    name: metadataName ?? claims.email.split("@")[0],
+    id: verifiedSubject,
+    email: verifiedEmail,
+    name: metadataName ?? verifiedEmail.split("@")[0],
   }, options)));
   const profileMs = Math.round(performance.now() - profileStartedAt);
   const totalMs = Math.round(performance.now() - startedAt);
