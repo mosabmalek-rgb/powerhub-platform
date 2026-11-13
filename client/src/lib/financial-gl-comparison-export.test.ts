@@ -1,6 +1,6 @@
 import {describe,it,expect} from "vitest";
 import ExcelJS from "exceljs";
-import {buildGLExportRows,serializeGLCsv,buildGLPdfHtml,type GLExportData} from "./financial-gl-comparison-export";
+import {buildGLExportRows,serializeGLCsv,buildGLPdfHtml,buildGLPdfPages,type GLExportData} from "./financial-gl-comparison-export";
 function fixture(count=1100):GLExportData{
  return {
   tenantId:44,siteId:73,tenantName:"مولد <السلام> & الشركة",siteName:"=INJECT() الفرع",
@@ -58,6 +58,17 @@ describe("Phase C export exactness, multi-page size, and safe Arabic metadata",(
   expect(html).toContain("مولد &lt;السلام&gt; &amp; الشركة");
   expect(html).toContain("=INJECT() الفرع");
   expect((html.match(/<tr>/g)??[]).length).toBe(1+17+1+2+1+1100);
+ });
+ it("splits 1100 GL accounts into bounded, provenance-stamped pages without dropping rows",()=>{
+  const d=fixture(1100);
+  const pages=buildGLPdfPages(d,18);
+  expect(pages.length).toBe(1+Math.ceil(1100/18));
+  expect(pages[0]).toContain("NOT_CERTIFIED");
+  expect(pages.every(p=>p.includes(d.snapshotFingerprint))).toBe(true);
+  expect(pages.every(p=>p.includes(d.siteName))).toBe(true);
+  expect(pages.at(-1)).toContain("آخر حساب &lt; &gt; &amp;");
+  expect(pages.reduce((sum,p)=>sum+(p.match(/<td>asset<\/td>/g)??[]).length,0)).toBe(1100);
+  expect(()=>buildGLPdfPages(d,100)).toThrow("GL_PDF_INVALID_PAGE_LIMIT");
  });
  it("never produces a file from blocked, forged certification or incomplete identity",()=>{
   for(const patch of [

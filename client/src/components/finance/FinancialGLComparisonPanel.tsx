@@ -1,8 +1,8 @@
 import {useEffect,useState} from "react";
 import {Button} from "@/components/ui/button";
 import {trpc} from "@/lib/trpc";
-import {downloadReportHtmlAsPdf} from "@/lib/report-pdf";
-import {buildGLExportRows,buildGLPdfHtml,serializeGLCsv,glMetricLabels,glFormat,glPercent,type GLExportData} from "@/lib/financial-gl-comparison-export";
+import {downloadGLComparisonPaginatedPdf} from "@/lib/financial-gl-pdf-renderer";
+import {buildGLExportRows,serializeGLCsv,glMetricLabels,glFormat,glPercent,type GLExportData} from "@/lib/financial-gl-comparison-export";
 import {toast} from "sonner";
 
 type Report=GLExportData;
@@ -77,12 +77,7 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
     save(new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),
       stem+".xlsx");
    }else{
-    const element=document.createElement("div");element.dir="rtl";
-    element.style.cssText="position:fixed;left:-30000px;top:0;width:1050px;padding:30px;background:#fff;color:#111;font-family:Tahoma,Arial,sans-serif";
-    element.innerHTML=buildGLPdfHtml(fresh);document.body.appendChild(element);
-    try{await downloadReportHtmlAsPdf(element,stem+".pdf",{
-      landscape:true,title:"PowerHub — مقارنة GL أولية غير معتمدة"});}
-    finally{element.remove();}
+    await downloadGLComparisonPaginatedPdf(fresh,stem+".pdf");
    }
    setStartFingerprint(fresh.snapshotFingerprint);
    toast.success("اكتمل التصدير من لقطة GL مُعاد التحقق منها.");

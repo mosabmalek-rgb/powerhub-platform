@@ -100,3 +100,44 @@ export function buildGLPdfHtml(data:GLExportData):string{
   metadata+"<h2>مقارنة نتائج الفترة</h2>"+metrics+"<h2>جميع حسابات دفتر الأستاذ</h2>"+accounts+
   "<p>المبالغ بالشيكل؛ لا تشمل التكاليف المركزية غير الموزعة ولا تصديق الافتتاحية.</p></main>";
 }
+
+
+/** A bounded PDF page model. Prevents one unbounded html2canvas bitmap for large GL exports. */
+export function buildGLPdfPages(data:GLExportData, pageSize=18):string[]{
+ const complete=buildGLExportRows(data);
+ if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>30)
+  throw new Error("GL_PDF_INVALID_PAGE_LIMIT");
+ const metadata=complete.slice(0,17);
+ const table=(head:string[], records:GLExportRow[])=>
+  "<table style='width:100%;border-collapse:collapse;font-size:12px'><thead><tr>"+
+  head.map(c=>"<th>"+escapeHtml(c)+"</th>").join("")+
+  "</tr></thead><tbody>"+records.map(row=>"<tr>"+row.map(c=>"<td>"+escapeHtml(c)+"</td>").join("")+
+  "</tr>").join("")+"</tbody></table>";
+ const heading="<h1 style='font-size:20px;margin:0'>PowerHub — مقارنة دفتر الأستاذ الأولية</h1>"+
+  "<p style='margin:4px 0;color:#8b1f1f;font-size:12px'>NOT_CERTIFIED — غير معتمد محاسبيًا ولا يمثل أرباحًا نهائية</p>";
+ const provenance="<p style='font-size:10px;margin:5px 0'>الاشتراك: "+escapeHtml(data.tenantName)+
+  " (#"+data.tenantId+") · الفرع: "+escapeHtml(data.siteName)+" (#"+data.siteId+")"+
+  " · "+escapeHtml(data.previousPeriod)+" / "+escapeHtml(data.currentPeriod)+
+  " · "+escapeHtml(data.currency)+" · "+escapeHtml(data.periodTimeZone)+
+  " · سياسة "+escapeHtml(data.recognitionPolicyVersion)+"</p>";
+ const foot="<p style='font-size:9px;overflow-wrap:anywhere'>بصمة المصدر: "+
+  escapeHtml(data.snapshotFingerprint)+" · تاريخ التوليد: "+escapeHtml(data.generatedAt)+"</p>";
+ const intro=heading+provenance+
+  "<h2 style='font-size:15px'>هوية التقرير وحالة المراجعة</h2>"+
+  table(["البند","القيمة"],metadata)+
+  "<h2 style='font-size:15px'>مقارنة نتائج الفترة</h2>"+
+  table(["المؤشر","الحالي","السابق","الفرق","النسبة (%)"],
+    data.metrics.map(m=>[glMetricLabels[m.key]??m.key,
+     glFormat(m.current),glFormat(m.previous),glFormat(m.delta),glPercent(m.percentage)]))+foot;
+ const pages=[intro];
+ const accountHead=["رمز الحساب","اسم الحساب","التصنيف","الحالي","السابق","الفرق","النسبة (%)"];
+ for(let offset=0;offset<data.accountRows.length;offset+=pageSize){
+  const accounts=data.accountRows.slice(offset,offset+pageSize);
+  pages.push(heading+provenance+
+   "<h2 style='font-size:15px'>جميع حسابات دفتر الأستاذ · "+(offset+1)+"–"+
+    (offset+accounts.length)+" من "+data.accountRows.length+"</h2>"+
+   table(accountHead,accounts.map(a=>[a.code,a.name,a.accountClass,
+    glFormat(a.current),glFormat(a.previous),glFormat(a.delta),glPercent(a.percentage)]))+foot);
+ }
+ return pages;
+}
