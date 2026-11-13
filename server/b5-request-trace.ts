@@ -51,7 +51,7 @@ export function getB5TraceRoute(originalUrl: string, method: string, env: NodeJS
  * schema. The remaining time includes request/response overhead and queues,
  * not necessarily PostgreSQL execution. Never claim RPC round trip is DB-only.
  */
-export async function measureB5Stage<T>(stage: B5TraceStage, work: () => Promise<T>): Promise<T> {
+export async function measureB5Stage<T>(stage: B5TraceStage, work: () => PromiseLike<T>): Promise<T> {
   const current = traceStorage.getStore();
   if (!current) return work();
   const startedAt = performance.now();
