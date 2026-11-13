@@ -4,6 +4,7 @@ import {trpc} from "@/lib/trpc";
 import {downloadGLComparisonPaginatedPdf} from "@/lib/financial-gl-pdf-renderer";
 import {buildGLExportRows,serializeGLCsv,glMetricLabels,glFormat,glPercent,type GLExportData} from "@/lib/financial-gl-comparison-export";
 import {toast} from "sonner";
+import {isEarlierGLPeriod,previousGLPeriodOptions} from "@/lib/financial-gl-comparison-periods";
 
 type Report=GLExportData;
 const metricLabels=glMetricLabels;
@@ -27,12 +28,15 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
 }){
  const [open,setOpen]=useState(false);
  const [previous,setPrevious]=useState("");
+ const [manualPrevious,setManualPrevious]=useState(false);
+ const monthChoices=previousGLPeriodOptions(period,36);
  const [requested,setRequested]=useState<{siteId:number;currentPeriod:string;previousPeriod:string}|null>(null);
  const [exporting,setExporting]=useState(false);
  const [exportType,setExportType]=useState<"csv"|"xlsx"|"pdf"|null>(null);
  const [startFingerprint,setStartFingerprint]=useState("");
  useEffect(()=>{
-   setOpen(false);setRequested(null);setPrevious("");setStartFingerprint("");
+   setOpen(false);setRequested(null);setPrevious(previousGLPeriodOptions(period,1)[0]??"");
+   setManualPrevious(false);setStartFingerprint("");
  },[siteId,period]);
  const compare=trpc.powerhub.reports.financialGLMonthlyComparison.useQuery(
   requested??{siteId,currentPeriod:period,previousPeriod:period},
@@ -43,7 +47,7 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
    requested?.currentPeriod===period?compare.data as Report:undefined;
  const allowed=Boolean(data?.canExport&&data?.status==="COMPARABLE_PRELIMINARY"&&!exporting);
  const begin=()=>{
-  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(previous)||previous>=period){
+  if(!isEarlierGLPeriod(previous,period)){
    toast.error("اختر شهرًا سابقًا صالحًا للمقارنة.");return;
   }
   // Never re-use a prior result after an input change.
@@ -96,9 +100,25 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
   {open?<div className="mt-3 space-y-3">
    <div className="flex flex-wrap items-center gap-2">
     <label htmlFor="gl-compare-previous" className="text-sm text-white">الفترة السابقة</label>
-    <input id="gl-compare-previous" type="month" value={previous}
-      max={period} onChange={e=>{setPrevious(e.target.value);setRequested(null);setStartFingerprint("");}}
-      className="rounded border border-white/20 bg-[#111823] p-2 text-sm text-white"/>
+    <select id="gl-compare-previous" value={manualPrevious?"__custom":previous}
+      onChange={e=>{
+       const next=e.target.value;
+       setManualPrevious(next==="__custom");
+       setPrevious(next==="__custom"?"":next);
+       setRequested(null);setStartFingerprint("");
+      }}
+      className="rounded border border-white/20 bg-[#111823] p-2 text-sm text-white">
+      <option value="">اختر الشهر السابق</option>
+      {monthChoices.map(month=><option key={month} value={month}>{month}</option>)}
+      <option value="__custom">إدخال شهر أقدم يدويًا</option>
+    </select>
+    {manualPrevious?<input
+      aria-label="شهر أقدم بصيغة YYYY-MM"
+      id="gl-compare-previous-manual" type="text" dir="ltr" inputMode="numeric"
+      placeholder="YYYY-MM" autoComplete="off" value={previous} maxLength={7}
+      onChange={e=>{setPrevious(e.target.value.trim());setRequested(null);setStartFingerprint("");}}
+      className="rounded border border-white/20 bg-[#111823] p-2 text-sm text-white"
+    />:null}
     <Button size="sm" onClick={begin} disabled={!active||compare.isFetching}>عرض المقارنة</Button>
    </div>
    {compare.isFetching?<p role="status">جارٍ تجميع الأستاذ العام والتحقق من السياسة...</p>:null}
