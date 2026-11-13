@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, powerCapabilityLabels, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
+import { measureB5Stage } from "./b5-request-trace";
 import { recordTenantSearchMetric } from "./tenant-search-telemetry";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
@@ -125,9 +126,11 @@ type SiteAccessSnapshot = {
 
 async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number): Promise<ResolvedSupabaseSiteAccess> {
   const startedAt = performance.now();
-  const { data, error } = await supabaseAdmin().rpc("powerhub_site_access_snapshot", {
-    p_user_id: userId, p_site_id: siteId,
-  });
+  const { data, error } = await measureB5Stage("siteAccessRpc", () =>
+    supabaseAdmin().rpc("powerhub_site_access_snapshot", {
+      p_user_id: userId, p_site_id: siteId,
+    }));
+
   if (error || !data || typeof data !== "object" || Array.isArray(data)) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صلاحيات الفرع في Supabase." });
   }
