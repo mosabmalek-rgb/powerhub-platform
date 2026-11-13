@@ -70,8 +70,8 @@ export function buildFinancialCloseReadiness(input: {
   const age=now.getTime()-Date.parse(statement.asOf);
   if(age>5*60*1000 || age< -5*60*1000)
     throw new Error("C2_STALE_OR_FUTURE_SOURCE");
-  if(typeof review.driftDetected!=="undefined" &&
-    typeof review.driftDetected!=="boolean")
+  if((typeof review.driftDetected!=="undefined" && typeof review.driftDetected!=="boolean")
+    || (review.status==="locked" && typeof review.driftDetected!=="boolean"))
     throw new Error("C2_INVALID_DRIFT_STATUS");
   const journal=record(statement.journalAdjustments);
   const debit=finiteNumber(journal,"balancedDebits");

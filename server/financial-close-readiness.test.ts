@@ -79,6 +79,11 @@ describe("C2 financial close readiness remains advisory and non-certified",()=>{
   expect(result.status).toBe("BLOCKED");
   expect(result.blockers.some(b=>b.code==="SOURCE_DRIFT_AFTER_REVIEW")).toBe(true);
  });
+ it("refuses locked review without a real post-lock drift status",()=>{
+  const r=review({status:"locked"});
+  delete r.driftDetected;
+  expect(()=>run(snapshot(),r)).toThrow("C2_INVALID_DRIFT_STATUS");
+ });
  it("rejects cross-tenant/site/period and finality substitutions",()=>{
   for(const altered of [
    {scopeTenantId:2},{scopeSiteId:9},{period:"2026-09"},
