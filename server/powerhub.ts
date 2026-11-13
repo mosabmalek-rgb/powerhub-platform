@@ -16,6 +16,7 @@ import { financialTrendMonths } from "./financial-trend-months";
 import { reviewFinancialPayrollMonth, InvalidPayrollReview } from "./financial-payroll-review";
 import { summarizeAccrualComponents, summarizeInvoiceServiceCycleCoverage, isIssuedFinancialInvoiceStatus, InvalidAccrualComponents } from "./financial-accrual-components";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
+import { buildFinancialCloseReadiness } from "./financial-close-readiness";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
 import { invoiceDeliveryPolicyFromSetting, isInvoiceDeliveryChannelEnabled, resolveInvoiceNotificationChannels } from "./notification-channels";
 import { defaultInvoiceMessageTemplates, renderInvoiceMessageTemplate } from "./invoice-message-template";
@@ -5013,6 +5014,36 @@ export const powerhubRouter = router({
         purchaseGrossNotExpensed:Number(result.purchaseGrossNotExpensed),
         isFinalProfit:false as const,isCompleteAccrualStatement:false as const,
       };
+    }),
+    // C2 advisory read-only preflight. Never authorizes posting, approval or lock.
+    accrualCloseReadiness: protectedProcedure.input(z.object({
+      siteId:z.number().int().positive(),
+      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    })).query(async ({ctx,input})=>{
+      const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
+        ["owner","manager","accountant","viewer"],"viewFinancialReports");
+      const now=new Date();
+      const [month,review]=await Promise.all([
+        supabaseAdmin().rpc("powerhub_financial_accrual_month_statement",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+          p_as_of:now.toISOString(),
+        }),
+        supabaseAdmin().rpc("powerhub_financial_accrual_period_review_status",{
+          p_tenant_id:access.tenantId,p_site_id:input.siteId,p_period:input.period,
+        }),
+      ]);
+      if(month.error||review.error||!month.data||!review.data)
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"تعذر التحقق من مصادر الإقفال الشهرية؛ لا يمكن عرض جاهزية مؤكدة."});
+      try {
+        return buildFinancialCloseReadiness({
+          tenantId:access.tenantId,siteId:input.siteId,period:input.period,
+          now,statement:month.data,review:review.data,
+        });
+      } catch {
+        throw new TRPCError({code:"INTERNAL_SERVER_ERROR",
+          message:"لم تتطابق مصادر الإقفال أو نطاق الصلاحيات؛ أُوقف عرض الجاهزية."});
+      }
     }),
     accrualPeriodReviewStatus: protectedProcedure.input(z.object({
       siteId:z.number().int().positive(),period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),

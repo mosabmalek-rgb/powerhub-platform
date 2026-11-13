@@ -44,6 +44,9 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   const review=trpc.powerhub.reports.accrualPeriodReviewStatus.useQuery({siteId,period},{
     enabled:active,staleTime:60000,refetchOnWindowFocus:false,
   });
+  const readiness=trpc.powerhub.reports.accrualCloseReadiness.useQuery({siteId,period},{
+    enabled:active,staleTime:0,refetchOnWindowFocus:false,refetchOnReconnect:true,
+  });
   const saveReview=trpc.powerhub.reports.accrualPeriodReviewSave.useMutation();
   const lockReview=trpc.powerhub.reports.accrualPeriodReviewLock.useMutation();
   const create=trpc.powerhub.reports.accrualJournalCreate.useMutation();
@@ -68,6 +71,7 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
       utils.powerhub.reports.accrualMonthStatement.invalidate({siteId,period}),
       utils.powerhub.reports.accrualJournalList.invalidate({siteId,period}),
       utils.powerhub.reports.accrualPeriodReviewStatus.invalidate({siteId,period}),
+      utils.powerhub.reports.accrualCloseReadiness.invalidate({siteId,period}),
     ]);
   };
   const submitEvidence=async()=>{
@@ -156,7 +160,9 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
   ] as const).filter(item=>item.count>0) : [];
   const canLockReview=Boolean(review.data?.status==="draft" && statement.data &&
     !statement.isLoading && !statement.isError && !review.isError &&
-    !review.isLoading && closeBlockers.length===0);
+    !review.isLoading && closeBlockers.length===0 &&
+    readiness.data?.status==="READY_FOR_INDEPENDENT_REVIEW" &&
+    !readiness.isError && !readiness.isFetching && !readiness.isLoading);
   return <section aria-labelledby="monthly-accrual-review" className="rounded-xl border border-white/10 bg-[#111823] p-4 sm:p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -208,6 +214,33 @@ export default function AccrualAccountingPanel({siteId,period,active}:{
         لا يكتمل الإقفال دون أدلة لكل مصدر محاسبي، وتوقيع مستخدم ثانٍ،
         وتصفير المسودات والفواتير غير المكتملة. الإقفال لا يساوي شهادة تدقيق خارجي.
       </p>
+      {readiness.isLoading||readiness.isFetching
+        ? <p role="status" className="mt-3 text-xs text-slate-300">
+            جارٍ التحقق من موانع الإقفال عبر الخادم…
+          </p> : null}
+      {readiness.isError ? <p role="alert" className="mt-3 text-xs text-rose-200">
+        لم ينجح فحص جاهزية الإقفال؛ لا يمكن الاعتماد على نتائج مخزنة ولا يُسمح بالإقفال.
+      </p> : null}
+      {readiness.data&&!readiness.isLoading&&!readiness.isFetching&&!readiness.isError
+        ? <div className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+            <p className="font-semibold text-white">
+              حالة الجاهزية: {readiness.data.status==="BLOCKED" ? "معطّل بسبب مصادر أو شروط إقفال"
+                : readiness.data.status==="REVIEW_REQUIRED" ? "تحتاج إلى إعداد أدلة المراجعة"
+                : readiness.data.status==="LOCKED_NOT_CERTIFIED" ? "مراجعة مقفلة دون تصديق محاسبي"
+                : "جاهزة للعرض على مراجع مستقل فقط"}
+            </p>
+            <p className="mt-1 text-amber-200">
+              تقرير تمهيدي غير معتمد؛ لا يُنشئ قيودًا ولا يمنح اعتمادًا أو إذن إقفال تلقائيًا.
+            </p>
+            {readiness.data.blockers.length>0?<ul className="mt-2 list-inside list-disc space-y-1 text-rose-200">
+              {readiness.data.blockers.map(item=><li key={item.code}>
+                {item.label}{item.count===null?"":": "+n(item.count)}
+              </li>)}
+            </ul>:null}
+            {readiness.data.reviewRequirements.length>0?<ul className="mt-2 list-inside list-disc space-y-1 text-amber-200">
+              {readiness.data.reviewRequirements.map(item=><li key={item.code}>{item.label}</li>)}
+            </ul>:null}
+          </div>:null}
       {review.isError?<p role="alert" className="mt-2 text-xs text-rose-200">
         تعذر التحقق من حالة الإقفال؛ لا تسمح بإجراءات تعتمد على نتيجة غير مكتملة.
       </p>:null}
