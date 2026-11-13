@@ -13,6 +13,7 @@ import { registerMobileApi } from "../mobile-api";
 import { isVercelRuntime } from "./runtime";
 import { registerBrandAssetProxy } from "./storageProxy";
 import { healthHandler, readinessHandler } from "./health";
+import { b5TraceMiddleware } from "../b5-request-trace";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -164,6 +165,7 @@ export function createPowerHubApp() {
     });
     next();
   });
+  app.use("/api/trpc", b5TraceMiddleware);
   app.use(
     "/api/trpc",
     createExpressMiddleware({
