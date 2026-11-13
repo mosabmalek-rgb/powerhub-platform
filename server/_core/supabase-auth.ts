@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Request } from "express";
 import { syncSupabaseProfile, type SupabaseProfileUser } from "../supabase-profile";
+import { measureB5Stage } from "../b5-request-trace";
 
 let cachedAuthClient: { url: string; publishableKey: string; client: SupabaseClient<any, "public", "public", any, any> } | null = null;
 
@@ -174,7 +175,7 @@ export async function authenticateSupabaseRequest(
   // Authoritative database access and device checks are never memoized.
   let claims: VerifiedAuthClaims;
   try {
-    claims = await getVerifiedSupabaseClaims(supabase, authHeader.slice(7));
+    claims = await measureB5Stage("jwtVerify", () => getVerifiedSupabaseClaims(supabase, authHeader.slice(7)));
   } catch (error) {
     const authMs = Math.round(performance.now() - authStartedAt);
     if (authMs >= 500) {
@@ -197,11 +198,11 @@ export async function authenticateSupabaseRequest(
     typeof metadata.name === "string" ? metadata.name : undefined;
 
   const profileStartedAt = performance.now();
-  const user = await withAuthUpstreamDeadline("auth.profileSync", syncSupabaseProfile({
+  const user = await measureB5Stage("profileRead", () => withAuthUpstreamDeadline("auth.profileSync", syncSupabaseProfile({
     id: claims.sub,
     email: claims.email,
     name: metadataName ?? claims.email.split("@")[0],
-  }, options));
+  }, options)));
   const profileMs = Math.round(performance.now() - profileStartedAt);
   const totalMs = Math.round(performance.now() - startedAt);
 
