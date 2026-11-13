@@ -9,6 +9,14 @@ type Report=GLExportData;
 const metricLabels=glMetricLabels;
 const num=glFormat;
 const pct=glPercent;
+const blockerLabels:Record<string,string>={
+ RECOGNITION_POLICY_NOT_PROVEN:"لم تثبت نسخة سياسة الاعتراف بالإيراد في الفترتين",
+ RECOGNITION_POLICY_MISMATCH:"اختلاف نسخة سياسة الاعتراف بين الفترتين",
+ CURRENT_PERIOD_NOT_ENDED_GAZA:"الفترة الحالية لم تنته بعد وفق توقيت غزة",
+ NO_POSTED_GL_IN_ONE_PERIOD:"لا توجد قيود أستاذ منشورة لإحدى الفترتين",
+ UNVERIFIED_SOURCE_COVERAGE:"تغطية المصادر المحاسبية غير مكتملة",
+ UNRECONCILED_GL_SOURCE:"توجد مصادر محاسبية غير مسوّاة",
+};
 function save(blob:Blob,name:string){
  const url=URL.createObjectURL(blob);
  const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);
