@@ -751,3 +751,10 @@ jobs:
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres platform_support_identity_role_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname platform_support_identity_role_test --set ON_ERROR_STOP=1 --file supabase/tests/chat_support_admin_capability_scope.sql
+
+      - name: Verify Phase C comparison and bounded trend RPCs against disposable PostgreSQL
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_phase_c_disposable_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_phase_c_disposable_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_phase_c_comparison_trend.sql
