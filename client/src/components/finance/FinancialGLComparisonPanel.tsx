@@ -1,93 +1,18 @@
 import {useEffect,useState} from "react";
 import {Button} from "@/components/ui/button";
 import {trpc} from "@/lib/trpc";
-import {downloadReportHtmlAsPdf,escapeHtml} from "@/lib/report-pdf";
+import {downloadReportHtmlAsPdf} from "@/lib/report-pdf";
+import {buildGLExportRows,buildGLPdfHtml,serializeGLCsv,glMetricLabels,glFormat,glPercent,type GLExportData} from "@/lib/financial-gl-comparison-export";
 import {toast} from "sonner";
 
-type Report = {
- tenantId:number;siteId:number;tenantName:string;siteName:string;
- currentPeriod:string;previousPeriod:string;currentPeriodStart:string;currentPeriodEnd:string;
- previousPeriodStart:string;previousPeriodEnd:string;
- currentReviewStatus:string;previousReviewStatus:string;
- recognitionPolicyVersion:string|null;currency:string;periodTimeZone:string;
- generatedAt:string;snapshotFingerprint:string;
- status:"BLOCKED"|"COMPARABLE_PRELIMINARY";canExport:boolean;
- blockers:string[];accountingCertification:"NOT_CERTIFIED";isFinalFinancialStatement:false;
- currentGLEntryCount:number;previousGLEntryCount:number;
- metrics:{key:string;current:number;previous:number;delta:number;percentage:number|null}[];
- accountRows:{code:string;name:string;accountClass:string;current:number;previous:number;
- delta:number;percentage:number|null}[];
-};
-const metricLabels:Record<string,string>={
- serviceRevenue:"إيراد خدمة الكهرباء",directServiceCost:"التكلفة المباشرة",
- grossResult:"مجمل النتيجة",wages:"الأجور والرواتب",depreciation:"الإهلاك",
- provisions:"المخصصات",otherOperatingExpenses:"مصروفات تشغيلية أخرى",
- operatingResult:"نتيجة التشغيل",nonOperatingExpenses:"مصروفات غير تشغيلية",
- provisionalNetResult:"النتيجة المحاسبية الأولية",
-};
-const blockerLabels:Record<string,string>={
- RECOGNITION_POLICY_NOT_PROVEN:"لم تثبت نسخة سياسة الاعتراف بالإيراد في الفترتين",
- RECOGNITION_POLICY_MISMATCH:"اختلاف نسخة سياسة الاعتراف بين الفترتين",
- NO_POSTED_GL_IN_ONE_PERIOD:"لا توجد قيود أستاذ منشورة لإحدى الفترتين",
- UNVERIFIED_SOURCE_COVERAGE:"تغطية المصادر المحاسبية غير مكتملة",
- UNRECONCILED_GL_SOURCE:"توجد مصادر محاسبية غير مسوّاة",
-};
-const num=(x:number)=>x.toLocaleString("ar",{minimumFractionDigits:2,maximumFractionDigits:2});
-const pct=(x:number|null)=>x===null?"غير قابل للحساب (المقام صفر)":x.toLocaleString("ar")+"%";
-const csvCell=(value:unknown)=>{
- if(typeof value==="number"&&Number.isFinite(value))return String(value);
- const text=String(value??"");
- // Guard against Excel/Sheets CSV formula injection while preserving Unicode labels.
- const safe=/^[\s]*[=+@\t\r-]/.test(text)?"'"+text:text;
- return '"'+safe.replaceAll('"','""')+'"';
-};
+type Report=GLExportData;
+const metricLabels=glMetricLabels;
+const num=glFormat;
+const pct=glPercent;
 function save(blob:Blob,name:string){
  const url=URL.createObjectURL(blob);
  const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);
  try{a.click();}finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-}
-function reportRows(data:Report):unknown[][]{
- return [
-  ["تقرير مقارنة GL أولي غير معتمد","PowerHub"],["المولد / الاشتراك",data.tenantName],
-  ["الفرع",data.siteName],["رقم الفرع",data.siteId],
-  ["الفترة الحالية",data.currentPeriodStart+" — "+data.currentPeriodEnd],
-  ["الفترة السابقة",data.previousPeriodStart+" — "+data.previousPeriodEnd],
-  ["حالة الفترة الحالية",data.currentReviewStatus],
-  ["حالة الفترة السابقة",data.previousReviewStatus],
-  ["السياسة المحاسبية",data.recognitionPolicyVersion],
-  ["العملة",data.currency],["التوقيت",data.periodTimeZone],
-  ["حالة الاعتماد","NOT_CERTIFIED / غير نهائي"],["وقت الاستخراج",data.generatedAt],
-  ["بصمة المصدر",data.snapshotFingerprint],
-  ["عدد قيود الفترة الحالية",data.currentGLEntryCount],
-  ["عدد قيود الفترة السابقة",data.previousGLEntryCount],
-  [],
-  ["المؤشر","الحالي","السابق","الفرق","نسبة الفرق (%)"],
-  ...data.metrics.map(m=>[metricLabels[m.key]??m.key,m.current,m.previous,m.delta,
-   m.percentage===null?"غير قابل للحساب":m.percentage]),
-  [],
-  ["الحساب","التصنيف","الحالي","السابق","الفرق","نسبة الفرق (%)"],
-  ...data.accountRows.map(a=>[a.code+" — "+a.name,a.accountClass,a.current,a.previous,a.delta,
-   a.percentage===null?"غير قابل للحساب":a.percentage]),
- ];
-}
-function makePdfElement(data:Report){
- const div=document.createElement("div");
- div.dir="rtl";
- div.style.cssText="width:1050px;padding:32px;background:#fff;color:#111;font-family:Tahoma,Arial,sans-serif";
- const meta=reportRows(data).slice(0,16).map(r=>
-   "<tr><th>"+escapeHtml(r[0])+"</th><td>"+escapeHtml(r[1])+"</td></tr>").join("");
- const table=(title:string,rows:Array<{name:string;current:number;previous:number;delta:number;percentage:number|null}>)=>
-   "<section><h2>"+escapeHtml(title)+"</h2><table style='width:100%;border-collapse:collapse'><thead><tr><th>البند</th><th>الحالي</th><th>السابق</th><th>الفرق</th><th>النسبة</th></tr></thead><tbody>"+
-   rows.map(r=>"<tr><td>"+escapeHtml(r.name)+"</td><td>"+num(r.current)+"</td><td>"+
-     num(r.previous)+"</td><td>"+num(r.delta)+"</td><td>"+escapeHtml(pct(r.percentage))+"</td></tr>").join("")+
-   "</tbody></table></section>";
- div.innerHTML="<h1>PowerHub — مقارنة محاسبية أولية بين الفترات</h1>"+
- "<p><b>غير معتمد محاسبيًا — NOT_CERTIFIED. لا يمثل قوائم مالية نهائية ولا أرباحًا معتمدة.</b></p>"+
- "<table style='width:100%;border-collapse:collapse'>"+meta+"</table>"+
- table("نتائج القوائم الأولية",data.metrics.map(m=>({...m,name:metricLabels[m.key]??m.key})))+
- table("تفاصيل حسابات الأستاذ",data.accountRows.map(a=>({...a,name:a.code+" — "+a.name})))+
- "<p>لا تشمل الأرقام اعتماد الافتتاحيات أو تسوية المصروف المركزي غير الموزع. المبالغ بالشيكل.</p>";
- return div;
 }
 export default function FinancialGLComparisonPanel({siteId,period,active}:{
  siteId:number;period:string;active:boolean;
@@ -128,10 +53,10 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
    const fresh=result as Report;
    if(fresh.snapshotFingerprint!==data.snapshotFingerprint)
     throw new Error("تغيرت بصمة التقرير.");
-   const rows=reportRows(fresh);
+   const rows=buildGLExportRows(fresh);
    const stem="مقارنة-دفتر-الأستاذ-"+siteId+"-"+period+"-"+requested.previousPeriod;
    if(type==="csv"){
-    save(new Blob(["\ufeff"+rows.map(r=>r.map(csvCell).join(",")).join("\r\n")],
+    save(new Blob([serializeGLCsv(rows)],
       {type:"text/csv;charset=utf-8"}),stem+".csv");
    }else if(type==="xlsx"){
     const {default:ExcelJS}=await import("exceljs");
@@ -144,7 +69,9 @@ export default function FinancialGLComparisonPanel({siteId,period,active}:{
     save(new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),
       stem+".xlsx");
    }else{
-    const element=makePdfElement(fresh);document.body.appendChild(element);
+    const element=document.createElement("div");element.dir="rtl";
+    element.style.cssText="position:fixed;left:-30000px;top:0;width:1050px;padding:30px;background:#fff;color:#111;font-family:Tahoma,Arial,sans-serif";
+    element.innerHTML=buildGLPdfHtml(fresh);document.body.appendChild(element);
     try{await downloadReportHtmlAsPdf(element,stem+".pdf",{
       landscape:true,title:"PowerHub — مقارنة GL أولية غير معتمدة"});}
     finally{element.remove();}
