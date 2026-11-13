@@ -93,6 +93,9 @@ BEGIN
  FROM public.financial_gl_entries e
  WHERE e.tenant_id=p_tenant_id AND e.site_id=p_site_id AND e.period<=p_current_period;
 
+ -- Cover source-coverage/approval changes as well as posted GL line mutations.
+ v_fingerprint:=md5(v_fingerprint||':'||v_current::text||':'||v_previous::text);
+
  SELECT coalesce((SELECT r.status FROM public.financial_accrual_period_reviews r
                  WHERE r.tenant_id=p_tenant_id AND r.site_id=p_site_id
                    AND r.period=p_current_period ORDER BY r.id DESC LIMIT 1),'UNREVIEWED')
@@ -101,6 +104,8 @@ BEGIN
                  WHERE r.tenant_id=p_tenant_id AND r.site_id=p_site_id
                    AND r.period=p_previous_period ORDER BY r.id DESC LIMIT 1),'UNREVIEWED')
  INTO v_prev_review;
+
+ v_fingerprint:=md5(v_fingerprint||':'||v_cur_review||':'||v_prev_review);
 
  RETURN jsonb_build_object(
    'tenantId',p_tenant_id,'siteId',p_site_id,'tenantName',v_tenant_name,

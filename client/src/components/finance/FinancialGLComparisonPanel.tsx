@@ -37,7 +37,7 @@ const pct=(x:number|null)=>x===null?"غير قابل للحساب (المقام 
 const csvCell=(value:unknown)=>{
  const text=String(value??"");
  // Guard against Excel/Sheets CSV formula injection while preserving Unicode labels.
- const safe=/^[\s]*[=+@-\t\r]/.test(text)?"'"+text:text;
+ const safe=/^[\s]*[=+@\t\r-]/.test(text)?"'"+text:text;
  return '"'+safe.replaceAll('"','""')+'"';
 };
 function save(blob:Blob,name:string){
