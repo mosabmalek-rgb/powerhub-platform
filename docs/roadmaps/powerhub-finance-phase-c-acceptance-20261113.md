@@ -109,3 +109,18 @@ Existing administrative PDF/CSV and cashflow UI are not substitutes for the abov
 - \`ACCOUNTING_CERTIFICATION=NOT_CERTIFIED\`
 - Previously documented close-readiness C6 and live UI waivers remain \`WAIVED_BY_OWNER_NOT_EXECUTED\`, never \`PASS\`.
 - PR #359 remains Draft/unmerged; Production unchanged. No broad acceptance or merge until independent approval of the remaining gates.
+
+
+## 9. Continued verification on current PR head (2026-11-13)
+
+**Head before this evidence-only update:** `a0e42c53c16343731d0764ea6f1e8de31192b65e`, open Draft/unmerged. All five required CI runs completed successfully on that exact SHA: PowerHub CI `43509769618`, PostgreSQL Integration `43509769514`, Security `43509769422`, Admin Guard `43509769437`, B5 Synthetic Load `43509769373`. The Staging ledger still records exact comparison migration `20261113204500_powerhub_financial_gl_monthly_comparison_c`.
+
+The READY Preview `dpl_69aUGe6sXQDcXryCMSE9CwH5mp9v` identifies runtime commit `1d74ff42d50f26d3688e3d369e7071750af56458`, which predates the document-only head. The owner reports that browser download succeeded: `BROWSER_DOWNLOAD=OWNER_REPORTED_PASS`. This does not attest CSV/XLSX/PDF contents.
+
+A genuine authenticated owner fixture session on this Preview displayed the site-1 financial dashboard after the preceding session was explicitly signed out and its Staging test account's remaining device lease was expired. The single-device guard was not disabled. The on-demand GL monthly trend HTTPS request succeeded for six months, 2026-06 through 2026-11, one site, ILS, `NOT_CERTIFIED`; June–September were displayed as **no posted entries**, October as 10 entries and 2621.50 recognized service revenue, and November as 11 entries with 120.00 direct cost. This is a real authenticated UI/API positive for `financialGLMonthlyTrend`, not a 12-month throughput benchmark or a cross-tenant negative test.
+
+The comparison UI was opened and October entered, but the native month field reset before a valid comparison request was issued; the visible message was “اختر شهرًا سابقًا صالحًا للمقارنة”. Therefore `financialGLMonthlyComparison` authenticated HTTPS remains `INCONCLUSIVE`, not PASS or a proven application defect. The export endpoint was not invoked because the current Staging source is `BLOCKED` and no artificial recognition entry was created.
+
+The current source's isolated Vitest files for GL comparison, trend and export completed **17/17** tests. They include 1,100 synthetic account rows; workbook write/read roundtrip, numeric last row and negative amounts, UTF-8 BOM and CSV formula escaping, and bounded PDF HTML page splitting with all 1,100 rows present and provenance. They do **not** constitute inspection of a browser-downloaded PDF, actual PDF rasterization, XLSX/CSV from live GL, or p50/p95/p99 and memory at scale. The owner-reported browser download remains separately recorded.
+
+**Current master Phase C:** `OPEN`. Pending: authenticated comparison/export positive and negative permission/isolation/fingerprint tests; exact live-source file reconciliation; rendered multi-page PDF layout and file integrity; representative 1,000+ GL entry / 12-month multi-site performance with an adopted budget. `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`, Production unchanged. A documentation-only head requires CI verification on its own SHA; the prior Preview proves only its runtime SHA.
