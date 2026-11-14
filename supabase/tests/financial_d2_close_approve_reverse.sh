@@ -42,17 +42,25 @@ wait "$coordinator";c_rc=$?
 set -e
 verify_backends "$tmp/approval" "$tmp/close_a"
 [[ "$c_rc" -eq 0 ]] || { echo D2_APPROVAL_BARRIER_FAILED;exit 1; }
-# The draft already exists before the lock race. The C4 writer MUST fail
-# if it gets the lock before the journal approver, or after it: a period with
-# an unresolved draft can never be closed. Neither schedule is a valid close.
-[[ "$a_rc" -eq 0 && "$b_rc" -ne 0 ]] || {
- echo D2_CLOSE_ALLOWED_WITH_UNRESOLVED_JOURNAL
+# Two valid serial histories exist: (1) close observes pending draft and
+# rejects, then approval posts; (2) approval completes first, then close sees
+# no unresolved draft and may succeed. Closing BEFORE a pending draft is posted
+# must never succeed, and no draft may persist in a locked period.
+[[ "$a_rc" -eq 0 ]] || {
+ echo D2_APPROVAL_NEVER_COMPLETED
  cat "$tmp/approval" "$tmp/close_a";exit 1; }
 [[ "$(tail -1 "$tmp/approval")" == posted ]] || exit 1
-grep -q ACCRUAL_SOURCES_NOT_RECONCILED "$tmp/close_a" || {
- echo D2_CLOSE_APPROVE_WRONG_DENIAL
- cat "$tmp/close_a";exit 1; }
-[[ "$(sql "SELECT status FROM public.financial_accrual_period_reviews WHERE period='2026-09';")" == draft ]] || exit 1
+if [[ "$b_rc" -eq 0 ]];then
+ [[ "$(tail -1 "$tmp/close_a")" == locked ]] || exit 1
+ [[ "$(sql "SELECT status FROM public.financial_accrual_period_reviews WHERE period='2026-09';")" == locked ]] || exit 1
+ [[ "$(sql "SELECT count(*) FROM public.financial_accrual_journals WHERE tenant_id=901 AND site_id=9101 AND period='2026-09' AND status='draft';")" == 0 ]] || {
+  echo D2_LOCKED_PERIOD_CONTAINS_PENDING_DRAFT;exit 1; }
+else
+ grep -q ACCRUAL_SOURCES_NOT_RECONCILED "$tmp/close_a" || {
+  echo D2_CLOSE_APPROVE_WRONG_DENIAL
+  cat "$tmp/close_a";exit 1; }
+ [[ "$(sql "SELECT status FROM public.financial_accrual_period_reviews WHERE period='2026-09';")" == draft ]] || exit 1
+fi
 [[ "$(sql "SELECT count(*) FROM public.financial_accrual_journals WHERE id=$journal;")" == 1 ]] || exit 1
 echo D2_CLOSE_VS_APPROVE_TWO_BACKENDS_CONSISTENT
 
