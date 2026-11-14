@@ -262,6 +262,17 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres financial_d5_inventory_item_guard_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d5_inventory_item_guard_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d5_inventory_item_classification_guard.sql
 
+      - name: D6 versioned accrual fingerprint v2 compatibility and cash-only drift tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: financial_d6_fingerprint_test
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_d6_fingerprint_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d6_fingerprint_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d6_versioned_fingerprint.sql
+
       - name: Verify operational source GL and month recognition with real migrations
         env:
           PGPASSWORD: postgres
