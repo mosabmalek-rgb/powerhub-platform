@@ -503,3 +503,22 @@
 **تدقيق مستقل بعد ROLLBACK:** `financial_accrual_period_reviews=0`؛ `inventory_stock_movements=11`؛ `D5-ACCEPTANCE-ROLLBACK-%=0`؛ الصنف 11 بقي `spare_part/expense_on_issue`؛ الصنف 9 بقي `oil/expense_on_issue`؛ `account_transactions=361009`. لا أثر دائم من الاختبار.
 
 **فصل الحالات:** `D5_CLASSIFICATION_INSTALLED=PASS`، `D5_CLASSIFICATION_TESTED=PASS_4_OF_4`، `D5_CLASSIFICATION_ACCEPTED=SCOPED_ACCEPTED`. هذا قبول **لإصلاح حارس التصنيف ضمن الاختبارات المذكورة فقط**، ولا يعني قبول D5 أو D بالكامل. يظل `D5_FINGERPRINT_CORRECTION=OPEN`، وتبقى اختبارات العزل والتزامن والأداء ومراجعة بصمات الفترات التاريخية مطلوبة. `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`؛ PR #359 Draft وغير مدمج وProduction غير معدلة.
+
+## D6 — بصمة الاستحقاق الإصدارية v3 مع التوافق التاريخي (14 نوفمبر 2026)
+
+**المشكلة المثبتة في D5:** `driftDetected=true` رغم ثبات `powerhub_financial_accrual_month_statement(...)-'asOf'` عند إضافة حركة نقدية مستقلة أو تعديل `payroll_runs.updated_at` بعد إقفال استحقاق تجريبي. السبب أن البصمة القديمة v2 تُدخل جميع حقول الصفوف، وتضم كل حركات `account_transactions` حتى التي لا تُغيّر الاعتراف.
+
+**الإصلاح المصدرّي (ليس مثبتًا على Staging بشكل دائم):**
+- `supabase/migrations/20261114203000_powerhub_financial_d6_versioned_accrual_fingerprint.sql`.
+- يضيف `financial_accrual_period_reviews.fingerprint_version`؛ تظل المراجعات المقفلة تاريخيًا `legacy_v2` دون إعادة كتابة `source_fingerprint` أو `locked_snapshot`، وتُحوّل المسودات غير المقفلة إلى `financial_v3`. السجلات الجديدة تعتمد v3 افتراضيًا.
+- تبقى الدالة القديمة `powerhub_financial_accrual_detail_fingerprint` دون تعديل لقراءة البصمات التاريخية. تستخدم دالة v3 حقول المصدر المالي المؤثرة فقط، وتتضمن بنود الرواتب والتسويات النقدية المرتبطة برواتب الفترة أينما كان تاريخ سدادها. تستبعد الإيداع النقدي المستقل، تقدم تحصيل الفاتورة، تغير وصف الراتب، والفواتير المسودة غير المعترف بها.
+- يعاد تعريف مساري `powerhub_financial_accrual_period_lock` و`powerhub_financial_accrual_period_review_status` لتخزين v3 للمراجعات الجديدة واختيار الخوارزمية المطابقة لسجل المراجعة التاريخي عند قراءة حالة الفترة. يمنع الحارس تعديل إصدار البصمة مع الإقفال أو أثناء إعداد مسودة جديدة بإصدار قديم.
+- `v3` لا تعني القبول المحاسبي الشامل؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED` باقية.
+
+**التحقق الفعلي حتى الآن:**
+- اختبار `BEGIN/ROLLBACK` على Staging باستخدام SQL الترحيل المصدرّي المعدّل نفسه: **6/6 PASS** (قفل قديم قبل الترحيل، بقاء v2 بعد الترحيل، كشف تغيير مالي حقيقي في راتب، إنشاء قفل v3 جديد، عدم انحراف البصمة بسبب تعديل وصف الراتب، وعدم انحرافها بسبب إيداع نقدي مستقل).
+- فحص مستقل `supabase/tests/financial_d6_versioned_fingerprint.sql` أُدرج ضمن `reading-cycle-sql-integration.yml`. يستخدم PostgreSQL 17 مؤقتًا ومسار C4 الحقيقي مع مجمّع مصادر D2 اصطناعيًا؛ إثباته ليس بديلًا عن قائمة الاستحقاق الفعلية على Staging.
+- نص قبول Staging بعد تطبيق الترحيل: `docs/security/sql/pr359-financial-d6-staging-acceptance-rollback.sql`.
+- الحالة: `D6_SOURCE_COMMITTED=YES`; `D6_STAGING_ROLLBACK_MIGRATION_TEST=PASS_6_OF_6`; `D6_STAGING_INSTALLED=NO`; `D6_STAGING_ACCEPTED=NO`. بوابات CI يجب أن تُقرأ على SHA نهائي واحد.
+
+**بوابات القبول المتبقية:** CI مكتمل على أحدث رأس، ترحيل محمي ذي نسخة Git المطابقة، اختبار Staging بعد الترحيل مع بقاء البيانات كما كانت، العزل والصلاحيات، قياس الأداء خاصة على مصادر حركات الحسابات، ومراجعة الفصل بين الاستحقاق والتسوية النقدية. لا دمج ولا تعديل Production.
