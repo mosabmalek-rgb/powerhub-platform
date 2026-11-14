@@ -508,7 +508,7 @@
 
 **المشكلة المثبتة في D5:** `driftDetected=true` رغم ثبات `powerhub_financial_accrual_month_statement(...)-'asOf'` عند إضافة حركة نقدية مستقلة أو تعديل `payroll_runs.updated_at` بعد إقفال استحقاق تجريبي. السبب أن البصمة القديمة v2 تُدخل جميع حقول الصفوف، وتضم كل حركات `account_transactions` حتى التي لا تُغيّر الاعتراف.
 
-**الإصلاح المصدرّي (ليس مثبتًا على Staging بشكل دائم):**
+**الإصلاح المصدرّي (مثبت ومفعّل على Staging؛ تحقق بعد الترحيل):**
 - `supabase/migrations/20261114203000_powerhub_financial_d6_versioned_accrual_fingerprint.sql`.
 - يضيف `financial_accrual_period_reviews.fingerprint_version`؛ تظل المراجعات المقفلة تاريخيًا `legacy_v2` دون إعادة كتابة `source_fingerprint` أو `locked_snapshot`، وتُحوّل المسودات غير المقفلة إلى `financial_v3`. السجلات الجديدة تعتمد v3 افتراضيًا.
 - تبقى الدالة القديمة `powerhub_financial_accrual_detail_fingerprint` دون تعديل لقراءة البصمات التاريخية. تستخدم دالة v3 حقول المصدر المالي المؤثرة فقط، وتتضمن بنود الرواتب والتسويات النقدية المرتبطة برواتب الفترة أينما كان تاريخ سدادها. تستبعد الإيداع النقدي المستقل، تقدم تحصيل الفاتورة، تغير وصف الراتب، والفواتير المسودة غير المعترف بها.
@@ -519,6 +519,22 @@
 - اختبار `BEGIN/ROLLBACK` على Staging باستخدام SQL الترحيل المصدرّي المعدّل نفسه: **6/6 PASS** (قفل قديم قبل الترحيل، بقاء v2 بعد الترحيل، كشف تغيير مالي حقيقي في راتب، إنشاء قفل v3 جديد، عدم انحراف البصمة بسبب تعديل وصف الراتب، وعدم انحرافها بسبب إيداع نقدي مستقل).
 - فحص مستقل `supabase/tests/financial_d6_versioned_fingerprint.sql` أُدرج ضمن `reading-cycle-sql-integration.yml`. يستخدم PostgreSQL 17 مؤقتًا ومسار C4 الحقيقي مع مجمّع مصادر D2 اصطناعيًا؛ إثباته ليس بديلًا عن قائمة الاستحقاق الفعلية على Staging.
 - نص قبول Staging بعد تطبيق الترحيل: `docs/security/sql/pr359-financial-d6-staging-acceptance-rollback.sql`.
-- الحالة: `D6_SOURCE_COMMITTED=YES`; `D6_STAGING_ROLLBACK_MIGRATION_TEST=PASS_6_OF_6`; `D6_STAGING_INSTALLED=NO`; `D6_STAGING_ACCEPTED=NO`. بوابات CI يجب أن تُقرأ على SHA نهائي واحد.
+- الحالة التاريخية قبل الترحيل: `D6_SOURCE_COMMITTED=YES`; `D6_STAGING_ROLLBACK_MIGRATION_TEST=PASS_6_OF_6`. **الحالة الحالية بعد الترحيل:** `D6_STAGING_INSTALLED=PASS`; `D6_STAGING_TESTED=PASS_4_OF_4`; `D6_STAGING_ACCEPTED=SCOPED_ACCEPTED`؛ قبول D الإجمالي لم يكتمل. بوابات CI يجب أن تُقرأ على SHA نهائي واحد.
 
 **بوابات القبول المتبقية:** CI مكتمل على أحدث رأس، ترحيل محمي ذي نسخة Git المطابقة، اختبار Staging بعد الترحيل مع بقاء البيانات كما كانت، العزل والصلاحيات، قياس الأداء خاصة على مصادر حركات الحسابات، ومراجعة الفصل بين الاستحقاق والتسوية النقدية. لا دمج ولا تعديل Production.
+
+## D6 — قبول التثبيت واختبار Staging الحقيقي (14 نوفمبر 2026)
+
+**توثيق النسخة:** أظهر `list_migrations` أن الترحيل `20261114203000_powerhub_financial_d6_versioned_accrual_fingerprint` مسجّل على مشروع Staging `iyuryuhaylhisjfcrwkz`. تأكد وجود `financial_accrual_period_reviews.fingerprint_version` والقيد `financial_accrual_fingerprint_version_ck`، ودالة `powerhub_financial_accrual_detail_fingerprint_v3`، وأن دوال البصمة والإقفال والمراجعة `SECURITY INVOKER`، مع رفض `EXECUTE` لـ`anon` و`authenticated` والسماح لـ`service_role`.
+
+**الاختبار الفعلي بعد التثبيت:** نُفذ ملف `docs/security/sql/pr359-financial-d6-staging-acceptance-rollback.sql` على دوال Staging المثبتة فعليًا داخل `BEGIN/ROLLBACK`. نتيجة **4/4 PASS**:
+1. `new v3 C4 close`: نجاح الإقفال المؤقت عبر C4 باستخدام `financial_v3`.
+2. `v3 detects real financial payroll changes`: تغيير الأرقام المالية للراتب غيّر البصمة.
+3. `payroll metadata does not drift`: تعديل `updated_at` المسموح لا يسبب `driftDetected`.
+4. `cash-only deposit does not drift`: إيداع نقدي مستقل لا يسبب `driftDetected` ولا يغير قائمة الاستحقاق.
+
+**التحقق المستقل بعد ROLLBACK:** صفر مراجعات استحقاق، صفر مراجعات أغسطس المؤقتة، صفر حركة نقد اختبارية `D6-STAGING-ROLLBACK-CASH-20261114`، راتب #1 بقي `2026-10`، `payroll_runs=1`، `inventory_stock_movements=11`، `account_transactions=361009`؛ طول البصمة v3 للأشهر الفارغة وغير الفارغة 32 حرفًا. لم يستمر أي أثر اختباري، ولا يوجد اعتماد محاسبي مصطنع.
+
+**CI:** بوابات GitHub الخمس نجحت على الالتزام `0a83516589bf40132e101cd6bdffeae0c4ecc5f7` الذي يحتوي الترحيل واختبارات D6. بعد هذا التوثيق يجب إعادة التحقق من بوابات الالتزام الجديد، ولا تُنقل حالة نجاح الالتزام السابق تلقائيًا.
+
+**تمييز الحالات المعتمد:** `D6_INSTALLED=PASS`، `D6_TESTED=PASS_4_OF_4`، `D6_ACCEPTED=SCOPED_ACCEPTED` **لإصلاح البصمة ضمن الاختبارات المحددة فقط**. `MASTER_FINANCE_PHASE_D=IN_PROGRESS` و`ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. ما يزال قبول D الكامل بحاجة لاختبار العزل والصلاحيات العملية، التزامن على النطاق الحقيقي، الحمل والأداء، التأثيرات غير المباشرة للمصادر المالية، واستكمال توثيق الأدلة المحاسبية. لم يُدمج PR #359 ولم تُمس Production.
