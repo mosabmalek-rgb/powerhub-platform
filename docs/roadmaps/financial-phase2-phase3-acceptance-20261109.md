@@ -215,7 +215,7 @@
 | A | IN_PROGRESS | تنفيذ المدونة + ترحيل محفوظ + اختبارات مصادر وأرصدة | BLOCKED لحين الإثبات |
 | B | NOT_STARTED | قائمة الدخل/مركز مالي/ربحية فرع مربوطة بالأستاذ | BLOCKED |
 | C | ACCEPTED_BY_OWNER | قبول هندسي كامل بتأكيد المالك بتاريخ 2026-11-14 مع حفظ الاستثناءات التاريخية وNOT_CERTIFIED | OWNER_SIGNED_OFF |
-| D | IN_PROGRESS | D1/D2 ناجحتان ضمن نطاق الاختبارات؛ D3 مختبرة على Staging؛ D4 ترحيلها مثبت وحراسها الأربعة مفعّلة في Staging، واختبارات PostgreSQL ناجحة، مع فحص سلوكي جزئي فقط؛ القبول الشامل متبقٍّ | D4_INSTALLED_BEHAVIOR_PARTIAL |
+| D | IN_PROGRESS | D1/D2 ناجحتان ضمن نطاق الاختبارات؛ D3 مختبرة على Staging؛ D4 مثبتة ومختبرة على Staging في 12 سيناريو ضمن ROLLBACK مع بقاء بوابات العزل/التزامن/الأداء وD5؛ لا اعتماد محاسبي | D4_TESTED_SCOPE_D5_AUDIT_IN_PROGRESS |
 | E | NOT_STARTED | معاينة مُتحقق من أسرارها ومتصفح وأداء وصلاحيات | BLOCKED |
 | F | NOT_STARTED | CI النهائي على SHA نفسه + موافقات | BLOCKED |
 
@@ -425,3 +425,38 @@
 - `D4_STAGING_BEHAVIOR_ACCEPTANCE=PENDING` و`D4_ACCEPTED=NO` و`MASTER_FINANCE_PHASE_D=IN_PROGRESS`. التمييز: `INSTALLED` يعني الترحيل والحراس، و`TESTED` يحتاج دليلًا سلوكيًا لكل سيناريو، و`ACCEPTED` يحتاج إكمال بوابات القبول المحددة. `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
 
 **غير مكتمل:** قبول D الشامل، واختبار الترحيل D4 على Staging، وفحص التفاعل بين بعض الحركات النقدية/مدفوعات الموردين وGL دون حارس شامل قد يبطئ نحو 361 ألف حركة حساب موجودة في Staging. تبقى `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`، ويظل PR #359 Draft وغير مدمج ولا تعديل Production.
+
+## D4 — اختبار حقيقي بعد الترحيل ومراجعة D5 الأولية (14 نوفمبر 2026)
+
+**تثبيت رأس الاختبار:** على SHA `9a53b8acbe0d48219c6e87a65390d8925a865686` نجحت بوابات GitHub الخمس: PowerHub CI، PostgreSQL Integration، PowerHub Security، Supabase Admin Guard، B5 Synthetic Financial Load. لم يشمل ذلك أي نشر على Production.
+
+**اختبار D4 السلوكي الحي:** نُفذ SQL داخل `BEGIN/ROLLBACK` على Staging `iyuryuhaylhisjfcrwkz`. استعملت دالة `powerhub_financial_accrual_period_lock(1,1,'2026-09',3)` الحقيقية لمراجعة اختبارية أُنشئت داخل المعاملة. تم تعديل فترة راتب موجود مؤقتًا وتجهيز حركة مخزون تاريخية مؤقتة لضمان وجود مصادر واقعية للحارس. أُدرجت ثماني ملاحظات `D4 TEMPORARY ROLLBACK GUARD TEST ONLY - NOT FINANCIAL EVIDENCE` كي تستوفي الدالة شكل المراجعة؛ **لا تُفسر هذه الملاحظات على أنها أدلة محاسبية أو إقرار باعتماد الفترة**. وعادت كل التغييرات، بما فيها المراجعة والقفل، بالتراجع.
+
+**نتائج 12/12 ضمن نطاق الاختبار:**
+1. C4 lock RPC أقفل سبتمبر داخل المعاملة.
+2. رُفض تعديل القيمة المالية لراتب سبتمبر بالخطأ `D4_ACCRUAL_SOURCE_PERIOD_LOCKED` (5.28ms).
+3. رُفض تعديل بند راتب تابع له (9.90ms).
+4. رُفض نقل تاريخ مشتريات من نوفمبر إلى سبتمبر المقفل (1.92ms).
+5. رُفض إدخال حركة إصدار مخزون بتاريخ سبتمبر المقفل (0.81ms).
+6. رُفض إرجاع مخزون في نوفمبر يعود إلى مرجع سبتمبر المقفل (1.03ms).
+7. رُفض تصحيح حركة في نوفمبر ترتبط بمرجع سبتمبر المقفل (0.75ms).
+8. سُمح بتحديث وصف/وقت تعديل غير مالي للراتب المقفل.
+9. سُمح بتعديل ملاحظة بند الراتب.
+10. سُمح بتعديل ملاحظة المشتريات دون قيمة مالية.
+11. سُمح بإضافة حركة مخزون لفترة نوفمبر المفتوحة.
+12. بقي سجل مراجعة سبتمبر مقفلًا داخل المعاملة بعد حالات الرفض.
+
+**تحقق ما بعد ROLLBACK على اتصال مستقل:** `payroll_runs=1`، `payroll_items=3`، `supplier_purchases=2`، `inventory_stock_movements=11`، `financial_accrual_period_reviews=0`، `D4-STAGING-ROLLBACK-% operations=0`، وفترة الراتب الأصلي `2026-10`. لا تغييرات مستمرة. أزمنة 0.75–9.90ms تخص هذه الاستعلامات الستة الرافضة وحدها، ولا تُعد اختبار حمل أو قياس p95.
+
+**تصنيف الحالة الصحيح:** `D4_MIGRATION_INSTALLED=PASS`؛ `D4_STAGING_CLOSED_MONTH_GUARDS=PASS_FOR_TESTED_SCOPE`؛ `D4_STAGING_BEHAVIOR=TESTED_PARTIAL`؛ `D4_STAGING_BEHAVIOR_ACCEPTANCE=PENDING_FULL_GATES`؛ `D4_ACCEPTED=NO`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. ما زال اختبار عزل المستأجرين والفروع من هوية محدودة الصلاحيات، وسباق كُتاب فعليين على Staging، وأداء حمل عمليات الكتابة، والقبول المحاسبي المستقل خارج هذا النجاح.
+
+**D5 — جرد مباشر دون أي تغيير في القاعدة:**
+- `supplier_payments` و`supplier_purchase_returns` و`payments` و`account_transactions` و`company_accounts` تحمل Trigger `zz_powerhub_financial_settlement_source_write_guard`، بينما `supplier_ledger_entries` يحمل Trigger رفع مراجعة دفتر المورد فقط؛ لا يُستنتج منه وجود حماية استحقاق C4.
+- دالة `powerhub_guard_financial_settlement_source_write` تقفل بمفتاح `powerhub-financial-settlement-site` وتتحقق من `financial_settlements` المقفلة؛ هذا **ليس** نفس مفتاح `powerhub:accrual-period` أو `financial_accrual_period_reviews` الخاصين بـ C4/D4.
+- دالة `powerhub_financial_accrual_month_statement` لا تشير مباشرة إلى `supplier_payments` أو `supplier_purchase_returns` أو `supplier_ledger_entries` أو `account_transactions`؛ ودالة بصمة تفاصيل الاستحقاق تشير إلى `account_transactions`. غياب الإشارة المباشرة ليس دليلًا على عدم وجود تأثير غير مباشر؛ يجب تتبع التبعيات والـRPC والذمم والقيود.
+- أعداد Staging عند الجرد: `supplier_payments=2`، `supplier_purchase_returns=1`، `supplier_ledger_entries=5`، `account_transactions=361009`، `financial_accrual_period_reviews=0`.
+- **قرار D5:** لا يُضاف Trigger استحقاق شامل إلى 361,009 حركة حساب دون إثبات العلاقة بالمصدر واستعلام/خطة أداء. تُراجع أولًا حقول العكس/الترحيل والمستأجر والفرع وربط الدفعات والمرتجعات مع الاعتراف مقابل التسوية، ثم تُكتب اختبارات انحدار تُثبت الثغرة إن وجدت.
+
+**المتبقي قبل قبول D:** اختبار العزل والصلاحيات بأدوار حقيقية، السيناريوهات المتزامنة على Staging عند الحاجة، تدقيق كتاب D5 وتأثيراتها غير المباشرة، اختبار الأداء على نطاق ممثل، وCI نهائي على SHA التوثيق الجديد. لا دمج ولا Production.
+
+
