@@ -239,6 +239,18 @@ jobs:
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d3_source_guard_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d3_source_guard_setup.sql
           bash supabase/tests/financial_d3_source_guard_race.sh
 
+      - name: D4 accrual-close payroll supplier inventory guards and two-backend race
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: financial_d4_source_guard_test
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_d4_source_guard_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d4_source_guard_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d4_source_guard_setup.sql
+          bash supabase/tests/financial_d4_source_guard_race.sh
+
       - name: Verify operational source GL and month recognition with real migrations
         env:
           PGPASSWORD: postgres
