@@ -538,3 +538,34 @@
 **CI:** بوابات GitHub الخمس نجحت على الالتزام `0a83516589bf40132e101cd6bdffeae0c4ecc5f7` الذي يحتوي الترحيل واختبارات D6. بعد هذا التوثيق يجب إعادة التحقق من بوابات الالتزام الجديد، ولا تُنقل حالة نجاح الالتزام السابق تلقائيًا.
 
 **تمييز الحالات المعتمد:** `D6_INSTALLED=PASS`، `D6_TESTED=PASS_4_OF_4`، `D6_ACCEPTED=SCOPED_ACCEPTED` **لإصلاح البصمة ضمن الاختبارات المحددة فقط**. `MASTER_FINANCE_PHASE_D=IN_PROGRESS` و`ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. ما يزال قبول D الكامل بحاجة لاختبار العزل والصلاحيات العملية، التزامن على النطاق الحقيقي، الحمل والأداء، التأثيرات غير المباشرة للمصادر المالية، واستكمال توثيق الأدلة المحاسبية. لم يُدمج PR #359 ولم تُمس Production.
+
+## D7 — اختبار صلاحيات RLS والأداء الحقيقي بعد D6 (14 نوفمبر 2026)
+
+**CI / قاعدة الاختبار:** بوابات CI الخمس `SUCCESS` على SHA `2caf3ca1939bb6a6c7fad4693cf6500e767c2fb1`، والترحيلات D3/D4/D5/D6 مسجلة في Staging `iyuryuhaylhisjfcrwkz`. لا مراجعة إقفال استحقاق محفوظة حتى هذه الجولة. لا اعتماد محاسبي.
+
+**مراجعة سياسة RLS لحركات المخزون:** تحتوي `inventory_stock_movements` سياستين للقراءة: سياسة `inventory_stock_movements_tenant_read` من النوع `PERMISSIVE` لعضوية المستأجر، وسياسة `inventory_stock_movements_site_scope_read` من النوع `RESTRICTIVE` لصلاحية الفرع. PostgreSQL يجمع قيود `RESTRICTIVE` مع مجموعة السياسات المسموحة بمنطق `AND`، ولذلك لا يعني وجود سياسة المستأجر منفردة تسربًا عبر الفروع. تم إثبات ذلك باختبار سلوكي، وليس بفحص النص وحده.
+
+**اختبار SQL سلوكي محدود الدور داخل `BEGIN/ROLLBACK`:** استُخدمت هوية مصادقة اختبارية موجودة مع تغيير مؤقت فقط في `users.role/platform_role` و`tenant_members.role` و`staff_profiles.site_id/role` لجعلها `member/viewer` مقيدة بالفرع الثاني للمستأجر 1. انتقلت المعاملة إلى `SET LOCAL ROLE authenticated` مع `request.jwt.claim.sub` الخاص بالحساب الاختباري؛ ثم قورنت بمالك المستأجر الحالي دون حفظ التغييرات.
+
+| سيناريو RLS في Staging | مشاهدة فعلية | المتوقع | النتيجة |
+|---|---:|---|---|
+| مستخدم محدود بفرع ثانٍ يطلب حركات مخزون الفرع 1 | 0 | DENIED | PASS |
+| المستخدم نفسه يطلب أصناف المستأجر 1 المسموحة على مستوى المستأجر | 4 | VISIBLE | PASS |
+| المستخدم المحدود يطلب أصناف مستأجر آخر | 0 | DENIED | PASS |
+| مالك المستأجر يرى حركات المخزون في فرعه 1 | 11 | VISIBLE | PASS |
+
+فُحصت الدوال `private.powerhub_has_site_access` و`private.powerhub_has_tenant_access` لقيود العضوية الفعالة والفرع. **حد القبول:** هذا اختبار محاكاة DB لدور مصادق وسجلات Staging المتاحة، وليس اختبار API/HTTPS حقيقيًا، ولا يثبت كل فروع كل جدول. الفرع الثاني لا يملك حركات مخزون فعلية، لذا لا يُدَّعى إثبات كتابة/قراءة إيجابية له. تبقى اختبارات HTTPS وأدوار موظفين فعلية وأدوار متعددة المستأجرين مطلوبة.
+
+**قياس أداء D6 استعلامات متتالية، 20 عينة لكل مسار، في معاملة قراءة/اختبار قابلة للتراجع:**
+
+| المسار | p50 | p95 | الأقصى |
+|---|---:|---:|---:|
+| `powerhub_financial_accrual_detail_fingerprint_v3(1,1,'2026-10')` | 0.29ms | 12.43ms | 206.40ms |
+| `powerhub_financial_accrual_detail_fingerprint_v3(1,1,'2026-11')` | 0.37ms | 2.14ms | 3.19ms |
+| `powerhub_financial_accrual_month_statement(1,1,'2026-10',now())` | 0.43ms | 5.31ms | 24.34ms |
+
+القياسات زمن DB في جلسة واحدة وبعينات قليلة، وليست `HTTPS E2E` أو حملًا متزامنًا، ولا تمثل أحجام أشهر أخرى. تُحفظ القفزة الباردة 206.40ms كملاحظة للمراجعة، **ولا تُسجل PERFORMANCE_ACCEPTED**. لا يُنشأ فهرس جديد أو حارس عام باهظ على جدول حركات الحسابات دون `EXPLAIN ANALYZE BUFFERS` واختبار على حجم ممثل.
+
+**سلامة التراجع:** تحقق مستقل بعد `ROLLBACK` من استعادة حالة مستخدم الاختبار الإداري وملف الفرع، واستعادة عضويته `owner`، وعدم وجود سجلات إقفال؛ `inventory_stock_movements=11` و`account_transactions=361009`. لم تُمس Production.
+
+**النتائج المعتمدة:** `D7_DB_RLS_TENANT_SITE_SCOPED=PASS_4_OF_4`؛ `D7_DB_PERF_SAMPLED=YES`؛ `D7_CONCURRENT_LOAD_ACCEPTED=NO`؛ `D7_HTTPS_RBAC_ACCEPTED=NO`؛ `D7_FINANCIAL_SOURCE_ACCOUNTING_ACCEPTED=NO`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا دمج لـPR #359 ولا تعديل Production.
