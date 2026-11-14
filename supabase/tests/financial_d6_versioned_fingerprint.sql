@@ -75,6 +75,11 @@ BEGIN
  IF v_before=v_after THEN RAISE EXCEPTION 'D6_PAYROLL_ITEM_FINANCIAL_CHANGE_UNDETECTED';END IF;
  UPDATE public.payroll_items SET net_amount=net_amount-1 WHERE id=402;
 
+ IF length(public.powerhub_financial_accrual_detail_fingerprint_v3(901,9101,'2026-04'))<>32
+ THEN RAISE EXCEPTION 'D6_EMPTY_MONTH_NONCANONICAL_DIGEST';END IF;
+ IF length(public.powerhub_financial_accrual_detail_fingerprint_v3(901,9101,'2026-07'))<>32
+ THEN RAISE EXCEPTION 'D6_NONEMPTY_MONTH_NONCANONICAL_DIGEST';END IF;
+
  -- Draft invoice edits must not signal recognized-period drift.
  INSERT INTO public.invoices(id,tenant_id,site_id,subscriber_id,cycle_key,
    cycle_start_at,cycle_end_at,issue_date,total_amount,tax_amount,
