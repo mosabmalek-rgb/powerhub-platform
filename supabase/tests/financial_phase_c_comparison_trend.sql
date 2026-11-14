@@ -55,9 +55,12 @@ CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_site_statements(
  );
 $fn$;
 \i supabase/migrations/20261113204500_powerhub_financial_gl_monthly_comparison_c.sql
+\i supabase/migrations/20261114090000_powerhub_financial_c_comparison_postgrest_transaction_mode.sql
 DO $checks$
 DECLARE v jsonb;v2 jsonb;old_fingerprint text;missing bigint;
 BEGIN
+ IF (SELECT provolatile FROM pg_proc WHERE oid='public.powerhub_financial_gl_monthly_comparison(bigint,bigint,text,text)'::regprocedure)<>'v'
+ THEN RAISE EXCEPTION 'C_COMPARISON_POSTGREST_READONLY_TRANSACTION_REGRESSION';END IF;
  IF has_function_privilege('anon','public.powerhub_financial_gl_monthly_comparison(bigint,bigint,text,text)','EXECUTE')
  OR has_function_privilege('authenticated','public.powerhub_financial_gl_monthly_comparison(bigint,bigint,text,text)','EXECUTE')
  OR NOT has_function_privilege('service_role','public.powerhub_financial_gl_monthly_comparison(bigint,bigint,text,text)','EXECUTE')
