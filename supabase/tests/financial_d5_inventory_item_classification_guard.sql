@@ -81,3 +81,38 @@ BEGIN
  RAISE NOTICE 'D5_INVENTORY_CLASSIFICATION_C4_GUARD_PASS';
 END $tests$;
 SELECT 'D5_INVENTORY_CLASSIFICATION_C4_GUARD_PASS' AS result;
+
+
+-- D8 independent-session May close vs classification race fixture.
+-- Item 10 has only a May movement, so its old/new classification is valid
+-- until C4 closes May. An AFTER UPDATE fixture dirties synthetic D2 coverage
+-- only if classification wins the same C4 advisory period lock.
+INSERT INTO public.inventory_items(id,tenant_id,category,accounting_treatment,notes)
+VALUES(10,901,'spare_part','expense_on_issue','D8 May-only race item');
+INSERT INTO public.inventory_stock_movements
+ (id,tenant_id,site_id,item_id,warehouse_id,movement_type,quantity,
+  unit_cost,total_cost_amount,occurred_at,operation_key)
+VALUES(704,901,9101,10,2,'issue',1,4,4,'2026-05-15 12:00+03','D8-MAY-ONLY-ISSUE');
+DO $pre$
+BEGIN
+ IF (SELECT status FROM public.financial_accrual_period_reviews
+    WHERE tenant_id=901 AND site_id=9101 AND period='2026-05') IS DISTINCT FROM 'draft'
+ THEN RAISE EXCEPTION 'D8_MAY_REVIEW_NOT_DRAFT';END IF;
+ IF (SELECT COUNT(*) FROM public.inventory_stock_movements
+   WHERE item_id=10 AND tenant_id=901 AND site_id=9101)<>1
+ THEN RAISE EXCEPTION 'D8_MAY_ONLY_ITEM_FIXTURE_INVALID';END IF;
+END $pre$;
+CREATE OR REPLACE FUNCTION public.d8_mark_classification_source_dirty()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER AS $fixture$
+BEGIN
+ IF NEW.id=10 AND OLD.accounting_treatment IS DISTINCT FROM NEW.accounting_treatment THEN
+  UPDATE public.d2_sources
+  SET blockers='{"invalidInventoryCount":1}'::jsonb
+  WHERE tenant_id=901 AND site_id=9101 AND period='2026-05';
+ END IF;
+ RETURN NEW;
+END $fixture$;
+CREATE TRIGGER d8_classification_source_dirty
+AFTER UPDATE OF accounting_treatment ON public.inventory_items
+FOR EACH ROW EXECUTE FUNCTION public.d8_mark_classification_source_dirty();
+SELECT 'D8_MAY_ITEM_VS_C4_RACE_FIXTURE_READY' result;
