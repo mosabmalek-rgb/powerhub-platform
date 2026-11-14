@@ -482,10 +482,24 @@
 
 **ثغرة مثبتة على Staging داخل BEGIN/ROLLBACK:** أُنشئت حركة افتتاحية وحركة إصدار مخزون صغيرة بتاريخ سبتمبر 2026 لعنصر موجود `inventory_items.id=11` داخل معاملة اختبار فقط. بعد إقفال سبتمبر باستخدام C4 الحقيقي، قُبل تعديل التصنيف من `spare_part/expense_on_issue` إلى `other/capital_asset`، فانخفضت `inventoryConsumptionCost` للفترة المقفلة من **0.35 إلى 0**. لم يكن هناك قفل تسوية نقدية للفترة، لذلك لم يمنع الحارس `powerhub_guard_inventory_item_accounting_treatment_write` العملية. هذه **ثغرة مادية في سلامة نتائج الاستحقاق** تختلف عن انحراف البصمة الكاذب.
 
-**إصلاح مقترح في PR #359 (لم يُرحل بعد):** `supabase/migrations/20261114191500_powerhub_financial_d5_inventory_item_accrual_classification_guard.sql` يضيف Trigger على `inventory_items` لتغييرات `tenant_id/id/category/accounting_treatment`، ويحدد الفترات التاريخية التي تملك حركات للمادة في المستأجر/الفرع، ويرتب أقفال `powerhub:accrual-period:tenant:site:month` قبل فحص `financial_accrual_period_reviews.status='locked'`. يفشل التغيير عند وجود فترة استحقاق مقفلة ويترك التعديلات الوصفية المسموحة وعمليات الفترات المفتوحة دون منع عام. يستخدم فهرس `inventory_stock_movements_tenant_item_idx` القائم. لا يضيف Trigger إلى جدول `account_transactions` ذي 361009 حركة.
+**إصلاح مسجل ومُطبّق على Staging (تم التحقق 14 نوفمبر 2026):** `supabase/migrations/20261114191500_powerhub_financial_d5_inventory_item_accrual_classification_guard.sql` يضيف Trigger على `inventory_items` لتغييرات `tenant_id/id/category/accounting_treatment`، ويحدد الفترات التاريخية التي تملك حركات للمادة في المستأجر/الفرع، ويرتب أقفال `powerhub:accrual-period:tenant:site:month` قبل فحص `financial_accrual_period_reviews.status='locked'`. يفشل التغيير عند وجود فترة استحقاق مقفلة ويترك التعديلات الوصفية المسموحة وعمليات الفترات المفتوحة دون منع عام. يستخدم فهرس `inventory_stock_movements_tenant_item_idx` القائم. لا يضيف Trigger إلى جدول `account_transactions` ذي 361009 حركة.
 
 **اختبار انحدار معزول جديد:** `supabase/tests/financial_d5_inventory_item_classification_guard.sql` ضمن PostgreSQL Integration في `.github/workflows/reading-cycle-sql-integration.yml`. يختبر رفض إعادة تصنيف مادة ذات حركة في شهر يونيو المقفل، ورفض تغيير `category` وحده، وقبول الوصف، والسماح بإعادة التصنيف لفترات يوليو المفتوحة وللمستأجر الآخر، وعدم تغيير الصف المرفوض، وACL الدالة الداخلية. يُطبق اختبار CI الترحيل في قاعدة مؤقتة فقط.
 
-**الفرق بين حالات التقدم:** `D5_CLASSIFICATION_VULNERABILITY=REPRODUCED_ON_STAGING`؛ `D5_CLASSIFICATION_SOURCE_FIX=COMMITTED_UNAPPLIED`؛ `D5_CLASSIFICATION_CI=PENDING` حتى اكتمال CI على SHA الذي يضم الملفات؛ `D5_CLASSIFICATION_STAGING_INSTALLED=NO`؛ `D5_CLASSIFICATION_STAGING_ACCEPTED=NO`. لا تطبق هذا الترحيل باستخدام أداة تولّد رقم نسخة مختلفًا؛ استخدم مسار النشر المحمي ذي النسخة المطابقة لسجل Git.
+**الفرق بين حالات التقدم (مُحدث):** `D5_CLASSIFICATION_VULNERABILITY=REPRODUCED_ON_STAGING`؛ `D5_CLASSIFICATION_SOURCE_FIX=COMMITTED`؛ `D5_CLASSIFICATION_CI=PASS_ON_SHA_3e86f70d`؛ `D5_CLASSIFICATION_STAGING_INSTALLED=PASS`؛ `D5_CLASSIFICATION_STAGING_BEHAVIOR=TESTED_4_OF_4`؛ `D5_CLASSIFICATION_STAGING_ACCEPTED=SCOPED_ACCEPTED`، مع بقاء D5 الإجمالية غير مقبولة. لا تطبق هذا الترحيل باستخدام أداة تولّد رقم نسخة مختلفًا؛ استخدم مسار النشر المحمي ذي النسخة المطابقة لسجل Git.
 
 يبقى كذلك `D5_FINGERPRINT_CORRECTION=NOT_IMPLEMENTED` لخللي الانحراف الكاذب المثبتين سابقًا. لا تقبل المرحلة D قبل إصلاحهما والتحقق من توافق بصمات الإقفال التاريخية، واختبارات العزل والتزامن والأداء. `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`، ولا دمج ولا Production.
+
+## D5 — قبول حارس التصنيف على Staging بعد الترحيل (14 نوفمبر 2026)
+
+**الترحيل مثبت فعلًا:** سجل Supabase Staging `iyuryuhaylhisjfcrwkz` يحتوي النسخة `20261114191500` باسم `powerhub_financial_d5_inventory_item_accrual_classification_guard`؛ وTrigger `d5_inventory_item_accrual_classification_guard` في `public.inventory_items` مفعّل `tgenabled='O'`. دالة الحارس `SECURITY INVOKER`، صلاحيات `EXECUTE` مرفوضة لـ`anon` و`authenticated` ومتاحة لـ`service_role`.
+
+**اختبار قبول مباشر على قاعدة Staging:** شُغّل النص المصدرّي `docs/security/sql/pr359-financial-d5-inventory-guard-staging-rollback.sql` داخل `BEGIN/ROLLBACK` مع استدعاء `powerhub_financial_accrual_period_lock` الحقيقي، وباستخدام أدلة تقنية مصطنعة موسومة صراحة بأنها ليست اعتمادًا محاسبيًا. النتيجة `4/4 PASS`:
+1. رفض إعادة تصنيف المخزون الذي له إصدار في فترة الاستحقاق المقفلة.
+2. عدم تغير `inventoryConsumptionCost` بعد الرفض.
+3. السماح بتعديل البيانات الوصفية للصنف المقفل.
+4. السماح بإعادة تصنيف صنف له حركات في فترة مفتوحة.
+
+**تدقيق مستقل بعد ROLLBACK:** `financial_accrual_period_reviews=0`؛ `inventory_stock_movements=11`؛ `D5-ACCEPTANCE-ROLLBACK-%=0`؛ الصنف 11 بقي `spare_part/expense_on_issue`؛ الصنف 9 بقي `oil/expense_on_issue`؛ `account_transactions=361009`. لا أثر دائم من الاختبار.
+
+**فصل الحالات:** `D5_CLASSIFICATION_INSTALLED=PASS`، `D5_CLASSIFICATION_TESTED=PASS_4_OF_4`، `D5_CLASSIFICATION_ACCEPTED=SCOPED_ACCEPTED`. هذا قبول **لإصلاح حارس التصنيف ضمن الاختبارات المذكورة فقط**، ولا يعني قبول D5 أو D بالكامل. يظل `D5_FINGERPRINT_CORRECTION=OPEN`، وتبقى اختبارات العزل والتزامن والأداء ومراجعة بصمات الفترات التاريخية مطلوبة. `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`؛ PR #359 Draft وغير مدمج وProduction غير معدلة.
