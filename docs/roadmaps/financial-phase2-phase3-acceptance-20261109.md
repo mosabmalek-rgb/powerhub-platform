@@ -569,3 +569,24 @@
 **سلامة التراجع:** تحقق مستقل بعد `ROLLBACK` من استعادة حالة مستخدم الاختبار الإداري وملف الفرع، واستعادة عضويته `owner`، وعدم وجود سجلات إقفال؛ `inventory_stock_movements=11` و`account_transactions=361009`. لم تُمس Production.
 
 **النتائج المعتمدة:** `D7_DB_RLS_TENANT_SITE_SCOPED=PASS_4_OF_4`؛ `D7_DB_PERF_SAMPLED=YES`؛ `D7_CONCURRENT_LOAD_ACCEPTED=NO`؛ `D7_HTTPS_RBAC_ACCEPTED=NO`؛ `D7_FINANCIAL_SOURCE_ACCOUNTING_ACCEPTED=NO`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا دمج لـPR #359 ولا تعديل Production.
+
+## D8 — سباقات قفل الفترة وقياس القراءة المتزامن (14 نوفمبر 2026)
+
+**إعداد اختبارات قابلة لإعادة التشغيل في GitHub (ليست نتائج قبول بعد):**
+- `supabase/tests/financial_d8_versioned_close_payroll_race.sh` يتنافس فيه Backend كتابة راتب مايو وBackend قفل C4، بعد تثبيت ترحيل D6 في قاعدة `financial_d6_fingerprint_test` المؤقتة. يجب أن تنجح عملية واحدة فقط؛ عند فوز الكاتب يتوقف الإقفال لمصدر راتب غير مطابق، وعند فوز الإقفال يرفض حارس D4 الكاتب.
+- `supabase/tests/financial_d8_inventory_classification_close_race.sh` يتنافس فيه تعديل التصنيف المالي لصنف لا يملك إلا حركة مايو مع قفل C4 لمايو على قاعدة `financial_d5_inventory_item_guard_test`. يعتمد على مُعلِّم مصدر صناعي D2 للاختبار فقط وعلى حارس D5 ودالة C4 الحقيقية؛ يجب أن تنجح عملية واحدة فقط.
+- أضيفت تهيئة الصنف/الحركة المرجعية والتغيّر الصناعي للمصدر إلى `financial_d5_inventory_item_classification_guard.sql`، وربط تشغيلات السباقين في `.github/workflows/reading-cycle-sql-integration.yml`.
+- **نطاق الاستدلال:** هذه سباقات قفل/كتابة حقيقية عبر Backends منفصلة على PostgreSQL مؤقت؛ مجمّع D2 للمصادر اصطناعي حتى يحول فساد المصدر إلى مانع إقفال محدد. لا تمثل هذه الاختبارات شهادات مالية أو قبول HTTPS، ولا يجوز تسجيلها PASS حتى تنجح خطوة CI على SHA نفسه.
+
+**اختبار قراءة متزامن على Staging:** أربع جلسات PostgreSQL مستقلة (PID 3847215 و3847216 و3847219 و3847220)، كل منها نفّذ 25 قراءة للبصمة `powerhub_financial_accrual_detail_fingerprint_v3(1,1,'2026-10')` في `BEGIN READ ONLY/ROLLBACK`. النتائج (ms):
+
+| Backend | samples | p50 | p95 | max |
+|---|---:|---:|---:|---:|
+| 3847215 | 25 | 0.265 | 2.980 | 295.517 |
+| 3847216 | 25 | 0.269 | 2.559 | 12.145 |
+| 3847219 | 25 | 0.271 | 2.482 | 13.024 |
+| 3847220 | 25 | 0.319 | 2.854 | 13.808 |
+
+اختبار `EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON)` لمطابقة حساب رواتب أكتوبر عبر `account_transactions` استخدم `account_transactions_tenant_site_reference_prefix_idx`، دون مسح جدول الحركات الـ361009 في هذا المسار المحدد. أعاد 0 صفوف مع تنفيذ ~8.885ms وتخطيط ~99.303ms في العينة (تأثير التهيئة الباردة محتمل). هذه أرقام SQL DB وليست زمن وصول المستخدم عبر HTTPS. يلزم قياس p95/p99 الفعلي وقت الحمل، وفحص إقفال وكتابة متزامنين على Staging عند توافر اختبار آمن بجلسات مستقلة، قبل قبول الأداء الشامل.
+
+**الحالات في لحظة التسجيل:** `D8_RACE_TESTS=COMMITTED_PENDING_CI`؛ `D8_STAGING_READ_CONCURRENCY=MEASURED_NOT_ACCEPTED`؛ `D8_HTTPS_RBAC=PENDING`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا ترحيل جديد ولا دمج ولا Production.
