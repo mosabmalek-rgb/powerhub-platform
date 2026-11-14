@@ -227,6 +227,18 @@ jobs:
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d2_close_race_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d2_close_setup.sql
           bash supabase/tests/financial_d2_close_approve_reverse.sh
 
+      - name: D3 real C4 source-write guard and independent source-vs-close race
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: financial_d3_source_guard_test
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_d3_source_guard_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d3_source_guard_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d3_source_guard_setup.sql
+          bash supabase/tests/financial_d3_source_guard_race.sh
+
       - name: Verify operational source GL and month recognition with real migrations
         env:
           PGPASSWORD: postgres
