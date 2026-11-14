@@ -200,8 +200,7 @@ create table public.tenant_reading_cycle_configurations (
   updated_at timestamptz not null default now(),
   primary key (tenant_id,site_id),
   unique (site_id)
-);
-create or replace function public.powerhub_cycle_for_reading(
+);create or replace function public.powerhub_cycle_for_reading(
   p_tenant_id bigint,
   p_site_id bigint,
   p_reading_at timestamptz
@@ -216,12 +215,16 @@ declare
   local_at timestamp;
   start_local timestamp;
   end_local timestamp;
+  next_month_local timestamp;
   last_day integer;
+  next_last_day integer;
   start_day integer;
+  next_start_day integer;
 begin
   select * into c
   from public.tenant_reading_cycle_configurations
-  where tenant_id=p_tenant_id and site_id=p_site_id;
+  where tenant_id = p_tenant_id
+    and site_id = p_site_id;
 
   if not found then
     c.cycle_type := 'MONTHLY';
@@ -232,55 +235,145 @@ begin
 
   local_at := p_reading_at at time zone c.timezone;
 
-  if c.cycle_type='WEEKLY' then
+  if c.cycle_type = 'WEEKLY' then
     -- Android Calendar: Sunday=1 ... Saturday=7.
     -- PostgreSQL dow: Sunday=0 ... Saturday=6.
     start_local := date_trunc('day', local_at)
       - make_interval(days => mod(
           extract(dow from local_at)::integer
-          - case when c.weekly_start_day=7 then 6 else c.weekly_start_day-1 end
+          - case when c.weekly_start_day = 7 then 6 else c.weekly_start_day - 1 end
           + 7,
           7
         ));
-    end_local := start_local + interval '7 days' - interval '1 millisecond';
-  elsif c.cycle_type='EVERY_10_DAYS' then
-    start_day := case when extract(day from local_at)::integer between 1 and 10 then 1
-                      when extract(day from local_at)::integer between 11 and 20 then 11
-                      else 21 end;
-    start_local := date_trunc('month',local_at) + make_interval(days => start_day-1);
-    end_local := least(
-      start_local + interval '10 days' - interval '1 millisecond',
-      (date_trunc('month',local_at)+interval '1 month'-interval '1 millisecond')
-    );
-  elsif c.cycle_type='EVERY_15_DAYS' then
-    start_day := case when extract(day from local_at)::integer <= 15 then 1 else 16 end;
-    start_local := date_trunc('month',local_at) + make_interval(days => start_day-1);
-    end_local := least(
-      start_local + interval '15 days' - interval '1 millisecond',
-      (date_trunc('month',local_at)+interval '1 month'-interval '1 millisecond')
-    );
-  else
-    start_day := case
-      when c.monthly_start_day=30 and extract(month from local_at)::integer=2 then 28
-      else least(c.monthly_start_day, extract(day from (date_trunc('month',local_at)+interval '1 month'-interval '1 day'))::integer)
-    end;
-    start_local := date_trunc('month',local_at) + make_interval(days => start_day-1);
-    if local_at < start_local then
-      start_local := date_trunc('month',local_at)-interval '1 month';
+    end_local := start_local + interval '7 days' - interval '1 microsecond';
+
+  elsif c.cycle_type = 'EVERY_10_DAYS' then
+    last_day := extract(day from (date_trunc('month', local_at) + interval '1 month' - interval '1 day'))::integer;
+    if c.monthly_start_day = 1 then
       start_day := case
-        when c.monthly_start_day=30 and extract(month from (date_trunc('month',local_at)-interval '1 day'))::integer=2 then 28
-        else least(c.monthly_start_day, extract(day from (date_trunc('month',local_at)-interval '1 day'))::integer)
+        when extract(day from local_at)::integer between 1 and 10 then 1
+        when extract(day from local_at)::integer between 11 and 20 then 11
+        else 21
       end;
-      start_local := date_trunc('month',local_at)-interval '1 month' + make_interval(days => start_day-1);
+      start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end_local := case
+        when start_day = 21 then date_trunc('month', local_at) + interval '1 month' - interval '1 microsecond'
+        else start_local + interval '10 days' - interval '1 microsecond'
+      end;
+    else
+      -- Alternate 10/20/30 anchor. Day 30 is clamped to the last day of February.
+      start_day := null;
+      start_local := null;
+      if extract(day from local_at)::integer >= 30
+        or (extract(month from local_at)::integer = 2 and extract(day from local_at)::integer >= 28) then
+        start_day := case when extract(month from local_at)::integer = 2 then 28 else 30 end;
+      elsif extract(day from local_at)::integer >= 20 then
+        start_day := 20;
+      elsif extract(day from local_at)::integer >= 10 then
+        start_day := 10;
+      else
+        next_month_local := date_trunc('month', local_at) - interval '1 month';
+        next_last_day := extract(day from (next_month_local + interval '1 month' - interval '1 day'))::integer;
+        start_local := next_month_local + make_interval(days => (case when extract(month from next_month_local)::integer = 2 then 28 else least(30, next_last_day) end) - 1);
+        start_day := null;
+      end if;
+      if start_local is null then
+        start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end if;
+      if start_day is null then
+        next_month_local := date_trunc('month', local_at) + make_interval(days => 9);
+      elsif start_day = 10 then
+        next_month_local := date_trunc('month', local_at) + interval '19 days';
+      elsif start_day = 20 then
+        start_day := case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end;
+        next_month_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      else
+        next_month_local := date_trunc('month', local_at) + interval '1 month' + interval '9 days';
+      end if;
+      end_local := next_month_local - interval '1 microsecond';
     end if;
-    end_local := date_trunc('month',start_local)+interval '1 month'-interval '1 millisecond';
+
+  elsif c.cycle_type = 'EVERY_15_DAYS' then
+    last_day := extract(day from (date_trunc('month', local_at) + interval '1 month' - interval '1 day'))::integer;
+    if c.monthly_start_day = 1 then
+      start_day := case when extract(day from local_at)::integer <= 15 then 1 else 16 end;
+      start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end_local := case
+        when start_day = 16 then date_trunc('month', local_at) + interval '1 month' - interval '1 microsecond'
+        else start_local + interval '15 days' - interval '1 microsecond'
+      end;
+    else
+      -- Alternate 15/30 anchor. Day 30 is clamped to the last day of February.
+      start_day := null;
+      start_local := null;
+      if extract(day from local_at)::integer >= 30
+        or (extract(month from local_at)::integer = 2 and extract(day from local_at)::integer >= 28) then
+        start_day := case when extract(month from local_at)::integer = 2 then 28 else 30 end;
+      elsif extract(day from local_at)::integer >= 15 then
+        start_day := 15;
+      else
+        next_month_local := date_trunc('month', local_at) - interval '1 month';
+        next_last_day := extract(day from (next_month_local + interval '1 month' - interval '1 day'))::integer;
+        start_local := next_month_local + make_interval(days => (case when extract(month from next_month_local)::integer = 2 then 28 else least(30, next_last_day) end) - 1);
+        start_day := null;
+      end if;
+      if start_local is null then
+        start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end if;
+      if start_day is null or start_day = (case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end) then
+        next_month_local := date_trunc('month', start_local) + interval '1 month' + interval '14 days';
+      else
+        start_day := case when extract(month from local_at)::integer = 2 then 28 else least(30, last_day) end;
+        next_month_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+      end if;
+      end_local := next_month_local - interval '1 microsecond';
+    end if;
+
+  else
+    -- A configured day 30 is clamped to day 28 in February (including leap years),
+    -- preserving the existing product contract. Each cycle ends immediately before
+    -- the next month's configured/clamped start, not at the end of its start month.
+    last_day := extract(day from (
+      date_trunc('month', local_at) + interval '1 month' - interval '1 day'
+    ))::integer;
+    start_day := case
+      when c.monthly_start_day = 30 and extract(month from local_at)::integer = 2 then 28
+      else least(c.monthly_start_day, last_day)
+    end;
+    start_local := date_trunc('month', local_at) + make_interval(days => start_day - 1);
+
+    if local_at < start_local then
+      start_local := date_trunc('month', local_at) - interval '1 month';
+      last_day := extract(day from (
+        date_trunc('month', start_local) + interval '1 month' - interval '1 day'
+      ))::integer;
+      start_day := case
+        when c.monthly_start_day = 30 and extract(month from start_local)::integer = 2 then 28
+        else least(c.monthly_start_day, last_day)
+      end;
+      start_local := date_trunc('month', start_local) + make_interval(days => start_day - 1);
+    end if;
+
+    next_month_local := date_trunc('month', start_local) + interval '1 month';
+    next_last_day := extract(day from (
+      next_month_local + interval '1 month' - interval '1 day'
+    ))::integer;
+    next_start_day := case
+      when c.monthly_start_day = 30 and extract(month from next_month_local)::integer = 2 then 28
+      else least(c.monthly_start_day, next_last_day)
+    end;
+    end_local := next_month_local
+      + make_interval(days => next_start_day - 1)
+      - interval '1 microsecond';
   end if;
 
   cycle_start_at := start_local at time zone c.timezone;
   cycle_end_at := end_local at time zone c.timezone;
-  billing_period := to_char(local_at,'YYYY-MM');
-  cycle_key := c.cycle_type || ':' || to_char(cycle_start_at at time zone c.timezone,'YYYY-MM-DD');
-  cycle_label := c.cycle_type || ' ' || to_char(cycle_start_at at time zone c.timezone,'YYYY-MM-DD') || ' → ' || to_char(cycle_end_at at time zone c.timezone,'YYYY-MM-DD');
+  billing_period := to_char(local_at, 'YYYY-MM');
+  cycle_key := c.cycle_type || ':' || to_char(cycle_start_at at time zone c.timezone, 'YYYY-MM-DD');
+  cycle_label := c.cycle_type || ' ' ||
+    to_char(cycle_start_at at time zone c.timezone, 'YYYY-MM-DD') || ' → ' ||
+    to_char(cycle_end_at at time zone c.timezone, 'YYYY-MM-DD');
   return next;
 end;
 $function$;
@@ -289,6 +382,76 @@ $function$;
 insert into public.tenant_reading_cycle_configurations(
   tenant_id,site_id,cycle_type,weekly_start_day,monthly_start_day,timezone
 ) values (10,100,'EVERY_10_DAYS',7,1,'Asia/Gaza');
+ 
+-- Cycle boundaries must match the production resolver, including the final
+-- calendar day of 31-day months and leap Februaries.
+do $cycle_boundary_assertions$
+declare
+  v_cycle record;
+  v_next_cycle record;
+  v_expected_start timestamptz;
+  v_expected_end timestamptz;
+begin
+  v_expected_start := timestamp '2026-10-21 00:00:00' at time zone 'Asia/Gaza';
+  v_expected_end := (timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  select * into v_cycle from public.powerhub_cycle_for_reading(
+    10,100,timestamp '2026-10-31 12:00:00' at time zone 'Asia/Gaza'
+  );
+  if v_cycle.cycle_start_at<>v_expected_start or v_cycle.cycle_end_at<>v_expected_end then
+    raise exception 'CYCLE_EVERY_10_DAYS_OCTOBER_31_BOUNDARY_FAILED start=% end=% expected_start=% expected_end=%',
+      v_cycle.cycle_start_at,v_cycle.cycle_end_at,v_expected_start,v_expected_end;
+  end if;
+
+  -- The exclusive boundary used by reports must be exactly the next cycle start.
+  select * into v_next_cycle from public.powerhub_cycle_for_reading(
+    10,100,v_cycle.cycle_end_at+interval '1 microsecond'
+  );
+  if v_next_cycle.cycle_start_at<>v_cycle.cycle_end_at+interval '1 microsecond' then
+    raise exception 'CYCLE_NEXT_BOUNDARY_GAP_OR_OVERLAP previous_end=% next_start=%',
+      v_cycle.cycle_end_at,v_next_cycle.cycle_start_at;
+  end if;
+
+  v_expected_start := timestamp '2024-02-21 00:00:00' at time zone 'Asia/Gaza';
+  v_expected_end := (timestamp '2024-03-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  select * into v_cycle from public.powerhub_cycle_for_reading(
+    10,100,timestamp '2024-02-29 12:00:00' at time zone 'Asia/Gaza'
+  );
+  if v_cycle.cycle_start_at<>v_expected_start or v_cycle.cycle_end_at<>v_expected_end then
+    raise exception 'CYCLE_EVERY_10_DAYS_LEAP_FEBRUARY_BOUNDARY_FAILED start=% end=% expected_start=% expected_end=%',
+      v_cycle.cycle_start_at,v_cycle.cycle_end_at,v_expected_start,v_expected_end;
+  end if;
+
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='EVERY_15_DAYS'
+  where tenant_id=10 and site_id=100;
+  v_expected_start := timestamp '2026-10-16 00:00:00' at time zone 'Asia/Gaza';
+  v_expected_end := (timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza') - interval '1 microsecond';
+  select * into v_cycle from public.powerhub_cycle_for_reading(
+    10,100,timestamp '2026-10-31 12:00:00' at time zone 'Asia/Gaza'
+  );
+  if v_cycle.cycle_start_at<>v_expected_start or v_cycle.cycle_end_at<>v_expected_end then
+    raise exception 'CYCLE_EVERY_15_DAYS_OCTOBER_31_BOUNDARY_FAILED start=% end=% expected_start=% expected_end=%',
+      v_cycle.cycle_start_at,v_cycle.cycle_end_at,v_expected_start,v_expected_end;
+  end if;
+
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='WEEKLY',weekly_start_day=1
+  where tenant_id=10 and site_id=100;
+  select * into v_cycle from public.powerhub_cycle_for_reading(
+    10,100,timestamp '2026-11-01 12:00:00' at time zone 'Asia/Gaza'
+  );
+  if v_cycle.cycle_start_at<>(timestamp '2026-11-01 00:00:00' at time zone 'Asia/Gaza')
+     or v_cycle.cycle_end_at<>(timestamp '2026-11-08 00:00:00' at time zone 'Asia/Gaza')-interval '1 microsecond' then
+    raise exception 'CYCLE_WEEKLY_MICROSECOND_BOUNDARY_FAILED start=% end=%',
+      v_cycle.cycle_start_at,v_cycle.cycle_end_at;
+  end if;
+
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='EVERY_10_DAYS',weekly_start_day=7,monthly_start_day=1
+  where tenant_id=10 and site_id=100;
+end;
+$cycle_boundary_assertions$;
+
 
 \ir ../migrations/20261021085514_powerhub_staff_inventory_permissions.sql
 \ir ../migrations/20261021085524_powerhub_supplier_directory_view_permission.sql
@@ -312,24 +475,69 @@ insert into public.tenant_reading_cycle_configurations(
 \ir ../migrations/20261021220000_powerhub_inventory_movement_report_paging.sql
 \ir ../migrations/20261022120000_powerhub_inventory_entity_lifecycle.sql
 \ir ../migrations/20261022133000_powerhub_supplier_payables_and_batch_payments.sql
+\ir ../migrations/20261107140000_powerhub_inventory_supplier_payables_allocation_scope.sql
 \ir ../migrations/20261022143000_powerhub_inventory_location_types.sql
 \ir ../migrations/20261022150000_powerhub_inventory_stocktakes.sql
+\ir ../migrations/20261101083316_powerhub_inventory_trigger_acl_hardening.sql
+
+do $inventory_trigger_acl_assertions$
+begin
+  if has_function_privilege('anon','public.powerhub_inventory_validate_location_item()','EXECUTE')
+     or has_function_privilege('authenticated','public.powerhub_inventory_validate_location_item()','EXECUTE')
+     or not has_function_privilege('service_role','public.powerhub_inventory_validate_location_item()','EXECUTE')
+  then raise exception 'INVENTORY_LOCATION_TRIGGER_FUNCTION_ACL_FAILED'; end if;
+  if not exists (
+    select 1 from pg_trigger t
+    where t.tgrelid='public.inventory_stock_movements'::regclass
+      and t.tgname='inventory_stock_movements_location_item_guard'
+      and not t.tgisinternal
+      and t.tgfoid='public.powerhub_inventory_validate_location_item()'::regprocedure
+  ) then raise exception 'INVENTORY_LOCATION_TRIGGER_DETACHED'; end if;
+end
+$inventory_trigger_acl_assertions$;
 \ir ../migrations/20261022160000_powerhub_inventory_item_units.sql
 \ir ../migrations/20261022170000_powerhub_inventory_operation_permissions.sql
 \ir ../migrations/20261022180000_powerhub_inventory_actor_audit_role_fix.sql
+\ir ../migrations/20261101083720_powerhub_inventory_stocktake_count_idempotency.sql
 \ir ../migrations/20261022183000_powerhub_supplier_return_actor_audit_role_fix.sql
 \ir ../migrations/20261022190000_powerhub_inventory_phase_a_fk_indexes.sql
 \ir ../migrations/20261022193000_powerhub_inventory_item_unit_audit_metadata_fix.sql
 \ir ../migrations/20261022200000_powerhub_owner_capability_overrides.sql
 \ir ../migrations/20261022203000_powerhub_inventory_supplier_ledger_statement_reconcile.sql
+\ir ../migrations/20261104193215_powerhub_reading_cycle_anchor_modes.sql
 \ir ../migrations/20261022210000_powerhub_fuel_consumption_phase_b.sql
 \ir ../migrations/20261022211000_powerhub_fuel_event_append_only_acl.sql
 \ir ../migrations/20261022220000_powerhub_fuel_report_windows.sql
+\ir ../migrations/20261101084225_powerhub_fuel_cycle_boundary_precision.sql
 \ir ../migrations/20261022221000_powerhub_fuel_alert_settings_and_evaluator.sql
 \ir ../migrations/20261023110000_powerhub_inventory_phase_d_financial_summary.sql
 \ir ../migrations/20261023120000_powerhub_inventory_phase_d_financial_details_acl_filter.sql
+\ir ../migrations/20261107130000_powerhub_inventory_phase_d_supplier_allocation_scope.sql
 \ir ../migrations/20261023130000_powerhub_inventory_phase_d_schema_cache_reload.sql
 \ir ../migrations/20261023183000_powerhub_supplier_types_and_purchase_payment_mode.sql
+
+-- Minimal cursor metadata table for the revision-only supplier-ledger integration.
+create table public.powerhub_sync_scope_state (
+  tenant_id bigint not null, site_id bigint not null,
+  entity_type text not null check (entity_type in ('sites','subscribers','generators','readings','tariffs')),
+  last_cursor bigint not null default 0 check (last_cursor>=0),
+  retained_from_cursor bigint not null default 0 check (retained_from_cursor>=0),
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,site_id,entity_type),
+  check (retained_from_cursor<=last_cursor)
+);
+alter table public.powerhub_sync_scope_state enable row level security;
+revoke all on table public.powerhub_sync_scope_state from public,anon,authenticated;
+grant all on table public.powerhub_sync_scope_state to service_role;
+\ir ../migrations/20261101083224_powerhub_supplier_ledger_revision.sql
+\ir ../migrations/20261103174058_powerhub_supplier_accounting_period_scope.sql
+\ir ../migrations/20261104155320_powerhub_inventory_fuel_consumption_cost_report.sql
+\ir ../migrations/20261104171631_powerhub_inventory_fuel_cost_cycle_boundary_precision.sql
+\ir ../migrations/20261104193334_powerhub_fuel_consumption_cost_cycle_microsecond_alignment.sql
+\ir ../migrations/20261104215427_powerhub_inventory_fuel_fill_as_issue.sql
+\ir ../migrations/20261104215439_powerhub_fuel_fill_measurement_reconciliation.sql
+\ir ../migrations/20261104221820_powerhub_exclude_generator_tanks_from_stock_overview.sql
+\ir ../migrations/20261104235039_powerhub_fuel_cost_report_include_legacy_fills.sql
 
 insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
 values (10,'DSL-01','Diesel','fuel','liter',50,1),
@@ -900,6 +1108,52 @@ begin
     if sqlerrm not like '%SITE_OUT_OF_SCOPE%' then raise; end if;
   end;
 
+  -- Same-tenant branch/object boundaries: tenant equality alone must not authorize another branch's warehouse.
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,101,1,v_supplier_id,v_warehouse_id,'INV-WRONG-BRANCH-WAREHOUSE',current_date,null,30,null,null,'purchase-workflow:wrong-branch-warehouse',
+      jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0))
+    );
+    raise exception 'PURCHASE_ACCEPTED_WAREHOUSE_FROM_OTHER_BRANCH';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_WAREHOUSE_FROM_OTHER_BRANCH' then raise; end if;
+    if sqlerrm not like '%WAREHOUSE_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,100,1,(select id from public.suppliers where tenant_id=20 and supplier_code='SUP-01' limit 1),v_warehouse_id,
+      'INV-WRONG-TENANT-SUPPLIER',current_date,null,30,null,null,'purchase-workflow:wrong-tenant-supplier',
+      jsonb_build_array(jsonb_build_object('item_id',v_item_id,'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0))
+    );
+    raise exception 'PURCHASE_ACCEPTED_SUPPLIER_FROM_OTHER_TENANT';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_SUPPLIER_FROM_OTHER_TENANT' then raise; end if;
+    if sqlerrm not like '%SUPPLIER_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  begin
+    perform * from public.powerhub_inventory_create_purchase(
+      10,100,1,v_supplier_id,v_warehouse_id,'INV-WRONG-TENANT-ITEM',current_date,null,30,null,null,'purchase-workflow:wrong-tenant-item',
+      jsonb_build_array(jsonb_build_object(
+        'item_id',(select id from public.inventory_items where tenant_id=20 and sku='DSL-01' limit 1),
+        'quantity',1,'unit','liter','units_to_base_factor',1,'unit_price',1,'discount_amount',0,'tax_amount',0
+      ))
+    );
+    raise exception 'PURCHASE_ACCEPTED_ITEM_FROM_OTHER_TENANT';
+  exception when others then
+    if sqlerrm='PURCHASE_ACCEPTED_ITEM_FROM_OTHER_TENANT' then raise; end if;
+    if sqlerrm not like '%ITEM_OUT_OF_SCOPE%' then raise; end if;
+  end;
+
+  if exists(select 1 from public.supplier_purchases where operation_key in (
+    'purchase-workflow:wrong-branch-warehouse',
+    'purchase-workflow:wrong-tenant-supplier',
+    'purchase-workflow:wrong-tenant-item'
+  )) then
+    raise exception 'REJECTED_PURCHASE_OBJECT_SCOPE_ATTEMPT_LEFT_PURCHASE_ROWS';
+  end if;
+
   if has_function_privilege('authenticated','public.powerhub_inventory_create_purchase(bigint,bigint,bigint,bigint,bigint,text,date,date,integer,text,text,text,jsonb)','EXECUTE') then
     raise exception 'AUTHENTICATED_CAN_EXECUTE_PURCHASE_CREATE_RPC';
   end if;
@@ -1060,6 +1314,15 @@ declare
   v_replayed boolean;
   v_count integer;
   v_overview_quantity numeric(14,3);
+  v_fuel_movement_id bigint;
+  v_fuel_replacement_id bigint;
+  v_fuel_expected_cost numeric(14,2);
+  v_fuel_replacement_cost numeric(14,2);
+  v_fuel_report record;
+  v_anchor_date date;
+  v_cycle_report record;
+  v_month_report record;
+  v_custom_report record;
 begin
   select id into v_item_id
   from public.inventory_items
@@ -1170,6 +1433,102 @@ begin
     'stock-workflow:fuel-001'
   );
   if v_movement_id is null then raise exception 'FUEL_CONSUMPTION_CREATE_FAILED'; end if;
+  v_fuel_movement_id:=v_movement_id;
+  select m.total_cost_amount into v_fuel_expected_cost
+  from public.inventory_stock_movements m
+  where m.tenant_id=v_tenant_id and m.site_id=v_site_id and m.id=v_fuel_movement_id;
+  -- The integration test runs as service_role; avoid direct reads from the protected
+  -- cycle-configuration table when constructing the local day used by this report test.
+  v_anchor_date:=(now() at time zone 'Asia/Gaza')::date;
+
+  select * into v_fuel_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'day',v_anchor_date,null,null,v_generator_id
+  );
+  if v_fuel_report.movement_count<>1
+    or v_fuel_report.recorded_consumption_liters<>0.5
+    or v_fuel_report.recorded_consumption_cost<>v_fuel_expected_cost then
+    raise exception 'FUEL_CONSUMPTION_COST_REPORT_FAILED row=% expected_cost=%',
+      row_to_json(v_fuel_report),v_fuel_expected_cost;
+  end if;
+
+  select replacement_movement_id into v_fuel_replacement_id
+  from public.powerhub_inventory_correct_stock_movement(
+    v_tenant_id,v_site_id,v_user_id,v_fuel_movement_id,0.5,null,
+    'FUEL-TEST-CORRECTED','corrected fuel movement','documented fuel consumption correction',
+    'stock-workflow:fuel-001-correction'
+  );
+  select m.total_cost_amount into v_fuel_replacement_cost
+  from public.inventory_stock_movements m
+  where m.tenant_id=v_tenant_id and m.site_id=v_site_id and m.id=v_fuel_replacement_id;
+  select * into v_fuel_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'day',v_anchor_date,null,null,v_generator_id
+  );
+  if v_fuel_replacement_id is null
+    or v_fuel_report.movement_count<>1
+    or v_fuel_report.recorded_consumption_liters<>0.5
+    or v_fuel_report.recorded_consumption_cost<>v_fuel_replacement_cost then
+    raise exception 'FUEL_CONSUMPTION_CORRECTION_COST_DOUBLE_COUNTED row=% replacement_cost=%',
+      row_to_json(v_fuel_report),v_fuel_replacement_cost;
+  end if;
+
+  -- Keep the cycle report's exclusive upper bound aligned with the reading-cycle
+  -- function, which ends at the last millisecond before the next cycle begins.
+  if position(
+    'v_end_at:=v_cycle.cycle_end_at+interval ''1 microsecond'''
+    in pg_get_functiondef('public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)'::regprocedure)
+  )=0 then
+    raise exception 'FUEL_COST_CYCLE_BOUNDARY_PRECISION_MISMATCH';
+  end if;
+
+  select * into v_cycle_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'cycle',v_anchor_date,null,null,v_generator_id
+  );
+  if v_cycle_report.generator_id is null then
+    raise exception 'FUEL_COST_CYCLE_REPORT_FAILED';
+  end if;
+
+  select * into v_month_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'month',v_anchor_date,null,null,v_generator_id
+  );
+  if v_month_report.generator_id is null then
+    raise exception 'FUEL_COST_MONTH_REPORT_FAILED';
+  end if;
+
+  select * into v_custom_report
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    v_tenant_id,v_site_id,'custom',null,v_anchor_date,v_anchor_date,v_generator_id
+  );
+  if v_custom_report.generator_id is null then
+    raise exception 'FUEL_COST_CUSTOM_REPORT_FAILED';
+  end if;
+
+  -- The internal RPC is callable only by service_role; never expose its
+  -- SECURITY DEFINER read path to anon or authenticated clients.
+  if has_function_privilege('anon',
+       'public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE')
+     or has_function_privilege('authenticated',
+       'public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE') then
+    raise exception 'UNTRUSTED_ROLE_CAN_EXECUTE_FUEL_CONSUMPTION_COST_REPORT';
+  end if;
+  if not has_function_privilege('service_role',
+       'public.powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)','EXECUTE') then
+    raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_FUEL_CONSUMPTION_COST_REPORT';
+  end if;
+
+  -- Tenant/site scope is checked inside the privileged function as defense in depth.
+  begin
+    perform * from public.powerhub_inventory_fuel_consumption_cost_report_period(
+      20,v_site_id,'day',v_anchor_date,null,null,v_generator_id
+    );
+    raise exception 'CROSS_TENANT_FUEL_COST_REPORT_WAS_ACCEPTED';
+  exception when others then
+    if sqlerrm='CROSS_TENANT_FUEL_COST_REPORT_WAS_ACCEPTED' then raise; end if;
+    if sqlerrm not like '%FUEL_COST_REPORT_SITE_OUT_OF_SCOPE%' then raise; end if;
+  end;
 
   -- Inventory gains/loses and the audit log are recorded atomically with the movement.
   select movement_id into v_movement_id
@@ -3030,6 +3389,12 @@ begin
     'GEN-TANK-OPENING','Fixture opening stock on generator tank','inventory-location:opening'
   );
   if v_movement_id is null then raise exception 'GENERATOR_TANK_OPENING_STOCK_FAILED'; end if;
+  if exists(
+    select 1 from public.powerhub_inventory_stock_overview(10,100)
+    where warehouse_id=v_warehouse_id and item_id=v_item_id
+  ) then
+    raise exception 'GENERATOR_TANK_INCLUDED_IN_CONFIRMED_STOCK_OVERVIEW';
+  end if;
 
   begin
     perform * from public.powerhub_inventory_update_warehouse_with_location(
@@ -3077,6 +3442,11 @@ declare
   v_opening_value numeric(14,2);
   v_posted_movement_id bigint;
   v_bad_count integer;
+  v_stocktake_line_id bigint;
+  v_audit_count_before integer;
+  v_audit_count_after integer;
+  v_count_result record;
+  v_count_replay record;
 begin
   select id into v_warehouse_id from public.inventory_warehouses
   where tenant_id=10 and site_id=100 and code='FIXED-TANK-WF-01' and is_active;
@@ -3126,9 +3496,68 @@ begin
     order by l.item_id
   loop
     if v_line.item_id=v_item_id then
-      perform * from public.powerhub_inventory_record_stocktake_count(
-        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel'
+      select l.id into v_stocktake_line_id
+      from public.inventory_stocktake_lines l
+      where l.tenant_id=10 and l.stocktake_id=v_stocktake_id and l.item_id=v_line.item_id;
+      select count(*)::integer into v_audit_count_before
+      from public.audit_logs a
+      where a.tenant_id=10 and a.site_id=100 and a.entity_type='inventory_stocktake_line'
+        and a.entity_id=v_stocktake_line_id::text and a.action='record_count';
+
+      select * into v_count_result
+      from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+        'stocktake-count:idempotency:line-1'
       );
+      if v_count_result.replayed or v_count_result.counted_quantity<>2.000 then
+        raise exception 'STOCKTAKE_COUNT_FIRST_EXECUTION_FAILED';
+      end if;
+
+      select * into v_count_replay
+      from public.powerhub_inventory_record_stocktake_count(
+        10,100,1,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+        'stocktake-count:idempotency:line-1'
+      );
+      if not v_count_replay.replayed
+        or v_count_replay.stocktake_id<>v_count_result.stocktake_id
+        or v_count_replay.item_id<>v_count_result.item_id
+        or v_count_replay.counted_quantity<>v_count_result.counted_quantity
+        or v_count_replay.variance_quantity<>v_count_result.variance_quantity
+        or v_count_replay.counted_at is distinct from v_count_result.counted_at then
+        raise exception 'STOCKTAKE_COUNT_REPLAY_RESULT_MISMATCH';
+      end if;
+
+      begin
+        perform * from public.powerhub_inventory_record_stocktake_count(
+          10,100,1,v_stocktake_id,v_line.item_id,2.001,6.0000,'Physically measured diesel',
+          'stocktake-count:idempotency:line-1'
+        );
+        raise exception 'STOCKTAKE_COUNT_KEY_ACCEPTED_DIFFERENT_PAYLOAD';
+      exception when others then
+        if sqlerrm='STOCKTAKE_COUNT_KEY_ACCEPTED_DIFFERENT_PAYLOAD' then raise; end if;
+        if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+      end;
+
+      -- Operation keys are tenant-wide, including retries submitted by another actor.
+      begin
+        perform * from public.powerhub_inventory_record_stocktake_count(
+          10,100,2,v_stocktake_id,v_line.item_id,2.000,6.0000,'Physically measured diesel',
+          'stocktake-count:idempotency:line-1'
+        );
+        raise exception 'STOCKTAKE_COUNT_KEY_REPLAYED_FOR_DIFFERENT_ACTOR';
+      exception when others then
+        if sqlerrm='STOCKTAKE_COUNT_KEY_REPLAYED_FOR_DIFFERENT_ACTOR' then raise; end if;
+        if sqlerrm not like '%IDEMPOTENCY_KEY_REUSED%' then raise; end if;
+      end;
+
+      select count(*)::integer into v_audit_count_after
+      from public.audit_logs a
+      where a.tenant_id=10 and a.site_id=100 and a.entity_type='inventory_stocktake_line'
+        and a.entity_id=v_stocktake_line_id::text and a.action='record_count';
+      if v_audit_count_after<>v_audit_count_before+1 then
+        raise exception 'STOCKTAKE_COUNT_REPLAY_DUPLICATED_AUDIT before=% after=%',
+          v_audit_count_before,v_audit_count_after;
+      end if;
     else
       perform * from public.powerhub_inventory_record_stocktake_count(
         10,100,1,v_stocktake_id,v_line.item_id,v_line.system_quantity,v_line.system_unit_cost,
@@ -3299,6 +3728,8 @@ begin
 
   if has_function_privilege('authenticated','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or has_function_privilege('anon','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
+    or has_function_privilege('authenticated','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or has_function_privilege('authenticated','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
@@ -3308,6 +3739,7 @@ begin
   end if;
   if not has_function_privilege('service_role','public.powerhub_inventory_create_stocktake(bigint,bigint,bigint,bigint,text,text,text)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text)','EXECUTE')
+    or not has_function_privilege('service_role','public.powerhub_inventory_record_stocktake_count(bigint,bigint,bigint,bigint,bigint,numeric,numeric,text,text)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_submit_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_post_stocktake(bigint,bigint,bigint,bigint)','EXECUTE')
     or not has_function_privilege('service_role','public.powerhub_inventory_cancel_stocktake(bigint,bigint,bigint,bigint,text)','EXECUTE')
@@ -3321,6 +3753,16 @@ begin
     insert into public.platform_role_policies(role,capability,is_allowed,updated_by_user_id)
     values('manager','manageStocktakes',true,1),('manager','approveStocktakes',true,1)
     on conflict(role,capability) do update set is_allowed=excluded.is_allowed;
+  end if;
+
+  if not (select c.relrowsecurity from pg_class c where c.oid='public.powerhub_inventory_stocktake_count_operations'::regclass)
+    or has_table_privilege('anon','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or has_table_privilege('authenticated','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or has_table_privilege('anon','public.powerhub_inventory_stocktake_count_operations','INSERT')
+    or has_table_privilege('authenticated','public.powerhub_inventory_stocktake_count_operations','INSERT')
+    or not has_table_privilege('service_role','public.powerhub_inventory_stocktake_count_operations','SELECT')
+    or not has_table_privilege('service_role','public.powerhub_inventory_stocktake_count_operations','INSERT') then
+    raise exception 'STOCKTAKE_COUNT_OPERATION_LEDGER_ACL_FAILED';
   end if;
   if not exists(select 1 from public.staff_profile_capability_overrides where tenant_id=10
     and profile_id=101 and capability='manageStocktakes') then
@@ -3554,12 +3996,28 @@ declare
   v_generator_tank_id bigint;
   v_fill record;
   v_fill_replay record;
+  v_second_fill record;
+  v_legacy_source_movement_id bigint;
+  v_legacy_destination_movement_id bigint;
+  v_legacy_transfer_id bigint;
   v_reading record;
   v_hour_reading_id bigint;
   v_tank_reading_id bigint;
   v_report record;
   v_prior_day_report record;
   v_period_report record;
+  v_cost_report record;
+  v_cost_day_before record;
+  v_cost_cycle_before record;
+  v_cost_month_before record;
+  v_cost_custom_before record;
+  v_cycle_stock_count integer;
+  v_cycle_stock_liters numeric;
+  v_cycle_stock_cost numeric;
+  v_expected_fuel_cost numeric(14,2);
+  v_consumption_at timestamptz;
+  v_consumption_date date;
+  v_cycle_debug record;
   v_alert_setting record;
   v_alert_replay record;
   v_alert_eval record;
@@ -3567,14 +4025,28 @@ declare
   v_low_dispatches integer;
   v_rate_dispatches integer;
   v_alert_notifications integer;
-  v_local_today date := (now() at time zone 'Asia/Gaza')::date;
-  v_opening_time timestamptz := ((v_local_today-2)::timestamp + interval '20 hours') at time zone 'Asia/Gaza';
+  -- Anchor the fixture date to the same instant used by v_end_time so a run
+  -- crossing Gaza midnight cannot classify the ending readings as historical.
+  v_local_today date := ((now() - interval '1 minute') at time zone 'Asia/Gaza')::date;
+  -- The month report is anchored to yesterday, so its opening tank/hour
+  -- baseline must be recorded before the start of that anchor's month.
+  v_opening_time timestamptz := (((date_trunc('month',(v_local_today-1)::timestamp)::date - 1)::timestamp + interval '20 hours') at time zone 'Asia/Gaza');
   v_fill_time timestamptz := ((v_local_today-1)::timestamp + interval '23 hours 30 minutes') at time zone 'Asia/Gaza';
   -- Keep all later correction timestamps safely before wall-clock maintenance close-out tests.
   v_end_time timestamptz := now() - interval '1 minute';
   v_replay_count integer;
   v_transfer_count integer;
 begin
+  -- Make the previous-day fill and current-day report belong to adjacent cycles,
+  -- regardless of the weekday/month day on which CI happens to run.
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='WEEKLY',
+      weekly_start_day=(extract(dow from v_local_today)::integer + 1)
+  where tenant_id=10 and site_id=100;
+  if not found then
+    raise exception 'PHASE_B_CYCLE_BOUNDARY_FIXTURE_CONFIG_MISSING';
+  end if;
+
   insert into public.inventory_items(tenant_id,sku,name,category,base_unit,reorder_point,created_by_user_id)
   values (10,'DSL-PHASE-B','Diesel Phase B fixture','fuel','liter',0,1)
   returning id into v_fuel_item_id;
@@ -3628,6 +4100,17 @@ begin
     md5('phase-b:tank-opening'),v_opening_time,1
   );
 
+  -- No periodic reading is required for a fuel fill or inventory movement.
+  -- An absent measurement must not be interpreted as a low or abnormal reading.
+  perform * from public.powerhub_inventory_evaluate_fuel_alerts(10,100);
+  select count(*)::integer into v_low_dispatches from public.powerhub_fuel_alert_dispatches
+  where tenant_id=10 and site_id=100 and setting_id=v_alert_setting.setting_id and alert_type='low_fuel_level';
+  select count(*)::integer into v_rate_dispatches from public.powerhub_fuel_alert_dispatches
+  where tenant_id=10 and site_id=100 and setting_id=v_alert_setting.setting_id and alert_type='abnormal_consumption';
+  if v_low_dispatches<>0 or v_rate_dispatches<>0 then
+    raise exception 'PHASE_B_ALERT_DISPATCHED_WITHOUT_MEASUREMENTS low=% abnormal=%',v_low_dispatches,v_rate_dispatches;
+  end if;
+
   perform * from public.powerhub_inventory_record_fuel_reading(
     10,100,1,10000,'tank_level',v_generator_tank_id,10,v_opening_time,
     'PHASE-B-LEVEL-OPEN','Opening generator tank reading',null,null,'phase-b:level-opening'
@@ -3649,7 +4132,7 @@ begin
     10,100,1,10000,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,
     5,v_fill_time,10,15,101,'PHASE-B-FILL-1','Five litre fixture fill','phase-b:fuel-fill-1'
   );
-  if v_fill.fuel_event_id is null or v_fill.stock_transfer_id is null
+  if v_fill.fuel_event_id is null or v_fill.stock_transfer_id is not null
      or v_fill.litres<>5 or v_fill.total_cost_amount<>47.50 or v_fill.replayed then
     raise exception 'PHASE_B_FUEL_FILL_POST_FAILED';
   end if;
@@ -3665,6 +4148,16 @@ begin
   if not v_fill_replay.replayed or v_fill_replay.fuel_event_id<>v_fill.fuel_event_id then
     raise exception 'PHASE_B_FUEL_FILL_IDEMPOTENCY_FAILED';
   end if;
+  if (select count(*) from public.inventory_stock_movements m
+      where m.tenant_id=10 and m.site_id=100 and m.operation_key='fuel-fill:phase-b:fuel-fill-1:issue'
+        and m.movement_type='fuel_consumption' and m.generator_id=10000
+        and m.quantity=5 and m.total_cost_amount=47.50)<>1 then
+    raise exception 'PHASE_B_FILL_MUST_CREATE_ONE_SOURCE_WAREHOUSE_ISSUE';
+  end if;
+  if (select count(*) from public.inventory_stock_transfers t
+      where t.tenant_id=10 and t.operation_key like 'fuel-fill:phase-b:fuel-fill-1%')<>0 then
+    raise exception 'PHASE_B_FILL_MUST_NOT_CREATE_INTERNAL_TANK_TRANSFER';
+  end if;
 
   begin
     perform * from public.powerhub_inventory_record_fuel_fill(
@@ -3676,10 +4169,109 @@ begin
     if sqlerrm<>'IDEMPOTENCY_KEY_REUSED' then raise; end if;
   end;
 
-  perform * from public.powerhub_inventory_record_stock_movement(
-    10,100,1,v_generator_tank_id,v_fuel_item_id,'fuel_consumption',3,null,10000,
-    'PHASE-B-CONSUMPTION','Recorded generator fuel consumption','phase-b:fuel-consumption-1'
+  -- A second direct fill in the same day proves that the report aggregates
+  -- multiple operations for one generator rather than returning only the latest.
+  select * into v_second_fill from public.powerhub_inventory_record_fuel_fill(
+    10,100,1,10000,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,
+    2,v_fill_time+interval '1 minute',15,17,null,'PHASE-B-FILL-2',
+    'Second same-period fixture fill','phase-b:fuel-fill-2'
   );
+  if v_second_fill.fuel_event_id is null or v_second_fill.stock_transfer_id is not null
+     or v_second_fill.litres<>2 or v_second_fill.total_cost_amount<>19.00 or v_second_fill.replayed then
+    raise exception 'PHASE_B_SECOND_FUEL_FILL_POST_FAILED';
+  end if;
+
+  -- Recreate one historical transfer-backed fill without changing any live
+  -- rows. Its event must remain visible in cost disclosures exactly once.
+  insert into public.inventory_stock_movements(
+    tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,total_cost_amount,
+    reference_no,notes,operation_key,operation_payload_hash,occurred_at,created_by_user_id
+  ) values (
+    10,100,v_source_warehouse_id,v_fuel_item_id,'issue',4,9.5,38.00,
+    'LEGACY-PHASE-B-SOURCE','Historical transfer-backed fuel issue',
+    'legacy:phase-b:fuel-fill:out',md5('legacy:phase-b:fuel-fill:out'),
+    v_fill_time+interval '2 minutes',1
+  ) returning id into v_legacy_source_movement_id;
+
+  insert into public.inventory_stock_movements(
+    tenant_id,site_id,warehouse_id,item_id,movement_type,quantity,unit_cost,total_cost_amount,
+    reference_no,notes,operation_key,operation_payload_hash,occurred_at,created_by_user_id
+  ) values (
+    10,100,v_generator_tank_id,v_fuel_item_id,'adjustment_in',4,9.5,38.00,
+    'LEGACY-PHASE-B-DESTINATION','Historical generator tank transfer-in',
+    'legacy:phase-b:fuel-fill:in',md5('legacy:phase-b:fuel-fill:in'),
+    v_fill_time+interval '2 minutes',1
+  ) returning id into v_legacy_destination_movement_id;
+
+  insert into public.inventory_stock_transfers(
+    tenant_id,site_id,item_id,source_warehouse_id,destination_warehouse_id,quantity,total_cost_amount,
+    operation_key,operation_payload_hash,reference_no,notes,source_movement_id,destination_movement_id,created_by_user_id
+  ) values (
+    10,100,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,4,38.00,
+    'legacy:phase-b:fuel-fill-transfer',md5('legacy:phase-b:fuel-fill-transfer'),
+    'LEGACY-PHASE-B','Historical fill fixture',v_legacy_source_movement_id,v_legacy_destination_movement_id,1
+  ) returning id into v_legacy_transfer_id;
+
+  insert into public.generator_fuel_events(
+    tenant_id,site_id,generator_id,fuel_item_id,source_warehouse_id,destination_warehouse_id,
+    stock_transfer_id,source_movement_id,destination_movement_id,litres,unit_cost,total_cost_amount,
+    occurred_at,level_before_liters,level_after_liters,operating_hours,reference_no,notes,
+    operation_key,operation_payload_hash,created_by_user_id
+  ) values (
+    10,100,10000,v_fuel_item_id,v_source_warehouse_id,v_generator_tank_id,
+    v_legacy_transfer_id,v_legacy_source_movement_id,v_legacy_destination_movement_id,4,9.5,38.00,
+    v_fill_time+interval '2 minutes',17,21,null,'LEGACY-PHASE-B','Historical transfer-backed fill',
+    'legacy:phase-b:fuel-fill-event',md5('legacy:phase-b:fuel-fill-event'),1
+  );
+
+  perform * from public.powerhub_inventory_record_fuel_reading(
+    10,100,1,10000,'tank_level',v_generator_tank_id,17,v_fill_time+interval '2 minutes',
+    'LEGACY-PHASE-B-LEVEL-BEFORE','Historical fill opening level',null,null,'legacy:phase-b:level-before'
+  );
+  perform * from public.powerhub_inventory_record_fuel_reading(
+    10,100,1,10000,'tank_level',v_generator_tank_id,21,v_fill_time+interval '2 minutes',
+    'LEGACY-PHASE-B-LEVEL-AFTER','Historical fill ending level',null,null,'legacy:phase-b:level-after'
+  );
+  -- Capture the baseline after two direct fills and one legacy event.
+  -- The report must count all three once, not the old tank transfer twice.
+  v_consumption_date:=v_local_today-1;
+  select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'day',v_consumption_date,null,null,10000
+  );
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>3
+     or v_cost_report.recorded_consumption_liters<>11
+     or v_cost_report.recorded_consumption_cost<>104.50 then
+    raise exception 'PHASE_B_LEGACY_FILL_COST_REPORT_FAILED row=%',row_to_json(v_cost_report);
+  end if;
+  select * into v_cost_day_before
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'day',v_consumption_date,null,null,10000
+  );
+  select * into v_cost_cycle_before
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'cycle',v_consumption_date,null,null,10000
+  );
+  select * into v_cost_month_before
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'month',v_consumption_date,null,null,10000
+  );
+  select * into v_cost_custom_before
+  from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'custom',null,v_consumption_date,v_consumption_date,10000
+  );
+
+  -- The fill itself is the recognized fuel issue and expense. Tank-level readings
+  -- remain an optional diagnostic; they do not create another stock issue.
+  select m.occurred_at,m.total_cost_amount::numeric(14,2)
+    into v_consumption_at,v_expected_fuel_cost
+  from public.inventory_stock_movements m
+  where m.tenant_id=10 and m.site_id=100 and m.generator_id=10000
+    and m.movement_type='fuel_consumption' and m.operation_key='fuel-fill:phase-b:fuel-fill-1:issue';
+  if not found or v_expected_fuel_cost<>47.50 then raise exception 'PHASE_B_FUEL_FILL_COST_MOVEMENT_MISSING'; end if;
+  if v_consumption_date is distinct from (v_consumption_at at time zone 'Asia/Gaza')::date then
+    raise exception 'PHASE_B_FUEL_CONSUMPTION_DAY_CHANGED_DURING_FIXTURE';
+  end if;
 
   select reading_id into v_hour_reading_id
   from public.powerhub_inventory_record_fuel_reading(
@@ -3695,9 +4287,9 @@ begin
   select * into v_prior_day_report from public.powerhub_inventory_fuel_consumption_report(
     10,100,v_local_today-1,v_local_today-1,10000
   );
-  if v_prior_day_report.fuel_filled_liters<>5
+  if v_prior_day_report.fuel_filled_liters<>11
      or v_prior_day_report.opening_level_liters<>10
-     or v_prior_day_report.ending_level_liters<>15
+     or v_prior_day_report.ending_level_liters<>21
      or v_prior_day_report.actual_consumption_liters<>0
      or v_prior_day_report.measurement_status<>'measured' then
     raise exception 'PHASE_B_HISTORICAL_FILL_DATE_RECONCILIATION_FAILED row=%',row_to_json(v_prior_day_report);
@@ -3707,16 +4299,16 @@ begin
     10,100,v_local_today-1,v_local_today,10000
   );
   if v_report.generator_id<>10000
-     or v_report.fuel_filled_liters<>5
-     or v_report.fuel_filled_cost<>47.50
-     or v_report.recorded_consumption_liters<>3
+     or v_report.fuel_filled_liters<>11
+     or v_report.fuel_filled_cost<>104.50
+     or v_report.recorded_consumption_liters<>0
      or v_report.opening_level_liters<>10
      or v_report.ending_level_liters<>12
-     or v_report.actual_consumption_liters<>3
+     or v_report.actual_consumption_liters<>9
      or v_report.opening_operating_hours<>100
      or v_report.ending_operating_hours<>103
      or v_report.operating_hours_delta<>3
-     or v_report.litres_per_hour<>1
+     or v_report.litres_per_hour<>3
      or v_report.measurement_status<>'measured' then
     raise exception 'PHASE_B_MEASURED_CONSUMPTION_RECONCILIATION_FAILED row=%',row_to_json(v_report);
   end if;
@@ -3724,7 +4316,7 @@ begin
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'day',v_local_today-1,null,null,10000,v_generator_tank_id
   );
-  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>11
      or v_period_report.actual_consumption_liters<>0 then
     raise exception 'PHASE_B_DAY_REPORT_FAILED row=%',row_to_json(v_period_report);
   end if;
@@ -3732,27 +4324,138 @@ begin
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'custom',null,v_local_today-1,v_local_today,10000,v_generator_tank_id
   );
-  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
-     or v_period_report.recorded_consumption_liters<>3
-     or v_period_report.actual_consumption_liters<>3
-     or v_period_report.fuel_filled_cost<>47.50 then
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>11
+     or v_period_report.recorded_consumption_liters<>0
+     or v_period_report.actual_consumption_liters<>9
+     or v_period_report.fuel_filled_cost<>104.50 then
     raise exception 'PHASE_B_CUSTOM_REPORT_RECONCILIATION_FAILED row=%',row_to_json(v_period_report);
   end if;
 
+  select * into v_cycle_debug from public.powerhub_cycle_for_reading(
+    10,100,(v_local_today-1)::timestamp at time zone 'Asia/Gaza'
+  );
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'cycle',v_local_today-1,null,null,10000,v_generator_tank_id
   );
-  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5 then
-    raise exception 'PHASE_B_CYCLE_REPORT_FAILED row=%',row_to_json(v_period_report);
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>11 then
+    raise exception 'PHASE_B_CYCLE_REPORT_FAILED row=% anchor=% fill_at=% cycle_start=% cycle_end=% timezone=%',
+      row_to_json(v_period_report),v_local_today-1,v_fill_time,v_cycle_debug.cycle_start_at,v_cycle_debug.cycle_end_at,'Asia/Gaza';
   end if;
+
+  -- The exclusive next-cycle boundary must not overlap the preceding cycle.
+  select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
+    10,100,'cycle',v_local_today,null,null,10000,v_generator_tank_id
+  );
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>0 then
+    raise exception 'PHASE_B_NEXT_CYCLE_CONTAINS_PREVIOUS_CYCLE_FILL row=% anchor=%',
+      row_to_json(v_period_report),v_local_today;
+  end if;
+
+  -- Restore the 10-day cycle fixture used by the independent boundary assertions.
+  update public.tenant_reading_cycle_configurations
+  set cycle_type='EVERY_10_DAYS',weekly_start_day=7,monthly_start_day=1
+  where tenant_id=10 and site_id=100;
 
   select * into v_period_report from public.powerhub_inventory_fuel_consumption_report_period(
     10,100,'month',v_local_today-1,null,null,10000,v_generator_tank_id
   );
-  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>5
-     or v_period_report.actual_consumption_liters is not null
-     or v_period_report.measurement_status<>'insufficient_level_readings' then
-    raise exception 'PHASE_B_MONTH_REPORT_MISSING_MEASUREMENT_STATUS row=%',row_to_json(v_period_report);
+  -- Monthly reporting carries the last valid pre-period tank reading as its
+  -- opening baseline, so this fixture has enough readings for a measured result.
+  if v_period_report.generator_id<>10000 or v_period_report.fuel_filled_liters<>11
+     or v_period_report.recorded_consumption_liters<>0
+     or v_period_report.opening_level_liters<>10
+     or v_period_report.ending_level_liters<>12
+     or v_period_report.actual_consumption_liters<>9
+     or v_period_report.opening_operating_hours<>100
+     or v_period_report.ending_operating_hours<>103
+     or v_period_report.operating_hours_delta<>3
+     or v_period_report.measurement_status<>'measured' then
+    raise exception 'PHASE_B_MONTH_REPORT_RECONCILIATION_FAILED row=%',row_to_json(v_period_report);
+  end if;
+
+  -- Cost disclosure must use the recorded stock-consumption movement ledger,
+  -- not refuel event totals or measured tank draw-down. Assert the delta caused
+  -- by this operation, not a false assumption that no earlier fixture rows exist.
+  select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'day',v_consumption_date,null,null,10000
+  );
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>v_cost_day_before.movement_count
+     or v_cost_report.recorded_consumption_liters-v_cost_day_before.recorded_consumption_liters<>0
+     or v_cost_report.recorded_consumption_cost-v_cost_day_before.recorded_consumption_cost<>0
+     or v_cost_report.average_cost_per_liter<>round(v_cost_report.recorded_consumption_cost/v_cost_report.recorded_consumption_liters,4) then
+    raise exception 'PHASE_B_FUEL_COST_DAY_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
+      row_to_json(v_cost_report),row_to_json(v_cost_day_before),v_expected_fuel_cost;
+  end if;
+
+  select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'cycle',v_consumption_date,null,null,10000
+  );
+  -- The baseline was collected under a temporary WEEKLY cycle; the report
+  -- now uses restored EVERY_10_DAYS. These windows can coincide or differ
+  -- depending on the date CI runs. Compare against independent stock movements
+  -- in the *same* restored cycle, never a hardcoded delta between two windows.
+  select * into v_cycle_debug from public.powerhub_cycle_for_reading(
+    10,100,v_consumption_date::timestamp at time zone 'Asia/Gaza'
+  );
+  -- Reconstruct the effective ledger independently of the reporting RPC:
+  -- exclude corrected/reversed issues and include legacy transfer-backed fills
+  -- exactly once. Both report and expected ledger use the same cycle window.
+  select count(*)::integer,coalesce(sum(effective.liters),0),
+    coalesce(sum(effective.cost),0)
+  into v_cycle_stock_count,v_cycle_stock_liters,v_cycle_stock_cost
+  from (
+    select m.quantity as liters,m.total_cost_amount as cost
+    from public.inventory_stock_movements m
+    where m.tenant_id=10 and m.site_id=100 and m.generator_id=10000
+      and m.movement_type='fuel_consumption'
+      and m.occurred_at>=v_cycle_debug.cycle_start_at
+      and m.occurred_at<=v_cycle_debug.cycle_end_at
+      and not exists (
+        select 1 from public.inventory_stock_movements reversal
+        where reversal.tenant_id=m.tenant_id and reversal.site_id=m.site_id
+          and reversal.reversal_of_movement_id=m.id
+      )
+    union all
+    select e.litres,e.total_cost_amount
+    from public.generator_fuel_events e
+    join public.inventory_stock_movements source on source.tenant_id=e.tenant_id
+      and source.id=e.source_movement_id and source.movement_type='issue'
+    where e.tenant_id=10 and e.site_id=100 and e.generator_id=10000
+      and e.stock_transfer_id is not null
+      and e.occurred_at>=v_cycle_debug.cycle_start_at
+      and e.occurred_at<=v_cycle_debug.cycle_end_at
+  ) effective;
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>v_cycle_stock_count
+     or v_cost_report.recorded_consumption_liters<>v_cycle_stock_liters
+     or v_cost_report.recorded_consumption_cost<>v_cycle_stock_cost
+     or v_cost_report.average_cost_per_liter<>round(v_cycle_stock_cost/nullif(v_cycle_stock_liters,0),4) then
+    raise exception 'PHASE_B_FUEL_COST_CYCLE_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
+      row_to_json(v_cost_report),row_to_json(v_cost_cycle_before),v_expected_fuel_cost;
+  end if;
+
+  select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'month',v_consumption_date,null,null,10000
+  );
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>v_cost_month_before.movement_count
+     or v_cost_report.recorded_consumption_liters-v_cost_month_before.recorded_consumption_liters<>0
+     or v_cost_report.recorded_consumption_cost-v_cost_month_before.recorded_consumption_cost<>0 then
+    raise exception 'PHASE_B_FUEL_COST_MONTH_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
+      row_to_json(v_cost_report),row_to_json(v_cost_month_before),v_expected_fuel_cost;
+  end if;
+
+  select * into v_cost_report from public.powerhub_inventory_fuel_consumption_cost_report_period(
+    10,100,'custom',null,v_consumption_date,v_consumption_date,10000
+  );
+  if v_cost_report.generator_id<>10000
+     or v_cost_report.movement_count<>v_cost_custom_before.movement_count
+     or v_cost_report.recorded_consumption_liters-v_cost_custom_before.recorded_consumption_liters<>0
+     or v_cost_report.recorded_consumption_cost-v_cost_custom_before.recorded_consumption_cost<>0
+     or v_cost_report.average_cost_per_liter<>round(v_cost_report.recorded_consumption_cost/v_cost_report.recorded_consumption_liters,4) then
+    raise exception 'PHASE_B_FUEL_COST_CUSTOM_REPORT_INCREMENT_FAILED row=% before=% expected_cost=%',
+      row_to_json(v_cost_report),row_to_json(v_cost_custom_before),v_expected_fuel_cost;
   end if;
 
   select count(*)::integer into v_rate_dispatches from public.powerhub_fuel_alert_dispatches
@@ -3803,10 +4506,12 @@ begin
 
   select count(*)::integer into v_replay_count from public.generator_fuel_events
     where tenant_id=10 and site_id=100 and operation_key='phase-b:fuel-fill-1';
-  select count(*)::integer into v_transfer_count from public.inventory_stock_transfers
-    where tenant_id=10 and operation_key='fuel-fill:phase-b:fuel-fill-1:transfer';
+  select count(*)::integer into v_transfer_count from public.inventory_stock_movements
+    where tenant_id=10 and site_id=100
+      and operation_key='fuel-fill:phase-b:fuel-fill-1:issue'
+      and movement_type='fuel_consumption' and generator_id=10000;
   if v_replay_count<>1 or v_transfer_count<>1 then
-    raise exception 'PHASE_B_REPLAY_CREATED_DUPLICATE_FILL_OR_TRANSFER';
+    raise exception 'PHASE_B_REPLAY_CREATED_DUPLICATE_FILL_OR_ISSUE';
   end if;
 
   begin
@@ -4056,6 +4761,425 @@ begin
   end;
 end;
 $phase_d_financial_details_assertions$;
+
+-- Phase D financial exports must reject a payment linked to another branch or supplier.
+do $phase_d_supplier_allocation_scope_regression$
+declare
+  v_other_supplier_id bigint;
+  v_cross_site_purchase_id bigint;
+  v_same_site_other_supplier_purchase_id bigint;
+  v_related_reference text;
+begin
+  select related_reference into v_related_reference
+  from public.powerhub_inventory_phase_d_financial_details(
+    10,100,current_date-1,current_date+1,50,null,null,null,true,true
+  )
+  where event_type='supplier_payment' and event_id=1;
+  if coalesce(v_related_reference,'') not like '%PO-10-001%' then
+    raise exception 'PHASE_D_VALID_SUPPLIER_ALLOCATION_REFERENCE_MISSING: %',v_related_reference;
+  end if;
+
+  insert into public.suppliers(tenant_id,supplier_code,name,created_by_user_id)
+  values (10,'PHASE-D-OTHER-SUPPLIER','Phase D other supplier',1)
+  returning id into v_other_supplier_id;
+
+  insert into public.supplier_purchases(
+    tenant_id,site_id,supplier_id,warehouse_id,purchase_number,status,operation_key,created_by_user_id
+  ) values (
+    10,101,1,1,'PO-PHASE-D-CROSS-SITE','draft','phase-d:cross-site-allocation',1
+  ) returning id into v_cross_site_purchase_id;
+
+  insert into public.supplier_purchases(
+    tenant_id,site_id,supplier_id,warehouse_id,purchase_number,status,operation_key,created_by_user_id
+  ) values (
+    10,100,v_other_supplier_id,1,'PO-PHASE-D-OTHER-SUPPLIER','draft','phase-d:other-supplier-allocation',1
+  ) returning id into v_same_site_other_supplier_purchase_id;
+
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,1,v_cross_site_purchase_id,1.00);
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-1,current_date+1,50,null,null,null,true,true
+    ) where event_type='supplier_payment' and event_id=1;
+    raise exception 'PHASE_D_CROSS_SITE_SUPPLIER_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=1 and purchase_id=v_cross_site_purchase_id;
+
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,1,v_same_site_other_supplier_purchase_id,1.00);
+  begin
+    perform * from public.powerhub_inventory_phase_d_financial_details(
+      10,100,current_date-1,current_date+1,50,null,null,null,true,true
+    ) where event_type='supplier_payment' and event_id=1;
+    raise exception 'PHASE_D_OTHER_SUPPLIER_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=1 and purchase_id=v_same_site_other_supplier_purchase_id;
+
+  delete from public.supplier_purchases where tenant_id=10 and id in (v_cross_site_purchase_id,v_same_site_other_supplier_purchase_id);
+  delete from public.suppliers where tenant_id=10 and id=v_other_supplier_id;
+end;
+$phase_d_supplier_allocation_scope_regression$;
+
+-- Supplier aging applies posted allocations only when payment and document share tenant, branch and supplier.
+do $supplier_payables_aging_allocation_scope_regression$
+declare
+  v_scope_supplier_id bigint;
+  v_other_supplier_id bigint;
+  v_remote_warehouse_id bigint;
+  v_cross_site_purchase_id bigint;
+  v_wrong_supplier_purchase_id bigint;
+  v_opening_entry_id bigint;
+  v_other_supplier_opening_id bigint;
+  v_local_payment_id bigint;
+  v_remote_payment_id bigint;
+  v_remote_opening_payment_id bigint;
+  v_opening_payment_id bigint;
+  v_aging jsonb;
+  v_paid numeric(14,2);
+  v_outstanding numeric(14,2);
+begin
+  insert into public.suppliers(tenant_id,supplier_code,name,created_by_user_id)
+  values
+    (10,'AGING-SCOPE-SUP-01','Aging scope supplier',1),
+    (10,'AGING-SCOPE-SUP-02','Aging other supplier',1);
+  select id into v_scope_supplier_id from public.suppliers
+  where tenant_id=10 and supplier_code='AGING-SCOPE-SUP-01';
+  select id into v_other_supplier_id from public.suppliers
+  where tenant_id=10 and supplier_code='AGING-SCOPE-SUP-02';
+
+  select id into v_remote_warehouse_id from public.inventory_warehouses
+  where tenant_id=10 and site_id=101 order by id limit 1;
+  if v_remote_warehouse_id is null then
+    insert into public.inventory_warehouses(tenant_id,site_id,code,name,created_by_user_id)
+    values (10,101,'AGING-SCOPE-WH','Aging scope test warehouse',1)
+    returning id into v_remote_warehouse_id;
+  end if;
+
+  select ledger_entry_id into v_opening_entry_id
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_scope_supplier_id,10.00,current_date,
+    'AGING-SCOPE-OPEN-01','Aging allocation scope regression'
+  );
+  select ledger_entry_id into v_other_supplier_opening_id
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_other_supplier_id,10.00,current_date,
+    'AGING-SCOPE-OPEN-02','Different supplier opening payable'
+  );
+
+  -- A valid same-branch opening-balance allocation must still reduce the payable.
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    operation_key,operation_payload_hash,posted_by_user_id
+  ) values (
+    10,100,v_scope_supplier_id,1000,3.00,current_date,'posted',
+    'aging-scope:valid-opening',md5('aging-scope:valid-opening'),1
+  ) returning id into v_opening_payment_id;
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,supplier_ledger_entry_id,amount
+  ) values (10,v_opening_payment_id,null,v_opening_entry_id,3.00);
+
+  v_aging:=public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+  select (item.value->>'paid_amount')::numeric,(item.value->>'outstanding_amount')::numeric
+    into v_paid,v_outstanding
+  from jsonb_array_elements(v_aging->'rows') as item(value)
+  where item.value->>'document_type'='opening_balance'
+    and (item.value->>'document_id')::bigint=v_opening_entry_id;
+  if not found or v_paid is distinct from 3.00::numeric or v_outstanding is distinct from 7.00::numeric then
+    raise exception 'SUPPLIER_AGING_VALID_OPENING_ALLOCATION_MISMATCH paid=% outstanding=%',v_paid,v_outstanding;
+  end if;
+
+  insert into public.supplier_purchases(
+    tenant_id,site_id,supplier_id,warehouse_id,purchase_number,status,operation_key,created_by_user_id
+  ) values (
+    10,101,1,v_remote_warehouse_id,'AGING-CROSS-SITE','draft','aging-scope:cross-site-purchase',1
+  ) returning id into v_cross_site_purchase_id;
+  insert into public.supplier_purchases(
+    tenant_id,site_id,supplier_id,warehouse_id,purchase_number,status,operation_key,created_by_user_id
+  ) values (
+    10,100,v_scope_supplier_id,1,'AGING-WRONG-SUPPLIER','draft','aging-scope:wrong-supplier-purchase',1
+  ) returning id into v_wrong_supplier_purchase_id;
+
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    operation_key,operation_payload_hash,posted_by_user_id
+  ) values (
+    10,100,1,1000,2.00,current_date,'posted',
+    'aging-scope:local-payment',md5('aging-scope:local-payment'),1
+  ) returning id into v_local_payment_id;
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    operation_key,operation_payload_hash,posted_by_user_id
+  ) values (
+    10,101,1,1000,2.00,current_date,'posted',
+    'aging-scope:remote-payment',md5('aging-scope:remote-payment'),1
+  ) returning id into v_remote_payment_id;
+  insert into public.supplier_payments(
+    tenant_id,site_id,supplier_id,company_account_id,amount,payment_date,status,
+    operation_key,operation_payload_hash,posted_by_user_id
+  ) values (
+    10,101,v_scope_supplier_id,1000,2.00,current_date,'posted',
+    'aging-scope:remote-opening-payment',md5('aging-scope:remote-opening-payment'),1
+  ) returning id into v_remote_opening_payment_id;
+
+  -- Local payment linked to invoice in another branch.
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,v_local_payment_id,v_cross_site_purchase_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_CROSS_SITE_INVOICE_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_local_payment_id and purchase_id=v_cross_site_purchase_id;
+
+  -- Same-branch invoice linked to a different supplier's payment.
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,v_local_payment_id,v_wrong_supplier_purchase_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_WRONG_SUPPLIER_INVOICE_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_local_payment_id and purchase_id=v_wrong_supplier_purchase_id;
+
+  -- Remote payment linked to an invoice owned by this branch.
+  insert into public.supplier_payment_allocations(tenant_id,payment_id,purchase_id,amount)
+  values (10,v_remote_payment_id,1,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_REMOTE_PAYMENT_TO_LOCAL_INVOICE_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_remote_payment_id and purchase_id=1;
+
+  -- Local payment linked to another supplier's opening balance.
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,supplier_ledger_entry_id,amount
+  ) values (10,v_local_payment_id,null,v_opening_entry_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_WRONG_SUPPLIER_OPENING_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_local_payment_id and supplier_ledger_entry_id=v_opening_entry_id;
+
+  -- Remote payment linked to this branch's opening payable.
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,supplier_ledger_entry_id,amount
+  ) values (10,v_remote_opening_payment_id,null,v_opening_entry_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_REMOTE_PAYMENT_TO_LOCAL_OPENING_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_remote_opening_payment_id and supplier_ledger_entry_id=v_opening_entry_id;
+
+  -- Local payment may not settle another supplier's opening balance.
+  insert into public.supplier_payment_allocations(
+    tenant_id,payment_id,purchase_id,supplier_ledger_entry_id,amount
+  ) values (10,v_local_payment_id,null,v_other_supplier_opening_id,1.00);
+  begin
+    perform public.powerhub_inventory_supplier_payables_aging(10,100,current_date);
+    raise exception 'SUPPLIER_AGING_OTHER_SUPPLIER_OPENING_ALLOCATION_ACCEPTED';
+  exception when sqlstate 'P0001' then
+    if sqlerrm<>'SUPPLIER_PAYMENT_ALLOCATION_SCOPE_INVALID' then raise; end if;
+  end;
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id=v_local_payment_id and supplier_ledger_entry_id=v_other_supplier_opening_id;
+
+  delete from public.supplier_payment_allocations
+  where tenant_id=10 and payment_id in (v_local_payment_id,v_remote_payment_id,v_remote_opening_payment_id,v_opening_payment_id);
+  delete from public.supplier_payments
+  where tenant_id=10 and id in (v_local_payment_id,v_remote_payment_id,v_remote_opening_payment_id,v_opening_payment_id);
+  delete from public.supplier_purchases
+  where tenant_id=10 and id in (v_cross_site_purchase_id,v_wrong_supplier_purchase_id);
+  delete from public.inventory_warehouses
+  where tenant_id=10 and site_id=101 and id=v_remote_warehouse_id
+    and code='AGING-SCOPE-WH';
+end;
+$supplier_payables_aging_allocation_scope_regression$;
+
+do $supplier_ledger_revision_assertions$
+declare
+  v_supplier_id bigint; v_entry_id bigint; v_cursor bigint; v_after bigint;
+begin
+  select id into v_supplier_id from public.suppliers where tenant_id=10 and supplier_code='PUR-WF-SUP';
+  if v_supplier_id is null then raise exception 'SUPPLIER_LEDGER_REVISION_FIXTURE_MISSING'; end if;
+  select coalesce(last_cursor,0) into v_cursor from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+
+  insert into public.supplier_ledger_entries(
+    tenant_id,site_id,supplier_id,entry_type,debit_amount,credit_amount,
+    entry_key,reference_no,description,occurred_at,created_by_user_id
+  ) values (10,100,v_supplier_id,'adjustment',1,0,'supplier-ledger-revision:insert-test',
+    'REV-INSERT','Revision cursor insert test',now(),1) returning id into v_entry_id;
+  select last_cursor into v_after from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_after<>coalesce(v_cursor,0)+1 then raise exception 'SUPPLIER_LEDGER_INSERT_REVISION_FAILED'; end if;
+
+  update public.supplier_ledger_entries set debit_amount=2,reference_no='REV-UPDATE'
+  where tenant_id=10 and site_id=100 and id=v_entry_id;
+  select last_cursor into v_cursor from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_cursor<>v_after+1 then raise exception 'SUPPLIER_LEDGER_UPDATE_REVISION_FAILED'; end if;
+
+  delete from public.supplier_ledger_entries where tenant_id=10 and id=v_entry_id;
+  select last_cursor into v_after from public.powerhub_sync_scope_state
+  where tenant_id=10 and site_id=100 and entity_type='supplier_ledger';
+  if v_after<>v_cursor+1 then raise exception 'SUPPLIER_LEDGER_DELETE_REVISION_FAILED'; end if;
+
+  if has_function_privilege('authenticated','public.powerhub_bump_supplier_ledger_revision(bigint,bigint,bigint)','EXECUTE')
+    then raise exception 'AUTHENTICATED_CAN_EXECUTE_SUPPLIER_LEDGER_REVISION_FUNCTION'; end if;
+  if not has_function_privilege('service_role','public.powerhub_bump_supplier_ledger_revision(bigint,bigint,bigint)','EXECUTE')
+    then raise exception 'SERVICE_ROLE_CANNOT_EXECUTE_SUPPLIER_LEDGER_REVISION_FUNCTION'; end if;
+end;
+$supplier_ledger_revision_assertions$;
+
+-- Dated supplier payments and opening payables follow their accounting date.
+do $financial_period_accounting_date_regression$
+declare
+  v_supplier_id bigint;
+  v_warehouse_id bigint;
+  v_item_id bigint;
+  v_purchase_id bigint;
+  v_purchase_status text;
+  v_opening_entry_id bigint;
+  v_opening_amount numeric(14,2);
+  v_opening_date date;
+  v_opening_replayed boolean;
+  v_single_payment_id bigint;
+  v_single_transaction_id bigint;
+  v_single_date date;
+  v_single_replayed boolean;
+  v_batch_payment_id bigint;
+  v_batch_transaction_id bigint;
+  v_batch_date date;
+  v_batch_replayed boolean;
+  v_account_balance numeric(14,2);
+  v_lock_id bigint;
+  v_accounting_date date := current_date-10;
+begin
+  select id into v_item_id from public.inventory_items
+  where tenant_id=10 and sku='DSL-01' order by id limit 1;
+  select id into v_warehouse_id from public.inventory_warehouses
+  where tenant_id=10 and site_id=100 order by id limit 1;
+  if v_item_id is null or v_warehouse_id is null then
+    raise exception 'PERIOD_DATE_SUPPLIER_FIXTURE_MISSING';
+  end if;
+
+  select ca.opening_balance+coalesce(sum(
+    case when atx.transaction_type in ('deposit','transfer_in','collection') then atx.amount else -atx.amount end
+  ),0)::numeric(14,2)
+  into v_account_balance
+  from public.company_accounts ca
+  left join public.account_transactions atx on atx.tenant_id=ca.tenant_id and atx.account_id=ca.id
+  where ca.tenant_id=10 and ca.id=1000
+  group by ca.opening_balance;
+  if coalesce(v_account_balance,0)<0.02 then
+    raise exception 'PERIOD_DATE_SUPPLIER_TEST_ACCOUNT_BALANCE_TOO_LOW';
+  end if;
+
+  select id into v_supplier_id from public.powerhub_inventory_create_supplier(
+    10,100,1,'DATE-GUARD-SUP-01','Accounting date guard supplier','AP contact',
+    '0599000001','date.guard@example.test','Disposable test address','DATE-GUARD-TAX',
+    30,'Disposable period-date regression fixture'
+  );
+  select purchase_id,total_amount into v_purchase_id,v_opening_amount
+  from public.powerhub_inventory_create_purchase(
+    10,100,1,v_supplier_id,v_warehouse_id,'DATE-GUARD-PUR-01',current_date,null,30,
+    'DATE-GUARD-REF-01','Disposable period-date purchase','period-date:create-purchase',
+    jsonb_build_array(jsonb_build_object(
+      'item_id',v_item_id,'quantity',2,'unit','liter','units_to_base_factor',1,
+      'unit_price',10,'discount_amount',0,'tax_amount',0,'notes','period-date regression'
+    ))
+  );
+  if v_purchase_id is null or v_opening_amount<>20 then
+    raise exception 'PERIOD_DATE_SUPPLIER_PURCHASE_CREATE_FAILED';
+  end if;
+  select status into v_purchase_status
+  from public.powerhub_inventory_confirm_purchase(10,100,1,v_purchase_id);
+  if v_purchase_status<>'confirmed' then
+    raise exception 'PERIOD_DATE_SUPPLIER_PURCHASE_CONFIRM_FAILED';
+  end if;
+
+  insert into public.financial_settlements(tenant_id,site_id,status,period_start,period_end)
+  values(10,100,'locked',current_date::timestamp at time zone 'UTC',
+    ((current_date+1)::timestamp at time zone 'UTC')-interval '1 microsecond')
+  returning id into v_lock_id;
+
+  select ledger_entry_id,amount,as_of_date,replayed
+    into v_opening_entry_id,v_opening_amount,v_opening_date,v_opening_replayed
+  from public.powerhub_inventory_record_supplier_opening_balance(
+    10,100,1,v_supplier_id,5.00,v_accounting_date,'DATE-GUARD-OPEN-01',
+    'Opening payable in an unlocked historical period'
+  );
+  if v_opening_entry_id is null or v_opening_amount<>5 or v_opening_date<>v_accounting_date or v_opening_replayed then
+    raise exception 'BACKDATED_SUPPLIER_OPENING_BALANCE_WAS_NOT_POSTED';
+  end if;
+  if not exists(
+    select 1 from public.supplier_ledger_entries
+    where id=v_opening_entry_id and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_SUPPLIER_OPENING_BALANCE_DATE_MISMATCH'; end if;
+
+  select payment_id,account_transaction_id,payment_date,replayed
+    into v_single_payment_id,v_single_transaction_id,v_single_date,v_single_replayed
+  from public.powerhub_inventory_record_supplier_payment(
+    10,100,1,v_purchase_id,1000,0.01,v_accounting_date,'DATE-GUARD-SINGLE-PAY',
+    'Backdated supplier payment while today is locked','period-date:supplier-single'
+  );
+  if v_single_payment_id is null or v_single_transaction_id is null
+    or v_single_date<>v_accounting_date or v_single_replayed then
+    raise exception 'BACKDATED_SINGLE_SUPPLIER_PAYMENT_WAS_NOT_POSTED';
+  end if;
+  if not exists(
+    select 1 from public.account_transactions
+    where id=v_single_transaction_id and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) or not exists(
+    select 1 from public.supplier_ledger_entries
+    where supplier_payment_id=v_single_payment_id
+      and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_SINGLE_SUPPLIER_PAYMENT_DATE_MISMATCH'; end if;
+
+  select payment_id,account_transaction_id,payment_date,replayed
+    into v_batch_payment_id,v_batch_transaction_id,v_batch_date,v_batch_replayed
+  from public.powerhub_inventory_record_supplier_payment_batch(
+    10,100,1,v_supplier_id,1000,0.01,v_accounting_date,'DATE-GUARD-BATCH-PAY',
+    'Backdated supplier batch payment while today is locked','period-date:supplier-batch',
+    jsonb_build_array(jsonb_build_object(
+      'purchase_id',null,'supplier_ledger_entry_id',v_opening_entry_id,'amount',0.01
+    ))
+  );
+  if v_batch_payment_id is null or v_batch_transaction_id is null
+    or v_batch_date<>v_accounting_date or v_batch_replayed then
+    raise exception 'BACKDATED_BATCH_SUPPLIER_PAYMENT_WAS_NOT_POSTED';
+  end if;
+  if not exists(
+    select 1 from public.account_transactions
+    where id=v_batch_transaction_id and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) or not exists(
+    select 1 from public.supplier_ledger_entries
+    where supplier_payment_id=v_batch_payment_id
+      and occurred_at=(v_accounting_date::timestamp at time zone 'UTC')
+  ) then raise exception 'BACKDATED_BATCH_SUPPLIER_PAYMENT_DATE_MISMATCH'; end if;
+
+  delete from public.financial_settlements where id=v_lock_id;
+end
+$financial_period_accounting_date_regression$;
 
 select 'inventory purchasing, supplier ledger, fuel fill/reading, measured consumption and stock operations PostgreSQL integration passed' as result;
 

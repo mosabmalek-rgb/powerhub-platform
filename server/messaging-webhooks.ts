@@ -25,7 +25,6 @@ export async function verifyWhatsAppWebhook(req: Request, res: Response) {
   const token = typeof req.query["hub.verify_token"] === "string" ? req.query["hub.verify_token"] : "";
   const challenge = typeof req.query["hub.challenge"] === "string" ? req.query["hub.challenge"] : "";
   if (!Number.isInteger(tenantId) || req.query["hub.mode"] !== "subscribe" || !token || !challenge) return res.sendStatus(403);
-
   const { data: configuration, error } = await supabaseAdmin().from("tenant_messaging_configurations")
     .select("webhook_verify_token_hash")
     .eq("tenant_id", tenantId)
@@ -39,13 +38,13 @@ export async function verifyWhatsAppWebhook(req: Request, res: Response) {
   const actualHash = Buffer.from(configuration.webhook_verify_token_hash);
   const expectedHashBuffer = Buffer.from(expectedHash);
   if (actualHash.length !== expectedHashBuffer.length || !crypto.timingSafeEqual(actualHash, expectedHashBuffer)) return res.sendStatus(403);
-  return res.status(200).send(challenge);
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  return res.status(200).end(Buffer.from(challenge, "utf8"));
 }
 
 export async function receiveWhatsAppWebhook(req: RawRequest, res: Response) {
   const tenantId = Number(req.params.tenantId);
   if (!Number.isInteger(tenantId)) return res.sendStatus(404);
-
   const { data: configuration, error } = await supabaseAdmin().from("tenant_messaging_configurations")
     .select("credential_ciphertext, credential_iv")
     .eq("tenant_id", tenantId)

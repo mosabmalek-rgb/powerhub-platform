@@ -1,0 +1,171 @@
+name: PowerHub SBOM
+
+on:
+  push:
+    branches: [main, feat/auth-local-first-single-pr]
+  schedule:
+    - cron: '47 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: powerhub-sbom-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    name: Generate and validate CycloneDX SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@10.34.5
+
+      - name: Guard pnpm lockfile format before SBOM cataloging
+        shell: bash
+        run: |
+          set -euo pipefail
+          document_markers="$(grep -Ec '^---[[:space:]]*$' pnpm-lock.yaml || true)"
+          if [[ "$document_markers" -ne 0 ]]; then
+            echo "::error::pnpm-lock.yaml has multiple YAML documents. Validate Syft's pnpm cataloger before generating an SBOM; do not publish a potentially incomplete inventory."
+            exit 1
+          fi
+
+      - name: Install the exact locked dependency tree without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Generate CycloneDX SBOM using digest-pinned official Syft image
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Official Anchore GHCR v1.55.0 multi-platform release manifest.
+          # Immutable digest avoids GitHub Releases 504s and tag drift.
+          image="ghcr.io/anchore/syft@sha256:4cc92b64ca74ffca4c94d4c8fcc01f217731375300be14d0b6eeb2e82eaa110a"
+          docker pull "$image"
+          docker run --rm "$image" version
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env SYFT_JAVASCRIPT_SEARCH_REMOTE_LICENSES=true \
+            --volume "$PWD:/workspace:ro" \
+            "$image" scan dir:/workspace -o cyclonedx-json > powerhub.cdx.json
+          test -s powerhub.cdx.json
+
+      - name: Validate SBOM coverage and license metadata
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+
+          const file = "powerhub.cdx.json";
+          const sbom = JSON.parse(readFileSync(file, "utf8"));
+          if (sbom.bomFormat !== "CycloneDX" || !Array.isArray(sbom.components)) {
+            throw new Error("SBOM is not a CycloneDX document with a components array.");
+          }
+
+          const names = new Set(sbom.components.map((component) => component.name));
+          const required = ["react", "express-rate-limit", "@supabase/supabase-js"];
+          const missing = required.filter((name) => !names.has(name));
+          if (sbom.components.length < 100) {
+            throw new Error(`SBOM contains only ${sbom.components.length} components; expected at least 100 for the resolved pnpm dependency graph.`);
+          }
+          if (missing.length > 0) {
+            throw new Error(`SBOM is missing expected direct dependencies: ${missing.join(", ")}`);
+          }
+
+          const withLicenses = sbom.components.filter(
+            (component) => Array.isArray(component.licenses) && component.licenses.length > 0,
+          );
+          const missingRequiredLicenses = required.filter(
+            (name) => !sbom.components.some(
+              (component) => component.name === name &&
+                Array.isArray(component.licenses) && component.licenses.length > 0,
+            ),
+          );
+          if (missingRequiredLicenses.length > 0) {
+            throw new Error(`SBOM has no license metadata for required direct dependencies: ${missingRequiredLicenses.join(", ")}. The dependency installation/cataloging step must be corrected before publishing.`);
+          }
+
+          const componentRefs = new Set(
+            sbom.components.map((component) => component["bom-ref"]).filter(Boolean),
+          );
+          const rootRef = sbom.metadata?.component?.["bom-ref"];
+          if (rootRef) componentRefs.add(rootRef);
+          const dependencyEntries = Array.isArray(sbom.dependencies) ? sbom.dependencies : [];
+          if (dependencyEntries.length === 0) {
+            throw new Error("SBOM has no dependency relationship entries.");
+          }
+          const unresolvedRefs = [];
+          for (const dependency of dependencyEntries) {
+            if (dependency.ref && !componentRefs.has(dependency.ref)) {
+              unresolvedRefs.push(dependency.ref);
+            }
+            for (const target of dependency.dependsOn ?? []) {
+              if (!componentRefs.has(target)) unresolvedRefs.push(target);
+            }
+          }
+          if (unresolvedRefs.length > 0) {
+            throw new Error(`SBOM contains ${unresolvedRefs.length} unresolved dependency references.`);
+          }
+
+          const sha = process.env.GITHUB_SHA ?? "unknown";
+          const repository = process.env.GITHUB_REPOSITORY ?? "unknown";
+          const ref = process.env.GITHUB_REF ?? "unknown";
+          const customProperties = [
+            { name: "powerhub:source:repository", value: repository },
+            { name: "powerhub:source:commit", value: sha },
+            { name: "powerhub:source:ref", value: ref },
+            { name: "powerhub:source:workflow-run-id", value: process.env.GITHUB_RUN_ID ?? "unknown" },
+          ];
+          sbom.metadata ??= {};
+          sbom.metadata.properties = [
+            ...(Array.isArray(sbom.metadata.properties) ? sbom.metadata.properties : []),
+            ...customProperties,
+          ];
+          writeFileSync(file, JSON.stringify(sbom));
+
+          const missingLicenseCount = sbom.components.length - withLicenses.length;
+          const unlicensedSample = sbom.components
+            .filter((component) => !Array.isArray(component.licenses) || component.licenses.length === 0)
+            .slice(0, 25)
+            .map((component) => `${component.name ?? "unknown"}@${component.version ?? "unknown"}`);
+          const summary = [
+            "## CycloneDX SBOM validation",
+            "",
+            `- Source commit: \`${sha}\``,
+            `- Components: ${sbom.components.length}`,
+            `- Dependency relationship entries: ${dependencyEntries.length}`,
+            `- Components with license metadata: ${withLicenses.length}/${sbom.components.length}`,
+            `- Components without license metadata: ${missingLicenseCount}`,
+            `- Required direct dependency license checks: ${required.length}/${required.length} passed`,
+            "",
+            "No license allow/deny policy is applied by this workflow. Components with missing license metadata are reported for review rather than silently treated as approved.",
+            "",
+            "Sample components without license metadata:",
+            ...(unlicensedSample.length > 0 ? unlicensedSample.map((item) => `- ${item}`) : ["- None"]),
+            "",
+          ].join("\n");
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+
+          console.log(`CycloneDX ${sbom.specVersion}: ${sbom.components.length} components; ${withLicenses.length} include license metadata; ${dependencyEntries.length} dependency relationship entries.`);
+          console.log(`SBOM source commit: ${sha}`);
+          NODE
+
+      - name: Upload validated CycloneDX SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: powerhub-sbom-cyclonedx
+          path: powerhub.cdx.json
+          if-no-files-found: error
+          retention-days: 30

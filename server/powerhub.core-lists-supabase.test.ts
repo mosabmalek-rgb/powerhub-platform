@@ -19,19 +19,19 @@ const state = vi.hoisted(() => {
     user_quick_action_preferences: [{ user_id: 1, site_id: 10, action_ids: ["record_reading"], updated_at: "2026-08-01T00:00:00.000Z" }],
     tenant_tweetsms_accounts: [{ tenant_id: 20, sender_name: "PowerHub", monthly_limit: 1000, is_active: true, credential_ciphertext: "configured", last_error: null }],
     sms_package_requests: [],
-    payments: [{ id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70, payment_no: "PAY-202608-0001", client_operation_id: null, amount: 25, payment_method: "cash", transfer_from_account: null, transfer_from_type: null, transfer_to_account: null, transfer_to_type: null, reference_no: "REF-1", receipt_image_key: null, receipt_image_hash: null, status: "completed", collected_by_user_id: 1, collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
+    payments: [{ id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70, payment_no: "PAY-202608-0001", client_operation_id: null, amount: 25, invoice_applied_amount: 25, subscriber_credit_amount: 0, payment_purpose: "invoice_collection", payment_method: "cash", transfer_from_account: null, transfer_from_type: null, transfer_to_account: null, transfer_to_type: null, reference_no: "REF-1", receipt_image_key: null, receipt_image_hash: null, status: "completed", collected_by_user_id: 1, collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
     company_accounts: [{ id: 90, tenant_id: 20, name: "كاش", account_type: "cash", phone_number: null, color: "#64748b", opening_balance: 100, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" }],
     company_account_sites: [{ tenant_id: 20, account_id: 90, site_id: 10 }],
-    account_transactions: [{ id: 91, tenant_id: 20, account_id: 90, transaction_type: "collection", amount: 25, description: "تحصيل الفاتورة PAY-202608-0001", reference_no: "REF-1", related_payment_id: 81, related_account_id: null, created_by_user_id: 1, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
+    account_transactions: [{ id: 91, tenant_id: 20, account_id: 90, site_id: 10, transaction_type: "collection", amount: 25, description: "تحصيل الفاتورة PAY-202608-0001", reference_no: "REF-1", related_payment_id: 81, related_account_id: null, created_by_user_id: 1, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" }],
     collector_sessions: [{ id: 96, tenant_id: 20, site_id: 10, collector_user_id: 1, status: "open", opening_cash: 5, expected_cash: 5, declared_cash: null, variance_amount: null, opened_at: "2026-08-03T00:00:00.000Z", closed_at: null, notes: null, closed_by_user_id: null, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:00.000Z" }],
     financial_settlements: [{ id: 97, tenant_id: 20, site_id: 10, period_start: "2026-08-01T00:00:00.000Z", period_end: "2026-08-31T23:59:59.999Z", total_collected: 100, total_expenses: 20, book_profit: 80, actual_cash: 75, difference: -5, notes: "تسوية دورية", status: "draft", created_by_user_id: 1, approved_by_user_id: null, locked_at: null, created_at: "2026-08-31T23:59:59.999Z", updated_at: "2026-08-31T23:59:59.999Z" }],
     audit_logs: [
       { id: 108, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "subscriber", entity_id: "30", action: "create", before_data: null, after_data: { subscriberNo: "MAIN-001" }, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
       { id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "meter_reading", entity_id: "60", action: "mobile_create", before_data: null, after_data: null, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
     ],
-    users: [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active" }], tenant_subscriptions: [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }], tenant_branch_settings: [],
+    users: [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active", name: "مدير المنصة", email: "admin@example.test" }], tenant_members: [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active", expires_at: null }], tenant_subscriptions: [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }], platform_settings: [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }], tenant_branch_settings: [],
     tenant_owner_profiles: [{ tenant_id: 20, company_name: "شركة المولد", report_logo_key: null }],
-    staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }],
+    staff_profiles: [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true, archived_at: null }],
     mobile_sync_events: [{ id: 110, tenant_id: 20, site_id: 10, user_id: 1, event_type: "sync_cycle", status: "success", synced_count: 2, retryable_count: 0, needs_review_count: 0, error_code: null, error_message: null, app_version: "1.0.0", device_label: "هاتف فني", occurred_at: "2026-08-03T00:00:00.000Z" }],
     employees: [{ id: 120, tenant_id: 20, site_id: 10, linked_user_id: null, full_name: "محاسب الاختبار", identity_no: null, phone: "0595000000", job_title: "accountant", employment_status: "active", contract_type: "monthly", base_wage: 1000, hire_date: "2026-08-01T00:00:00.000Z", notes: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" }],
     employee_adjustments: [{ id: 121, tenant_id: 20, employee_id: 120, site_id: 10, adjustment_type: "advance", amount: 100, remaining_amount: 100, reason: "سلفة اختبار", status: "open", created_by_user_id: 1, created_at: "2026-08-02T00:00:00.000Z", updated_at: "2026-08-02T00:00:00.000Z" }],
@@ -51,7 +51,25 @@ const state = vi.hoisted(() => {
         eq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] === value); return query; },
         in: (column: string, values: unknown[]) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || values.includes((row as Record<string, unknown>)[column])); return query; },
         gt: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => { const record = row as Record<string, unknown>; return !(column in record) || (record[column] != null && Number(record[column]) > Number(value)); }); return query; },
-        or: (expression: string) => { const match = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/); if (match) { const siteId = Number(match[1]); filteredRows = filteredRows.filter((row) => { const siteValue = (row as Record<string, unknown>).site_id; return siteValue === siteId || siteValue === null; }); } return query; },
+        or: (expression: string) => {
+          const siteMatch = expression.match(/^site_id\.eq\.(\d+),site_id\.is\.null$/);
+          if (siteMatch) {
+            const siteId = Number(siteMatch[1]);
+            filteredRows = filteredRows.filter((row) => {
+              const siteValue = (row as Record<string, unknown>).site_id;
+              return siteValue === siteId || siteValue === null;
+            });
+          }
+          const expiryMatch = expression.match(/^expires_at\.is\.null,expires_at\.gt\.(.+)$/);
+          if (expiryMatch) {
+            const nowMs = Date.parse(expiryMatch[1]);
+            filteredRows = filteredRows.filter((row) => {
+              const expiresAt = (row as Record<string, unknown>).expires_at;
+              return expiresAt == null || (typeof expiresAt === "string" && Date.parse(expiresAt) > nowMs);
+            });
+          }
+          return query;
+        },
         is: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => (row as Record<string, unknown>)[column] === value); return query; },
         neq: (column: string, value: unknown) => { filteredRows = filteredRows.filter((row) => !(column in (row as Record<string, unknown>)) || (row as Record<string, unknown>)[column] !== value); return query; },
         order: (column: string, options?: unknown) => { orderCalls.push({ table, column, options }); return query; },
@@ -141,6 +159,18 @@ const state = vi.hoisted(() => {
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
       if (missingRpcs.has(name)) return Promise.resolve({ data: null, error: { code: "PGRST202", message: `Could not find the function public.${name} in the schema cache` } });
+      if (name === "powerhub_report_inventory_consumption_costs") {
+        const { p_tenant_id, p_site_ids } = args as { p_tenant_id: number; p_site_ids: number[] };
+        const rows = (tables.inventory_stock_movements ?? []) as Array<Record<string, unknown>>;
+        const results = p_site_ids.map(siteId => ({
+          site_id: siteId,
+          inventory_consumption_cost: rows
+            .filter(row => Number(row.tenant_id) === p_tenant_id && Number(row.site_id) === siteId)
+            .reduce((total, row) => total + Number(row.total_cost_amount ?? 0), 0),
+        }));
+        return resolved(results);
+      }
+
       const recordRows = (table: string) => (tables[table] ?? []) as Array<Record<string, unknown>>;
       if (name === "powerhub_dashboard_operational_summary") {
         const input = args as { p_tenant_id: number; p_site_id: number | null };
@@ -238,6 +268,80 @@ const state = vi.hoisted(() => {
               .reduce((total, movement) => total + (["deposit", "transfer_in", "collection"].includes(String(movement.transaction_type)) ? 1 : -1) * Number(movement.amount ?? 0), 0),
           })));
       }
+      if (name === "powerhub_company_account_history_page") {
+        const input = args as {
+          p_tenant_id: number; p_account_id: number; p_branch_id: number | null;
+          p_from: string | null; p_to: string | null; p_movement_from: string | null; p_movement_to: string | null;
+          p_transaction_type: string | null; p_search: string | null; p_cursor_at: string | null; p_cursor_id: number | null; p_limit: number;
+        };
+        const allMovements = recordRows("account_transactions").filter((row) =>
+          Number(row.tenant_id) === Number(input.p_tenant_id) && Number(row.account_id) === Number(input.p_account_id)
+        );
+        const sign = (row: Record<string, unknown>) =>
+          (["withdrawal", "transfer_out"].includes(String(row.transaction_type)) ? -1 : 1) * Number(row.amount ?? 0);
+        const search = input.p_search?.trim().toLowerCase() ?? "";
+        const matching = allMovements.filter((row) => {
+          if (input.p_branch_id != null && Number(row.site_id) !== Number(input.p_branch_id)) return false;
+          const occurredAt = Date.parse(String(row.occurred_at));
+          if (input.p_from && occurredAt < Date.parse(input.p_from)) return false;
+          if (input.p_to && occurredAt > Date.parse(input.p_to)) return false;
+          if (input.p_transaction_type && String(row.transaction_type) !== input.p_transaction_type) return false;
+          if (search) {
+            const searchable = [row.description, row.transaction_type, row.id, row.reference_no]
+              .map((value) => String(value ?? "").toLowerCase()).join(" ");
+            if (!searchable.includes(search)) return false;
+          }
+          return true;
+        });
+        const sortDescending = (left: Record<string, unknown>, right: Record<string, unknown>) =>
+          Date.parse(String(right.occurred_at)) - Date.parse(String(left.occurred_at)) || Number(right.id) - Number(left.id);
+        const cursorAt = input.p_cursor_at == null ? null : Date.parse(input.p_cursor_at);
+        const cursorId = input.p_cursor_id == null ? null : Number(input.p_cursor_id);
+        const afterCursor = matching.filter((row) => {
+          if (cursorAt === null || cursorId === null) return true;
+          const time = Date.parse(String(row.occurred_at));
+          return time < cursorAt || (time === cursorAt && Number(row.id) < cursorId);
+        }).sort(sortDescending);
+        const limit = Math.max(1, Math.min(200, Number(input.p_limit ?? 10)));
+        const pagePlus = afterCursor.slice(0, limit + 1);
+        const hasNext = pagePlus.length > limit;
+        const pageRows = pagePlus.slice(0, limit);
+        const account = recordRows("company_accounts").find((row) =>
+          Number(row.tenant_id) === Number(input.p_tenant_id) && Number(row.id) === Number(input.p_account_id)
+        );
+        const fullBalance = Number(account?.opening_balance ?? 0) + allMovements.reduce((total, row) => total + sign(row), 0);
+        const balanceAfterById = new Map<number, number>();
+        let cumulativeNet = 0;
+        for (const movement of [...allMovements].sort((left, right) =>
+          Date.parse(String(left.occurred_at)) - Date.parse(String(right.occurred_at))
+          || Number(left.id) - Number(right.id)
+        )) {
+          cumulativeNet += sign(movement);
+          balanceAfterById.set(Number(movement.id), Number(account?.opening_balance ?? 0) + cumulativeNet);
+        }
+        const items = pageRows.map((row) => ({
+          ...row,
+          balance_after: input.p_from || input.p_to ? null : balanceAfterById.get(Number(row.id)) ?? null,
+        }));
+        const incomingTotal = matching.filter((row) => ["collection", "deposit", "transfer_in"].includes(String(row.transaction_type)))
+          .reduce((total, row) => total + Number(row.amount ?? 0), 0);
+        const outgoingTotal = matching.filter((row) => ["withdrawal", "transfer_out"].includes(String(row.transaction_type)))
+          .reduce((total, row) => total + Number(row.amount ?? 0), 0);
+        const last = pageRows[pageRows.length - 1];
+        const includeSummary = cursorAt === null;
+        return resolved({
+          items,
+          total_count: includeSummary ? matching.length : null,
+          incoming_total: includeSummary ? incomingTotal : null,
+          outgoing_total: includeSummary ? outgoingTotal : null,
+          has_next: hasNext,
+          next_cursor_at: hasNext && last ? last.occurred_at : null,
+          next_cursor_id: hasNext && last ? Number(last.id) : null,
+          balance_timeline: includeSummary && input.p_branch_id == null && !input.p_from && !input.p_to
+            ? [{ day: "2026-08-31", balance: fullBalance }]
+            : null,
+        });
+      }
       if (name === "powerhub_create_tariff_idempotent") return resolved([{ tariff_id: 41, replayed: false }]);
       if (name === "powerhub_subscriber_portal_list") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
       if (name === "powerhub_subscriber_portal_theme") return resolved([{ portal_code: "main", display_name: "بوابة الفرع الرئيسي", primary_color: "#0D1117", accent_color: "#F5B800", site_name: "الفرع الرئيسي", city: "غزة", logo_key: null }]);
@@ -317,8 +421,8 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_create_site") return resolved([{ site_id: 11 }]);
       if (["powerhub_update_company_account_phone", "powerhub_update_company_account_opening_balance", "powerhub_update_company_account_sites"].includes(name)) return resolved([{ account_id: 92 }]);
       if (name === "powerhub_create_company_account") return resolved([{ account_id: 92 }]);
-      if (name === "powerhub_add_account_movement") return resolved([{ transaction_id: 93 }]);
-      if (name === "powerhub_transfer_company_accounts") return resolved([{ from_transaction_id: 94, to_transaction_id: 95 }]);
+      if (name === "powerhub_add_account_movement_idempotent") return resolved([{ transaction_id: 93, replayed: false }]);
+      if (name === "powerhub_transfer_company_accounts_idempotent") return resolved([{ from_transaction_id: 94, to_transaction_id: 95, replayed: false }]);
       if (name === "powerhub_queue_payment_sms") return resolved([{ notification_id: 90, queued: true }]);
       if (name === "powerhub_close_collector_session") return resolved([{ expected_cash: 10, variance_amount: 0 }]);
       if (name === "powerhub_get_sms_quota") return resolved([{ total_messages: 1000, used_segments: 2, remaining_messages: 998, subscription_id: 108, sms_plan_id: null, plan_code: "basic", plan_name: "الناشئة", base_messages: 0, additional_messages: 1000 }]);
@@ -337,7 +441,66 @@ const state = vi.hoisted(() => {
 
 const notificationWorker = vi.hoisted(() => ({ processQueue: vi.fn(), processById: vi.fn() }));
 
-vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => state.client }));
+// The access RPC is the single DB-fresh snapshot replacing several older
+// from("users"/"tenant_members"/"staff_profiles") calls. The generic test
+// adapter synthesizes the same scoped JSON from the test tables on every call,
+// without recording it as a business-operation RPC.
+vi.mock("./supabase-admin", () => ({
+  supabaseAdmin: () => ({
+    ...state.client,
+    rpc: (name: string, args: Record<string, unknown>) => {
+      if (name !== "powerhub_site_access_snapshot") return state.client.rpc(name, args);
+      const rows = (key: string): Record<string, unknown>[] =>
+        (state.tables[key] ?? []) as Record<string, unknown>[];
+      const uid = Number(args.p_user_id);
+      const sid = Number(args.p_site_id);
+      const site = rows("sites").find((row) => Number(row.id) === sid);
+      const tenantId = Number(site?.tenant_id);
+      const user = rows("users").find((row) => Number(row.id) === uid);
+      const memberships = rows("tenant_members").filter((row) =>
+        Number(row.tenant_id) === tenantId && Number(row.user_id) === uid &&
+        row.is_active === true && row.membership_status === "active" &&
+        (row.expires_at === null || new Date(String(row.expires_at)).getTime() > Date.now()));
+      const member = memberships.at(-1);
+      const subscriptions = rows("tenant_subscriptions").filter((row) => Number(row.tenant_id) === tenantId);
+      const subscription = subscriptions.sort((a, b) =>
+        Date.parse(String(b.ends_at ?? 0)) - Date.parse(String(a.ends_at ?? 0)))[0];
+      const profiles = rows("staff_profiles").filter((row) =>
+        Number(row.tenant_id) === tenantId && Number(row.user_id) === uid &&
+        row.is_active === true && row.archived_at == null &&
+        (row.site_id == null || Number(row.site_id) === sid));
+      const profileIds = new Set(profiles.map((row) => Number(row.id)));
+      return Promise.resolve({
+        data: {
+          user: user ? { role: user.role, platform_role: user.platform_role ?? null,
+            account_status: user.account_status } : null,
+          site: site ? { tenant_id: site.tenant_id, status: site.status,
+            invoice_due_days: site.invoice_due_days,
+            invoice_due_hours: site.invoice_due_hours } : null,
+          membership: member ? { role: member.role, expires_at: member.expires_at ?? null,
+            is_active: member.is_active, membership_status: member.membership_status } : null,
+          subscription: subscription ? { status: subscription.status,
+            ends_at: subscription.ends_at, read_only_until: subscription.read_only_until ?? null } : null,
+          member_overrides: rows("tenant_member_capability_overrides").filter((row) =>
+            Number(row.tenant_id) === tenantId && Number(row.user_id) === uid),
+          staff_profiles: profiles.map((row) => ({
+            id: row.id, site_id: row.site_id ?? null, role: row.role,
+            permissions: row.permissions ?? null, custom_role_id: row.custom_role_id ?? null,
+            suspension_started_at: row.suspension_started_at ?? null,
+            suspension_ends_at: row.suspension_ends_at ?? null,
+          })),
+          staff_overrides: rows("staff_profile_capability_overrides").filter((row) =>
+            Number(row.tenant_id) === tenantId && profileIds.has(Number(row.profile_id))),
+          custom_roles: rows("custom_permission_roles").filter((row) =>
+            Number(row.tenant_id) === tenantId && row.is_active === true &&
+            profiles.some((profile) => Number(profile.custom_role_id) === Number(row.id))),
+          role_policies: rows("platform_role_policies"),
+        },
+        error: null,
+      });
+    },
+  }),
+}));
 vi.mock("./db", () => ({ getDb: vi.fn(async () => { throw new Error("MySQL must not be called"); }), syncSupabaseUser: vi.fn() }));
 vi.mock("./notification-worker", () => ({ processNotificationById: notificationWorker.processById, processNotificationQueueForTenant: notificationWorker.processQueue }));
 
@@ -361,7 +524,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       { id: 109, tenant_id: 20, site_id: 10, user_id: 1, actor_platform_role: "platform_admin", actor_tenant_role: "owner", entity_type: "meter_reading", entity_id: "60", action: "mobile_create", before_data: null, after_data: null, metadata: null, created_at: "2026-08-03T00:00:00.000Z" },
     ];
     state.tables.tenant_subscriptions = [{ tenant_id: 20, package_code: "professional", status: "active", ends_at: "2026-12-31T23:59:59.999Z" }];
-    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 1, role: "owner", is_active: true, membership_status: "active", expires_at: null }];
+    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 1, is_active: true, archived_at: null }];
     state.tables.tenants = [{ id: 20, plan: "professional", package_code: "professional" }];
     state.tables.platform_settings = [{ setting_key: "branch_feature", is_enabled: true, value: { defaultLimit: { basic: 1, advanced: 2, professional: 3, business: 5, vip: 10 } } }];
     state.inserts.splice(0);
@@ -390,13 +554,65 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.readings.list({ siteId: 10 })).resolves.toMatchObject([{ reading: { id: 60, consumptionKwh: "10", readingAt: expect.any(Date) }, subscriber: { id: 30, fullName: "مشترك الاختبار" } }]);
     await expect(caller.invoices.list({ siteId: 10 })).resolves.toMatchObject([{ id: 70, invoiceNo: "MAIN-202608-0001", totalAmount: "100", issueDate: expect.any(Date) }]);
     await expect(caller.payments.list({ siteId: 10 })).resolves.toMatchObject([{ payment: { id: 81, amount: "25", paidAt: expect.any(Date), receiptImageUrl: null }, subscriber: { id: 30 }, invoiceNo: "MAIN-202608-0001" }]);
-    await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90, balance: 125, linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }], transactions: [{ id: 91, occurredAt: expect.any(Date) }] }]);
-    expect(state.orderCalls.filter((call) => call.table === "account_transactions").slice(-2)).toEqual([
-      { table: "account_transactions", column: "occurred_at", options: { ascending: false } },
-      { table: "account_transactions", column: "id", options: { ascending: false } },
-    ]);
+    await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90, balance: 125, linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }] }]);
+    expect(state.orderCalls.some((call) => call.table === "account_transactions")).toBe(false);
     await expect(caller.expenses.list({ siteId: 10 })).resolves.toMatchObject([{ id: 80, category: "fuel", amount: "15", occurredAt: expect.any(Date) }]);
     await expect(caller.dashboard.summary({ siteId: 10 })).resolves.toEqual({ subscribers: 1, generators: { active: 1, maintenance: 0 }, financial: { invoiced: 100, collected: 25, outstanding: 75, expenses: 15, operatingProfit: 10 }, energyKwh: 10, failedNotifications: 1 });
+  });
+
+  it("loads company-account history lazily through keyset pages beyond 1,000 rows", async () => {
+    state.tables.account_transactions = Array.from({ length: 1001 }, (_, index) => ({
+      id: 1001 - index,
+      tenant_id: 20,
+      account_id: 90,
+      site_id: 10,
+      transaction_type: "collection",
+      amount: 1,
+      description: "تحصيل تاريخي " + (1001 - index),
+      reference_no: "HIST-" + (1001 - index),
+      related_payment_id: null,
+      related_account_id: null,
+      created_by_user_id: 1,
+      occurred_at: new Date(Date.UTC(2026, 7, 31, 12, 0, 0) - index * 1000).toISOString(),
+      created_at: new Date(Date.UTC(2026, 7, 31, 12, 0, 0) - index * 1000).toISOString(),
+    }));
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    const accounts = await caller.companyAccounts.list({ siteId: 10 });
+    expect(accounts[0]).toMatchObject({ id: 90, balance: 1101 });
+    expect(accounts[0]).not.toHaveProperty("transactions");
+    expect(state.orderCalls.some((call) => call.table === "account_transactions")).toBe(false);
+
+    const allRows: Array<{ id: number; siteId: number; balanceAfter: number | null }> = [];
+    let cursor: string | undefined;
+    let pageCount = 0;
+    do {
+      const page = await caller.companyAccounts.history({
+        siteId: 10,
+        accountId: 90,
+        limit: 200,
+        cursor,
+      });
+      pageCount += 1;
+      allRows.push(...page.items);
+      if (pageCount === 1) {
+        expect(page.totalCount).toBe(1001);
+        expect(page.incomingTotal).toBe(1001);
+        expect(page.outgoingTotal).toBe(0);
+      } else {
+        expect(page.totalCount).toBeNull();
+        expect(page.incomingTotal).toBeNull();
+        expect(page.outgoingTotal).toBeNull();
+        expect(page.balanceTimeline).toEqual([]);
+      }
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+
+    expect(pageCount).toBe(6);
+    expect(allRows).toHaveLength(1001);
+    expect(allRows[0]).toMatchObject({ id: 1001, siteId: 10, balanceAfter: 1101 });
+    expect(allRows[200]).toMatchObject({ id: 801, siteId: 10 });
+    expect(allRows[1000]).toMatchObject({ id: 1, siteId: 10, balanceAfter: 101 });
+    expect(state.rpcCalls.filter((call) => call.name === "powerhub_company_account_history_page")).toHaveLength(6);
   });
 
   it("يعالج رسائل SMS المؤجلة ضمن الفرع عبر حجز Supabase دون الوصول إلى MySQL", async () => {
@@ -540,10 +756,37 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.reports.range({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" })).resolves.toMatchObject({
       range: { startDate: "2026-08-01", endDate: "2026-08-31" },
-      summary: { invoiced: 100, collected: 25, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
-      collectors: [{ name: "محصل غير محدد", count: 1, amount: 25 }],
+      summary: { invoiced: 100, collected: 25, grossCollected: 25, subscriberCreditCreated: 0, outstanding: 75, energyKwh: 10, expenseTotal: 15, operatingProfit: 10 },
+      collectors: [{ name: "محصل غير محدد", count: 1, amount: 25, grossAmount: 25, subscriberCreditAmount: 0 }],
       topDebtors: [{ subscriber: "مشترك الاختبار", subscriberNo: "MAIN-001", invoiceNo: "MAIN-202608-0001", balanceDue: 75 }],
-      paymentDetails: [{ paymentNo: "PAY-202608-0001", amount: 25 }],
+      paymentDetails: [{ paymentNo: "PAY-202608-0001", grossAmount: 25, invoiceAppliedAmount: 25, subscriberCreditAmount: 0 }],
+    });
+  });
+
+  it("does not expose renewal details after the owner's tenant membership expires", async () => {
+    state.tables.tenant_members = [{
+      tenant_id: 20, user_id: 1, role: "owner", is_active: true,
+      membership_status: "active", expires_at: "2026-11-01T23:59:59.999Z",
+    }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", PlatformRole: "platform_admin", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+
+    await expect(caller.subscription.ownerRenewalStatus({ siteId: 10 })).resolves.toEqual({
+      isOwner: false,
+      subscription: null,
+    });
+    expect(state.orderCalls.some((call) => call.table === "tenant_subscriptions")).toBe(false);
+  });
+
+  it("keeps renewal status visible to an unexpired owner after the tenant subscription ends", async () => {
+    state.tables.tenant_subscriptions = [{
+      tenant_id: 20, package_code: "professional", status: "expired",
+      ends_at: "2026-11-01T00:00:00.000Z",
+    }];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+
+    await expect(caller.subscription.ownerRenewalStatus({ siteId: 10 })).resolves.toMatchObject({
+      isOwner: true,
+      subscription: { status: "expired", packageCode: "professional" },
     });
   });
 
@@ -558,6 +801,58 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       createdAt: expect.any(Date),
       reviewedAt: null,
     });
+  });
+
+  it("يحسب التحصيل التشغيلي من الجزء المطبق على الفاتورة فقط ويستبعد الرصيد الدائن والتأمين", async () => {
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    const previousPayments = state.tables.payments;
+    state.tables.payments = [
+      {
+        id: 81, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: 70,
+        payment_no: "PAY-SPLIT-001", client_operation_id: "split-op", amount: 40,
+        invoice_applied_amount: 25, subscriber_credit_amount: 15,
+        payment_purpose: "invoice_collection_with_credit", payment_method: "cash",
+        transfer_from_account: null, transfer_from_type: null, transfer_to_account: null,
+        transfer_to_type: null, reference_no: "SPLIT-REF", receipt_image_key: null,
+        receipt_image_hash: null, status: "completed", collected_by_user_id: 1,
+        collector_session_id: null, paid_at: "2026-08-03T00:00:00.000Z",
+        created_at: "2026-08-03T00:00:00.000Z",
+      },
+      {
+        id: 82, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: null,
+        payment_no: "CREDIT-001", amount: 20, invoice_applied_amount: 0,
+        subscriber_credit_amount: 20, payment_purpose: "subscriber_credit",
+        payment_method: "cash", status: "completed", paid_at: "2026-08-04T00:00:00.000Z",
+        collected_by_user_id: 1,
+      },
+      {
+        id: 83, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: null,
+        payment_no: "DEPOSIT-001", amount: 100, invoice_applied_amount: 0,
+        subscriber_credit_amount: 0, payment_purpose: "security_deposit",
+        payment_method: "cash", status: "completed", paid_at: "2026-08-05T00:00:00.000Z",
+        collected_by_user_id: 1,
+      },
+      {
+        id: 84, tenant_id: 20, site_id: 10, subscriber_id: 30, invoice_id: null,
+        payment_no: "DEPOSIT-REFUND-001", amount: 10, invoice_applied_amount: 0,
+        subscriber_credit_amount: 0, payment_purpose: "security_deposit_refund",
+        payment_method: "cash", status: "completed", paid_at: "2026-08-06T00:00:00.000Z",
+        collected_by_user_id: 1,
+      },
+    ];
+    try {
+      const report = await caller.reports.range({ siteId: 10, startDate: "2026-08-01", endDate: "2026-08-31" });
+      expect(report.summary).toMatchObject({ collected: 25, grossCollected: 60, subscriberCreditCreated: 35, operatingProfit: 10 });
+      expect(report.collectors).toEqual([{
+        name: "محصل غير محدد", count: 2, amount: 25, grossAmount: 60, subscriberCreditAmount: 35,
+      }]);
+      expect(report.paymentDetails).toEqual(expect.arrayContaining([
+        expect.objectContaining({ paymentNo: "PAY-SPLIT-001", grossAmount: 40, invoiceAppliedAmount: 25, subscriberCreditAmount: 15 }),
+        expect.objectContaining({ paymentNo: "CREDIT-001", grossAmount: 20, invoiceAppliedAmount: 0, subscriberCreditAmount: 20 }),
+      ]));
+    } finally {
+      state.tables.payments = previousPayments;
+    }
   });
 
   it("يعرض التقرير الشهري للفرع من Supabase دون استدعاء MySQL", async () => {
@@ -636,15 +931,21 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       balance_due: 10,
       status: "issued",
     }));
-    state.tables.payments = subscriberRows.map((subscriber, index) => ({
-      id: 30000 + index,
-      tenant_id: 20,
-      site_id: 10,
-      subscriber_id: subscriber.id,
-      amount: 2,
-      status: "completed",
-      paid_at: stamp,
-    }));
+    state.tables.payments = subscriberRows.map((subscriber, index) => {
+      const kind = index % 4;
+      return {
+        id: 30000 + index,
+        tenant_id: 20,
+        site_id: 10,
+        subscriber_id: subscriber.id,
+        amount: kind === 1 ? 5 : kind === 2 ? 8 : 2,
+        invoice_applied_amount: kind === 2 ? 0 : 2,
+        subscriber_credit_amount: kind === 1 ? 3 : 0,
+        payment_purpose: kind === 1 ? "invoice_collection_with_credit" : kind === 2 ? "security_deposit" : "invoice_collection",
+        status: kind === 3 ? "pending" : "completed",
+        paid_at: stamp,
+      };
+    });
     state.tables.expenses = subscriberRows.map((_, index) => ({
       id: 40000 + index,
       tenant_id: 20,
@@ -668,16 +969,38 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
       });
       const result = await caller.dashboard.financialOverview({ siteId: 10, scope: "all" });
       expect(result.branchSummaries).toEqual([
-        expect.objectContaining({ id: 10, activeSubscribers: 1001, invoiced: 10010, collected: 2002, outstanding: 10010 }),
+        expect.objectContaining({ id: 10, activeSubscribers: 1001, invoiced: 10010, collected: 1002, outstanding: 10010 }),
       ]);
       expect(result.outstanding).toMatchObject({ total: 10010, accountCount: 1001 });
-      expect(result.month).toMatchObject({ invoiced: 10010, collected: 2002, expenses: 1001, netCash: 1001 });
+      expect(result.month).toMatchObject({ invoiced: 10010, collected: 1002, expenses: 1001, netCash: 1 });
     } finally {
       state.tables.invoices = originalTables.invoices;
       state.tables.payments = originalTables.payments;
       state.tables.expenses = originalTables.expenses;
       state.tables.subscribers = originalTables.subscribers;
       state.tables.notification_messages = originalTables.notification_messages;
+    }
+  });
+
+  it("excludes subscriber credit, security deposits, and pending payments from operating collections in the branch fallback", async () => {
+    const originalPayments = state.tables.payments;
+    const paidAt = new Date().toISOString();
+    state.missingRpcs.add("powerhub_dashboard_financial_overview");
+    state.tables.payments = [
+      { id: 701, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 100, invoice_applied_amount: 100, subscriber_credit_amount: 0, payment_purpose: "invoice_collection", status: "completed", paid_at: paidAt },
+      { id: 702, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 120, invoice_applied_amount: 70, subscriber_credit_amount: 50, payment_purpose: "invoice_collection_with_credit", status: "completed", paid_at: paidAt },
+      { id: 703, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 80, invoice_applied_amount: 0, subscriber_credit_amount: 0, payment_purpose: "security_deposit", status: "completed", paid_at: paidAt },
+      { id: 704, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 10, invoice_applied_amount: 0, subscriber_credit_amount: 0, payment_purpose: "security_deposit_refund", status: "completed", paid_at: paidAt },
+      { id: 705, tenant_id: 20, site_id: 10, subscriber_id: 30, amount: 20, invoice_applied_amount: 10, subscriber_credit_amount: 10, payment_purpose: "invoice_collection_with_credit", status: "pending", paid_at: paidAt },
+    ];
+    try {
+      const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+      const result = await caller.dashboard.financialOverview({ siteId: 10, scope: "branch" });
+      expect(result.today).toMatchObject({ collected: 170 });
+      expect(result.month).toMatchObject({ collected: 170 });
+    } finally {
+      state.tables.payments = originalPayments;
+      state.missingRpcs.delete("powerhub_dashboard_financial_overview");
     }
   });
 
@@ -798,12 +1121,51 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.hr.listEmployees({ siteId: 10, employmentStatus: "active" })).resolves.toMatchObject([{ id: 120, fullName: "محاسب الاختبار", baseWage: "1000" }]);
     await expect(caller.hr.listAdjustments({ siteId: 10, status: "open" })).resolves.toMatchObject([{
-      adjustment: { id: 121, employeeId: 120, amount: "100", remainingAmount: "100" }, employee: { id: 120, fullName: "محاسب الاختبار" },
+      adjustment: { id: 121, employeeId: 120, amount: "100", remainingAmount: "100" },
+      employee: { id: 120, fullName: "محاسب الاختبار", baseWage: "1000", phone: "0595000000", contractType: "monthly" },
     }]);
     await expect(caller.hr.listPayrollRuns({ siteId: 10, period: "2026-08" })).resolves.toMatchObject([{ id: 122, totalNet: "900", status: "draft" }]);
     await expect(caller.hr.getPayrollDetails({ siteId: 10, payrollRunId: 122 })).resolves.toMatchObject([{
       item: { id: 123, payrollRunId: 122, netAmount: "900" }, employee: { id: 120, fullName: "محاسب الاختبار", jobTitle: "accountant" },
     }]);
+  });
+
+  it("يحجب بيانات ملف الموظف الحساسة في listAdjustments عن مدير المصروفات دون managePayroll", async () => {
+    state.tables.users = [{ id: 2, role: "user", platform_role: "platform_user", account_status: "active" }];
+    state.tables.tenant_members = [{
+      tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active", expires_at: null,
+    }];
+    state.tables.staff_profiles = [{
+      id: 122, tenant_id: 20, user_id: 2, site_id: 10, role: "manager",
+      permissions: null, custom_role_id: null, is_active: true, archived_at: null,
+      suspension_started_at: null, suspension_ends_at: null,
+    }];
+
+    const managerCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
+    const managerAccess = await managerCaller.staff.myAccess({ siteId: 10 });
+    expect(managerAccess.permissions).toContain("manageExpenses");
+    expect(managerAccess.permissions).not.toContain("managePayroll");
+
+    const managerRows = await managerCaller.hr.listAdjustments({ siteId: 10, status: "open" });
+    expect(managerRows).toHaveLength(1);
+    expect(managerRows[0].employee).toMatchObject({
+      id: 120, tenantId: 20, siteId: 10, fullName: "محاسب الاختبار",
+      jobTitle: "accountant", employmentStatus: "active",
+    });
+    for (const field of ["linkedUserId", "identityNo", "phone", "contractType", "baseWage", "hireDate", "notes", "createdAt", "updatedAt"]) {
+      expect(managerRows[0].employee).not.toHaveProperty(field);
+    }
+
+    // Positive control: an explicit managePayroll grant may read the full HR profile.
+    state.tables.staff_profiles = [{
+      id: 122, tenant_id: 20, user_id: 2, site_id: 10, role: "manager",
+      permissions: ["manageExpenses", "managePayroll"], custom_role_id: null,
+      is_active: true, archived_at: null, suspension_started_at: null, suspension_ends_at: null,
+    }];
+    const payrollManagerRows = await managerCaller.hr.listAdjustments({ siteId: 10, status: "open" });
+    expect(payrollManagerRows[0].employee).toMatchObject({
+      baseWage: "1000", phone: "0595000000", contractType: "monthly",
+    });
   });
 
   it("يعرض سجل الحضور وملخص الموارد البشرية من Supabase دون MySQL", async () => {
@@ -920,9 +1282,9 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يقرأ وصول الموظف وامتداد الفروع وسجل تغييرات الصلاحيات من Supabase دون MySQL", async () => {
-    state.tables.users = [{ id: 2, role: "user" }];
-    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active" }];
-    state.tables.staff_profiles = [{ id: 120, tenant_id: 20, user_id: 2, site_id: null, role: "manager", permissions: ["manageSubscribers"], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true }];
+    state.tables.users = [{ id: 2, role: "user", platform_role: null, account_status: "active" }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "member", is_active: true, membership_status: "active", expires_at: null }];
+    state.tables.staff_profiles = [{ id: 120, tenant_id: 20, user_id: 2, site_id: null, role: "manager", permissions: ["manageSubscribers"], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null }];
     const staffCaller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
     await expect(staffCaller.staff.myAccess({ siteId: 10 })).resolves.toEqual({ role: "manager", permissions: ["manageSubscribers"], tenantId: 20, usesPermissionOverride: true });
     await expect(staffCaller.staff.allBranchAccess({ siteId: 10 })).resolves.toEqual({ isGlobal: true });
@@ -940,13 +1302,23 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     await expect(caller.staff.customRoles({ siteId: 10 })).resolves.toEqual([{ id: 122, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], isActive: true }]);
   });
 
+  it("rejects custom-role creation without a stable operation ID before the RPC", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    state.rpcCalls.splice(0);
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.saveCustomRole({
+      siteId: 10, name: "دور بلا مفتاح", permissions: ["collectPayments"],
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.rpcCalls).not.toContainEqual(expect.objectContaining({ name: "powerhub_save_custom_permission_role" }));
+  });
+
   it("يحفظ ويحذف الدور المخصص بمعاملات Supabase الذرية دون MySQL", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.staff.saveCustomRole({ siteId: 10, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"] })).resolves.toEqual({ success: true, id: 122 });
+    await expect(caller.staff.saveCustomRole({ siteId: 10, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], clientOperationId: "00000000-0000-4000-8000-000000000359" })).resolves.toEqual({ success: true, id: 122 });
     await expect(caller.staff.deleteCustomRole({ siteId: 10, roleId: 122 })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual(expect.arrayContaining([
-      { name: "powerhub_save_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: null, p_permissions: ["collectPayments"] }) },
+      { name: "powerhub_save_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: null, p_permissions: ["collectPayments"], p_client_operation_id: "00000000-0000-4000-8000-000000000359", p_request_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/) }) },
       { name: "powerhub_delete_custom_permission_role", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_role_id: 122 }) },
     ]));
   });
@@ -990,7 +1362,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     ];
     state.tables.staff_profiles = [
       { id: 126, tenant_id: 20, user_id: 2, site_id: 10, role: "accountant", custom_role_id: null, permissions: ["collectPayments"], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
-      { id: 127, tenant_id: 20, user_id: 3, site_id: 11, role: "collector", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
+      { id: 127, tenant_id: 20, user_id: 3, site_id: 11, role: "collector", custom_role_id: null, permissions: [], suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
     ];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.list({ siteId: 10 })).resolves.toMatchObject([{ profile: { id: 126, tenantId: 20, siteId: 10, role: "accountant", createdAt: expect.any(Date) }, user: { id: 2, name: "محاسب الفرع", email: "accountant@example.com" } }]);
@@ -1032,7 +1404,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("يعيد تعيين كلمة مرور الحساب الفرعي عبر Supabase Auth ثم يكمل Intent ذريًا", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "owner@example.test" }, { id: 2, role: "user", account_status: "active", auth_user_id: "auth-staff-1", email: "staff@example.test" }];
-    state.tables.staff_profiles = [{ id: 70, tenant_id: 20, site_id: 10, user_id: 2, role: "accountant", permissions: [], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true }, { tenant_id: 20, site_id: 10, user_id: 1, is_active: true }];
+    state.tables.staff_profiles = [{ id: 70, tenant_id: 20, site_id: 10, user_id: 2, role: "accountant", permissions: [], custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null }, { tenant_id: 20, site_id: 10, user_id: 1, is_active: true, archived_at: null }];
     state.client.auth = { admin: { updateUserById: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })) } };
     state.rpcCalls.splice(0);
     state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
@@ -1247,10 +1619,10 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     }];
     state.tables.staff_profiles = [...oldProfiles, {
       id: 202, tenant_id: 20, site_id: 10, user_id: 2, role: "collector", permissions: null,
-      custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true,
+      custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, is_active: true, archived_at: null,
     }];
     state.tables.tenant_members = [{
-      tenant_id: 20, user_id: 2, role: "collector", is_active: true, membership_status: "active",
+      tenant_id: 20, user_id: 2, role: "collector", is_active: true, membership_status: "active", expires_at: null,
     }];
     state.tables.collector_sessions = [];
     try {
@@ -1497,16 +1869,103 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_expense_with_account", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_company_account_id: 90, p_category: "fuel", p_amount: 50 }) })]);
   });
 
-  it("ينشئ تسوية مالية بالدالة الذرية في Supabase دون MySQL", async () => {
+  it("يشتق معاينة التسوية من دفتر الأستاذ ويرفض إجماليات التحصيل والمصروفات اليدوية", async () => {
+    const previewRow = {
+      totalCollected: 100, totalExpenses: 20, bookProfit: 80,
+      cashOpeningBalance: 50, cashInflows: 125, cashOutflows: 40, bookCashBalance: 135,
+      cashBalanceComplete: true, isReconciled: true,
+      subscriberCreditCreated: 15, securityDepositReceived: 30, securityDepositRefunded: 0,
+      supplierPaymentAmount: 10, supplierPurchaseInvoiceAmount: 60,
+      supplierReturnCreditAmount: 5, supplierReturnRefundAmount: 0,
+      operatingExpensesByCategory: { maintenance: 20 },
+      cashBreakdown: {
+        inflows: { subscriberCollections: 115, otherCollections: 0, securityDepositReceipts: 0, supplierReturnRefunds: 0, otherDeposits: 0, transfersIn: 0, accountOpeningBalanceAdded: 0 },
+        outflows: { operatingExpenses: 20, supplierPayments: 10, securityDepositRefunds: 0, otherPaymentRefunds: 0, otherWithdrawals: 0, transfersOut: 0 },
+      },
+      reconciliation: { issueCount: 0, status: "reconciled", orphanReferenceMovementCount: 0 },
+    };
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_financial_settlement_preview") return { data: previewRow, error: null };
+      if (name === "powerhub_create_financial_settlement") return { data: [{ settlement_id: 97 }], error: null };
+      return state.defaultRpc(name, args);
+    });
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.settlements.create({ siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z", totalCollected: 100, totalExpenses: 20, actualCash: 75, notes: "تسوية دورية" })).resolves.toEqual({ id: 97 });
-    expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_create_financial_settlement", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_total_collected: 100, p_total_expenses: 20, p_actual_cash: 75 }) })]);
+    await expect(caller.settlements.preview({
+      siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z",
+    })).resolves.toMatchObject({
+      totalCollected: 100, totalExpenses: 20, bookProfit: 80,
+      bookCashBalance: 135, isReconciled: true, supplierPaymentAmount: 10,
+      subscriberCreditCreated: 15, securityDepositReceived: 30,
+      reconciliation: { issueCount: 0, status: "reconciled", orphanReferenceMovementCount: 0 },
+    });
+    await expect(caller.settlements.create({
+      siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z",
+      actualCash: 140, notes: "تسوية دورية",
+    })).resolves.toEqual({ id: 97 });
+    expect(state.rpcCalls).toEqual([
+      expect.objectContaining({
+        name: "powerhub_financial_settlement_preview",
+        args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_period_start: "2026-08-01T00:00:00.000Z", p_period_end: "2026-08-31T23:59:59.999Z" }),
+      }),
+      expect.objectContaining({
+        name: "powerhub_create_financial_settlement",
+        args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_actual_cash: 140, p_notes: "تسوية دورية" }),
+      }),
+    ]);
+    expect((state.rpcCalls[1].args as Record<string, unknown>)).not.toHaveProperty("p_total_collected");
+    expect((state.rpcCalls[1].args as Record<string, unknown>)).not.toHaveProperty("p_total_expenses");
+  });
+
+  it("يمنع إنشاء التسوية عندما ترفض قاعدة البيانات مطابقة الدفاتر", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_create_financial_settlement") {
+        return { data: null, error: { code: "P0001", message: "SETTLEMENT_LEDGER_RECONCILIATION_FAILED" } };
+      }
+      return state.defaultRpc(name, args);
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.settlements.create({
+      siteId: 10, periodStart: "2026-08-01T00:00:00.000Z", periodEnd: "2026-08-31T23:59:59.999Z",
+      actualCash: 140,
+    })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "لا يمكن حفظ التسوية: توجد حركات مالية غير مرتبطة أو رصيد افتتاحي مشترك لا يمكن إسناده بأمان.",
+    });
   });
 
   it("يغيّر حالة التسوية بالدالة الذرية في Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.settlements.setStatus({ siteId: 10, settlementId: 97, status: "approved" })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toEqual([expect.objectContaining({ name: "powerhub_set_financial_settlement_status", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_settlement_id: 97, p_status: "approved" }) })]);
+  });
+
+  it("يمنع منشئ التسوية من اعتمادها ويعرض سبب الرفض بوضوح", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      return { data: null, error: { code: "P0001", message: "SETTLEMENT_CREATOR_CANNOT_APPROVE" } };
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.settlements.setStatus({ siteId: 10, settlementId: 97, status: "approved" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN", message: "لا يمكن لمنشئ التسوية اعتمادها؛ يجب أن يعتمدها مستخدم آخر." });
+    expect(state.rpcCalls).toEqual([expect.objectContaining({
+      name: "powerhub_set_financial_settlement_status",
+      args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_user_id: 1, p_settlement_id: 97, p_status: "approved" }),
+    })]);
+  });
+
+  it("يرفض إرسال التسوية عندما تتغير الدفاتر بعد إنشاء المسودة", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      return { data: null, error: { code: "P0001", message: "SETTLEMENT_SOURCE_LEDGER_CHANGED" } };
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.settlements.setStatus({ siteId: 10, settlementId: 97, status: "submitted" }))
+      .rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: "تغيرت القيود المالية منذ إعداد التسوية؛ لا يمكن إرسالها أو اعتمادها أو إقفالها قبل إنشاء تسوية محدثة.",
+      });
   });
 
   it("يعرض قائمة التسويات من Supabase دون MySQL", async () => {
@@ -1524,37 +1983,74 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const branchTwo = { id: 11, tenant_id: 20, name: "الفرع الثاني", code: "BR2", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
     state.tables.sites = [state.tables.sites[0], branchTwo];
     state.tables.users = [{ id: 2, role: "user", platform_role: "platform_user", account_status: "active" }];
-    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "manager", is_active: true, membership_status: "active" }];
-    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 2, is_active: true, role: "manager", permissions: null, custom_role_id: null, suspension_started_at: null, suspension_ends_at: null }];
+    state.tables.tenant_members = [{ tenant_id: 20, user_id: 2, role: "manager", is_active: true, membership_status: "active", expires_at: null }];
+    state.tables.staff_profiles = [{ tenant_id: 20, site_id: 10, user_id: 2, is_active: true, role: "manager", permissions: null, custom_role_id: null, suspension_started_at: null, suspension_ends_at: null, archived_at: null }];
     state.tables.company_accounts = [
       state.tables.company_accounts[0],
       { id: 92, tenant_id: 20, name: "جوال بي 2", account_type: "jawwal_pay", phone_number: null, color: "#16a34a", opening_balance: 50, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z" },
     ];
     state.tables.company_account_sites = [{ account_id: 90, site_id: 10 }, { account_id: 92, site_id: 11 }];
-    state.tables.account_transactions = [];
+    state.tables.account_transactions = [
+      { id: 91, tenant_id: 20, account_id: 90, site_id: 10, transaction_type: "collection", amount: 25, description: "تحصيل الفرع الأول", reference_no: "TX-91", related_payment_id: null, related_account_id: null, created_by_user_id: 2, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" },
+      { id: 92, tenant_id: 20, account_id: 90, site_id: 11, transaction_type: "collection", amount: 75, description: "تحصيل الفرع الثاني", reference_no: "TX-92", related_payment_id: null, related_account_id: null, created_by_user_id: 3, occurred_at: "2026-08-03T00:00:00.000Z", created_at: "2026-08-03T00:00:00.000Z" },
+    ];
     const caller = powerhubRouter.createCaller({ user: { id: 2, role: "user" } as never, req: {} as never, res: {} as never });
 
-    await expect(caller.companyAccounts.list({ siteId: 10 })).resolves.toMatchObject([{ id: 90 }]);
+    const branchAccounts = await caller.companyAccounts.list({ siteId: 10 });
+    expect(branchAccounts).toMatchObject([{ id: 90, linkedSites: [{ siteId: 10 }], balance: 200 }]);
+    expect(branchAccounts[0]).not.toHaveProperty("transactions");
     await expect(caller.companyAccounts.list({ siteId: 10, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.history({ siteId: 10, accountId: 90, branchId: 11 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "حساب فرع 2", accountType: "cash", phoneNumber: "+970595123457", openingBalance: 0, siteIds: [11] })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.companyAccounts.updateSites({ siteId: 10, accountId: 92, siteIds: [10] })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل خارج النطاق" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل خارج النطاق", operationKey: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(state.rpcCalls).toEqual([{
       name: "powerhub_company_account_balance_rollup",
       args: { p_tenant_id: 20, p_account_ids: [90, 92] },
     }]);
   });
 
+  it("keeps every linked branch visible to an owner when filtering the account list by one branch", async () => {
+    const branchTwo = { id: 11, tenant_id: 20, name: "الفرع الثاني", code: "BR2", city: "غزة", address: null, status: "active", anomaly_alert_percent: 50, invoice_due_days: 14, created_at: "2026-08-01T00:00:00.000Z" };
+    state.tables.sites = [state.tables.sites[0], branchTwo];
+    state.tables.company_account_sites = [
+      { tenant_id: 20, account_id: 90, site_id: 10 },
+      { tenant_id: 20, account_id: 90, site_id: 11 },
+    ];
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    const accounts = await caller.companyAccounts.list({ siteId: 10, branchId: 10 });
+    expect(accounts).toMatchObject([{
+      id: 90,
+      linkedSites: [{ siteId: 10, siteName: "الفرع الرئيسي" }, { siteId: 11, siteName: "الفرع الثاني" }],
+    }]);
+  });
+
   it("ينشئ حساب الشركة وحركاته وتحويله عبر Supabase دون MySQL", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.companyAccounts.create({ siteId: 10, name: "جوال بي 1", accountType: "jawwal_pay", phoneNumber: "+970595123456", openingBalance: 5, siteIds: [10] })).resolves.toEqual({ id: 92 });
-    await expect(caller.companyAccounts.addMovement({ siteId: 10, accountId: 90, transactionType: "deposit", amount: 10, description: "إيداع" })).resolves.toEqual({ id: 93 });
-    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل داخلي" })).resolves.toEqual({ success: true });
+    const movementOperationKey = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const transferOperationKey = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    await expect(caller.companyAccounts.addMovement({ siteId: 10, accountId: 90, transactionType: "deposit", amount: 10, description: "إيداع", operationKey: movementOperationKey })).resolves.toEqual({ id: 93, replayed: false });
+    await expect(caller.companyAccounts.transfer({ siteId: 10, fromAccountId: 90, toAccountId: 92, amount: 5, description: "تحويل داخلي", operationKey: transferOperationKey })).resolves.toEqual({ success: true, replayed: false });
     expect(state.rpcCalls).toEqual([
       expect.objectContaining({ name: "powerhub_create_company_account", args: expect.objectContaining({ p_tenant_id: 20, p_site_ids: [10] }) }),
-      expect.objectContaining({ name: "powerhub_add_account_movement", args: expect.objectContaining({ p_account_id: 90, p_transaction_type: "deposit", p_amount: 10 }) }),
-      expect.objectContaining({ name: "powerhub_transfer_company_accounts", args: expect.objectContaining({ p_from_account_id: 90, p_to_account_id: 92, p_amount: 5 }) }),
+      expect.objectContaining({ name: "powerhub_add_account_movement_idempotent", args: expect.objectContaining({ p_account_id: 90, p_transaction_type: "deposit", p_amount: 10, p_operation_key: movementOperationKey }) }),
+      expect.objectContaining({ name: "powerhub_transfer_company_accounts_idempotent", args: expect.objectContaining({ p_from_account_id: 90, p_to_account_id: 92, p_amount: 5, p_operation_key: transferOperationKey }) }),
     ]);
+  });
+
+  it("رفض إعادة استخدام مفتاح حركة حساب مع مدخلات مختلفة", async () => {
+    state.client.rpc = vi.fn(async (name: string, args: unknown) => {
+      state.rpcCalls.push({ name, args });
+      return { data: null, error: { code: "P0001", message: "IDEMPOTENCY_KEY_REUSED" } };
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.companyAccounts.addMovement({
+      siteId: 10, accountId: 90, transactionType: "deposit", amount: 10,
+      description: "إيداع مختلف", operationKey: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(state.rpcCalls).toHaveLength(1);
+    expect(state.rpcCalls[0].name).toBe("powerhub_add_account_movement_idempotent");
   });
 
   it("يحدّث إعدادات حساب الشركة عبر Supabase دون MySQL", async () => {
@@ -1683,7 +2179,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     })]);
   });
 
-  it("يحسب رصيد حساب الشركة من سجل الحركات الكامل لا من أول ألف حركة فقط", async () => {
+  it("يعرض رصيد حساب الشركة الكامل عبر rollup دون تحميل سجل الحركات", async () => {
     state.tables.company_accounts = [{
       id: 90, tenant_id: 20, name: "كاش", account_type: "cash", phone_number: null, color: "#64748b",
       opening_balance: 100, is_active: true, created_at: "2026-08-01T00:00:00.000Z", updated_at: "2026-08-01T00:00:00.000Z",
@@ -1699,7 +2195,8 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
     const accounts = await caller.companyAccounts.list({ siteId: 10 });
     expect(accounts[0]).toMatchObject({ id: 90, balance: 1105 });
-    expect(accounts[0].transactions).toHaveLength(1000);
+    expect(accounts[0]).not.toHaveProperty("transactions");
+    expect(state.orderCalls.some((call) => call.table === "account_transactions")).toBe(false);
     expect(state.rpcCalls).toContainEqual({
       name: "powerhub_company_account_balance_rollup",
       args: { p_tenant_id: 20, p_account_ids: [90] },

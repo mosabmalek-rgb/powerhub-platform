@@ -1,15 +1,51 @@
 import { describe, expect, it } from "vitest";
-import { canRequeueFailedOfflineWork, canRequeueOfflineWorkForManualRecovery, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft } from "./offline-work-queue";
+import { canCoalesceOfflineStocktakeCount, canRequeueFailedOfflineWork, canRequeueOfflineWorkForManualRecovery, createInitialSyncMetadataRecord, createOfflineWork, isSyncMetadataCompatibleWithWorkItem, type GeneratorCreateDraft, type GeneratorUpdateDraft, type ReadingCreateDraft, type ExpenseCreateDraft, type InventoryStocktakeCountDraft } from "./offline-work-queue";
 import { SYNC_MAX_ATTEMPTS } from "./offline-sync-engine";
 
 describe("طابور المسودات دون اتصال", () => {
+
+  it("keeps stocktake counts as scoped pending Outbox intents and coalesces only before dispatch", () => {
+    const payload: InventoryStocktakeCountDraft = {
+      stocktakeId: 501, itemId: 601, countedQuantity: 12.5, countedUnitCost: 3.25, countNotes: "shelf A",
+    };
+    const item = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "inventory_stocktake_count", payload,
+      clientOperationId: "stocktake-count:offline-1",
+    });
+    const metadata = createInitialSyncMetadataRecord(item);
+    const scope = { userId: 7, tenantId: 2, siteId: 3, stocktakeId: 501, itemId: 601 };
+    expect(item).toMatchObject({ status: "pending", kind: "inventory_stocktake_count", clientOperationId: "stocktake-count:offline-1" });
+    expect(canCoalesceOfflineStocktakeCount(item, metadata, scope)).toBe(true);
+    expect(canCoalesceOfflineStocktakeCount({ ...item, status: "failed" }, metadata, scope)).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, { ...metadata, outcome: "syncing" }, scope)).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, { ...metadata, attempts: 1 }, scope)).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, metadata, { ...scope, tenantId: 99 })).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, metadata, { ...scope, siteId: 8 })).toBe(false);
+    expect(canCoalesceOfflineStocktakeCount(item, { ...metadata, userId: 8 }, scope)).toBe(false);
+  });
   it("ينشئ معرف عملية ثابتاً داخل السجل ومعرفاً مختلفاً لكل مسودة", () => {
-    const base = { userId: 7, siteId: 3, kind: "subscriber_create" as const, payload: { fullName: "أحمد علي", phone: "+970599000000", subscriptionType: "residential" as const } };
+    const base = {
+      userId: 7, tenantId: 2, siteId: 3, kind: "subscriber_create" as const,
+      payload: {
+        fullName: "أحمد علي", phone: "+970599000000", subscriptionType: "residential" as const,
+        securityDepositAmount: 100, securityDepositCompanyAccountId: 4,
+        securityDepositPaymentMethod: "cash" as const, securityDepositPaymentNo: "DEP-OFF-001",
+        securityDepositReferenceNo: "LOCAL-DEP", securityDepositOperationId: "deposit-op-1",
+      },
+    };
     const first = createOfflineWork(base);
     const second = createOfflineWork(base);
     expect(first.id).toBe(first.clientOperationId);
     expect(first.clientOperationId).not.toBe(second.clientOperationId);
     expect(first.status).toBe("pending");
+    expect(first).toMatchObject({
+      tenantId: 2,
+      payload: {
+        securityDepositAmount: 100, securityDepositCompanyAccountId: 4,
+        securityDepositPaymentMethod: "cash", securityDepositPaymentNo: "DEP-OFF-001",
+        securityDepositReferenceNo: "LOCAL-DEP", securityDepositOperationId: "deposit-op-1",
+      },
+    });
   });
 
   it("ينشئ بيانات مزامنة أولية بنفس نطاق ومعرف العملية", () => {
@@ -86,6 +122,18 @@ describe("طابور المسودات دون اتصال", () => {
     expect(draft).toMatchObject({ kind: "payment_create", status: "pending", payload: { invoiceId: 41, amount: 75, receiptImageMime: "image/png" } });
   });
 
+  it("يحفظ إيداع الرصيد الدائن دون فاتورة كمسودة تحصيل قابلة للمزامنة", () => {
+    const draft = createOfflineWork({
+      userId: 7, siteId: 3, kind: "payment_create",
+      payload: { subscriberId: 31, paymentNo: "PAY-CREDIT-OFFLINE", amount: 18, paymentMethod: "cash", companyAccountId: 2 },
+    });
+    expect(draft).toMatchObject({
+      kind: "payment_create", status: "pending",
+      payload: { subscriberId: 31, paymentNo: "PAY-CREDIT-OFFLINE", amount: 18, companyAccountId: 2 },
+    });
+    expect(draft.payload.invoiceId).toBeUndefined();
+  });
+
   it("يحفظ إنشاء المولد مع نطاق المستخدم والفرع", () => {
     const payload: GeneratorCreateDraft = { code: "GEN-001", name: "مولد الاختبار", ratedCapacityKw: "150", fuelType: "diesel" };
     const draft = createOfflineWork({ userId: 17, siteId: 3, kind: "generator_create", payload });
@@ -99,4 +147,66 @@ describe("طابور المسودات دون اتصال", () => {
     expect(draft.payload).toEqual(payload);
     expect(draft.status).toBe("pending");
   });
+});
+
+
+describe("expense Outbox intent", () => {
+  it("stores a pending expense request with a stable idempotency key and no local posting claim", () => {
+    const payload: ExpenseCreateDraft = {
+      companyAccountId: 4, category: "fuel", description: "شراء ديزل", amount: 125,
+      referenceNo: "LOCAL-REF",
+    };
+    const item = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "expense_create",
+      clientOperationId: "8b9fda8e-7d36-4f3b-9d95-3f3a0e30f5f0", payload,
+    });
+    expect(item).toMatchObject({
+      status: "pending", kind: "expense_create", clientOperationId: "8b9fda8e-7d36-4f3b-9d95-3f3a0e30f5f0",
+      payload: { companyAccountId: 4, amount: 125, description: "شراء ديزل" },
+    });
+    expect(item).not.toHaveProperty("appliedEntityId");
+  });
+
+  it("يحافظ على مبلغ التأمين ورقم الإيصال ومفتاح التأمين في مسودة المشترك غير المتصلة حتى إعادة المزامنة", () => {
+    const payload = {
+      fullName: "مشترك تأمين دون اتصال",
+      phone: "+970599000001",
+      subscriptionType: "residential" as const,
+      securityDepositAmount: 125.5,
+      securityDepositCompanyAccountId: 44,
+      securityDepositPaymentMethod: "cash" as const,
+      securityDepositPaymentNo: "DEP-OFFLINE-RETRY-001",
+      securityDepositReferenceNo: "LOCAL-REFERENCE-001",
+      securityDepositOperationId: "11111111-1111-4111-8111-111111111111",
+    };
+    const draft = createOfflineWork({
+      userId: 7, tenantId: 2, siteId: 3, kind: "subscriber_create", payload,
+      clientOperationId: "22222222-2222-4222-8222-222222222222",
+    });
+    const retryMetadata = {
+      ...createInitialSyncMetadataRecord(draft),
+      outcome: "retryable" as const,
+      attempts: 1,
+      nextAttemptAt: draft.createdAt + 1_000,
+    };
+
+    expect(draft).toMatchObject({
+      status: "pending",
+      clientOperationId: "22222222-2222-4222-8222-222222222222",
+      payload: {
+        securityDepositAmount: 125.5,
+        securityDepositCompanyAccountId: 44,
+        securityDepositPaymentMethod: "cash",
+        securityDepositPaymentNo: "DEP-OFFLINE-RETRY-001",
+        securityDepositReferenceNo: "LOCAL-REFERENCE-001",
+        securityDepositOperationId: "11111111-1111-4111-8111-111111111111",
+      },
+    });
+    const queuedPayload = draft.payload as typeof payload;
+    expect(queuedPayload.securityDepositOperationId).not.toBe(draft.clientOperationId);
+    expect(isSyncMetadataCompatibleWithWorkItem(draft, retryMetadata)).toBe(true);
+    expect(retryMetadata.operationId).toBe(draft.clientOperationId);
+    expect(retryMetadata.dependsOn).toEqual([]);
+  });
+
 });

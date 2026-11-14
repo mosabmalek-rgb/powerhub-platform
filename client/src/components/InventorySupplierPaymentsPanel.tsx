@@ -3,8 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { CreditCard, Loader2, RefreshCw, RotateCcw, Wallet } from "lucide-react";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { toast } from "sonner";
+import FinancialSupplierPaymentCorrectionWorkspace from "@/components/finance/FinancialSupplierPaymentCorrectionWorkspace";
 
 type PayableRow = {
   document_type: "purchase_invoice" | "opening_balance";
@@ -68,12 +71,23 @@ export default function InventorySupplierPaymentsPanel({
   isAuthenticated,
   canManageSupplierPayments,
   canReverseSupplierPayments,
+  canViewSupplierCorrectionFinancialReports,
 }: {
   siteId: number;
   isAuthenticated: boolean;
   canManageSupplierPayments: boolean;
   canReverseSupplierPayments: boolean;
+  canViewSupplierCorrectionFinancialReports: boolean;
 }) {
+  const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
+  const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
+  const ensureServerWriteAllowed = () => {
+    if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
+      toast.error("يلزم اتصال موثوق بخادم PowerHub؛ لم تُسجل أي دفعة أو قيد مالي.");
+      return false;
+    }
+    return true;
+  };
   const utils = trpc.useUtils();
   const [supplierId, setSupplierId] = useState("");
   const [companyAccountId, setCompanyAccountId] = useState("");
@@ -87,6 +101,7 @@ export default function InventorySupplierPaymentsPanel({
   const [openingReference, setOpeningReference] = useState("");
   const [openingNotes, setOpeningNotes] = useState("");
   const [reversalReasons, setReversalReasons] = useState<Record<number, string>>({});
+  const [correctionPaymentId,setCorrectionPaymentId]=useState<number|null>(null);
 
   const batchOptionsQuery = trpc.powerhub.inventory.listSupplierPaymentBatchOptions.useQuery(
     { siteId },
@@ -101,14 +116,19 @@ export default function InventorySupplierPaymentsPanel({
     { enabled: Boolean(siteId && isAuthenticated && canManageSupplierPayments), staleTime: 10_000 },
   );
 
-  const batchOptions = batchOptionsQuery.data as unknown as BatchOptions | undefined;
+  const batchOptionsIsAuthoritative = hasAuthoritativeServerRead(batchOptionsQuery);
+  const accountOptionsIsAuthoritative = hasAuthoritativeServerRead(accountOptionsQuery);
+  const historyIsAuthoritative = hasAuthoritativeServerRead(historyQuery);
+  const batchOptions = batchOptionsIsAuthoritative
+    ? batchOptionsQuery.data as unknown as BatchOptions | undefined
+    : undefined;
   const suppliers = batchOptions?.suppliers ?? [];
   const allRows = batchOptions?.payables?.rows ?? [];
   const selectedRows = useMemo(
     () => allRows.filter((row) => Number(row.supplier_id) === Number(supplierId) && Number(row.outstanding_amount) > 0),
     [allRows, supplierId],
   );
-  const accounts = accountOptionsQuery.data ?? [];
+  const accounts = accountOptionsIsAuthoritative ? accountOptionsQuery.data ?? [] : [];
   const chosenAccount = accounts.find((account) => String(account.id) === companyAccountId);
   const selectedAllocations = useMemo(() => selectedRows.map((row) => {
     const key = `${row.document_type}:${row.document_id}`;
@@ -184,6 +204,8 @@ export default function InventorySupplierPaymentsPanel({
   });
 
   const submitPayment = () => {
+    if (!ensureServerWriteAllowed()) return;
+    if (!batchOptionsIsAuthoritative || !accountOptionsIsAuthoritative) { toast.error("يتطلب تسجيل الدفعة إعادة تحقق خادمية حديثة من المستندات وحسابات الشركة."); return; }
     if (!supplierId) { toast.error("اختر المورد أولًا."); return; }
     if (!companyAccountId) { toast.error("اختر حساب الدفع من حسابات الشركة."); return; }
     if (!selectedAllocations.length || totalAmount <= 0) { toast.error("أدخل مبلغًا على فاتورة أو رصيد افتتاحي واحد على الأقل."); return; }
@@ -208,6 +230,8 @@ export default function InventorySupplierPaymentsPanel({
   };
 
   const submitOpeningBalance = () => {
+    if (!ensureServerWriteAllowed()) return;
+    if (!batchOptionsIsAuthoritative) { toast.error("يتطلب الرصيد الافتتاحي التحقق من المورد من الخادم أولًا."); return; }
     if (!supplierId) { toast.error("اختر المورد أولًا."); return; }
     const parsed = Number(openingAmount);
     if (!Number.isFinite(parsed) || parsed <= 0 || Math.abs(parsed * 100 - Math.round(parsed * 100)) > 1e-7) {
@@ -224,7 +248,7 @@ export default function InventorySupplierPaymentsPanel({
     });
   };
 
-  const history = historyQuery.data ?? [];
+  const history = historyIsAuthoritative ? historyQuery.data ?? [] : [];
 
   if (!canManageSupplierPayments) {
     return <Card><CardContent className="p-6 text-center text-muted-foreground">لا تملك صلاحية تسجيل دفعات الموردين أو مراجعة سجلها.</CardContent></Card>;
@@ -232,6 +256,8 @@ export default function InventorySupplierPaymentsPanel({
 
   return (
     <div dir="rtl" className="space-y-4">
+      {serverWriteBlocked ? <p role="status" className="rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">عرض اللقطات المحلية ممكن، لكن دفعات الموردين والرصيد الافتتاحي والعكس المالي تتطلب اتصالًا موثوقًا بالخادم.</p> : null}
+      {(!batchOptionsIsAuthoritative || !accountOptionsIsAuthoritative || !historyIsAuthoritative) && !serverWriteBlocked ? <p role="status" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">لا تُعرض أرصدة الموردين أو حسابات الشركة كبيانات حديثة حتى تنجح إعادة القراءة الخادمية. الترحيل المالي متوقف إلى أن تكتمل القراءات المطلوبة.</p> : null}
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -299,7 +325,7 @@ export default function InventorySupplierPaymentsPanel({
               <div className="flex items-center justify-between gap-3"><span className="text-sm text-muted-foreground">إجمالي التخصيصات / مبلغ الدفعة</span><span className="text-xl font-bold tabular-nums">{amount(totalAmount)}</span></div>
               <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>عدد المستندات المحددة</span><span>{selectedAllocations.length}</span></div>
               {chosenAccount ? <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>رصيد الحساب بعد الدفعة (تقديري)</span><span>{amount(Number(chosenAccount.balance) - totalAmount)}</span></div> : null}
-              <Button type="button" className="mt-3 w-full" disabled={postPayment.isPending || !supplierId || !companyAccountId || !selectedAllocations.length || !allAllocationAmountsValid || totalAmount <= 0} onClick={submitPayment}>
+              <Button type="button" className="mt-3 w-full" disabled={serverWriteBlocked || postPayment.isPending || !supplierId || !companyAccountId || !selectedAllocations.length || !allAllocationAmountsValid || totalAmount <= 0} onClick={submitPayment}>
                 {postPayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Wallet className="ml-2 h-4 w-4" />} تسجيل الدفعة وتوزيعها ذريًا
               </Button>
               <p className="mt-2 text-xs text-muted-foreground">لن تُسجل الدفعة إلا إذا طابق مجموع التخصيصات مبلغها؛ ويعيد الخادم التحقق من الرصيد المتاح والمستحقات وحالة الفترة المالية قبل أي أثر مالي.</p>
@@ -324,7 +350,7 @@ export default function InventorySupplierPaymentsPanel({
             <label className="grid gap-1.5 text-sm">ملاحظات
               <Input value={openingNotes} maxLength={500} onChange={(event) => setOpeningNotes(event.target.value)} />
             </label>
-            <div className="flex items-end"><Button type="button" className="w-full" disabled={addOpeningBalance.isPending || !supplierId || !openingAmount} onClick={submitOpeningBalance}>{addOpeningBalance.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} تسجيل الرصيد الافتتاحي</Button></div>
+            <div className="flex items-end"><Button type="button" className="w-full" disabled={serverWriteBlocked || addOpeningBalance.isPending || !supplierId || !openingAmount} onClick={submitOpeningBalance}>{addOpeningBalance.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} تسجيل الرصيد الافتتاحي</Button></div>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">يمنع الخادم تسجيل رصيد افتتاحي ثانٍ للمورد/الفرع نفسه؛ أي تصحيح لاحق يجب أن يكون بتسوية موثقة، لا بتعديل القيد التاريخي.</p>
         </CardContent>
@@ -351,9 +377,14 @@ export default function InventorySupplierPaymentsPanel({
                     <td className="p-3">
                       {status ? "—" : !canReverseSupplierPayments ? <span className="text-xs text-muted-foreground">لا تملك صلاحية عكس الدفعات</span> : <div className="min-w-[210px] space-y-2">
                         <Input value={reversalReasons[payment.id] ?? ""} maxLength={500} onChange={(event) => setReversalReasons((current) => ({ ...current, [payment.id]: event.target.value }))} placeholder="سبب العكس (مطلوب)" />
-                        <Button type="button" size="sm" variant="outline" disabled={reversePayment.isPending || (reversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => reversePayment.mutate({ siteId, paymentId: payment.id, reason: reversalReasons[payment.id].trim() })}>
+                        <Button type="button" size="sm" variant="outline" disabled={serverWriteBlocked || reversePayment.isPending || (reversalReasons[payment.id] ?? "").trim().length < 3} onClick={() => { if (ensureServerWriteAllowed()) reversePayment.mutate({ siteId, paymentId: payment.id, reason: reversalReasons[payment.id].trim() }); }}>
                           {reversePayment.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <RotateCcw className="ml-2 h-4 w-4" />} عكس الدفعة
                         </Button>
+                        {canViewSupplierCorrectionFinancialReports ?
+                          <Button type="button" size="sm" variant="outline"
+                            disabled={serverWriteBlocked} onClick={()=>{
+                              if(ensureServerWriteAllowed())setCorrectionPaymentId(payment.id);
+                            }}>تصحيح القيد المحاسبي للمورد</Button> : null}
                       </div>}
                     </td>
                   </tr>;
@@ -362,6 +393,10 @@ export default function InventorySupplierPaymentsPanel({
             </div>}
         </CardContent>
       </Card>
+      {canManageSupplierPayments&&canReverseSupplierPayments&&canViewSupplierCorrectionFinancialReports?
+        <FinancialSupplierPaymentCorrectionWorkspace siteId={siteId}
+          isAuthenticated={isAuthenticated} selectedPaymentId={correctionPaymentId}/>
+        :null}
     </div>
   );
 }

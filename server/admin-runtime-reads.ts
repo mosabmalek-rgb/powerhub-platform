@@ -379,7 +379,7 @@ export const adminRouterWithSupabaseReadContracts = router({
     const activeCounts = new Map<number, number>(); for (const site of sitesResult.data ?? []) activeCounts.set(Number(site.tenant_id), (activeCounts.get(Number(site.tenant_id)) ?? 0) + 1);
     return (tenantsResult.data ?? []).map((tenant) => { const setting = settings.get(Number(tenant.id)); return { tenantId: Number(tenant.id), tenantName: tenant.name, ownerName: owners.get(Number(tenant.id)) ?? "—", packageCode: subscriptions.get(Number(tenant.id)) ?? null, plan: subscriptions.get(Number(tenant.id)) ?? null, isEnabledOverride: setting?.is_enabled_override ?? null, maxBranchesOverride: setting?.max_branches_override ?? null, disabledBehavior: setting?.disabled_behavior ?? null, currentBranchCount: activeCounts.get(Number(tenant.id)) ?? 0 }; });
   }),
-  globalSearch: platformAdminProcedure.input(z.object({ query: z.string().trim().min(2).max(100) })).query(async ({ input }) => {
+  globalSearch: platformAdminProcedure.input(z.object({ query: z.string().trim().min(2).max(100) })).query(async ({ ctx, input }) => {
     const admin = supabaseAdmin();
     const pattern = `%${input.query.trim()}%`;
     const [generatorsByName, generatorsByCode, subscribersByName, subscribersByNumber, subscribersByPhone, ownersByName, ownersByPhone] = await Promise.all([
@@ -417,7 +417,7 @@ export const adminRouterWithSupabaseReadContracts = router({
         return true;
       });
     };
-    return dedupe([
+    const results = dedupe([
       ...(generatorsByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "generator" as const, label: row.name, reference: row.code, tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
       ...(generatorsByCode.data ?? []).map((row) => ({ id: Number(row.id), kind: "generator" as const, label: row.name, reference: row.code, tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
       ...(subscribersByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "subscriber" as const, label: row.full_name, reference: row.subscriber_no || row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
@@ -426,6 +426,28 @@ export const adminRouterWithSupabaseReadContracts = router({
       ...(ownersByName.data ?? []).map((row) => ({ id: Number(row.id), kind: "owner" as const, label: row.full_name, reference: row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
       ...(ownersByPhone.data ?? []).map((row) => ({ id: Number(row.id), kind: "owner" as const, label: row.full_name, reference: row.phone || "—", tenantId: Number(row.tenant_id), tenantName: tenantNames.get(Number(row.tenant_id)) ?? "—" })),
     ]).slice(0, 30);
+
+    // Record daily aggregate counts only. Never persist
+    // the query string, subscriber phone, result labels, or identifiers.
+    try {
+      const { error } = await admin.rpc("powerhub_admin_record_search_metric", {
+        p_result_count: results.length,
+        p_generator_result_count: results.filter((row) => row.kind === "generator").length,
+        p_subscriber_result_count: results.filter((row) => row.kind === "subscriber").length,
+        p_owner_result_count: results.filter((row) => row.kind === "owner").length,
+      });
+      if (error) {
+        // Log only a stable error code. Never include query text, result labels, or identifiers.
+        console.warn("[PowerHub admin search] Aggregate telemetry recording failed.", {
+          code: error.code ?? "UNKNOWN",
+        });
+      }
+    } catch {
+      // Search remains available; avoid logging request data or exception messages.
+      console.warn("[PowerHub admin search] Aggregate telemetry request failed.");
+    }
+
+    return results;
   }),
   operationalMonitoring: platformAdminProcedure.query(async () => {
     const admin = supabaseAdmin();

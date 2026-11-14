@@ -1,0 +1,195 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const state = vi.hoisted(() => ({ rpc: vi.fn() }));
+vi.mock("./supabase-admin", () => ({
+  supabaseAdmin: () => ({ rpc: state.rpc }),
+}));
+
+import { adminPerformanceRouter } from "./admin-performance-router";
+
+const baseUser = {
+  id: 7,
+  openId: "platform-admin",
+  name: "Platform Admin",
+  email: "admin@example.test",
+  loginMethod: "supabase",
+  role: "admin" as const,
+  platformRole: "platform_admin",
+  accountStatus: "active",
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  lastSignedIn: new Date(),
+};
+
+const metrics = {
+  generatedAt: "2026-11-02T10:00:00.000Z",
+  database: { name: "powerhub", sizeBytes: 1024, sizeMiB: 0.01 },
+  connections: { clientBackends: 2, active: 1, idleInTransaction: 0, maxConnections: 60 },
+  cacheHitRatioPercent: 99.5,
+  transactions: { commits: 100, rollbacks: 2, deadlocks: 0, tempFiles: 1, tempBytes: 4096, statsResetAt: null },
+  topTables: [{
+    schemaName: "public",
+    tableName: "subscribers",
+    totalBytes: 8192,
+    indexBytes: 2048,
+    liveRowsEstimate: 20,
+    deadRowsEstimate: 1,
+  }],
+};
+
+const activityMetrics = {
+  generatedAt: "2026-11-02T10:00:00.000Z",
+  period: { fromDate: "2026-10-04", toDate: "2026-11-02" },
+  paymentDocumentation: {
+    totalRequests: 12, pendingRequests: 3, approvedRequests: 7, rejectedRequests: 2,
+    approvedAmountInPeriod: 500.25, decidedRequests: 9, approvalRatePercent: 77.78,
+    latestSubmittedAt: "2026-11-02T09:00:00.000Z",
+  },
+  search: {
+    searchesInPeriod: 150, noResultSearchesInPeriod: 15, noResultRatePercentInPeriod: 10,
+    generatorResultHitsInPeriod: 30, subscriberResultHitsInPeriod: 90,
+    ownerResultHitsInPeriod: 20, trackingStartedAt: "2026-10-04",
+    lastSearchAt: "2026-11-02T09:59:00.000Z",
+  },
+};
+
+afterEach(() => vi.clearAllMocks());
+
+describe("platform performance metrics authorization and contract", () => {
+  it("rejects tenant users before calling the service-role RPC", async () => {
+    const caller = adminPerformanceRouter.createCaller({
+      user: { ...baseUser, role: "user", platformRole: null },
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.performanceMetrics()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects finance and support platform roles from infrastructure metrics", async () => {
+    for (const platformRole of ["finance_admin", "platform_support"] as const) {
+      const caller = adminPerformanceRouter.createCaller({
+        user: { ...baseUser, platformRole },
+        req: {} as never,
+        res: {} as never,
+      });
+      await expect(caller.performanceMetrics()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("returns schema-validated metrics only to an active platform admin", async () => {
+    state.rpc.mockResolvedValue({ data: metrics, error: null });
+    const caller = adminPerformanceRouter.createCaller({
+      user: baseUser,
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.performanceMetrics()).resolves.toEqual(metrics);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_get_performance_metrics");
+  });
+
+  it("fails closed when the RPC is missing or returns an invalid payload", async () => {
+    state.rpc
+      .mockResolvedValueOnce({ data: null, error: { message: "function not found" } })
+      .mockResolvedValueOnce({ data: { ...metrics, connections: null }, error: null });
+    const caller = adminPerformanceRouter.createCaller({
+      user: baseUser,
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.performanceMetrics()).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    await expect(caller.performanceMetrics()).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+});
+
+describe("platform owner activity metrics", () => {
+  const ownerActivityMetrics = {
+    generatedAt: "2026-11-02T10:00:00.000Z", period: { fromDate: "2026-10-04", toDate: "2026-11-02" },
+    ownerCount: 1, ownerBreakdownTruncated: false,
+    owners: [{
+      tenantId: 101, tenantName: "مساحة الاختبار", ownerName: "مالك الاختبار", companyName: "شركة الاختبار",
+      packageCode: "professional", subscriptionStatus: "active",
+      payment: { totalRequests: 4, pendingRequests: 1, approvedRequests: 2, rejectedRequests: 1, approvedAmountInPeriod: 100, decidedRequests: 3, approvalRatePercent: 66.67 },
+      search: { searchesInPeriod: 10, noResultSearchesInPeriod: 2, noResultRatePercentInPeriod: 20, resultHitsInPeriod: 18, trackingStartedAt: "2026-10-01", lastSearchAt: "2026-11-02T09:59:00.000Z" },
+    }],
+  };
+  it("returns validated tenant-grouped metrics to active platform admins", async () => {
+    state.rpc.mockResolvedValue({ data: ownerActivityMetrics, error: null });
+    const caller = adminPerformanceRouter.createCaller({ user: baseUser, req: {} as never, res: {} as never });
+    await expect(caller.ownerActivityMetrics({ fromDate: "2026-10-04", toDate: "2026-11-02" })).resolves.toEqual(ownerActivityMetrics);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_get_owner_activity_metrics", { p_from_date: "2026-10-04", p_to_date: "2026-11-02" });
+  });
+  it("denies tenant users and rejects malformed payloads", async () => {
+    const tenantCaller = adminPerformanceRouter.createCaller({ user: { ...baseUser, role: "user", platformRole: null }, req: {} as never, res: {} as never });
+    await expect(tenantCaller.ownerActivityMetrics({ fromDate: null, toDate: null })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+    state.rpc.mockResolvedValue({ data: { ...ownerActivityMetrics, owners: [{ ...ownerActivityMetrics.owners[0], tenantId: -1 }] }, error: null });
+    const caller = adminPerformanceRouter.createCaller({ user: baseUser, req: {} as never, res: {} as never });
+    await expect(caller.ownerActivityMetrics({ fromDate: null, toDate: null })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+  it("rejects invalid date ranges before calling the RPC", async () => {
+    const caller = adminPerformanceRouter.createCaller({ user: baseUser, req: {} as never, res: {} as never });
+    await expect(caller.ownerActivityMetrics({ fromDate: "2026-11-03", toDate: "2026-11-02" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("platform payment and search activity metrics", () => {
+  it("returns aggregate payment and privacy-preserving search metrics to platform admins", async () => {
+    state.rpc.mockResolvedValue({ data: activityMetrics, error: null });
+    const caller = adminPerformanceRouter.createCaller({
+      user: baseUser,
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.activityMetrics({ fromDate: "2026-10-04", toDate: "2026-11-02" })).resolves.toEqual(activityMetrics);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_get_activity_metrics", {
+      p_from_date: "2026-10-04",
+      p_to_date: "2026-11-02",
+    });
+  });
+
+  it("denies activity metrics to tenant users before calling the RPC", async () => {
+    const caller = adminPerformanceRouter.createCaller({
+      user: { ...baseUser, role: "user", platformRole: null },
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.activityMetrics({ fromDate: null, toDate: null })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when activity metrics do not match the schema", async () => {
+    state.rpc.mockResolvedValue({
+      data: { ...activityMetrics, search: { ...activityMetrics.search, noResultRatePercentInPeriod: 101 } },
+      error: null,
+    });
+    const caller = adminPerformanceRouter.createCaller({
+      user: baseUser,
+      req: {} as never,
+      res: {} as never,
+    });
+    await expect(caller.activityMetrics({ fromDate: null, toDate: null })).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
+  it("defaults to all-time metrics when both dates are null", async () => {
+    state.rpc.mockResolvedValue({ data: { ...activityMetrics, period: { fromDate: null, toDate: null } }, error: null });
+    const caller = adminPerformanceRouter.createCaller({ user: baseUser, req: {} as never, res: {} as never });
+    await caller.activityMetrics({ fromDate: null, toDate: null });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_get_activity_metrics", {
+      p_from_date: null,
+      p_to_date: null,
+    });
+  });
+
+  it("rejects invalid, reversed, partial, and overlong date ranges before the RPC", async () => {
+    const caller = adminPerformanceRouter.createCaller({ user: baseUser, req: {} as never, res: {} as never });
+    await expect(caller.activityMetrics({ fromDate: "2026-02-30", toDate: "2026-03-01" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.activityMetrics({ fromDate: "2026-11-03", toDate: "2026-11-02" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.activityMetrics({ fromDate: "2026-11-01", toDate: null })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.activityMetrics({ fromDate: "2010-01-01", toDate: "2026-11-02" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+});

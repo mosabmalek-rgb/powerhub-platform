@@ -156,6 +156,15 @@ describe("إنشاء صاحب مولد عبر دورة provisioning قابلة �
 
   it("يحجز العملية ثم ينشئ Auth ويربطه ويكمل معاملة قاعدة البيانات", async () => {
     await expect(caller().createGeneratorOwnerSubscription(input)).resolves.toMatchObject({ tenant_id: 101, subscription_id: 404 });
+    const fingerprintArgs = state.rpc.mock.calls.find(([name]) => name === "powerhub_admin_begin_generator_owner_provisioning")?.[1] as Record<string, unknown>;
+    const normalized = {
+      companyName: input.companyName.trim(), ownerName: input.ownerName.trim(),
+      identityNumber: input.identityNumber.trim(), ownerPhone: input.ownerPhone.trim(),
+      ownerWhatsapp: input.ownerWhatsapp, ownerEmail: input.ownerEmail.trim().toLowerCase(),
+      temporaryPassword: input.temporaryPassword, packageCode: input.packageCode,
+      billingCycle: "monthly", subscriptionDuration: 1, trialEnabled: false, trialDurationDays: null,
+    };
+    expect(fingerprintArgs.p_request_fingerprint).toBe("376c6941e8969644b02cdcfcf1c2024d538ca84b6637df36ccd4f907685f7135");
     expect(state.rpc).toHaveBeenNthCalledWith(1, "powerhub_admin_begin_generator_owner_provisioning", expect.objectContaining({
       p_actor_user_id: 1, p_client_operation_id: input.clientOperationId, p_owner_email: input.ownerEmail,
       p_request_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),

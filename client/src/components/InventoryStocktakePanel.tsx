@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { enqueueOfflineStocktakeCount, listOfflineWork, subscribeOfflineWorkQueueChanges, type QueuedOfflineWork, type InventoryStocktakeCountDraft } from "@/lib/offline-work-queue";
 import { ClipboardCheck, Loader2, PackageCheck, Plus, RefreshCw, Send, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 type Props = {
   siteId: number;
+  userId: number;
+  tenantId: number;
   isAuthenticated: boolean;
   canViewStocktakes: boolean;
   canManageStocktakes: boolean;
@@ -95,12 +99,23 @@ function money(value: number | string | null | undefined) {
 
 export default function InventoryStocktakePanel({
   siteId,
+  userId,
+  tenantId,
   isAuthenticated,
   canViewStocktakes,
   canManageStocktakes,
   canApproveStocktakes,
 }: Props) {
   const utils = trpc.useUtils();
+  const { isOnline: powerHubOnline, isChecking: connectivityChecking } = usePowerHubConnectivity();
+  const serverWriteBlocked = connectivityChecking || !powerHubOnline || getPowerHubConnectivitySnapshot() !== true;
+  const ensureServerWriteAllowed = () => {
+    if (serverWriteBlocked || getPowerHubConnectivitySnapshot() !== true) {
+      toast.error("يلزم اتصال موثوق بخادم PowerHub لتنفيذ الاعتماد أو الترحيل؛ لم تُنفذ أي حركة نهائية.");
+      return false;
+    }
+    return true;
+  };
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [filterWarehouseId, setFilterWarehouseId] = useState("");
   const [createWarehouseId, setCreateWarehouseId] = useState("");
@@ -111,8 +126,15 @@ export default function InventoryStocktakePanel({
   const [countValues, setCountValues] = useState<Record<string, string>>({});
   const [countCosts, setCountCosts] = useState<Record<string, string>>({});
   const [countNotes, setCountNotes] = useState<Record<string, string>>({});
+  const [offlineCountOperations, setOfflineCountOperations] = useState<QueuedOfflineWork[]>([]);
+  const [savingLineIds, setSavingLineIds] = useState<Record<string, boolean>>({});
+  const [loadedOfflineCountScope, setLoadedOfflineCountScope] = useState("");
+  const offlineCountScopeRef = useRef<string | null>(null);
+  const dirtyCountKeysRef = useRef(new Set<string>());
 
   const enabled = Boolean(siteId && isAuthenticated && (canViewStocktakes || canManageStocktakes || canApproveStocktakes));
+  const offlineCountScopeKey = `${userId}:${tenantId}:${siteId}`;
+  const offlineCountsLoaded = loadedOfflineCountScope === offlineCountScopeKey;
   const warehouseQuery = trpc.powerhub.inventory.listStocktakeWarehouses.useQuery(
     { siteId },
     { enabled, staleTime: 30_000 },
@@ -133,6 +155,80 @@ export default function InventoryStocktakePanel({
   const varianceCount = Number(selectedStocktake?.variance_count ?? 0);
   const countedCount = Number(selectedStocktake?.counted_count ?? 0);
   const itemCount = Number(selectedStocktake?.item_count ?? 0);
+  const scopedOfflineCountOperations = offlineCountsLoaded ? offlineCountOperations : [];
+  const selectedOfflineCounts = scopedOfflineCountOperations.filter((item) =>
+    item.status !== "applied" &&
+    (item.payload as InventoryStocktakeCountDraft).stocktakeId === selectedStocktakeId
+  );
+  const selectedOfflineItemIds = new Set(
+    selectedOfflineCounts.map((item) => (item.payload as InventoryStocktakeCountDraft).itemId)
+  );
+  const hasUnconfirmedOfflineCounts = !offlineCountsLoaded || selectedOfflineCounts.length > 0;
+
+  useEffect(() => {
+    let active = true;
+    const loadOfflineCounts = async () => {
+      setLoadedOfflineCountScope("");
+      if (offlineCountScopeRef.current !== offlineCountScopeKey) {
+        offlineCountScopeRef.current = offlineCountScopeKey;
+        dirtyCountKeysRef.current.clear();
+        setOfflineCountOperations([]);
+        setCountValues({});
+        setCountCosts({});
+        setCountNotes({});
+      }
+      if (!userId || userId < 1 || !tenantId || tenantId < 1 || !siteId || siteId < 1) {
+        setOfflineCountOperations([]);
+        return;
+      }
+      try {
+        const rows = await listOfflineWork({ userId, siteId });
+        if (!active) return;
+        const countRows = rows.filter((item) =>
+          item.tenantId === tenantId && item.kind === "inventory_stocktake_count"
+        );
+        setOfflineCountOperations(countRows);
+        setLoadedOfflineCountScope(offlineCountScopeKey);
+        setCountValues((current) => {
+          const next = { ...current };
+          for (const item of countRows) {
+            const payload = item.payload as InventoryStocktakeCountDraft;
+            const key = `${userId}:${tenantId}:${siteId}:${payload.stocktakeId}:${payload.itemId}`;
+            if (item.status === "applied" || dirtyCountKeysRef.current.has(key)) continue;
+            next[key] = String(payload.countedQuantity);
+          }
+          return next;
+        });
+        setCountCosts((current) => {
+          const next = { ...current };
+          for (const item of countRows) {
+            const payload = item.payload as InventoryStocktakeCountDraft;
+            const key = `${userId}:${tenantId}:${siteId}:${payload.stocktakeId}:${payload.itemId}`;
+            if (item.status === "applied" || dirtyCountKeysRef.current.has(key)) continue;
+            next[key] = payload.countedUnitCost == null ? "" : String(payload.countedUnitCost);
+          }
+          return next;
+        });
+        setCountNotes((current) => {
+          const next = { ...current };
+          for (const item of countRows) {
+            const payload = item.payload as InventoryStocktakeCountDraft;
+            const key = `${userId}:${tenantId}:${siteId}:${payload.stocktakeId}:${payload.itemId}`;
+            if (item.status === "applied" || dirtyCountKeysRef.current.has(key)) continue;
+            next[key] = payload.countNotes ?? "";
+          }
+          return next;
+        });
+      } catch {
+        if (active) toast.error("تعذر استعادة مسودات العد المحلي من Outbox.");
+      }
+    };
+    void loadOfflineCounts();
+    const unsubscribe = userId > 0 && siteId > 0
+      ? subscribeOfflineWorkQueueChanges({ userId, siteId }, () => { void loadOfflineCounts(); })
+      : () => undefined;
+    return () => { active = false; unsubscribe(); };
+  }, [siteId, tenantId, userId, offlineCountScopeKey]);
 
   useEffect(() => {
     if (filterWarehouseId && !warehouses.some((warehouse) => String(warehouse.id) === filterWarehouseId)) {
@@ -154,7 +250,7 @@ export default function InventoryStocktakePanel({
     setCountValues((current) => {
       const next = { ...current };
       for (const line of lines) {
-        const key = `${selectedStocktakeId}:${line.item_id}`;
+        const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
         if (next[key] === undefined) next[key] = line.counted_quantity == null ? "" : String(line.counted_quantity);
       }
       return next;
@@ -162,7 +258,7 @@ export default function InventoryStocktakePanel({
     setCountCosts((current) => {
       const next = { ...current };
       for (const line of lines) {
-        const key = `${selectedStocktakeId}:${line.item_id}`;
+        const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
         if (next[key] === undefined) next[key] = line.counted_unit_cost == null ? "" : String(line.counted_unit_cost);
       }
       return next;
@@ -170,7 +266,7 @@ export default function InventoryStocktakePanel({
     setCountNotes((current) => {
       const next = { ...current };
       for (const line of lines) {
-        const key = `${selectedStocktakeId}:${line.item_id}`;
+        const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
         if (next[key] === undefined) next[key] = line.count_notes ?? "";
       }
       return next;
@@ -198,19 +294,6 @@ export default function InventoryStocktakePanel({
       setSelectedStocktakeId(Number(result.stocktake_id));
     },
     onError: (error) => toast.error(error.message || "تعذر فتح جلسة الجرد."),
-  });
-
-  const recordCount = trpc.powerhub.inventory.recordStocktakeCount.useMutation({
-    onSuccess: async (result) => {
-      const key = `${result.stocktake_id}:${result.item_id}`;
-      setCountValues((current) => ({ ...current, [key]: String(result.counted_quantity) }));
-      toast.success("تم حفظ العد الفعلي وتسجيل أثره في التدقيق.");
-      await Promise.all([
-        utils.powerhub.inventory.listStocktakes.invalidate(),
-        utils.powerhub.inventory.listStocktakeLines.invalidate({ siteId, stocktakeId: Number(result.stocktake_id) }),
-      ]);
-    },
-    onError: (error) => toast.error(error.message || "تعذر حفظ العد الفعلي."),
   });
 
   const submitStocktake = trpc.powerhub.inventory.submitStocktake.useMutation({
@@ -243,6 +326,7 @@ export default function InventoryStocktakePanel({
 
   const onCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!ensureServerWriteAllowed()) return;
     if (!createWarehouseId) { toast.error("اختر موقع التخزين الذي ستجري جرده."); return; }
     if (reason.trim().length < 3) { toast.error("أدخل سببًا واضحًا لبدء الجرد."); return; }
     createStocktake.mutate({
@@ -254,9 +338,14 @@ export default function InventoryStocktakePanel({
     });
   };
 
-  const saveLine = (line: (typeof lines)[number]) => {
-    if (!selectedStocktakeId) return;
-    const key = `${selectedStocktakeId}:${line.item_id}`;
+  const saveLine = async (line: (typeof lines)[number]) => {
+    if (!selectedStocktakeId || !selectedStocktake || selectedStocktake.status !== "counting") return;
+    if (!userId || userId < 1 || !tenantId || tenantId < 1) {
+      toast.error("تعذر تحديد هوية المستخدم والمؤسسة لحفظ العد المحلي بأمان.");
+      return;
+    }
+    const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
+    if (savingLineIds[key]) return;
     const rawQuantity = (countValues[key] ?? "").trim();
     const countedQuantity = Number(rawQuantity);
     if (!rawQuantity || !Number.isFinite(countedQuantity) || countedQuantity < 0
@@ -275,17 +364,31 @@ export default function InventoryStocktakePanel({
       toast.error("أدخل تكلفة وحدة لتقييم الزيادة لأن الصنف لا يملك رصيدًا سابقًا.");
       return;
     }
-    recordCount.mutate({
-      siteId,
+    const payload: InventoryStocktakeCountDraft = {
       stocktakeId: selectedStocktakeId,
       itemId: Number(line.item_id),
       countedQuantity,
       countedUnitCost,
       countNotes: (countNotes[key] ?? "").trim() || undefined,
-    });
+    };
+    setSavingLineIds((current) => ({ ...current, [key]: true }));
+    try {
+      const queued = await enqueueOfflineStocktakeCount({ userId, tenantId, siteId, payload });
+      dirtyCountKeysRef.current.delete(key);
+      setOfflineCountOperations((current) => [
+        ...current.filter((item) => item.clientOperationId !== queued.clientOperationId),
+        queued,
+      ]);
+      toast.success("حُفظ العد كمسودة محلية؛ لن يُحتسب ضمن اكتمال الجرد قبل تأكيد الخادم.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر حفظ العد المحلي.");
+    } finally {
+      setSavingLineIds((current) => ({ ...current, [key]: false }));
+    }
   };
 
   const requestCancel = () => {
+    if (!ensureServerWriteAllowed()) return;
     if (!selectedStocktakeId) return;
     const cancelReason = window.prompt("أدخل سبب إلغاء جلسة الجرد (مطلوب):")?.trim();
     if (!cancelReason || cancelReason.length < 3) {
@@ -301,6 +404,7 @@ export default function InventoryStocktakePanel({
 
   return (
     <div dir="rtl" className="space-y-4">
+      {serverWriteBlocked ? <p role="status" className="rounded-md border border-amber-500/30 p-3 text-sm text-amber-700">يمكن تسجيل العد كمسودة محلية دون اتصال، لكن الخادم وحده يؤكد العد ويحتسبه ضمن الاكتمال. إرسال الجرد واعتماده وترحيله تبقى عمليات خادمية فقط.</p> : null}
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -330,7 +434,7 @@ export default function InventoryStocktakePanel({
             <label className="grid gap-1.5 text-sm">ملاحظات
               <Input maxLength={2000} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات إدارية" />
             </label>
-            <div className="flex items-end"><Button type="submit" className="w-full" disabled={createStocktake.isPending || !createWarehouseId || reason.trim().length < 3}>
+            <div className="flex items-end"><Button type="submit" className="w-full" disabled={serverWriteBlocked || createStocktake.isPending || !createWarehouseId || reason.trim().length < 3}>
               {createStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="ml-2 h-4 w-4" />} فتح الجلسة وتصوير الأرصدة
             </Button></div>
           </form>
@@ -347,7 +451,7 @@ export default function InventoryStocktakePanel({
             <span className="text-xs text-muted-foreground">{stocktakes.length} جلسة في السجل الظاهر</span>
           </div>
           {stocktakesQuery.isLoading ? <p className="py-6 text-center text-muted-foreground"><Loader2 className="ml-2 inline h-4 w-4 animate-spin" /> جارٍ تحميل سجل الجرد…</p>
-            : stocktakesQuery.error ? <div className="rounded-md border p-4 text-sm text-destructive">تعذر تحميل جلسات الجرد. تحقق من صلاحياتك أو أعد المحاولة.</div>
+            : stocktakesQuery.error && !stocktakes.length ? <div className="rounded-md border p-4 text-sm text-destructive">تعذر تحميل جلسات الجرد. تحقق من صلاحياتك أو أعد المحاولة.</div>
             : !stocktakes.length ? <p className="rounded-md border p-5 text-center text-sm text-muted-foreground">لا توجد جلسات جرد بعد. افتح جلسة جديدة لتصوير الأرصدة قبل العد.</p>
             : <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
               {stocktakes.map((stocktake) => {
@@ -381,30 +485,41 @@ export default function InventoryStocktakePanel({
           <div className="flex flex-wrap gap-2">
             <Badge className={statusTone[selectedStocktake.status] ?? "bg-white/5 text-slate-400"}>{statusLabels[selectedStocktake.status] ?? selectedStocktake.status}</Badge>
             {selectedStocktake.status === "counting" && canManageStocktakes ? <Button type="button" variant="outline" onClick={() => {
+              if (!ensureServerWriteAllowed()) return;
               if (!selectedStocktakeId) return;
-              if (!selectedLinesComplete) { toast.error("احفظ عدّ كل الأصناف قبل إرسال الجرد."); return; }
+              if (!offlineCountsLoaded) { toast.error("لم تكتمل استعادة حالة Outbox لهذا الفرع؛ أُوقف الإرسال احتياطياً."); return; }
+              if (selectedOfflineCounts.length > 0) { toast.error("توجد مسودات عد محلية لم يؤكدها الخادم بعد؛ زامنها قبل إرسال الجرد."); return; }
+              if (!selectedLinesComplete) { toast.error("احفظ عدّ كل الأصناف على الخادم قبل إرسال الجرد."); return; }
               submitStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId });
-            }} disabled={submitStocktake.isPending || !selectedLinesComplete || countedCount !== itemCount}>
+            }} disabled={serverWriteBlocked || submitStocktake.isPending || hasUnconfirmedOfflineCounts || !selectedLinesComplete || countedCount !== itemCount}>
               {submitStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Send className="ml-2 h-4 w-4" />} إرسال للاعتماد
             </Button> : null}
-            {selectedStocktake.status === "submitted" && canApproveStocktakes ? <Button type="button" onClick={() => selectedStocktakeId && postStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId })} disabled={postStocktake.isPending}>
+            {selectedStocktake.status === "submitted" && canApproveStocktakes ? <Button type="button" onClick={() => { if (ensureServerWriteAllowed() && selectedStocktakeId) postStocktake.mutate({ siteId, stocktakeId: selectedStocktakeId }); }} disabled={serverWriteBlocked || postStocktake.isPending}>
               {postStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <PackageCheck className="ml-2 h-4 w-4" />} اعتماد وترحيل
             </Button> : null}
-            {(selectedStocktake.status === "counting" || selectedStocktake.status === "submitted") && canManageStocktakes ? <Button type="button" variant="outline" onClick={requestCancel} disabled={cancelStocktake.isPending}>
+            {(selectedStocktake.status === "counting" || selectedStocktake.status === "submitted") && canManageStocktakes ? <Button type="button" variant="outline" onClick={requestCancel} disabled={serverWriteBlocked || cancelStocktake.isPending}>
               {cancelStocktake.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <XCircle className="ml-2 h-4 w-4" />} إلغاء الجلسة
             </Button> : null}
           </div>
         </CardHeader>
         <CardContent>
-          {linesQuery.isLoading ? <p className="py-6 text-center text-muted-foreground">جارٍ تحميل تفاصيل العد…</p>
-            : linesQuery.error ? <p className="py-6 text-center text-destructive">تعذر تحميل تفاصيل جلسة الجرد.</p>
+          {linesQuery.isLoading && !lines.length ? <p className="py-6 text-center text-muted-foreground">جارٍ تحميل تفاصيل العد…</p>
+            : linesQuery.error && !lines.length ? <p className="py-6 text-center text-destructive">تعذر تحميل تفاصيل جلسة الجرد.</p>
             : !lines.length ? <p className="py-6 text-center text-muted-foreground">لا توجد بنود ضمن هذه الجلسة.</p>
-            : <div className="overflow-x-auto rounded-md border">
+            : <>
+              {linesQuery.error ? <p role="status" className="mb-3 rounded-md border border-amber-500/30 p-3 text-xs text-amber-700">نعرض آخر لقطة محفوظة لبنود هذه الجلسة؛ قد تكون قديمة. العد المحلي لا يُحتسب ولا يمكن إرسال الجرد أو ترحيله قبل التحقق الخادمي.</p> : null}
+              <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[1200px] text-right text-sm">
                 <thead className="bg-muted/60"><tr>{["الصنف","الوحدة","رصيد النظام","قيمة النظام","تكلفة الوحدة","الكمية المعدودة","تكلفة الزيادة","الفرق","ملاحظات العد","إجراء"].map((title) => <th key={title} className="p-3 font-semibold">{title}</th>)}</tr></thead>
                 <tbody>{lines.map((line) => {
-                  const key = `${selectedStocktakeId}:${line.item_id}`;
-                  const countText = countValues[key] ?? (line.counted_quantity == null ? "" : String(line.counted_quantity));
+                  const key = `${userId}:${tenantId}:${siteId}:${selectedStocktakeId}:${line.item_id}`;
+                  const localCount = [...selectedOfflineCounts].reverse().find((item) =>
+                    (item.payload as InventoryStocktakeCountDraft).itemId === Number(line.item_id)
+                  );
+                  const localPayload = localCount?.payload as InventoryStocktakeCountDraft | undefined;
+                  const countText = countValues[key] ?? (localPayload
+                    ? String(localPayload.countedQuantity)
+                    : line.counted_quantity == null ? "" : String(line.counted_quantity));
                   const countValue = countText.trim() === "" ? NaN : Number(countText);
                   const variance = Number.isFinite(countValue) ? countValue - Number(line.system_quantity) : null;
                   const canEditLine = selectedStocktake.status === "counting" && canManageStocktakes;
@@ -414,17 +529,26 @@ export default function InventoryStocktakePanel({
                     <td className="p-3 whitespace-nowrap tabular-nums">{qty(line.system_quantity)}</td>
                     <td className="p-3 whitespace-nowrap tabular-nums">{money(line.system_value)}</td>
                     <td className="p-3 whitespace-nowrap tabular-nums">{money(line.system_unit_cost)}</td>
-                    <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.001" className="min-w-[120px]" value={countText} onChange={(event) => setCountValues((current) => ({ ...current, [key]: event.target.value }))} aria-label={`الكمية المعدودة: ${line.item_name}`} /></td>
-                    <td className="p-3"><Input disabled={!canEditLine} type="number" min="0" step="0.0001" className="min-w-[120px]" value={countCosts[key] ?? (line.counted_unit_cost == null ? "" : String(line.counted_unit_cost))} onChange={(event) => setCountCosts((current) => ({ ...current, [key]: event.target.value }))} aria-label={`تكلفة كمية الزيادة: ${line.item_name}`} placeholder={Number(line.system_quantity) > 0 ? "تلقائي من المتوسط" : "مطلوب للزيادة"} /></td>
+                    <td className="p-3"><Input disabled={!canEditLine || Boolean(savingLineIds[key])} type="number" min="0" step="0.001" className="min-w-[120px]" value={countText} onChange={(event) => { dirtyCountKeysRef.current.add(key); setCountValues((current) => ({ ...current, [key]: event.target.value })); }} aria-label={`الكمية المعدودة: ${line.item_name}`} /></td>
+                    <td className="p-3"><Input disabled={!canEditLine || Boolean(savingLineIds[key])} type="number" min="0" step="0.0001" className="min-w-[120px]" value={countCosts[key] ?? (localPayload?.countedUnitCost == null ? (line.counted_unit_cost == null ? "" : String(line.counted_unit_cost)) : String(localPayload.countedUnitCost))} onChange={(event) => { dirtyCountKeysRef.current.add(key); setCountCosts((current) => ({ ...current, [key]: event.target.value })); }} aria-label={`تكلفة كمية الزيادة: ${line.item_name}`} placeholder={Number(line.system_quantity) > 0 ? "تلقائي من المتوسط" : "مطلوب للزيادة"} /></td>
                     <td className={`p-3 whitespace-nowrap font-semibold tabular-nums ${variance == null ? "text-muted-foreground" : variance === 0 ? "text-emerald-600" : variance < 0 ? "text-destructive" : "text-amber-600"}`}>{variance == null ? "—" : `${variance > 0 ? "+" : ""}${qty(variance)}`}</td>
-                    <td className="p-3"><Input disabled={!canEditLine} maxLength={500} className="min-w-[170px]" value={countNotes[key] ?? line.count_notes ?? ""} onChange={(event) => setCountNotes((current) => ({ ...current, [key]: event.target.value }))} placeholder="ملاحظة مختصرة" /></td>
-                    <td className="p-3">{canEditLine ? <Button type="button" size="sm" variant="outline" disabled={recordCount.isPending || !countText.trim()} onClick={() => saveLine(line)}>{recordCount.isPending && recordCount.variables?.itemId === Number(line.item_id) ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} حفظ العد</Button> : <span className="text-xs text-muted-foreground">{line.counted_at ? `حُفظ ${new Date(line.counted_at).toLocaleDateString("ar-PS")}` : "—"}</span>}</td>
+                    <td className="p-3"><Input disabled={!canEditLine || Boolean(savingLineIds[key])} maxLength={500} className="min-w-[170px]" value={countNotes[key] ?? localPayload?.countNotes ?? line.count_notes ?? ""} onChange={(event) => { dirtyCountKeysRef.current.add(key); setCountNotes((current) => ({ ...current, [key]: event.target.value })); }} placeholder="ملاحظة مختصرة" /></td>
+                    <td className="p-3">{canEditLine
+                      ? <div className="space-y-1">
+                          <Button type="button" size="sm" variant="outline" disabled={Boolean(savingLineIds[key]) || !countText.trim()} onClick={() => void saveLine(line)}>
+                            {savingLineIds[key] ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} حفظ العد محليًا
+                          </Button>
+                          {localCount ? <span className="block text-xs text-amber-700">مسودة محلية — بانتظار تأكيد الخادم</span> : null}
+                        </div>
+                      : <span className="text-xs text-muted-foreground">{line.counted_at ? `تأكيد الخادم: ${new Date(line.counted_at).toLocaleDateString("ar-PS")}` : "—"}</span>}</td>
                   </tr>;
                 })}</tbody>
               </table>
-            </div>}
+              </div>
+            </>}
           <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-            <span>الأصناف المعدودة: {countedCount} / {itemCount}</span>
+            <span>الأصناف المعدودة خادميًا: {countedCount} / {itemCount}</span>
+            {selectedOfflineItemIds.size > 0 ? <span className="text-amber-700">مسودات محلية غير مؤكدة: {selectedOfflineItemIds.size}</span> : null}
             <span>عدد الفروقات: {varianceCount}</span>
             <span>الكمية الصافية للفرق: {qty(selectedStocktake.variance_quantity)}</span>
           </div>

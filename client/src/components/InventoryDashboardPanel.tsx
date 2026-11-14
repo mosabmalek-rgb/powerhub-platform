@@ -1,4 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
 import { toast } from "sonner";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
@@ -71,6 +75,15 @@ type FuelReportRow = {
   actual_consumption_liters: number | string | null;
   litres_per_hour: number | string | null;
   measurement_status: string;
+};
+
+type FuelConsumptionCostReportRow = {
+  generator_id: number | string;
+  generator_name: string;
+  movement_count: number | string;
+  recorded_consumption_liters: number | string;
+  recorded_consumption_cost: number | string;
+  average_cost_per_liter: number | string | null;
 };
 
 type PhaseDFinancialSummary = {
@@ -159,6 +172,7 @@ export default function InventoryDashboardPanel({
   canReadPurchases, canAccessStocktakes, canManageFuelAndConsumption, onNavigate,
 }: Props) {
   const enabled = Boolean(siteId && isAuthenticated);
+  const auth = useAuth();
   const utils = trpc.useUtils();
   const [exportingReport, setExportingReport] = useState(false);
   const today = useMemo(() => gazaDateKey(new Date()), []);
@@ -234,12 +248,41 @@ export default function InventoryDashboardPanel({
     { siteId, asOfDate: dateRange?.toDate },
     { enabled: enabled && canViewSupplierLedger && Boolean(dateRange), staleTime: 15_000, retry: 1 },
   );
+  const payablesAuthorizationDenied = isExplicitAuthorizationDenial(payables.error);
+  const payablesAreOfflineSnapshot = Boolean(
+    (payables.data as (typeof payables.data & { offlineSnapshot?: boolean }) | undefined)?.offlineSnapshot,
+  );
+  useDeltaRevisionRefresh({
+    siteId, userId: auth.user?.id, entityTypes: ["supplier_ledger"],
+    enabled: Boolean(enabled && canViewSupplierLedger),
+    onChange: (changed) => {
+      if (changed.includes("supplier_ledger")) void payables.refetch();
+    },
+  });
+  useEffect(() => {
+    if (payablesAuthorizationDenied && auth.user?.id) {
+      void clearOfflineSupplierFinancialQueryCacheForSite(String(auth.user.id), siteId);
+    }
+  }, [payablesAuthorizationDenied, auth.user?.id, siteId]);
   const phaseDFinancialSummary = trpc.powerhub.inventory.phaseDFinancialSummary.useQuery(
     { siteId, fromDate: dateRange?.fromDate ?? today, toDate: dateRange?.toDate ?? today },
     { enabled: enabled && canViewInventoryReports && Boolean(dateRange), staleTime: 15_000, retry: 1 },
   );
 
   const fuelReport = trpc.powerhub.inventory.fuelConsumptionReportPeriod.useQuery(
+    {
+      siteId, periodType: period, anchorDate: period === "custom" ? undefined : anchorDate,
+      fromDate: period === "custom" ? customFrom : undefined,
+      toDate: period === "custom" ? customTo : undefined,
+      generatorId: generatorId ? Number(generatorId) : undefined,
+    },
+    {
+      enabled: enabled && canViewInventoryReports && Boolean(dateRange) &&
+        (period !== "custom" || Boolean(customFrom && customTo && customFrom <= customTo)),
+      staleTime: 15_000, retry: 1,
+    },
+  );
+  const fuelConsumptionCostReport = trpc.powerhub.inventory.fuelConsumptionCostReportPeriod.useQuery(
     {
       siteId, periodType: period, anchorDate: period === "custom" ? undefined : anchorDate,
       fromDate: period === "custom" ? customFrom : undefined,
@@ -261,6 +304,7 @@ export default function InventoryDashboardPanel({
   );
 
   const fuelRows = (fuelReport.data ?? []) as FuelReportRow[];
+  const fuelConsumptionCostRows = (fuelConsumptionCostReport.data ?? []) as FuelConsumptionCostReportRow[];
   const fuelTotals = useMemo(() => {
     const measuredRows = fuelRows.filter((row) => row.actual_consumption_liters !== null && row.actual_consumption_liters !== undefined);
     const anomalies = fuelRows.filter((row) => row.measurement_status === "reconciliation_anomaly");
@@ -290,6 +334,10 @@ export default function InventoryDashboardPanel({
       const id = Number(row.generator_id);
       fuelByGenerator.set(id, [...(fuelByGenerator.get(id) ?? []), row]);
     }
+    const fuelConsumptionCostByGenerator = new Map<number, FuelConsumptionCostReportRow>();
+    for (const row of fuelConsumptionCostRows) {
+      fuelConsumptionCostByGenerator.set(Number(row.generator_id), row);
+    }
     const maintenanceByGenerator = new Map<number, {
       orders: number; breakdowns: number; open: number; downtime: number; cost: number;
     }>();
@@ -308,6 +356,7 @@ export default function InventoryDashboardPanel({
       .map((generator) => {
         const rows = fuelByGenerator.get(Number(generator.id)) ?? [];
         const measuredRows = rows.filter((row) => row.actual_consumption_liters !== null && row.actual_consumption_liters !== undefined);
+        const inventoryFuelCost = fuelConsumptionCostByGenerator.get(Number(generator.id));
         const maintenance = maintenanceByGenerator.get(Number(generator.id));
         return {
           generator_id: Number(generator.id),
@@ -316,6 +365,14 @@ export default function InventoryDashboardPanel({
           filled_liters: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.fuel_filled_liters), 0),
           filled_cost: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.fuel_filled_cost), 0),
           recorded_consumption_liters: fuelReport.isLoading || fuelReport.isError ? null : rows.reduce((sum, row) => sum + numberOf(row.recorded_consumption_liters), 0),
+          inventory_consumption_liters: fuelConsumptionCostReport.isLoading || fuelConsumptionCostReport.isError
+            ? null : numberOf(inventoryFuelCost?.recorded_consumption_liters),
+          inventory_consumption_cost: fuelConsumptionCostReport.isLoading || fuelConsumptionCostReport.isError
+            ? null : numberOf(inventoryFuelCost?.recorded_consumption_cost),
+          inventory_average_cost_per_liter: fuelConsumptionCostReport.isLoading || fuelConsumptionCostReport.isError
+            ? null : inventoryFuelCost?.average_cost_per_liter == null ? null : numberOf(inventoryFuelCost.average_cost_per_liter),
+          inventory_consumption_movements: fuelConsumptionCostReport.isLoading || fuelConsumptionCostReport.isError
+            ? null : numberOf(inventoryFuelCost?.movement_count),
           actual_consumption_liters: fuelReport.isLoading || fuelReport.isError || rows.length === 0 || measuredRows.length !== rows.length
             ? null : measuredRows.reduce((sum, row) => sum + numberOf(row.actual_consumption_liters), 0),
           measured_tank_count: measuredRows.length,
@@ -326,14 +383,14 @@ export default function InventoryDashboardPanel({
           maintenance_cost: maintenanceReport.isLoading || maintenanceReport.isError ? null : maintenance?.cost ?? 0,
         };
       });
-  }, [fuelOptions.data?.generators, fuelRows, maintenanceRows, fuelReport.isLoading, fuelReport.isError, maintenanceReport.isLoading, maintenanceReport.isError, generatorId]);
+  }, [fuelOptions.data?.generators, fuelRows, fuelConsumptionCostRows, maintenanceRows, fuelReport.isLoading, fuelReport.isError, fuelConsumptionCostReport.isLoading, fuelConsumptionCostReport.isError, maintenanceReport.isLoading, maintenanceReport.isError, generatorId]);
   const debt = payables.data as unknown as AgingSummary | undefined;
   const reportLoading = canViewInventoryReports && (
-    fuelOptions.isLoading || reportWarehouses.isLoading || fuelReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
+    fuelOptions.isLoading || reportWarehouses.isLoading || fuelReport.isLoading || fuelConsumptionCostReport.isLoading || maintenanceReport.isLoading || phaseDFinancialSummary.isLoading ||
     (period === "cycle" && cycleBounds.isLoading)
   );
   const reportError = canViewInventoryReports && (
-    fuelOptions.isError || reportWarehouses.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
+    fuelOptions.isError || reportWarehouses.isError || fuelReport.isError || fuelConsumptionCostReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError ||
     (period === "cycle" && cycleBounds.isError)
   );
   const financialTotals = phaseDFinancialSummary.data as PhaseDFinancialSummary | undefined;
@@ -394,10 +451,10 @@ export default function InventoryDashboardPanel({
   const exportReady = () => {
     if (!canViewInventoryReports) { toast.error("ليست لديك صلاحية تصدير التقارير المالية."); return false; }
     if (!dateRange) { toast.error("حدد نطاقًا زمنيًا صالحًا لا يتجاوز 366 يومًا."); return false; }
-    if (isLoading || hasError || stock.isFetching || reportWarehouses.isFetching || fuelReport.isFetching || maintenanceReport.isFetching || phaseDFinancialSummary.isFetching) {
+    if (isLoading || hasError || stock.isFetching || reportWarehouses.isFetching || fuelReport.isFetching || fuelConsumptionCostReport.isFetching || maintenanceReport.isFetching || phaseDFinancialSummary.isFetching) {
       toast.error("انتظر اكتمال تحميل مصادر التقرير بنجاح قبل التصدير."); return false;
     }
-    if (stock.isError || reportWarehouses.isError || fuelReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError) {
+    if (stock.isError || reportWarehouses.isError || fuelReport.isError || fuelConsumptionCostReport.isError || maintenanceReport.isError || phaseDFinancialSummary.isError) {
       toast.error("تعذر تحميل مصدر واحد أو أكثر؛ أعد المحاولة قبل التصدير."); return false;
     }
     return true;
@@ -422,6 +479,7 @@ export default function InventoryDashboardPanel({
       ["نطاق مرشحات الصنف والمخزن", "تطبق على الأرصدة والحركات فقط؛ بيانات المشتريات ودفعات الموردين على مستوى المستند/الفرع ولا توزع على مخزن دون أساس محاسبي."],
       ["عدد الأصناف المطابقة", totals.itemCount],
       ["مواقع التخزين المطابقة", totals.locationsWithStock],
+      ["معالجة خزانات المولدات", "لا تدخل خزانات المولدات ضمن رصيد المخزون المؤكد؛ تعرض مستوياتها من قراءات الوقود الفعلية عند توفرها."],
       ["مواقع تحتاج إعادة طلب", totals.lowLocations],
       ["القيمة الدفترية للمخزون", canViewInventoryReports ? amount(totals.stockValue) : "غير متاح لهذه الصلاحية"],
       ["ذمم الموردين حتى نهاية الفترة", debtValue],
@@ -433,6 +491,8 @@ export default function InventoryDashboardPanel({
       ["قيمة ائتمان المرتجعات", financial?.supplierReturnCreditAmount == null ? "غير متاح لهذه الصلاحية" : amount(financial.supplierReturnCreditAmount)],
       ["الوقود المعبأ (لتر)", fuelTotals.filledLiters],
       ["تكلفة التعبئة المسجلة", amount(fuelTotals.filledCost)],
+      ["الوقود المصروف من المخزون (لتر)", quantity(generatorOperatingRows.reduce((sum, row) => sum + numberOf(row.inventory_consumption_liters), 0))],
+      ["تكلفة الاستهلاك المخزني (إفصاح مستقل)", amount(generatorOperatingRows.reduce((sum, row) => sum + numberOf(row.inventory_consumption_cost), 0))],
       ["الاستهلاك المقاس (لتر)", fuelTotals.actualConsumption == null ? "غير متاح: قياسات غير مكتملة" : quantity(fuelTotals.actualConsumption)],
       ["عدد خزانات الوقود", fuelTotals.tanks],
       ["خزانات ذات استهلاك مقاس", fuelTotals.measuredTanks],
@@ -441,7 +501,7 @@ export default function InventoryDashboardPanel({
       ["أوامر الصيانة المفتوحة", maintenanceTotals.open],
       ["التوقف المسجل (دقيقة)", maintenanceTotals.downtime],
       ["تكلفة الصيانة المسجلة", amount(maintenanceTotals.recordedCost)],
-      ["حدود محاسبية", "المشتريات والدفعات وائتمانات المرتجعات وتكلفة التعبئة وتكاليف الصيانة أحداث مالية منفصلة؛ لا تُجمع كأنها مصروف تشغيل واحد."],
+      ["حدود محاسبية", "تكلفة التعبئة هي مرجع تكلفة الوقود المالي؛ وتكلفة الوقود المصروف من المخزون إفصاح منفصل لا يُضاف إلى الربح التشغيلي ولا يحل محل تكلفة التعبئة أو المصروف اليدوي. المشتريات والدفعات والمرتجعات والصيانة مصادر منفصلة لا تُجمع كمصروف واحد."],
       ["وقت التصدير (Asia/Gaza)", gazaTimestamp()],
     ];
   };
@@ -488,11 +548,15 @@ export default function InventoryDashboardPanel({
         ]),
         [],
         ["التكلفة التشغيلية المسجلة حسب المولد — دون جمع مصادر مالية مختلفة"],
-        ["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","الاستهلاك المقاس لتر","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],
+        ["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","استهلاك المخزون المسجل لتر","تكلفة الاستهلاك المخزني — غير مضافة للربح","متوسط تكلفة اللتر","عدد حركات الاستهلاك","الاستهلاك المقاس لتر","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],
         ...generatorOperatingRows.map((row) => [
           row.generator_name, row.tank_count ?? "غير متاح",
           row.filled_liters == null ? "غير متاح" : row.filled_liters,
           row.filled_cost == null ? "غير متاح" : row.filled_cost,
+          row.inventory_consumption_liters == null ? "غير متاح" : row.inventory_consumption_liters,
+          row.inventory_consumption_cost == null ? "غير متاح" : row.inventory_consumption_cost,
+          row.inventory_average_cost_per_liter == null ? "غير متاح" : row.inventory_average_cost_per_liter,
+          row.inventory_consumption_movements == null ? "غير متاح" : row.inventory_consumption_movements,
           row.actual_consumption_liters == null ? "قياس غير مكتمل" : row.actual_consumption_liters,
           row.maintenance_orders ?? "غير متاح", row.maintenance_downtime ?? "غير متاح",
           row.maintenance_cost == null ? "غير متاح" : row.maintenance_cost,
@@ -568,14 +632,19 @@ export default function InventoryDashboardPanel({
       ]));
       maintenance.columns = [{width:26},{width:36},{width:14},{width:16},{width:14},{width:14},{width:18},{width:18},{width:18},{width:20},{width:24}];
       const operating = workbook.addWorksheet("تكلفة تشغيل المولدات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
-      operating.addRow(["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","الاستهلاك المقاس لتر","أوامر الصيانة","بلاغات الأعطال","التوقف بالدقائق","تكلفة الصيانة المسجلة"]);
+      operating.addRow(["المولد","عدد الخزانات","الوقود المعبأ لتر","قيمة الوقود المنقول","استهلاك المخزون المسجل لتر","تكلفة الاستهلاك المخزني — غير مضافة للربح","متوسط تكلفة اللتر","عدد حركات الاستهلاك","الاستهلاك المقاس لتر","أوامر الصيانة","بلاغات الأعطال","التوقف بالدقائق","تكلفة الصيانة المسجلة"]);
       generatorOperatingRows.forEach((row) => operating.addRow([
         row.generator_name, row.tank_count ?? "غير متاح", row.filled_liters ?? "غير متاح",
-        row.filled_cost ?? "غير متاح", row.actual_consumption_liters ?? "قياس غير مكتمل",
+        row.filled_cost ?? "غير متاح",
+        row.inventory_consumption_liters ?? "غير متاح",
+        row.inventory_consumption_cost ?? "غير متاح",
+        row.inventory_average_cost_per_liter ?? "غير متاح",
+        row.inventory_consumption_movements ?? "غير متاح",
+        row.actual_consumption_liters ?? "قياس غير مكتمل",
         row.maintenance_orders ?? "غير متاح", row.maintenance_breakdowns ?? "غير متاح",
         row.maintenance_downtime ?? "غير متاح", row.maintenance_cost ?? "غير متاح",
       ]));
-      operating.columns = [{width:28},{width:16},{width:20},{width:22},{width:23},{width:18},{width:18},{width:18},{width:24}];
+      operating.columns = [{width:28},{width:16},{width:20},{width:22},{width:23},{width:32},{width:20},{width:19},{width:23},{width:18},{width:18},{width:18},{width:24}];
       const finance = workbook.addWorksheet("المشتريات والدفعات", { views: [{ rightToLeft: true, state: "frozen", ySplit: 1 }] });
       finance.addRow(["التاريخ","نوع الحدث","رقم المرجع","المورد","الحالة","القيمة","المرجع المرتبط","المبلغ المسترد نقدًا","عدد التوزيعات"]);
       financialEvents.forEach((row) => finance.addRow([
@@ -653,9 +722,14 @@ export default function InventoryDashboardPanel({
           row.litres_per_hour==null?"غير متاح":quantity(numberOf(row.litres_per_hour)),row.measurement_status,
         ])) +
         "<h2>التكلفة التشغيلية المسجلة حسب المولد</h2>" +
-        table(["المولد","الخزانات","الوقود المعبأ","قيمة الوقود المنقول","الاستهلاك المقاس","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],generatorOperatingRows.map((row)=>[
+        table(["المولد","الخزانات","الوقود المعبأ","قيمة الوقود المنقول","الاستهلاك المسجل من المخزون","تكلفة الاستهلاك المخزني — غير مضافة للربح","متوسط تكلفة اللتر","عدد حركات الاستهلاك","الاستهلاك المقاس","أوامر الصيانة","التوقف بالدقائق","تكلفة الصيانة المسجلة"],generatorOperatingRows.map((row)=>[
           row.generator_name,row.tank_count??"غير متاح",row.filled_liters==null?"غير متاح":quantity(row.filled_liters)+" لتر",
-          row.filled_cost==null?"غير متاح":amount(row.filled_cost),row.actual_consumption_liters==null?"قياس غير مكتمل":quantity(row.actual_consumption_liters)+" لتر",
+          row.filled_cost==null?"غير متاح":amount(row.filled_cost),
+          row.inventory_consumption_liters==null?"غير متاح":quantity(row.inventory_consumption_liters)+" لتر",
+          row.inventory_consumption_cost==null?"غير متاح":amount(row.inventory_consumption_cost),
+          row.inventory_average_cost_per_liter==null?"غير متاح":amount(row.inventory_average_cost_per_liter),
+          row.inventory_consumption_movements==null?"غير متاح":quantity(row.inventory_consumption_movements),
+          row.actual_consumption_liters==null?"قياس غير مكتمل":quantity(row.actual_consumption_liters)+" لتر",
           row.maintenance_orders??"غير متاح",row.maintenance_downtime??"غير متاح",
           row.maintenance_cost==null?"غير متاح":amount(row.maintenance_cost),
         ])) +
@@ -669,7 +743,7 @@ export default function InventoryDashboardPanel({
           row.event_date,row.event_type==="purchase_invoice"?"فاتورة شراء":row.event_type==="supplier_payment"?"دفعة مورد":"مرتجع مورد",
           row.reference_no,row.counterparty_name,row.status,amount(numberOf(row.amount)),row.related_reference,amount(numberOf(row.refund_amount)),
         ])) +
-        "<p style=\"margin-top:16px;font-size:10px\">ملاحظة: المشتريات والدفعات وائتمانات المرتجعات وتكلفة التعبئة وتكاليف الصيانة مصادر مالية منفصلة. لا يُعد دفع فاتورة الشراء مصروف تشغيل جديدًا ولا تمثل تكلفة التعبئة الاستهلاك الفعلي المقاس.</p>";
+        "<p style=\"margin-top:16px;font-size:10px\">ملاحظة: المشتريات والدفعات وائتمانات المرتجعات وتكلفة التعبئة وتكلفة الاستهلاك المخزني وتكاليف الصيانة مصادر مالية منفصلة. تكلفة الاستهلاك المخزني إفصاح مستقل وغير مضافة إلى الربح التشغيلي الحالي إلى حين اعتماد سياسة تمنع ازدواجها مع مصروف الوقود اليدوي. لا يُعد دفع فاتورة الشراء مصروف تشغيل جديدًا ولا تمثل تكلفة التعبئة الاستهلاك الفعلي المقاس.</p>";
       document.body.appendChild(root);
       await downloadReportHtmlAsPdf(root, `تقرير-Phase-D-${siteId}-${dateRange?.fromDate}-${dateRange?.toDate}.pdf`, { landscape: true, title: "تقرير Phase D - PowerHub" });
       toast.success("تم إنشاء PDF عربي للوحة Phase D مع المرشحات والمصادر الفعلية.");
@@ -686,6 +760,7 @@ export default function InventoryDashboardPanel({
       work.push(fuelOptions.refetch());
       work.push(reportWarehouses.refetch());
       work.push(fuelReport.refetch());
+      work.push(fuelConsumptionCostReport.refetch());
       work.push(maintenanceReport.refetch());
       work.push(phaseDFinancialSummary.refetch());
       if (period === "cycle") work.push(cycleBounds.refetch());
@@ -759,7 +834,7 @@ export default function InventoryDashboardPanel({
             <Metric label="مواقع تحتاج إعادة طلب" value={stock.isLoading || stock.isError ? "—" : totals.lowLocations.toLocaleString("ar-PS")} description={totals.lowLocations === 0 ? "لا توجد مواقع مطابقة أسفل حد إعادة الطلب." : `تشمل ${totals.lowItems.toLocaleString("ar-PS")} صنفًا.`} icon={ArrowLeftRight} />
           </> : null}
           {canViewInventoryReports ? <Metric label="القيمة الدفترية للمخزون" value={stock.isLoading || stock.isError ? "—" : amount(totals.stockValue)} description="القيمة الحالية وفق متوسط التكلفة، وليست مصروفًا نقديًا جديدًا." icon={CircleDollarSign} /> : null}
-          {canViewSupplierLedger ? <Metric label="الذمم المستحقة للموردين" value={payables.isLoading || payables.isError ? "—" : debt ? amount(numberOf(debt.totals?.total_outstanding)) : "—"} description={debt?.as_of_date ? `حتى ${debt.as_of_date}، حسب الذمم المرحلة.` : "من تقرير أعمار الذمم في الفرع المحدد."} icon={Store} /> : null}
+          {canViewSupplierLedger ? <Metric label="الذمم المستحقة للموردين" value={payablesAuthorizationDenied || (payables.isLoading && !debt) || (payables.isError && !payablesAreOfflineSnapshot) ? "—" : debt ? amount(numberOf(debt.totals?.total_outstanding)) : "—"} description={payablesAreOfflineSnapshot ? `نسخة محلية حتى ${debt?.as_of_date ?? "آخر تحديث"}؛ تحتاج اتصالًا لتأكيد الرصيد.` : debt?.as_of_date ? `حتى ${debt.as_of_date}، حسب الذمم المرحلة.` : "من تقرير أعمار الذمم في الفرع المحدد."} icon={Store} /> : null}
           {canViewInventoryReports && financialTotals?.purchaseInvoiceAmount !== null && financialTotals?.purchaseInvoiceAmount !== undefined ? <Metric label="المشتريات المعتمدة" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.purchaseInvoiceAmount))} description={`${numberOf(financialTotals.purchaseInvoiceCount).toLocaleString("ar-PS")} فاتورة مؤكدة/مستلمة ضمن الفترة؛ ليست مصروف تشغيل جديدًا.`} icon={ClipboardList} /> : null}
           {canViewInventoryReports && financialTotals?.supplierPaymentAmount !== null && financialTotals?.supplierPaymentAmount !== undefined ? <Metric label="دفعات الموردين المرحلة" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.supplierPaymentAmount))} description={`${numberOf(financialTotals.supplierPaymentCount).toLocaleString("ar-PS")} دفعة غير معكوسة ضمن الفترة؛ تمثل التسوية النقدية لا قيمة مشتريات إضافية.`} icon={CircleDollarSign} /> : null}
           {canViewInventoryReports && financialTotals?.supplierReturnCreditAmount !== null && financialTotals?.supplierReturnCreditAmount !== undefined ? <Metric label="ائتمانات مرتجعات الموردين" value={phaseDFinancialSummary.isLoading || phaseDFinancialSummary.isError ? "—" : amount(numberOf(financialTotals.supplierReturnCreditAmount))} description={`${numberOf(financialTotals.supplierReturnCount).toLocaleString("ar-PS")} مرتجعًا مرحلًا؛ يُعرض كائتمان منفصل عن الدفعات النقدية.`} icon={ArrowLeftRight} /> : null}
@@ -782,13 +857,14 @@ export default function InventoryDashboardPanel({
         <div className="mt-5 space-y-3">
           <div>
             <h3 className="font-semibold">تفاصيل التكلفة التشغيلية المسجلة حسب المولد</h3>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">نعرض تكلفة الوقود المنقول إلى خزانات المولد وتكلفة الصيانة في عمودين منفصلين. لا تمثل تكلفة التعبئة وحدها استهلاك الوقود الفعلي، ولا نجمع المشتريات النقدية مع تكاليف التشغيل.</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">نعرض تكلفة الوقود المنقول إلى الخزانات وتكلفة حركات استهلاك الوقود من المخزون كإفصاح مستقل محسوب بمتوسط التكلفة، وتكلفة الصيانة في أعمدة منفصلة. تكلفة الاستهلاك المخزني لا تُضاف إلى الربح التشغيلي الحالي، حتى لا تتكرر مع مصروف الوقود اليدوي قبل اعتماد سياسة مصدر التكلفة.</p>
           </div>
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
               <thead><tr className="bg-muted/50 text-right">
                 <th className="p-2">المولد</th><th className="p-2">الخزانات</th><th className="p-2">الوقود المعبأ</th>
-                <th className="p-2">تكلفة الوقود المنقول</th><th className="p-2">الاستهلاك المقاس</th>
+                <th className="p-2">تكلفة الوقود المنقول</th><th className="p-2">الاستهلاك المسجل من المخزون</th>
+                <th className="p-2">تكلفة الاستهلاك المخزني — غير مضافة للربح</th><th className="p-2">متوسط تكلفة اللتر</th><th className="p-2">عدد حركات الاستهلاك</th><th className="p-2">الاستهلاك المقاس</th>
                 <th className="p-2">أوامر الصيانة</th><th className="p-2">التوقف بالدقائق</th><th className="p-2">تكلفة الصيانة المسجلة</th>
               </tr></thead>
               <tbody>{generatorOperatingRows.map((row) => <tr key={row.generator_id} className="border-t">
@@ -796,17 +872,21 @@ export default function InventoryDashboardPanel({
                 <td className="p-2">{row.tank_count === null ? "—" : row.tank_count === 0 ? "لا يوجد خزان مرتبط" : row.tank_count.toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.filled_liters === null ? "—" : `${quantity(row.filled_liters)} لتر`}</td>
                 <td className="p-2">{row.filled_cost === null ? "—" : amount(row.filled_cost)}</td>
+                <td className="p-2">{row.inventory_consumption_liters === null ? "—" : `${quantity(row.inventory_consumption_liters)} لتر`}</td>
+                <td className="p-2">{row.inventory_consumption_cost === null ? "—" : amount(row.inventory_consumption_cost)}</td>
+                <td className="p-2">{row.inventory_average_cost_per_liter === null ? "—" : amount(row.inventory_average_cost_per_liter)}</td>
+                <td className="p-2">{row.inventory_consumption_movements === null ? "—" : numberOf(row.inventory_consumption_movements).toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.actual_consumption_liters === null ? "غير مكتمل/غير متاح" : `${quantity(row.actual_consumption_liters)} لتر`}</td>
                 <td className="p-2">{row.maintenance_orders === null ? "—" : row.maintenance_orders.toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.maintenance_downtime === null ? "—" : row.maintenance_downtime.toLocaleString("ar-PS")}</td>
                 <td className="p-2">{row.maintenance_cost === null ? "—" : amount(row.maintenance_cost)}</td>
               </tr>)}
-              {generatorOperatingRows.length === 0 ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">لا توجد مولدات ضمن المرشحات الحالية.</td></tr> : null}
+              {generatorOperatingRows.length === 0 ? <tr><td colSpan={12} className="p-4 text-center text-muted-foreground">لا توجد مولدات ضمن المرشحات الحالية.</td></tr> : null}
             </tbody>
           </table>
         </div>
         </div>
-        {!reportLoading && (fuelReport.isError || maintenanceReport.isError) ? <p className="mt-3 rounded-md border border-destructive/30 p-3 text-sm text-destructive">تعذر تحميل تقرير الوقود أو الصيانة لهذا النطاق. بقيت بيانات المصدر الفاشل غير معروضة بدل إظهار أرقام صفرية.</p> : null}
+        {!reportLoading && (fuelReport.isError || fuelConsumptionCostReport.isError || maintenanceReport.isError) ? <p className="mt-3 rounded-md border border-destructive/30 p-3 text-sm text-destructive">تعذر تحميل أحد تقارير الوقود أو الصيانة لهذا النطاق. بقيت بيانات المصدر الفاشل غير معروضة بدل إظهار أرقام صفرية.</p> : null}
       </CardContent>
     </Card> : <Card><CardContent className="p-4 text-sm text-muted-foreground">مؤشرات الوقود والصيانة والتكاليف التشغيلية لا تظهر إلا لصلاحية تقارير المخزون.</CardContent></Card>}
 

@@ -1,19 +1,25 @@
-import { Cloud, CloudOff } from "lucide-react";
+import { CloudOff, X } from "lucide-react";
+import { useState } from "react";
 import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 
 export function OfflineStatusBanner() {
   const { isOnline } = usePowerHubConnectivity();
-
+  const [expanded, setExpanded] = useState(false);
   if (isOnline) return null;
 
   return (
-    <div className="fixed inset-x-0 top-0 z-[100] flex items-center justify-center border-b border-amber-300/20 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-100 backdrop-blur">
-      <CloudOff className="ml-2 h-4 w-4 shrink-0" />
-      تعذّر الوصول إلى خادم PowerHub مؤقتًا. نحاول إعادة الاتصال تلقائيًا؛ لا يعني ذلك بالضرورة انقطاع الإنترنت عن جهازك.
-      <a href="/offline-sync" className="mr-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-amber-200 underline underline-offset-2 hover:bg-amber-200/10">
-        مركز المزامنة
-      </a>
-      <Cloud className="mr-1 h-3.5 w-3.5 opacity-60" aria-hidden="true" />
-    </div>
+    <aside className="pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] right-3 z-40 flex max-w-[calc(100vw-1.5rem)] flex-col items-end gap-2 sm:bottom-4 sm:right-4" aria-label="حالة الاتصال بالخادم">
+      {expanded ? (
+        <div role="status" className="pointer-events-auto relative w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-amber-300/30 bg-[#111823] p-3 pr-9 text-xs leading-5 text-amber-100 shadow-xl">
+          <button type="button" aria-label="إغلاق تفاصيل الاتصال" className="absolute right-2 top-2 rounded p-1 hover:bg-white/10" onClick={() => setExpanded(false)}><X className="h-4 w-4" /></button>
+          <p className="font-bold">تعذر الوصول إلى خادم PowerHub</p>
+          <p className="mt-1 text-slate-200">نحاول إعادة الاتصال تلقائياً. تبقى البيانات المحفوظة متاحة للقراءة حسب نطاقها وصلاحية الكاش.</p>
+          <a href="/offline-sync" className="mt-2 inline-block font-semibold text-amber-200 underline underline-offset-2">مركز المزامنة</a>
+        </div>
+      ) : null}
+      <button type="button" aria-label="تعذر الوصول إلى الخادم؛ عرض تفاصيل الاتصال" title="غير متصل بخادم PowerHub" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-amber-300/40 bg-[#111823] text-amber-200 shadow-lg transition hover:bg-[#253244] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">
+        <CloudOff className="h-5 w-5" aria-hidden="true" />
+      </button>
+    </aside>
   );
 }

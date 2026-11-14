@@ -8,6 +8,7 @@ import InventoryReportsPanel from "@/components/InventoryReportsPanel";
 import InventorySupplierPaymentsPanel from "@/components/InventorySupplierPaymentsPanel";
 import InventorySupplierPayablesAgingPanel from "@/components/InventorySupplierPayablesAgingPanel";
 import InventoryStocktakePanel from "@/components/InventoryStocktakePanel";
+import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
 import InventoryDashboardPanel from "@/components/InventoryDashboardPanel";
 import InventoryFuelConsumptionPanel from "@/components/InventoryFuelConsumptionPanel";
 import InventoryMaintenancePanel from "@/components/InventoryMaintenancePanel";
@@ -18,6 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { clearOfflineStocktakeAccessQueryCacheForSite, clearOfflineSupplierFinancialQueryCacheForSite } from "@/lib/offline-query-cache";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { Boxes, ClipboardList, Loader2, PackagePlus, Search, Store, Warehouse, ArrowLeftRight, FileSpreadsheet, CreditCard, ClipboardCheck, LayoutDashboard, Droplet, Wrench, Bolt } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,6 +33,11 @@ const categoryLabels: Record<string, string> = {
   spare_part: "قطع غيار",
   maintenance_supply: "مستلزمات صيانة",
   other: "أخرى",
+};
+const accountingTreatmentLabels: Record<string, string> = {
+  expense_on_issue: "مصروف تشغيلي عند الصرف",
+  capital_asset: "أصل رأسمالي",
+  pending_classification: "غير مصنف — يمنع التسوية عند الصرف",
 };
 const warehouseTypeLabels: Record<string, string> = {
   central_warehouse: "المخزن المركزي",
@@ -50,11 +60,13 @@ const unitLabels: Record<string, string> = {
 
 function formatSupplierLedgerAmount(value: unknown) {
   const amount = Number(value ?? 0);
-  return "₪" + new Intl.NumberFormat("ar-PS", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0);
+  return "₪" + new Intl.NumberFormat("ar-PS", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0);
 }
 
 export default function InventoryWorkspacePage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const [warehouseTransferDialogOpen, setWarehouseTransferDialogOpen] = useState(false);
+  const [stockMovementDialogOpen, setStockMovementDialogOpen] = useState(false);
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const { branchId: selectedSiteId } = useBranchFilter(sites.data);
   const siteId = selectedSiteId && sites.data?.some((site) => site.id === selectedSiteId)
@@ -65,36 +77,49 @@ export default function InventoryWorkspacePage() {
     enabled: Boolean(siteId && isAuthenticated),
     staleTime: 30_000,
   });
-  const canViewGenerators = ["owner", "manager", "technician", "viewer"].includes(supplierAccess.data?.role ?? "") || (supplierAccess.data?.permissions.includes("manageGenerators") ?? false);
-  const canViewSuppliers = supplierAccess.data?.permissions.includes("viewSuppliers") ?? false;
-  const canViewSupplierLedger = supplierAccess.data?.permissions.includes("viewSupplierLedger") ?? false;
-  const canViewInventory = supplierAccess.data?.permissions.includes("viewInventory") ?? false;
-  const canCreateInventoryItems = supplierAccess.data?.permissions.includes("createInventoryItems") ?? false;
-  const canEditInventoryItems = supplierAccess.data?.permissions.includes("editInventoryItems") ?? false;
-  const canDeactivateInventoryItems = supplierAccess.data?.permissions.includes("deactivateInventoryItems") ?? false;
-  const canCreateSuppliers = supplierAccess.data?.permissions.includes("createSuppliers") ?? false;
-  const canEditSuppliers = supplierAccess.data?.permissions.includes("editSuppliers") ?? false;
-  const canDeactivateSuppliers = supplierAccess.data?.permissions.includes("deactivateSuppliers") ?? false;
-  const canCreateWarehouses = supplierAccess.data?.permissions.includes("createWarehouses") ?? false;
-  const canEditWarehouses = supplierAccess.data?.permissions.includes("editWarehouses") ?? false;
-  const canDeactivateWarehouses = supplierAccess.data?.permissions.includes("deactivateWarehouses") ?? false;
-  const canViewInventoryReports = supplierAccess.data?.permissions.includes("viewInventoryReports") ?? false;
-  const canIssueInventory = supplierAccess.data?.permissions.includes("issueInventory") ?? false;
-  const canAdjustInventory = supplierAccess.data?.permissions.includes("adjustInventory") ?? false;
-  const canManageFuelAndConsumption = supplierAccess.data?.permissions.includes("manageFuelAndConsumption") ?? false;
-  const canManageMaintenance = supplierAccess.data?.permissions.includes("manageMaintenance") ?? false;
+  const supplierAccessAuthorizationDenied = isExplicitAuthorizationDenial(supplierAccess.error);
+  const effectiveSupplierAccess = supplierAccessAuthorizationDenied ? undefined : supplierAccess.data;
+  const stocktakeAccess = trpc.powerhub.inventory.stocktakeOfflineAccess.useQuery({ siteId }, {
+    enabled: Boolean(siteId && isAuthenticated),
+    staleTime: 30_000,
+  });
+  const stocktakeAccessAuthorizationDenied = isExplicitAuthorizationDenial(stocktakeAccess.error);
+  const effectiveStocktakeAccess = stocktakeAccessAuthorizationDenied ? undefined : stocktakeAccess.data;
+  useEffect(() => {
+    if (!stocktakeAccessAuthorizationDenied || !user?.id || !siteId) return;
+    void clearOfflineStocktakeAccessQueryCacheForSite(String(user.id), siteId);
+  }, [stocktakeAccessAuthorizationDenied, user?.id, siteId]);
+  const canViewGenerators = ["owner", "manager", "technician", "viewer"].includes(effectiveSupplierAccess?.role ?? "") || (effectiveSupplierAccess?.permissions.includes("manageGenerators") ?? false);
+  const canViewSuppliers = effectiveSupplierAccess?.permissions.includes("viewSuppliers") ?? false;
+  const canViewSupplierLedger = effectiveSupplierAccess?.permissions.includes("viewSupplierLedger") ?? false;
+  const canViewInventory = effectiveSupplierAccess?.permissions.includes("viewInventory") ?? false;
+  const canCreateInventoryItems = effectiveSupplierAccess?.permissions.includes("createInventoryItems") ?? false;
+  const canEditInventoryItems = effectiveSupplierAccess?.permissions.includes("editInventoryItems") ?? false;
+  const canDeactivateInventoryItems = effectiveSupplierAccess?.permissions.includes("deactivateInventoryItems") ?? false;
+  const canCreateSuppliers = effectiveSupplierAccess?.permissions.includes("createSuppliers") ?? false;
+  const canEditSuppliers = effectiveSupplierAccess?.permissions.includes("editSuppliers") ?? false;
+  const canDeactivateSuppliers = effectiveSupplierAccess?.permissions.includes("deactivateSuppliers") ?? false;
+  const canCreateWarehouses = effectiveSupplierAccess?.permissions.includes("createWarehouses") ?? false;
+  const canEditWarehouses = effectiveSupplierAccess?.permissions.includes("editWarehouses") ?? false;
+  const canDeactivateWarehouses = effectiveSupplierAccess?.permissions.includes("deactivateWarehouses") ?? false;
+  const canViewInventoryReports = effectiveSupplierAccess?.permissions.includes("viewInventoryReports") ?? false;
+  const canIssueInventory = effectiveSupplierAccess?.permissions.includes("issueInventory") ?? false;
+  const canAdjustInventory = effectiveSupplierAccess?.permissions.includes("adjustInventory") ?? false;
+  const canManageFuelAndConsumption = effectiveSupplierAccess?.permissions.includes("manageFuelAndConsumption") ?? false;
+  const canManageMaintenance = effectiveSupplierAccess?.permissions.includes("manageMaintenance") ?? false;
   const canViewMaintenance = canViewInventory || canManageMaintenance;
   const canViewMaintenanceReport = canViewInventoryReports;
-  const canViewStocktakes = supplierAccess.data?.permissions.includes("viewStocktakes") ?? false;
-  const canManageStocktakes = supplierAccess.data?.permissions.includes("manageStocktakes") ?? false;
-  const canApproveStocktakes = supplierAccess.data?.permissions.includes("approveStocktakes") ?? false;
+  const canViewStocktakes = effectiveStocktakeAccess?.canViewStocktakes ?? false;
+  const canManageStocktakes = effectiveStocktakeAccess?.canManageStocktakes ?? false;
+  const canApproveStocktakes = effectiveStocktakeAccess?.canApproveStocktakes ?? false;
   const canAccessStocktakes = canViewStocktakes || canManageStocktakes || canApproveStocktakes;
-  const canViewPurchases = supplierAccess.data?.permissions.includes("viewPurchases") ?? false;
-  const canCreatePurchases = supplierAccess.data?.permissions.includes("createPurchases") ?? false;
-  const canApprovePurchases = supplierAccess.data?.permissions.includes("approvePurchases") ?? false;
-  const canReceiveInventory = supplierAccess.data?.permissions.includes("receiveInventory") ?? false;
-  const canManageSupplierPayments = supplierAccess.data?.permissions.includes("manageSupplierPayments") ?? false;
-  const canReverseSupplierPayments = supplierAccess.data?.permissions.includes("reverseSupplierPayments") ?? false;
+  const canViewPurchases = effectiveSupplierAccess?.permissions.includes("viewPurchases") ?? false;
+  const canCreatePurchases = effectiveSupplierAccess?.permissions.includes("createPurchases") ?? false;
+  const canApprovePurchases = effectiveSupplierAccess?.permissions.includes("approvePurchases") ?? false;
+  const canReceiveInventory = effectiveSupplierAccess?.permissions.includes("receiveInventory") ?? false;
+  const canManageSupplierPayments = effectiveSupplierAccess?.permissions.includes("manageSupplierPayments") ?? false;
+  const canReverseSupplierPayments = effectiveSupplierAccess?.permissions.includes("reverseSupplierPayments") ?? false;
+  const canViewSupplierCorrectionFinancialReports = effectiveSupplierAccess?.permissions.includes("viewFinancialReports") ?? false;
   const canReadPurchases = canViewPurchases || canReceiveInventory || canManageSupplierPayments || canAdjustInventory;
   const canViewPurchaseFinancials = canViewPurchases || canManageSupplierPayments;
   const utils = trpc.useUtils();
@@ -118,6 +143,7 @@ export default function InventoryWorkspacePage() {
   const [sku, setSku] = useState("");
   const [itemName, setItemName] = useState("");
   const [category, setCategory] = useState("other");
+  const [accountingTreatment, setAccountingTreatment] = useState("pending_classification");
   const [baseUnit, setBaseUnit] = useState("piece");
   const [reorderPoint, setReorderPoint] = useState("0");
   const [specification, setSpecification] = useState("");
@@ -156,6 +182,26 @@ export default function InventoryWorkspacePage() {
     { siteId, supplierId: selectedSupplierLedgerId ?? 0, limit: 200 },
     { enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger && selectedSupplierLedgerId), staleTime: 15_000 },
   );
+  const supplierLedgerAuthorizationDenied = isExplicitAuthorizationDenial(supplierLedger.error);
+  const supplierLedgerIsOfflineSnapshot = Boolean(
+    (supplierLedger.data as (typeof supplierLedger.data & { offlineSnapshot?: boolean }) | undefined)?.offlineSnapshot,
+  );
+  const supplierLedgerIsAuthoritative = Boolean(
+    !supplierLedgerAuthorizationDenied && hasAuthoritativeServerRead(supplierLedger) && !supplierLedgerIsOfflineSnapshot,
+  );
+  const supplierLedgerRequiresRevalidation = Boolean(supplierLedger.data && !supplierLedgerIsAuthoritative);
+  useDeltaRevisionRefresh({
+    siteId, userId: user?.id, entityTypes: ["supplier_ledger"],
+    enabled: Boolean(siteId && isAuthenticated && canViewSupplierLedger),
+    onChange: (changed) => {
+      if (changed.includes("supplier_ledger") && selectedSupplierLedgerId) void supplierLedger.refetch();
+    },
+  });
+  useEffect(() => {
+    if (supplierLedgerAuthorizationDenied && user?.id) {
+      void clearOfflineSupplierFinancialQueryCacheForSite(String(user.id), siteId);
+    }
+  }, [supplierLedgerAuthorizationDenied, user?.id, siteId]);
   const warehouses = trpc.powerhub.inventory.listWarehouses.useQuery(
     { siteId, includeInactive: showInactiveWarehouses },
     { enabled: Boolean(siteId && isAuthenticated && canViewInventory), staleTime: 30_000 },
@@ -168,7 +214,7 @@ export default function InventoryWorkspacePage() {
   const createItem = trpc.powerhub.inventory.createItem.useMutation({
     onSuccess: async () => {
       toast.success("تمت إضافة الصنف إلى الدليل الموحد.");
-      setSku(""); setItemName(""); setCategory("other"); setBaseUnit("piece");
+      setSku(""); setItemName(""); setCategory("other"); setAccountingTreatment("pending_classification"); setBaseUnit("piece");
       setReorderPoint("0"); setSpecification(""); setItemNotes(""); setShowItemForm(false);
       await utils.powerhub.inventory.listItems.invalidate();
     },
@@ -351,23 +397,24 @@ export default function InventoryWorkspacePage() {
                     event.preventDefault();
                     const point = Number(reorderPoint);
                     if (!Number.isFinite(point) || point < 0) { toast.error("أدخل حد إعادة طلب صحيحًا."); return; }
-                    const payload = { siteId, sku: sku.trim() || undefined, name: itemName.trim(), category: category as "fuel" | "oil" | "filter" | "spare_part" | "maintenance_supply" | "other", baseUnit: baseUnit as "liter" | "milliliter" | "piece" | "container" | "kg" | "gram" | "meter" | "set" | "gallon" | "other", reorderPoint: point, specification: specification.trim() || undefined, notes: itemNotes.trim() || undefined };
+                    const payload = { siteId, sku: sku.trim() || undefined, name: itemName.trim(), category: category as "fuel" | "oil" | "filter" | "spare_part" | "maintenance_supply" | "other", accountingTreatment: accountingTreatment as "expense_on_issue" | "capital_asset" | "pending_classification", baseUnit: baseUnit as "liter" | "milliliter" | "piece" | "container" | "kg" | "gram" | "meter" | "set" | "gallon" | "other", reorderPoint: point, specification: specification.trim() || undefined, notes: itemNotes.trim() || undefined };
                     if (editingItemId) updateItem.mutate({ ...payload, itemId: editingItemId });
                     else createItem.mutate(payload);
                   }}>
                     <label className="space-y-1 text-sm">اسم الصنف *<Input required maxLength={180} value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="مثال: سولار" /></label>
                     <label className="space-y-1 text-sm">رمز الصنف (اختياري)<Input maxLength={80} value={sku} onChange={(e) => setSku(e.target.value)} placeholder="FUEL-001" /></label>
-                    <label className="space-y-1 text-sm">التصنيف<select className="h-10 w-full rounded-md border bg-background px-3" value={category} onChange={(e) => setCategory(e.target.value)}>{Object.entries(categoryLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                    <label className="space-y-1 text-sm">التصنيف التشغيلي<select className="h-10 w-full rounded-md border bg-background px-3" value={category} onChange={(e) => { const next=e.target.value; setCategory(next); setAccountingTreatment(next==="other" ? "pending_classification" : "expense_on_issue"); }}>{Object.entries(categoryLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                    <label className="space-y-1 text-sm">المعالجة المحاسبية<select className="h-10 w-full rounded-md border bg-background px-3" value={accountingTreatment} onChange={(e) => setAccountingTreatment(e.target.value)}>{Object.entries(accountingTreatmentLabels).filter(([value]) => category==="other" || value==="expense_on_issue").map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select><span className="text-xs text-muted-foreground">الأصل الرأسمالي متاح للأصناف التشغيلية «أخرى» فقط ولا يدخل مصروفات الربح والخسارة عند الصرف. الأصناف «أخرى» يجب تصنيفها قبل اعتماد أي تسوية تتضمن صرفاً لها.</span></label>
                     <label className="space-y-1 text-sm">وحدة القياس الأساسية<select className="h-10 w-full rounded-md border bg-background px-3" value={baseUnit} onChange={(e) => setBaseUnit(e.target.value)}>{Object.entries(unitLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                     <label className="space-y-1 text-sm">حد إعادة الطلب<Input type="number" min="0" step="0.001" value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} /></label>
                     <label className="space-y-1 text-sm">المواصفات<Input maxLength={500} value={specification} onChange={(e) => setSpecification(e.target.value)} /></label>
                     <label className="space-y-1 text-sm md:col-span-2">ملاحظات<Input maxLength={2000} value={itemNotes} onChange={(e) => setItemNotes(e.target.value)} /></label>
-                    <div className="flex items-end"><Button type="submit" disabled={createItem.isPending || updateItem.isPending || !itemName.trim()}>{createItem.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} {editingItemId ? "حفظ التعديلات" : "حفظ الصنف"}</Button>{editingItemId ? <Button type="button" variant="outline" onClick={() => { setEditingItemId(null); setShowItemForm(false); setSku(""); setItemName(""); setCategory("other"); setBaseUnit("piece"); setReorderPoint("0"); setSpecification(""); setItemNotes(""); }}>إلغاء التعديل</Button> : null}</div>
+                    <div className="flex items-end"><Button type="submit" disabled={createItem.isPending || updateItem.isPending || !itemName.trim()}>{createItem.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null} {editingItemId ? "حفظ التعديلات" : "حفظ الصنف"}</Button>{editingItemId ? <Button type="button" variant="outline" onClick={() => { setEditingItemId(null); setShowItemForm(false); setSku(""); setItemName(""); setCategory("other"); setAccountingTreatment("pending_classification"); setBaseUnit("piece"); setReorderPoint("0"); setSpecification(""); setItemNotes(""); }}>إلغاء التعديل</Button> : null}</div>
                   </form>
                 </CardContent> : null}
                 <CardContent className="space-y-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="relative max-w-md flex-1"><Search className="absolute right-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="pr-9" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="ابحث باسم الصنف أو رمزه…" /></div><label className="flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showInactiveItems} onChange={(e) => setShowInactiveItems(e.target.checked)} /> إظهار الأصناف الموقوفة</label></div>
-                  {items.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل الأصناف…</p> : items.error ? <p className="py-8 text-center text-destructive">تعذر تحميل دليل الأصناف. حدّث الصفحة أو تحقق من صلاحياتك.</p> : !items.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد أصناف بعد. استخدم «إضافة صنف» لبدء الدليل.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[720px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","الرمز","التصنيف","الوحدة","حد إعادة الطلب","الحالة","إجراءات"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{items.data.map((item) => <tr key={item.id} className="border-t"><td className="p-3 font-medium">{item.name}<div className="text-xs text-muted-foreground">{item.specification || ""}</div></td><td className="p-3">{item.sku || "—"}</td><td className="p-3">{categoryLabels[item.category] || item.category}</td><td className="p-3">{unitLabels[item.base_unit] || item.base_unit}</td><td className="p-3 tabular-nums">{Number(item.reorder_point).toLocaleString("ar", { maximumFractionDigits: 3 })}</td><td className="p-3">{item.is_active ? "نشط" : "موقوف"}</td><td className="p-3"><div className="flex flex-wrap gap-1">{(canEditInventoryItems || canDeactivateInventoryItems || canCreateInventoryItems) ? <><>{canEditInventoryItems ? <Button type="button" size="sm" variant="outline" onClick={() => { setEditingItemId(Number(item.id)); setSku(item.sku ?? ""); setItemName(item.name); setCategory(item.category); setBaseUnit(item.base_unit); setReorderPoint(String(item.reorder_point)); setSpecification(item.specification ?? ""); setItemNotes(item.notes ?? ""); setShowItemForm(true); }}>تعديل</Button> : null}</><>{canCreateInventoryItems || canDeactivateInventoryItems ? <Button type="button" size="sm" variant="outline" onClick={() => { setSelectedItemUnitsId(Number(item.id)); setPurchaseUnitLabel(""); setPurchaseUnitFactor("1"); }}>وحدات الشراء</Button> : null}</><>{canDeactivateInventoryItems ? <Button type="button" size="sm" variant="outline" disabled={setItemActive.isPending} onClick={() => { const reason = item.is_active ? window.prompt("أدخل سبب إيقاف الصنف (مطلوب):")?.trim() : undefined; if (item.is_active && (!reason || reason.length < 3)) { toast.error("أدخل سببًا واضحًا من 3 أحرف على الأقل."); return; } setItemActive.mutate({ siteId, itemId: Number(item.id), isActive: !item.is_active, ...(reason ? { reason } : {}) }); }}>{item.is_active ? "إيقاف" : "إعادة تفعيل"}</Button> : null}</> </> : "—"}</div></td></tr>)}</tbody></table></div>}
+                  {items.isLoading ? <p className="py-8 text-center text-muted-foreground">جارٍ تحميل الأصناف…</p> : items.error ? <p className="py-8 text-center text-destructive">تعذر تحميل دليل الأصناف. حدّث الصفحة أو تحقق من صلاحياتك.</p> : !items.data?.length ? <p className="py-8 text-center text-muted-foreground">لا توجد أصناف بعد. استخدم «إضافة صنف» لبدء الدليل.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[720px] text-right text-sm"><thead className="bg-muted/60"><tr>{["الصنف","الرمز","التصنيف التشغيلي","المعالجة المحاسبية","الوحدة","حد إعادة الطلب","الحالة","إجراءات"].map((x) => <th key={x} className="p-3 font-semibold">{x}</th>)}</tr></thead><tbody>{items.data.map((item) => <tr key={item.id} className="border-t"><td className="p-3 font-medium">{item.name}<div className="text-xs text-muted-foreground">{item.specification || ""}</div></td><td className="p-3">{item.sku || "—"}</td><td className="p-3">{categoryLabels[item.category] || item.category}</td><td className="p-3">{accountingTreatmentLabels[item.accounting_treatment] || item.accounting_treatment}</td><td className="p-3">{unitLabels[item.base_unit] || item.base_unit}</td><td className="p-3 tabular-nums">{Number(item.reorder_point).toLocaleString("ar", { maximumFractionDigits: 3 })}</td><td className="p-3">{item.is_active ? "نشط" : "موقوف"}</td><td className="p-3"><div className="flex flex-wrap gap-1">{(canEditInventoryItems || canDeactivateInventoryItems || canCreateInventoryItems) ? <><>{canEditInventoryItems ? <Button type="button" size="sm" variant="outline" onClick={() => { setEditingItemId(Number(item.id)); setSku(item.sku ?? ""); setItemName(item.name); setCategory(item.category); setAccountingTreatment(item.accounting_treatment); setBaseUnit(item.base_unit); setReorderPoint(String(item.reorder_point)); setSpecification(item.specification ?? ""); setItemNotes(item.notes ?? ""); setShowItemForm(true); }}>تعديل</Button> : null}</><>{canCreateInventoryItems || canDeactivateInventoryItems ? <Button type="button" size="sm" variant="outline" onClick={() => { setSelectedItemUnitsId(Number(item.id)); setPurchaseUnitLabel(""); setPurchaseUnitFactor("1"); }}>وحدات الشراء</Button> : null}</><>{canDeactivateInventoryItems ? <Button type="button" size="sm" variant="outline" disabled={setItemActive.isPending} onClick={() => { const reason = item.is_active ? window.prompt("أدخل سبب إيقاف الصنف (مطلوب):")?.trim() : undefined; if (item.is_active && (!reason || reason.length < 3)) { toast.error("أدخل سببًا واضحًا من 3 أحرف على الأقل."); return; } setItemActive.mutate({ siteId, itemId: Number(item.id), isActive: !item.is_active, ...(reason ? { reason } : {}) }); }}>{item.is_active ? "إيقاف" : "إعادة تفعيل"}</Button> : null}</> </> : "—"}</div></td></tr>)}</tbody></table></div>}
                 </CardContent>
               </Card>
               {selectedItemUnitsId ? <Card>
@@ -419,18 +466,20 @@ export default function InventoryWorkspacePage() {
               <InventorySupplierPayablesAgingPanel siteId={siteId} isAuthenticated={isAuthenticated} canViewSupplierLedger={canViewSupplierLedger} />
                 {canViewSupplierLedger && selectedSupplierLedgerId ? <Card>
                   <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-                    <div><CardTitle>كشف حساب المورد — {supplierLedger.data?.supplier?.name ?? "جارٍ التحميل…"}</CardTitle><p className="mt-1 text-sm text-muted-foreground">كشف الفرع الحالي؛ الرصيد الموجب يمثل مبلغًا مستحقًا للمورد.</p></div>
-                    <div className="flex items-center gap-3"><div><p className="text-xs text-muted-foreground">الرصيد المستحق</p><p className="font-bold tabular-nums">{supplierLedger.data ? formatSupplierLedgerAmount(supplierLedger.data.balance) : "—"}</p></div><Button type="button" variant="outline" onClick={() => setSelectedSupplierLedgerId(null)}>إغلاق</Button></div>
+                    <div><CardTitle>كشف حساب المورد — {supplierLedgerAuthorizationDenied ? "غير متاح" : supplierLedger.data?.supplier?.name ?? "جارٍ التحميل…"}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{supplierLedgerRequiresRevalidation ? (supplierLedgerIsOfflineSnapshot ? "نسخة محلية محفوظة وقد لا تشمل آخر القيود؛ الرصيد والتفاصيل للعرض فقط." : "آخر نتيجة متاحة لم يُتحقق من حداثتها خادميًا في هذا العرض؛ الرصيد والتفاصيل غير معتمدة.") : "كشف خادمي حديث للفرع الحالي؛ الرصيد الموجب يمثل مبلغًا مستحقًا للمورد."}</p></div>
+                    <div className="flex items-center gap-3"><div><p className="text-xs text-muted-foreground">الرصيد المستحق</p><p className="font-bold tabular-nums">{supplierLedger.data && supplierLedgerIsAuthoritative ? formatSupplierLedgerAmount(supplierLedger.data.balance) : "غير مؤكد"}</p></div><Button type="button" variant="outline" onClick={() => setSelectedSupplierLedgerId(null)}>إغلاق</Button></div>
                   </CardHeader>
                   <CardContent>
-                    {supplierLedger.isLoading ? <p className="py-6 text-center text-muted-foreground">جارٍ تحميل كشف الحساب…</p> : supplierLedger.error ? <p className="py-6 text-center text-destructive">تعذر تحميل كشف حساب المورد. تحقق من الصلاحيات.</p> : !supplierLedger.data?.entries?.length ? <p className="py-6 text-center text-muted-foreground">لا توجد حركات مالية لهذا المورد في الفرع الحالي.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-right text-sm"><thead className="bg-muted/60"><tr>{["التاريخ","نوع الحركة","البيان","المرجع","مدين","دائن"].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead><tbody>{supplierLedger.data.entries.map((entry: any) => <tr key={entry.id} className="border-t"><td className="p-3 whitespace-nowrap">{new Date(entry.occurred_at).toLocaleDateString("ar-PS")}</td><td className="p-3">{({purchase:"فاتورة مشتريات",payment:"دفعة مورد",opening_balance:"رصيد افتتاحي",supplier_return:"مرتجع مورد",debit_note:"إشعار مدين",credit_note:"إشعار دائن",adjustment:"تسوية",reversal:"قيد عكسي"} as Record<string,string>)[entry.entry_type] ?? entry.entry_type}</td><td className="p-3">{entry.description}</td><td className="p-3">{entry.reference_no || "—"}</td><td className="p-3 tabular-nums">{formatSupplierLedgerAmount(entry.debit_amount)}</td><td className="p-3 tabular-nums">{formatSupplierLedgerAmount(entry.credit_amount)}</td></tr>)}</tbody></table></div>}
-                    {supplierLedger.data && supplierLedger.data.entry_count > supplierLedger.data.entries.length ? <p className="mt-2 text-xs text-muted-foreground">يعرض أحدث {supplierLedger.data.entries.length} حركة من أصل {supplierLedger.data.entry_count}؛ الرصيد محسوب من كامل السجل.</p> : null}
+                    {supplierLedgerAuthorizationDenied ? <p role="alert" className="py-6 text-center text-destructive">رفض الخادم صلاحية كشف المورد؛ تم إخفاء اللقطة المحلية وحذفها من كاش هذا الفرع.</p> : null}
+                    {!supplierLedgerAuthorizationDenied && supplierLedgerRequiresRevalidation ? <p role="status" className="mb-3 rounded-md border border-dashed p-3 text-sm text-muted-foreground">{supplierLedgerIsOfflineSnapshot ? "تعرض هذه البطاقة آخر كشف محفوظ لهذا الفرع والمورد." : "تعرض هذه البطاقة آخر نتيجة متاحة، لكن إعادة التحقق الخادمية الحالية لم تنجح."} تفاصيل الكشف للقراءة فقط، والرصيد غير مؤكد حتى تنجح قراءة الخادم. لا تستخدمه كحقيقة مالية أو أساس للدفع.</p> : null}
+                    {!supplierLedgerAuthorizationDenied && supplierLedger.isLoading && !supplierLedger.data ? <p className="py-6 text-center text-muted-foreground">جارٍ تحميل كشف الحساب…</p> : !supplierLedgerAuthorizationDenied && supplierLedger.error && !supplierLedger.data ? <p className="py-6 text-center text-destructive">تعذر تحميل كشف حساب المورد. تحقق من الصلاحيات.</p> : supplierLedgerAuthorizationDenied ? null : !supplierLedger.data?.entries?.length ? <p className="py-6 text-center text-muted-foreground">لا توجد حركات مالية لهذا المورد في الفرع الحالي.</p> : <div className="overflow-x-auto rounded-md border"><table className="w-full min-w-[760px] text-right text-sm"><thead className="bg-muted/60"><tr>{["التاريخ","نوع الحركة","البيان","المرجع","مدين","دائن"].map((label) => <th key={label} className="p-3 font-semibold">{label}</th>)}</tr></thead><tbody>{supplierLedger.data.entries.map((entry: any) => <tr key={entry.id} className="border-t"><td className="p-3 whitespace-nowrap">{new Date(entry.occurred_at).toLocaleDateString("ar-PS")}</td><td className="p-3">{({purchase:"فاتورة مشتريات",payment:"دفعة مورد",opening_balance:"رصيد افتتاحي",supplier_return:"مرتجع مورد",debit_note:"إشعار مدين",credit_note:"إشعار دائن",adjustment:"تسوية",reversal:"قيد عكسي"} as Record<string,string>)[entry.entry_type] ?? entry.entry_type}</td><td className="p-3">{entry.description}</td><td className="p-3">{entry.reference_no || "—"}</td><td className="p-3 tabular-nums">{formatSupplierLedgerAmount(entry.debit_amount)}</td><td className="p-3 tabular-nums">{formatSupplierLedgerAmount(entry.credit_amount)}</td></tr>)}</tbody></table></div>}
+                    {supplierLedgerIsAuthoritative && supplierLedger.data && supplierLedger.data.entry_count > supplierLedger.data.entries.length ? <p className="mt-2 text-xs text-muted-foreground">يعرض أحدث {supplierLedger.data.entries.length} حركة من أصل {supplierLedger.data.entry_count}؛ الرصيد محسوب من كامل السجل الخادمي.</p> : null}
                   </CardContent>
                 </Card> : null}
             </TabsContent>
 
             {canManageSupplierPayments ? <TabsContent value="supplierPayments" className="space-y-4">
-              <InventorySupplierPaymentsPanel siteId={siteId} isAuthenticated={isAuthenticated} canManageSupplierPayments={canManageSupplierPayments} canReverseSupplierPayments={canReverseSupplierPayments} />
+              <InventorySupplierPaymentsPanel siteId={siteId} isAuthenticated={isAuthenticated} canManageSupplierPayments={canManageSupplierPayments} canReverseSupplierPayments={canReverseSupplierPayments} canViewSupplierCorrectionFinancialReports={canViewSupplierCorrectionFinancialReports} />
             </TabsContent> : null}
 
             {canViewInventory ? <TabsContent value="warehouses" className="space-y-4">
@@ -468,10 +517,17 @@ export default function InventoryWorkspacePage() {
 
             {canViewInventory || canAccessStocktakes ? <TabsContent value="stock" className="space-y-4">
               {canViewInventory ? <>
+                {(canAdjustInventory || canIssueInventory || canManageFuelAndConsumption) ? <div className="flex flex-wrap gap-2">
+                  {canAdjustInventory ? <Button type="button" size="sm" variant="outline" onClick={() => setWarehouseTransferDialogOpen(true)}>تحويل بين المخازن</Button> : null}
+                  {(canAdjustInventory || canIssueInventory || canManageFuelAndConsumption) ? <Button type="button" size="sm" variant="outline" onClick={() => setStockMovementDialogOpen(true)}>تسجيل حركة مخزنية</Button> : null}
+                </div> : null}
                 <InventoryWarehouseTransferPanel
                   siteId={siteId}
                   isAuthenticated={isAuthenticated}
                   canAdjustInventory={canAdjustInventory}
+                  dialogOpen={warehouseTransferDialogOpen}
+                  onDialogOpenChange={setWarehouseTransferDialogOpen}
+                  showTrigger={false}
                 />
                 <InventoryStockOperationsPanel
                   siteId={siteId}
@@ -480,15 +536,21 @@ export default function InventoryWorkspacePage() {
                   canAdjustInventory={canAdjustInventory}
                   canManageFuelAndConsumption={canManageFuelAndConsumption}
                   canViewInventoryReports={canViewInventoryReports}
+                  movementDialogOpen={stockMovementDialogOpen}
+                  onMovementDialogOpenChange={setStockMovementDialogOpen}
+                  showMovementTrigger={false}
                 />
               </> : null}
               {canAccessStocktakes ? <InventoryStocktakePanel
                 siteId={siteId}
+                userId={Number(user?.id ?? 0)}
+                tenantId={Number(effectiveStocktakeAccess?.tenantId ?? 0)}
                 isAuthenticated={isAuthenticated}
                 canViewStocktakes={canViewStocktakes}
                 canManageStocktakes={canManageStocktakes}
                 canApproveStocktakes={canApproveStocktakes}
               /> : null}
+              {canManageStocktakes && user?.id ? <OfflineWorkSyncPanel siteId={siteId} userId={user.id} compact /> : null}
             </TabsContent> : null}
 
             {canViewMaintenance ? <TabsContent value="maintenance" className="space-y-4"><InventoryMaintenancePanel
@@ -498,7 +560,7 @@ export default function InventoryWorkspacePage() {
                 canViewMaintenanceReport={canViewMaintenanceReport}
                 canManageMaintenance={canManageMaintenance}
                 canIssueInventory={canIssueInventory}
-                canManageExpenses={supplierAccess.data?.permissions.includes("manageExpenses") ?? false}
+                canManageExpenses={effectiveSupplierAccess?.permissions.includes("manageExpenses") ?? false}
               /></TabsContent> : null}
 
             {(canManageFuelAndConsumption || canViewInventoryReports) ? <TabsContent value="fuel" className="space-y-4">

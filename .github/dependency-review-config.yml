@@ -1,0 +1,10 @@
+# Block newly introduced high/critical issues in runtime and development dependencies.
+# License metadata is collected by the SBOM; no license allow/deny policy is imposed
+# until the project's license policy has been explicitly reviewed.
+fail-on-severity: high
+fail-on-scopes: runtime, development
+vulnerability-check: true
+license-check: true
+show-patched-versions: true
+retry-on-snapshot-warnings: true
+retry-on-snapshot-warnings-timeout: 180

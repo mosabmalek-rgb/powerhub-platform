@@ -70,7 +70,7 @@ create table public.platform_role_policies (
   capability text not null check (capability in (
     'manageSubscribers','manageGenerators','recordReadings','accessFieldApp','approveReadings',
     'manageTariffs','issueInvoices','collectPayments','approvePaymentDocumentation',
-    'manageExpenses','managePayroll','manageTeam','manageMessaging','viewAudit'
+    'manageExpenses','viewFinancialReports','managePayroll','manageTeam','manageMessaging','viewAudit'
   )),
   is_allowed boolean not null default true,
   updated_by_user_id bigint references public.users(id) on delete set null,
@@ -98,13 +98,19 @@ grant usage, select on all sequences in schema public to service_role;
 \ir ../migrations/20261021085514_powerhub_staff_inventory_permissions.sql
 \ir ../migrations/20261021085524_powerhub_supplier_directory_view_permission.sql
 \ir ../migrations/20261022200000_powerhub_owner_capability_overrides.sql
+\ir ../migrations/20261106212904_powerhub_admin_financial_report_capability.sql
+\ir ../migrations/20261106213946_powerhub_financial_report_capability_constraint_allowlist.sql
+\ir ../migrations/20261106214139_powerhub_financial_report_permission_audit_allowlist.sql
 
 set role service_role;
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'manageInventoryItems',true);
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'viewSupplierLedger',false);
 select * from public.powerhub_admin_set_staff_capability_override(1,101,'viewSuppliers',true);
+select * from public.powerhub_admin_set_staff_capability_override(1,101,'viewFinancialReports',true);
 select * from public.powerhub_admin_save_role_policy(1,'manager','viewSuppliers',false);
+select * from public.powerhub_admin_save_role_policy(1,'manager','viewFinancialReports',false);
 select * from public.powerhub_admin_set_owner_capability_override(1,10,4,'viewInventory',false);
+select * from public.powerhub_admin_set_owner_capability_override(1,10,4,'viewFinancialReports',false);
 select * from public.powerhub_admin_set_owner_capability_override(1,10,4,'viewInventory',false);
 do $owner_membership_guard$
 begin
@@ -117,7 +123,7 @@ $owner_membership_guard$;
 reset role;
 
 do $write_assertions$
-declare v_allowed boolean; v_denied boolean; v_supplier_view boolean; v_audit_count integer; v_role_policy boolean; v_owner_denied boolean; v_owner_audit_count integer;
+declare v_allowed boolean; v_denied boolean; v_supplier_view boolean; v_financial_view boolean; v_audit_count integer; v_role_policy boolean; v_financial_policy boolean; v_owner_denied boolean; v_owner_financial_denied boolean; v_owner_audit_count integer;
 begin
   select is_allowed into v_allowed from public.staff_profile_capability_overrides
     where tenant_id=10 and profile_id=101 and capability='manageInventoryItems';
@@ -126,16 +132,22 @@ begin
   select is_allowed into v_supplier_view from public.staff_profile_capability_overrides
     where tenant_id=10 and profile_id=101 and capability='viewSuppliers';
   select is_allowed into v_role_policy from public.platform_role_policies where role='manager' and capability='viewSuppliers';
+  select is_allowed into v_financial_policy from public.platform_role_policies where role='manager' and capability='viewFinancialReports';
+  select is_allowed into v_financial_view from public.staff_profile_capability_overrides where tenant_id=10 and profile_id=101 and capability='viewFinancialReports';
   select count(*) into v_audit_count from public.staff_profile_permission_audit where tenant_id=10 and profile_id=101;
   select is_allowed into v_owner_denied from public.tenant_member_capability_overrides where tenant_id=10 and user_id=4 and capability='viewInventory';
-  select count(*) into v_owner_audit_count from public.tenant_member_permission_audit where tenant_id=10 and user_id=4 and capability='viewInventory';
+  select is_allowed into v_owner_financial_denied from public.tenant_member_capability_overrides where tenant_id=10 and user_id=4 and capability='viewFinancialReports';
+  select count(*) into v_owner_audit_count from public.tenant_member_permission_audit where tenant_id=10 and user_id=4;
   if v_allowed is distinct from true then raise exception 'INDIVIDUAL_PERMISSION_GRANT_FAILED'; end if;
   if v_denied is distinct from false then raise exception 'INDIVIDUAL_PERMISSION_DENY_FAILED'; end if;
   if v_supplier_view is distinct from true then raise exception 'SUPPLIER_DIRECTORY_PERMISSION_GRANT_FAILED'; end if;
   if v_role_policy is distinct from false then raise exception 'SUPPLIER_DIRECTORY_ROLE_POLICY_FAILED'; end if;
-  if v_audit_count <> 3 then raise exception 'PERMISSION_AUDIT_COUNT_FAILED expected=3 actual=%',v_audit_count; end if;
+  if v_financial_view is distinct from true then raise exception 'FINANCIAL_REPORT_CAPABILITY_GRANT_FAILED'; end if;
+  if v_financial_policy is distinct from false then raise exception 'FINANCIAL_REPORT_ROLE_POLICY_FAILED'; end if;
+  if v_audit_count <> 4 then raise exception 'PERMISSION_AUDIT_COUNT_FAILED expected=4 actual=%',v_audit_count; end if;
   if v_owner_denied is distinct from false then raise exception 'OWNER_INDIVIDUAL_PERMISSION_DENY_FAILED'; end if;
-  if v_owner_audit_count <> 1 then raise exception 'OWNER_PERMISSION_AUDIT_IDEMPOTENCY_FAILED expected=1 actual=%',v_owner_audit_count; end if;
+  if v_owner_financial_denied is distinct from false then raise exception 'OWNER_FINANCIAL_REPORT_OVERRIDE_FAILED'; end if;
+  if v_owner_audit_count <> 2 then raise exception 'OWNER_PERMISSION_AUDIT_IDEMPOTENCY_FAILED expected=2 actual=%',v_owner_audit_count; end if;
 end;
 $write_assertions$;
 
@@ -144,7 +156,7 @@ do $tenant_rls$
 declare v_count integer;
 begin
   select count(*) into v_count from public.staff_profile_capability_overrides;
-  if v_count <> 3 then raise exception 'TENANT_ISOLATION_FAILED expected=3 visible=%',v_count; end if;
+  if v_count <> 4 then raise exception 'TENANT_ISOLATION_FAILED expected=4 visible=%',v_count; end if;
   begin
     insert into public.staff_profile_capability_overrides(tenant_id,profile_id,capability,is_allowed)
     values (10,101,'manageSuppliers',true);

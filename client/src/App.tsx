@@ -19,6 +19,8 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const NetworkDirectoryPage = lazy(() => import("./pages/NetworkDirectoryPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const FinancialDashboardPage = lazy(() => import("./pages/FinancialDashboardPage"));
+const B5HttpAcceptancePage = lazy(() => import("./pages/B5HttpAcceptancePage"));
+const C5HttpAcceptancePage = lazy(() => import("./pages/C5HttpAcceptancePage"));
 const FinancialSettlementsPage = lazy(() => import("./pages/FinancialSettlementsPage"));
 const CompanyAccountsPage = lazy(() => import("./pages/CompanyAccountsPage"));
 const MessagingSettingsPage = lazy(() => import("./pages/MessagingSettingsPage"));
@@ -36,6 +38,7 @@ const PayrollPage = lazy(() => import("./pages/PayrollPage"));
 const AttendancePage = lazy(() => import("./pages/AttendancePage"));
 const MobileSyncPage = lazy(() => import("./pages/MobileSyncPage"));
 const MobileReadingDetailPage = lazy(() => import("./pages/MobileReadingDetailPage"));
+const FieldReaderDistributionPage = lazy(() => import("./pages/FieldReaderDistributionPage"));
 const QuickActionsPage = lazy(() => import("./pages/QuickActionsPage"));
 const OfflineSyncPage = lazy(() => import("./pages/OfflineSyncPage"));
 const SetupWizardPage = lazy(() => import("./pages/SetupWizardPage"));
@@ -60,14 +63,14 @@ function Router() {
       <Route path={"/setup"}>{() => <RouteAccessGate><SetupWizardPage /></RouteAccessGate>}</Route>
       <Route path={"/quick-actions"}>{() => <RouteAccessGate><QuickActionsPage /></RouteAccessGate>}</Route>
       <Route path={"/profile"}>{() => <RouteAccessGate><ProfileSecurityPage /></RouteAccessGate>}</Route>
-      <Route path={"/support-chat"}>{() => <RouteAccessGate><SupportChatPage /></RouteAccessGate>}</Route>
-      <Route path={"/ai-support"}>{() => <RouteAccessGate><AiAssistantPage /></RouteAccessGate>}</Route>
+      <Route path={"/support-chat"}>{() => <RouteAccessGate featureKey="support_chat"><SupportChatPage /></RouteAccessGate>}</Route>
+      <Route path={"/ai-support"}>{() => <RouteAccessGate featureKey="powerhub_ai_assistant"><AiAssistantPage /></RouteAccessGate>}</Route>
       <Route path={"/support-center"}>{() => <RouteAccessGate><SupportCenterPage /></RouteAccessGate>}</Route>
       <Route path={"/invoice/:token"} component={PublicInvoice} />
       <Route path={"/portal"} component={SubscriberPortalPage} />
       <Route path={"/subscriber-statement/:subscriberId"}>{() => <RouteAccessGate><SubscriberAccountStatementPage /></RouteAccessGate>}</Route>
       <Route path={"/portal-settings"}>{() => <RouteAccessGate><SubscriberPortalSettingsPage /></RouteAccessGate>}</Route>
-      <Route path={"/branches"}>{() => <RouteAccessGate><BranchesPage /></RouteAccessGate>}</Route>
+      <Route path={"/branches"}>{() => <RouteAccessGate multiBranchOnly><BranchesPage /></RouteAccessGate>}</Route>
       <Route path={"/subscribers"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="subscribers" /></RouteAccessGate>}</Route>
       <Route path={"/generators"}>{() => <RouteAccessGate><NetworkDirectoryPage kind="generators" /></RouteAccessGate>}</Route>
       <Route path={"/readings"}>{() => <RouteAccessGate><MeterReadingsPage /></RouteAccessGate>}</Route>
@@ -77,6 +80,8 @@ function Router() {
       <Route path={"/inventory"}>{() => <RouteAccessGate><InventoryWorkspacePage /></RouteAccessGate>}</Route>
       <Route path={"/reports"}>{() => <RouteAccessGate><ReportsPage /></RouteAccessGate>}</Route>
       <Route path={"/financial-dashboard"}>{() => <RouteAccessGate><FinancialDashboardPage /></RouteAccessGate>}</Route>
+      <Route path={"/internal/b5-http-acceptance"}>{() => <RouteAccessGate><B5HttpAcceptancePage /></RouteAccessGate>}</Route>
+      <Route path={"/internal/c5-http-acceptance"}>{() => <RouteAccessGate><C5HttpAcceptancePage /></RouteAccessGate>}</Route>
       <Route path={"/financial-settlements"}>{() => <RouteAccessGate><FinancialSettlementsPage /></RouteAccessGate>}</Route>
       <Route path={"/payment-documentation/public/:token"} component={PaymentDocumentationPage} />
       <Route path={"/payment-documentation/review"}>{() => <RouteAccessGate><PaymentDocumentationReviewPage /></RouteAccessGate>}</Route>
@@ -88,6 +93,7 @@ function Router() {
       <Route path={"/audit"}>{() => <RouteAccessGate><AuditLogPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync/readings/:readingId"}>{() => <RouteAccessGate><MobileReadingDetailPage /></RouteAccessGate>}</Route>
       <Route path={"/mobile-sync"}>{() => <RouteAccessGate><MobileSyncPage /></RouteAccessGate>}</Route>
+      <Route path={"/field-distribution"}>{() => <RouteAccessGate><FieldReaderDistributionPage /></RouteAccessGate>}</Route>
       <Route path={"/offline-sync"}>{() => <RouteAccessGate><OfflineSyncPage /></RouteAccessGate>}</Route>
       <Route path={"/settings"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>
       <Route path={"/staff"}>{() => <RouteAccessGate><SettingsPage /></RouteAccessGate>}</Route>

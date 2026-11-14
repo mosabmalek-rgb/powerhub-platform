@@ -53,6 +53,9 @@ const mocks = vi.hoisted(() => {
   createGeneratorMutate: vi.fn(),
   createReadingMutate: vi.fn(),
   createReadingMutateAsync: vi.fn(async () => ({ status: "approved", readingId: 900, invoiceId: 901 })),
+  createPaymentMutateAsync: vi.fn(async (_input: unknown) => ({ id: 901, replayed: false })),
+  saveCustomRoleMutateAsync: vi.fn(async () => ({ success: true, id: 123 })),
+  runWithStableOperationKey: vi.fn(async (_scope: unknown, action: (key: string) => Promise<unknown>) => action("00000000-0000-4000-8000-000000000359")),
   sendDeferredInvoices: vi.fn(),
   sendPendingSms: vi.fn(),
   sendBulkInvoiceSms: vi.fn(),
@@ -85,17 +88,27 @@ vi.mock("@/components/ui/switch", () => ({ Switch: ({ checked, onCheckedChange, 
 vi.mock("qrcode.react", () => ({ QRCodeCanvas: ({ value }: { value: string }) => <canvas aria-label="رمز QR للرابط" data-value={value} /> }));
 vi.mock("wouter", () => ({ useLocation: () => [mocks.location, vi.fn()], useRoute: (pattern: string) => pattern === "/payment-documentation/public/:token" && mocks.location.startsWith("/payment-documentation/public/") ? [true, { token: mocks.location.split("/").at(-1) }] : pattern === "/invoice/:token" && mocks.location.startsWith("/invoice/") ? [true, { token: mocks.location.split("/").at(-1) }] : [false, undefined] }));
 vi.mock("@/lib/offline-connectivity", () => ({ usePowerHubConnectivity: () => ({ isOnline: true, reconnectGeneration: 0 }), probePowerHubConnectivity: vi.fn().mockResolvedValue(true) }));
+vi.mock("@/lib/offline-operation-idempotency", () => ({ runWithStableOperationKey: mocks.runWithStableOperationKey }));
 vi.mock("@/lib/offline-reading-queue", () => ({ enqueueReading: vi.fn(), listQueuedReadings: vi.fn().mockResolvedValue([]), removeQueuedReading: vi.fn(), updateQueuedReading: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() }, invoiceDuePolicy: { get: { invalidate: vi.fn() } } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, paymentDocumentation: { list: { invalidate: vi.fn() } }, siteBillingPolicy: { get: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() }, financialOverview: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, directoryPage: { invalidate: vi.fn(), prefetch: vi.fn().mockResolvedValue(undefined) }, quota: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
+    useUtils: () => ({ powerhub: { sites: { list: { invalidate: vi.fn() }, invoiceDuePolicy: { get: { invalidate: vi.fn() } } }, readingCycle: { get: { invalidate: vi.fn() } }, invoices: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, paymentDocumentation: { list: { invalidate: vi.fn() } }, siteBillingPolicy: { get: { invalidate: vi.fn() } }, dashboard: { summary: { invalidate: vi.fn() }, financialOverview: { invalidate: vi.fn() } }, audit: { list: { invalidate: vi.fn() } }, subscribers: { list: { invalidate: vi.fn() }, directoryPage: { invalidate: vi.fn(), prefetch: vi.fn().mockResolvedValue(undefined) }, quota: { invalidate: vi.fn() }, balanceSnapshot: { invalidate: vi.fn() }, securityDepositOverview: { invalidate: vi.fn() }, phoneReview: { invalidate: vi.fn() } }, generators: { list: { invalidate: vi.fn() } }, meters: { list: { invalidate: vi.fn() } }, readings: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, payments: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, expenses: { list: { invalidate: vi.fn() }, page: { invalidate: vi.fn() } }, messaging: { listConfigurations: { invalidate: vi.fn() }, smsDailyUsage: { invalidate: vi.fn() }, deliveryPolicy: { invalidate: vi.fn() }, listInvoiceTemplates: { invalidate: vi.fn() }, listPaymentReceiptTemplates: { invalidate: vi.fn() } }, notifications: { list: { invalidate: vi.fn() }, countDueInvoiceNotifications: { invalidate: vi.fn() }, listFailedSms: { invalidate: vi.fn() }, listBulkInvoiceSends: { invalidate: vi.fn() }, bulkInvoiceSendDetails: { invalidate: vi.fn() } }, collectorSessions: { list: { invalidate: vi.fn() }, current: { invalidate: vi.fn() } }, staff: { list: { invalidate: vi.fn() }, archived: { invalidate: vi.fn() }, allowedSubaccountRoles: { invalidate: vi.fn() }, activity: { invalidate: vi.fn() }, customRoles: { invalidate: vi.fn() } }, subscriberPortal: { settings: { invalidate: vi.fn() }, list: { invalidate: vi.fn() }, theme: { invalidate: vi.fn() } } } }),
     powerhub: {
+      inventory: {
+        recordFuelFill: { useMutation: mocks.mutation },
+        recordStocktakeCount: { useMutation: mocks.mutation },
+      },
+      hr: {
+        replayOfflineOperation: { useMutation: mocks.mutation },
+        issueEmployeeAdvance: { useMutation: mocks.mutation },
+        repayEmployeeAdvance: { useMutation: mocks.mutation },
+      },
       offlineNumbering: { reserve: { useMutation: mocks.mutation } },
-      sites: { list: { useQuery: () => mocks.query([mocks.site]) }, invoiceDuePolicy: { get: { useQuery: () => mocks.query({ invoiceDueHours: 336, invoiceDueDays: 14 }) }, save: { useMutation: mocks.mutation } }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
+      sites: { list: { useQuery: () => mocks.query([mocks.site]) }, multiBranchAccess: { useQuery: (input?: {siteId:number}, options?: {enabled?:boolean}) => { mocks.recordQuery("sites.multiBranchAccess", input, options); return mocks.query({siteId:1,enabled:false,activeSiteCount:1}); } }, invoiceDuePolicy: { get: { useQuery: () => mocks.query({ invoiceDueHours: 336, invoiceDueDays: 14 }) }, save: { useMutation: mocks.mutation } }, branchPolicy: { useQuery: () => mocks.query({ isEnabled: false }) }, anomalyAlert: { useQuery: () => mocks.query({ anomalyAlertPercent: 50 }) }, create: { useMutation: mocks.mutation }, updateAnomalyAlert: { useMutation: mocks.mutation } },
       siteBillingPolicy: { get: { useQuery: () => mocks.query({ automaticFractionDiscountEnabled: false, fractionCarryEnabled: false }) }, save: { useMutation: mocks.mutation } },
       reportBranding: { get: { useQuery: () => mocks.query({ companyName: "PowerHub", logoUrl: null }) }, update: { useMutation: mocks.mutation } },
       readingCycle: { get: { useQuery: () => mocks.query({ cycleType: "MONTHLY", weeklyStartDay: 7, monthlyStartDay: 1 }) }, currentBounds: { useQuery: () => mocks.query({ cycleKey: "2026-10", cycleLabel: "أكتوبر 2026", billingPeriod: "2026-10", startAt: "2026-10-01T00:00:00.000Z", endAt: "2026-10-31T20:59:59.999Z" }) }, boundsAt: { useQuery: () => mocks.query({ cycleKey: "2026-09", cycleLabel: "سبتمبر 2026", billingPeriod: "2026-09", startAt: "2026-09-01T00:00:00.000Z", endAt: "2026-09-30T20:59:59.999Z" }) }, save: { useMutation: mocks.mutation } },
-      staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, archived: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"] }) }, assign: { useMutation: mocks.mutation }, archive: { useMutation: mocks.mutation }, restore: { useMutation: mocks.mutation }, setActive: { useMutation: mocks.mutation }, suspend: { useMutation: mocks.mutation }, clearSuspension: { useMutation: mocks.mutation }, create: { useMutation: mocks.mutation }, activity: { useQuery: () => mocks.query([]) }, resetPassword: { useMutation: mocks.mutation }, customRoles: { useQuery: () => mocks.query([]) }, permissionChanges: { useQuery: () => mocks.query([]) }, updatePermissions: { useMutation: mocks.mutation }, saveCustomRole: { useMutation: mocks.mutation }, deleteCustomRole: { useMutation: mocks.mutation } },
+      staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, readingDistribution: { useQuery: () => mocks.query({ isEnabled: false, readerUserIds: [], assignedSubscriberCount: 0, unassignedSubscriberCount: 0 }) }, configureReadingDistribution: { useMutation: mocks.mutation }, fieldReaderAssignments: { useQuery: () => mocks.query({ items: [], totalCount: 0 }) }, moveFieldReaderSubscriber: { useMutation: mocks.mutation }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, archived: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"], fieldUserLimit: 4, fieldUserCount: 0, fieldUserRemaining: 4 }) }, assign: { useMutation: mocks.mutation }, archive: { useMutation: mocks.mutation }, restore: { useMutation: mocks.mutation }, setActive: { useMutation: mocks.mutation }, suspend: { useMutation: mocks.mutation }, clearSuspension: { useMutation: mocks.mutation }, create: { useMutation: mocks.mutation }, activity: { useQuery: () => mocks.query([]) }, resetPassword: { useMutation: mocks.mutation }, customRoles: { useQuery: () => mocks.query([]) }, permissionChanges: { useQuery: () => mocks.query([]) }, updatePermissions: { useMutation: mocks.mutation }, saveCustomRole: { useMutation: () => ({ mutate: vi.fn(), mutateAsync: mocks.saveCustomRoleMutateAsync, isPending: false }) }, deleteCustomRole: { useMutation: mocks.mutation } },
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("readings.page", input, options); return mocks.query({ items: [], hasNext: false, nextCursor: null }); } }, create: { useMutation: () => ({ mutate: mocks.createReadingMutate, mutateAsync: mocks.createReadingMutateAsync, isPending: false }) }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, history: { useQuery: () => mocks.query({ items: [], total: 0, hasNext: false }) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
@@ -113,11 +126,14 @@ vi.mock("@/lib/trpc", () => ({
         } },
         quota: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.quota", input, options); return mocks.query({ limit: 100, currentCount: mocks.subscribers.length, remaining: 100 - mocks.subscribers.length, plan: "basic" }); } },
         phoneReview: { useQuery: () => mocks.query([]) },
+        securityDepositAccounts: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.securityDepositAccounts", input, options); return mocks.query([{ id: 90, name: "كاش", accountType: "cash", balance: 1000 }]); } },
+        securityDepositOverview: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.securityDepositOverview", input, options); return mocks.query({ totalAmount: "0", subscriberCount: 0, items: [] }); } },
+        balanceSnapshot: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("subscribers.balanceSnapshot", input, options); return mocks.query({ availableCredit: "0", securityDeposit: "0" }); } },
         create: { useMutation: () => ({ mutate: mocks.createSubscriberMutate, isPending: false }) },
         bulkImport: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation }, applyPhoneNormalization: { useMutation: mocks.mutation }
       },
       generators: { list: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("generators.list", input, options); return mocks.query([]); } }, create: { useMutation: () => ({ mutate: mocks.createGeneratorMutate, isPending: false }) }, update: { useMutation: mocks.mutation } },
-      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("payments.page", input, options); return mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }); } }, create: { useMutation: mocks.mutation } },
+      payments: { list: { useQuery: () => mocks.query(mocks.payments) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("payments.page", input, options); return mocks.query({ items: mocks.payments, hasNext: false, nextCursor: null }); } }, getReceiptImage: { useMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue({ url: "https://example.invalid/receipt" }), isPending: false }) }, create: { useMutation: () => ({ mutate: vi.fn(), mutateAsync: mocks.createPaymentMutateAsync, isPending: false }) } },
       companyAccounts: {
         list: {
           useQuery: () => mocks.query([{
@@ -151,7 +167,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.paymentDocumentationAccessError = false; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.publicPaymentContext = { siteId: 1, paymentDocumentationAvailable: true, invoice: { id: 551, invoiceNo: "INV-TEST-0551", billingPeriod: "2026-10", previousReading: 10, currentReading: 10.5, consumptionKwh: 0.5, pricePerKwh: 30, fixedFee: 0, taxAmount: 0, discountAmount: 0.4, totalAmount: 30, paidAmount: 0, balanceDue: 30, status: "issued" }, subscriber: { subscriberId: 21, fullName: "مشترك اختبار التوثيق", subscriberNo: "TEST-021" }, accounts: [{ id: 90, name: "حساب الاستلام", accountType: "jawwal_pay", phoneNumber: "0590000000" }], lines: [{ id: 1, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 }, { id: 2, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 }, { id: 3, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0.4, displayOrder: 3 }, { id: 4, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.8, displayOrder: 4 }] }; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
+afterEach(() => { cleanup(); mocks.queryCalls.length = 0; vi.restoreAllMocks(); mocks.createSubscriberMutate.mockClear(); mocks.createGeneratorMutate.mockClear(); mocks.createReadingMutate.mockClear(); mocks.createReadingMutateAsync.mockClear(); mocks.createPaymentMutateAsync.mockClear(); mocks.activeRole = "viewer"; mocks.location = "/readings"; mocks.paymentDocumentationAccessError = false; mocks.subscribers = []; mocks.invoices = []; mocks.notifications = []; mocks.bulkInvoiceSends = []; mocks.bulkInvoiceSendDetails = { items: [] }; mocks.payments = []; mocks.publicPaymentContext = { siteId: 1, paymentDocumentationAvailable: true, invoice: { id: 551, invoiceNo: "INV-TEST-0551", billingPeriod: "2026-10", previousReading: 10, currentReading: 10.5, consumptionKwh: 0.5, pricePerKwh: 30, fixedFee: 0, taxAmount: 0, discountAmount: 0.4, totalAmount: 30, paidAmount: 0, balanceDue: 30, status: "issued" }, subscriber: { subscriberId: 21, fullName: "مشترك اختبار التوثيق", subscriberNo: "TEST-021" }, accounts: [{ id: 90, name: "حساب الاستلام", accountType: "jawwal_pay", phoneNumber: "0590000000" }], lines: [{ id: 1, lineType: "energy", description: "استهلاك الكهرباء", amount: 15, displayOrder: 1 }, { id: 2, lineType: "other", description: "تسوية الحد الأدنى للاستهلاك", amount: 15, displayOrder: 2 }, { id: 3, lineType: "discount", description: "خصم تلقائي لتسوية كسر الفاتورة", amount: 0.4, displayOrder: 3 }, { id: 4, lineType: "other", description: "كسر مُرحّل إلى الفاتورة التالية", amount: -0.8, displayOrder: 4 }] }; mocks.createShareLink.mockReset(); mocks.sendDeferredInvoices.mockReset(); mocks.sendPendingSms.mockReset(); mocks.sendBulkInvoiceSms.mockReset(); mocks.retryFailedInvoiceNotification.mockReset(); mocks.retryFailedInvoiceNotifications.mockReset(); mocks.sendPaymentReceiptSms.mockReset(); });
 
 describe("role guards in administration UI", () => {
   it("keeps invoice issuance automatic and hides manual issue controls from the viewer", () => {
@@ -503,6 +519,21 @@ describe("role guards in administration UI", () => {
     expect(fieldAppPermission).toBeChecked();
   });
 
+  it("uses a durable stable operation key when creating a reusable custom role", async () => {
+    mocks.saveCustomRoleMutateAsync.mockClear();
+    mocks.runWithStableOperationKey.mockClear();
+    render(<FlexiblePermissionsPanel siteId={1} canManageTeam staff={[{ profile: { id: 10, role: "technician", permissions: ["recordReadings"], customRoleId: null }, user: { id: 20, name: "فني الاختبار", email: "field@powerhub.test" } }]} />);
+    fireEvent.change(screen.getByLabelText("اختيار الحساب لتعديل الصلاحيات"), { target: { value: "10" } });
+    fireEvent.change(screen.getByPlaceholderText("اسم الدور، مثال: محصل رئيسي"), { target: { value: "دور تحصيل ثابت" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كدور قابل لإعادة الاستخدام" }));
+    await waitFor(() => expect(mocks.saveCustomRoleMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: 1, name: "دور تحصيل ثابت", clientOperationId: "00000000-0000-4000-8000-000000000359",
+    })));
+    expect(mocks.runWithStableOperationKey).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 1, siteId: 1, kind: "custom_permission_role_create",
+    }), expect.any(Function));
+  });
+
   it("keeps the operational reading entry view read-only for the viewer", () => {
     render(<OperationsPage section="readings" />);
     expect(screen.getByText(/لا يتيح دورك تنفيذ هذه العملية/)).toBeInTheDocument();
@@ -511,6 +542,7 @@ describe("role guards in administration UI", () => {
 
   it("hides payment entry from the viewer in the operational collections view", () => {
     render(<OperationsPage section="collections" />);
+    expect(mocks.queryCalls.some((call) => call.key === "subscribers.balanceSnapshot" && call.enabled === false)).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     expect(screen.getByText(/دورك يتيح مراجعة التحصيلات فقط/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /تسجيل الدفعة/ })).not.toBeInTheDocument();
@@ -521,6 +553,30 @@ describe("role guards in administration UI", () => {
     render(<OperationsPage section="collections" />);
     fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
     expect(screen.getByRole("button", { name: /تسجيل الدفعة/ })).toBeInTheDocument();
+  });
+
+  it("records a credit-only receipt without selecting an invoice and sends no invoice id", async () => {
+    mocks.activeRole = "owner";
+    mocks.subscribers = [{ id: 101, fullName: "أحمد حسن", subscriberNo: "SUB-101", phone: "0599000101" }];
+    render(<OperationsPage section="collections" />);
+    fireEvent.click(screen.getByRole("button", { name: /فتح البطاقة/ }));
+    fireEvent.change(screen.getByLabelText("الحساب المستقبِل للتحصيل"), { target: { value: "90" } });
+    const picker = screen.getByRole("combobox", { name: "البحث واختيار المشترك للتحصيل" });
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "أحمد" } });
+    fireEvent.click(screen.getByRole("option", { name: /أحمد حسن/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "إيداع مبلغ في رصيد المشترك دون ربطه بفاتورة" }));
+    fireEvent.change(screen.getByLabelText("رقم الإيصال"), { target: { value: "PAY-CREDIT-ONLY-001" } });
+    fireEvent.change(screen.getByLabelText("المبلغ النقدي المستلم"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "تسجيل الدفعة" }));
+    await waitFor(() => expect(mocks.createPaymentMutateAsync).toHaveBeenCalledTimes(1));
+    const input = mocks.createPaymentMutateAsync.mock.calls[0][0] as Record<string, unknown>;
+    expect(input).toMatchObject({
+      siteId: 1, subscriberId: 101, paymentNo: "PAY-CREDIT-ONLY-001",
+      amount: 15, companyAccountId: 90, paymentMethod: "cash",
+    });
+    expect(input.invoiceId).toBeUndefined();
+    expect(input.clientOperationId).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/i));
   });
 
   it("shows expense entry to the accountant but keeps it read-only for the collector", () => {
@@ -563,17 +619,30 @@ describe("role guards in administration UI", () => {
     expect(screen.getByRole("button", { name: "فتح جلسة تحصيل" })).toBeInTheDocument();
   });
 
-  it("shows receipt print and SMS actions for a partial payment while declaring WhatsApp unavailable", () => {
+  it("shows PDF download and SMS actions for a partial payment while declaring WhatsApp unavailable and keeping correction in the actions column", () => {
     mocks.activeRole = "owner";
     mocks.invoices = [{ id: 50, invoiceNo: "INV-PARTIAL", billingPeriod: "2026-10", consumptionKwh: "5", totalAmount: "100", paidAmount: "40", balanceDue: "60", status: "partially_paid" } as any];
     mocks.payments = [{ payment: { id: 70, invoiceId: 50, paymentNo: "PAY-PARTIAL", amount: "40", paymentMethod: "cash", paidAt: new Date("2026-10-12") }, subscriber: { fullName: "مشترك اختبار", phone: "970599000000" }, invoiceNo: "INV-PARTIAL" }];
     render(<OperationsPage section="collections" />);
-    expect(screen.getByRole("button", { name: "طباعة" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تحميل PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تصحيح" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "إجراءات" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "تصحيح" })).not.toBeInTheDocument();
     expect(screen.getByText("إرسال إيصال WhatsApp غير متاح حاليًا")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "WhatsApp" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "SMS" }));
     expect(mocks.sendPaymentReceiptSms).toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "sms" });
     expect(mocks.sendPaymentReceiptSms).not.toHaveBeenCalledWith({ siteId: 1, paymentId: 70, channel: "whatsapp" });
+  });
+
+  it("shows PDF download and correction actions for a completed payment", () => {
+    mocks.activeRole = "owner";
+    mocks.invoices = [{ id: 51, invoiceNo: "INV-PAID", billingPeriod: "2026-10", consumptionKwh: "5", totalAmount: "100", paidAmount: "100", balanceDue: "0", status: "paid" } as any];
+    mocks.payments = [{ payment: { id: 71, invoiceId: 51, paymentNo: "PAY-PAID", amount: "100", paymentMethod: "cash", paidAt: new Date("2026-10-13") }, subscriber: { fullName: "مشترك مكتمل", phone: "970599000001" }, invoiceNo: "INV-PAID" }];
+    render(<OperationsPage section="collections" />);
+    expect(screen.getByRole("button", { name: "تحميل PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تصحيح" })).toBeInTheDocument();
+    expect(screen.queryByText("يتاح للدفعة الجزئية")).not.toBeInTheDocument();
   });
 
   it("lets an accountant create a public share link from an issued invoice in the invoice center", () => {
@@ -646,7 +715,10 @@ describe("role guards in administration UI", () => {
     for (const testCase of cases) {
       const view = render(<OperationsPage section={testCase.section} />);
       const enabled = mocks.queryCalls.filter((call) => call.enabled === true).map((call) => call.key).sort();
-      expect(enabled, `enabled query set for ${testCase.section}`).toEqual([...testCase.expected].sort());
+      expect(enabled.filter(key=>key!=="sites.multiBranchAccess"),
+        `operational data queries for ${testCase.section}`).toEqual([...testCase.expected].sort());
+      expect(enabled.filter(key=>key==="sites.multiBranchAccess"),
+        `single tenant-scope entitlement check for ${testCase.section}`).toEqual(["sites.multiBranchAccess"]);
       view.unmount();
       mocks.queryCalls.length = 0;
     }
@@ -656,7 +728,7 @@ describe("role guards in administration UI", () => {
     mocks.activeRole = "owner";
     const subscribersView = render(<NetworkDirectoryPage kind="subscribers" />);
     let enabled = mocks.queryCalls.filter((call) => call.enabled === true).map((call) => call.key).sort();
-    expect(enabled).toEqual(["dashboard.financialOverview", "subscribers.directoryPage", "subscribers.quota"]);
+    expect(enabled).toEqual(["dashboard.financialOverview", "subscribers.directoryPage", "subscribers.quota", "subscribers.securityDepositAccounts", "subscribers.securityDepositOverview"].sort());
     subscribersView.unmount();
     mocks.queryCalls.length = 0;
     const generatorsView = render(<NetworkDirectoryPage kind="generators" />);

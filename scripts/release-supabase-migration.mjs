@@ -1,11 +1,21 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { assertSupabaseMigrationTarget, SUPABASE_PROJECT_BY_TARGET } from "./supabase-migration-target.mjs";
+import {
+  assertSupabaseMigrationTarget,
+  classifySupabaseMigrationHistory,
+  computeSupabaseMigrationContentSha256,
+  parseSupabaseMigrationHistoryRows,
+  assertSupabaseMigrationFileInventory,
+  assertSupabaseMigrationReleaseVersionIsUnique,
+  SUPABASE_PROJECT_BY_TARGET,
+} from "./supabase-migration-target.mjs";
 import { resolveSupabaseMigrationFile } from "./supabase-migration-file.mjs";
+import { buildSupabaseMigrationTransaction } from "./supabase-migration-transaction.mjs";
 
 const [requestedPath, target] = process.argv.slice(2);
 const migrationRoot = path.resolve("supabase/migrations");
+const migrationInventoryRoot = path.resolve(process.env.POWERHUB_MIGRATION_DIR ?? migrationRoot);
 
 function fail(message) {
   console.error(`Supabase migration release blocked: ${message}`);
@@ -40,9 +50,14 @@ try {
   fail(error instanceof Error ? error.message : "Supabase database target validation failed");
 }
 
-const migrations = (await readdir(migrationRoot)).filter((entry) => entry.endsWith(".sql"));
-const collisions = migrations.filter((entry) => entry !== filename && entry.startsWith(`${version}_`));
-if (collisions.length) fail(`version ${version} already belongs to another file: ${collisions.join(", ")}`);
+let migrations;
+try {
+  migrations = (await readdir(migrationInventoryRoot)).filter((entry) => entry.endsWith(".sql"));
+  assertSupabaseMigrationFileInventory(migrations);
+  assertSupabaseMigrationReleaseVersionIsUnique({ filename, migrationFiles: migrations });
+} catch (error) {
+  fail(error instanceof Error ? error.message : "local migration inventory validation failed");
+}
 
 const sql = await readFile(absolutePath, "utf8");
 if (!sql.trim()) fail("migration is empty");
@@ -57,14 +72,18 @@ if (/\b(?:CREATE|DROP)\s+INDEX\s+CONCURRENTLY\b|^\s*VACUUM\b/im.test(sql)) {
 function psql(query) {
   const result = spawnSync("psql", [
     "--no-psqlrc", "--no-password", "--set=ON_ERROR_STOP=1", "--tuples-only", "--no-align",
-    "--dbname", databaseUrl, "--command", query,
+    "--dbname", databaseUrl,
   ], {
+    // Feed SQL over stdin instead of one --command argv entry. The release
+    // transaction includes both the migration and its Base64 ledger payload;
+    // a large migration can exceed Linux's per-argument size limit.
+    input: query,
     encoding: "utf8",
     env: { ...process.env, PGSSLMODE: process.env.PGSSLMODE ?? "require", PGCONNECT_TIMEOUT: "15" },
     maxBuffer: 8 * 1024 * 1024,
   });
   if (result.error || result.status !== 0) {
-    // Connection errors can echo a malformed URI fragment, including password bytes.
+    // Connection errors can echo malformed URI fragments, including password bytes.
     if (result.status === 2) fail("psql connection failed safely; verify the protected database URI and network route.");
     const detail = (result.stderr || result.error?.message || "psql failed")
       .replaceAll(databaseUrl, "[redacted database URL]").trim().slice(-3000);
@@ -73,32 +92,47 @@ function psql(query) {
   return result.stdout.trim();
 }
 
-const existing = psql(
-  `select 'APPLIED:' || coalesce(name, '<null>') from supabase_migrations.schema_migrations where version = '${version}'`,
+const existingRows = psql(
+  `select
+     version || '|' || coalesce(name, '') || '|' ||
+     case
+       when statements is null
+         or cardinality(statements) = 0
+         or nullif(array_to_string(statements, E'\n'), '') is null
+       then 'unavailable'
+       else encode(
+         extensions.digest(
+           convert_to(array_to_string(statements, E'\n'), 'UTF8'),
+           'sha256'
+         ),
+         'hex'
+       )
+     end
+   from supabase_migrations.schema_migrations
+   where version = '${version}' or name = '${name}'
+   order by version`,
 );
-if (existing) {
-  if (existing !== `APPLIED:${name}`) {
-    fail(`ledger version ${version} exists with a different name (${existing}); investigate drift instead of editing the ledger manually`);
-  }
-  console.log(`Migration ${version}_${name} is already recorded consistently; nothing changed.`);
+const existingRecords = parseSupabaseMigrationHistoryRows(existingRows);
+
+let migrationHistoryState;
+try {
+  migrationHistoryState = classifySupabaseMigrationHistory({
+    version,
+    name,
+    contentSha: computeSupabaseMigrationContentSha256(sql),
+    records: existingRecords,
+  });
+} catch (error) {
+  fail(error instanceof Error ? error.message : "migration history reconciliation failed");
+}
+
+if (migrationHistoryState === "already-applied") {
+  console.log(`Migration ${version}_${name} is already recorded with matching SQL SHA-256; nothing changed.`);
   process.exit(0);
 }
 
-const transaction = `
-BEGIN;
-SELECT pg_advisory_xact_lock(hashtextextended('powerhub:supabase:migration-release:v1', 0));
-DO $powerhub_release_guard$
-BEGIN
-  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '${version}') THEN
-    RAISE EXCEPTION 'POWERHUB_MIGRATION_VERSION_RACE';
-  END IF;
-END
-$powerhub_release_guard$;
-${sql}
-INSERT INTO supabase_migrations.schema_migrations (version, name)
-VALUES ('${version}', '${name}');
-COMMIT;
-`;
+const transaction = buildSupabaseMigrationTransaction({ version, name, sql });
 
 psql(transaction);
 console.log(`Applied ${filename} to ${target} and atomically recorded version ${version} / name ${name}.`);
+

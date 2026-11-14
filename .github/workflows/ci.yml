@@ -3,7 +3,7 @@ name: PowerHub CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, p4-production-excellence, p6-scale-operations]
+    branches: [main, p4-production-excellence, p6-scale-operations, feat/auth-local-first-single-pr]
   pull_request:
     branches: [main, p5-6-commercial-launch, refactor/admin-supabase-migration]
 
@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify minimatch 11 compatibility with legacy glob consumers
+        run: node scripts/check-minimatch-compatibility.mjs
+
       - name: Validate versioned Supabase migration release tooling
         run: |
           node --check scripts/check-supabase-migration-files.mjs
@@ -52,7 +55,8 @@ jobs:
             git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
           fi
           node scripts/check-supabase-migration-files.mjs
-          pnpm exec vitest run --maxWorkers=1 --minWorkers=1 server/supabase-migration-target.test.ts
+          node scripts/check-supabase-default-privileges.mjs
+          pnpm exec vitest run --maxWorkers=1 server/supabase-migration-target.test.ts
 
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs

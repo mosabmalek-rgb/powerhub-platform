@@ -1,11 +1,30 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { loadOperationalReportSnapshot, saveOperationalReportSnapshot } from "@/lib/offline-operational-report-cache";
+import { getPowerHubConnectivitySnapshot, usePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { enqueueOfflineWork, notifyOfflineWorkQueueChanged, type FuelFillDraft } from "@/lib/offline-work-queue";
+import { getStableOperationKey, runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
+import { isExplicitAuthorizationDenial } from "@/lib/offline-query-errors";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
+import { clearOfflineFuelQueryCacheForSite } from "@/lib/offline-query-cache";
+import { useDeltaRevisionRefresh } from "@/hooks/useDeltaRevisionRefresh";
+import type { OperationalDeltaRevisionEntity } from "@/lib/delta-revision-refresh";
+import {
+  aggregateFuelConsumptionReportByGenerator,
+  aggregateFuelFillReportByGenerator,
+  type FuelConsumptionReportRow,
+  type FuelFillReportRow,
+} from "@/lib/fuel-fill-report";
+import { BellRing, Droplet, Gauge, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
+
+const FUEL_REVISION_ENTITIES = ["fuel_events", "fuel_readings"] as const satisfies readonly OperationalDeltaRevisionEntity[];
 
 type Props = {
   siteId: number;
@@ -21,7 +40,7 @@ type FuelEvent = {
   unit_cost?: number | string; total_cost_amount?: number | string; occurred_at: string;
   level_before_liters: number | string | null; level_after_liters: number | string | null;
   operating_hours: number | string | null; reference_no: string | null; notes: string | null;
-  stock_transfer_id: number; created_by_user_id: number | null;
+  stock_transfer_id: number | null; created_by_user_id: number | null;
 };
 type FuelReading = {
   reading_id: number; generator_id: number; generator_name: string; reading_type: "tank_level" | "operating_hours";
@@ -42,14 +61,20 @@ type FuelAlertDispatch = {
   signal_key: string; measured_value: number | string; threshold_value: number | string;
   recipient_count: number; created_at: string;
 };
-type FuelReportRow = {
-  generator_id: number; generator_name: string; tank_warehouse_id: number; tank_name: string;
-  fuel_filled_liters: number | string; fuel_filled_cost: number | string; recorded_consumption_liters: number | string;
-  opening_level_liters: number | string | null; ending_level_liters: number | string | null;
-  actual_consumption_liters: number | string | null;
-  opening_operating_hours: number | string | null; ending_operating_hours: number | string | null;
-  operating_hours_delta: number | string | null; litres_per_hour: number | string | null;
-  measurement_status: "measured" | "insufficient_level_readings" | "reconciliation_anomaly" | "measured_without_hour_rate" | string;
+type FuelReportRow = FuelConsumptionReportRow;
+type FuelCostReportRow = {
+  generator_id: number;
+  generator_name: string;
+  movement_count: number;
+  recorded_consumption_liters: number | string;
+  recorded_consumption_cost: number | string;
+  average_cost_per_liter: number | string | null;
+};
+const fuelMeasurementLabels: Record<string, string> = {
+  measured: "قياس مكتمل",
+  measured_without_hour_rate: "قياس مكتمل دون معدل ساعة",
+  insufficient_level_readings: "قراءات مستوى غير كافية",
+  reconciliation_anomaly: "تعارض يحتاج مراجعة",
 };
 
 function nowLocalDateTime() {
@@ -59,11 +84,6 @@ function nowLocalDateTime() {
 function todayLocalDate() {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-}
-function operationKey(prefix: string) {
-  const random = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `${prefix}:${random}`;
 }
 function qty(value: number | string | null | undefined) {
   const amount = Number(value);
@@ -79,17 +99,16 @@ function dateTime(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("ar-PS");
 }
 const readingLabels: Record<string, string> = { tank_level: "مستوى الخزان", operating_hours: "ساعات التشغيل" };
-const statusLabels: Record<string, string> = {
-  measured: "استهلاك مقاس",
-  insufficient_level_readings: "قراءات مستوى غير كافية",
-  reconciliation_anomaly: "تعارض في التسوية",
-  measured_without_hour_rate: "استهلاك مقاس دون معدل ساعات موثوق",
-};
+
 
 export default function InventoryFuelConsumptionPanel({
   siteId, isAuthenticated, canManageFuelAndConsumption, canViewInventoryReports,
 }: Props) {
   const utils = trpc.useUtils();
+  const auth = useAuth();
+  const { isOnline: isPowerHubOnline, isChecking: isConnectivityChecking } = usePowerHubConnectivity();
+  const [savingFillDraft, setSavingFillDraft] = useState(false);
+  const [activeFuelDialog, setActiveFuelDialog] = useState<"fill" | "reading" | "alerts" | null>(null);
   const today = useMemo(() => todayLocalDate(), []);
   const [generatorId, setGeneratorId] = useState("");
   const [fuelItemId, setFuelItemId] = useState("");
@@ -102,7 +121,6 @@ export default function InventoryFuelConsumptionPanel({
   const [fillOperatingHours, setFillOperatingHours] = useState("");
   const [fillReference, setFillReference] = useState("");
   const [fillNotes, setFillNotes] = useState("");
-  const [fillKey, setFillKey] = useState(() => operationKey("fuel-fill"));
 
   const [readingGeneratorId, setReadingGeneratorId] = useState("");
   const [readingType, setReadingType] = useState<"tank_level" | "operating_hours">("tank_level");
@@ -113,7 +131,6 @@ export default function InventoryFuelConsumptionPanel({
   const [readingNotes, setReadingNotes] = useState("");
   const [correctsReadingId, setCorrectsReadingId] = useState("");
   const [correctionReason, setCorrectionReason] = useState("");
-  const [readingKey, setReadingKey] = useState(() => operationKey("fuel-reading"));
 
   const [fromDate, setFromDate] = useState(() => today);
   const [toDate, setToDate] = useState(() => today);
@@ -129,17 +146,18 @@ export default function InventoryFuelConsumptionPanel({
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [alertGeneratorId, setAlertGeneratorId] = useState("");
   const [alertTankId, setAlertTankId] = useState("");
-  const [alertSettingKey, setAlertSettingKey] = useState(() => operationKey("fuel-alert-settings"));
 
   const options = trpc.powerhub.inventory.fuelWorkspaceOptions.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 20_000 },
   );
-  const generators = (options.data?.generators ?? []) as FuelGenerator[];
+  const optionsAuthorizationDenied = isExplicitAuthorizationDenial(options.error);
+  const workspaceOptions = optionsAuthorizationDenied ? undefined : options.data;
+  const generators = (workspaceOptions?.generators ?? []) as FuelGenerator[];
   const activeGeneratorId = generatorId || String(generators[0]?.id ?? "");
   const activeReadingGeneratorId = readingGeneratorId || String(generators[0]?.id ?? "");
   const activeReportGeneratorId = reportGeneratorId || "";
-  const tanks = options.data?.generatorTanks ?? [];
+  const tanks = workspaceOptions?.generatorTanks ?? [];
   const generatorTanks = tanks.filter((tank) => tank.generatorId === Number(activeGeneratorId));
   const readingTanks = tanks.filter((tank) => tank.generatorId === Number(activeReadingGeneratorId));
   const activeAlertGeneratorId = alertGeneratorId || String(generators[0]?.id ?? "");
@@ -150,10 +168,44 @@ export default function InventoryFuelConsumptionPanel({
       generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 10_000 },
   );
+  // This unfiltered latest-100 feed is the persisted Delta snapshot. Filtered
+  // history remains server-authoritative and is never presented as complete offline.
+  const recentEvents = trpc.powerhub.inventory.listFuelEvents.useQuery(
+    { siteId, limit: 100 },
+    { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)) },
+  );
   const readings = trpc.powerhub.inventory.listFuelReadings.useQuery(
     { siteId, generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined, limit: 100 },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 10_000 },
   );
+  // Only the unfiltered site-wide latest-100 reading list is Delta-backed.
+  // It provides an honest offline fallback when the selected-generator query is unavailable.
+  const recentReadings = trpc.powerhub.inventory.listFuelReadings.useQuery(
+    { siteId, limit: 100 },
+    { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)) },
+  );
+  const eventsAuthorizationDenied = isExplicitAuthorizationDenial(events.error);
+  const recentEventsAuthorizationDenied = isExplicitAuthorizationDenial(recentEvents.error);
+  const readingsAuthorizationDenied = isExplicitAuthorizationDenial(readings.error);
+  const recentReadingsAuthorizationDenied = isExplicitAuthorizationDenial(recentReadings.error);
+  const hasFilteredEventQuery = Boolean(fromDate || toDate || activeReportGeneratorId);
+  const hasFilteredReadingQuery = Boolean(activeReportGeneratorId);
+
+  useEffect(() => {
+    if (!auth.user?.id || !siteId) return;
+    const userId = String(auth.user.id);
+    if (eventsAuthorizationDenied || recentEventsAuthorizationDenied) {
+      void clearOfflineFuelQueryCacheForSite(userId, siteId, ["listFuelEvents"]);
+    }
+    if (readingsAuthorizationDenied || recentReadingsAuthorizationDenied) {
+      void clearOfflineFuelQueryCacheForSite(userId, siteId, ["listFuelReadings"]);
+    }
+  }, [
+    auth.user?.id, siteId,
+    eventsAuthorizationDenied, recentEventsAuthorizationDenied,
+    readingsAuthorizationDenied, recentReadingsAuthorizationDenied,
+  ]);
+
   const report = trpc.powerhub.inventory.fuelConsumptionReportPeriod.useQuery(
     {
       siteId,
@@ -167,6 +219,142 @@ export default function InventoryFuelConsumptionPanel({
     { enabled: Boolean(siteId && isAuthenticated && canViewInventoryReports &&
       (reportPeriodType === "custom" ? reportFromDate && reportToDate && reportFromDate <= reportToDate : reportAnchorDate)), staleTime: 15_000 },
   );
+  const reportAuthorizationDenied = isExplicitAuthorizationDenial(report.error);
+  const reportPeriodReady = reportPeriodType === "custom"
+    ? Boolean(reportFromDate && reportToDate && reportFromDate <= reportToDate)
+    : Boolean(reportAnchorDate);
+  const fuelCostReport = trpc.powerhub.inventory.fuelConsumptionCostReportPeriod.useQuery(
+    {
+      siteId,
+      periodType: reportPeriodType,
+      anchorDate: reportPeriodType === "custom" ? undefined : reportAnchorDate,
+      fromDate: reportPeriodType === "custom" ? reportFromDate : undefined,
+      toDate: reportPeriodType === "custom" ? reportToDate : undefined,
+      generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : undefined,
+    },
+    {
+      enabled: Boolean(siteId && isAuthenticated && canViewInventoryReports && reportPeriodReady),
+      staleTime: 15_000,
+      refetchInterval: isPowerHubOnline ? 60_000 : false,
+    },
+  );
+  const fuelCostReportAuthorizationDenied = isExplicitAuthorizationDenial(fuelCostReport.error);
+  const refreshFuelFromDelta = useCallback((changed: OperationalDeltaRevisionEntity[]) => {
+    const eventsChanged = changed.includes("fuel_events");
+    const readingsChanged = changed.includes("fuel_readings");
+    if (eventsChanged && hasFilteredEventQuery) void events.refetch();
+    if (readingsChanged && hasFilteredReadingQuery) void readings.refetch();
+    const reportReady = reportPeriodType === "custom"
+      ? Boolean(reportFromDate && reportToDate && reportFromDate <= reportToDate)
+      : Boolean(reportAnchorDate);
+    if ((eventsChanged || readingsChanged) && canViewInventoryReports && reportReady) {
+      void report.refetch();
+      void fuelCostReport.refetch();
+    }
+  }, [
+    events.refetch, readings.refetch, report.refetch, fuelCostReport.refetch,
+    hasFilteredEventQuery, hasFilteredReadingQuery, canViewInventoryReports,
+    reportPeriodType, reportFromDate, reportToDate, reportAnchorDate,
+  ]);
+  useDeltaRevisionRefresh({
+    siteId,
+    userId: auth.user?.id,
+    entityTypes: FUEL_REVISION_ENTITIES,
+    enabled: Boolean(isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)),
+    onChange: refreshFuelFromDelta,
+  });
+
+  const fuelReportCacheInput = auth.user?.id ? {
+    userId: auth.user.id,
+    siteId,
+    reportType: "fuel-consumption" as const,
+    filters: {
+      periodType: reportPeriodType,
+      anchorDate: reportPeriodType === "custom" ? null : reportAnchorDate,
+      fromDate: reportPeriodType === "custom" ? reportFromDate : null,
+      toDate: reportPeriodType === "custom" ? reportToDate : null,
+      generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : null,
+      tankWarehouseId: reportTankId ? Number(reportTankId) : null,
+    },
+  } : null;
+  const fuelReportCacheKey = fuelReportCacheInput ? JSON.stringify([fuelReportCacheInput.userId, fuelReportCacheInput.siteId, fuelReportCacheInput.reportType, fuelReportCacheInput.filters]) : null;
+  const [cachedFuelReport, setCachedFuelReport] = useState<{ key: string; rows: FuelReportRow[]; savedAt: number } | null>(null);
+  const cachedFuelReportForCurrentScope = !reportAuthorizationDenied && cachedFuelReport && cachedFuelReport.key === fuelReportCacheKey ? cachedFuelReport : null;
+  useEffect(() => {
+    let current = true;
+    setCachedFuelReport(null);
+    if (!fuelReportCacheInput || !canViewInventoryReports) return () => { current = false; };
+    void loadOperationalReportSnapshot(fuelReportCacheInput, { accessAllowed: canViewInventoryReports })
+      .then((snapshot) => {
+        if (current && snapshot) setCachedFuelReport({ key: snapshot.key, rows: snapshot.rows as FuelReportRow[], savedAt: snapshot.savedAt });
+      })
+      .catch(() => undefined);
+    return () => { current = false; };
+  }, [auth.user?.id, siteId, canViewInventoryReports, reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId, reportTankId]);
+  useEffect(() => {
+    if (!fuelReportCacheInput || !canViewInventoryReports || !hasAuthoritativeServerRead(report) || !Array.isArray(report.data)) return;
+    void saveOperationalReportSnapshot({ ...fuelReportCacheInput, rows: report.data }).catch(() => undefined);
+  }, [auth.user?.id, siteId, canViewInventoryReports, report.isSuccess, report.isError, report.isFetching, report.isFetchedAfterMount, report.isPlaceholderData, report.data, reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId, reportTankId]);
+
+  const fuelCostReportCacheInput = auth.user?.id ? {
+    userId: auth.user.id,
+    siteId,
+    reportType: "fuel-consumption-cost" as const,
+    filters: {
+      periodType: reportPeriodType,
+      anchorDate: reportPeriodType === "custom" ? null : reportAnchorDate,
+      fromDate: reportPeriodType === "custom" ? reportFromDate : null,
+      toDate: reportPeriodType === "custom" ? reportToDate : null,
+      generatorId: activeReportGeneratorId ? Number(activeReportGeneratorId) : null,
+    },
+  } : null;
+  const fuelCostReportCacheKey = fuelCostReportCacheInput
+    ? JSON.stringify([
+      fuelCostReportCacheInput.userId, fuelCostReportCacheInput.siteId,
+      fuelCostReportCacheInput.reportType, fuelCostReportCacheInput.filters,
+    ])
+    : null;
+  const [cachedFuelCostReport, setCachedFuelCostReport] = useState<{
+    key: string; rows: FuelCostReportRow[]; savedAt: number;
+  } | null>(null);
+  const cachedFuelCostReportForCurrentScope =
+    !fuelCostReportAuthorizationDenied && cachedFuelCostReport?.key === fuelCostReportCacheKey
+      ? cachedFuelCostReport
+      : null;
+  useEffect(() => {
+    let current = true;
+    setCachedFuelCostReport(null);
+    if (!fuelCostReportCacheInput || !canViewInventoryReports) return () => { current = false; };
+    void loadOperationalReportSnapshot(fuelCostReportCacheInput, { accessAllowed: canViewInventoryReports })
+      .then((snapshot) => {
+        if (current && snapshot) {
+          setCachedFuelCostReport({
+            key: snapshot.key,
+            rows: snapshot.rows as FuelCostReportRow[],
+            savedAt: snapshot.savedAt,
+          });
+        }
+      })
+      .catch(() => undefined);
+    return () => { current = false; };
+  }, [
+    auth.user?.id, siteId, canViewInventoryReports, reportPeriodType,
+    reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId,
+  ]);
+  useEffect(() => {
+    if (!fuelCostReportCacheInput || !canViewInventoryReports ||
+        !hasAuthoritativeServerRead(fuelCostReport) || !Array.isArray(fuelCostReport.data)) return;
+    void saveOperationalReportSnapshot({
+      ...fuelCostReportCacheInput,
+      rows: fuelCostReport.data,
+    }).catch(() => undefined);
+  }, [
+    auth.user?.id, siteId, canViewInventoryReports,
+    fuelCostReport.isSuccess, fuelCostReport.isError, fuelCostReport.isFetching,
+    fuelCostReport.isFetchedAfterMount, fuelCostReport.isPlaceholderData, fuelCostReport.data,
+    reportPeriodType, reportAnchorDate, reportFromDate, reportToDate, activeReportGeneratorId,
+  ]);
+
   const alertSettings = trpc.powerhub.inventory.listFuelAlertSettings.useQuery(
     { siteId },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
@@ -180,7 +368,9 @@ export default function InventoryFuelConsumptionPanel({
     },
     { enabled: Boolean(siteId && isAuthenticated && (canManageFuelAndConsumption || canViewInventoryReports)), staleTime: 15_000 },
   );
-  const selectedAlertSetting = ((alertSettings.data ?? []) as FuelAlertSetting[]).find((row) =>
+  const alertSettingsAuthorizationDenied = isExplicitAuthorizationDenial(alertSettings.error);
+  const alertDispatchesAuthorizationDenied = isExplicitAuthorizationDenial(alertDispatches.error);
+  const selectedAlertSetting = ((alertSettingsAuthorizationDenied ? [] : alertSettings.data ?? []) as FuelAlertSetting[]).find((row) =>
     Number(row.generator_id) === Number(activeAlertGeneratorId) &&
     Number(row.tank_warehouse_id) === Number(alertTankId),
   );
@@ -202,13 +392,13 @@ export default function InventoryFuelConsumptionPanel({
     }
   }, [readingTanks, readingTankId]);
   useEffect(() => {
-    const sources = options.data?.sourceLocations ?? [];
+    const sources = workspaceOptions?.sourceLocations ?? [];
     if (!sources.some((row) => String(row.id) === sourceWarehouseId)) setSourceWarehouseId(String(sources[0]?.id ?? ""));
-  }, [options.data?.sourceLocations, sourceWarehouseId]);
+  }, [workspaceOptions?.sourceLocations, sourceWarehouseId]);
   useEffect(() => {
-    const items = options.data?.fuelItems ?? [];
+    const items = workspaceOptions?.fuelItems ?? [];
     if (!items.some((row) => String(row.id) === fuelItemId)) setFuelItemId(String(items[0]?.id ?? ""));
-  }, [options.data?.fuelItems, fuelItemId]);
+  }, [workspaceOptions?.fuelItems, fuelItemId]);
 
   useEffect(() => {
     if (!generators.some((row) => String(row.id) === alertGeneratorId) && generators[0]) {
@@ -235,9 +425,9 @@ export default function InventoryFuelConsumptionPanel({
 
   const fillMutation = trpc.powerhub.inventory.recordFuelFill.useMutation({
     onSuccess: async (result) => {
-      toast.success(result.replayed ? "تم تأكيد التعبئة السابقة دون تكرار حركة المخزون." : `تم تسجيل التعبئة ${qty(result.litres)} لتر وترحيلها إلى خزان المولد.`);
+      toast.success(result.replayed ? "تم تأكيد التعبئة السابقة دون تكرار حركة المخزون." : `تم تسجيل ${qty(result.litres)} لتر كوقود مصروف للمولد واحتساب تكلفته مرة واحدة.`);
       setLitres(""); setLevelBefore(""); setLevelAfter(""); setFillOperatingHours(""); setFillReference(""); setFillNotes("");
-      setFillAt(nowLocalDateTime()); setFillKey(operationKey("fuel-fill"));
+      setFillAt(nowLocalDateTime());
       await Promise.all([
         utils.powerhub.inventory.listFuelEvents.invalidate(),
         utils.powerhub.inventory.listFuelReadings.invalidate(),
@@ -255,7 +445,7 @@ export default function InventoryFuelConsumptionPanel({
     onSuccess: async (result) => {
       toast.success(result.replayed ? "هذه القراءة مسجلة مسبقًا." : "تم حفظ القراءة كسجل تاريخي؛ لا تُعدّل القراءات السابقة.");
       setReadingValue(""); setReadingReference(""); setReadingNotes(""); setCorrectsReadingId(""); setCorrectionReason("");
-      setReadingAt(nowLocalDateTime()); setReadingKey(operationKey("fuel-reading"));
+      setReadingAt(nowLocalDateTime());
       await Promise.all([
         utils.powerhub.inventory.listFuelReadings.invalidate(),
         utils.powerhub.inventory.fuelConsumptionReport.invalidate(),
@@ -269,7 +459,7 @@ export default function InventoryFuelConsumptionPanel({
   const alertSettingsMutation = trpc.powerhub.inventory.upsertFuelAlertSettings.useMutation({
     onSuccess: async (result) => {
       toast.success(result.replayed ? "تم تأكيد إعدادات التنبيه السابقة دون إنشاء نسخة." : "تم حفظ إعدادات تنبيهات الوقود وتدقيق العملية.");
-      setAlertSettingKey(operationKey("fuel-alert-settings"));
+
       await Promise.all([
         utils.powerhub.inventory.listFuelAlertSettings.invalidate(),
         utils.powerhub.inventory.listFuelAlertDispatches.invalidate(),
@@ -278,8 +468,15 @@ export default function InventoryFuelConsumptionPanel({
     onError: (error) => toast.error(error.message || "تعذر حفظ إعدادات تنبيهات الوقود."),
   });
 
-  const submitFill = (event: FormEvent) => {
+  const submitFill = async (event: FormEvent) => {
     event.preventDefault();
+    if (!canManageFuelAndConsumption) { toast.error("لا تملك صلاحية تسجيل تعبئة الوقود."); return; }
+    if (optionsAuthorizationDenied) { toast.error("رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل عملية التعبئة."); return; }
+    const reachability = getPowerHubConnectivitySnapshot();
+    if (isConnectivityChecking || reachability === null) {
+      toast.info("حالة اتصال PowerHub غير محسومة؛ لم تُرسل العملية أو تُحفظ كمسودة.");
+      return;
+    }
     const quantity = Number(litres);
     const before = levelBefore.trim() ? Number(levelBefore) : null;
     const after = levelAfter.trim() ? Number(levelAfter) : null;
@@ -290,23 +487,58 @@ export default function InventoryFuelConsumptionPanel({
     if (!Number.isFinite(quantity) || quantity <= 0 || Math.abs(quantity * 1000 - Math.round(quantity * 1000)) > 1e-7) {
       toast.error("أدخل كمية موجبة لا تتجاوز ثلاث منازل عشرية."); return;
     }
+    if (Number(sourceWarehouseId) === Number(destinationWarehouseId)) {
+      toast.error("مصدر الوقود وخزان المولد يجب أن يكونا مختلفين."); return;
+    }
     if ((before == null) !== (after == null) || (before != null && after != null && after < before)) {
       toast.error("أدخل مستوى الخزان قبل التعبئة وبعدها معًا، واجعل المستوى بعد التعبئة مساويًا أو أعلى."); return;
     }
     if ([before, after, hours].some((value) => value != null && (!Number.isFinite(value) || value < 0 || Math.abs(value * 1000 - Math.round(value * 1000)) > 1e-7))) {
       toast.error("المستويات وساعات التشغيل يجب أن تكون أرقامًا غير سالبة وبحد أقصى ثلاث منازل عشرية."); return;
     }
-    fillMutation.mutate({
-      siteId, generatorId: Number(activeGeneratorId), fuelItemId: Number(fuelItemId),
+    const payload: FuelFillDraft = {
+      generatorId: Number(activeGeneratorId), fuelItemId: Number(fuelItemId),
       sourceWarehouseId: Number(sourceWarehouseId), destinationWarehouseId: Number(destinationWarehouseId),
       litres: quantity, occurredAt: new Date(fillAt).toISOString(),
       levelBeforeLiters: before, levelAfterLiters: after, operatingHours: hours,
-      referenceNo: fillReference.trim() || undefined, notes: fillNotes.trim() || undefined, operationKey: fillKey,
-    });
+      referenceNo: fillReference.trim() || undefined, notes: fillNotes.trim() || undefined,
+    };
+    if (reachability === false) {
+      const userId = Number(auth.user?.id);
+      if (!Number.isSafeInteger(userId) || userId < 1) {
+        toast.error("تعذر تحديد مستخدم الجلسة لحفظ المسودة محليًا؛ لم تُحفظ العملية.");
+        return;
+      }
+      const clientOperationId = await getStableOperationKey({ userId, siteId, kind: "fuel_fill", payload }).catch((error) => {
+        toast.error(error instanceof Error ? error.message : "تعذر تجهيز معرف تعبئة الوقود؛ لم تُحفظ العملية.");
+        return null;
+      });
+      if (!clientOperationId) return;
+      setSavingFillDraft(true);
+      void enqueueOfflineWork({ userId, siteId, kind: "fuel_fill", clientOperationId, payload })
+        .then(() => {
+          notifyOfflineWorkQueueChanged({ userId, siteId });
+          toast.success("حُفظت تعبئة الوقود محليًا كمسودة. لم يُرحّل المخزون أو رصيد الخزان بعد.");
+          setLitres(""); setLevelBefore(""); setLevelAfter(""); setFillOperatingHours(""); setFillReference(""); setFillNotes("");
+          setFillAt(nowLocalDateTime());
+        })
+        .catch(() => toast.error("تعذر حفظ مسودة الوقود مع بيانات المزامنة؛ بقي النموذج دون تغيير."))
+        .finally(() => setSavingFillDraft(false));
+      return;
+    }
+    const userId = Number(auth.user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      toast.error("تعذر تحديد مستخدم الجلسة لإنشاء معرف تعبئة ثابت؛ لم تُرسل العملية.");
+      return;
+    }
+    void runWithStableOperationKey({ userId, siteId, kind: "fuel_fill", payload },
+      (operationKey) => fillMutation.mutateAsync({ siteId, ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل تعبئة الوقود."));
   };
 
   const submitReading = (event: FormEvent) => {
     event.preventDefault();
+    if (optionsAuthorizationDenied) { toast.error("رفض الخادم صلاحية خيارات الوقود؛ لم تُرسل القراءة."); return; }
     const parsedValue = Number(readingValue);
     if (!activeReadingGeneratorId || !Number.isFinite(parsedValue) || parsedValue < 0 ||
         Math.abs(parsedValue * 1000 - Math.round(parsedValue * 1000)) > 1e-7) {
@@ -314,21 +546,67 @@ export default function InventoryFuelConsumptionPanel({
     }
     if (readingType === "tank_level" && !readingTankId) { toast.error("اختر خزانًا مرتبطًا بالمولد."); return; }
     if (correctsReadingId.trim() && !correctionReason.trim()) { toast.error("أدخل سببًا موثقًا لتصحيح القراءة."); return; }
-    readingMutation.mutate({
+    const userId = Number(auth.user?.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      toast.error("تعذر تحديد مستخدم الجلسة لإنشاء معرف قراءة ثابت؛ لم تُرسل العملية.");
+      return;
+    }
+    const payload = {
       siteId, generatorId: Number(activeReadingGeneratorId), readingType,
       tankWarehouseId: readingType === "tank_level" ? Number(readingTankId) : null,
       readingValue: parsedValue, recordedAt: new Date(readingAt).toISOString(),
       referenceNo: readingReference.trim() || undefined, notes: readingNotes.trim() || undefined,
       correctsReadingId: correctsReadingId.trim() ? Number(correctsReadingId) : null,
-      correctionReason: correctionReason.trim() || undefined, operationKey: readingKey,
-    });
+      correctionReason: correctionReason.trim() || undefined,
+    };
+    void runWithStableOperationKey({ userId, siteId, kind: "fuel_reading", payload },
+      (operationKey) => readingMutation.mutateAsync({ ...payload, operationKey }))
+      .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر تسجيل قراءة الوقود."));
   };
 
-  const eventRows = (events.data ?? []) as FuelEvent[];
-  const readingRows = (readings.data ?? []) as FuelReading[];
-  const reportRows = (report.data ?? []) as FuelReportRow[];
-  const alertSettingRows = (alertSettings.data ?? []) as FuelAlertSetting[];
-  const alertDispatchRows = (alertDispatches.data ?? []) as FuelAlertDispatch[];
+  const eventRows = (
+    eventsAuthorizationDenied || recentEventsAuthorizationDenied ? []
+      : events.data !== undefined ? events.data
+        : !hasFilteredEventQuery ? recentEvents.data ?? [] : []
+  ) as FuelEvent[];
+  const usingRecentOfflineEvents = !hasFilteredEventQuery &&
+    !eventsAuthorizationDenied && !recentEventsAuthorizationDenied &&
+    events.data === undefined && recentEvents.data !== undefined;
+  const readingRows = (
+    readingsAuthorizationDenied || recentReadingsAuthorizationDenied ? []
+      : readings.data !== undefined ? readings.data
+        : !hasFilteredReadingQuery ? recentReadings.data ?? [] : []
+  ) as FuelReading[];
+  const usingRecentOfflineReadings = !hasFilteredReadingQuery &&
+    !readingsAuthorizationDenied && !recentReadingsAuthorizationDenied &&
+    readings.data === undefined && recentReadings.data !== undefined;
+  const reportIsAuthoritative = !reportAuthorizationDenied && hasAuthoritativeServerRead(report);
+  const reportRows = (reportAuthorizationDenied ? [] : reportIsAuthoritative
+    ? report.data ?? []
+    : cachedFuelReportForCurrentScope?.rows ?? []) as FuelReportRow[];
+  const usingCachedFuelReport = !reportAuthorizationDenied && !reportIsAuthoritative && cachedFuelReportForCurrentScope !== null;
+  const hasAvailableFuelReport = !reportAuthorizationDenied && (reportIsAuthoritative || cachedFuelReportForCurrentScope !== null);
+  const generatorFuelSummaries = useMemo(
+    () => aggregateFuelFillReportByGenerator(reportRows),
+    [reportRows],
+  );
+  const generatorConsumptionSummaries = useMemo(
+    () => aggregateFuelConsumptionReportByGenerator(reportRows),
+    [reportRows],
+  );
+  const fuelCostReportRows = (fuelCostReportAuthorizationDenied ? [] :
+    hasAuthoritativeServerRead(fuelCostReport) ? fuelCostReport.data ?? [] :
+      cachedFuelCostReportForCurrentScope?.rows ?? []) as FuelCostReportRow[];
+  const fuelCostReportIsAuthoritative =
+    !fuelCostReportAuthorizationDenied && hasAuthoritativeServerRead(fuelCostReport);
+  const usingCachedFuelCostReport =
+    !fuelCostReportAuthorizationDenied && !fuelCostReportIsAuthoritative &&
+    cachedFuelCostReportForCurrentScope !== null;
+  const hasAvailableFuelCostReport =
+    !fuelCostReportAuthorizationDenied &&
+    (fuelCostReportIsAuthoritative || cachedFuelCostReportForCurrentScope !== null);
+  const alertSettingRows = (alertSettingsAuthorizationDenied ? [] : alertSettings.data ?? []) as FuelAlertSetting[];
+  const alertDispatchRows = (alertDispatchesAuthorizationDenied ? [] : alertDispatches.data ?? []) as FuelAlertDispatch[];
   const selectedGenerator = generators.find((row) => row.id === Number(activeGeneratorId));
   const reportTanks = reportGeneratorId
     ? tanks.filter((tank) => tank.generatorId === Number(reportGeneratorId))
@@ -339,15 +617,25 @@ export default function InventoryFuelConsumptionPanel({
   }
 
   return <div className="space-y-4">
+    {optionsAuthorizationDenied ? <p role="alert" className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى خيارات الوقود لهذا الفرع؛ أُخفيت الخيارات المحلية حتى لا تُستخدم بيانات قديمة.</p> : null}
+    {canManageFuelAndConsumption ? <div className="flex flex-wrap gap-2">
+      <Button type="button" size="sm" variant="outline" onClick={() => setActiveFuelDialog("fill")}><Droplet className="ml-2 h-4 w-4" /> تعبئة وقود</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setActiveFuelDialog("reading")}><Gauge className="ml-2 h-4 w-4" /> تسجيل قراءة مؤرخة</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setActiveFuelDialog("alerts")}><BellRing className="ml-2 h-4 w-4" /> إعدادات تنبيهات الوقود</Button>
+    </div> : null}
     {canManageFuelAndConsumption ? <>
+      <Dialog open={activeFuelDialog === "fill"} onOpenChange={(open) => setActiveFuelDialog(open ? "fill" : null)}>
+        <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto sm:max-w-5xl">
+          <DialogTitle>تسجيل تعبئة وقود</DialogTitle>
       <Card>
         <CardHeader className="flex flex-row items-center gap-3 space-y-0">
           <Droplet className="h-5 w-5" />
           <div><CardTitle>تسجيل تعبئة وقود</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">كل تعبئة تحرك رصيد الوقود وتكلفته ذريًا من المصدر إلى خزان المولد، وتحفظ المرجع والفاعل ووقت العملية.</p>
+            <p className="mt-1 text-sm text-muted-foreground">كل تعبئة تسجل صرفًا واحدًا من مخزن المصدر وتربطه بخزان المولد للتتبع؛ لا يُنشأ رصيد مخزني مستقل للخزان.</p>
           </div>
         </CardHeader>
         <CardContent>
+          {!isPowerHubOnline && !isConnectivityChecking ? <p role="status" className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700">PowerHub غير متاح الآن: يمكن حفظ تعبئة كمسودة محلية، ولن يُرحّل صرف المخزون أو سجل التعبئة النهائي حتى يؤكد الخادم المزامنة.</p> : null}
           <form onSubmit={submitFill} className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             <label className="grid gap-1.5 text-sm">المولد *
               <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={activeGeneratorId} onChange={(e) => setGeneratorId(e.target.value)}>
@@ -358,13 +646,13 @@ export default function InventoryFuelConsumptionPanel({
             <label className="grid gap-1.5 text-sm">صنف الوقود *
               <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={fuelItemId} onChange={(e) => setFuelItemId(e.target.value)}>
                 <option value="">اختر صنفًا بوحدته الأساسية اللتر</option>
-                {(options.data?.fuelItems ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}{item.sku ? ` (${item.sku})` : ""}</option>)}
+                {(workspaceOptions?.fuelItems ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}{item.sku ? ` (${item.sku})` : ""}</option>)}
               </select>
             </label>
             <label className="grid gap-1.5 text-sm">موقع المصدر *
               <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={sourceWarehouseId} onChange={(e) => setSourceWarehouseId(e.target.value)}>
                 <option value="">اختر مصدر الوقود</option>
-                {(options.data?.sourceLocations ?? []).map((w) => <option key={w.id} value={w.id}>{w.name} · {w.code}</option>)}
+                {(workspaceOptions?.sourceLocations ?? []).map((w) => <option key={w.id} value={w.id}>{w.name} · {w.code}</option>)}
               </select>
             </label>
             <label className="grid gap-1.5 text-sm">خزان المولد *
@@ -398,13 +686,18 @@ export default function InventoryFuelConsumptionPanel({
               مفتاح العملية ثابت أثناء المحاولة لمنع التكرار. لا تُحتسب الكمية المعبأة تلقائيًا على أنها استهلاك فعلي؛ يتطلب الاستهلاك المقاس قراءات مستوى صالحة.
               {selectedGenerator ? <span className="block mt-1">آخر قيمة محفوظة للمولد: مستوى {qty(selectedGenerator.fuelLevelLiters)} لتر، وساعات تشغيل {qty(selectedGenerator.operatingHours)}.</span> : null}
             </div>
-            <div><Button type="submit" disabled={fillMutation.isPending || options.isLoading || !fuelItemId || !sourceWarehouseId || !destinationWarehouseId}>
+            <div><Button type="submit" disabled={fillMutation.isPending || savingFillDraft || isConnectivityChecking || options.isLoading || optionsAuthorizationDenied || !fuelItemId || !sourceWarehouseId || !destinationWarehouseId}>
               {fillMutation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} تسجيل التعبئة
             </Button></div>
           </form>
         </CardContent>
       </Card>
+        </DialogContent>
+      </Dialog>
 
+      <Dialog open={activeFuelDialog === "reading"} onOpenChange={(open) => setActiveFuelDialog(open ? "reading" : null)}>
+        <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto sm:max-w-5xl">
+          <DialogTitle>تسجيل قراءة مؤرخة</DialogTitle>
       <Card>
         <CardHeader className="flex flex-row items-center gap-3 space-y-0">
           <Gauge className="h-5 w-5" />
@@ -450,22 +743,29 @@ export default function InventoryFuelConsumptionPanel({
             <label className="grid gap-1.5 text-sm md:col-span-2">ملاحظات
               <Input maxLength={2000} value={readingNotes} onChange={(e) => setReadingNotes(e.target.value)} />
             </label>
-            <div><Button type="submit" disabled={readingMutation.isPending || options.isLoading}>
+            <div><Button type="submit" disabled={readingMutation.isPending || options.isLoading || optionsAuthorizationDenied}>
               {readingMutation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />} حفظ القراءة
             </Button></div>
           </form>
         </CardContent>
       </Card>
+        </DialogContent>
+      </Dialog>
     </> : null}
 
-    {canManageFuelAndConsumption ? <Card>
+    {canManageFuelAndConsumption ? <Dialog open={activeFuelDialog === "alerts"} onOpenChange={(open) => setActiveFuelDialog(open ? "alerts" : null)}>
+      <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto sm:max-w-5xl">
+        <DialogTitle>إعدادات تنبيهات الوقود</DialogTitle>
+      <Card>
       <CardHeader>
         <CardTitle>إعدادات تنبيهات الوقود</CardTitle>
-        <p className="text-sm text-muted-foreground">يُرسل تنبيه داخل المنصة عند نزول المستوى عن الحد أو تجاوز معدل الاستهلاك المقاس. لا يُحتسب المعدل عند نقص القراءات أو تعارض التسوية.</p>
+        <p className="text-sm text-muted-foreground">يُحسب تنبيه انخفاض المستوى من آخر قراءة مستوى فعلية، ولا يُستنتج من كمية التعبئة أو رصيد المستودع. إذا لم توجد قراءة فلن يصدر تنبيه؛ وعبارة «لا يوجد تنبيه نشط» لا تثبت أن مستوى الخزان طبيعي. أما معدل الاستهلاك فيتطلب قراءات مستوى وساعات تشغيل متوافقة، ولا يُحتسب عند نقصها أو تعارض التسوية.</p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={(event) => {
+        {alertSettingsAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية الوصول إلى إعدادات تنبيهات الوقود؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : alertSettings.error && alertSettings.data !== undefined ? <p role="status" className="text-xs text-amber-700">تعذر تحديث إعدادات التنبيهات؛ تُعرض آخر نسخة ناجحة لهذه الجلسة.</p> : alertSettings.error ? <p role="alert" className="text-sm text-destructive">تعذر تحميل إعدادات التنبيهات ولا توجد نسخة متاحة.</p> : null}
+        <form className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" onSubmit={async (event) => {
           event.preventDefault();
+          if (optionsAuthorizationDenied || alertSettingsAuthorizationDenied) { toast.error("رفض الخادم صلاحية الوصول إلى خيارات الوقود أو إعدادات التنبيه؛ لم يُرسل التغيير."); return; }
           const low = alertLowThreshold.trim() ? Number(alertLowThreshold) : null;
           const rate = alertRateThreshold.trim() ? Number(alertRateThreshold) : null;
           const hours = Number(alertMinimumHours);
@@ -480,11 +780,19 @@ export default function InventoryFuelConsumptionPanel({
           if (!activeAlertGeneratorId || !alertTankId) {
             toast.error("اختر المولد وخزان الوقود المرتبط به."); return;
           }
-          alertSettingsMutation.mutate({
+          const userId = Number(auth.user?.id);
+          if (!Number.isSafeInteger(userId) || userId < 1) {
+            toast.error("تعذر تحديد مستخدم الجلسة لإنشاء معرف إعدادات ثابت؛ لم يُرسل التغيير.");
+            return;
+          }
+          const payload = {
             siteId, generatorId: Number(activeAlertGeneratorId), tankWarehouseId: Number(alertTankId),
             lowLevelThresholdLiters: low, abnormalLitresPerHourThreshold: rate,
-            minimumHoursDelta: hours, isEnabled: alertsEnabled, operationKey: alertSettingKey,
-          });
+            minimumHoursDelta: hours, isEnabled: alertsEnabled,
+          };
+          void runWithStableOperationKey({ userId, siteId, kind: "fuel_alert_settings", payload },
+            (operationKey) => alertSettingsMutation.mutateAsync({ ...payload, operationKey }))
+            .catch((error) => toast.error(error instanceof Error ? error.message : "تعذر حفظ إعدادات التنبيه."));
         }}>
           <label className="grid gap-1.5 text-sm">المولد
             <select required className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={activeAlertGeneratorId} onChange={(e) => setAlertGeneratorId(e.target.value)}>
@@ -512,7 +820,7 @@ export default function InventoryFuelConsumptionPanel({
             تفعيل تنبيهات هذا المولد والخزان
           </label>
           <div className="md:col-span-2 xl:col-span-3 flex flex-wrap items-center gap-2">
-            <Button type="submit" disabled={alertSettingsMutation.isPending || options.isLoading || !activeAlertGeneratorId || !alertTankId}>
+            <Button type="submit" disabled={alertSettingsMutation.isPending || options.isLoading || optionsAuthorizationDenied || alertSettingsAuthorizationDenied || !activeAlertGeneratorId || !alertTankId}>
               {alertSettingsMutation.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <Save className="ml-2 h-4 w-4" />}
               حفظ إعدادات التنبيه
             </Button>
@@ -531,16 +839,18 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2"><div>{row.is_enabled ? "مفعّل" : "موقوف"}</div><div className="text-xs text-muted-foreground">{row.low_level_alert_active ? "مستوى منخفض نشط" : row.abnormal_alert_active ? "استهلاك غير اعتيادي نشط" : "لا يوجد تنبيه نشط"}</div></td>
               <td className="p-2">{dateTime(row.abnormal_last_triggered_at || row.low_level_last_triggered_at)}</td>
             </tr>)}
-            {alertSettingRows.length === 0 ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">لم تُضبط تنبيهات لهذا الفرع بعد.</td></tr> : null}</tbody>
+            {alertSettingRows.length === 0 ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">{alertSettingsAuthorizationDenied ? "رفض الخادم الوصول إلى إعدادات التنبيهات." : alertSettings.error ? "تعذر تحميل إعدادات التنبيهات." : "لم تُضبط تنبيهات لهذا الفرع بعد."}</td></tr> : null}</tbody>
           </table>
         </div>
       </CardContent>
-    </Card> : null}
+      </Card>
+      </DialogContent>
+    </Dialog> : null}
 
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div><CardTitle>سجل التعبئات والقراءات</CardTitle><p className="mt-1 text-sm text-muted-foreground">السجلات مرتبة زمنيًا مع مرجع العملية؛ لا يُستبدل السجل القديم عند التصحيح.</p></div>
-        <Button type="button" variant="outline" size="sm" onClick={() => { void events.refetch(); void readings.refetch(); }}>
+        <Button type="button" variant="outline" size="sm" onClick={() => { void events.refetch(); void readings.refetch(); void report.refetch(); void fuelCostReport.refetch(); }}>
           <RefreshCw className="ml-2 h-4 w-4" /> تحديث
         </Button>
       </CardHeader>
@@ -589,30 +899,100 @@ export default function InventoryFuelConsumptionPanel({
             </label>
           </div>
           {reportPeriodType === "cycle" ? <p className="text-xs text-muted-foreground">يستخدم التقرير تعريف دورة القراءات والمنطقة الزمنية المحفوظين للفرع، بما في ذلك الدورات الأسبوعية و10 أيام و15 يومًا والشهرية.</p> : null}
-          {report.isLoading ? <p className="text-sm text-muted-foreground">جارٍ احتساب التقرير…</p> : report.error ? <p className="text-sm text-destructive">تعذر احتساب التقرير. تحقق من إعدادات الدورة والصلاحيات.</p> : null}
+          {usingCachedFuelReport ? <p role="status" className="text-xs text-amber-700">تُعرض نسخة محفوظة من التقرير بتاريخ {dateTime(new Date(cachedFuelReportForCurrentScope!.savedAt).toISOString())}. هذه لقطة تجميعية وليست إعادة احتساب حيّة؛ أعد الاتصال لتحديثها.</p> : null}
+          {reportAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية احتساب تقرير الوقود؛ أُخفيت أي نسخة محلية لهذا الطلب.</p> : (report.isLoading || report.isFetching) && !hasAvailableFuelReport ? <p className="text-sm text-muted-foreground">جارٍ احتساب التقرير…</p> : report.error && !hasAvailableFuelReport ? <p role="alert" className="text-sm text-destructive">تعذر احتساب التقرير. تحقق من إعدادات الدورة والصلاحيات.</p> : report.error && hasAvailableFuelReport && !usingCachedFuelReport ? <p role="status" className="text-xs text-amber-700">تعذر تحديث التقرير؛ تُعرض آخر نتيجة ناجحة متاحة في الجلسة.</p> : null}
         </div> : null}
-        {canViewInventoryReports ? <div className="overflow-x-auto rounded-md border">
+        {canViewInventoryReports ? <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">تعرض هذه النتائج إجمالي الوقود المعبأ لكل مولد خلال الفترة المحددة، وتُجمع خزانات المولد معًا. لا تمثل الأرقام قياسًا للاستهلاك الفعلي.</p>
+          <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right">
-              <th className="p-2">المولد / الخزان</th><th className="p-2">المعبأ</th><th className="p-2">التكلفة</th>
-              <th className="p-2">الاستهلاك المسجل</th><th className="p-2">الاستهلاك المقاس</th><th className="p-2">ساعات التشغيل</th><th className="p-2">لتر/ساعة</th><th className="p-2">حالة القياس</th>
+              <th className="p-2">المولد</th><th className="p-2">إجمالي اللترات المعبأة</th><th className="p-2">تكلفة التعبئة</th><th className="p-2">متوسط تكلفة اللتر</th>
             </tr></thead>
-            <tbody>{reportRows.map((row) => <tr key={`${row.generator_id}:${row.tank_warehouse_id}`} className="border-t">
-              <td className="p-2"><div>{row.generator_name}</div><div className="text-xs text-muted-foreground">{row.tank_name}</div></td>
-              <td className="p-2">{qty(row.fuel_filled_liters)} لتر</td><td className="p-2">{money(row.fuel_filled_cost)}</td>
-              <td className="p-2">{qty(row.recorded_consumption_liters)} لتر</td>
-              <td className="p-2">{row.actual_consumption_liters == null ? "غير متاح" : `${qty(row.actual_consumption_liters)} لتر`}</td>
-              <td className="p-2">{row.operating_hours_delta == null ? "—" : qty(row.operating_hours_delta)}</td>
-              <td className="p-2">{row.litres_per_hour == null ? "—" : qty(row.litres_per_hour)}</td>
-              <td className="p-2"><Badge variant="outline">{statusLabels[row.measurement_status] ?? row.measurement_status}</Badge></td>
+            <tbody>{generatorFuelSummaries.map((row) => <tr key={row.generator_id} className="border-t">
+              <td className="p-2">{row.generator_name}</td>
+              <td className="p-2">{qty(row.fuel_filled_liters)} لتر</td>
+              <td className="p-2">{money(row.fuel_filled_cost)}</td>
+              <td className="p-2">{row.average_cost_per_liter == null ? "—" : money(row.average_cost_per_liter)}</td>
             </tr>)}
-            {reportRows.length === 0 ? <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">لا توجد خزانات مولدات ضمن النطاق أو لا توجد بيانات للعرض.</td></tr> : null}
+            {generatorFuelSummaries.length === 0 ? <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">لا توجد تعبئات وقود مسجلة لهذا المولد أو الفترة المحددة.</td></tr> : null}
             </tbody>
           </table>
-        </div> : <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">يظهر تقرير التكلفة والاستهلاك المقاس لأصحاب صلاحية تقارير المخزون فقط.</p>}
+          </div>
+        </div> : <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">يظهر تقرير الوقود المعبأ لأصحاب صلاحية تقارير المخزون فقط.</p>}
+
+        {canViewInventoryReports ? <div className="space-y-3">
+          <h3 className="font-medium">الوقود المصروف والقياس التشخيصي لكل مولد</h3>
+          <p className="text-xs text-muted-foreground">
+            الاستهلاك المسجل يأتي من حركات صرف الوقود في دفتر المخزون. أما الاستهلاك المقاس فيُحسب من مستويات الخزانات بين القراءات بعد احتساب التعبئات والحركات؛ وتُخفى الكمية الإجمالية إذا كان قياس أي خزان للمولد غير مكتمل أو به تعارض.
+          </p>
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-muted/50 text-right">
+                <th className="p-2">المولد</th>
+                <th className="p-2">الاستهلاك المسجل</th>
+                <th className="p-2">الاستهلاك المقاس</th>
+                <th className="p-2">لتر/ساعة</th>
+                <th className="p-2">حالة القياس</th>
+              </tr></thead>
+              <tbody>{generatorConsumptionSummaries.map((row) => <tr key={row.generator_id} className="border-t">
+                <td className="p-2">{row.generator_name}</td>
+                <td className="p-2">{qty(row.recorded_consumption_liters)} لتر</td>
+                <td className="p-2">{row.actual_consumption_liters == null ? "—" : `${qty(row.actual_consumption_liters)} لتر`}</td>
+                <td className="p-2">{row.litres_per_hour == null ? "—" : qty(row.litres_per_hour)}</td>
+                <td className="p-2">{fuelMeasurementLabels[row.measurement_status] ?? "غير محدد"}</td>
+              </tr>)}
+              {generatorConsumptionSummaries.length === 0 ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">لا توجد قراءات أو حركات استهلاك في الفترة المحددة.</td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        </div> : null}
+
+        {canViewInventoryReports ? <div className="space-y-3">
+          <h3 className="font-medium">تكلفة الوقود المصروف للمولد حسب التعبئة</h3>
+          <p className="text-xs text-muted-foreground">
+            تعرض التكلفة المسجلة لكل تعبئة وفق متوسط تكلفة المخزون المرجّح. تُحتسب التعبئات الجديدة المسجلة كصرف مباشر ضمن مصروفات التشغيل والتسوية؛ أما التعبئات التاريخية المسجلة كتحويل مخزني فتظل إفصاحًا تاريخيًا ولا تعيد فتح تسويات الفترات السابقة. الكمية تمثل الوقود المعبأ للمولد، وليست قياسًا للاحتراق الفعلي.
+            {reportTankId ? " هذا الملخص على مستوى المولد ولا يُجزّأ حسب خزان الوقود." : ""}
+          </p>
+          {usingCachedFuelCostReport && cachedFuelCostReportForCurrentScope ? <p role="status" className="text-xs text-amber-700">
+            تُعرض لقطة تكلفة محفوظة بتاريخ {dateTime(new Date(cachedFuelCostReportForCurrentScope.savedAt).toISOString())}؛ أعد الاتصال لإعادة احتساب التكلفة.
+          </p> : null}
+          {fuelCostReportAuthorizationDenied ? <p role="alert" className="text-sm text-destructive">رفض الخادم صلاحية عرض تكلفة استهلاك الوقود؛ أُخفيت أي لقطة محلية.</p>
+            : (fuelCostReport.isLoading || fuelCostReport.isFetching) && !hasAvailableFuelCostReport
+              ? <p className="text-sm text-muted-foreground">جارٍ احتساب تكلفة الاستهلاك…</p>
+              : fuelCostReport.error && !hasAvailableFuelCostReport
+                ? <p role="alert" className="text-sm text-destructive">تعذر احتساب تكلفة الاستهلاك من المخزون للفترة المحددة.</p>
+                : fuelCostReport.error && hasAvailableFuelCostReport && !usingCachedFuelCostReport
+                  ? <p role="status" className="text-xs text-amber-700">تعذر تحديث التكلفة؛ تُعرض آخر نتيجة ناجحة مطابقة للفترة.</p>
+                  : null}
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-muted/50 text-right">
+                <th className="p-2">المولد</th>
+                <th className="p-2">عدد سجلات التعبئة/الصرف</th>
+                <th className="p-2">اللترات المصروفة حسب التعبئة</th>
+                <th className="p-2">تكلفة الوقود المصروف</th>
+                <th className="p-2">متوسط تكلفة اللتر المصروف</th>
+              </tr></thead>
+              <tbody>{fuelCostReportRows.map((row) => <tr key={row.generator_id} className="border-t">
+                <td className="p-2">{row.generator_name}</td>
+                <td className="p-2">{qty(row.movement_count)}</td>
+                <td className="p-2">{qty(row.recorded_consumption_liters)} لتر</td>
+                <td className="p-2">{money(row.recorded_consumption_cost)}</td>
+                <td className="p-2">{row.average_cost_per_liter == null ? "—" : money(row.average_cost_per_liter)}</td>
+              </tr>)}
+              {fuelCostReportRows.length === 0 && !fuelCostReport.isLoading && !fuelCostReport.isFetching
+                ? <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">لا توجد حركات استهلاك مسجلة في دفتر المخزون لهذه الفترة.</td></tr>
+                : null}
+              </tbody>
+            </table>
+          </div>
+        </div> : null}
 
         <div>
-          <h3 className="mb-2 font-medium">آخر التعبئات</h3>
+          <h3 className="mb-2 font-medium">سجل التعبئات</h3>
+          <p role="note" className="mb-2 text-xs text-muted-foreground">{hasFilteredEventQuery ? "القائمة تعرض أحدث 100 نتيجة مطابقة للفلاتر الحالية فقط؛ استخدم تقرير استهلاك الوقود لإعادة احتساب كامل النطاق التاريخي من الخادم." : "القائمة المختصرة تعرض آخر 100 تعبئة للفرع دون فلاتر؛ لا تمثل كامل التاريخ ولا تُستخدم بديلًا عن التقرير المفلتر."}</p>
+          {eventsAuthorizationDenied || recentEventsAuthorizationDenied ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل التعبئات؛ أُخفيت اللقطات المحلية المرتبطة به.</p> : events.error && events.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل التعبئات؛ تُعرض آخر لقطة محفوظة مطابقة للفلاتر الحالية.</p> : usingRecentOfflineEvents ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث السجل؛ يعرض الجدول آخر 100 تعبئة للفرع دون فلاتر إضافية، وليس كامل التاريخ.</p> : events.error && hasFilteredEventQuery && events.data === undefined ? <p role="status" className="mb-2 text-xs text-amber-700">لا توجد لقطة محلية مطابقة لفلاتر التعبئة الحالية؛ أعد الاتصال لتحميل النطاق المطلوب.</p> : events.error && !recentEvents.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل التعبئات ولا توجد نسخة محلية متاحة.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">من المصدر إلى الخزان</th><th className="p-2">اللترات</th><th className="p-2">المستوى قبل ← بعد</th><th className="p-2">ساعات العداد</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{eventRows.map((row) => <tr key={row.event_id} className="border-t">
@@ -621,12 +1001,14 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.litres)}</td><td className="p-2">{qty(row.level_before_liters)} ← {qty(row.level_after_liters)}</td>
               <td className="p-2">{qty(row.operating_hours)}</td><td className="p-2">{row.reference_no || "—"}</td>
             </tr>)}
-            {eventRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">لا توجد تعبئات في الفترة المحددة.</td></tr> : null}</tbody>
+            {eventRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{events.error && hasFilteredEventQuery && events.data === undefined ? "لا توجد لقطة محلية مطابقة للفلاتر الحالية." : events.error && !recentEvents.data ? "تعذر تحميل سجل التعبئات ولا توجد نسخة محلية متاحة." : "لا توجد تعبئات في الفترة المحددة."}</td></tr> : null}</tbody>
           </table></div>
         </div>
 
         <div>
-          <h3 className="mb-2 font-medium">آخر القراءات</h3>
+          <h3 className="mb-2 font-medium">سجل القراءات</h3>
+          <p role="note" className="mb-2 text-xs text-muted-foreground">{hasFilteredReadingQuery ? "القائمة تعرض أحدث 100 قراءة مطابقة للمولد المحدد فقط؛ لا تعاملها كسجل تاريخي كامل." : "القائمة المختصرة تعرض آخر 100 قراءة للفرع دون فلتر مولد؛ لا تمثل كامل التاريخ."}</p>
+          {readingsAuthorizationDenied || recentReadingsAuthorizationDenied ? <p role="alert" className="mb-2 text-xs text-destructive">رفض الخادم صلاحية الوصول إلى سجل القراءات؛ أُخفيت اللقطات المحلية المرتبطة به.</p> : readings.error && readings.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ تُعرض آخر لقطة محفوظة مطابقة للفلاتر الحالية.</p> : usingRecentOfflineReadings ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل القراءات؛ يعرض الجدول آخر 100 قراءة للفرع دون فلتر مولد، وليس كامل التاريخ.</p> : readings.error && hasFilteredReadingQuery && readings.data === undefined ? <p role="status" className="mb-2 text-xs text-amber-700">لا توجد لقطة محلية مطابقة لفلتر المولد الحالي؛ أعد الاتصال لتحميل القراءات.</p> : readings.error && !recentReadings.data ? <p role="alert" className="mb-2 text-xs text-destructive">تعذر تحميل سجل القراءات ولا توجد نسخة محلية متاحة لهذا النطاق.</p> : null}
           <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right"><th className="p-2">التاريخ</th><th className="p-2">المولد</th><th className="p-2">النوع</th><th className="p-2">الخزان</th><th className="p-2">القراءة</th><th className="p-2">تصحيح القراءة</th><th className="p-2">المرجع</th></tr></thead>
             <tbody>{readingRows.map((row) => <tr key={row.reading_id} className="border-t">
@@ -635,7 +1017,7 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.reading_value)}</td>
               <td className="p-2">{row.corrects_reading_id ? `تصحيح #${row.corrects_reading_id}: ${row.correction_reason || ""}` : "—"}</td><td className="p-2">{row.reference_no || "—"}</td>
             </tr>)}
-            {readingRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">لا توجد قراءات مسجلة.</td></tr> : null}</tbody>
+            {readingRows.length === 0 ? <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">{readings.error && hasFilteredReadingQuery && readings.data === undefined ? "لا توجد لقطة محلية مطابقة للمولد المحدد." : readings.error && !recentReadings.data ? "تعذر تحميل القراءات ولا توجد نسخة محلية متاحة." : "لا توجد قراءات مسجلة."}</td></tr> : null}</tbody>
           </table></div>
         </div>
       </CardContent>
@@ -646,6 +1028,7 @@ export default function InventoryFuelConsumptionPanel({
         <p className="text-sm text-muted-foreground">كل صف يمثل بداية حالة تنبيه جديدة؛ لا تكرر إعادة التقييم التنبيه ما دامت الحالة مستمرة.</p>
       </CardHeader>
       <CardContent>
+        {alertDispatchesAuthorizationDenied ? <p role="alert" className="mb-2 text-sm text-destructive">رفض الخادم صلاحية الوصول إلى سجل إرسال التنبيهات؛ أُخفيت البيانات المحلية لهذا الطلب.</p> : alertDispatches.error && alertDispatches.data !== undefined ? <p role="status" className="mb-2 text-xs text-amber-700">تعذر تحديث سجل التنبيهات؛ تُعرض آخر نتيجة ناجحة.</p> : alertDispatches.error ? <p role="alert" className="mb-2 text-sm text-destructive">تعذر تحميل سجل التنبيهات ولا توجد نسخة متاحة.</p> : null}
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead><tr className="bg-muted/50 text-right">
@@ -659,7 +1042,7 @@ export default function InventoryFuelConsumptionPanel({
               <td className="p-2">{qty(row.threshold_value)} {row.alert_type === "low_fuel_level" ? "لتر" : "لتر/ساعة"}</td>
               <td className="p-2">{row.recipient_count > 0 ? "أُنشئ إشعار داخل المنصة" : "لم يوجد مستلم نشط وقت التقييم"}</td>
             </tr>)}
-            {alertDispatchRows.length === 0 ? <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">لا توجد تنبيهات مسجلة ضمن المرشحات.</td></tr> : null}</tbody>
+            {alertDispatchRows.length === 0 ? <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">{alertDispatchesAuthorizationDenied ? "رفض الخادم الوصول إلى سجل التنبيهات." : alertDispatches.error ? "تعذر تحميل سجل التنبيهات." : "لا توجد تنبيهات مسجلة ضمن المرشحات."}</td></tr> : null}</tbody>
           </table>
         </div>
       </CardContent>

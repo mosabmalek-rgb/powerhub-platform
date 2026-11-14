@@ -1,10 +1,13 @@
 import { TRPCError } from "@trpc/server";
 import { applyStaffCapabilityOverrides, defaultCapabilitiesForRole, powerCapabilityLabels, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { supabaseAdmin } from "./supabase-admin";
+import { measureB5Stage } from "./b5-request-trace";
+import { recordTenantSearchMetric } from "./tenant-search-telemetry";
 import { requireTenantSubscription } from "./subscription-access";
 import { storageGet } from "./storage";
 import { buildFinancialOverview } from "./financial-overview-utils";
 import { isActivePlatformAdmin } from "./platform-admin";
+import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./tenant-membership-expiry";
 
 const allCapabilities = Object.keys(powerCapabilityLabels) as PowerCapability[];
 
@@ -36,7 +39,10 @@ function decodeHistoryCursor(value: string | undefined): SupabaseKeysetCursor | 
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<SupabaseKeysetCursor>;
     const id = parsed.id;
     if (typeof parsed.at !== "string" || !Number.isInteger(id) || (id ?? 0) < 1 || Number.isNaN(Date.parse(parsed.at))) throw new Error("invalid");
-    return { at: new Date(parsed.at).toISOString(), id: id as number };
+    if (parsed.at.length > 40 || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(parsed.at)) {
+      throw new Error("invalid timestamp format");
+    }
+    return { at: parsed.at, id: id as number };
   } catch {
     throw new TRPCError({ code: "BAD_REQUEST", message: "مؤشر الصفحة غير صالح؛ أعد تحميل القائمة." });
   }
@@ -66,6 +72,7 @@ function isSuspended(now: Date, startsAt: Date | null, endsAt: Date | null) {
 
 type SupabaseAccountTransaction = {
   id: number;
+  siteId: number | null;
   tenantId: number;
   accountId: number;
   transactionType: string;
@@ -81,7 +88,7 @@ type SupabaseAccountTransaction = {
 
 export async function getSupabaseSite(siteId: number): Promise<SupabaseSite> {
   const { data, error } = await supabaseAdmin().from("sites")
-    .select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)")
+    .select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!sites_tenant_id_fkey(name)")
     .eq("id", siteId).maybeSingle();
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفرع من Supabase." });
   if (!data) throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
@@ -100,119 +107,116 @@ type ResolvedSupabaseSiteAccess = {
   invoiceDueHours: number;
   usesPermissionOverride: boolean;
   isPlatformAdmin: boolean;
+  deniedCapabilities: PowerCapability[];
+};
+
+// B5.20: one database-fresh snapshot per authorization decision. No permission
+// TTL or cross-request cache. RPC is service_role-only and SECURITY INVOKER.
+type SiteAccessSnapshot = {
+  user: { role: string; platform_role: string | null; account_status: string } | null;
+  site: { tenant_id: number; status: string; invoice_due_days: number; invoice_due_hours: number | null } | null;
+  membership: { role: string; expires_at: string | null; is_active: boolean; membership_status: string } | null;
+  subscription: { status: string; ends_at: string | null; read_only_until: string | null } | null;
+  member_overrides: { capability: string; is_allowed: boolean }[];
+  staff_profiles: { id: number; site_id: number | null; role: string; permissions: unknown; custom_role_id: number | null; suspension_started_at: string | null; suspension_ends_at: string | null }[];
+  staff_overrides: { profile_id: number; capability: string; is_allowed: boolean }[];
+  custom_roles: { id: number; permissions: unknown }[];
+  role_policies: { role: string; capability: string; is_allowed: boolean }[];
 };
 
 async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number): Promise<ResolvedSupabaseSiteAccess> {
-  const accessStartedAt = performance.now();
-  let userAndSiteMs = 0;
-  let membershipAndSubscriptionMs = 0;
-  let staffProfilesMs = 0;
-  let permissionResolutionMs = 0;
-  const reportSlowAccess = (outcome: "platform_admin" | "owner" | "staff") => {
-    const totalMs = Math.round(performance.now() - accessStartedAt);
-    if (totalMs < 800) return;
-    // Do not log user, tenant, or site identifiers or any permission contents.
-    console.warn("[PowerHub access latency]", {
-      stage: "resolveSupabaseSiteAccessDetails",
-      outcome,
-      totalMs,
-      userAndSiteMs,
-      membershipAndSubscriptionMs,
-      staffProfilesMs,
-      permissionResolutionMs,
+  const startedAt = performance.now();
+  const { data, error } = await measureB5Stage("siteAccessRpc", () =>
+    supabaseAdmin().rpc("powerhub_site_access_snapshot", {
+      p_user_id: userId, p_site_id: siteId,
+    }));
+
+  if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صلاحيات الفرع في Supabase." });
+  }
+  const snapshot = data as SiteAccessSnapshot;
+  const user = snapshot.user;
+  const site = snapshot.site;
+  if (!user || user.account_status !== "active") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذا الحساب معطل أو لا يملك حق الوصول." });
+  }
+  if (!site || !Number.isSafeInteger(Number(site.tenant_id)) || Number(site.tenant_id) <= 0) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "المحطة غير موجودة." });
+  }
+  const tenantId = Number(site.tenant_id);
+  const invoiceDueDays = Number(site.invoice_due_days);
+  const invoiceDueHours = Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, invoiceDueDays * 24)));
+  const platformAdmin = isActivePlatformAdmin({
+    role: user.role, platformRole: user.platform_role, accountStatus: user.account_status,
+  });
+  const reportLatency = (outcome: "owner" | "staff" | "platform_admin") => {
+    const totalMs = Math.round(performance.now() - startedAt);
+    if (totalMs >= 800) console.warn("[PowerHub access latency]", {
+      stage: "powerhub_site_access_snapshot", outcome, totalMs,
     });
   };
-  const admin = supabaseAdmin();
-  const identityAndSiteStartedAt = performance.now();
-  const [{ data: user, error: userError }, site] = await Promise.all([
-    admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle(),
-    getSupabaseSite(siteId),
-  ]);
-  userAndSiteMs = Math.round(performance.now() - identityAndSiteStartedAt);
-  if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المستخدم من Supabase." });
-  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "ملف المستخدم غير متاح." });
-  const platformAdmin = isActivePlatformAdmin({ role: user.role, platformRole: user.platform_role, accountStatus: user.account_status });
   if (platformAdmin) {
-    reportSlowAccess("platform_admin");
-    return { role: "owner", permissions: allCapabilities, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, usesPermissionOverride: false, isPlatformAdmin: true };
-  }
-
-  // Membership and subscription are independent checks once the site's tenant is known.
-  // Run them concurrently to avoid adding one network round trip to every protected operation.
-  const membershipAndSubscriptionStartedAt = performance.now();
-  const [membershipResult] = await Promise.all([
-    admin.from("tenant_members")
-      .select("role,tenant_member_capability_overrides(capability,is_allowed)").eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
-    requireTenantSubscription(site.tenantId, new Date(), { allowReadOnlyRetention: true }),
-  ]);
-  membershipAndSubscriptionMs = Math.round(performance.now() - membershipAndSubscriptionStartedAt);
-  const { data: membership, error: membershipError } = membershipResult;
-  if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
-  if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة في مساحة صاحب المولد لهذه المحطة." });
-
-  if (membership.role === "owner") {
-    const ownerOverrides = Array.isArray((membership as any).tenant_member_capability_overrides)
-      ? (membership as any).tenant_member_capability_overrides.map((override: { capability: string; is_allowed: boolean }) => ({
-          capability: override.capability,
-          is_allowed: Boolean(override.is_allowed),
-        }))
-      : [];
-    const permissions = applyStaffCapabilityOverrides(allCapabilities, ownerOverrides);
-    reportSlowAccess("owner");
+    reportLatency("platform_admin");
     return {
-      role: "owner",
-      permissions,
-      tenantId: site.tenantId,
-      invoiceDueDays: site.invoiceDueDays,
-      invoiceDueHours: site.invoiceDueHours,
-      usesPermissionOverride: ownerOverrides.length > 0,
-      isPlatformAdmin: false,
+      role: "owner", permissions: allCapabilities, tenantId,
+      invoiceDueDays, invoiceDueHours, usesPermissionOverride: false,
+      isPlatformAdmin: true, deniedCapabilities: [],
     };
   }
-
-  const staffProfilesStartedAt = performance.now();
-  const { data: profiles, error: profileError } = await admin.from("staff_profiles")
-    .select("id, role, permissions, custom_role_id, suspension_started_at, suspension_ends_at, site_id")
-    .eq("tenant_id", site.tenantId).eq("user_id", userId).eq("is_active", true);
-  staffProfilesMs = Math.round(performance.now() - staffProfilesStartedAt);
-  if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيين المستخدم في Supabase." });
-  const profile = (profiles ?? []).find((item) => Number(item.site_id) === siteId) ?? (profiles ?? []).find((item) => item.site_id === null);
+  const member = snapshot.membership;
+  if (!member || !member.is_active || member.membership_status !== "active" ||
+      !isTenantMembershipUnexpired(member)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "لا توجد عضوية فعالة أو أن مدة العضوية قد انتهت." });
+  }
+  const subscription = snapshot.subscription;
+  const now = new Date();
+  const activeSubscription = subscription &&
+    (subscription.status === "trial" || subscription.status === "active") &&
+    subscription.ends_at && Number.isFinite(Date.parse(subscription.ends_at)) &&
+    Date.parse(subscription.ends_at) > now.getTime();
+  const retainedReadOnly = subscription?.status === "cancelled" &&
+    subscription.read_only_until && Number.isFinite(Date.parse(subscription.read_only_until)) &&
+    Date.parse(subscription.read_only_until) > now.getTime();
+  if (!activeSubscription && !retainedReadOnly) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "انتهى اشتراك مساحة العمل أو تم إيقافه. يرجى تجديد الاشتراك للمتابعة." });
+  }
+  const asList = <T>(items: T[] | undefined): T[] => Array.isArray(items) ? items : [];
+  const policyDeny = (role: PowerRole) => asList(snapshot.role_policies)
+    .filter((x) => x.role === role && x.is_allowed === false)
+    .map((x) => x.capability)
+    .filter((cap): cap is PowerCapability => allCapabilities.includes(cap as PowerCapability));
+  if (member.role === "owner") {
+    const ownerOverrides = asList(snapshot.member_overrides);
+    const permissions = applyStaffCapabilityOverrides(allCapabilities, ownerOverrides);
+    reportLatency("owner");
+    return {
+      role: "owner", permissions, tenantId, invoiceDueDays, invoiceDueHours,
+      usesPermissionOverride: ownerOverrides.length > 0, isPlatformAdmin: false,
+      deniedCapabilities: policyDeny("owner"),
+    };
+  }
+  const profiles = asList(snapshot.staff_profiles);
+  const profile = profiles.find((p) => Number(p.site_id) === siteId) ??
+    profiles.find((p) => p.site_id === null);
   if (!profile) throw new TRPCError({ code: "FORBIDDEN", message: "لا يوجد تعيين فعال لك في هذه المحطة." });
-  if (isSuspended(new Date(), dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at))) {
-    throw new TRPCError({ code: "FORBIDDEN", message: `تم توقيف حسابك مؤقتاً حتى ${new Date(profile.suspension_ends_at!).toLocaleString("ar-IQ")}.` });
+  if (isSuspended(now, dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذا التعيين موقوف مؤقتًا." });
   }
-  // NULL means "inherit from custom role"; [] is an explicit deny-all override.
-  const hasExplicitPermissions = profile.permissions !== null && profile.permissions !== undefined;
   const role = asPowerRole(profile.role);
-  const usesPermissionOverride = hasExplicitPermissions || Boolean(profile.custom_role_id);
-  let permissions = hasExplicitPermissions ? asPermissions(profile.permissions) : defaultCapabilitiesForRole(role);
-
-  // Load custom-role permissions and per-profile capability overrides concurrently.
-  // Explicit per-profile entries are applied last, so the platform admin can grant
-  // or deny a capability for one account without mutating the reusable role.
-  const customRoleStartedAt = performance.now();
-  const [customRoleResult, userOverridesResult] = await Promise.all([
-    !hasExplicitPermissions && profile.custom_role_id
-      ? admin.from("custom_permission_roles").select("permissions")
-          .eq("id", profile.custom_role_id).eq("tenant_id", site.tenantId).eq("is_active", true).maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-    admin.from("staff_profile_capability_overrides")
-      .select("capability,is_allowed")
-      .eq("tenant_id", site.tenantId)
-      .eq("profile_id", profile.id),
-  ]);
-  permissionResolutionMs = Math.round(performance.now() - customRoleStartedAt);
-  if (customRoleResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة من Supabase." });
-  if (userOverridesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استثناءات صلاحيات المستخدم من Supabase." });
-  if (!hasExplicitPermissions && profile.custom_role_id) {
-    permissions = asPermissions(customRoleResult.data?.permissions);
+  const explicit = profile.permissions !== null && profile.permissions !== undefined;
+  let permissions = explicit ? asPermissions(profile.permissions) : defaultCapabilitiesForRole(role);
+  if (!explicit && profile.custom_role_id) {
+    const custom = asList(snapshot.custom_roles).find((c) => Number(c.id) === Number(profile.custom_role_id));
+    permissions = asPermissions(custom?.permissions);
   }
-  permissions = applyStaffCapabilityOverrides(
-    permissions,
-    (userOverridesResult.data ?? []).map((override) => ({ capability: override.capability, is_allowed: Boolean(override.is_allowed) })),
-  );
-  reportSlowAccess("staff");
-  return { role, permissions, usesPermissionOverride: usesPermissionOverride || (userOverridesResult.data ?? []).length > 0, tenantId: site.tenantId, invoiceDueDays: site.invoiceDueDays, invoiceDueHours: site.invoiceDueHours, isPlatformAdmin: false };
+  const overrides = asList(snapshot.staff_overrides).filter((o) => Number(o.profile_id) === Number(profile.id));
+  permissions = applyStaffCapabilityOverrides(permissions, overrides);
+  reportLatency("staff");
+  return {
+    role, permissions, tenantId, invoiceDueDays, invoiceDueHours,
+    usesPermissionOverride: explicit || Boolean(profile.custom_role_id) || overrides.length > 0,
+    isPlatformAdmin: false, deniedCapabilities: policyDeny(role),
+  };
 }
 
 export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean }> {
@@ -231,11 +235,8 @@ export async function requireSupabaseSiteRole(userId: number, siteId: number, al
   if (!platformAdmin && !capability && !allowed.includes(access.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
   }
-  if (!platformAdmin && capability) {
-    const { data: policy, error: policyError } = await supabaseAdmin().from("platform_role_policies")
-      .select("is_allowed").eq("role", access.role).eq("capability", capability).maybeSingle();
-    if (policyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
-    if (policy && !policy.is_allowed) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+  if (!platformAdmin && capability && access.deniedCapabilities.includes(capability)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
   }
   return { role: access.role, permissions: access.permissions, tenantId: access.tenantId, usesPermissionOverride: access.usesPermissionOverride, invoiceDueDays: access.invoiceDueDays, invoiceDueHours: access.invoiceDueHours };
 }
@@ -247,18 +248,52 @@ export async function requireSupabaseSiteCapabilities(userId: number, siteId: nu
   const missing = capabilities.find((capability) => !access.permissions.includes(capability));
   if (missing) throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
 
-  // Resolve all capability policies in parallel after one membership/subscription/site lookup.
-  const policies = await Promise.all(capabilities.map((capability) =>
-    supabaseAdmin().from("platform_role_policies")
-      .select("is_allowed").eq("role", access.role).eq("capability", capability).maybeSingle()
-  ));
-  for (const policyResult of policies) {
-    if (policyResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
-    if (policyResult.data && !policyResult.data.is_allowed) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
-    }
+  // Platform policy denials are part of the same fresh authorization RPC.
+  // Avoid additional network round trips for sensitive multi-capability gates.
+  if (capabilities.some((capability) => access.deniedCapabilities.includes(capability))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
   }
   return access;
+}
+
+export async function resolveSupabaseSiteCapabilityAccess(
+  userId: number,
+  siteId: number,
+  requestedCapabilities: PowerCapability[],
+) {
+  const capabilities = Array.from(new Set(requestedCapabilities));
+  if (!capabilities.length) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد صلاحية واحدة على الأقل." });
+  }
+
+  const access = await resolveSupabaseSiteAccessDetails(userId, siteId);
+  if (access.isPlatformAdmin) return { ...access, allowedCapabilities: capabilities };
+
+  const grantedCapabilities = capabilities.filter((capability) => access.permissions.includes(capability));
+  if (!grantedCapabilities.length) return { ...access, allowedCapabilities: [] };
+
+  return {
+    ...access,
+    allowedCapabilities: grantedCapabilities.filter((capability) =>
+      !access.deniedCapabilities.includes(capability)),
+  };
+}
+
+export async function requireSupabaseSiteAnyCapability(
+  userId: number,
+  siteId: number,
+  capabilities: PowerCapability[],
+) {
+  const access = await resolveSupabaseSiteCapabilityAccess(userId, siteId, capabilities);
+  if (access.allowedCapabilities.length) return access;
+
+  const hasGrantedCapability = capabilities.some((capability) => access.permissions.includes(capability));
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: hasGrantedCapability
+      ? "كل الصلاحيات المطلوبة مقيّدة بسياسة المنصة للدور الحالي."
+      : "لا تملك أيّاً من الصلاحيات المطلوبة.",
+  });
 }
 
 export async function requireSupabaseAccessibleSiteIds(
@@ -280,46 +315,124 @@ export async function requireSupabaseAccessibleSiteIds(
   return access;
 }
 
-export async function requireSupabaseAllBranchesRole(userId: number, siteId: number, allowed: PowerRole[]) {
+export async function requireSupabaseAllBranchesRole(
+  userId: number,
+  siteId: number,
+  allowed: PowerRole[],
+  capability?: PowerCapability,
+) {
   const access = await resolveSupabaseSiteAccess(userId, siteId);
   const admin = supabaseAdmin();
   const { data: user, error: userError } = await admin.from("users").select("role, platform_role, account_status").eq("id", userId).maybeSingle();
   if (userError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من ملف المستخدم في Supabase." });
-  if (isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status })) return { tenantId: access.tenantId, role: "owner" as const };
-  const { data: membership, error: membershipError } = await admin.from("tenant_members").select("role")
-    .eq("tenant_id", access.tenantId).eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").maybeSingle();
+  if (isActivePlatformAdmin({ role: user?.role, platformRole: user?.platform_role, accountStatus: user?.account_status })) {
+    return { tenantId: access.tenantId, role: "owner" as const, permissions: access.permissions };
+  }
+  const { data: membership, error: membershipError } = await admin.from("tenant_members")
+    .select("role,expires_at,tenant_member_capability_overrides(capability,is_allowed)")
+    .eq("tenant_id", access.tenantId).eq("user_id", userId).eq("is_active", true)
+    .eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle();
   if (membershipError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من عضوية المستأجر في Supabase." });
-  if (membership?.role === "owner") return { tenantId: access.tenantId, role: "owner" as const };
-  const { data: profile, error: profileError } = await admin.from("staff_profiles").select("role")
-    .eq("tenant_id", access.tenantId).eq("user_id", userId).is("site_id", null).eq("is_active", true).maybeSingle();
+  if (membership?.role === "owner" && isTenantMembershipUnexpired(membership)) {
+    const memberOverrides = Array.isArray((membership as any).tenant_member_capability_overrides)
+      ? (membership as any).tenant_member_capability_overrides.map((item: { capability: string; is_allowed: boolean }) => ({
+          capability: item.capability, is_allowed: Boolean(item.is_allowed),
+        }))
+      : [];
+    let permissions = applyStaffCapabilityOverrides(allCapabilities, memberOverrides);
+    const policyCapability = capability ?? "viewFinancialReports";
+    if (capability && !permissions.includes(capability)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على هذه البيانات لجميع الأفرع." });
+    }
+    if (permissions.includes(policyCapability)) {
+      const { data: policy, error } = await admin.from("platform_role_policies")
+        .select("is_allowed").eq("role", "owner").eq("capability", policyCapability).maybeSingle();
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
+      if (policy && !policy.is_allowed) {
+        if (capability) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+        permissions = permissions.filter((item) => item !== policyCapability);
+      }
+    }
+    return { tenantId: access.tenantId, role: "owner" as const, permissions };
+  }
+  const { data: profile, error: profileError } = await admin.from("staff_profiles")
+    .select("id, role, permissions, custom_role_id, archived_at, suspension_started_at, suspension_ends_at")
+    .eq("tenant_id", access.tenantId).eq("user_id", userId)
+    .is("site_id", null).eq("is_active", true).is("archived_at", null).maybeSingle();
   if (profileError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من تعيين جميع الأفرع في Supabase." });
-  if (!profile) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
+  if (!profile || isSuspended(new Date(), dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام نشط وغير موقوف معيّن على جميع الأفرع." });
+  }
   const role = asPowerRole(profile.role);
   if (!allowed.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "هذه البيانات المجمعة متاحة لمالك المولد أو لحساب عام معيّن على جميع الأفرع." });
-  return { tenantId: access.tenantId, role };
+  let permissions = profile.permissions !== null && profile.permissions !== undefined
+    ? asPermissions(profile.permissions)
+    : defaultCapabilitiesForRole(role);
+  if ((profile.permissions === null || profile.permissions === undefined) && profile.custom_role_id) {
+    const { data: customRole, error } = await admin.from("custom_permission_roles")
+      .select("permissions").eq("id", profile.custom_role_id).eq("tenant_id", access.tenantId)
+      .eq("is_active", true).maybeSingle();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الصلاحيات المخصصة للتعيين العام." });
+    permissions = asPermissions(customRole?.permissions);
+  }
+  const { data: overrides, error: overridesError } = await admin.from("staff_profile_capability_overrides")
+    .select("capability,is_allowed").eq("tenant_id", access.tenantId).eq("profile_id", profile.id);
+  if (overridesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل استثناءات صلاحيات التعيين العام." });
+  permissions = applyStaffCapabilityOverrides(permissions, (overrides ?? []).map((item) => ({
+    capability: item.capability, is_allowed: Boolean(item.is_allowed),
+  })));
+  const policyCapability = capability ?? "viewFinancialReports";
+  if (capability && !permissions.includes(capability)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية الاطلاع على هذه البيانات لجميع الأفرع." });
+  }
+  if (permissions.includes(policyCapability)) {
+    const { data: policy, error } = await admin.from("platform_role_policies")
+      .select("is_allowed").eq("role", role).eq("capability", policyCapability).maybeSingle();
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة الصلاحيات في Supabase." });
+    if (policy && !policy.is_allowed) {
+      if (capability) throw new TRPCError({ code: "FORBIDDEN", message: "هذه القدرة مقيّدة بسياسة المنصة للدور الحالي." });
+      permissions = permissions.filter((item) => item !== policyCapability);
+    }
+  }
+  return { tenantId: access.tenantId, role, permissions };
 }
-
 export async function listSupabaseAccessibleSites(userId: number, isPlatformAdmin: boolean): Promise<SupabaseSite[]> {
   const admin = supabaseAdmin();
   if (isPlatformAdmin) {
-    const { data, error } = await admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").order("created_at", { ascending: false });
+    const { data, error } = await admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!sites_tenant_id_fkey(name)").order("created_at", { ascending: false });
     if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع من Supabase." });
     return (data ?? []).map((site) => ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, invoiceDueHours: Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(site.invoice_due_days ?? 14) * 24))), createdAt: new Date(site.created_at) }));
   }
-  const { data: memberships, error: membershipsError } = await admin.from("tenant_members").select("tenant_id, role")
-    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active");
+  const { data: memberships, error: membershipsError } = await admin.from("tenant_members").select("tenant_id, role, expires_at")
+    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter());
   if (membershipsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل عضويات المستخدم من Supabase." });
-  const ownerTenantIds = (memberships ?? []).filter((member) => member.role === "owner").map((member) => Number(member.tenant_id));
-  const { data: profiles, error: profilesError } = await admin.from("staff_profiles").select("site_id")
-    .eq("user_id", userId).eq("is_active", true);
+  const validMemberships = (memberships ?? []).filter((member) => isTenantMembershipUnexpired(member));
+  const activeTenantIds = new Set(validMemberships.map((member) => Number(member.tenant_id)));
+  const ownerTenantIds = validMemberships.filter((member) => member.role === "owner").map((member) => Number(member.tenant_id));
+  const { data: profiles, error: profilesError } = await admin.from("staff_profiles")
+    .select("site_id,tenant_id,archived_at,suspension_started_at,suspension_ends_at")
+    .eq("user_id", userId).eq("is_active", true).is("archived_at", null);
   if (profilesError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل تعيينات الفروع من Supabase." });
-  const assignedSiteIds = (profiles ?? []).map((profile) => profile.site_id).filter((id): id is number => id !== null).map(Number);
+  const assignedSiteIds = (profiles ?? [])
+    .filter((profile) => activeTenantIds.has(Number(profile.tenant_id)))
+    .filter((profile) => !isSuspended(new Date(), dateOrNull(profile.suspension_started_at), dateOrNull(profile.suspension_ends_at)))
+    .map((profile) => profile.site_id)
+    .filter((id): id is number => id !== null)
+    .map(Number);
   const requestedIds = Array.from(new Set(assignedSiteIds));
   const [ownedResult, assignedResult] = await Promise.all([
-    ownerTenantIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").in("tenant_id", ownerTenantIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-    requestedIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!inner(name)").in("id", requestedIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    ownerTenantIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!sites_tenant_id_fkey(name)").in("tenant_id", ownerTenantIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    requestedIds.length ? admin.from("sites").select("id, tenant_id, name, code, city, address, status, anomaly_alert_percent, invoice_due_days, invoice_due_hours, created_at, tenants!sites_tenant_id_fkey(name)").in("id", requestedIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (ownedResult.error || assignedResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع المتاحة من Supabase." });
+  if (ownedResult.error || assignedResult.error) {
+    // Structured diagnostics only: never log user/tenant IDs, request headers or credentials.
+    console.error("[PowerHub sites PostgREST lookup failed]", {
+      stage: "accessible_sites",
+      ownedCode: ownedResult.error?.code ?? null,
+      assignedCode: assignedResult.error?.code ?? null,
+    });
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الفروع المتاحة من Supabase." });
+  }
   return Array.from(new Map([...(ownedResult.data ?? []), ...(assignedResult.data ?? [])].map((site) => [Number(site.id), ({ id: Number(site.id), tenantId: Number(site.tenant_id), tenantName: (site as any).tenants?.name ?? site.name, name: site.name, code: site.code, city: site.city, address: site.address, status: site.status as SupabaseSite["status"], anomalyAlertPercent: site.anomaly_alert_percent, invoiceDueDays: site.invoice_due_days, invoiceDueHours: Number(site.invoice_due_hours ?? Math.max(1, Math.min(2160, Number(site.invoice_due_days ?? 14) * 24))), createdAt: new Date(site.created_at) })])).values());
 }
 
@@ -371,6 +484,10 @@ export async function listSupabaseSubscriberDirectoryPage(input: {
     .range(from, from + input.pageSize - 1);
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة سجل المشتركين من Supabase." });
   const totalCount = count ?? 0;
+  // Count only a non-empty first-page directory search; background page prefetches are excluded.
+  if (term && input.page === 1) {
+    void recordTenantSearchMetric(input.tenantId, (data ?? []).length);
+  }
   return {
     items: (data ?? []).map((row) => ({
       id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberNo: row.subscriber_no,
@@ -386,6 +503,33 @@ export async function listSupabaseSubscriberDirectoryPage(input: {
 }
 
 
+export async function getSupabaseSubscriberBalanceSnapshot(tenantId: number, siteId: number, subscriberId: number) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_subscriber_balance_snapshot", {
+    p_tenant_id: tenantId, p_site_id: siteId, p_subscriber_id: subscriberId,
+  });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أرصدة المشترك من Supabase." });
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب أرصدة المشترك." });
+  return { availableCredit: String(row.available_credit ?? 0), securityDeposit: String(row.security_deposit ?? 0) };
+}
+
+export async function getSupabaseSecurityDepositOverview(tenantId: number, siteId: number) {
+  const { data, error } = await supabaseAdmin().rpc("powerhub_security_deposit_overview", {
+    p_tenant_id: tenantId, p_site_id: siteId,
+  });
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملخص تأمينات المشتركين." });
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    totalAmount: String(row?.total_amount ?? 0),
+    subscriberCount: Number(row?.subscriber_count ?? 0),
+    items: Array.isArray(row?.items) ? row.items.map((item: any) => ({
+      subscriberId: Number(item.subscriberId), fullName: String(item.fullName ?? "مشترك"),
+      subscriberNo: String(item.subscriberNo ?? ""), phone: item.phone == null ? null : String(item.phone),
+      amount: String(item.amount ?? 0), lastMovementAt: item.lastMovementAt ? new Date(item.lastMovementAt) : null,
+    })) : [],
+  };
+}
+
 export async function getSupabaseSubscriberAccountStatement(siteId: number, subscriberId: number) {
   const admin = supabaseAdmin();
   const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
@@ -394,7 +538,7 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
   if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل ملف المشترك من Supabase." });
   if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن الفرع المحدد." });
 
-  const [statementSummaryResult, invoiceRecentResult, paymentRecentResult, readingRecentResult] = await Promise.all([
+  const [statementSummaryResult, invoiceRecentResult, paymentRecentResult, readingRecentResult, balanceSnapshotResult] = await Promise.all([
     admin.rpc("powerhub_subscriber_statement_summary", {
       p_tenant_id: Number(subscriber.tenant_id),
       p_site_id: siteId,
@@ -405,16 +549,19 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId)
       .neq("status", "cancelled").order("issue_date", { ascending: false }).order("id", { ascending: false }).limit(21),
     admin.from("payments")
-      .select("id, payment_no, invoice_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, status, paid_at")
+      .select("id, payment_no, invoice_id, amount, invoice_applied_amount, subscriber_credit_amount, payment_purpose, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, status, paid_at")
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("site_id", siteId).eq("subscriber_id", subscriberId).eq("status", "completed")
       .order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(21),
     admin.from("meter_readings")
       .select("id, reading_at, reading_value, previous_reading_value, consumption_kwh, capture_method, status, version_no, notes")
       .eq("tenant_id", Number(subscriber.tenant_id)).eq("subscriber_id", subscriberId)
       .order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(21),
+    admin.rpc("powerhub_subscriber_balance_snapshot", {
+      p_tenant_id: Number(subscriber.tenant_id), p_site_id: siteId, p_subscriber_id: subscriberId,
+    }),
   ]);
 
-  if (statementSummaryResult.error || invoiceRecentResult.error || paymentRecentResult.error || readingRecentResult.error) {
+  if (statementSummaryResult.error || invoiceRecentResult.error || paymentRecentResult.error || readingRecentResult.error || balanceSnapshotResult.error) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل كشف حساب المشترك من Supabase." });
   }
 
@@ -463,12 +610,20 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       totalCollected,
       totalOutstanding,
       totalConsumptionKwh,
+      availableCredit: String(balanceSnapshotResult.data?.[0]?.available_credit ?? 0),
+      securityDeposit: String(balanceSnapshotResult.data?.[0]?.security_deposit ?? 0),
       lastPaymentAt: statementSummary.last_payment_at ? new Date(statementSummary.last_payment_at) : null,
     },
     limits: {
       invoiceHasMore: recentInvoices.length > 20,
       paymentHasMore: recentPayments.length > 20,
       readingHasMore: recentReadings.length > 20,
+      invoiceNextCursor: recentInvoices.length > 20 && recentInvoices[19]
+        ? encodeHistoryCursor({ at: String(recentInvoices[19].issue_date), id: Number(recentInvoices[19].id) }) : null,
+      paymentNextCursor: recentPayments.length > 20 && recentPayments[19]
+        ? encodeHistoryCursor({ at: String(recentPayments[19].paid_at), id: Number(recentPayments[19].id) }) : null,
+      readingNextCursor: recentReadings.length > 20 && recentReadings[19]
+        ? encodeHistoryCursor({ at: String(recentReadings[19].reading_at), id: Number(recentReadings[19].id) }) : null,
       visiblePerSection: 20,
     },
     invoices: recentInvoices.slice(0, 20).map((row) => ({
@@ -492,6 +647,9 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
       invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
       invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null,
       amount: String(row.amount),
+      invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0),
+      subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0),
+      paymentPurpose: row.payment_purpose ?? "invoice_collection",
       paymentMethod: row.payment_method,
       transferFromAccount: row.transfer_from_account,
       transferFromType: row.transfer_from_type,
@@ -515,6 +673,134 @@ export async function getSupabaseSubscriberAccountStatement(siteId: number, subs
   };
 }
 
+
+
+export type SubscriberStatementSection = "invoices" | "payments" | "readings";
+export type SubscriberStatementInvoiceHistoryItem = {
+  id: number; invoiceNo: string; billingPeriod: string; issueDate: Date; dueDate: Date;
+  previousReading: string | null; currentReading: string | null; consumptionKwh: string;
+  totalAmount: string; paidAmount: string; balanceDue: string; status: string; readingId: number | null;
+};
+export type SubscriberStatementPaymentHistoryItem = {
+  id: number; paymentNo: string; invoiceId: number | null; invoiceNo: string | null; amount: string;
+  invoiceAppliedAmount: string; subscriberCreditAmount: string; paymentPurpose: string;
+  paymentMethod: string; transferFromAccount: string | null; transferFromType: string | null;
+  transferToAccount: string | null; transferToType: string | null; referenceNo: string | null;
+  status: string; paidAt: Date;
+};
+export type SubscriberStatementReadingHistoryItem = {
+  id: number; readingAt: Date; readingValue: string; previousReadingValue: string | null;
+  consumptionKwh: string | null; captureMethod: string; status: string; versionNo: number; notes: string | null;
+};
+export type SubscriberStatementHistoryItem = SubscriberStatementInvoiceHistoryItem | SubscriberStatementPaymentHistoryItem | SubscriberStatementReadingHistoryItem;
+
+export async function listSupabaseSubscriberAccountStatementHistoryPage(
+  siteId: number,
+  subscriberId: number,
+  section: SubscriberStatementSection,
+  input: { limit?: number; cursor?: string },
+): Promise<SupabaseHistoryPage<SubscriberStatementHistoryItem>> {
+  const limit = historyLimit(input.limit);
+  const cursor = decodeHistoryCursor(input.cursor);
+  const admin = supabaseAdmin();
+  const { data: subscriber, error: subscriberError } = await admin.from("subscribers")
+    .select("id,tenant_id,site_id")
+    .eq("id", subscriberId).eq("site_id", siteId).maybeSingle();
+  if (subscriberError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من نطاق كشف الحساب." });
+  if (!subscriber) throw new TRPCError({ code: "NOT_FOUND", message: "المشترك غير موجود ضمن الفرع المحدد." });
+  const tenantId = Number(subscriber.tenant_id);
+
+  if (section === "invoices") {
+    let query = admin.from("invoices")
+      .select("id,invoice_no,billing_period,issue_date,due_date,previous_reading,current_reading,consumption_kwh,total_amount,paid_amount,balance_due,status,reading_id")
+      .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId)
+      .neq("status", "cancelled");
+    if (cursor) query = query.or("issue_date.lt." + cursor.at + ",and(issue_date.eq." + cursor.at + ",id.lt." + cursor.id + ")");
+    const { data, error } = await query.order("issue_date", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة فواتير المشترك." });
+    const rows = data ?? [];
+    const pageRows = rows.slice(0, limit);
+    const items = pageRows.map((row) => ({
+      id: Number(row.id),
+      invoiceNo: row.invoice_no,
+      billingPeriod: row.billing_period,
+      issueDate: new Date(row.issue_date),
+      dueDate: new Date(row.due_date),
+      previousReading: row.previous_reading === null ? null : String(row.previous_reading),
+      currentReading: row.current_reading === null ? null : String(row.current_reading),
+      consumptionKwh: String(row.consumption_kwh),
+      totalAmount: String(row.total_amount),
+      paidAmount: String(row.paid_amount),
+      balanceDue: String(row.balance_due),
+      status: row.status,
+      readingId: row.reading_id === null ? null : Number(row.reading_id),
+    }));
+    const last = pageRows.at(-1);
+    const hasNext = rows.length > limit;
+    return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.issue_date), id: Number(last.id) }) : null };
+  }
+
+  if (section === "payments") {
+    let query = admin.from("payments")
+      .select("id,payment_no,invoice_id,amount,invoice_applied_amount,subscriber_credit_amount,payment_purpose,payment_method,transfer_from_account,transfer_from_type,transfer_to_account,transfer_to_type,reference_no,status,paid_at")
+      .eq("tenant_id", tenantId).eq("site_id", siteId).eq("subscriber_id", subscriberId).eq("status", "completed");
+    if (cursor) query = query.or("paid_at.lt." + cursor.at + ",and(paid_at.eq." + cursor.at + ",id.lt." + cursor.id + ")");
+    const { data, error } = await query.order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+    if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة دفعات المشترك." });
+    const rows = data ?? [];
+    const pageRows = rows.slice(0, limit);
+    const invoiceIds = Array.from(new Set(pageRows.flatMap((row) => row.invoice_id === null ? [] : [Number(row.invoice_id)])));
+    const { data: invoices, error: invoiceError } = invoiceIds.length
+      ? await admin.from("invoices").select("id,invoice_no").eq("tenant_id", tenantId).eq("site_id", siteId).in("id", invoiceIds)
+      : { data: [], error: null };
+    if (invoiceError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل مراجع فواتير الدفعات." });
+    const invoiceNoById = new Map((invoices ?? []).map((row) => [Number(row.id), row.invoice_no]));
+    const items = pageRows.map((row) => ({
+      id: Number(row.id),
+      paymentNo: row.payment_no,
+      invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
+      invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null,
+      amount: String(row.amount),
+      invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0),
+      subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0),
+      paymentPurpose: row.payment_purpose ?? "invoice_collection",
+      paymentMethod: row.payment_method,
+      transferFromAccount: row.transfer_from_account,
+      transferFromType: row.transfer_from_type,
+      transferToAccount: row.transfer_to_account,
+      transferToType: row.transfer_to_type,
+      referenceNo: row.reference_no,
+      status: row.status,
+      paidAt: new Date(row.paid_at),
+    }));
+    const last = pageRows.at(-1);
+    const hasNext = rows.length > limit;
+    return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.paid_at), id: Number(last.id) }) : null };
+  }
+
+  let readingQuery = admin.from("meter_readings")
+    .select("id,reading_at,reading_value,previous_reading_value,consumption_kwh,capture_method,status,version_no,notes")
+    .eq("tenant_id", tenantId).eq("subscriber_id", subscriberId);
+  if (cursor) readingQuery = readingQuery.or("reading_at.lt." + cursor.at + ",and(reading_at.eq." + cursor.at + ",id.lt." + cursor.id + ")");
+  const { data, error } = await readingQuery.order("reading_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
+  if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة قراءات المشترك." });
+  const rows = data ?? [];
+  const pageRows = rows.slice(0, limit);
+  const items = pageRows.map((row) => ({
+    id: Number(row.id),
+    readingAt: new Date(row.reading_at),
+    readingValue: String(row.reading_value),
+    previousReadingValue: row.previous_reading_value === null ? null : String(row.previous_reading_value),
+    consumptionKwh: row.consumption_kwh === null ? null : String(row.consumption_kwh),
+    captureMethod: row.capture_method,
+    status: row.status,
+    versionNo: Number(row.version_no),
+    notes: row.notes,
+  }));
+  const last = pageRows.at(-1);
+  const hasNext = rows.length > limit;
+  return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: String(last.reading_at), id: Number(last.id) }) : null };
+}
 
 export async function listSupabaseTariffs(siteId: number) {
   const { data, error } = await supabaseAdmin().from("tariffs")
@@ -689,11 +975,15 @@ export async function listSupabaseInvoicePage(siteId: number, input: { limit?: n
   return { items, hasNext, nextCursor: hasNext && last ? encodeHistoryCursor({ at: last.issueDate.toISOString(), id: last.id }) : null };
 }
 
-export async function listSupabasePayments(siteId: number) {
+const paymentPurposesVisibleToCollectors = ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"] as const;
+const paymentPurposesVisibleToFinancialReportReaders = [...paymentPurposesVisibleToCollectors, "security_deposit", "security_deposit_refund"] as const;
+
+export async function listSupabasePayments(siteId: number, options: { includeSecurityDeposits?: boolean } = {}) {
   const admin = supabaseAdmin();
+  const visiblePaymentPurposes = options.includeSecurityDeposits ? paymentPurposesVisibleToFinancialReportReaders : paymentPurposesVisibleToCollectors;
   const { data: paymentRows, error: paymentsError } = await admin.from("payments")
-    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, status, collected_by_user_id, collector_session_id, paid_at, created_at")
-    .eq("site_id", siteId).order("paid_at", { ascending: false });
+    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, payment_purpose, invoice_applied_amount, subscriber_credit_amount, status, collected_by_user_id, collector_session_id, paid_at, created_at")
+    .eq("site_id", siteId).in("payment_purpose", visiblePaymentPurposes).order("paid_at", { ascending: false });
   if (paymentsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الدفعات من Supabase." });
   const subscriberIds = Array.from(new Set((paymentRows ?? []).map((row) => Number(row.subscriber_id))));
   const invoiceIds = Array.from(new Set((paymentRows ?? []).flatMap((row) => row.invoice_id === null ? [] : [Number(row.invoice_id)])));
@@ -715,20 +1005,21 @@ export async function listSupabasePayments(siteId: number) {
       id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id),
       paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method,
       transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type,
-      referenceNo: row.reference_no, receiptImageKey: row.receipt_image_key, receiptImageHash: row.receipt_image_hash, status: row.status,
+      referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), paymentPurpose: row.payment_purpose ?? "invoice_collection", invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0), subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0), status: row.status,
       collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id),
-      paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: row.receipt_image_key ? (await storageGet(row.receipt_image_key)).url : null,
+      paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: null,
     };
     return [{ payment, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null }];
   }))).flat();
 }
 
-export async function listSupabasePaymentPage(siteId: number, input: { limit?: number; cursor?: string }): Promise<SupabaseHistoryPage<any>> {
+export async function listSupabasePaymentPage(siteId: number, input: { limit?: number; cursor?: string }, options: { includeSecurityDeposits?: boolean } = {}): Promise<SupabaseHistoryPage<any>> {
   const limit = historyLimit(input.limit);
   const cursor = decodeHistoryCursor(input.cursor);
+  const visiblePaymentPurposes = options.includeSecurityDeposits ? paymentPurposesVisibleToFinancialReportReaders : paymentPurposesVisibleToCollectors;
   let query = supabaseAdmin().from("payments")
-    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, status, collected_by_user_id, collector_session_id, paid_at, created_at")
-    .eq("site_id", siteId);
+    .select("id, tenant_id, site_id, subscriber_id, invoice_id, payment_no, client_operation_id, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, reference_no, receipt_image_key, receipt_image_hash, payment_purpose, invoice_applied_amount, subscriber_credit_amount, status, collected_by_user_id, collector_session_id, paid_at, created_at")
+    .eq("site_id", siteId).in("payment_purpose", visiblePaymentPurposes);
   if (cursor) query = query.or(`paid_at.lt.${cursor.at},and(paid_at.eq.${cursor.at},id.lt.${cursor.id})`);
   const { data: paymentRows, error } = await query.order("paid_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة الدفعات من Supabase." });
@@ -747,20 +1038,20 @@ export async function listSupabasePaymentPage(siteId: number, input: { limit?: n
   const items = await Promise.all(pageRows.map(async (row: any) => {
     const subscriber = subscriberById.get(Number(row.subscriber_id));
     if (!subscriber) return null;
-    return { payment: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method, transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type, referenceNo: row.reference_no, receiptImageKey: row.receipt_image_key, receiptImageHash: row.receipt_image_hash, status: row.status, collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id), paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: row.receipt_image_key ? (await storageGet(row.receipt_image_key)).url : null }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null };
+    return { payment: { id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), invoiceId: row.invoice_id === null ? null : Number(row.invoice_id), paymentNo: row.payment_no, clientOperationId: row.client_operation_id, amount: String(row.amount), paymentMethod: row.payment_method, transferFromAccount: row.transfer_from_account, transferFromType: row.transfer_from_type, transferToAccount: row.transfer_to_account, transferToType: row.transfer_to_type, referenceNo: row.reference_no, hasReceiptImage: Boolean(row.receipt_image_key), paymentPurpose: row.payment_purpose ?? "invoice_collection", invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0), subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0), status: row.status, collectedByUserId: row.collected_by_user_id === null ? null : Number(row.collected_by_user_id), collectorSessionId: row.collector_session_id === null ? null : Number(row.collector_session_id), paidAt: new Date(row.paid_at), createdAt: new Date(row.created_at), receiptImageUrl: null }, subscriber, invoiceNo: row.invoice_id === null ? null : invoiceNoById.get(Number(row.invoice_id)) ?? null };
   })).then((values) => values.filter(Boolean));
   const last = pageRows.at(-1) as any;
-  return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: new Date(last.paid_at).toISOString(), id: Number(last.id) }) : null };
+  return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: String(last.paid_at), id: Number(last.id) }) : null };
 }
 
 export async function listSupabaseExpenses(siteId: number) {
   const { data, error } = await supabaseAdmin().from("expenses")
-    .select("id, tenant_id, site_id, generator_id, company_account_id, category, description, amount, occurred_at, reference_no, created_by_user_id, created_at")
+    .select("id, tenant_id, site_id, generator_id, company_account_id, category, expense_classification, description, amount, occurred_at, reference_no, created_by_user_id, created_at")
     .eq("site_id", siteId).order("occurred_at", { ascending: false });
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل المصروفات من Supabase." });
   return (data ?? []).map((row) => ({
     id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), generatorId: row.generator_id === null ? null : Number(row.generator_id),
-    category: row.category, description: row.description, amount: String(row.amount), occurredAt: new Date(row.occurred_at), referenceNo: row.reference_no,
+    category: row.category, expenseClassification: row.expense_classification ?? "operating", description: row.description, amount: String(row.amount), occurredAt: new Date(row.occurred_at), referenceNo: row.reference_no,
     createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at),
   }));
 }
@@ -768,7 +1059,7 @@ export async function listSupabaseExpenses(siteId: number) {
 export async function listSupabaseExpensePage(siteId: number, input: { limit?: number; cursor?: string; startDate?: string; endDate?: string; companyAccountId?: number }, tenantId: number): Promise<SupabaseHistoryPage<any>> {
   const limit = historyLimit(input.limit);
   const cursor = decodeHistoryCursor(input.cursor);
-  let query = supabaseAdmin().from("expenses").select("id, tenant_id, site_id, generator_id, company_account_id, category, description, amount, occurred_at, reference_no, created_by_user_id, created_at").eq("tenant_id", tenantId).eq("site_id", siteId);
+  let query = supabaseAdmin().from("expenses").select("id, tenant_id, site_id, generator_id, company_account_id, category, expense_classification, description, amount, occurred_at, reference_no, created_by_user_id, created_at").eq("tenant_id", tenantId).eq("site_id", siteId);
   if (input.companyAccountId) query = query.eq("company_account_id", input.companyAccountId);
   if (input.startDate) query = query.gte("occurred_at", gazaDateBoundary(input.startDate).toISOString());
   if (input.endDate) query = query.lt("occurred_at", gazaDateBoundary(nextDateKey(input.endDate)).toISOString());
@@ -776,7 +1067,7 @@ export async function listSupabaseExpensePage(siteId: number, input: { limit?: n
   const { data, error } = await query.order("occurred_at", { ascending: false }).order("id", { ascending: false }).limit(limit + 1);
   if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل صفحة المصروفات من Supabase." });
   const rows = data ?? [];
-  const items = rows.slice(0, limit).map((row: any) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), generatorId: row.generator_id === null ? null : Number(row.generator_id), companyAccountId: row.company_account_id == null ? null : Number(row.company_account_id), category: row.category, description: row.description, amount: String(row.amount), occurredAt: new Date(row.occurred_at), referenceNo: row.reference_no, createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at) }));
+  const items = rows.slice(0, limit).map((row: any) => ({ id: Number(row.id), tenantId: Number(row.tenant_id), siteId: Number(row.site_id), generatorId: row.generator_id === null ? null : Number(row.generator_id), companyAccountId: row.company_account_id == null ? null : Number(row.company_account_id), category: row.category, expenseClassification: row.expense_classification ?? "operating", description: row.description, amount: String(row.amount), occurredAt: new Date(row.occurred_at), referenceNo: row.reference_no, createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), createdAt: new Date(row.created_at) }));
   const last = items.at(-1);
   return { items, hasNext: rows.length > limit, nextCursor: rows.length > limit && last ? encodeHistoryCursor({ at: last.occurredAt.toISOString(), id: last.id }) : null };
 }
@@ -789,7 +1080,10 @@ type SupabaseReportInvoice = {
   billingPeriod: string;
   issueDate: Date;
   dueDate: Date;
+  cycleStartAt: Date | null;
+  cycleEndAt: Date | null;
   totalAmount: number;
+  taxAmount: number;
   paidAmount: number;
   balanceDue: number;
   consumptionKwh: number;
@@ -802,7 +1096,9 @@ type SupabaseReportPayment = {
     siteId: number;
     subscriberId: number;
     paymentNo: string;
-    amount: string;
+    grossAmount: string;
+    invoiceAppliedAmount: string;
+    subscriberCreditAmount: string;
     paymentMethod: string;
     transferFromAccount: string | null;
     transferFromType: string | null;
@@ -814,7 +1110,7 @@ type SupabaseReportPayment = {
   };
 };
 
-type SupabaseReportExpense = { siteId: number; amount: number; occurredAt: Date };
+type SupabaseReportExpense = { siteId: number; category: string; amount: number; occurredAt: Date; expenseClassification: "operating" | "non_operating" };
 type SupabaseReportSubscriber = { id: number; siteId: number; fullName: string; subscriberNo: string };
 
 export async function readSupabaseReportPages<T>(
@@ -859,8 +1155,8 @@ export async function listSupabaseReportInvoices(input: {
   const rows = await readSupabaseReportPages((from, to) => {
     let query: any = admin.from("invoices")
       .select(input.summaryOnly
-        ? "id, site_id, subscriber_id, issue_date, due_date, total_amount, balance_due, status"
-        : "id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, total_amount, paid_amount, balance_due, consumption_kwh, status")
+        ? "id, site_id, subscriber_id, issue_date, due_date, cycle_start_at, cycle_end_at, total_amount, tax_amount, balance_due, status"
+        : "id, site_id, subscriber_id, invoice_no, billing_period, issue_date, due_date, cycle_start_at, cycle_end_at, total_amount, tax_amount, paid_amount, balance_due, consumption_kwh, status")
       .eq("tenant_id", input.tenantId)
       .in("site_id", siteIds);
     if (input.billingPeriod) query = query.eq("billing_period", input.billingPeriod);
@@ -875,7 +1171,10 @@ export async function listSupabaseReportInvoices(input: {
     billingPeriod: String(row.billing_period ?? ""),
     issueDate: new Date(row.issue_date),
     dueDate: new Date(row.due_date),
+    cycleStartAt: row.cycle_start_at ? new Date(row.cycle_start_at) : null,
+    cycleEndAt: row.cycle_end_at ? new Date(row.cycle_end_at) : null,
     totalAmount: Number(row.total_amount ?? 0),
+    taxAmount: Number(row.tax_amount ?? 0),
     paidAmount: Number(row.paid_amount ?? 0),
     balanceDue: Number(row.balance_due ?? 0),
     consumptionKwh: Number(row.consumption_kwh ?? 0),
@@ -901,9 +1200,10 @@ export async function listSupabaseReportPayments(input: {
   const rows = await readSupabaseReportPages((from, to) =>
     admin.from("payments")
       .select(input.summaryOnly
-        ? "id, site_id, subscriber_id, amount, status, paid_at"
-        : "id, site_id, subscriber_id, payment_no, amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
+        ? "id, site_id, subscriber_id, amount, invoice_applied_amount, subscriber_credit_amount, status, paid_at"
+        : "id, site_id, subscriber_id, payment_no, amount, invoice_applied_amount, subscriber_credit_amount, payment_method, transfer_from_account, transfer_from_type, transfer_to_account, transfer_to_type, status, paid_at, collected_by_user_id")
       .eq("tenant_id", input.tenantId)
+      .in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"])
       .in("site_id", siteIds)
       .gte("paid_at", input.start.toISOString())
       .lt("paid_at", input.endExclusive.toISOString())
@@ -916,7 +1216,9 @@ export async function listSupabaseReportPayments(input: {
       siteId: Number(row.site_id),
       subscriberId: Number(row.subscriber_id),
       paymentNo: String(row.payment_no ?? ""),
-      amount: String(row.amount),
+      grossAmount: String(row.amount ?? 0),
+      invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0),
+      subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0),
       paymentMethod: String(row.payment_method ?? ""),
       transferFromAccount: row.transfer_from_account == null ? null : String(row.transfer_from_account),
       transferFromType: row.transfer_from_type == null ? null : String(row.transfer_from_type),
@@ -941,7 +1243,7 @@ export async function listSupabaseReportExpenses(input: {
   const admin = supabaseAdmin();
   const rows = await readSupabaseReportPages((from, to) =>
     admin.from("expenses")
-      .select("site_id, amount, occurred_at")
+      .select("site_id, category, amount, occurred_at, expense_classification")
       .eq("tenant_id", input.tenantId)
       .in("site_id", siteIds)
       .gte("occurred_at", input.start.toISOString())
@@ -949,7 +1251,12 @@ export async function listSupabaseReportExpenses(input: {
       .order("id", { ascending: true })
       .range(from, to),
   "تعذر تحميل مصروفات الفترة المحددة من Supabase.");
-  return rows.map((row: any) => ({ siteId: Number(row.site_id), amount: Number(row.amount ?? 0), occurredAt: new Date(row.occurred_at) }));
+  return rows.map((row: any) => ({
+    siteId: Number(row.site_id), category: String(row.category ?? ""),
+    amount: Number(row.amount ?? 0),
+    occurredAt: new Date(row.occurred_at),
+    expenseClassification: row.expense_classification === "non_operating" ? "non_operating" as const : "operating" as const,
+  }));
 }
 
 export async function listSupabaseReportSubscribers(input: {
@@ -1026,7 +1333,7 @@ export async function getSupabaseFinancialOverview(site: SupabaseSite, includeDe
   };
   const [invoices, payments, expenses, subscribers] = await Promise.all([
     readAllPages("dashboard.financialOverview.invoices", (from, to) => admin.from("invoices").select("id, site_id, subscriber_id, invoice_no, issue_date, due_date, total_amount, paid_amount, balance_due, status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
-    readAllPages("dashboard.financialOverview.payments", (from, to) => admin.from("payments").select("site_id, subscriber_id, amount, status, paid_at").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
+    readAllPages("dashboard.financialOverview.payments", (from, to) => admin.from("payments").select("site_id, subscriber_id, invoice_applied_amount, status, payment_purpose, paid_at").eq("site_id", site.id).eq("status", "completed").in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit"]).order("id", { ascending: true }).range(from, to)),
     readAllPages("dashboard.financialOverview.expenses", (from, to) => admin.from("expenses").select("site_id, amount, occurred_at").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
     readAllPages("dashboard.financialOverview.subscribers", (from, to) => admin.from("subscribers").select("id, full_name, subscriber_no, service_status").eq("site_id", site.id).order("id", { ascending: true }).range(from, to)),
   ]);
@@ -1034,52 +1341,196 @@ export async function getSupabaseFinancialOverview(site: SupabaseSite, includeDe
   const overview = buildFinancialOverview({
     branches: [{ id: site.id, name: site.name, activeSubscribers: subscribers.filter((row) => row.service_status === "active").length }],
     invoices: invoices.map((row) => ({ id: Number(row.id), siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), subscriberName: byId.get(Number(row.subscriber_id))?.full_name ?? "مشترك", subscriberNo: byId.get(Number(row.subscriber_id))?.subscriber_no ?? "—", invoiceNo: row.invoice_no, issueDate: new Date(row.issue_date), dueDate: new Date(row.due_date), totalAmount: Number(row.total_amount), paidAmount: Number(row.paid_amount), balanceDue: Number(row.balance_due), status: row.status })),
-    payments: payments.map((row) => ({ siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), amount: Number(row.amount), status: row.status, paidAt: new Date(row.paid_at) })),
+    payments: payments.map((row) => ({ siteId: Number(row.site_id), subscriberId: Number(row.subscriber_id), amount: Number(row.invoice_applied_amount ?? 0), status: row.status, paidAt: new Date(row.paid_at) })),
     expenses: expenses.map((row) => ({ siteId: Number(row.site_id), amount: Number(row.amount), occurredAt: new Date(row.occurred_at) })),
   });
   return includeDetails ? overview : { ...overview, outstandingInvoices: [] };
 }
 
-export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; from?: Date | null; to?: Date | null }) {
+export type SupabaseCompanyAccountHistoryItem = SupabaseAccountTransaction & {
+  balanceAfter: number | null;
+};
+
+export type SupabaseCompanyAccountHistoryPage = {
+  items: SupabaseCompanyAccountHistoryItem[];
+  totalCount: number | null;
+  incomingTotal: number | null;
+  outgoingTotal: number | null;
+  hasNext: boolean;
+  nextCursor: string | null;
+  balanceTimeline: Array<{ day: string | null; balance: number }>;
+};
+
+export async function listSupabaseCompanyAccountHistoryPage(input: {
+  tenantId: number;
+  accountId: number;
+  branchId?: number;
+  from?: Date | null;
+  to?: Date | null;
+  movementFrom?: string | null;
+  movementTo?: string | null;
+  transactionType?: string | null;
+  search?: string | null;
+  cursor?: string;
+  limit?: number;
+}): Promise<SupabaseCompanyAccountHistoryPage> {
+  const cursor = decodeHistoryCursor(input.cursor);
+  const limit = historyLimit(input.limit);
+  const { data, error } = await supabaseAdmin().rpc("powerhub_company_account_history_page", {
+    p_tenant_id: input.tenantId,
+    p_account_id: input.accountId,
+    p_branch_id: input.branchId ?? null,
+    p_from: input.from?.toISOString() ?? null,
+    p_to: input.to?.toISOString() ?? null,
+    p_movement_from: input.movementFrom ?? null,
+    p_movement_to: input.movementTo ?? null,
+    p_transaction_type: input.transactionType ?? null,
+    p_search: input.search?.trim() || null,
+    p_cursor_at: cursor?.at ?? null,
+    p_cursor_id: cursor?.id ?? null,
+    p_limit: limit,
+  });
+  if (error) {
+    const errorText = String(error.code ?? "") + " " + String(error.message ?? "");
+    if (errorText.includes("ACCOUNT_SITE_OUT_OF_SCOPE")) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "الحساب غير مرتبط بالفرع المحدد." });
+    }
+    if (errorText.includes("COMPANY_ACCOUNT_NOT_FOUND")) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "حساب الشركة غير موجود ضمن مساحة الشركة." });
+    }
+    if (/COMPANY_ACCOUNT_HISTORY_(INVALID|SEARCH_TOO_LONG)/.test(errorText)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر تطبيق فلاتر سجل الحركات؛ تحقق من الفترة ومؤشر الصفحة والبحث." });
+    }
+    logSupabaseDataReadFailure("companyAccounts.history", error);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل حركات حساب الشركة من Supabase." });
+  }
+
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "استجابة سجل حركات الحساب غير صالحة." });
+  }
+  const result = data as Record<string, unknown>;
+  const rows = Array.isArray(result.items) ? result.items : [];
+  const items: SupabaseCompanyAccountHistoryItem[] = rows.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "توجد حركة غير صالحة في سجل الحساب." });
+    }
+    const row = value as Record<string, unknown>;
+    const id = Number(row.id);
+    const accountId = Number(row.account_id);
+    const tenantId = Number(row.tenant_id);
+    const occurredAt = new Date(String(row.occurred_at));
+    const createdAt = new Date(String(row.created_at));
+    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(accountId) || !Number.isInteger(tenantId)
+      || Number.isNaN(occurredAt.getTime()) || Number.isNaN(createdAt.getTime())) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "توجد بيانات غير مكتملة في سجل الحساب." });
+    }
+    const balanceAfter = row.balance_after == null ? null : Number(row.balance_after);
+    if (balanceAfter !== null && !Number.isFinite(balanceAfter)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب الرصيد بعد الحركة." });
+    }
+    return {
+      id,
+      tenantId,
+      accountId,
+      siteId: row.site_id == null ? null : Number(row.site_id),
+      transactionType: String(row.transaction_type ?? ""),
+      amount: String(row.amount ?? "0"),
+      description: String(row.description ?? ""),
+      referenceNo: row.reference_no == null ? null : String(row.reference_no),
+      relatedPaymentId: row.related_payment_id == null ? null : Number(row.related_payment_id),
+      relatedAccountId: row.related_account_id == null ? null : Number(row.related_account_id),
+      createdByUserId: row.created_by_user_id == null ? null : Number(row.created_by_user_id),
+      occurredAt,
+      createdAt,
+      balanceAfter,
+    };
+  });
+
+  const hasNext = result.has_next === true;
+  const nextCursorAt = typeof result.next_cursor_at === "string" ? result.next_cursor_at : null;
+  const nextCursorId = Number(result.next_cursor_id);
+  if (hasNext && (!nextCursorAt || !Number.isInteger(nextCursorId) || nextCursorId <= 0)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "مؤشر الصفحة التالية لسجل الحساب غير صالح." });
+  }
+  const timelineRaw = Array.isArray(result.balance_timeline) ? result.balance_timeline : [];
+  const balanceTimeline = timelineRaw.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "بيانات مخطط رصيد الحساب غير صالحة." });
+    }
+    const row = value as Record<string, unknown>;
+    const balance = Number(row.balance);
+    if (!Number.isFinite(balance)) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب مسار رصيد الحساب." });
+    return { day: row.day == null ? null : String(row.day), balance };
+  });
+
+  return {
+    items,
+    totalCount: result.total_count == null ? null : Number(result.total_count),
+    incomingTotal: result.incoming_total == null ? null : Number(result.incoming_total),
+    outgoingTotal: result.outgoing_total == null ? null : Number(result.outgoing_total),
+    hasNext,
+    nextCursor: hasNext ? encodeHistoryCursor({ at: nextCursorAt!, id: nextCursorId }) : null,
+    balanceTimeline,
+  };
+}
+
+export async function listSupabaseCompanyAccounts(input: { tenantId: number; branchId?: number; includeAllSiteLinks?: boolean }) {
   const admin = supabaseAdmin();
-  let { data: accountRows, error: accountsError } = await admin.from("company_accounts")
+  const { data: accountRows, error: accountsError } = await admin.from("company_accounts")
     .select("id, tenant_id, name, account_type, phone_number, color, opening_balance, is_active, allow_payment_documentation, created_at, updated_at")
     .eq("tenant_id", input.tenantId).eq("is_active", true).order("id", { ascending: true });
   if (accountsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حسابات الشركة من Supabase." });
-  // Dashboard reads must remain read-only: do not create default financial accounts as a side effect.
-  // An empty result means the tenant has not configured any company accounts yet.
+
+  // Load only account metadata and exact balances here. The ledger is fetched
+  // separately by keyset page after an account is selected.
   const accountIds = (accountRows ?? []).map((row) => Number(row.id));
-  const [siteLinksResult, sitesResult, transactionsResult, balancesResult] = await Promise.all([
-    accountIds.length ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds) : Promise.resolve({ data: [], error: null }),
+  const siteLinksQuery = accountIds.length
+    ? admin.from("company_account_sites").select("account_id, site_id").eq("tenant_id", input.tenantId).in("account_id", accountIds)
+    : null;
+  if (siteLinksQuery && input.branchId !== undefined && !input.includeAllSiteLinks) siteLinksQuery.eq("site_id", input.branchId);
+
+
+  const [siteLinksResult, sitesResult, balancesResult] = await Promise.all([
+    siteLinksQuery ?? Promise.resolve({ data: [], error: null }),
     admin.from("sites").select("id, name").eq("tenant_id", input.tenantId),
-    accountIds.length ? admin.from("account_transactions").select("id, tenant_id, account_id, transaction_type, amount, description, reference_no, related_payment_id, related_account_id, created_by_user_id, occurred_at, created_at")
-      .eq("tenant_id", input.tenantId).in("account_id", accountIds)
-      .gte("occurred_at", input.from?.toISOString() ?? "1970-01-01T00:00:00.000Z").lte("occurred_at", input.to?.toISOString() ?? "9999-12-31T23:59:59.999Z").order("occurred_at", { ascending: false }).order("id", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
     accountIds.length ? admin.rpc("powerhub_company_account_balance_rollup", { p_tenant_id: input.tenantId, p_account_ids: accountIds }) : Promise.resolve({ data: [], error: null }),
   ]);
-  if (siteLinksResult.error || sitesResult.error || transactionsResult.error || balancesResult.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حركات أو أرصدة حسابات الشركة من Supabase." });
+  if (siteLinksResult.error || sitesResult.error || balancesResult.error) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل بيانات أو أرصدة حسابات الشركة من Supabase." });
+  }
+
   const balanceByAccountId = new Map<number, number>((balancesResult.data ?? []).map((row: { account_id: number | string; balance: number | string }) => [Number(row.account_id), Number(row.balance)]));
   const siteNameById = new Map((sitesResult.data ?? []).map((site) => [Number(site.id), site.name]));
   const linksByAccount = new Map<number, Array<{ accountId: number; siteId: number; siteName: string }>>();
   for (const link of siteLinksResult.data ?? []) {
-    const accountId = Number(link.account_id); const siteId = Number(link.site_id);
+    const accountId = Number(link.account_id);
+    const siteId = Number(link.site_id);
     linksByAccount.set(accountId, [...(linksByAccount.get(accountId) ?? []), { accountId, siteId, siteName: siteNameById.get(siteId) ?? "فرع" }]);
   }
-  const transactionsByAccount = new Map<number, SupabaseAccountTransaction[]>();
-  for (const row of transactionsResult.data ?? []) {
-    const accountId = Number(row.account_id);
-    const transaction: SupabaseAccountTransaction = { id: Number(row.id), tenantId: Number(row.tenant_id), accountId, transactionType: row.transaction_type, amount: String(row.amount), description: row.description, referenceNo: row.reference_no, relatedPaymentId: row.related_payment_id === null ? null : Number(row.related_payment_id), relatedAccountId: row.related_account_id === null ? null : Number(row.related_account_id), createdByUserId: row.created_by_user_id === null ? null : Number(row.created_by_user_id), occurredAt: new Date(row.occurred_at), createdAt: new Date(row.created_at) };
-    transactionsByAccount.set(accountId, [...(transactionsByAccount.get(accountId) ?? []), transaction]);
-  }
+
   return (accountRows ?? []).flatMap((row) => {
-    const id = Number(row.id); const linkedSites = linksByAccount.get(id) ?? [];
-    if (input.branchId && !linkedSites.some((link) => link.siteId === input.branchId)) return [];
-    const transactions = transactionsByAccount.get(id) ?? [];
+    const id = Number(row.id);
+    const linkedSites = linksByAccount.get(id) ?? [];
+    if (input.branchId !== undefined && !linkedSites.some((link) => link.siteId === input.branchId)) return [];
     const balance = balanceByAccountId.get(id);
     if (balance === undefined || !Number.isFinite(balance)) {
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب الرصيد الكامل لحساب الشركة." });
     }
-    return [{ id, tenantId: Number(row.tenant_id), name: row.name, accountType: row.account_type, phoneNumber: row.phone_number, color: row.color, openingBalance: String(row.opening_balance), isActive: row.is_active, allowPaymentDocumentation: Boolean(row.allow_payment_documentation), createdAt: new Date(row.created_at), updatedAt: new Date(row.updated_at), linkedSites, balance, transactions }];
+    return [{
+      id,
+      tenantId: Number(row.tenant_id),
+      name: row.name,
+      accountType: row.account_type,
+      phoneNumber: row.phone_number,
+      color: row.color,
+      openingBalance: String(row.opening_balance),
+      isActive: row.is_active,
+      allowPaymentDocumentation: Boolean(row.allow_payment_documentation),
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+      linkedSites,
+      balance,
+    }];
   });
 }
 
@@ -1279,12 +1730,12 @@ async function resolveSupabaseQuotaAlertState(input: {
       currentCount = result.count ?? 0;
     } else if (input.resource === "fieldUser") {
       const result = await admin.from("tenant_members").select("user_id", { count: "exact", head: true })
-        .eq("tenant_id", input.tenantId).eq("role", "technician").eq("is_active", true).eq("membership_status", "active");
+        .eq("tenant_id", input.tenantId).eq("role", "technician").eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter());
       if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب المستخدمين الميدانيين." });
       currentCount = result.count ?? 0;
     } else if (input.resource === "platformUser") {
       const result = await admin.from("tenant_members").select("user_id", { count: "exact", head: true })
-        .eq("tenant_id", input.tenantId).eq("is_active", true).eq("membership_status", "active").neq("role", "owner");
+        .eq("tenant_id", input.tenantId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).neq("role", "owner");
       if (result.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر احتساب مستخدمي المنصة." });
       currentCount = result.count ?? 0;
     }

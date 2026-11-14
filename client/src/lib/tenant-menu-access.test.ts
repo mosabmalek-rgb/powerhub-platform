@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tenantMenuRouteAllowed } from "./tenant-menu-access";
+import { tenantMenuRouteAllowed, shouldShowBranchManagement } from "./tenant-menu-access";
 
 describe("tenant sidebar access", () => {
   it("keeps limited roles away from owner-only and management routes", () => {
@@ -33,6 +33,12 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/inventory", "manager", ["viewInventory"], true)).toBe(true);
   });
 
+  it("restricts field distribution to owners even when team management is delegated", () => {
+    expect(tenantMenuRouteAllowed("/field-distribution", "owner")).toBe(true);
+    expect(tenantMenuRouteAllowed("/field-distribution", "manager", ["manageTeam"], true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/field-distribution", "technician", ["manageTeam"], true)).toBe(false);
+  });
+
   it("does not expose unknown routes", () => {
     expect(tenantMenuRouteAllowed("/does-not-exist", "owner")).toBe(false);
   });
@@ -49,4 +55,24 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/inventory", "viewer", ["approveStocktakes"], true)).toBe(true);
   });
 
+});
+
+describe("branch navigation feature limit", () => {
+  it("hides branch management when the effective limit is one even if more sites exist", () => {
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: 1 })).toBe(false);
+  });
+  it("shows branch management only when the feature is enabled and the limit exceeds one", () => {
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: 2 })).toBe(true);
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: 25 })).toBe(true);
+  });
+  it("hides disabled, missing, unknown, and not-yet-loaded policies without guessing", () => {
+    expect(shouldShowBranchManagement({ isEnabled: false, maxBranches: 10 })).toBe(false);
+    expect(shouldShowBranchManagement(undefined)).toBe(false);
+    expect(shouldShowBranchManagement({ isEnabled: true })).toBe(false);
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: null })).toBe(false);
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: Number.NaN })).toBe(false);
+  });
+  it("does not hide platform-admin navigation when tenant policy is not queried", () => {
+    expect(shouldShowBranchManagement(undefined, "admin")).toBe(true);
+  });
 });

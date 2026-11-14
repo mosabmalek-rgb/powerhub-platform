@@ -59,10 +59,14 @@ insert into public.users(id,auth_user_id,platform_role,account_status) values
   (3,'00000000-0000-0000-0000-000000000003','platform_admin','active'),
   (4,'00000000-0000-0000-0000-000000000004','platform_owner','active'),
   (5,'00000000-0000-0000-0000-000000000005','finance_admin','active'),
-  (6,'00000000-0000-0000-0000-000000000006',null,'active');
+  (6,'00000000-0000-0000-0000-000000000006',null,'active'),
+  (7,'00000000-0000-0000-0000-000000000007',null,'disabled'),
+  (8,'00000000-0000-0000-0000-000000000008',null,'locked');
 insert into public.tenant_members(tenant_id,user_id,is_active,membership_status,expires_at) values
   (10,1,true,'active',now()-interval '1 hour'),
-  (20,1,true,'active',null);
+  (20,1,true,'active',null),
+  (30,7,true,'active',null),
+  (30,8,true,'active',null);
 
 insert into public.sites(tenant_id) values(10),(20);
 
@@ -179,6 +183,7 @@ grant usage,select on all sequences in schema public to anon,authenticated,servi
 \ir ../migrations/20261023153000_powerhub_generator_reading_direct_dml_hardening.sql
 \ir ../migrations/20261023161000_powerhub_membership_rls_scope_alignment.sql
 \ir ../migrations/20261023175417_powerhub_site_membership_inventory_read_scope.sql
+\ir ../migrations/20261105193301_powerhub_legacy_tenant_helpers_active_user_guard.sql
 
 do $assert_policy_acl$
 declare v_table text; v_policy text;
@@ -512,6 +517,62 @@ begin
   end loop;
 end
 $assert_finance_admin_additional_scope$;
+reset role;
+
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000007',false);
+set role authenticated;
+select (
+  powerhub_private.current_tenant_ids() = '{}'::bigint[]
+  and not powerhub_private.has_tenant_access(30)
+) as disabled_account_tenant_scope_ok \gset check_
+\if :check_disabled_account_tenant_scope_ok
+\else
+  \echo 'DISABLED_ACCOUNT_REMAINS_IN_LEGACY_TENANT_HELPERS'
+  \quit 1
+\endif
+do $assert_disabled_account_scope$
+declare v_table text; v_count bigint;
+begin
+  foreach v_table in array array[
+    'sites','tenant_members','account_transactions','audit_logs','company_accounts',
+    'expenses','generators','meter_readings','inventory_items','inventory_stock_movements',
+    'inventory_warehouses','supplier_ledger_entries','supplier_payment_allocations',
+    'supplier_payments','supplier_purchase_lines','supplier_purchase_receipt_lines',
+    'supplier_purchase_receipts','supplier_purchases','suppliers'
+  ] loop
+    execute format('select count(*) from public.%I',v_table) into v_count;
+    if v_count<>0 then raise exception 'DISABLED_ACCOUNT_READS_TENANT_DATA_ON_%',v_table; end if;
+  end loop;
+end
+$assert_disabled_account_scope$;
+reset role;
+
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000008',false);
+set role authenticated;
+select (
+  powerhub_private.current_tenant_ids() = '{}'::bigint[]
+  and not powerhub_private.has_tenant_access(20)
+) as locked_account_tenant_scope_ok \gset check_
+\if :check_locked_account_tenant_scope_ok
+\else
+  \echo 'LOCKED_ACCOUNT_REMAINS_IN_LEGACY_TENANT_HELPERS'
+  \quit 1
+\endif
+do $assert_locked_account_scope$
+declare v_table text; v_count bigint;
+begin
+  foreach v_table in array array[
+    'sites','tenant_members','account_transactions','audit_logs','company_accounts',
+    'expenses','generators','meter_readings','inventory_items','inventory_stock_movements',
+    'inventory_warehouses','supplier_ledger_entries','supplier_payment_allocations',
+    'supplier_payments','supplier_purchase_lines','supplier_purchase_receipt_lines',
+    'supplier_purchase_receipts','supplier_purchases','suppliers'
+  ] loop
+    execute format('select count(*) from public.%I',v_table) into v_count;
+    if v_count<>0 then raise exception 'LOCKED_ACCOUNT_READS_TENANT_DATA_ON_%',v_table; end if;
+  end loop;
+end
+$assert_locked_account_scope$;
 reset role;
 
 set role anon;

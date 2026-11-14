@@ -1,0 +1,123 @@
+name: PowerHub B5 Synthetic Financial Load
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/auth-local-first-single-pr]
+    paths:
+      - "supabase/tests/b5_disposable_single_site_load_*"
+      - "scripts/b5-disposable-financial-load.sh"
+      - "scripts/b5-financial-http-benchmark.mjs"
+      - "scripts/b5-financial-http-benchmark.test.mjs"
+      - "scripts/c5-close-readiness-http-benchmark.mjs"
+      - "scripts/c5-close-readiness-http-benchmark.test.mjs"
+      - "scripts/b5-disposable-payroll-load.sh"
+      - "scripts/b5-disposable-payroll-race.sh"
+      - "supabase/tests/b5_disposable_payroll_load_*"
+      - "supabase/tests/b5_disposable_collection_load_*"
+      - "scripts/b5-disposable-collection-load.sh"
+      - "supabase/tests/b5_disposable_expense_load_*"
+      - "supabase/migrations/20261025101844_powerhub_payment_idempotency_replay_hardening.sql"
+      - "supabase/migrations/20260930163000_powerhub_expense_account_linkage.sql"
+      - "supabase/migrations/20261101083158_powerhub_offline_expense_idempotency.sql"
+      - "supabase/migrations/20261109123000_powerhub_expense_operating_classification.sql"
+      - "supabase/migrations/20261110023000_powerhub_payroll_approval_integrity.sql"
+      - "supabase/migrations/20261104084805_20261103211000_powerhub_company_account_movement_idempotency.sql"
+      - "scripts/b5-disposable-expense-load.sh"
+      - ".github/workflows/b5-synthetic-financial-load.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/tests/b5_disposable_single_site_load_*"
+      - "scripts/b5-disposable-financial-load.sh"
+      - "scripts/b5-financial-http-benchmark.mjs"
+      - "scripts/b5-financial-http-benchmark.test.mjs"
+      - "scripts/c5-close-readiness-http-benchmark.mjs"
+      - "scripts/c5-close-readiness-http-benchmark.test.mjs"
+      - "scripts/b5-disposable-payroll-load.sh"
+      - "scripts/b5-disposable-payroll-race.sh"
+      - "supabase/tests/b5_disposable_payroll_load_*"
+      - "supabase/tests/b5_disposable_collection_load_*"
+      - "scripts/b5-disposable-collection-load.sh"
+      - "supabase/tests/b5_disposable_expense_load_*"
+      - "supabase/migrations/20261025101844_powerhub_payment_idempotency_replay_hardening.sql"
+      - "supabase/migrations/20260930163000_powerhub_expense_account_linkage.sql"
+      - "supabase/migrations/20261101083158_powerhub_offline_expense_idempotency.sql"
+      - "supabase/migrations/20261109123000_powerhub_expense_operating_classification.sql"
+      - "supabase/migrations/20261110023000_powerhub_payroll_approval_integrity.sql"
+      - "supabase/migrations/20261104084805_20261103211000_powerhub_company_account_movement_idempotency.sql"
+      - "scripts/b5-disposable-expense-load.sh"
+      - ".github/workflows/b5-synthetic-financial-load.yml"
+permissions:
+  contents: read
+concurrency:
+  group: b5-disposable-load-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  synthetic-account-ledger:
+    name: B5 synthetic 4-session ledger load (disposable PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: powerhub_b5_synthetic_load_test
+    steps:
+      - name: Checkout the PR commit
+        uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - name: Create exclusively disposable test database and apply actual account RPC migration
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_b5_synthetic_load_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_b5_synthetic_load_test --set ON_ERROR_STOP=1 --file supabase/tests/b5_disposable_single_site_load_setup.sql
+      - name: Execute concurrent financial load and SQL assertions
+        run: bash scripts/b5-disposable-financial-load.sh
+      - name: Create payroll maker-checker disposable database
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_b5_synthetic_payroll_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_b5_synthetic_payroll_test --set ON_ERROR_STOP=1 --file supabase/tests/b5_disposable_payroll_load_setup.sql
+      - name: Run concurrent payroll approvals and rejection assertions
+        env:
+          PGDATABASE: powerhub_b5_synthetic_payroll_test
+        run: bash scripts/b5-disposable-payroll-load.sh
+      - name: Race distinct reviewers on the same payroll, verify one winner only
+        env:
+          PGDATABASE: powerhub_b5_synthetic_payroll_test
+        run: bash scripts/b5-disposable-payroll-race.sh
+      - name: Create disposable collection database with actual hardened payment RPC
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_b5_synthetic_collection_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_b5_synthetic_collection_test --set ON_ERROR_STOP=1 --file supabase/tests/b5_disposable_collection_load_setup.sql
+      - name: Load 1000 invoice collections and check exactly-once ledger effects
+        env:
+          PGDATABASE: powerhub_b5_synthetic_collection_test
+        run: bash scripts/b5-disposable-collection-load.sh
+      - name: Create disposable expense database with actual classified and offline-safe RPCs
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_b5_synthetic_expense_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_b5_synthetic_expense_test --set ON_ERROR_STOP=1 --file supabase/tests/b5_disposable_expense_load_setup.sql
+      - name: Load 1000 operating expenses and assert paired cash withdrawals
+        env:
+          PGDATABASE: powerhub_b5_synthetic_expense_test
+        run: bash scripts/b5-disposable-expense-load.sh
+
+      - name: Verify fail-closed financial HTTP harness (mocked transport, no credentials)
+        run: node --test scripts/b5-financial-http-benchmark.test.mjs scripts/c5-close-readiness-http-benchmark.test.mjs

@@ -3,6 +3,9 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { downloadBlob } from "@/lib/download-blob";
+import { escapeHtml } from "@/lib/report-pdf";
 import { SubscriberQuotaCard } from "@/components/SubscriberQuotaCard";
 import { BulkSubscriberImport } from "@/components/BulkSubscriberImport";
 import { OfflineWorkSyncPanel } from "@/components/OfflineWorkSyncPanel";
@@ -13,6 +16,8 @@ import { DashboardKpiPeriodFilter } from "@/components/DashboardKpiPeriodFilter"
 import { downloadReportHtmlAsPdf } from "@/lib/report-pdf";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { trpc } from "@/lib/trpc";
+import { readCachedWorkspaceSites } from "@/lib/workspace-sites-cache";
+import { hasAuthoritativeServerRead } from "@/lib/authoritative-server-read";
 import { filterAndSortDebtors, filterDebtorsByQuery } from "@/lib/debtor-search";
 import { enqueueOfflineSubscriberCreateWithNumber, enqueueOfflineWork } from "@/lib/offline-work-queue";
 import { getPowerHubDeviceId } from "@/lib/offline-auth";
@@ -31,6 +36,11 @@ const SUBSCRIBER_PAGE_SIZE = 20;
 function normalizeSubscriberSearch(value: unknown) { return String(value ?? "").normalize("NFKC").toLocaleLowerCase("ar").trim(); }
 const inputClass = "h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white outline-none transition focus:border-[#F5B800]/70 focus:ring-2 focus:ring-[#F5B800]/15";
 
+function companyAccountDepositMethod(accountType: string): "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "wallet" | "bank_transfer" | "card" {
+  if (accountType === "cash" || accountType === "jawwal_pay" || accountType === "palpay" || accountType === "bank_of_palestine") return accountType;
+  return "bank_transfer";
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="block"><span className="mb-2 block text-xs font-bold text-slate-400">{label}</span>{children}</label>;
 }
@@ -41,7 +51,12 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const reserveSubscriberNumbers = trpc.powerhub.offlineNumbering.reserve.useMutation();
-  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
+  const sitesQuery = trpc.powerhub.sites.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+    initialData: user?.id ? readCachedWorkspaceSites(user.id) ?? undefined : undefined,
+    refetchOnMount: "always",
+    refetchOnReconnect: true,
+  });
   const { branchId: siteId, setBranchId: setSiteId } = useBranchFilter(sitesQuery.data);
   const routeSearchParams = useMemo(() => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search), []);
   const initialDebtorPeriod = useMemo(() => parseDashboardKpiPeriod(routeSearchParams.toString()), [routeSearchParams]);
@@ -106,6 +121,22 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     totalPages: number;
   }>());
   const accessQuery = trpc.powerhub.staff.myAccess.useQuery({ siteId: siteId ?? 0 }, { enabled });
+  const role = accessQuery.data?.role;
+  const canManageSubscriberDeposits = ["owner", "manager", "accountant"].includes(String(role)) && can(role, "collectPayments");
+  const securityDepositAccountsQuery = trpc.powerhub.subscribers.securityDepositAccounts.useQuery({ siteId: siteId ?? 0 }, {
+    // While offline, hydrate only a previously authorized, minimized account-option
+    // snapshot. The server rechecks account activity, site scope, and permission at sync.
+    enabled: enabled && kind === "subscribers" && (canManageSubscriberDeposits || !isOnline),
+    staleTime: 60_000,
+    refetchOnReconnect: "always",
+  });
+  const canReceiveDeposit = canManageSubscriberDeposits ||
+    (!isOnline && Boolean(securityDepositAccountsQuery.data?.length));
+  const securityDepositOverviewQuery = trpc.powerhub.subscribers.securityDepositOverview.useQuery({ siteId: siteId ?? 0 }, {
+    enabled: enabled && kind === "subscribers" && accessQuery.isSuccess,
+    staleTime: 60_000,
+    refetchOnReconnect: "always",
+  });
   const subscribersQuery = trpc.powerhub.subscribers.directoryPage.useQuery({
     siteId: siteId ?? 0,
     page: subscriberPage,
@@ -118,6 +149,9 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     staleTime: 60 * 60 * 1000,
     gcTime: 2 * 60 * 60 * 1000,
     placeholderData: (previousData) => previousData,
+    // Show the persisted page immediately; always refresh it in the background
+    // after connectivity returns, even when its one-hour in-memory window remains fresh.
+    refetchOnReconnect: "always",
     refetchOnWindowFocus: false,
   });
   // Render page 1 as soon as it arrives; warm all remaining pages in the background in batches of 3.
@@ -232,7 +266,6 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const subscriberQuotaQuery = trpc.powerhub.subscribers.quota.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "subscribers" });
   const financialOverviewQuery = trpc.powerhub.dashboard.financialOverview.useQuery({ siteId: siteId ?? 0, scope: "branch", includeDetails: false }, { enabled: enabled && kind === "subscribers", staleTime: 60_000 });
   const generatorsQuery = trpc.powerhub.generators.list.useQuery({ siteId: siteId ?? 0 }, { enabled: enabled && kind === "generators" });
-  const role = accessQuery.data?.role;
   const canEdit = kind === "subscribers" ? can(role, "manageSubscribers") : can(role, "manageGenerators");
   const data: any[] = kind === "subscribers" ? subscribersQuery.data?.items ?? [] : generatorsQuery.data ?? [];
   const searchTerm = normalizeSubscriberSearch(subscriberSearch);
@@ -280,6 +313,7 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
           // directory caches after a local create/update.
           utils.powerhub.subscribers.directoryPage.invalidate({ siteId: siteScope.siteId }),
           ...(operation === "create" ? [utils.powerhub.subscribers.quota.invalidate(siteScope)] : []),
+          utils.powerhub.subscribers.securityDepositOverview.invalidate(siteScope),
           utils.powerhub.dashboard.financialOverview.invalidate({ ...siteScope, scope: "branch" }),
           utils.powerhub.dashboard.summary.invalidate(siteScope),
           utils.powerhub.audit.list.invalidate(siteScope),
@@ -304,13 +338,61 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   const updateGenerator = trpc.powerhub.generators.update.useMutation({ onSuccess: () => { refresh("update"); setEditing(null); toast.success("تم تحديث المولد."); }, onError: (e) => toast.error(e.message) });
 
   const submitSubscriber = async (values: Values) => {
-    const base = { siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone), address: values.address ? String(values.address) : undefined, subscriptionType: values.subscriptionType as "residential" | "commercial" | "institution" | "mosque", serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected", openingReading: values.openingReading ? String(values.openingReading) : undefined, openingReadingAt: values.openingReadingAt ? String(values.openingReadingAt) : undefined, openingReadingApproved: Boolean(values.openingReading), openingReadingImageData: values.openingReadingImageData ? String(values.openingReadingImageData) : undefined, openingReadingImageMime: values.openingReadingImageMime ? String(values.openingReadingImageMime) as "image/jpeg" | "image/png" | "image/webp" : undefined };
+    const securityDepositAmount = values.securityDepositAmount === undefined || values.securityDepositAmount === "" ? undefined : Number(values.securityDepositAmount);
+    const securityDepositAccountId = values.securityDepositCompanyAccountId ? Number(values.securityDepositCompanyAccountId) : undefined;
+    const securityDepositAccount = securityDepositAccountsQuery.data?.find((account) => account.id === securityDepositAccountId);
+    const securityDepositPaymentMethod = securityDepositAccount ? companyAccountDepositMethod(securityDepositAccount.accountType) : undefined;
+    if (securityDepositAmount !== undefined && (
+      !Number.isFinite(securityDepositAmount) || securityDepositAmount <= 0 ||
+      !Number.isInteger(securityDepositAccountId) || !securityDepositAccount ||
+      !securityDepositPaymentMethod || !canReceiveDeposit
+    )) {
+      toast.error("تحقق من مبلغ التأمين واختر حساب شركة نشطاً ومتاحاً لهذا الفرع.");
+      return;
+    }
+    const base = {
+      siteId: siteId!, fullName: String(values.fullName), phone: String(values.phone),
+      address: values.address ? String(values.address) : undefined,
+      subscriptionType: values.subscriptionType as "residential" | "commercial" | "institution" | "mosque",
+      serviceStatus: values.serviceStatus as "active" | "suspended" | "disconnected",
+      openingReading: values.openingReading ? String(values.openingReading) : undefined,
+      openingReadingAt: values.openingReadingAt ? String(values.openingReadingAt) : undefined,
+      openingReadingApproved: Boolean(values.openingReading),
+      openingReadingImageData: values.openingReadingImageData ? String(values.openingReadingImageData) : undefined,
+      openingReadingImageMime: values.openingReadingImageMime ? String(values.openingReadingImageMime) as "image/jpeg" | "image/png" | "image/webp" : undefined,
+      ...(securityDepositAmount !== undefined ? {
+        securityDepositAmount,
+        securityDepositCompanyAccountId: securityDepositAccountId!,
+        securityDepositPaymentMethod: securityDepositPaymentMethod!,
+        securityDepositPaymentNo: String(values.securityDepositPaymentNo),
+        securityDepositReferenceNo: values.securityDepositReferenceNo ? String(values.securityDepositReferenceNo) : undefined,
+        securityDepositOperationId: String(values.securityDepositOperationId),
+        clientOperationId: String(values.clientOperationId),
+      } : {}),
+    };
     if (!isOnline) {
       if (!user?.id) return toast.error("تعذر معرفة المستخدم الحالي لحفظ المسودة محلياً.");
       if (!editing && (!Number.isSafeInteger(activeTenantId) || activeTenantId <= 0)) {
         return toast.error("تعذر تحديد المستأجر الحالي؛ لم تُحفظ مسودة المشترك.");
       }
       try {
+        const offlineSubscriberPayload: import("@/lib/offline-work-queue").SubscriberCreateDraft = {
+          fullName: base.fullName,
+          phone: base.phone,
+          address: base.address,
+          subscriptionType: base.subscriptionType,
+          openingReading: base.openingReading,
+          openingReadingAt: base.openingReadingAt,
+          openingReadingApproved: base.openingReadingApproved,
+          openingReadingImageData: base.openingReadingImageData,
+          openingReadingImageMime: base.openingReadingImageMime,
+          securityDepositAmount: base.securityDepositAmount,
+          securityDepositCompanyAccountId: base.securityDepositCompanyAccountId,
+          securityDepositPaymentMethod: base.securityDepositPaymentMethod,
+          securityDepositPaymentNo: base.securityDepositPaymentNo,
+          securityDepositReferenceNo: base.securityDepositReferenceNo,
+          securityDepositOperationId: base.securityDepositOperationId,
+        };
         let reservedNumber: string | undefined;
         if (editing) {
           await enqueueOfflineWork({ userId: user.id, siteId: siteId!, kind: "subscriber_update", payload: { subscriberId: editing.id, fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType, serviceStatus: base.serviceStatus, expectedUpdatedAt: new Date(editing.updatedAt).toISOString() } });
@@ -323,23 +405,13 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
             tenantId: activeTenantId,
             siteId: siteId!,
             kind: "subscriber_create",
-            payload: {
-              fullName: base.fullName,
-              phone: base.phone,
-              address: base.address,
-              subscriptionType: base.subscriptionType,
-              openingReading: base.openingReading,
-              openingReadingAt: base.openingReadingAt,
-              openingReadingApproved: base.openingReadingApproved,
-              openingReadingImageData: base.openingReadingImageData,
-              openingReadingImageMime: base.openingReadingImageMime,
-            },
+            payload: offlineSubscriberPayload,
           });
         } else {
           const deviceId = await getPowerHubDeviceId();
           const queued = await enqueueOfflineSubscriberCreateWithNumber({
             scope: { userId: Number(user.id), tenantId: activeTenantId, siteId: siteId!, deviceId },
-            payload: { fullName: base.fullName, phone: base.phone, address: base.address, subscriptionType: base.subscriptionType },
+            payload: offlineSubscriberPayload,
           });
           reservedNumber = queued.formattedNumber;
         }
@@ -398,11 +470,16 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
   };
 
   const wrapPage = (content: ReactNode) => embedded ? content : <DashboardLayout>{content}</DashboardLayout>;
+  const hasNoSites = !sitesQuery.data || sitesQuery.data.length === 0;
   if (loading) return wrapPage(<Loading />);
   if (!isAuthenticated) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
   if (!user) return wrapPage(<LoginPrompt title={kind === "subscribers" ? "إدارة المشتركين" : "إدارة المولدات"} />);
-  if (sitesQuery.isError && !sitesQuery.data?.length) return wrapPage(<Card role="alert" className="mx-auto mt-8 max-w-2xl border-amber-300/30 bg-amber-300/[.06]"><CardContent className="p-6 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-2 text-sm leading-6 text-slate-400">لم نتمكن من التحقق من بيانات الفرع الآن؛ هذا لا يعني أن بياناتك حُذفت.</p><Button type="button" variant="outline" className="mt-4 border-amber-300/30 text-amber-100" onClick={() => void sitesQuery.refetch()}>إعادة المحاولة</Button></CardContent></Card>);
-  if (!sitesQuery.data?.length) return wrapPage(<EmptySetup />);
+  if (sitesQuery.isPending && hasNoSites) return wrapPage(<Loading />);
+  if (sitesQuery.isError && (sitesQuery.error?.data?.code === "UNAUTHORIZED" || sitesQuery.error?.data?.code === "FORBIDDEN" || hasNoSites)) return wrapPage(<Card role="alert" className="mx-auto mt-8 max-w-2xl border-amber-300/30 bg-amber-300/[.06]"><CardContent className="p-6 text-center"><h2 className="font-bold text-amber-100">تعذر تحميل فروع حسابك</h2><p className="mt-2 text-sm leading-6 text-slate-400">لم نتمكن من التحقق من بيانات الفرع الآن؛ هذا لا يعني أن بياناتك حُذفت.</p><Button type="button" variant="outline" className="mt-4 border-amber-300/30 text-amber-100" onClick={() => void sitesQuery.refetch()}>إعادة المحاولة</Button></CardContent></Card>);
+  // A temporary branch lookup failure must never be reported as an empty workspace.
+  if (hasNoSites && sitesQuery.isFetching) return wrapPage(<Loading />);
+  if (hasNoSites && !sitesQuery.isSuccess) return wrapPage(<Loading />);
+  if (hasNoSites) return wrapPage(<EmptySetup />);
   const title = kind === "subscribers" ? "المشتركون" : "المحطات والمولدات";
   const Icon = kind === "subscribers" ? UsersRound : Bolt;
   const pending = createSubscriber.isPending || updateSubscriber.isPending || createGenerator.isPending || updateGenerator.isPending;
@@ -418,11 +495,11 @@ export default function NetworkDirectoryPage({ kind, embedded = false }: { kind:
     <header className="flex flex-col gap-4 rounded-[24px] border border-white/8 bg-[#111823]/80 p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-bold text-[#F5B800]"><Icon className="h-4 w-4" />إدارة الشبكة</div><h1 className="mt-1 text-2xl font-extrabold text-white">{title}</h1><p className="mt-2 text-sm text-slate-400">{kind === "subscribers" ? "إضافة وتعديل بيانات الاشتراك وحالة الخدمة." : "القدرة والوقود وساعات التشغيل والحالة اللحظية."}</p></div><div className="flex items-center gap-2">{kind === "subscribers" ? <Button type="button" variant="outline" size="sm" onClick={() => void refreshSubscriberDirectory()} disabled={isManuallyRefreshingSubscribers || subscribersQuery.isFetching} className="shrink-0 border-white/10 text-slate-200"><RefreshCw className={`ml-2 h-4 w-4 ${isManuallyRefreshingSubscribers || subscribersQuery.isFetching ? "animate-spin" : ""}`} />تحديث القائمة</Button> : null}<select aria-label="فلتر الفرع الموحد" value={siteId ?? ""} onChange={(event) => { setSiteId(Number(event.target.value)); setEditing(null); setSubscriberPage(1); setSubscriberSearch(""); setDebouncedSubscriberSearch(""); setSubscriberTypeFilter("all"); }} className={inputClass}>{sitesQuery.data.map((site) => <option className="bg-[#111823]" value={site.id} key={site.id}>{site.name}</option>)}</select></div></header>
     {directoryQueryError ? <Card role="alert" className="border-amber-300/30 bg-amber-300/[.06]"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-amber-100">تعذر تحميل بيانات هذا القسم</h2><p className="mt-1 text-sm leading-6 text-slate-400">لن نعتبر فشل الاتصال دليلاً على حذف السجلات. أعد المحاولة بعد استعادة الاتصال.</p></div><Button type="button" variant="outline" onClick={() => void retryDirectoryQueries()} className="shrink-0 border-amber-300/30 text-amber-100">إعادة المحاولة</Button></CardContent></Card> : null}
     <div className={kind === "subscribers" ? "space-y-6" : "grid gap-6 xl:grid-cols-[.8fr_1.2fr]"}>
-      {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <><div className="mb-4 flex items-center justify-between gap-3"><span className={addCardCollapsed && !editing ? "text-lg font-extrabold text-white sm:text-xl" : "text-sm font-bold text-slate-300"}>{editing ? "تعديل بيانات المشترك" : "إضافة مشترك"}</span><Button type="button" size="sm" variant="outline" onClick={() => setAddCardCollapsed((value) => !value)} className="border-white/10 text-slate-200">{addCardCollapsed ? "فتح البطاقة" : "طي البطاقة"}</Button></div>{!addCardCollapsed ? <SubscriberEditor key={`${editing?.id ?? "new"}-${subscriberFormResetKey}`} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} /> : null}</> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
+      {canEdit ? <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5">{kind === "subscribers" ? <><div className="mb-4 flex items-center justify-between gap-3"><span className={addCardCollapsed && !editing ? "text-lg font-extrabold text-white sm:text-xl" : "text-sm font-bold text-slate-300"}>{editing ? "تعديل بيانات المشترك" : "إضافة مشترك"}</span><Button type="button" size="sm" variant="outline" onClick={() => setAddCardCollapsed((value) => !value)} className="border-white/10 text-slate-200">{addCardCollapsed ? "فتح البطاقة" : "طي البطاقة"}</Button></div>{!addCardCollapsed ? <SubscriberEditor key={`${editing?.id ?? "new"}-${subscriberFormResetKey}`} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitSubscriber} companyAccounts={securityDepositAccountsQuery.data ?? []} accountsLoading={securityDepositAccountsQuery.isLoading} canReceiveDeposit={canReceiveDeposit} /> : null}</> : <GeneratorEditor key={editing?.id ?? "new"} editing={editing} pending={pending} onCancel={() => setEditing(null)} onSubmit={submitGenerator} />}</CardContent></Card> : <ReadOnlyCard />}
       <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-0"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-5 py-4"><h2 className="font-bold text-white">سجل {title}</h2><span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-400">{kind === "subscribers" ? `${visibleData.length ? (currentSubscriberPage - 1) * SUBSCRIBER_PAGE_SIZE + 1 : 0}–${Math.min(currentSubscriberPage * SUBSCRIBER_PAGE_SIZE, totalSubscriberResults)} من ${totalSubscriberResults} نتيجة` : `${visibleData.length} من ${data.length} سجل`}</span></div><div className="p-5">{kind === "subscribers" ? <div className="mb-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs text-slate-400"><span className="mb-1 block">بحث ذكي وسريع</span><input id="subscriber-search-input" aria-label="بحث ذكي في سجل المشتركين" list={`subscriber-autocomplete-${siteId}`} value={subscriberSearch} onChange={(event) => setSubscriberSearch(event.target.value)} placeholder="اسم المشترك أو الرقم المرجعي أو الهاتف…" className={inputClass} /><datalist id={`subscriber-autocomplete-${siteId}`}>{data.slice(0,200).flatMap((row) => [<option key={`name-${row.id}`} value={row.fullName}/>,<option key={`number-${row.id}`} value={row.subscriberNo}/>,<option key={`phone-${row.id}`} value={row.phone}/>])}</datalist></label><label className="block text-xs text-slate-400"><span className="mb-1 block">نوع المشترك</span><select aria-label="فلتر نوع المشترك" value={subscriberTypeFilter} onChange={(event) => { setSubscriberTypeFilter(event.target.value as SubscriberTypeFilter); setSubscriberPage(1); }} className={inputClass}><option value="all">كل الأنواع</option><option value="residential">سكني</option><option value="commercial">تجاري</option><option value="institution">مؤسسات</option><option value="mosque">مساجد</option></select></label></div> : null}{pageData.length ? <div className="space-y-2">{pageData.map((item) => <RecordRow key={item.id} kind={kind} item={item} canEdit={canEdit} onEdit={() => { setEditing(item); setAddCardCollapsed(false); }} onOpenStatement={kind === "subscribers" && siteId ? () => setLocation(`/subscriber-statement/${item.id}?siteId=${siteId}`) : undefined} />)}</div> : <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">{kind === "generators" && generatorsQuery.isError ? "تعذر تحميل سجلات المولدات؛ أعد المحاولة أعلاه." : kind === "subscribers" && subscribersQuery.isError ? "تعذر تحميل سجل المشتركين؛ أعد المحاولة أعلاه." : kind === "subscribers" && (searchTerm || subscriberTypeFilter !== "all") ? "لا توجد نتائج مطابقة للبحث أو نوع المشترك المحدد." : `لا توجد سجلات في ${activeSite?.name}.`} {canEdit && !searchTerm && subscriberTypeFilter === "all" ? "استخدم النموذج لإضافة أول سجل." : ""}</div>}{kind === "subscribers" && totalSubscriberResults > SUBSCRIBER_PAGE_SIZE ? <nav aria-label="صفحات سجل المشتركين" className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4"><span className="text-xs text-slate-400">عرض 20 مشتركاً كحد أقصى في الصفحة</span><div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage(1)} className="border-white/10 text-slate-200">الأولى</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage === 1} onClick={() => setSubscriberPage((page) => Math.max(1, page - 1))} className="border-white/10 text-slate-200">السابق</Button><span aria-live="polite" className="min-w-24 text-center text-xs text-slate-300">صفحة {currentSubscriberPage} من {totalSubscriberPages}</span><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage((page) => Math.min(totalSubscriberPages, page + 1))} className="border-white/10 text-slate-200">التالي</Button><Button type="button" variant="outline" size="sm" disabled={currentSubscriberPage >= totalSubscriberPages} onClick={() => setSubscriberPage(totalSubscriberPages)} className="border-white/10 text-slate-200">الأخيرة</Button></div></nav> : null}</div></CardContent></Card>
     </div>
     {kind === "generators" && canEdit && user?.id ? <OfflineWorkSyncPanel siteId={siteId!} userId={user.id} compact /> : null}
-    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { refresh("create"); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace siteId={siteId!} canRemind={can(role, "manageMessaging")} initialPeriod={initialDebtorPeriod} initialScope={initialDebtorScope} initialStatus={initialDebtorStatus} autoFocus={focusDebtorCard} /></> : null}
+    {kind === "subscribers" ? <><SubscriberPortalGuide /><SubscriberSecurityDepositOverview overview={securityDepositOverviewQuery.data} loading={securityDepositOverviewQuery.isLoading} error={securityDepositOverviewQuery.error?.message} onRefresh={() => void securityDepositOverviewQuery.refetch()} /><SubscriberQuotaCard quota={subscriberQuotaQuery.data} />{canEdit ? <><OfflineWorkSyncPanel siteId={siteId!} userId={user.id!} compact /><BulkSubscriberImport siteId={siteId!} onSaved={async () => { refresh("create"); }} /></> : null}<SubscriberFinancialOverview overview={financialOverviewQuery.data} /><SubscriberDebtorWorkspace siteId={siteId!} canRemind={can(role, "manageMessaging")} initialPeriod={initialDebtorPeriod} initialScope={initialDebtorScope} initialStatus={initialDebtorStatus} autoFocus={focusDebtorCard} /></> : null}
   </div>);
 }
 
@@ -462,7 +539,14 @@ function SubscriberDebtorWorkspace({
   });
   const exportReportRef = useRef<HTMLDivElement>(null);
   const didAutoFocus = useRef(false);
-  const rows = filterAndSortDebtors(periodMetricsQuery.data?.outstandingInvoices ?? [], query, status, sort);
+  // Detailed arrears are financial records, not an offline truth. React Query
+  // may retain previous data after a failed refetch, so require a successful
+  // fetch for this exact scope/range in the current mounted view.
+  const periodMetricsIsAuthoritative = hasAuthoritativeServerRead(periodMetricsQuery);
+  const rows = filterAndSortDebtors(
+    periodMetricsIsAuthoritative ? periodMetricsQuery.data?.outstandingInvoices ?? [] : [],
+    query, status, sort,
+  );
   const statusLabel = (row: any) => row.isOverdue && row.partialInvoices
     ? "متأخر · دفعة جزئية"
     : row.partialInvoices
@@ -476,12 +560,12 @@ function SubscriberDebtorWorkspace({
   const formatDate = (value: unknown) => value ? new Date(String(value)).toLocaleDateString("ar-PS", { timeZone: "Asia/Gaza" }) : "—";
 
   useEffect(() => {
-    if (!autoFocus || didAutoFocus.current || !period.isReady || (!periodMetricsQuery.data && !periodMetricsQuery.isError)) return;
+    if (!autoFocus || didAutoFocus.current || !period.isReady || (!periodMetricsIsAuthoritative && !periodMetricsQuery.isError)) return;
     didAutoFocus.current = true;
     window.requestAnimationFrame(() => {
       document.getElementById("subscriber-arrears")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, [autoFocus, period.isReady, periodMetricsQuery.data, periodMetricsQuery.isError]);
+  }, [autoFocus, period.isReady, periodMetricsIsAuthoritative, periodMetricsQuery.isError]);
 
   const exportRows = rows.map((row: any) => ({
     branch: row.siteName ?? "—",
@@ -502,7 +586,7 @@ function SubscriberDebtorWorkspace({
     : [row.subscriber, row.subscriberNo, row.invoiceNo, row.issueDate, row.outstanding, row.dueDate, row.status];
 
   const downloadExcel = async () => {
-    if (!periodMetricsQuery.data || !exportRows.length) return toast.error("لا توجد نتائج مطابقة لتصديرها.");
+    if (!periodMetricsIsAuthoritative || !periodMetricsQuery.data || !exportRows.length) return toast.error("تصدير المتأخرات يتطلب قراءة خادمية ناجحة وحديثة لنفس الفرع والفترة.");
     try {
       const { default: ExcelJS } = await loadExcelJS();
       const workbook = new ExcelJS.Workbook();
@@ -543,7 +627,7 @@ function SubscriberDebtorWorkspace({
   };
 
   const downloadPdf = async () => {
-    if (!periodMetricsQuery.data || !exportRows.length || !exportReportRef.current) return toast.error("لا توجد نتائج مطابقة لتصديرها.");
+    if (!periodMetricsIsAuthoritative || !periodMetricsQuery.data || !exportRows.length || !exportReportRef.current) return toast.error("تصدير المتأخرات يتطلب قراءة خادمية ناجحة وحديثة لنفس الفرع والفترة.");
     try {
       await downloadReportHtmlAsPdf(exportReportRef.current, `متأخرات-${period.startDate}-إلى-${period.endDate}.pdf`, {
         landscape: true,
@@ -556,7 +640,7 @@ function SubscriberDebtorWorkspace({
   };
 
   const focusHeader = initialScope === "all" ? "بحث ومتابعة متأخرات جميع الأفرع" : "بحث ومتابعة المتأخرات";
-  const totalOpenCount = periodMetricsQuery.data?.outstandingInvoices?.length ?? 0;
+  const totalOpenCount = periodMetricsIsAuthoritative ? periodMetricsQuery.data?.outstandingInvoices?.length ?? 0 : null;
   const columnWidths = initialScope === "all"
     ? ["10%", "20%", "9%", "9%", "10%", "11%", "10%", "11%", "10%"]
     : ["20%", "10%", "10%", "12%", "13%", "13%", "12%", "10%"];
@@ -573,7 +657,7 @@ function SubscriberDebtorWorkspace({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" onClick={() => void downloadPdf()} disabled={!periodMetricsQuery.data || rows.length === 0} className="border-rose-400/30 text-rose-200 hover:bg-rose-400/10">
+              <Button type="button" variant="outline" onClick={() => void downloadPdf()} disabled={!periodMetricsIsAuthoritative || !periodMetricsQuery.data || rows.length === 0} className="border-rose-400/30 text-rose-200 hover:bg-rose-400/10">
                 <FileText className="ml-2 h-4 w-4" /> PDF
               </Button>
               <Button type="button" variant="outline" onClick={() => void downloadExcel()} disabled={!periodMetricsQuery.data || rows.length === 0} className="border-emerald-400/30 text-emerald-200 hover:bg-emerald-400/10">
@@ -618,7 +702,7 @@ function SubscriberDebtorWorkspace({
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
             <span>{periodMetricsQuery.isLoading || !period.isReady ? "جارٍ تحميل النتائج…" : periodMetricsQuery.isError ? "تعذر تحميل فواتير الفترة؛ أعد المحاولة." : `${rows.length} فاتورة تطابق الفلتر الحالي`}</span>
-            <span>إجمالي الفواتير ذات الرصيد في الفترة: {totalOpenCount}</span>
+            <span>إجمالي الفواتير ذات الرصيد في الفترة: {totalOpenCount ?? "غير متحقق"}</span>
           </div>
           <div className="mt-4">
             {periodMetricsQuery.isError ? (
@@ -682,7 +766,7 @@ function SubscriberDebtorWorkspace({
               </>
             ) : (
               <p className="px-4 py-8 text-center text-sm text-slate-500">
-                {periodMetricsQuery.isLoading || !period.isReady ? "جارٍ تحميل بيانات الفترة…" : query.trim() || status !== "all" ? "لا توجد فواتير تطابق البحث أو الحالة المحددة في الفترة الحالية." : "لا توجد فواتير بأرصدة مفتوحة ضمن الفترة المحددة."}
+                {periodMetricsQuery.isLoading || !period.isReady || !periodMetricsIsAuthoritative ? "جارٍ التحقق من بيانات الذمم من الخادم…" : query.trim() || status !== "all" ? "لا توجد فواتير تطابق البحث أو الحالة المحددة في الفترة الحالية." : "لا توجد فواتير بأرصدة مفتوحة ضمن الفترة المحددة."}
               </p>
             )}
           </div>
@@ -700,6 +784,147 @@ function SubscriberDebtorWorkspace({
       </div>
     </section>
   );
+}
+
+function SubscriberSecurityDepositOverview({ overview, loading, error, onRefresh }: {
+  overview?: { totalAmount: string; subscriberCount: number; items: Array<{ subscriberId: number; fullName: string; subscriberNo: string; phone: string | null; amount: string; lastMovementAt: Date | null }> };
+  loading: boolean;
+  error?: string;
+  onRefresh: () => void;
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const format = (value: unknown) => new Intl.NumberFormat("ar", { maximumFractionDigits: 2 }).format(Number(value ?? 0));
+  const rows = overview?.items ?? [];
+
+  const exportExcel = async () => {
+    if (!overview) {
+      toast.error("لا تتوفر قراءة خادمية موثوقة لتأمينات المشتركين.");
+      return;
+    }
+    try {
+      const { default: ExcelJS } = await loadExcelJS();
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "PowerHub";
+      const sheet = workbook.addWorksheet("تأمينات المشتركين", {
+        views: [{ rightToLeft: true, state: "frozen", ySplit: 4 }],
+      });
+      sheet.addRow(["سجل تأمينات المشتركين"]);
+      sheet.addRow(["إجمالي التأمينات القائمة", Number(overview.totalAmount), "عدد المشتركين", Number(overview.subscriberCount)]);
+      sheet.addRow([]);
+      sheet.addRow(["الرقم المرجعي", "اسم المشترك", "الهاتف", "المبلغ المعتمد للتأمين", "آخر حركة"]);
+      rows.forEach((item) => sheet.addRow([
+        item.subscriberNo,
+        item.fullName,
+        item.phone ?? "—",
+        Number(item.amount),
+        item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—",
+      ]));
+      sheet.mergeCells("A1:E1");
+      sheet.getCell("A1").font = { name: "Tahoma", size: 16, bold: true };
+      sheet.getCell("A1").alignment = { horizontal: "right", vertical: "middle" };
+      sheet.getRow(1).height = 30;
+      sheet.getRow(4).font = { name: "Tahoma", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+      sheet.getRow(4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF202A38" } };
+      sheet.getRow(4).alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      sheet.getColumn(4).numFmt = "#,##0.00";
+      sheet.columns = [{ width: 22 }, { width: 32 }, { width: 20 }, { width: 22 }, { width: 26 }];
+      sheet.autoFilter = { from: "A4", to: `E${Math.max(4, sheet.rowCount)}` };
+      const buffer = await workbook.xlsx.writeBuffer();
+      downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "تأمينات-المشتركين.xlsx");
+      toast.success("تم تصدير سجل التأمينات إلى Excel.");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "تعذر تصدير Excel.");
+    }
+  };
+
+  // Native HTML table + browser print: text and cells remain selectable/searchable in the saved PDF.
+  // Deliberately do not rasterize this report or route it through the screenshot PDF helper.
+  const exportPdf = () => {
+    if (!overview) {
+      toast.error("لا تتوفر قراءة خادمية موثوقة لتأمينات المشتركين.");
+      return;
+    }
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      toast.error("اسمح بفتح نافذة التصدير ثم أعد المحاولة.");
+      return;
+    }
+    const tableRows = rows.length
+      ? rows.map((item) => `<tr><td>${escapeHtml(item.subscriberNo)}</td><td>${escapeHtml(item.fullName)}</td><td>${escapeHtml(item.phone ?? "—")}</td><td>${escapeHtml(format(item.amount))}</td><td>${escapeHtml(item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—")}</td></tr>`).join("")
+      : '<tr><td colspan="5" class="empty">لا توجد تأمينات قائمة حالياً.</td></tr>';
+    popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تأمينات المشتركين</title><style>
+      *{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;color:#172033;margin:24px}
+      h1{font-size:20px;margin:0 0 10px}p{font-size:12px;margin:0 0 18px}
+      table{border-collapse:collapse;width:100%;font-size:11px;table-layout:auto}
+      th,td{border:1px solid #8993a3;padding:7px;text-align:right;vertical-align:top}
+      th{background:#e8edf3;font-weight:700}thead{display:table-header-group}
+      tr{break-inside:avoid}.empty{text-align:center;color:#657080}
+      @page{size:A4 landscape;margin:12mm}@media print{body{margin:0}}
+    </style></head><body><h1>سجل تأمينات المشتركين</h1>
+    <p>إجمالي التأمينات القائمة: ${escapeHtml(format(overview.totalAmount))} شيكل · عدد المشتركين: ${escapeHtml(format(overview.subscriberCount))}</p>
+    <table><thead><tr><th>الرقم المرجعي</th><th>اسم المشترك</th><th>الهاتف</th><th>المبلغ المعتمد للتأمين</th><th>آخر حركة</th></tr></thead><tbody>${tableRows}</tbody></table>
+    </body></html>`);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  };
+
+  return <Card className="border-amber-300/20 bg-[#111823] shadow-panel">
+    <CardContent className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-bold text-white">تأمينات المشتركين</h2>
+          <p className="mt-1 text-xs text-slate-400">إجمالي الالتزامات القائمة وعدد المشتركين أصحاب التأمين، بصورة مستقلة عن الفواتير والتحصيل التشغيلي.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant="outline" disabled={loading || !overview} onClick={() => void exportExcel()} className="border-white/10 text-slate-200"><FileSpreadsheet className="ml-1 h-4 w-4"/>Excel</Button>
+          <Button type="button" size="sm" variant="outline" disabled={loading || !overview} onClick={exportPdf} className="border-white/10 text-slate-200"><FileText className="ml-1 h-4 w-4"/>طباعة / حفظ PDF</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onRefresh} className="text-slate-300"><RefreshCw className="ml-1 h-4 w-4"/>تحديث</Button>
+        </div>
+      </div>
+      {error ? <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p> : null}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <button type="button" disabled={loading || !overview} aria-label="عرض كشف التأمينات حسب إجمالي المبلغ" onClick={() => setDialogOpen(true)} className="w-full rounded-xl border border-amber-300/15 bg-amber-300/[.04] p-4 text-right transition hover:bg-amber-300/[.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed disabled:opacity-60">
+          <p className="text-xs text-amber-100/70">إجمالي مبلغ التأمينات القائمة</p>
+          <p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.totalAmount)} <span className="text-xs font-normal">شيكل</span></p>
+          <p className="mt-1 text-[11px] text-slate-500">انقر لعرض المشتركين ومبالغ التأمين المعتمدة</p>
+        </button>
+        <button type="button" disabled={loading || !overview} aria-label="عرض كشف التأمينات حسب عدد المشتركين" onClick={() => setDialogOpen(true)} className="w-full rounded-xl border border-white/8 bg-white/[.025] p-4 text-right transition hover:bg-white/[.05] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 disabled:cursor-not-allowed disabled:opacity-60">
+          <p className="text-xs text-slate-400">عدد المشتركين الذين لديهم مبلغ تأمين</p>
+          <p className="mt-2 text-2xl font-extrabold text-white">{loading ? "…" : format(overview?.subscriberCount)}</p>
+          <p className="mt-1 text-[11px] text-slate-500">انقر لعرض كشف التأمينات</p>
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] leading-5 text-slate-500">يعرض الجدول رصيد التأمين القائم المعتمد بعد حركات الاستلام والتسوية والرد، وليس مجموع الإيداعات التاريخية.</p>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="grid h-[80vh] max-h-[80vh] w-[80vw] max-w-[80vw] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-white/10 bg-[#111823] p-4 text-white sm:max-w-[80vw]">
+          <DialogHeader>
+            <DialogTitle>كشف تأمينات المشتركين</DialogTitle>
+            <DialogDescription>الإجمالي {format(overview?.totalAmount)} شيكل · {format(overview?.subscriberCount)} مشترك</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 overflow-auto rounded-lg border border-white/10">
+            <table className="w-full min-w-[720px] text-right text-[11px]">
+              <thead className="sticky top-0 bg-[#263a51] text-white"><tr>{["الرقم المرجعي","اسم المشترك","الهاتف","المبلغ المعتمد للتأمين","آخر حركة"].map((header) => <th key={header} scope="col" className="border-b border-white/20 px-3 py-3 font-bold text-white">{header}</th>)}</tr></thead>
+              <tbody>
+                {rows.map((item) => <tr key={item.subscriberId} className="border-t border-white/8">
+                  <td className="px-3 py-2" dir="ltr">{item.subscriberNo}</td>
+                  <td className="px-3 py-2">{item.fullName}</td>
+                  <td className="px-3 py-2" dir="ltr">{item.phone ?? "—"}</td>
+                  <td className="px-3 py-2 tabular-nums">{format(item.amount)} شيكل</td>
+                  <td className="px-3 py-2">{item.lastMovementAt ? new Date(item.lastMovementAt).toLocaleString("ar") : "—"}</td>
+                </tr>)}
+              </tbody>
+            </table>
+            {!rows.length ? <p className="p-8 text-center text-xs text-slate-400">لا توجد تأمينات قائمة.</p> : null}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => void exportExcel()} disabled={!overview}>Excel</Button>
+            <Button type="button" onClick={exportPdf} disabled={!overview}>طباعة / حفظ PDF</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </CardContent>
+  </Card>;
 }
 
 function SubscriberFinancialOverview({ overview }: { overview: any }) {
@@ -726,12 +951,18 @@ async function copySubscriberReference(subscriberNo: string) {
   }
 }
 
-function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
+function SubscriberEditor({ editing, pending, onCancel, onSubmit, companyAccounts, accountsLoading, canReceiveDeposit }: {
   editing: any;
   pending: boolean;
   onCancel: () => void;
-  onSubmit: (values: Values) => void;
+  onSubmit: (values: Values) => unknown | Promise<unknown>;
+  companyAccounts: Array<{ id: number; name: string; accountType: string; balance: number }>;
+  accountsLoading: boolean;
+  canReceiveDeposit: boolean;
 }) {
+  const [depositEnabled, setDepositEnabled] = useState(false);
+  const [localSubmitting, setLocalSubmitting] = useState(false);
+  const operationRef = useRef<{ fingerprint: string; clientOperationId: string; depositOperationId: string; paymentNo: string } | null>(null);
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -739,6 +970,12 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
     const image = rawImage instanceof File && rawImage.size > 0 ? rawImage : null;
     const reading = String(form.get("openingReading") || "").trim();
     const readingAt = String(form.get("openingReadingAt") || "").trim();
+    const securityDepositAmountText = depositEnabled ? String(form.get("securityDepositAmount") || "").trim() : "";
+    const securityDepositAmount = securityDepositAmountText ? Number(securityDepositAmountText) : undefined;
+    const securityDepositCompanyAccountId = depositEnabled ? Number(form.get("securityDepositCompanyAccountId") || 0) : undefined;
+    const securityDepositReferenceNo = depositEnabled ? String(form.get("securityDepositReferenceNo") || "").trim() : "";
+    const securityDepositAccount = companyAccounts.find((account) => account.id === securityDepositCompanyAccountId);
+    const securityDepositPaymentMethod = securityDepositAccount ? companyAccountDepositMethod(securityDepositAccount.accountType) : undefined;
 
 
     if (image && image.size > 7 * 1024 * 1024) {
@@ -749,8 +986,15 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
       window.alert("أدخل قيمة القراءة الافتتاحية قبل إضافة صورتها أو اعتمادها.");
       return;
     }
-
-    const submit = (openingReadingImageData?: string) => onSubmit({
+    if (depositEnabled && (
+      securityDepositAmount === undefined || !Number.isFinite(securityDepositAmount) ||
+      securityDepositAmount <= 0 || Math.round(securityDepositAmount * 100) !== securityDepositAmount * 100 ||
+      !securityDepositAccount || !securityDepositPaymentMethod
+    )) {
+      window.alert("أدخل مبلغ التأمين الصحيح واختر حساب إيداع نشطاً ومتاحاً لهذا الفرع.");
+      return;
+    }
+    const values: Values = {
       fullName: String(form.get("fullName")),
       phone: String(form.get("phone")),
       address: String(form.get("address") || ""),
@@ -759,9 +1003,35 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
       openingReading: reading || undefined,
       openingReadingAt: readingAt || undefined,
       openingReadingApproved: Boolean(reading),
-      openingReadingImageData,
+      securityDepositAmount,
+      securityDepositCompanyAccountId: depositEnabled ? securityDepositCompanyAccountId : undefined,
+      securityDepositPaymentMethod,
+      securityDepositReferenceNo: securityDepositReferenceNo || undefined,
+      openingReadingImageData: undefined,
       openingReadingImageMime: image?.type || undefined,
-    });
+    };
+    const fingerprint = JSON.stringify({ ...values, openingReadingImage: image ? [image.name, image.size, image.lastModified] : null });
+    let operation = operationRef.current;
+    if (!editing && depositEnabled && (!operation || operation.fingerprint !== fingerprint)) {
+      const clientOperationId = crypto.randomUUID();
+      operation = {
+        fingerprint, clientOperationId, depositOperationId: crypto.randomUUID(),
+        paymentNo: `DEP-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${clientOperationId.slice(0,8).toUpperCase()}`,
+      };
+      operationRef.current = operation;
+    }
+    const submit = (openingReadingImageData?: string) => {
+      setLocalSubmitting(true);
+      const payload: Values = {
+        ...values, openingReadingImageData,
+        ...(operation && depositEnabled ? {
+          clientOperationId: operation.clientOperationId,
+          securityDepositOperationId: operation.depositOperationId,
+          securityDepositPaymentNo: operation.paymentNo,
+        } : {}),
+      };
+      void Promise.resolve(onSubmit(payload)).finally(() => setLocalSubmitting(false));
+    };
 
     if (image && image.size) {
       const reader = new FileReader();
@@ -817,6 +1087,34 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
           </select>
         </Field>
 
+        {!editing && canReceiveDeposit ? (
+          <section className="space-y-3 rounded-xl border border-amber-300/20 bg-amber-300/[.035] p-4">
+            <label className="flex cursor-pointer items-center gap-3 text-sm font-bold text-amber-100">
+              <input type="checkbox" name="securityDepositEnabled" checked={depositEnabled} onChange={(event) => setDepositEnabled(event.target.checked)} className="h-4 w-4 accent-[#F5B800]" />
+              تسجيل مبلغ تأمين مع إنشاء المشترك (اختياري)
+            </label>
+            {depositEnabled ? (
+              <>
+                <p className="text-xs leading-5 text-slate-400">سيُسجل التأمين كالتزام مستقل على ملف المشترك، وتُسجل حركة الإيداع في حساب الشركة المختار دون إضافته إلى التحصيل التشغيلي.</p>
+                <Field label="مبلغ التأمين">
+                  <input required name="securityDepositAmount" type="number" min="0.01" step="0.01" className={inputClass} placeholder="0.00" dir="ltr" />
+                </Field>
+                <Field label="حساب إيداع التأمين">
+                  <select required name="securityDepositCompanyAccountId" defaultValue="" disabled={accountsLoading || companyAccounts.length === 0} className={inputClass}>
+                    <option value="" disabled>{accountsLoading ? "جارٍ تحميل الحسابات…" : "اختر الحساب الذي استلم التأمين"}</option>
+                    {companyAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.accountType === "cash" ? "نقدي" : account.accountType === "jawwal_pay" ? "جوال باي" : account.accountType === "palpay" ? "بال باي" : account.accountType === "bank_of_palestine" ? "بنك فلسطين" : "حساب آخر"}</option>)}
+                  </select>
+                  {!accountsLoading && !companyAccounts.length ? <p className="mt-1 text-xs text-amber-300">لا توجد حسابات شركة نشطة متاحة لهذا الفرع.</p> : null}
+                </Field>
+                <Field label="مرجع الإيداع (اختياري)">
+                  <input name="securityDepositReferenceNo" className={inputClass} placeholder="رقم مرجع أو ملاحظة" />
+                </Field>
+                <p className="text-[11px] text-slate-500">سيولد النظام رقم إيصال ومفتاحي عملية ثابتين، ويعيد استخدامهما عند إعادة المحاولة.</p>
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
         {!editing && (
           <>
             <Field label="القراءة الافتتاحية (اختيارية)">
@@ -853,7 +1151,7 @@ function SubscriberEditor({ editing, pending, onCancel, onSubmit }: {
           </>
         )}
 
-        <div className="grid gap-2 sm:grid-cols-2">{!editing && <Button type="button" variant="outline" onClick={(event) => event.currentTarget.form?.reset()} className="w-full border-white/10 text-slate-300">إفراغ الحقول</Button>}<SubmitButton text={editing ? "حفظ التعديلات" : "إضافة المشترك"} pending={pending} /></div>
+        <div className="grid gap-2 sm:grid-cols-2">{!editing && <Button type="button" variant="outline" disabled={pending || localSubmitting} onClick={(event) => { event.currentTarget.form?.reset(); setDepositEnabled(false); operationRef.current = null; }} className="w-full border-white/10 text-slate-300">إفراغ الحقول</Button>}<SubmitButton text={editing ? "حفظ التعديلات" : "إضافة المشترك"} pending={pending || localSubmitting} /></div>
       </form>
     </>
   );

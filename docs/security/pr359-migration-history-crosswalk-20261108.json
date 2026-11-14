@@ -1,0 +1,1776 @@
+{
+  "source_head": "83633d7c21fbd94cd6ac7e7187861589b52c1992",
+  "scope": "28 unresolved names from handoff; source metadata only, not an applied-state classification",
+  "canonical_14_digit_file_count": 502,
+  "all_sql_file_count": 579,
+  "records": [
+    {
+      "name": "powerhub_generator_offline_idempotency",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260909170000_powerhub_generator_offline_idempotency.sql",
+          "version": "20260909170000",
+          "sha256": "ce5013f7c1819dd83aa13a8fd91cc4e6d47605d6f52c59bbeef9a043b1e0e557",
+          "git_blob": "46b69a1e57759f4af6560739e29ebeb2674a2b93",
+          "last_source_commit": "dda9775e7600a16477bec5a4fb5cd36598e36507"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": {
+        "staging": {
+          "verified_on": "2026-11-08",
+          "result": "PASS",
+          "evidence": "public.generators.client_operation_id is text; generators_client_operation_id_key is a UNIQUE partial btree index on client_operation_id WHERE client_operation_id IS NOT NULL"
+        },
+        "production": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_STATE_MATCHES",
+          "historical_attribution": "NOT_PROVEN",
+          "evidence": "public.generators.client_operation_id is text; generators_client_operation_id_key is a UNIQUE partial btree index on client_operation_id WHERE client_operation_id IS NOT NULL"
+        }
+      },
+      "reason": "Staging: archived statement body equals source SQL after removing source comments, but migration version differs; required live catalog postconditions pass. Production: equivalent current catalog objects/ACL observed, but no ledger row under this migration name, so historical attribution and release replay status remain NOT_PROVEN. Overall outcome held NOT_PROVEN pending environment-specific release crosswalk.",
+      "staging_rows": [
+        {
+          "version": "20260909163702",
+          "stored_sql_sha256": "49d8e5dcd62ad096b067e9d8e184388e729e329141d4e246da05b90e35588e06",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_outcome": "PROVEN_APPLIED_WITH_DIFFERENT_VERSION",
+      "production_outcome": "NOT_PROVEN",
+      "staging_sql_evidence": {
+        "historical_record_version": "20260909163702",
+        "method": "Compare stored single statement with source file body after stripping leading SQL comment-only lines",
+        "exact_body_match": true,
+        "source_file_version": "20260909170000"
+      }
+    },
+    {
+      "name": "powerhub_revoke_legacy_generator_rpc_execute",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260910130000_powerhub_revoke_legacy_generator_rpc_execute.sql",
+          "version": "20260910130000",
+          "sha256": "2792f7d51db779638f0259c301ee7caadcb2040cb01ed08b15a5587fce3c7054",
+          "git_blob": "8abe61e93104d81ef586b73c7f095478758c9b16",
+          "last_source_commit": "de3515967d634d7b16d40b0736bcdf9aada7302b"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": {
+        "staging": {
+          "verified_on": "2026-11-08",
+          "result": "PASS",
+          "evidence": "The two exact legacy public.powerhub_create_generator(...) and public.powerhub_update_generator(...) RPCs are present; anon and authenticated lack EXECUTE, service_role retains EXECUTE"
+        },
+        "production": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_STATE_MATCHES",
+          "historical_attribution": "NOT_PROVEN",
+          "evidence": "The two exact legacy public.powerhub_create_generator(...) and public.powerhub_update_generator(...) RPCs are present; anon and authenticated lack EXECUTE, service_role retains EXECUTE"
+        }
+      },
+      "reason": "Staging: archived statement body equals source SQL after removing source comments, but migration version differs; required live catalog postconditions pass. Production: equivalent current catalog objects/ACL observed, but no ledger row under this migration name, so historical attribution and release replay status remain NOT_PROVEN. Overall outcome held NOT_PROVEN pending environment-specific release crosswalk.",
+      "staging_rows": [
+        {
+          "version": "20260910174124",
+          "stored_sql_sha256": "3573908b9b41644dd8e81837c40bac0b8310806d9b58c4d144d7b1fb25225e1c",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_outcome": "PROVEN_APPLIED_WITH_DIFFERENT_VERSION",
+      "production_outcome": "NOT_PROVEN",
+      "staging_sql_evidence": {
+        "historical_record_version": "20260910174124",
+        "method": "Compare stored single statement with source file body after stripping leading SQL comment-only lines",
+        "exact_body_match": true,
+        "source_file_version": "20260910130000"
+      }
+    },
+    {
+      "name": "admin_subscription_upgrade_enrichment_rpc",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/0060_admin_subscription_upgrade_enrichment_rpc.sql",
+          "version": "0060",
+          "sha256": "d077ebe4ee36b72620cf30cf5b6c3a1e19b7bd51a75c3affc9761cf52b24388b",
+          "git_blob": "6a85063ea69f774295aa7979dab99798739abaa9",
+          "last_source_commit": "ba476d12c1da1dc989b59715f144fc6a0e65e9e9"
+        },
+        {
+          "path": "supabase/migrations/20260914070201_admin_subscription_upgrade_enrichment_rpc.sql",
+          "version": "20260914070201",
+          "sha256": "555f1a0fa2147a15079f5c6a1411a13a8aca816147df4745d22324a770c7881f",
+          "git_blob": "2b50328f16ef84cd802f37b262d986ec830b8d77",
+          "last_source_commit": "ba476d12c1da1dc989b59715f144fc6a0e65e9e9"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": {
+        "staging": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_ACL_PASS_SOURCE_CONTRACT_DRIFT",
+          "evidence": "Live public.powerhub_admin_subscription_upgrade_requests() is postgres-owned SECURITY DEFINER, stable, search_path=public,pg_temp. anon/authenticated cannot EXECUTE; service_role can EXECUTE. Its TABLE return columns are current_package_code/requested_package_code, whereas the dated historical source file defines current_plan/requested_plan. Current definition joins subscription_upgrade_requests/tenants/tenant_owner_profiles and limits 300 rows. No invocation or data read performed."
+        },
+        "production": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_ACL_PASS_SOURCE_CONTRACT_DRIFT",
+          "evidence": "The same live SQL function signature/body and grants were observed in Production as Staging, including current_package_code/requested_package_code. Source return signature differs. Historical source execution and ledger attribution remain unproven; do not replay old CREATE OR REPLACE FUNCTION."
+        }
+      },
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof. Live 2026-11-08 postcondition review: both environments have the service-role-only SECDEF helper but return current_package_code/requested_package_code, not the older current_plan/requested_plan declared by the historical source. This is explicit contract drift, not proof of archived SQL execution, and historical replay must stay blocked.",
+      "staging_rows": [
+        {
+          "version": "20260913184618",
+          "stored_sql_sha256": "672c80e5d09a2781814ab40b72e966b4bc5641427617ea51c1f7d9ef55aa27c6",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20260914070201",
+          "stored_sql_sha256": "fc6215eb892947c079a963ce5482144bf40a609c4b4627dd30b77e03fba6d42f",
+          "source_same_sha": false,
+          "source_same_version": true
+        }
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260913184618",
+          "comparison": "EXACT_BODY",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/0060_admin_subscription_upgrade_enrichment_rpc.sql",
+              "comparison": "EXACT_BODY",
+              "source_chars": 1221,
+              "stored_chars": 1056
+            },
+            {
+              "source_path": "supabase/migrations/20260914070201_admin_subscription_upgrade_enrichment_rpc.sql",
+              "comparison": "FORMAT_NORMALIZED",
+              "source_chars": 1056,
+              "stored_chars": 1056
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "historical_contract_review": "LIVE_SOURCE_SIGNATURE_DRIFT_NO_REPLAY",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "SOURCE_CONTRACT_DRIFT",
+        "detail": "Both live RPCs are postgres-owned SECURITY DEFINER and service_role-only, but current_package_code/requested_package_code return columns differ from historical current_plan/requested_plan; historical replay unsafe.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "harden_admin_subscription_upgrade_enrichment_rpc_execute",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914070229_harden_admin_subscription_upgrade_enrichment_rpc_execute.sql",
+          "version": "20260914070229",
+          "sha256": "e2efc5de616c13801441e26212d7a7e44c0c298e6aa529d933d63fcce9f90b62",
+          "git_blob": "88b0e453f5cc1419b1566ef5870cb2a3a2c30b63",
+          "last_source_commit": "ba476d12c1da1dc989b59715f144fc6a0e65e9e9"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": {
+        "staging": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_ACL_PASS_SOURCE_CONTRACT_DRIFT",
+          "evidence": "Live public.powerhub_admin_subscription_upgrade_requests() is postgres-owned SECURITY DEFINER, stable, search_path=public,pg_temp. anon/authenticated cannot EXECUTE; service_role can EXECUTE. Its TABLE return columns are current_package_code/requested_package_code, whereas the dated historical source file defines current_plan/requested_plan. Current definition joins subscription_upgrade_requests/tenants/tenant_owner_profiles and limits 300 rows. No invocation or data read performed."
+        },
+        "production": {
+          "verified_on": "2026-11-08",
+          "result": "OBJECT_ACL_PASS_SOURCE_CONTRACT_DRIFT",
+          "evidence": "The same live SQL function signature/body and grants were observed in Production as Staging, including current_package_code/requested_package_code. Source return signature differs. Historical source execution and ledger attribution remain unproven; do not replay old CREATE OR REPLACE FUNCTION."
+        }
+      },
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof. Live 2026-11-08 postcondition review: both environments have the service-role-only SECDEF helper but return current_package_code/requested_package_code, not the older current_plan/requested_plan declared by the historical source. This is explicit contract drift, not proof of archived SQL execution, and historical replay must stay blocked.",
+      "staging_rows": [
+        {
+          "version": "20260913184631",
+          "stored_sql_sha256": "982717372d64d6a569b0ef580e00930e2a3774a047c0abea3b0b730d6e123642",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20260914070229",
+          "stored_sql_sha256": "f0ceedc1bdd9be0c24224797f160885a6e8b0b42482b7038692a6e95ae22e4a2",
+          "source_same_sha": false,
+          "source_same_version": true
+        }
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260913184631",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914070229_harden_admin_subscription_upgrade_enrichment_rpc_execute.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 212,
+              "stored_chars": 211
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260913184631",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "REVOKE grantee order: source PUBLIC, anon, authenticated vs historical anon, authenticated, PUBLIC",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "historical_contract_review": "LIVE_SOURCE_SIGNATURE_DRIFT_NO_REPLAY",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "ACL_OBJECT_MATCH_WITH_HISTORY_UNPROVEN",
+        "detail": "Both live RPCs deny anon/authenticated EXECUTE and grant service_role; source-vs-ledger differences and source signature drift are unresolved.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "platform_capability_resolver",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914120000_platform_capability_resolver.sql",
+          "version": "20260914120000",
+          "sha256": "f4753a45c56af517644314e3a1c53aa5a365c330d5cf1825f3c3fde13e0e4c0f",
+          "git_blob": "27c2b9c990f9360e2ed59e20a8e96c8a6f8868f7",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914100129",
+          "stored_sql_sha256": "9765db258722d8333e23e1cb6bb313b7353b6afcea795a4594c18925e82b4140",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100129",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914120000_platform_capability_resolver.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 3775,
+              "stored_chars": 1704
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100129",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical platform_role/capability table checks differ; source contains additional DDL",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_OBJECT_WITH_FORWARD_CORRECTIONS",
+        "detail": "private/public powerhub_has_platform_capability exist in both databases; private helper permits authenticated, not anon. Existing 20261107130443 forward-only identity fix remains pending.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_foundation_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914133000_chat_foundation_v1.sql",
+          "version": "20260914133000",
+          "sha256": "05a8d2c3cd78d183ed74230d2f0fa40ba0be15ef4f50f4f191b1ec539f330cdb",
+          "git_blob": "7e882ca1c5ab2d5fc3a057318103454bce7bdccd",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914100040",
+          "stored_sql_sha256": "4858d0f9b63524a1d89d75c77c03acacdfdc9bf1701ea6f477b720e80422a735",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100040",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914133000_chat_foundation_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 11098,
+              "stored_chars": 10070
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100040",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal (comments and formatting differ)",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_CATALOG_PRESENT",
+        "detail": "Eleven inspected chat tables exist with RLS in both environments; present-day catalog does not establish execution of this historical foundation version.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_rls_security_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914141000_chat_rls_security_v1.sql",
+          "version": "20260914141000",
+          "sha256": "775cad718983a9ad406991e50b003334ee77569fbbe410be929f8520b04d0476",
+          "git_blob": "c949795476a8722e4c1e6cee14f97d88f2504132",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914100140",
+          "stored_sql_sha256": "cea811687643726ae377083227195d9d8a8a3a66f8b5bd5f5829c88a78bd50b2",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100140",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914141000_chat_rls_security_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 5170,
+              "stored_chars": 4503
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100140",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical chat participant SELECT policy predicate differs; inspect current RLS before equivalence",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_POLICY_DRIFT",
+        "detail": "Both environments have authenticated SELECT policy on chat_messages, but Production manageSupportChat branch lacks support-conversation restriction; Staging requires matching support type. Forward migration 20261108120000 remains pending.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_realtime_authorization_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914142000_chat_realtime_authorization_v1.sql",
+          "version": "20260914142000",
+          "sha256": "27e799b2fd9ecebb6117564a57f5d8901867378c12657734110b97497138f0f3",
+          "git_blob": "2597417aeab367c0c8d4cbb4304aba6eac1f34e4",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914100205",
+          "stored_sql_sha256": "55639b34a2eb81289aca71db26b58bf3495b1156b90bb6f7a92f07841bd4c606",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100205",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914142000_chat_realtime_authorization_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 1936,
+              "stored_chars": 1513
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100205",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_POLICY_DRIFT",
+        "detail": "realtime.messages chat_conversation_receive/send policies exist in both environments; Staging checks active nonexpired tenant membership and conversation helper, while Production lacks those later checks in these policy expressions.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_realtime_authorization_v1_harden",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914144000_chat_realtime_authorization_v1_harden.sql",
+          "version": "20260914144000",
+          "sha256": "0c37a9adbc8088c471276dccdc866690270be00863913ed57ce9a8d0b0e03742",
+          "git_blob": "c6b7c2473974bff55b8a7243d0d2caa1257deb85",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914100355",
+          "stored_sql_sha256": "d39d6910e3d130975c57060c1d24b93ea3d4667bd6b5ec4da9da760f853d2cd9",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100355",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914144000_chat_realtime_authorization_v1_harden.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 2236,
+              "stored_chars": 1828
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914100355",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_POLICY_DRIFT",
+        "detail": "Both chat realtime policy names exist; present-day predicates differ between Staging and Production, so original historical policy text cannot be assumed current.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_performance_indexes_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914145000_chat_performance_indexes_v1.sql",
+          "version": "20260914145000",
+          "sha256": "bb2d910c32ccd00cbb83fb1cb8fd15b68bd3f0175347b82da3d85f07f7601f0a",
+          "git_blob": "1d1b780e8d391bae0a65a959b8687c506dc2e019",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914100509",
+          "stored_sql_sha256": "80a602701fb933f626929bb57bbbddd7beb2d3e13024241813673d9bdc77662c",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100509",
+          "comparison": "FORMAT_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914145000_chat_performance_indexes_v1.sql",
+              "comparison": "FORMAT_NORMALIZED",
+              "source_chars": 204,
+              "stored_chars": 114
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_INDEX_MATCH",
+        "detail": "chat_knowledge_embeddings_article_idx is a btree on public.chat_knowledge_embeddings(article_id) in both live environments.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_storage_rls_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914150000_chat_storage_rls_v1.sql",
+          "version": "20260914150000",
+          "sha256": "356c864522f4c5a255aaf2dbb9ec422d9de19dd32bb460b4c44ef8a4b3bcd814",
+          "git_blob": "bafca7be844a93a52663bc8627df7263c928107c",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914100844",
+          "stored_sql_sha256": "a9fce6d4b5200bbac8143b258a3261df4b5ac3b735173455a1d952146d2ff2ce",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100844",
+          "comparison": "EXACT_BODY",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914150000_chat_storage_rls_v1.sql",
+              "comparison": "EXACT_BODY",
+              "source_chars": 634,
+              "stored_chars": 416
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_POLICY_DRIFT",
+        "detail": "storage.objects chat_storage_select_conversation_access exists in both; Staging uses chat_rls_can_select_conversation, Production uses a different participant/support-capability path.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_storage_grants_hardening_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914150500_chat_storage_grants_hardening_v1.sql",
+          "version": "20260914150500",
+          "sha256": "c21e0c6530b66ccbe0f7f33781ae83c94f30705e309753a0c134d0ac0697b018",
+          "git_blob": "a7b540ecd52b0a75804498e215b433a480e1cb10",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914100913",
+          "stored_sql_sha256": "22b1a1a99fa9e4fb37830a6a3e7e9ddd427a454351b695be61e1725b1c4a9321",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914100913",
+          "comparison": "EXACT_BODY",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914150500_chat_storage_grants_hardening_v1.sql",
+              "comparison": "EXACT_BODY",
+              "source_chars": 272,
+              "stored_chars": 128
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_ACL_DRIFT_RLS_REQUIRED",
+        "detail": "Despite historical REVOKE statements, both live storage.objects tables currently grant authenticated INSERT/UPDATE/DELETE and SELECT and anon SELECT. Only SELECT RLS policy was observed, with no INSERT/UPDATE/DELETE policy in the checked catalog; isolated storage-object RLS test checks denial. Do not revoke shared Storage grants blindly.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_write_boundary_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914151500_chat_write_boundary_v1.sql",
+          "version": "20260914151500",
+          "sha256": "20f147ce85801c09cfcd78e16513d4677a0be04998c20774876092e713b4ae5e",
+          "git_blob": "ec8bc1da612b04f1f94ffa5ee477493f925f9d65",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914101018",
+          "stored_sql_sha256": "005c497e9cd9935e1d47d670ec20bf652b7b69cda266d8dd877c7d53f0aa21c2",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914101018",
+          "comparison": "FORMAT_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914151500_chat_write_boundary_v1.sql",
+              "comparison": "FORMAT_NORMALIZED",
+              "source_chars": 8708,
+              "stored_chars": 8707
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_WRAPPER_ACL_PRESENT",
+        "detail": "Private chat create/send/transition helpers and public wrappers exist in both; private helpers deny anon/authenticated EXECUTE, public wrappers permit authenticated. Current definitions have later modifications; historical source identity unproven.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_write_boundary_v1_fix",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914152000_chat_write_boundary_v1_fix.sql",
+          "version": "20260914152000",
+          "sha256": "bc60a1aa8bdf5615ec4317046d8261a57ad33e36f1d45a242700bcfc0eb20308",
+          "git_blob": "32b1c9912204d3083176669d8a6f7f900f1abeaa",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914101124",
+          "stored_sql_sha256": "dbc9703dee8d1ec99380a48a7b081124888fd950336c234100a094c3b6ee0d6b",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914101124",
+          "comparison": "EXACT_BODY",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914152000_chat_write_boundary_v1_fix.sql",
+              "comparison": "EXACT_BODY",
+              "source_chars": 1738,
+              "stored_chars": 1591
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_WRAPPER_ACL_PRESENT",
+        "detail": "Both environments have private.chat_current_user_id/private.chat_create_conversation as SECURITY DEFINER and deny anon/authenticated EXECUTE; historical body and change attribution not proven.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_receipts_notifications_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914154000_chat_receipts_notifications_v1.sql",
+          "version": "20260914154000",
+          "sha256": "73b110d059c695b60a0dc65f98cc0517d931e92f514bca97df662b2c452e8141",
+          "git_blob": "069b5674caadc42c45e9e5329cc5f39091d3caf6",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914102451",
+          "stored_sql_sha256": "ab69e900dee6b6d666fe0ea27a627467df577d8fc12cfa62051feb774c7dfe01",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914102451",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914154000_chat_receipts_notifications_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 8878,
+              "stored_chars": 8393
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914102451",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Message receipts access policy: source checks message sender; historical SQL checks support conversation",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_CATALOG_PRESENT",
+        "detail": "chat_message_receipts and chat_inbox_notifications exist with RLS and authenticated SELECT in both; present-day receipt SELECT policy differs between Staging and Production.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_realtime_receipts_notifications_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914155000_chat_realtime_receipts_notifications_v1.sql",
+          "version": "20260914155000",
+          "sha256": "58dfa09fe14f421d78da577ecbffee63a286745efbc350ced4696c6f2b47ee12",
+          "git_blob": "2a14d96acb584bfc7f5757b03c1e971b4d3ac1a4",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914102745",
+          "stored_sql_sha256": "31262c0ad084fddbddc444c02ce98d8a395b2253b22f2c16fdb772beab616e75",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914102745",
+          "comparison": "FORMAT_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914155000_chat_realtime_receipts_notifications_v1.sql",
+              "comparison": "FORMAT_NORMALIZED",
+              "source_chars": 2725,
+              "stored_chars": 2614
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_TRIGGERS_PRESENT",
+        "detail": "Both environments have three broadcast triggers: chat_messages_broadcast_after_insert, chat_message_receipts_broadcast_after_change, chat_inbox_notifications_broadcast_after_insert, with private chat_broadcast_* target routines.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_mark_read_up_to_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914161000_chat_mark_read_up_to_v1.sql",
+          "version": "20260914161000",
+          "sha256": "7d7ab8d17e4b509d84d2e4ef77ef88645e30c2f00fb72d2ff0e90d344faaeb44",
+          "git_blob": "1514d698a74cf360fa600785ffcf68b802f687d4",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914102950",
+          "stored_sql_sha256": "1457fb5222ebec7f37bf9c43e50777723a4bab36db05148ddbf3b2d04f187ed6",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914102950",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914161000_chat_mark_read_up_to_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 2574,
+              "stored_chars": 3128
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260914102950",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical function has additional v_count logic, source differs",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_WRAPPERS_PRESENT",
+        "detail": "private/public chat_mark_read_up_to exist in both; private function excludes anon/authenticated EXECUTE, public wrapper grants authenticated and service_role.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_notification_rpc_security_hardening_v2",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260914164900_chat_notification_rpc_security_hardening_v2.sql",
+          "version": "20260914164900",
+          "sha256": "8e3d558d127ba2d6d60c0f7c3142ef2114626415845b5b5f6c2aef61889a7575",
+          "git_blob": "62ffe716a211ccd1168911a69da543ae17659536",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260914122600",
+          "stored_sql_sha256": "61cf80e8961357d06a0001475befe3b5e597bc048f1cb60257e9055668eb8d60",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260914122600",
+          "comparison": "EXACT_BODY",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260914164900_chat_notification_rpc_security_hardening_v2.sql",
+              "comparison": "EXACT_BODY",
+              "source_chars": 1478,
+              "stored_chars": 1262
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_WRAPPERS_PRESENT",
+        "detail": "private/public chat_mark_notification_read exist in both; public wrapper grants authenticated, private helper has no anon/authenticated EXECUTE.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_support_operator_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260915103000_chat_support_operator_v1.sql",
+          "version": "20260915103000",
+          "sha256": "17bc7c685d97c09ea59dd85e53d07c337a4ba50244ef8ca86852862065320d5e",
+          "git_blob": "cf3e398adf81b20e62a929f90809549faa12ff61",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260915092746",
+          "stored_sql_sha256": "dcd106029195cc88e4232a785e937d760c760a6f27948f8960aea7e0a3e3cf71",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260915092746",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260915103000_chat_support_operator_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 5413,
+              "stored_chars": 4595
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260915092746",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_WRAPPERS_PRESENT",
+        "detail": "private/public chat_assign_support and chat_release_support exist in both; private helpers disallow anon/authenticated EXECUTE, public wrappers grant authenticated.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_support_users_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260915104500_chat_support_users_v1.sql",
+          "version": "20260915104500",
+          "sha256": "cdc1ca6b35e0f3286837b09e9baea262f7e0225e7b375f055fe97ac2ea75739e",
+          "git_blob": "9361732e81a3493ffbf6d8ee8bd0dd2ff9e95d9c",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260915092826",
+          "stored_sql_sha256": "d31526a535e25f4fac6f51fd3eaa611c346501fdca8bd1db35d3de0631e67d62",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260915092826",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260915104500_chat_support_users_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 1167,
+              "stored_chars": 952
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260915092826",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_WRAPPERS_PRESENT",
+        "detail": "private/public chat_support_users exist in both; private denies browser EXECUTE, public allows authenticated and service_role.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "chat_staging_compatibility_v1",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260916130000_chat_staging_compatibility_v1.sql",
+          "version": "20260916130000",
+          "sha256": "588872ed5ddd4edf17669634698c3ef816d6bfd78fa92e23cda7c96980e22eba",
+          "git_blob": "3b278257b047ca2f9331c3444482707590a79591",
+          "last_source_commit": "275c5338b49dae1f72ebf8ebbcd626c98c19e9e6"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260916084611",
+          "stored_sql_sha256": "4deb002fc8df471118adf4ae652c7e2788925f0a84273caf067ba2a1233263d8",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260916084611",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260916130000_chat_staging_compatibility_v1.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 4252,
+              "stored_chars": 2757
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260916084611",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Token stream equal",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_ENVIRONMENT_DRIFT",
+        "detail": "Staging has zero anon-executable private chat_% functions, while Production has three: chat_after_support_conversation_create, chat_notify_message_visibility, chat_prepare_support_conversation. anon lacks private schema USAGE in both environments, so direct reachability is not demonstrated. Review is required, not historical replay.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "powerhub_field_user_guards",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260919140000_powerhub_field_user_guards.sql",
+          "version": "20260919140000",
+          "sha256": "43c03110f7438fa5c880d7983b5974fc6e125ada2392abf53353d41258a2ec1a",
+          "git_blob": "c1265857df9bee27216fa1831ca94d80fd29c884",
+          "last_source_commit": "f5130449325ecaccea7f570eb29756c4a66b1f8f"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260919104522",
+          "stored_sql_sha256": "044c943a70e616148fcaef463c5afa1e4310df46c7a8a3773d9944e193cd1795",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20260919104450",
+          "stored_sql_sha256": "91c4d32dc6f28390dd0c5c798e52107382c84650c853538b670060962013dde8",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260919104522",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260919140000_powerhub_field_user_guards.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 2344,
+              "stored_chars": 2004
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260919104522",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical v_plan identifier vs source v_package_code; additional contract comparison required",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_TRIGGER_WITH_FORWARD_CORRECTION",
+        "detail": "powerhub_enforce_field_user_quota exists as postgres-owned SECURITY DEFINER and staff_profiles trigger in both, with service_role-only EXECUTE. Current Staging/Production body divergence and pending 20261108111500 correction prevent equivalence claim.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "powerhub_platform_support_role_reconciliation",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260922190500_powerhub_platform_support_role_reconciliation.sql",
+          "version": "20260922190500",
+          "sha256": "135cafd29bf6ee8dd0a79adbbcc79d73be37ff287b04da1a5b1cba4b16d3d129",
+          "git_blob": "6020a96a5360b973919e516325fc4e2ffdbe0917",
+          "last_source_commit": "7670b2a983b1caf05bf0101577c4c28f3ca7f858"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20260922093834",
+          "stored_sql_sha256": "d535cf308de7ef465441377bbda32b3c7620aa7cf1ee04f4553ad9d54185ca98",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20260922093834",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260922190500_powerhub_platform_support_role_reconciliation.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 5848,
+              "stored_chars": 1897
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20260922093834",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Source includes additional platform-access RPC definitions absent from historical ledger body",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_OBJECTS_WITH_FORWARD_CORRECTION",
+        "detail": "platform_access_invitations, platform capability policy and platform role setter exist in both; public.powerhub_admin_set_platform_access_role is service_role-only. Pending 20261107130443 changes private identity contract.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "powerhub_optional_generator_capacity",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260926150000_powerhub_optional_generator_capacity.sql",
+          "version": "20260926150000",
+          "sha256": "af64c3e6a5c786762c847cbcbdb546000e7758b2b390cb177634d888297ed116",
+          "git_blob": "ae3dd9b10156135862fbb7125b3664ad503cc6b3",
+          "last_source_commit": "ea4efeb5f94c96de29cebe3837aba4bf0f4600bf"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20261023145139",
+          "stored_sql_sha256": "a28374673f8bacc070bbe68fdd8da573586aa19b50dca4499f2b4ebecafda0dc",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20260926101141",
+          "stored_sql_sha256": "ada48b416fb645cd9c1b96ce05fd34850c7f031a0e21bd9a08260fc2448d5369",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261023145139",
+          "comparison": "COMMENT_LINES_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20260926150000_powerhub_optional_generator_capacity.sql",
+              "comparison": "COMMENT_LINES_NORMALIZED",
+              "source_chars": 810,
+              "stored_chars": 754
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_COLUMN_CONSTRAINT_MATCH",
+        "detail": "generators.rated_capacity_kw is nullable numeric(12,3) in both, and generators_rated_capacity_kw_check accepts NULL or values >= 0. Exact historical execution version unproven.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "powerhub_reading_opening_baseline_save_fix",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20261010170000_powerhub_reading_opening_baseline_save_fix.sql",
+          "version": "20261010170000",
+          "sha256": "9b33e20c9bd0df03a0ebd1963ef7084089fd55b1c608f5e4650c6c77b7a77435",
+          "git_blob": "2c30dd2c65cc30539685ec5436dbed595411edec",
+          "last_source_commit": "908a512f087e274b848005a82f62fe58138ded9e"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20261010161951",
+          "stored_sql_sha256": "7eb488171cd5241ebca443c01682d2ecd49eba3cab1be3b114fe847295cbbe7e",
+          "source_same_sha": false,
+          "source_same_version": false
+        },
+        {
+          "version": "20261010170812",
+          "stored_sql_sha256": "bd7a4f56e985add3213806581233fa807d8943e664b7fdfeb1afb73ad557768c",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20261010172426",
+          "stored_sql_sha256": "319a856ddd1a8ced8cc9eda38748c9eb8e8a3fd47f2a9939ddc835a7bfc6a1b7",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261010161951",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261010170000_powerhub_reading_opening_baseline_save_fix.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 5038,
+              "stored_chars": 4657
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        },
+        {
+          "staging_version": "20261010170812",
+          "comparison": "COMMENT_LINES_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261010170000_powerhub_reading_opening_baseline_save_fix.sql",
+              "comparison": "COMMENT_LINES_NORMALIZED",
+              "source_chars": 5038,
+              "stored_chars": 5036
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20261010161951",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "First archived version lacks tenant/subscriber-scoped idempotency lookup now present in source",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        },
+        {
+          "staging_version": "20261010170812",
+          "lexical_tokens_equal": true,
+          "first_material_difference": "Second archived version token stream equals source",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_RPC_PRESENT_HISTORY_AMBIGUOUS",
+        "detail": "public.powerhub_create_reading exists in both and is service_role-only for EXECUTE; Staging has two historical name rows and distinct archived bodies, so replay/attribution remains unsafe.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "powerhub_unified_message_history_filters",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20261013170000_powerhub_unified_message_history_filters.sql",
+          "version": "20261013170000",
+          "sha256": "a8c254c7c8a85e44bdefb2e36335c6dafc502b4876998c4cfdaf56a267db2843",
+          "git_blob": "8d633a7c5186c9e636b271bcc600aa5de916feed",
+          "last_source_commit": "0b21e7c376819355fb34588f951bd5ff21d359fb"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20261013152202",
+          "stored_sql_sha256": "37b5f822cb0bc61ee4ea25148ff8e45eb5d899c74bdef3d218341b6fdae6879e",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261013152202",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261013170000_powerhub_unified_message_history_filters.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 10188,
+              "stored_chars": 10188
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20261013152202",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historic cycle end + interval '1 millisecond'; source + interval '1 microsecond'; Staging current live function uses microsecond",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "ENVIRONMENT_OPTIONAL_RPC_DRIFT",
+        "detail": "Exact public.powerhub_unified_messaging_history signature exists on Staging and is absent on Production. Production's source documents an optional table-filtered fallback; do not fabricate an applied RPC on Production.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "powerhub_manual_sms_history_scope",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20261019120000_powerhub_manual_sms_history_scope.sql",
+          "version": "20261019120000",
+          "sha256": "da045dd6f00ed7b0a5f39cb09d041a26bb39eab081b6d2515d46e3de146ccff0",
+          "git_blob": "4ba4e4add5550d7cac48a825d4b326621a90c427",
+          "last_source_commit": "a2463ed06caa0b14c66a88d22f4f5145510ded37"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20261019103200",
+          "stored_sql_sha256": "5a409502fdc133eb582309a8657c83bb3e93a2a7e495680d1cd68cf45670079f",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261019103200",
+          "comparison": "DIFFERENT_SQL",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261019120000_powerhub_manual_sms_history_scope.sql",
+              "comparison": "DIFFERENT_SQL",
+              "source_chars": 2799,
+              "stored_chars": 1661
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "staging_lexical_comparisons": [
+        {
+          "staging_version": "20261019103200",
+          "lexical_tokens_equal": false,
+          "first_material_difference": "Historical and source DO blocks locate/patch messaging-history function through different logic",
+          "reviewed_on": "2026-11-08",
+          "result_scope": "Tokens ignore SQL comments, whitespace, and unquoted identifier case. This does not compare live pg_get_functiondef/pg_policies for all objects and does not prove historical deployment."
+        }
+      ],
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "STAGING_CURRENT_GUARD_PRODUCTION_OPTIONAL",
+        "detail": "Staging history RPC definition includes direct m.site_id = p_site_id guard; Production has no matching RPC, while notification_messages.site_id exists. Source migration explicitly treats absent RPC as optional/no-op.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    },
+    {
+      "name": "powerhub_owner_capability_overrides",
+      "outcome": "NOT_PROVEN",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20261022200000_powerhub_owner_capability_overrides.sql",
+          "version": "20261022200000",
+          "sha256": "1afff61c8378add214cad58bccb57399c420ebeb4a257e36f8c0102c39e5f55c",
+          "git_blob": "3be7acf115fc765941b92cdf2d63b70f65f3a77f",
+          "last_source_commit": "6b182eb5a53f5c0b8fe47f8e266c03c4bb8bc29f"
+        }
+      ],
+      "staging_row": null,
+      "production_row": null,
+      "stored_sql_sha256": null,
+      "schema_postconditions": null,
+      "reason": "Live ledger name/version/stored SQL hash observed on 2026-11-08; different-version/SQL and catalog postconditions remain unresolved. Presence is not equivalence or safe replay. SQL source-vs-archive text compared; object postconditions and historical release reconciliation still require independent proof.",
+      "staging_rows": [
+        {
+          "version": "20261022112108",
+          "stored_sql_sha256": "ef6e93fcb0ab0df1387d613186ef87ba054ed888e48bc52e239ffdcaaf7b2276",
+          "source_same_sha": false,
+          "source_same_version": false
+        }
+      ],
+      "production_rows": [
+        {
+          "version": "20261022120035",
+          "stored_sql_sha256": "1afff61c8378add214cad58bccb57399c420ebeb4a257e36f8c0102c39e5f55c",
+          "source_same_sha": true,
+          "source_same_version": false
+        }
+      ],
+      "staging_statement_comparisons": [
+        {
+          "staging_version": "20261022112108",
+          "comparison": "COMMENT_LINES_NORMALIZED",
+          "source_candidates": [
+            {
+              "source_path": "supabase/migrations/20261022200000_powerhub_owner_capability_overrides.sql",
+              "comparison": "COMMENT_LINES_NORMALIZED",
+              "source_chars": 7636,
+              "stored_chars": 7559
+            }
+          ],
+          "reviewed_on": "2026-11-08",
+          "scope": "SQL text only; not a catalog/ACL postcondition proof"
+        }
+      ],
+      "historical_sql_review": "COMPARED",
+      "live_object_reconciliation": {
+        "reviewed_on": "2026-11-08",
+        "source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1",
+        "scope": "read-only live catalogs, SQL/source inspection, and successful pre-existing isolated GitHub CI fixtures; not a row-level live authenticated-session penetration test",
+        "status": "CURRENT_CATALOG_AND_ACL_PRESENT",
+        "detail": "tenant_member_capability_overrides and tenant_member_permission_audit exist with RLS in both; browser anon/authenticated SELECT unavailable; public.powerhub_admin_set_owner_capability_override exists and is service_role-only.",
+        "staging_historical_attribution": "NOT_PROVEN_UNLESS_PRIOR_INDEPENDENT_PROOF",
+        "production_historical_attribution": "NOT_PROVEN",
+        "release_decision": "DO_NOT_REPLAY_HISTORICAL_SQL_OR_EDIT_SCHEMA_MIGRATIONS"
+      }
+    }
+  ],
+  "evidence_refresh_date": "2026-11-08",
+  "evidence_source": "Supabase read-only SQL: supabase_migrations.schema_migrations name/version/statements SHA-256",
+  "evidence_boundary": "Name presence and stored SQL hash only; does not establish historical equivalent effects or current object postconditions. Original outcome NOT_PROVEN remains.",
+  "lexical_difference_review": {
+    "staging_ledger_rows_reviewed": 17,
+    "token_stream_matches": 7,
+    "token_stream_differences": 10,
+    "scope": "Follow-up for sixteen DIFFERENT_SQL comparisons. Token stream comparison ignores whitespace and comments but retains SQL literals and operator tokens; differences are historical and may be superseded by later migrations. Stage/Prod catalog proof pending for most.",
+    "verified_catalog_spot_check": "Staging public.powerhub_unified_messaging_history now includes 1 microsecond; historical archived SQL specified 1 millisecond."
+  },
+  "reconciliation_batch_20261108": {
+    "scope": "26 previously unclassified historical records; current catalogs vs historical release attribution",
+    "reviewed_count": 26,
+    "current_catalog_evidence": "RECORDED_FOR_ALL_26",
+    "historical_attribution": "NOT_PROVEN",
+    "staging_target_migrations": "NOT_APPLIED",
+    "production_database_writes": "NONE",
+    "tested_permissions": "Read-only pg_policies, pg_proc, pg_trigger, pg_indexes, has_*_privilege checks in Staging and Production; existing disposable PostgreSQL SQL tests previously passed on same-SHA CI",
+    "reviewed_source_head": "5baaec407a9f7859ad88ecfd3b06b145d7904ce1"
+  }
+}

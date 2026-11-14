@@ -5,10 +5,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Banknote, CircleDollarSign, ChevronDown, Download, FileSpreadsheet, Landmark, Loader2, Plus, Printer, WalletCards, Eye, EyeOff } from "lucide-react";
 import { loadExcelJS } from "@/lib/lazy-report-deps";
 import { downloadReportHtmlAsPdf, escapeHtml } from "@/lib/report-pdf";
-import { type ElementType, useMemo, useRef, useState } from "react";
+import { type ElementType, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -38,15 +39,7 @@ const movementLabels: Record<string, string> = {
 
 const isOutgoingMovement = (type: string) => type === "withdrawal" || type === "transfer_out";
 const isIncomingMovement = (type: string) => type === "collection" || type === "deposit" || type === "transfer_in";
-const movementSign = (type: string, amount: number) => isOutgoingMovement(type) ? -amount : isIncomingMovement(type) ? amount : 0;
-
 const money = (value: number) => value.toLocaleString("ar", { maximumFractionDigits: 2 });
-
-const dateKeyInGaza = (value: Date | string) => {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
-  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "00";
-  return `${part("year")}-${part("month")}-${part("day")}`;
-};
 
 type PendingAccountAction = {
   kind: "withdrawal" | "transfer";
@@ -55,20 +48,64 @@ type PendingAccountAction = {
   targetAccountId?: number;
 };
 
+type CompanyAccountHistorySummary = {
+  totalCount: number;
+  incomingTotal: number;
+  outgoingTotal: number;
+  balanceTimeline: Array<{ day: string | null; balance: number }>;
+};
+
+type MovementPeriod = "today" | "cycle" | "month" | "custom";
+function gazaDateKey(value: Date | string = new Date()) {
+  const pieces = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Gaza", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (part: string) => pieces.find((item) => item.type === part)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 export default function CompanyAccountsPage() {
   const { isAuthenticated, loading } = useAuth();
+  const { isOnline } = usePowerHubConnectivity();
   const sites = trpc.powerhub.sites.list.useQuery(undefined, { enabled: isAuthenticated });
   const siteId = sites.data?.[0]?.id ?? 0;
+  const multiBranchAccess=trpc.powerhub.sites.multiBranchAccess.useQuery({siteId},{
+    enabled:Boolean(siteId && isAuthenticated),staleTime:60_000,
+    refetchOnReconnect:true,refetchOnWindowFocus:false,
+  });
+  const multiBranchEnabled=multiBranchAccess.isSuccess &&
+    multiBranchAccess.data?.siteId===siteId &&
+    multiBranchAccess.data?.enabled===true &&
+    (multiBranchAccess.data?.activeSiteCount??0)>1;
   const [branchFilter, setBranchFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [transactionTypeFilter, setTransactionTypeFilter] = useState("");
   const [transactionSearch, setTransactionSearch] = useState("");
+  const [movementPeriod, setMovementPeriod] = useState<MovementPeriod>("cycle");
   const [movementFromDate, setMovementFromDate] = useState("");
   const [movementToDate, setMovementToDate] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
-  const transactionsRef = useRef<HTMLDivElement>(null);
+  const [transactionCursors, setTransactionCursors] = useState<string[]>([""]);
+  const [historySummary, setHistorySummary] = useState<CompanyAccountHistorySummary | null>(null);
+  const [exportingTransactions, setExportingTransactions] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const deferredTransactionSearch = useDeferredValue(transactionSearch);
   const [selected, setSelected] = useState<number | null>(null);
+  const cycleSiteId = branchFilter ? Number(branchFilter) : siteId;
+  const cycleBoundsQuery = trpc.powerhub.readingCycle.currentBounds.useQuery(
+    { siteId: cycleSiteId }, { enabled: Boolean(cycleSiteId && isAuthenticated), staleTime: 60_000 },
+  );
+  const currentDay = gazaDateKey();
+  const movementRange = useMemo(() => {
+    if (movementPeriod === "today") return { start: currentDay, end: currentDay };
+    if (movementPeriod === "month") return { start: currentDay.slice(0, 7) + "-01", end: currentDay };
+    if (movementPeriod === "custom") return { start: movementFromDate, end: movementToDate };
+    if (!cycleBoundsQuery.data?.startAt || !cycleBoundsQuery.data?.endAt) return { start: "", end: "" };
+    return { start: gazaDateKey(cycleBoundsQuery.data.startAt), end: gazaDateKey(cycleBoundsQuery.data.endAt) };
+  }, [movementPeriod, movementFromDate, movementToDate, cycleBoundsQuery.data?.startAt, cycleBoundsQuery.data?.endAt, currentDay]);
+  const movementRangeReady = movementPeriod !== "cycle" || Boolean(cycleBoundsQuery.data?.startAt && cycleBoundsQuery.data?.endAt);
+  const movementDatesValid = movementPeriod !== "custom" || Boolean(movementRange.start && movementRange.end && movementRange.start <= movementRange.end);
   const [managementExpanded, setManagementExpanded] = useState(false);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -85,11 +122,20 @@ export default function CompanyAccountsPage() {
   const [pendingAction, setPendingAction] = useState<PendingAccountAction | null>(null);
 
   const accounts = trpc.powerhub.companyAccounts.list.useQuery(
-    { siteId, branchId: branchFilter ? Number(branchFilter) : undefined, fromDate: fromDate || undefined, toDate: toDate || undefined },
+    { siteId, branchId: branchFilter ? Number(branchFilter) : undefined },
     { enabled: Boolean(siteId && isAuthenticated) },
   );
   const utils = trpc.useUtils();
-  const refreshAccounts = () => void utils.powerhub.companyAccounts.list.invalidate();
+  const resetTransactionPagination = () => {
+    setTransactionPage(1);
+    setTransactionCursors([""]);
+    setHistorySummary(null);
+  };
+  const refreshAccounts = () => {
+    resetTransactionPagination();
+    void utils.powerhub.companyAccounts.list.invalidate();
+    void utils.powerhub.companyAccounts.history.invalidate();
+  };
   const updateOpeningBalance = trpc.powerhub.companyAccounts.updateOpeningBalance.useMutation({ onSuccess: () => { toast.success("تم حفظ الرصيد الافتتاحي."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updateSites = trpc.powerhub.companyAccounts.updateSites.useMutation({ onSuccess: () => { toast.success("تم تحديث الفروع المرتبطة."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
   const updatePaymentDocumentationVisibility = trpc.powerhub.companyAccounts.updatePaymentDocumentationVisibility.useMutation({ onSuccess: () => { toast.success("تم تحديث إعداد ظهور الحساب في توثيق الدفع."); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
@@ -106,64 +152,84 @@ export default function CompanyAccountsPage() {
     },
     onError: (error) => toast.error(error.message),
   });
-  const movement = trpc.powerhub.companyAccounts.addMovement.useMutation({ onSuccess: () => { toast.success("تم تسجيل حركة الحساب."); setAmount(""); setDescription(""); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
-  const transfer = trpc.powerhub.companyAccounts.transfer.useMutation({ onSuccess: () => { toast.success("تم تنفيذ التحويل بين الحسابات."); setAmount(""); setDescription(""); refreshAccounts(); }, onError: (error) => toast.error(error.message) });
+  const accountOperationKeysRef = useRef<Map<string, string>>(new Map());
+  const operationKeyFor = (payload: Record<string, unknown>) => {
+    const fingerprint = JSON.stringify(payload);
+    const current = accountOperationKeysRef.current.get(fingerprint);
+    if (current) return current;
+    const operationKey = crypto.randomUUID();
+    accountOperationKeysRef.current.set(fingerprint, operationKey);
+    return operationKey;
+  };
+  const clearAccountOperationKey = (operationKey: string) => {
+    for (const [fingerprint, key] of accountOperationKeysRef.current) {
+      if (key === operationKey) accountOperationKeysRef.current.delete(fingerprint);
+    }
+  };
+  const movement = trpc.powerhub.companyAccounts.addMovement.useMutation({
+    onSuccess: (_result, variables) => { clearAccountOperationKey(variables.operationKey); toast.success("تم تسجيل حركة الحساب."); setAmount(""); setDescription(""); refreshAccounts(); },
+    onError: (error) => toast.error(error.message),
+  });
+  const transfer = trpc.powerhub.companyAccounts.transfer.useMutation({
+    onSuccess: (_result, variables) => { clearAccountOperationKey(variables.operationKey); toast.success("تم تنفيذ التحويل بين الحسابات."); setAmount(""); setDescription(""); refreshAccounts(); },
+    onError: (error) => toast.error(error.message),
+  });
 
   const rows = accounts.data ?? [];
   const filtered = useMemo(() => rows.filter((account) => `${account.name} ${account.phoneNumber ?? ""} ${labels[account.accountType] ?? account.accountType}`.toLowerCase().includes(search.toLowerCase().trim())), [rows, search]);
   const selectedAccount = rows.find((account) => account.id === selected);
   const total = rows.reduce((sum, row) => sum + Number(row.balance), 0);
-  const transactionRows = selectedAccount?.transactions.filter((row) => {
-    const date = dateKeyInGaza(row.occurredAt);
-    const relatedAccountName = row.relatedAccountId
-      ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? `حساب #${row.relatedAccountId}`
-      : "";
-    const query = transactionSearch.trim().toLowerCase();
-    const searchable = `${row.description} ${row.transactionType} ${movementLabels[row.transactionType] ?? row.transactionType} ${row.id} ${row.referenceNo ?? ""} ${row.relatedPaymentId ?? ""} ${relatedAccountName} ${date}`.toLowerCase();
-    const matchesSearch = !query || searchable.includes(query);
-    return matchesSearch && (!transactionTypeFilter || row.transactionType === transactionTypeFilter) && (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
-  }) ?? [];
-  const transactionSummary = transactionRows.reduce((summary, row) => {
-    const amount = Number(row.amount) || 0;
-    if (isOutgoingMovement(row.transactionType)) summary.outgoing += amount;
-    else if (isIncomingMovement(row.transactionType)) summary.incoming += amount;
-    return summary;
-  }, { incoming: 0, outgoing: 0 });
-  const transactionNet = transactionSummary.incoming - transactionSummary.outgoing;
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(transactionRows.length / pageSize));
-  const visibleTransactions = transactionRows.slice((transactionPage - 1) * pageSize, transactionPage * pageSize);
-  const balanceAfterById = useMemo(() => {
-    const result = new Map<number, number>();
-    if (!selectedAccount || fromDate || toDate) return result;
-    let running = Number(selectedAccount.balance);
-    for (const row of selectedAccount.transactions) {
-      result.set(row.id, running);
-      running -= movementSign(row.transactionType, Number(row.amount) || 0);
-    }
-    return result;
-  }, [selectedAccount, fromDate, toDate]);
+  const historyCursor = transactionCursors[transactionPage - 1] ?? "";
+  const historyQuery = trpc.powerhub.companyAccounts.history.useQuery({
+    siteId,
+    accountId: selectedAccount?.id ?? 0,
+    branchId: branchFilter ? Number(branchFilter) : undefined,
+    fromDate: fromDate || undefined,
+    toDate: toDate || undefined,
+    movementFromDate: movementRange.start || undefined,
+    movementToDate: movementRange.end || undefined,
+    transactionType: transactionTypeFilter
+      ? transactionTypeFilter as "collection" | "deposit" | "withdrawal" | "transfer_in" | "transfer_out"
+      : undefined,
+    search: deferredTransactionSearch.trim() || undefined,
+    cursor: historyCursor || undefined,
+    limit: 30,
+  }, { enabled: Boolean(siteId && isAuthenticated && selectedAccount && movementRangeReady && movementDatesValid), refetchOnReconnect: "always" });
 
-  const balanceTimeline = useMemo(() => {
-    if (!selectedAccount || fromDate || toDate) return [];
-    const dateFiltered = selectedAccount.transactions.filter((row) => {
-      const date = dateKeyInGaza(row.occurredAt);
-      return (!movementFromDate || date >= movementFromDate) && (!movementToDate || date <= movementToDate);
-    });
-    if (!dateFiltered.length) return [{ label: "الرصيد الحالي", balance: Number(selectedAccount.balance) }];
-    const chronological = [...dateFiltered].reverse();
-    const oldest = chronological[0];
-    let running = (balanceAfterById.get(oldest.id) ?? Number(selectedAccount.balance)) - movementSign(oldest.transactionType, Number(oldest.amount) || 0);
-    const timeline = [{ label: "قبل أول حركة", balance: running }];
-    for (const row of chronological) {
-      running += movementSign(row.transactionType, Number(row.amount) || 0);
-      timeline.push({
-        label: new Date(row.occurredAt).toLocaleDateString("ar", { timeZone: "Asia/Gaza", month: "short", day: "numeric" }),
-        balance: running,
+  useEffect(() => {
+    const page = historyQuery.data;
+    if (!historyCursor && page
+      && page.totalCount !== null
+      && page.incomingTotal !== null
+      && page.outgoingTotal !== null) {
+      setHistorySummary({
+        totalCount: page.totalCount,
+        incomingTotal: page.incomingTotal,
+        outgoingTotal: page.outgoingTotal,
+        balanceTimeline: page.balanceTimeline,
       });
     }
-    return timeline;
-  }, [selectedAccount, fromDate, toDate, movementFromDate, movementToDate, balanceAfterById]);
+  }, [historyCursor, historyQuery.data]);
+
+  const transactionRows = historyQuery.data?.items ?? [];
+  const transactionSummary = {
+    incoming: Number(historySummary?.incomingTotal ?? historyQuery.data?.incomingTotal ?? 0),
+    outgoing: Number(historySummary?.outgoingTotal ?? historyQuery.data?.outgoingTotal ?? 0),
+  };
+  const transactionNet = transactionSummary.incoming - transactionSummary.outgoing;
+  const pageSize = 30;
+  const totalTransactions = Number(historySummary?.totalCount ?? historyQuery.data?.totalCount ?? 0);
+  const pageCount = Math.max(1, Math.ceil(totalTransactions / pageSize));
+  const visibleTransactions = transactionRows;
+  const showingOfflineHistory = !isOnline && Boolean(historyQuery.data);
+  
+  const balanceTimeline = useMemo(() => (historySummary?.balanceTimeline ?? historyQuery.data?.balanceTimeline ?? []).map((row) => ({
+    label: row.day
+      ? new Date(String(row.day) + "T12:00:00Z").toLocaleDateString("ar", { timeZone: "Asia/Gaza", month: "short", day: "numeric" })
+      : "الرصيد الحالي",
+    balance: row.balance,
+  })), [historySummary?.balanceTimeline, historyQuery.data?.balanceTimeline]);
+
 
   if (loading || accounts.isLoading) return <DashboardLayout><div className="grid min-h-[60vh] place-items-center"><Loader2 className="h-7 w-7 animate-spin text-[#F5B800]" /></div></DashboardLayout>;
   if (!isAuthenticated) return <DashboardLayout><div className="p-8 text-center text-white">سجّل الدخول للوصول إلى حسابات الشركة.</div></DashboardLayout>;
@@ -175,9 +241,10 @@ export default function CompanyAccountsPage() {
     setSelectedSites(account.linkedSites.map((site) => site.siteId));
     setOpeningBalance(String(account.openingBalance ?? 0));
     setNewPhone(account.phoneNumber ?? "");
-    setTransactionPage(1);
+    resetTransactionPagination();
     setTransactionTypeFilter("");
     setTransactionSearch("");
+    setMovementPeriod("cycle");
     setMovementFromDate("");
     setMovementToDate("");
     setMode("deposit");
@@ -202,7 +269,7 @@ export default function CompanyAccountsPage() {
   const submitCreate = () => {
     const value = Number(createOpeningBalance);
     if (!Number.isFinite(value) || value < 0) return toast.error("أدخل رصيداً افتتاحياً صحيحاً يساوي صفراً أو أكثر.");
-    create.mutate({ siteId, name: name.trim(), accountType: accountType as "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "other", phoneNumber: newPhone, openingBalance: value, siteIds: selectedSites.length ? selectedSites : [siteId] });
+    create.mutate({ siteId, name: name.trim(), accountType: accountType as "cash" | "jawwal_pay" | "palpay" | "bank_of_palestine" | "other", phoneNumber: newPhone, openingBalance: value, siteIds: multiBranchEnabled && selectedSites.length ? selectedSites : [siteId] });
   };
 
   const submitMovement = () => {
@@ -218,22 +285,25 @@ export default function CompanyAccountsPage() {
       setPendingAction({ kind: "withdrawal", amount: value, description: description.trim() });
       return;
     }
-    movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: mode, amount: value, description: description.trim() });
+    const payload = { siteId, accountId: selectedAccount.id, transactionType: mode, amount: value, description: description.trim() };
+    movement.mutate({ ...payload, operationKey: operationKeyFor(payload) });
   };
 
   const confirmPendingAction = () => {
     if (!selectedAccount || !pendingAction) return;
     if (pendingAction.kind === "transfer" && pendingAction.targetAccountId) {
-      transfer.mutate({ siteId, fromAccountId: selectedAccount.id, toAccountId: pendingAction.targetAccountId, amount: pendingAction.amount, description: pendingAction.description });
+      const payload = { siteId, fromAccountId: selectedAccount.id, toAccountId: pendingAction.targetAccountId, amount: pendingAction.amount, description: pendingAction.description };
+      transfer.mutate({ ...payload, operationKey: operationKeyFor(payload) });
     } else {
-      movement.mutate({ siteId, accountId: selectedAccount.id, transactionType: "withdrawal", amount: pendingAction.amount, description: pendingAction.description });
+      const payload = { siteId, accountId: selectedAccount.id, transactionType: "withdrawal" as const, amount: pendingAction.amount, description: pendingAction.description };
+      movement.mutate({ ...payload, operationKey: operationKeyFor(payload) });
     }
     setPendingAction(null);
   };
 
   const exportCsv = () => {
-    const header = "الحساب,نوع الحساب,رقم الجوال,الفروع,الرصيد\n";
-    const body = filtered.map((row) => [row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "", row.linkedSites.map((site) => site.siteName).join(" | "), Number(row.balance).toFixed(2)].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+    const header = multiBranchEnabled ? "الحساب,نوع الحساب,رقم الجوال,الفروع,الرصيد\n" : "الحساب,نوع الحساب,رقم الجوال,الرصيد\n";
+    const body = filtered.map((row) => [row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "", ...(multiBranchEnabled ? [row.linkedSites.map((site) => site.siteName).join(" | ")] : []), Number(row.balance).toFixed(2)].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob(["\ufeff" + header + body], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -245,11 +315,11 @@ export default function CompanyAccountsPage() {
   const exportExcel = async () => {
     const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("حسابات الشركة", { views: [{ rightToLeft: true }] });
-    sheet.addRow(["الحساب", "نوع الحساب", "رقم الجوال", "الفروع", "الرصيد"]);
-    filtered.forEach((row) => sheet.addRow([row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "غير مرتبط", row.linkedSites.map((site) => site.siteName).join("، ") || "غير محدد", Number(row.balance)]));
+    sheet.addRow(["الحساب", "نوع الحساب", "رقم الجوال", ...(multiBranchEnabled ? ["الفروع"] : []), "الرصيد"]);
+    filtered.forEach((row) => sheet.addRow([row.name, labels[row.accountType] ?? row.accountType, row.phoneNumber ?? "غير مرتبط", ...(multiBranchEnabled ? [row.linkedSites.map((site) => site.siteName).join("، ") || "غير محدد"] : []), Number(row.balance)]));
     sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D1117" } };
-    sheet.columns = [{ width: 24 }, { width: 20 }, { width: 20 }, { width: 35 }, { width: 16 }];
+    sheet.columns = [{ width: 24 }, { width: 20 }, { width: 20 }, ...(multiBranchEnabled ? [{width:35}] : []), { width: 16 }];
     const url = URL.createObjectURL(new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -259,47 +329,175 @@ export default function CompanyAccountsPage() {
     toast.success("تم تصدير كشف الحساب إلى Excel.");
   };
 
-  const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th><th>الفروع</th><th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(labels[row.accountType]??row.accountType)}</td><td>${escapeHtml(row.phoneNumber??"—")}</td><td>${escapeHtml(row.linkedSites.map(site=>site.siteName).join("، ")||"—")}</td><td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
+  const exportPdf = async () => { const root=document.createElement("div"); root.dir="rtl"; root.style.cssText="position:fixed;left:-10000px;top:0;width:1100px;background:#fff;color:#101828;padding:40px;font-family:Arial,sans-serif"; root.innerHTML=`<h1 style="border-bottom:3px solid #F5B800;padding-bottom:14px">كشف حسابات الشركة</h1><table style="width:100%;border-collapse:collapse;text-align:right"><thead><tr style="background:#0D1117;color:#fff"><th>الحساب</th><th>نوع الحساب</th><th>رقم الجوال</th>${multiBranchEnabled ? "<th>الفروع</th>" : ""}<th>الرصيد</th></tr></thead><tbody>${filtered.map(row=>`<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(labels[row.accountType]??row.accountType)}</td><td>${escapeHtml(row.phoneNumber??"—")}</td>${multiBranchEnabled ? `<td>${escapeHtml(row.linkedSites.map(site=>site.siteName).join("، ")||"—")}</td>` : ""}<td>${Number(row.balance).toLocaleString("ar")}</td></tr>`).join("")}</tbody></table>`; document.body.appendChild(root); try { await downloadReportHtmlAsPdf(root,"كشف-حسابات-الشركة.pdf",{landscape:true,title:"كشف حسابات الشركة - PowerHub"}); toast.success("تم تصدير كشف الحساب إلى PDF."); } catch(error) { toast.error(error instanceof Error?error.message:"تعذر إنشاء ملف PDF."); } finally { root.remove(); } };
+
+  const fetchAllTransactionsForExport = async (maximumRows = 50_000) => {
+    if (!selectedAccount || !movementRangeReady || !movementDatesValid) throw new Error("لا يمكن تصدير كشف الحركات قبل تحديد فترة صحيحة.");
+    if (totalTransactions > maximumRows) {
+      throw new Error(`يتجاوز عدد الحركات حد التصدير الآمن (${maximumRows.toLocaleString("ar")} حركة). حدد فترة زمنية أضيق.`);
+    }
+    // A valid cursor beyond the newest transaction skips the expensive first-page
+    // chart and count scans. The existing UI already fetched the authoritative
+    // summary, while the database still calculates every row's historical balance.
+    // This is a read-only keyset cursor; it does not change the underlying RPC.
+    const firstCursor = btoa(JSON.stringify({
+      at: "9999-12-31T23:59:59Z",
+      id: Number.MAX_SAFE_INTEGER,
+    })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    const allRows: typeof transactionRows = [];
+    let cursor: string | undefined = firstCursor;
+    let pageNumber = 0;
+    do {
+      const page = await utils.powerhub.companyAccounts.history.fetch({
+        siteId,
+        accountId: selectedAccount.id,
+        branchId: branchFilter ? Number(branchFilter) : undefined,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        movementFromDate: movementRange.start || undefined,
+        movementToDate: movementRange.end || undefined,
+        transactionType: transactionTypeFilter
+          ? transactionTypeFilter as "collection" | "deposit" | "withdrawal" | "transfer_in" | "transfer_out"
+          : undefined,
+        search: deferredTransactionSearch.trim() || undefined,
+        cursor,
+        limit: 200,
+      });
+      if (!page.items.length && page.hasNext) throw new Error("أعاد الخادم صفحة فارغة مع وجود حركات إضافية؛ لم يُنشأ كشف ناقص.");
+      allRows.push(...page.items);
+      if (allRows.length > maximumRows || (allRows.length === maximumRows && page.hasNext)) {
+        throw new Error(`تجاوز سجل الحساب حد التصدير الآمن (${maximumRows.toLocaleString("ar")} حركة)؛ حدد فترة أضيق.`);
+      }
+      const nextCursor = page.nextCursor ?? undefined;
+      if (page.hasNext && (!nextCursor || nextCursor === cursor)) {
+        throw new Error("تعذر استكمال صفحات سجل الحركات؛ لم يُنشأ كشف ناقص.");
+      }
+      cursor = page.hasNext ? nextCursor : undefined;
+      pageNumber += 1;
+      setExportProgress(allRows.length);
+      // Yield between batches so the dashboard stays responsive while exporting.
+      if (pageNumber % 5 === 0) await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    } while (cursor);
+    return allRows;
+  };
 
   const exportTransactionsExcel = async () => {
-    if (!selectedAccount || !transactionRows.length) return;
-    const { default: ExcelJS } = await loadExcelJS(); const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("حركات الحساب");
-    sheet.columns = [
-      { header: "التاريخ والوقت", key: "date", width: 24 },
-      { header: "رقم الحركة", key: "id", width: 14 },
-      { header: "المرجع", key: "reference", width: 20 },
-      { header: "البيان", key: "description", width: 36 },
-      { header: "نوع الحركة", key: "type", width: 18 },
-      { header: "الحساب المقابل", key: "counterpart", width: 24 },
-      { header: "وارد", key: "incoming", width: 16 },
-      { header: "صادر", key: "outgoing", width: 16 },
-      { header: "الرصيد بعد الحركة", key: "balance", width: 20 },
-    ];
-    transactionRows.forEach((row) => {
-      const amount = Number(row.amount) || 0;
-      const counterpart = row.relatedAccountId
-        ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? `حساب #${row.relatedAccountId}`
-        : row.relatedPaymentId ? `دفعة #${row.relatedPaymentId}` : "—";
-      sheet.addRow({
-        date: new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" }),
-        id: row.id,
-        reference: row.referenceNo ?? "—",
-        description: row.description,
-        type: movementLabels[row.transactionType] ?? row.transactionType,
-        counterpart,
-        incoming: isIncomingMovement(row.transactionType) ? amount : null,
-        outgoing: isOutgoingMovement(row.transactionType) ? amount : null,
-        balance: balanceAfterById.get(row.id) ?? null,
+    if (!selectedAccount || exportingTransactions || !isOnline) return;
+    setExportingTransactions(true);
+    setExportProgress(0);
+    try {
+      const rowsForExport = await fetchAllTransactionsForExport();
+      if (!rowsForExport.length) return toast.error("لا توجد حركات مطابقة للتصدير.");
+      const { default: ExcelJS } = await loadExcelJS();
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("حركات الحساب");
+      sheet.columns = [
+        { header: "التاريخ والوقت", key: "date", width: 24 },
+        { header: "رقم الحركة", key: "id", width: 14 },
+        { header: "المرجع", key: "reference", width: 20 },
+        { header: "البيان", key: "description", width: 36 },
+        { header: "نوع الحركة", key: "type", width: 18 },
+        { header: "الحساب المقابل", key: "counterpart", width: 24 },
+        { header: "وارد", key: "incoming", width: 16 },
+        { header: "صادر", key: "outgoing", width: 16 },
+        { header: "الرصيد بعد الحركة", key: "balance", width: 20 },
+      ];
+      rowsForExport.forEach((row) => {
+        const amount = Number(row.amount) || 0;
+        const counterpart = row.relatedAccountId
+          ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? ("حساب #" + row.relatedAccountId)
+          : row.relatedPaymentId ? ("دفعة #" + row.relatedPaymentId) : "—";
+        sheet.addRow({
+          date: new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" }),
+          id: row.id,
+          reference: row.referenceNo ?? "—",
+          description: row.description,
+          type: movementLabels[row.transactionType] ?? row.transactionType,
+          counterpart,
+          incoming: isIncomingMovement(row.transactionType) ? amount : null,
+          outgoing: isOutgoingMovement(row.transactionType) ? amount : null,
+          balance: row.balanceAfter,
+        });
       });
-    });
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `حركات-${selectedAccount.name}.xlsx`; anchor.click(); URL.revokeObjectURL(url);
-    toast.success("تم تصدير حركات الحساب إلى Excel.");
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "حركات-" + selectedAccount.name + ".xlsx";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("تم تصدير " + rowsForExport.length.toLocaleString("ar") + " حركة إلى Excel.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر تصدير حركات الحساب إلى Excel.");
+    } finally {
+      setExportingTransactions(false);
+    }
   };
-  const exportTransactionsPdf = async () => { if (!selectedAccount || !transactionsRef.current) return; try { await downloadReportHtmlAsPdf(transactionsRef.current, `حركات-${selectedAccount.name}.pdf`, { landscape: true, title: `حركات حساب ${selectedAccount.name} - PowerHub` }); toast.success("تم تصدير حركات الحساب إلى PDF."); } catch (error) { toast.error(error instanceof Error ? error.message : "تعذر إنشاء ملف PDF."); } };
+
+  const exportTransactionsPdf = async () => {
+    if (!selectedAccount || exportingTransactions || !isOnline) return;
+    // Open synchronously within the click gesture, before awaiting the ledger.
+    // Native printing is paginated, text-selectable, and avoids html2canvas
+    // allocating one enormous image for thousands of account transactions.
+    const popup = window.open("", "_blank");
+    if (!popup) return toast.error("اسمح بفتح نافذة تقرير الحركات ثم أعد المحاولة.");
+    popup.document.title = "جارٍ إعداد كشف حركات الحساب";
+    popup.document.body.textContent = "جارٍ تحميل الحركات من PowerHub…";
+    setExportingTransactions(true);
+    setExportProgress(0);
+    try {
+      const rowsForExport = await fetchAllTransactionsForExport(5_000);
+      if (!rowsForExport.length) {
+        popup.close();
+        return toast.error("لا توجد حركات مطابقة للتصدير.");
+      }
+      const accountNames = new Map(rows.map((account) => [account.id, account.name]));
+      const exportedIncoming = rowsForExport.reduce((total, row) => total + (isIncomingMovement(row.transactionType) ? Number(row.amount) || 0 : 0), 0);
+      const exportedOutgoing = rowsForExport.reduce((total, row) => total + (isOutgoingMovement(row.transactionType) ? Number(row.amount) || 0 : 0), 0);
+      const body = rowsForExport.map((row) => {
+        const amount = Number(row.amount) || 0;
+        const counterpart = row.relatedAccountId
+          ? accountNames.get(row.relatedAccountId) ?? ("حساب #" + row.relatedAccountId)
+          : row.relatedPaymentId ? ("دفعة #" + row.relatedPaymentId) : "—";
+        return "<tr><td>" + escapeHtml(new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" })) +
+          "</td><td>" + escapeHtml(row.id) +
+          "</td><td>" + escapeHtml(row.referenceNo ?? "—") +
+          "</td><td>" + escapeHtml(row.description) +
+          "</td><td>" + escapeHtml(movementLabels[row.transactionType] ?? row.transactionType) +
+          "</td><td>" + escapeHtml(counterpart) +
+          "</td><td>" + (isIncomingMovement(row.transactionType) ? money(amount) : "—") +
+          "</td><td>" + (isOutgoingMovement(row.transactionType) ? money(amount) : "—") +
+          "</td><td>" + (row.balanceAfter === null ? "—" : money(row.balanceAfter)) +
+          "</td></tr>";
+      }).join("");
+      popup.document.open();
+      popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<title>${escapeHtml("حركات حساب " + selectedAccount.name)} - PowerHub</title>
+<style>
+*{box-sizing:border-box}body{font:11px Tahoma,Arial,sans-serif;color:#172033;margin:20px}
+h1{font-size:18px;margin:0 0 12px}p{margin:0 0 14px}
+table{width:100%;border-collapse:collapse;table-layout:auto}
+th,td{padding:5px;border:1px solid #8993a3;text-align:right;vertical-align:top;overflow-wrap:anywhere}
+th{background:#233448;color:#fff;font-weight:bold}thead{display:table-header-group}
+tr{break-inside:avoid}@page{size:A4 landscape;margin:10mm}
+@media print{body{margin:0}}
+</style></head><body><h1>${escapeHtml("كشف حركات حساب " + selectedAccount.name)}</h1>
+<p>عدد الحركات: ${rowsForExport.length.toLocaleString("ar")} · إجمالي الوارد: ${money(exportedIncoming)} · إجمالي الصادر: ${money(exportedOutgoing)}</p>
+<table><thead><tr><th>التاريخ</th><th>رقم الحركة</th><th>المرجع</th><th>البيان</th><th>النوع</th><th>الحساب المقابل</th><th>وارد</th><th>صادر</th><th>الرصيد بعد الحركة</th></tr></thead>
+<tbody>${body}</tbody></table><p>للحفظ PDF اختر «حفظ بتنسيق PDF» من نافذة الطباعة، أو اضغط Ctrl+P.</p></body></html>`);
+      popup.document.close();
+      popup.focus();
+      popup.print();
+      toast.success("تم إعداد " + rowsForExport.length.toLocaleString("ar") + " حركة للطباعة أو الحفظ PDF.");
+    } catch (error) {
+      popup.close();
+      toast.error(error instanceof Error ? error.message : "تعذر إعداد تقرير حركات الحساب PDF.");
+    } finally {
+      setExportingTransactions(false);
+      setExportProgress(0);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -327,17 +525,17 @@ export default function CompanyAccountsPage() {
               <select value={accountType} onChange={(event) => setAccountType(event.target.value)} className="h-10 rounded-xl border border-white/10 bg-[#0D1117] px-3 text-sm text-white"><option value="cash">كاش</option><option value="jawwal_pay">جوال بي</option><option value="palpay">بال بي</option><option value="bank_of_palestine">بنك فلسطين</option><option value="other">حساب آخر</option></select>
               <Input dir="ltr" value={newPhone} onChange={(event) => setNewPhone(event.target.value)} placeholder="رقم الجوال المرتبط" className="border-white/10 bg-[#0D1117] text-white" />
               <label className="grid gap-1 text-xs text-slate-300"><span>الرصيد الافتتاحي (شيكل)</span><Input dir="ltr" type="number" min="0" step="0.01" value={createOpeningBalance} onChange={(event) => setCreateOpeningBalance(event.target.value)} className="border-white/10 bg-[#0D1117] text-white" /></label>
-              <div className="rounded-xl border border-white/10 p-3 md:col-span-2"><p className="mb-2 text-sm font-bold text-white">الفروع المرتبطة</p><div className="flex flex-wrap gap-2">{(sites.data ?? []).map((site) => <label key={site.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={selectedSites.includes(site.id)} onChange={(event) => setSelectedSites((current) => event.target.checked ? [...current, site.id] : current.filter((id) => id !== site.id))} />{site.name}</label>)}</div></div>
+              {multiBranchEnabled ? <div className="rounded-xl border border-white/10 p-3 md:col-span-2"><p className="mb-2 text-sm font-bold text-white">الفروع المرتبطة</p><div className="flex flex-wrap gap-2">{(sites.data ?? []).map((site) => <label key={site.id} className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={selectedSites.includes(site.id)} onChange={(event) => setSelectedSites((current) => event.target.checked ? [...current, site.id] : current.filter((id) => id !== site.id))} />{site.name}</label>)}</div></div> : null}
               <Button disabled={create.isPending} onClick={submitCreate} className="bg-emerald-600 font-bold text-white md:col-span-2">{create.isPending ? "جارٍ الإنشاء…" : "حفظ الحساب ورصيده الافتتاحي"}</Button>
             </CardContent>
           </Card>
         )}
 
         <div className="flex flex-wrap items-end gap-3 print:hidden">
-          <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)} className="h-10 rounded-xl border border-white/10 bg-[#111823] px-3 text-sm text-white"><option value="">كل الفروع</option>{(sites.data ?? []).map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select>
-          <label className="grid gap-1 text-xs text-slate-300"><span>من تاريخ</span><Input dir="ltr" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="h-10 w-40 border-white/10 bg-[#111823] text-white" /></label>
-          <label className="grid gap-1 text-xs text-slate-300"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="h-10 w-40 border-white/10 bg-[#111823] text-white" /></label>
-          <Button variant="outline" onClick={() => { setBranchFilter(""); setFromDate(""); setToDate(""); }} className="border-white/15 text-white">مسح الفلاتر</Button>
+          {multiBranchEnabled ? <select value={branchFilter} onChange={(event) => { setBranchFilter(event.target.value); resetTransactionPagination(); }} className="h-10 rounded-xl border border-white/10 bg-[#111823] px-3 text-sm text-white"><option value="">كل الفروع</option>{(sites.data ?? []).map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select> : null}
+          <label className="grid gap-1 text-xs text-slate-300"><span>من تاريخ</span><Input dir="ltr" type="date" value={fromDate} onChange={(event) => { setFromDate(event.target.value); resetTransactionPagination(); }} className="h-10 w-40 border-white/10 bg-[#111823] text-white" /></label>
+          <label className="grid gap-1 text-xs text-slate-300"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={toDate} onChange={(event) => { setToDate(event.target.value); resetTransactionPagination(); }} className="h-10 w-40 border-white/10 bg-[#111823] text-white" /></label>
+          <Button variant="outline" onClick={() => { setBranchFilter(""); setFromDate(""); setToDate(""); resetTransactionPagination(); }} className="border-white/15 text-white">مسح الفلاتر</Button>
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث حسب اسم الحساب أو نوعه أو رقم الجوال" className="max-w-xl border-white/10 bg-[#111823] text-white" />
           <span className="text-sm text-slate-400">عرض {filtered.length} من {rows.length} حساب</span>
         </div>
@@ -350,14 +548,14 @@ export default function CompanyAccountsPage() {
               <div className="flex items-center justify-between gap-3"><span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-extrabold shadow-sm ${theme.badge}`}><BrandIcon className="h-4 w-4" />{theme.shortLabel}</span><span className="font-bold text-white print:text-black">{account.name}</span></div>
               <p className="mt-5 text-xs text-white/80 print:text-slate-600">الرصيد المتاح</p><p className="mt-1 text-2xl font-extrabold text-white print:text-slate-900">{money(Number(account.balance))} ش</p>
               <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">افتتاحي: {money(Number(account.openingBalance ?? 0))} ش</p>
-              <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">النوع: {labels[account.accountType] ?? account.accountType}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">النطاق: {account.linkedSites.length ? account.linkedSites.map((site) => site.siteName).join("، ") : "عام على مستوى الشركة"}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">توثيق الدفع: {account.allowPaymentDocumentation ? "ظاهر" : "مخفي"}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">الجوال: {account.phoneNumber ?? "غير مرتبط"}</p>
+              <p className="mt-2 text-xs font-semibold text-white/90 print:text-slate-700">النوع: {labels[account.accountType] ?? account.accountType}</p>{multiBranchEnabled ? <p className="mt-2 text-xs text-white/80 print:text-slate-600">النطاق: {account.linkedSites.length ? account.linkedSites.map((site) => site.siteName).join("، ") : "عام على مستوى الشركة"}</p> : null}<p className="mt-2 text-xs text-white/80 print:text-slate-600">توثيق الدفع: {account.allowPaymentDocumentation ? "ظاهر" : "مخفي"}</p><p className="mt-2 text-xs text-white/80 print:text-slate-600">الجوال: {account.phoneNumber ?? "غير مرتبط"}</p>
             </button>;
           })}
         </div>
 
         <Card className="border-[#F5B800]/20 bg-[#F5B800]/5 print:border-slate-300 print:bg-white"><CardContent className="flex items-center justify-between p-5"><span className="font-bold text-white print:text-black">إجمالي السيولة المتاحة</span><strong className="text-2xl text-[#F5B800] print:text-black">{money(total)} ش</strong></CardContent></Card>
 
-        {selectedAccount && <Card className="border-white/10 bg-[#111823] print:hidden"><CardContent className="flex flex-wrap items-end gap-3 p-4"><div className="min-w-52"><p className="font-bold text-white">تصفية كشف الحركات</p><p className="mt-1 text-xs text-slate-500">تنطبق الفلاتر على السجل والمخطط وملفي Excel وPDF.</p></div><label className="grid gap-1 text-xs text-slate-300"><span>من تاريخ</span><Input dir="ltr" type="date" value={movementFromDate} max={movementToDate || undefined} onChange={(event) => { setMovementFromDate(event.target.value); setTransactionPage(1); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><label className="grid gap-1 text-xs text-slate-300"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={movementToDate} min={movementFromDate || undefined} onChange={(event) => { setMovementToDate(event.target.value); setTransactionPage(1); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><Button size="sm" variant="outline" onClick={() => { setMovementFromDate(""); setMovementToDate(""); setTransactionTypeFilter(""); setTransactionPage(1); }} className="border-white/15 text-white">مسح فلاتر الحركات</Button></CardContent></Card>}
+        {selectedAccount && <Card className="border-white/10 bg-[#111823] print:hidden"><CardContent className="flex flex-wrap items-end gap-3 p-4"><div className="min-w-52"><p className="font-bold text-white">فترة سجل الحركات</p><p className="mt-1 text-xs text-slate-400">هذه الدورة افتراضياً. تنطبق الفترة على السجل والتصدير.</p></div><label className="grid gap-1 text-xs text-slate-200"><span>الفترة</span><select aria-label="فترة حركات الحساب" value={movementPeriod} onChange={(event) => { setMovementPeriod(event.target.value as MovementPeriod); resetTransactionPagination(); }} className="h-9 min-w-36 rounded-lg border border-white/15 bg-[#0D1117] px-3 text-white"><option value="today">اليوم</option><option value="cycle">هذه الدورة</option><option value="month">هذا الشهر</option><option value="custom">مخصص</option></select></label>{movementPeriod === "custom" ? <><label className="grid gap-1 text-xs text-slate-200"><span>من تاريخ</span><Input dir="ltr" type="date" value={movementFromDate} max={movementToDate || undefined} onChange={(event) => { setMovementFromDate(event.target.value); resetTransactionPagination(); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label><label className="grid gap-1 text-xs text-slate-200"><span>إلى تاريخ</span><Input dir="ltr" type="date" value={movementToDate} min={movementFromDate || undefined} onChange={(event) => { setMovementToDate(event.target.value); resetTransactionPagination(); }} className="h-9 w-40 border-white/10 bg-[#0D1117] text-white" /></label></> : <span className="text-xs text-slate-300">من {movementRange.start || "…"} إلى {movementRange.end || "…"}</span>}{movementPeriod === "cycle" && !branchFilter && (sites.data?.length ?? 0) > 1 ? <span className="text-xs text-amber-200">الدورة حسب الفرع المرجعي؛ اختر فرعاً لتحديد دورته الخاصة.</span> : null}{!movementRangeReady ? <span role="status" className="text-xs text-amber-300">{cycleBoundsQuery.isError ? "تعذر تحديد الدورة؛ أعد المحاولة عند عودة الاتصال." : "جارٍ تحديد حدود الدورة…"}</span> : null}{!movementDatesValid ? <span role="alert" className="text-xs text-rose-300">حدد فترة مخصصة صحيحة.</span> : null}</CardContent></Card>}
 
         {selectedAccount && (
           <div className="space-y-5 print:hidden">
@@ -400,7 +598,7 @@ export default function CompanyAccountsPage() {
                         </Button>
                       </div>
 
-                      <div className="rounded-xl border border-white/10 p-3 2xl:col-span-4">
+                      {multiBranchEnabled ? <div className="rounded-xl border border-white/10 p-3 2xl:col-span-4">
                         <p className="mb-2 text-sm font-bold text-white">الفروع المرتبطة</p>
                         <div className="flex flex-wrap gap-x-4 gap-y-2">
                           {(sites.data ?? []).map((site) => (
@@ -413,7 +611,7 @@ export default function CompanyAccountsPage() {
                         <Button className="mt-3 w-full bg-[#F5B800] font-bold text-[#0D1117]" onClick={() => updateSites.mutate({ siteId, accountId: selectedAccount.id, siteIds: selectedSites.length ? selectedSites : [siteId] })} disabled={updateSites.isPending}>
                           {updateSites.isPending ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}حفظ الفروع المرتبطة
                         </Button>
-                      </div>
+                      </div> : null}
 
                       <div className="rounded-xl border border-[#F5B800]/20 bg-[#F5B800]/[.03] p-3 2xl:col-span-2">
                         <p className="text-sm font-bold text-white">الظهور في توثيق الدفع</p>
@@ -448,18 +646,17 @@ export default function CompanyAccountsPage() {
               </CardContent>
             </Card>
 
-            <Card ref={transactionsRef} className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات الكامل</h2><p className="mt-1 text-xs text-slate-500">ابحث وفلتر الحركات؛ الملخص أدناه يتبع النتائج المعروضة والفترة المختارة.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!transactionRows.length} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">Excel</Button><Button size="sm" variant="outline" disabled={!transactionRows.length} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">PDF</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); setTransactionPage(1); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
+            <Card className="border-white/10 bg-[#111823]"><CardContent className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-bold text-white">سجل الحركات</h2><p className="mt-1 text-xs text-slate-500">يتم عرض 30 حركة في كل صفحة؛ الملخص والرصيد بعد الحركة محسوبان في قاعدة البيانات.</p></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!selectedAccount || exportingTransactions || !isOnline || !movementRangeReady || !movementDatesValid} onClick={() => void exportTransactionsExcel()} className="border-emerald-400/35 text-emerald-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "Excel"}</Button><Button size="sm" variant="outline" disabled={!selectedAccount || exportingTransactions || !isOnline || !movementRangeReady || !movementDatesValid} onClick={exportTransactionsPdf} className="border-rose-400/35 text-rose-200">{exportingTransactions ? `جارٍ إعداد ${exportProgress.toLocaleString("ar")} حركة…` : "طباعة / PDF"}</Button><select value={transactionTypeFilter} onChange={(event) => { setTransactionTypeFilter(event.target.value); resetTransactionPagination(); }} className="h-9 rounded-lg border border-white/10 bg-[#0D1117] px-2 text-xs text-white"><option value="">كل العمليات</option><option value="collection">تحصيل</option><option value="deposit">إيداع</option><option value="withdrawal">سحب</option><option value="transfer_in">تحويل وارد</option><option value="transfer_out">تحويل صادر</option></select></div></div>
 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-<label className="grid gap-1 text-xs text-slate-400"><span>بحث بالوصف أو رقم الحركة أو التاريخ</span><Input value={transactionSearch} onChange={(event) => { setTransactionSearch(event.target.value); setTransactionPage(1); }} placeholder="ابحث في الحركات…" className="border-white/10 bg-[#0D1117] text-white" /></label>
-<label className="grid gap-1 text-xs text-slate-400"><span>من تاريخ</span><Input type="date" dir="ltr" value={movementFromDate} onChange={(event) => { setMovementFromDate(event.target.value); setTransactionPage(1); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
-<label className="grid gap-1 text-xs text-slate-400"><span>إلى تاريخ</span><Input type="date" dir="ltr" value={movementToDate} onChange={(event) => { setMovementToDate(event.target.value); setTransactionPage(1); }} className="border-white/10 bg-[#0D1117] text-white" /></label>
-<div className="flex items-end"><Button size="sm" variant="outline" onClick={() => { setTransactionSearch(""); setTransactionTypeFilter(""); setMovementFromDate(""); setMovementToDate(""); setTransactionPage(1); }} className="border-white/10 text-white">مسح فلاتر الحركات</Button></div>
+<label className="grid gap-1 text-xs text-slate-400"><span>بحث بالوصف أو رقم الحركة أو التاريخ</span><Input value={transactionSearch} onChange={(event) => { setTransactionSearch(event.target.value); resetTransactionPagination(); }} placeholder="ابحث في الحركات…" className="border-white/10 bg-[#0D1117] text-white" /></label>
+<div className="flex items-end"><Button size="sm" variant="outline" onClick={() => { setTransactionSearch(""); setTransactionTypeFilter(""); setMovementPeriod("cycle"); setMovementFromDate(""); setMovementToDate(""); resetTransactionPagination(); }} className="border-white/10 text-white">استعادة فلاتر الدورة</Button></div>
 </div>
+{showingOfflineHistory ? <p role="status" className="mt-3 rounded-lg border border-amber-300/20 bg-amber-400/5 p-2 text-xs text-amber-200">عرض محلي للقراءة فقط؛ قد لا يتضمن أحدث الحركات. لا يمكن اعتماد الأرصدة أو تنفيذ عمليات مالية دون اتصال.</p> : null}
 <div className="mt-3 grid gap-2 sm:grid-cols-3">
 <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[.06] p-3"><p className="text-xs text-slate-400">إجمالي الوارد</p><p className="mt-1 font-bold text-emerald-300">{money(transactionSummary.incoming)} ش</p></div>
 <div className="rounded-xl border border-rose-500/20 bg-rose-500/[.06] p-3"><p className="text-xs text-slate-400">إجمالي الصادر</p><p className="mt-1 font-bold text-rose-300">{money(transactionSummary.outgoing)} ش</p></div>
 <div className="rounded-xl border border-white/10 bg-white/[.025] p-3"><p className="text-xs text-slate-400">صافي حركة الفترة</p><p className={`mt-1 font-bold ${transactionNet < 0 ? "text-rose-300" : "text-white"}`}>{money(transactionNet)} ش</p></div>
-</div>{!fromDate && !toDate ? <div className="mt-4 h-52 rounded-xl border border-white/8 bg-white/[.015] p-3"><p className="mb-2 text-xs font-bold text-slate-300">تطور الرصيد بمرور الوقت</p><ResponsiveContainer width="100%" height="88%"><AreaChart data={balanceTimeline} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}><defs><linearGradient id="accountBalanceFill" x1="0" x2="0" y1="0" y2="1"><stop offset="5%" stopColor="#F5B800" stopOpacity={0.35} /><stop offset="95%" stopColor="#F5B800" stopOpacity={0.03} /></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.08)" vertical={false} /><XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={44} /><Tooltip formatter={(value) => [`${money(Number(value))} ش`, "الرصيد"]} contentStyle={{ background: "#111823", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, color: "#fff" }} /><Area type="monotone" dataKey="balance" stroke="#F5B800" strokeWidth={2} fill="url(#accountBalanceFill)" /></AreaChart></ResponsiveContainer></div> : <p className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[.04] p-3 text-xs text-amber-100">تم تحديد فترة على شريط الفلاتر العام؛ أُخفي المخطط والرصيد بعد الحركة لتجنب عرض رصيد تراكمي غير دقيق خارج نطاق النتائج.</p>}<div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+</div>{!fromDate && !toDate && balanceTimeline.length > 0 ? <div className="mt-4 h-52 rounded-xl border border-white/8 bg-white/[.015] p-3"><p className="mb-2 text-xs font-bold text-slate-300">تطور الرصيد بمرور الوقت</p><ResponsiveContainer width="100%" height="88%"><AreaChart data={balanceTimeline} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}><defs><linearGradient id="accountBalanceFill" x1="0" x2="0" y1="0" y2="1"><stop offset="5%" stopColor="#F5B800" stopOpacity={0.35} /><stop offset="95%" stopColor="#F5B800" stopOpacity={0.03} /></linearGradient></defs><CartesianGrid stroke="rgba(255,255,255,.08)" vertical={false} /><XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={44} /><Tooltip formatter={(value) => [`${money(Number(value))} ش`, "الرصيد"]} contentStyle={{ background: "#111823", border: "1px solid rgba(255,255,255,.12)", borderRadius: 10, color: "#fff" }} /><Area type="monotone" dataKey="balance" stroke="#F5B800" strokeWidth={2} fill="url(#accountBalanceFill)" /></AreaChart></ResponsiveContainer></div> : <p className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[.04] p-3 text-xs text-amber-100">يُخفى المخطط عند تضييق العرض إلى فرع واحد أو تحديد فترة عامة؛ لأن رصيد الحساب المشترك يشمل حركات الفروع الأخرى.</p>}<div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
 <table className="w-full min-w-[1120px] border-collapse text-right text-sm">
 <thead className="bg-white/[.04] text-xs text-slate-300"><tr>
 <th className="px-3 py-3 font-semibold">التاريخ والوقت</th>
@@ -480,7 +677,7 @@ export default function CompanyAccountsPage() {
   const counterpart = row.relatedAccountId
     ? rows.find((account) => account.id === row.relatedAccountId)?.name ?? `حساب #${row.relatedAccountId}`
     : row.relatedPaymentId ? `دفعة #${row.relatedPaymentId}` : "—";
-  const runningBalance = balanceAfterById.get(row.id);
+  const runningBalance = row.balanceAfter;
   return <tr key={row.id} className="transition hover:bg-white/[.025]">
     <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-400">{new Date(row.occurredAt).toLocaleString("ar", { timeZone: "Asia/Gaza" })}</td>
     <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-slate-300">#{row.id}</td>
@@ -490,15 +687,17 @@ export default function CompanyAccountsPage() {
     <td className="px-3 py-3 text-xs text-slate-300">{counterpart}</td>
     <td className="whitespace-nowrap px-3 py-3 text-left font-semibold tabular-nums text-emerald-300">{incoming ? money(amount) : "—"}</td>
     <td className="whitespace-nowrap px-3 py-3 text-left font-semibold tabular-nums text-rose-300">{outgoing ? money(amount) : "—"}</td>
-    <td className="whitespace-nowrap px-3 py-3 text-left font-semibold tabular-nums text-white" title={runningBalance === undefined ? "لا يُحتسب رصيد كل حركة عند تحديد نطاق تاريخ علوي لأن النتائج لا تحتوي الحركات خارج النطاق." : undefined}>{runningBalance === undefined ? "—" : money(runningBalance)}</td>
+    <td className="whitespace-nowrap px-3 py-3 text-left font-semibold tabular-nums text-white" title={runningBalance === null ? "لا يتوفر رصيد الحركة عند تحديد فترة عامة محدودة." : undefined}>{runningBalance === null ? "—" : money(runningBalance)}</td>
   </tr>;
 })}
-{!visibleTransactions.length && <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">لا توجد حركات تطابق الفلاتر المحددة.</td></tr>}
+{historyQuery.isFetching && !visibleTransactions.length && <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-400"><Loader2 className="inline h-4 w-4 animate-spin ml-2" />جارٍ تحميل الحركات…</td></tr>}
+{historyQuery.error && <tr><td colSpan={9} className="px-4 py-12 text-center text-rose-300">{historyQuery.error.message}</td></tr>}
+{!historyQuery.isFetching && !historyQuery.error && !visibleTransactions.length && <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">لا توجد حركات تطابق الفلاتر المحددة.</td></tr>}
 </tbody>
 </table>
 </div>
-<p className="mt-2 text-xs text-slate-500">ملخص الوارد والصادر محسوب للحركات المطابقة التي تم تحميلها. الرصيد بعد الحركة يعتمد على الرصيد الحالي وترتيب الحركات؛ عند تحديد نطاق تاريخ علوي لا يُعرض رصيد حركة غير موثوق.</p>
-{transactionRows.length > 0 && <div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>الحركات المطابقة: {transactionRows.length} · صفحة {transactionPage} من {pageCount} · يعرض 10 في الصفحة</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={transactionPage === 1} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="border-white/10 text-white">السابق</Button><Button size="sm" variant="outline" disabled={transactionPage === pageCount} onClick={() => setTransactionPage((page) => Math.min(pageCount, page + 1))} className="border-white/10 text-white">التالي</Button></div></div>}</CardContent></Card>
+<p className="mt-2 text-xs text-slate-500">ملخص الوارد والصادر محسوب لكل الحركات المطابقة، وليس للصفحة الحالية فقط. الرصيد بعد الحركة يأخذ حركات الحساب المشتركة من جميع الفروع في الاعتبار.</p>
+{totalTransactions > 0 && <div className="mt-4 flex items-center justify-between text-xs text-slate-400"><span>الحركات المطابقة: {totalTransactions} · صفحة {transactionPage} من {pageCount} · يعرض 30 في الصفحة</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={transactionPage === 1 || historyQuery.isFetching} onClick={() => setTransactionPage((page) => Math.max(1, page - 1))} className="border-white/10 text-white">السابق</Button><Button size="sm" variant="outline" disabled={!historyQuery.data?.hasNext || historyQuery.isFetching} onClick={() => { const nextCursor = historyQuery.data?.nextCursor; if (!nextCursor) return; setTransactionCursors((current) => [...current.slice(0, transactionPage), nextCursor]); setTransactionPage((page) => page + 1); }} className="border-white/10 text-white">التالي</Button></div></div>}</CardContent></Card>
           </div>
         )}
         <Dialog open={Boolean(pendingAction)} onOpenChange={(open) => !open && setPendingAction(null)}><DialogContent className="border-white/10 bg-[#111823] text-white"><DialogHeader><DialogTitle>{pendingAction?.kind === "withdrawal" ? "تأكيد عملية السحب" : "تأكيد التحويل بين الحسابات"}</DialogTitle></DialogHeader><div className="space-y-3 text-sm"><p className="text-slate-300">الحساب المصدر: <strong className="text-white">{selectedAccount?.name}</strong></p><p className="text-slate-300">المبلغ: <strong className="text-[#F5B800]">{money(pendingAction?.amount ?? 0)} ش</strong></p>{pendingAction?.kind === "transfer" ? <p className="text-slate-300">الحساب المستقبِل: <strong className="text-white">{rows.find((row) => row.id === pendingAction.targetAccountId)?.name ?? "—"}</strong></p> : null}<p className="rounded-lg bg-amber-400/10 p-3 text-xs leading-6 text-amber-100">سيُسجل الإجراء في كشف الحساب وسجل التدقيق. راجع البيانات قبل التأكيد.</p></div><DialogFooter><Button variant="outline" onClick={() => setPendingAction(null)} className="border-white/15 text-white">إلغاء</Button><Button onClick={confirmPendingAction} disabled={movement.isPending || transfer.isPending} className="bg-[#F5B800] font-bold text-[#0D1117]">تأكيد التنفيذ</Button></DialogFooter></DialogContent></Dialog>
