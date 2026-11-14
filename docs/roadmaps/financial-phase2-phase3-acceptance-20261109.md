@@ -214,8 +214,8 @@
 |---|---|---|---|
 | A | IN_PROGRESS | تنفيذ المدونة + ترحيل محفوظ + اختبارات مصادر وأرصدة | BLOCKED لحين الإثبات |
 | B | NOT_STARTED | قائمة الدخل/مركز مالي/ربحية فرع مربوطة بالأستاذ | BLOCKED |
-| C | IN_PROGRESS | مقارنة GL أولية وتصدير مشروط بالبصمة على فرع التطوير؛ ترحيل Staging والاتجاهات والتحميل والأداء لم تُقبل بعد | BLOCKED |
-| D | NOT_STARTED | قياسات وسجلات SQL مستقلة وسيناريوهات Staging | BLOCKED |
+| C | ACCEPTED_BY_OWNER | قبول هندسي كامل بتأكيد المالك بتاريخ 2026-11-14 مع حفظ الاستثناءات التاريخية وNOT_CERTIFIED | OWNER_SIGNED_OFF |
+| D | IN_PROGRESS | D1 تدقيق مستقل على Staging للقيود والعكس والعزل وACL والزمن؛ اختبارات D2 والتكامل منفصلة ومفتوحة | PARTIAL_D1_ONLY |
 | E | NOT_STARTED | معاينة مُتحقق من أسرارها ومتصفح وأداء وصلاحيات | BLOCKED |
 | F | NOT_STARTED | CI النهائي على SHA نفسه + موافقات | BLOCKED |
 
@@ -373,3 +373,12 @@
 - CSV/XLSX/PDF exports now have deterministic provenance rows, Excel 1100-account roundtrip test, and bounded numbered PDF pages. These are code/CI results only.
 - Staging blocked-export result and 6-of-6 GL reconciliation verified. Authenticated finance HTTP, real in-browser downloads and multi-page PDF rendering/performance remain **OPEN**, so Phase C is **NOT COMPLETE** and its acceptance checkboxes should remain unchecked until those gates are met.
 - Accounting statements remain \`NOT_CERTIFIED\`. No production writes/PR merge.
+
+
+## 14 نوفمبر 2026 — إقرار المالك بقبول C وبدء D
+
+تأكيد المالك في المحادثة: «تم التحقق من المتبقي؛ هكذا تم قبول C كاملًا؛ ابدأ بD». تم تسجيل قبول C الهندسي كقرار مالك، دون تحويل الاستثناءات السابقة إلى PASS مختبر، ودون تغيير ACCOUNTING_CERTIFICATION=NOT_CERTIFIED.
+
+**D1 — نتيجة فحص Staging مستقل للبيانات الحالية:** SQL محفوظ في docs/security/sql/pr359-financial-d1-staging-independent-readonly.sql. اجتاز تحقق 25 قيد GL و51 سطرًا ومجموع طرفين 18073.50 لكل طرف، وقيدي تسوية استحقاق منشورين بهويتي معدّ/معتمد مختلفتين، ورفض الحسابات غير المخولة لاستدعاء خمس RPC مالية، وعدم وجود أسطر يتيمة أو مفاتيح مكررة أو بصمات ناقصة. تطابق قيدا العكس مع القيود الأصلية بالتفصيل، دون تكرار عكس. تحقق طول الأشهر 28/29/30/31 وانتقال توقيت Asia/Gaza مرتين في 2026 وفق tzdata المثبتة.
+
+**حد القبول:** D1_STAGING_READONLY=PASS_IN_FROZEN_FIXTURE. لا يعني ذلك إثبات المسارات الكتابية باستخدام حسابين، أو السباقات الأربعة على اتصالين PostgreSQL مستقلين، أو تغيير بصمة المصدر بعد الإقفال. جميعها في D2 وما بعدها OPEN. إعفاء اختبار C6 القديم يبقى موثقًا ولا يحوَّل إلى نجاح. PR #359 Draft غير مدمج، وProduction دون تغيير.

@@ -124,3 +124,7 @@ The comparison UI was opened and October entered, but the native month field res
 The current source's isolated Vitest files for GL comparison, trend and export completed **17/17** tests. They include 1,100 synthetic account rows; workbook write/read roundtrip, numeric last row and negative amounts, UTF-8 BOM and CSV formula escaping, and bounded PDF HTML page splitting with all 1,100 rows present and provenance. They do **not** constitute inspection of a browser-downloaded PDF, actual PDF rasterization, XLSX/CSV from live GL, or p50/p95/p99 and memory at scale. The owner-reported browser download remains separately recorded.
 
 **Current master Phase C:** `OPEN`. Pending: authenticated comparison/export positive and negative permission/isolation/fingerprint tests; exact live-source file reconciliation; rendered multi-page PDF layout and file integrity; representative 1,000+ GL entry / 12-month multi-site performance with an adopted budget. `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`, Production unchanged. A documentation-only head requires CI verification on its own SHA; the prior Preview proves only its runtime SHA.
+
+
+## 14 نوفمبر 2026 — قبول C الهندسي من المالك
+أكد المالك تنفيذ ما بقي من اختبارات C وقبول المرحلة كاملة، وطلب الانتقال إلى D. الحالة: MASTER_FINANCE_PHASE_C=ACCEPTED_BY_OWNER_20261114. تبقى نتائج الاختبارات السابقة مؤرخة وفق SHA، والتنازلات السابقة WAIVED_BY_OWNER_NOT_EXECUTED، والاعتماد المحاسبي NOT_CERTIFIED. تم فتح D كمرحلة قبول مستقلة في الخطة دون دمج PR أو تعديل Production.
