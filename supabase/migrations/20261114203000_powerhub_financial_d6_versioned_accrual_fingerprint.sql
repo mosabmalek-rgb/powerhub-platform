@@ -152,7 +152,8 @@ BEGIN
  LOOP
   v_acc:=md5(v_acc||':'||v_row.source_type||':'||v_row.source_id||':'||v_row.checksum);
  END LOOP;
- RETURN v_acc;
+ -- Always return a 32-character digest, including periods with zero sources.
+ RETURN md5(v_acc);
 END
 $fp_v3$;
 
