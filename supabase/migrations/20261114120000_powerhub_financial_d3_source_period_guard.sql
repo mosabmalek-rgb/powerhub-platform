@@ -11,6 +11,7 @@ DECLARE
  v_row jsonb; v_side text; v_active boolean; v_changed boolean:=true;
  v_tenant bigint;v_site bigint;v_month text;v_event text;
  v_scope record;
+ v_cycle_start date;v_cycle_end date;v_month_cursor date;v_months integer;
 BEGIN
  IF TG_TABLE_NAME NOT IN ('expenses','invoices') THEN
    RAISE EXCEPTION 'D3_UNSUPPORTED_SOURCE_%',TG_TABLE_NAME USING ERRCODE='22023';
@@ -68,8 +69,32 @@ BEGIN
       v_scopes:=v_scopes||jsonb_build_array(
          jsonb_build_object('tenant_id',v_tenant,'site_id',v_site,'period',v_month));
    ELSE
-      -- C4 source cut-off references invoice cycle-end and issue month.
-      -- Protect both before/after scope and both cut-off dimensions.
+      -- Recognized service can cross calendar-month boundaries. Lock ALL
+      -- covered Gaza months, not merely the invoice issue/cycle-end month.
+      -- Keep issue month separately (invoice cut-off), and reject malformed
+      -- or unexpectedly unbounded service spans before any source mutation.
+      IF v_row->>'cycle_start_at' IS NOT NULL AND
+         v_row->>'cycle_end_at' IS NOT NULL THEN
+        v_cycle_start:=date_trunc('month',
+          ((v_row->>'cycle_start_at')::timestamptz AT TIME ZONE 'Asia/Gaza'))::date;
+        v_cycle_end:=date_trunc('month',
+          ((v_row->>'cycle_end_at')::timestamptz AT TIME ZONE 'Asia/Gaza'))::date;
+        v_months:=(extract(year FROM age(v_cycle_end,v_cycle_start))*12+
+           extract(month FROM age(v_cycle_end,v_cycle_start)))::integer;
+        IF v_cycle_start>v_cycle_end OR v_months>36 THEN
+          RAISE EXCEPTION 'D3_INVALID_INVOICE_SERVICE_MONTH_SPAN'
+            USING ERRCODE='22023';
+        END IF;
+        FOR v_month_cursor IN SELECT gs::date FROM generate_series(
+          v_cycle_start::timestamp,v_cycle_end::timestamp,interval '1 month') gs
+        LOOP
+          v_scopes:=v_scopes||jsonb_build_array(jsonb_build_object(
+            'tenant_id',v_tenant,'site_id',v_site,
+            'period',to_char(v_month_cursor,'YYYY-MM')));
+        END LOOP;
+      END IF;
+      -- Include issue/end months even when a historic invoice has missing
+      -- service-start data; C4 separately blocks unverified source coverage.
       FOR v_event IN SELECT DISTINCT x.val
         FROM (VALUES(v_row->>'cycle_end_at'),(v_row->>'issue_date')) x(val)
         WHERE x.val IS NOT NULL

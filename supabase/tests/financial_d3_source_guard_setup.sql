@@ -90,6 +90,31 @@ BEGIN
  END;
  IF NOT rejected THEN RAISE EXCEPTION 'D3_ISSUED_CLOSED_CYCLE_ALLOWED';END IF;
 
+
+ rejected:=false;
+ BEGIN
+  INSERT INTO public.invoices(id,tenant_id,site_id,subscriber_id,cycle_key,
+    cycle_start_at,cycle_end_at,issue_date,total_amount,tax_amount,discount_amount,
+    fixed_fee,price_per_kwh,consumption_kwh,status)
+  VALUES(204,901,9101,100,'2026-07','2026-06-21 00:00+03',
+    '2026-07-10 23:00+03','2026-07-11 12:00+03',20,0,0,0,1,20,'issued');
+ EXCEPTION WHEN OTHERS THEN
+  rejected:=SQLERRM LIKE '%D3_ACCRUAL_SOURCE_PERIOD_LOCKED%';
+ END;
+ IF NOT rejected THEN RAISE EXCEPTION 'D3_CROSS_MONTH_RECOGNIZED_INVOICE_ALLOWED';END IF;
+
+ rejected:=false;
+ BEGIN
+  INSERT INTO public.invoices(id,tenant_id,site_id,subscriber_id,cycle_key,
+    cycle_start_at,cycle_end_at,issue_date,total_amount,tax_amount,discount_amount,
+    fixed_fee,price_per_kwh,consumption_kwh,status)
+  VALUES(205,901,9101,100,'2026-07','2022-06-21 00:00+03',
+    '2026-07-10 23:00+03','2026-07-11 12:00+03',20,0,0,0,1,20,'issued');
+ EXCEPTION WHEN OTHERS THEN
+  rejected:=SQLERRM LIKE '%D3_INVALID_INVOICE_SERVICE_MONTH_SPAN%';
+ END;
+ IF NOT rejected THEN RAISE EXCEPTION 'D3_UNBOUNDED_SERVICE_SPAN_ALLOWED';END IF;
+
  -- The invoice's settlement progress is independent of service recognition.
  UPDATE public.invoices SET paid_amount=5 WHERE id=201;
  IF (SELECT paid_amount FROM public.invoices WHERE id=201)<>5 THEN
