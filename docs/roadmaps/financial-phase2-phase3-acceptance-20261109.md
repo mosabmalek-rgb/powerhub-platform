@@ -215,7 +215,7 @@
 | A | IN_PROGRESS | تنفيذ المدونة + ترحيل محفوظ + اختبارات مصادر وأرصدة | BLOCKED لحين الإثبات |
 | B | NOT_STARTED | قائمة الدخل/مركز مالي/ربحية فرع مربوطة بالأستاذ | BLOCKED |
 | C | ACCEPTED_BY_OWNER | قبول هندسي كامل بتأكيد المالك بتاريخ 2026-11-14 مع حفظ الاستثناءات التاريخية وNOT_CERTIFIED | OWNER_SIGNED_OFF |
-| D | IN_PROGRESS | D1/D2 ناجحتان ضمن نطاق الاختبارات؛ D3 مثبتة ومختبرة في Staging؛ D4 حراس مصادر إضافية واختبار PostgreSQL ناجحان بانتظار ترحيل Staging | D4_STAGING_PENDING |
+| D | IN_PROGRESS | D1/D2 ناجحتان ضمن نطاق الاختبارات؛ D3 مختبرة على Staging؛ D4 ترحيلها مثبت وحراسها الأربعة مفعّلة في Staging، واختبارات PostgreSQL ناجحة، مع فحص سلوكي جزئي فقط؛ القبول الشامل متبقٍّ | D4_INSTALLED_BEHAVIOR_PARTIAL |
 | E | NOT_STARTED | معاينة مُتحقق من أسرارها ومتصفح وأداء وصلاحيات | BLOCKED |
 | F | NOT_STARTED | CI النهائي على SHA نفسه + موافقات | BLOCKED |
 
@@ -404,7 +404,7 @@
 
 **D3 (مطبق على Staging):** الترحيل `20261114120000_powerhub_financial_d3_source_period_guard.sql` مسجل. حارسا `expenses` و`invoices` مفعّلان. اختبار Staging الفعلي باستخدام مراجعة يونيو مؤقتة و`ROLLBACK` أثبت رفض مصروف يونيو بعد الإقفال، والسماح بمصروف يوليو المفتوح، ورفض فاتورة خدمة تمس يونيو المقفل، والسماح بتحديث التحصيل الوصفي غير المؤثر على الاعتراف. فحص ما بعد التراجع: 25 قيد GL، 51 سطرًا، صفر مراجعات إقفال محفوظة، وصفر مصروفات اختبار. اختبارات الفواتير استُخدم لها جدول مؤقت موصول بنفس الحارس المثبت، دون إنشاء فواتير تشغيلية.
 
-**D4 (كود واختبار فقط، الترحيل غير مطبق):** [Commit 47c4281f](https://github.com/mosabmalek-rgb/powerhub-platform/commit/47c4281f55c1d392b01de1a213e902bbe3b2a987) أضاف:
+**D4 (INSTALLED على Staging؛ TESTED جزئيًا؛ ACCEPTED معلّق):** [Commit 47c4281f](https://github.com/mosabmalek-rgb/powerhub-platform/commit/47c4281f55c1d392b01de1a213e902bbe3b2a987) أضاف:
 - `supabase/migrations/20261114130000_powerhub_financial_d4_operational_source_period_guard.sql`
 - `supabase/tests/financial_d4_source_guard_setup.sql`
 - `supabase/tests/financial_d4_source_guard_race.sh`
@@ -414,6 +414,14 @@
 
 **أدلة D4 المنجزة:** خطوة D4 مستقلة نجحت، وكذلك فحص PostgreSQL Integration الكامل على [run #43582875488](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/43582875488). تضمن الاختبار إقفال يونيو، ومنع مصدر رواتب/مخزون/شراء بعد إقفاله، ومنع إعادة حركة أصلية في شهر مقفل، واختبار تنافس رواتب مايو مع إقفالها من اتصالَي PostgreSQL مستقلين. المصدر الجامع في الاختبار معزول، ولا يثبت جميع كتابات Staging التشغيلية. بوابات CI الأخرى تُتحقق على نفس SHA قبل طلب تطبيق الترحيل.
 
-**الخطوة المحمية التالية:** بعد نجاح البوابات الخمس على الرأس المعتمد، تشغيل `Supabase Versioned Migration Release` باستهداف `staging`، باستخدام مسار الترحيل D4 أعلاه و`source_pr_number=359`؛ ثم إجراء اختبار Staging ضمن `BEGIN/ROLLBACK` يحاول تغيير مصادر رواتب ومخزون ومشتريات لفترة مقفلة، مع اختبار عمليات الفترة المفتوحة وعدم بقاء بيانات مصطنعة.
+**الخطوة التالية (لا تعِد تطبيق الترحيل):** التحقق من رفض تغيير مصادر الرواتب وبنودها والمشتريات وحركات المخزون بعد إقفال صحيح للفترة، ومن السماح للفترات المفتوحة والعمليات الوصفية، مع إثبات العزل والأثر الصفري بعد `ROLLBACK`. في المخزون، راعِ حارس `INVENTORY_STOCK_MOVEMENT_IMMUTABLE` واختبر إنشاء الحركة/العكس بالمسار التشغيلي بدل افتراض إمكان تعديل سجل حركة موجود.
+
+**تحقق حي وتدقيق الحالات (14 نوفمبر 2026، Staging):**
+- `D4_MIGRATION_INSTALLED=PASS`: نسخة `20261114130000` مسجلة في `supabase_migrations.schema_migrations` ضمن مشروع Staging `iyuryuhaylhisjfcrwkz`، ومطابقة لمسار الملف في Git.
+- الحراس الأربعة `d4_accrual_payroll_runs_guard` و`d4_accrual_payroll_items_guard` و`d4_accrual_supplier_purchases_guard` و`d4_accrual_inventory_movements_guard` موجودة و`tgenabled='O'`.
+- `D4_DISPOSABLE_POSTGRESQL=PASS`: نجاح الاختبارات المعزولة سابقًا؛ وبوابات CI الخمس `SUCCESS` على SHA `5890c9d4464357e4f500b245086a07655c9eba91`، قبل الالتزام التوثيقي الحالي.
+- `D4_STAGING_BEHAVIOR=PARTIAL_TESTED`: نجاح SQL حي داخل `BEGIN/ROLLBACK` يتضمن تحديثًا غير مالي لبند راتب وشراء، وتحديثًا غير مغير لقيمة الراتب، ورفض مرجع تاريخي غير صالح لحركة مخزون برسالة `D4_INVALID_CROSS_SCOPE_MOVEMENT_REFERENCE`. لا يمثل ذلك اختبار قبول الفترة المقفلة أو اختبار عزل مستأجرين شاملًا.
+- تتضمن مسارات المخزون حارس عدم قابلية التعديل `INVENTORY_STOCK_MOVEMENT_IMMUTABLE`، لذلك يتعين إثبات الرفض والإتاحة عبر المسار الفعلي لإنشاء الحركات والعكس. لم يُنشأ أي قفل مالي مصطنع، والمعاملات الاختبارية انتهت بالتراجع.
+- `D4_STAGING_BEHAVIOR_ACCEPTANCE=PENDING` و`D4_ACCEPTED=NO` و`MASTER_FINANCE_PHASE_D=IN_PROGRESS`. التمييز: `INSTALLED` يعني الترحيل والحراس، و`TESTED` يحتاج دليلًا سلوكيًا لكل سيناريو، و`ACCEPTED` يحتاج إكمال بوابات القبول المحددة. `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
 
 **غير مكتمل:** قبول D الشامل، واختبار الترحيل D4 على Staging، وفحص التفاعل بين بعض الحركات النقدية/مدفوعات الموردين وGL دون حارس شامل قد يبطئ نحو 361 ألف حركة حساب موجودة في Staging. تبقى `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`، ويظل PR #359 Draft وغير مدمج ولا تعديل Production.
