@@ -44,7 +44,7 @@ if [[ "$p_rc" -eq 0 ]];then
  [[ "$(sql "SELECT status FROM public.financial_accrual_period_reviews WHERE tenant_id=901 AND site_id=9101 AND period='2026-05';")" == draft ]] || exit 1
  [[ "$(sql "SELECT count(*) FROM public.payroll_runs WHERE id=901;")" == 1 ]] || exit 1
 else
- grep -q 'D8_ACCRUAL_SOURCE_PERIOD_LOCKED' "$tmp/payroll" || {
+ grep -q 'ERROR:  D4_ACCRUAL_SOURCE_PERIOD_LOCKED' "$tmp/payroll" || {
   echo D8_PAYROLL_WRITER_IGNORED_LOCK;cat "$tmp/payroll";exit 1; }
  [[ "$(tail -1 "$tmp/close")" == locked ]] || exit 1
  [[ "$(sql "SELECT count(*) FROM public.payroll_runs WHERE id=901;")" == 0 ]] || exit 1
