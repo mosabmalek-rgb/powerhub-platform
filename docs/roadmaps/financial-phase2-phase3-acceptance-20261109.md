@@ -477,3 +477,15 @@
 **حماية توافق الإصدارات:** قبل تغيير وظيفة البصمة، ينبغي تدقيق سجل المراجعات المقفلة في كل بيئة مستهدفة. لا يجوز إعادة تفسير بصمات قديمة باستخدام خوارزمية جديدة دون معلومات إصدار وتوافق منضبط. لم يُنشأ ترحيل D5 ولم يُطبق أي تغيير على مخطط Staging أو Production.
 
 **خط الأساس بعد ROLLBACK:** `financial_accrual_period_reviews=0`، و`account_transactions=361009`، و`D5-ROLLBACK-CASH-20261114=0`، وفترة الراتب الأصلي `2026-10`، وحراس D4 الأربعة مفعلة. بوابات CI الخمس كانت ناجحة على الالتزام `0920c273b75da56236115a245b0b80d5248ccd7f` قبل التحديث التوثيقي الجديد. طلب الدمج #359 يبقى Draft وغير مدمج، `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
+
+## D5 — حماية تكلفة المخزون بعد إقفال الاستحقاق (14 نوفمبر 2026)
+
+**ثغرة مثبتة على Staging داخل BEGIN/ROLLBACK:** أُنشئت حركة افتتاحية وحركة إصدار مخزون صغيرة بتاريخ سبتمبر 2026 لعنصر موجود `inventory_items.id=11` داخل معاملة اختبار فقط. بعد إقفال سبتمبر باستخدام C4 الحقيقي، قُبل تعديل التصنيف من `spare_part/expense_on_issue` إلى `other/capital_asset`، فانخفضت `inventoryConsumptionCost` للفترة المقفلة من **0.35 إلى 0**. لم يكن هناك قفل تسوية نقدية للفترة، لذلك لم يمنع الحارس `powerhub_guard_inventory_item_accounting_treatment_write` العملية. هذه **ثغرة مادية في سلامة نتائج الاستحقاق** تختلف عن انحراف البصمة الكاذب.
+
+**إصلاح مقترح في PR #359 (لم يُرحل بعد):** `supabase/migrations/20261114191500_powerhub_financial_d5_inventory_item_accrual_classification_guard.sql` يضيف Trigger على `inventory_items` لتغييرات `tenant_id/id/category/accounting_treatment`، ويحدد الفترات التاريخية التي تملك حركات للمادة في المستأجر/الفرع، ويرتب أقفال `powerhub:accrual-period:tenant:site:month` قبل فحص `financial_accrual_period_reviews.status='locked'`. يفشل التغيير عند وجود فترة استحقاق مقفلة ويترك التعديلات الوصفية المسموحة وعمليات الفترات المفتوحة دون منع عام. يستخدم فهرس `inventory_stock_movements_tenant_item_idx` القائم. لا يضيف Trigger إلى جدول `account_transactions` ذي 361009 حركة.
+
+**اختبار انحدار معزول جديد:** `supabase/tests/financial_d5_inventory_item_classification_guard.sql` ضمن PostgreSQL Integration في `.github/workflows/reading-cycle-sql-integration.yml`. يختبر رفض إعادة تصنيف مادة ذات حركة في شهر يونيو المقفل، ورفض تغيير `category` وحده، وقبول الوصف، والسماح بإعادة التصنيف لفترات يوليو المفتوحة وللمستأجر الآخر، وعدم تغيير الصف المرفوض، وACL الدالة الداخلية. يُطبق اختبار CI الترحيل في قاعدة مؤقتة فقط.
+
+**الفرق بين حالات التقدم:** `D5_CLASSIFICATION_VULNERABILITY=REPRODUCED_ON_STAGING`؛ `D5_CLASSIFICATION_SOURCE_FIX=COMMITTED_UNAPPLIED`؛ `D5_CLASSIFICATION_CI=PENDING` حتى اكتمال CI على SHA الذي يضم الملفات؛ `D5_CLASSIFICATION_STAGING_INSTALLED=NO`؛ `D5_CLASSIFICATION_STAGING_ACCEPTED=NO`. لا تطبق هذا الترحيل باستخدام أداة تولّد رقم نسخة مختلفًا؛ استخدم مسار النشر المحمي ذي النسخة المطابقة لسجل Git.
+
+يبقى كذلك `D5_FINGERPRINT_CORRECTION=NOT_IMPLEMENTED` لخللي الانحراف الكاذب المثبتين سابقًا. لا تقبل المرحلة D قبل إصلاحهما والتحقق من توافق بصمات الإقفال التاريخية، واختبارات العزل والتزامن والأداء. `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`، ولا دمج ولا Production.
