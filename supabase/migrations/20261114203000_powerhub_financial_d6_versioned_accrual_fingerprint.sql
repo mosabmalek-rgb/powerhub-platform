@@ -47,6 +47,7 @@ BEGIN
         i.status IN ('issued','overdue','partially_paid','paid'))::text) checksum
     FROM public.invoices i
     WHERE i.tenant_id=p_tenant_id AND i.site_id=p_site_id
+      AND i.status IN ('issued','overdue','partially_paid','paid')
       AND ((i.cycle_start_at < v_end AND i.cycle_end_at >= v_start)
         OR (i.issue_date >= v_start AND i.issue_date < v_end))
     UNION ALL
@@ -320,7 +321,8 @@ BEGIN
     RAISE EXCEPTION 'ACCRUAL_PERIOD_REVIEW_IMMUTABLE' USING ERRCODE='22023';
   END IF;
   IF NEW.status='draft' THEN
-   IF NEW.locked_by_user_id IS NOT NULL OR NEW.locked_at IS NOT NULL OR
+   IF NEW.fingerprint_version IS DISTINCT FROM 'financial_v3' OR
+     NEW.locked_by_user_id IS NOT NULL OR NEW.locked_at IS NOT NULL OR
      NEW.locked_snapshot IS NOT NULL OR NEW.source_fingerprint IS NOT NULL OR
      NOT public.powerhub_financial_accrual_review_evidence_valid(NEW.evidence) THEN
     RAISE EXCEPTION 'INVALID_ACCRUAL_REVIEW_UPDATE' USING ERRCODE='22023';
