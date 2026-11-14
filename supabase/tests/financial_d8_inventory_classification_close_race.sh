@@ -41,11 +41,11 @@ if [[ "$i_rc" -eq 0 ]];then
  grep -q 'ACCRUAL_CLOSE_UNRESOLVED_SOURCE_invalidInventoryCount' "$tmp/close" || {
   echo D8_CLOSE_IGNORED_CLASSIFICATION;cat "$tmp/close";exit 1; }
  [[ "$(sql "SELECT status FROM public.financial_accrual_period_reviews WHERE tenant_id=901 AND site_id=9101 AND period='2026-05';")" == draft ]] || exit 1
- [[ "$(sql "SELECT count(*) FROM public.inventory_items WHERE id=10 AND accounting_treatment=\'capital_asset\';")" == 1 ]] || exit 1
+ [[ "$(sql "SELECT count(*) FROM public.inventory_items WHERE id=10 AND accounting_treatment='capital_asset';")" == 1 ]] || exit 1
 else
  grep -q 'D5_INVENTORY_CLASSIFICATION_ACCRUAL_PERIOD_LOCKED' "$tmp/item" || {
   echo D8_ITEM_WRITER_IGNORED_LOCK;cat "$tmp/item";exit 1; }
  [[ "$(tail -1 "$tmp/close")" == locked ]] || exit 1
- [[ "$(sql "SELECT count(*) FROM public.inventory_items WHERE id=10 AND accounting_treatment=\'capital_asset\';")" == 0 ]] || exit 1
+ [[ "$(sql "SELECT count(*) FROM public.inventory_items WHERE id=10 AND accounting_treatment='capital_asset';")" == 0 ]] || exit 1
 fi
 echo D8_ITEM_VS_C4_CLOSE_INDEPENDENT_BACKENDS_LINEARIZABLE_PASS
