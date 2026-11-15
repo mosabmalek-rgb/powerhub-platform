@@ -6,6 +6,7 @@ on:
     paths:
       - "supabase/tests/b5_disposable_single_site_load_*"
       - "scripts/b5-disposable-financial-load.sh"
+      - "scripts/d14-disposable-shared-key-race.sh"
       - "scripts/b5-financial-http-benchmark.mjs"
       - "scripts/b5-financial-http-benchmark.test.mjs"
       - "scripts/c5-close-readiness-http-benchmark.mjs"
@@ -29,6 +30,7 @@ on:
     paths:
       - "supabase/tests/b5_disposable_single_site_load_*"
       - "scripts/b5-disposable-financial-load.sh"
+      - "scripts/d14-disposable-shared-key-race.sh"
       - "scripts/b5-financial-http-benchmark.mjs"
       - "scripts/b5-financial-http-benchmark.test.mjs"
       - "scripts/c5-close-readiness-http-benchmark.mjs"
@@ -90,6 +92,8 @@ jobs:
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname powerhub_b5_synthetic_load_test --set ON_ERROR_STOP=1 --file supabase/tests/b5_disposable_single_site_load_setup.sql
       - name: Execute concurrent financial load and SQL assertions
         run: bash scripts/b5-disposable-financial-load.sh
+      - name: D14 shared-key financial write contention across independent PostgreSQL sessions
+        run: bash scripts/d14-disposable-shared-key-race.sh
       - name: Create payroll maker-checker disposable database
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_b5_synthetic_payroll_test
