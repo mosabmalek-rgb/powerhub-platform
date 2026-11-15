@@ -21,6 +21,7 @@ const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const FinancialDashboardPage = lazy(() => import("./pages/FinancialDashboardPage"));
 const B5HttpAcceptancePage = lazy(() => import("./pages/B5HttpAcceptancePage"));
 const C5HttpAcceptancePage = lazy(() => import("./pages/C5HttpAcceptancePage"));
+const D9HttpAcceptancePage = lazy(() => import("./pages/D9HttpAcceptancePage"));
 const FinancialSettlementsPage = lazy(() => import("./pages/FinancialSettlementsPage"));
 const CompanyAccountsPage = lazy(() => import("./pages/CompanyAccountsPage"));
 const MessagingSettingsPage = lazy(() => import("./pages/MessagingSettingsPage"));
@@ -82,6 +83,7 @@ function Router() {
       <Route path={"/financial-dashboard"}>{() => <RouteAccessGate><FinancialDashboardPage /></RouteAccessGate>}</Route>
       <Route path={"/internal/b5-http-acceptance"}>{() => <RouteAccessGate><B5HttpAcceptancePage /></RouteAccessGate>}</Route>
       <Route path={"/internal/c5-http-acceptance"}>{() => <RouteAccessGate><C5HttpAcceptancePage /></RouteAccessGate>}</Route>
+      <Route path={"/internal/d9-http-acceptance"}>{() => <RouteAccessGate><D9HttpAcceptancePage /></RouteAccessGate>}</Route>
       <Route path={"/financial-settlements"}>{() => <RouteAccessGate><FinancialSettlementsPage /></RouteAccessGate>}</Route>
       <Route path={"/payment-documentation/public/:token"} component={PaymentDocumentationPage} />
       <Route path={"/payment-documentation/review"}>{() => <RouteAccessGate><PaymentDocumentationReviewPage /></RouteAccessGate>}</Route>
