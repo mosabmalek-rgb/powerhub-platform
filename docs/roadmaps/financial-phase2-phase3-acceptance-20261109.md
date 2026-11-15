@@ -773,3 +773,17 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **سلامة البيانات بعد ROLLBACK:** 25 قيد GL، 51 سطرًا، 361009 حركة حساب، 0 قيود غير متوازنة، 0 مصادر GL مكررة، 0 مراجعات إقفال. لم تطبق ترحيلات جديدة أو تتغير Production.
 
 **حالة القبول:** `D16_INDEPENDENT_BACKEND_REPORT_REPEATABILITY=SCOPED_PASS_4_SESSIONS`؛ `D16_TRUE_CONCURRENT_STAGING_READ=NOT_TESTED`؛ `D16_REPRESENTATIVE_WRITE_LOAD=NOT_TESTED`؛ `D16_REPRESENTATIVE_P95_P99=NOT_ACCEPTED`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. جميع بوابات CI الخمس كانت `SUCCESS` على الرأس السابق `d8073ca49832495edc12224360a0774180eab8e8`، ولا تُنسب هذه النتائج تلقائيًا لرأس توثيق D16 الجديد. لا دمج ولا نشر Production ولا اختبارات HTTPS جديدة.
+
+## D17 — أربعة Backends حقيقية للقراءة والكتابة النقدية المتداخلة (15 نوفمبر 2026)
+
+**السبب:** اختبار D16 السابق أثبت اتساق نتائج SQL في أربع جلسات مستقلة، لكنه **لم يثبت التداخل الزمني** بين الجلسات عند تشغيلها عبر موصل Staging؛ لذلك بقي `D16_TRUE_CONCURRENT_STAGING_READ=NOT_TESTED`. لا يُحوَّل نجاح D16 بأثر رجعي إلى اختبار تزامن.
+
+**الكود المثبت في PR #359:** الملف `scripts/d17-disposable-mixed-read-write-race.sh` يعمل **حصريًا** على PostgreSQL 17 المؤقت `powerhub_b5_synthetic_load_test` بعد B5 وD14. وهو مسجل في `.github/workflows/b5-synthetic-financial-load.yml`. يستخدم RPCs الفعلية `powerhub_add_account_movement_idempotent` و`powerhub_transfer_company_accounts_idempotent` من ترحيل حسابات الشركة، لا RPC تجريبيًا يستبدل المنطق المالي. ينشئ جدول قياسات ودالتي اختبار فقط في قاعدة CI المؤقتة.
+
+**التزامن المثبت:** أربع عمليات `psql` مستقلة (كاتبان ماليان وقارئان)، مع قفل Advisory مشترك وحاجز بدء. يجب رصد **أربع جلسات منتظرة على القفل في `pg_stat_activity`**. وبعد تحرير الحاجز يتحقق الاختبار من تداخل زمني حقيقي بين عملية قراءة وعملية كتابة عبر `started_at/finished_at`، لا يكتفي بتميز أرقام Backends.
+
+**سلامة النتائج:** 200 عملية كتابة مالية مستقلة (40 منها تحويل حسابين)، و160 قراءة MVCC من جملة SQL واحدة لكل قراءة، بمجموع 360 طلبًا. يؤكد عدم رؤية نصف تحويل (صافي `transfer_in - transfer_out=0` وعدد الطرفين متساوٍ)، وأن 200 عملية فعلية ولّدت 240 حركة حساب و200 سجل Audit دون زيادة Deadlock، وأن روابط طرفي التحويل والأرصدة والفرع/المستأجر دقيقة ولا توجد إعادة كتابة/تحصيل صوري. ينتج عينة p50/p95/p99 للقراءة والكتابة؛ **هذه ليست p95/p99 ممثلة لحمل Staging أو نظام GL الكامل**، وقراءات الاختبار تتضمن تأخيرًا اصطناعيًا صغيرًا بهدف ملاحظة التداخل.
+
+**دليل GitHub Actions الفعلي:** نجحت خطوة `D17 verify four simultaneous PostgreSQL read and write workers on real account RPCs` في سير العمل [#43716223976](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/43716223976) على الالتزام `3fd8f0d9bb2803814a093d3d25c2c557c8566be5`، كما اكتمل سير B5 `SUCCESS`. سجل الإقرار: `D17_MIXED_READ_WRITE_4_SIMULTANEOUS_POSTGRES_BACKENDS_PASS`، و`D17_SIMULTANEOUS_ADVISORY_WAITERS=4 D17_DEADLOCK_DELTA=0`. نتيجة النجاح تتضمن إثبات تداخل قارئ وكاتب واحتواء كافة العمليات المذكورة؛ لا تنقل نتائج هذا SHA لرؤوس أحدث دون إعادة فحصها.
+
+**الحدود:** `D17_DISPOSABLE_MIXED_READ_WRITE_CONCURRENCY=PASS`؛ `D17_DISPOSABLE_REAL_RPC_AND_CASH_PROVENANCE=PASS`؛ `D17_STAGING_TRUE_CONCURRENT_LOAD=NOT_TESTED`؛ `D17_FULL_GL_CLOSE_VS_ALL_SOURCE_WRITERS=NOT_PROVEN_BY_D17`؛ `D17_REPRESENTATIVE_STAGING_P95_P99=NOT_ACCEPTED`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا HTTPS جديد ولا Migration ولا اعتماد رصيد افتتاحي صوري ولا دمج ولا Production.
