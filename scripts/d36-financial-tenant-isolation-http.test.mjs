@@ -36,6 +36,7 @@ assert.throws(()=>checkForeign(200,wrap(own(ROUTES[0]))),/NOT_DENIED/);
 assert.throws(()=>checkForeign(403,JSON.stringify({result:{accounts:[1]},error:{json:{data:{code:"FORBIDDEN"}}}})),/DRIFT/);
 assert.doesNotThrow(()=>checkAnonymous(401,deny("UNAUTHORIZED")));
 assert.throws(()=>checkAnonymous(500,deny("INTERNAL_SERVER_ERROR")),/DRIFT/);
+assert.throws(()=>checkOwn(500,deny("INTERNAL_SERVER_ERROR"),ROUTES[1],config(cfg)),/AUTHORIZED_HTTP_500/);
 });
 test("auth-isolation run uses GET only and refuses a false approval",async()=>{
 let n=0;
