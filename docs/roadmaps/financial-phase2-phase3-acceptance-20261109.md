@@ -703,3 +703,24 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **Protected release remains:** D12 is **not installed permanently** on Staging. Use the versioned protected GitHub release from `main` with `target=staging`, `migration_path=supabase/migrations/20261115160000_powerhub_financial_d12_supplier_correction_cash_subledger.sql`, `source_pr_number=359`; require environment approval. After installation, repeat code/DB acceptance without temporary DDL. No Production release or PR merge.
 
 **Statuses:** `D10_INSTALLED=YES`; `D11_INSTALLED=YES`; `D12_SOURCE_CI=PASS_5_OF_5_ON_27ae079b`; `D12_STAGING_ROLLBACK_BEHAVIOR=PASS`; `D12_STAGING_INSTALLED=NO`; `D12_INSTALLED_BEHAVIOR_ACCEPTED=NO`; `D9_HTTPS_REMAINING=WAIVED_NOT_TESTED_IN_THIS_ROUND`; `MASTER_FINANCE_PHASE_D=IN_PROGRESS`; `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. Code acceptance cannot replace human review of documentary opening balances or an actual unobserved inter-site scenario.
+
+
+## D13 — قبول SQL/DB بين الفروع وسلامة المصدر (15 نوفمبر 2026)
+
+**نطاق الجولة:** بطلب صاحب المشروع، اختبارات HTTPS/الواجهة الجديدة مستبعدة، ولا تعتبر PASS. أجريت اختبارات PostgreSQL على Staging الحقيقي من ملفات GitHub الموجودة، داخل معاملات `BEGIN/ROLLBACK` من دون مساس ببيانات Production.
+
+**اختبارات بين الفروع بنتائج ناجحة مثبتة:**
+- `docs/security/sql/pr359-financial-b394-approved-elimination-report-rollback.sql`: `B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK`؛ تحويل حقيقي عبر RPC بقيمة 12.30 شيكل بين فرع 1 وفرع الاختبار 9000000000099؛ رفض اعتماد المنشئ؛ ترحيل قيدي due-from/due-to بمعتمد مستقل؛ إعادة الطلب والترحيل دون تكرار؛ إعداد ثم اعتماد تسوية الاستبعاد بهويتين مختلفتين، وصحة تقرير الاستبعاد وعدم الادعاء بإصدار قوائم مالية موحدة.
+- `docs/security/sql/pr359-financial-b395-orphan-elimination-fail-closed-rollback.sql`: `B395_ORPHAN_APPROVED_ELIMINATION_FAIL_CLOSED_PASS_ROLLBACK`؛ استبعاد يتيم مرفوض.
+- `docs/security/sql/pr359-financial-b3111-immutable-elimination-security-rollback.sql`: `B3111_IMMUTABLE_ELIMINATION_AND_RBAC_PASS_ROLLBACK`؛ منع العبث بسجل الاستبعاد المعتمد.
+- `docs/security/sql/pr359-financial-b35-forged-transfer-payload-rollback.sql`: `B3_5_FORGED_TRANSFER_SOURCE_BLOCKED_PASS_ROLLBACK`؛ رفض مصدر تحويل مزور.
+- `docs/security/sql/pr359-financial-b37-cross-site-elimination-math-rollback.sql`: `B3_7_CROSS_SITE_DUE_FROM_TO_ELIMINATION_MATH_PASS_ROLLBACK`؛ التحقق من معادلة المستحقات المتبادلة.
+
+**فحص مستقل بعد التراجع:** 25 قيد GL و51 سطرًا، صفر استبعادات محفوظة وصفر عمليات تحويل للمستأجر 1 وصفر آثار تحويل اختباري، 361009 حركة حساب إجمالًا وصفر مراجعات إقفال. تقرير حالة البيانات الدائمة بعد rollback: `NO_INTER_SITE_SOURCE_OBSERVED`، وهو متوقع ولا ينفي نجاح اختبار الحالة الإيجابية المؤقتة.
+
+**تدقيق المصدر وGL (المستأجر 1، الفرع 1، نوفمبر 2026):** سلامة 21 مصدر GL بفارق أو انحراف صفر، وقيدان غير متوازنان: صفر، ومفاتيح مصادر GL المكررة: صفر؛ تدقيق المستندات `DOCUMENT_SOURCES_MATCHED_NOT_CERTIFIED` بلا اختلافات، وتدقيق النقد `LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED` بلا اختلافات، والأستاذ المساعد `MATCHED_NUMERICALLY_NOT_CERTIFIED` بلا مصادر غير محسومة.
+
+**سباقات PostgreSQL في CI على الالتزام السابق `595c961045aa76b99f88ba3d52af8c22df93f3f2`:** جميع بوابات CI الخمس `SUCCESS`. خطوة PostgreSQL Integration `#43708685861` نجحت فيها اختبارات D2 ذات الجلستين للمراجعة والإقفال/العكس، واختبار D3 مصدر مقابل إقفال، وD4 رواتب/موردين/مخزون مقابل إقفال، بالإضافة لاختبارات D12. هذه سباقات حقيقية على قواعد مؤقتة متعددة الاتصالات؛ ليست إثبات حمل كتابة مستقل متزامن على Staging نفسه.
+
+**القرار:** `D13_INTER_SITE_POSITIVE_DB=SCOPED_PASS`، `D13_ELIMINATION_SECURITY=PASS`، `D13_SOURCE_GL_INTEGRITY=PASS_SCOPED`، `D13_DISPOSABLE_TWO_BACKEND_RACES=PASS`، `D13_STAGING_CONCURRENT_WRITER_LOAD=NOT_TESTED`، `D13_REPRESENTATIVE_LOAD_P95_P99=NOT_ACCEPTED`، `D9_NEW_HTTPS=WAIVED_NOT_TESTED`، `MASTER_FINANCE_PHASE_D=IN_PROGRESS`، `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. الرصيد الافتتاحي المستندي المعتمد والقوائم الموحدة والتوقيع المحاسبي النهائي ما زالت بوابات منفصلة. لا دمج ولا Production.
+
