@@ -199,7 +199,7 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres financial_d29_cohort_proof_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d29_cohort_proof_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d29_fixture_evidence_partition.sql
 
-      - name: D34 expired prelaunch bootstrap replay: real function and real migration
+      - name: 'D34 expired prelaunch bootstrap replay: real function and real migration'
         env:
           PGPASSWORD: postgres
         run: |
