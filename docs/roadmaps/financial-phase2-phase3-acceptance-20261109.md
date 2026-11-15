@@ -1,3 +1,12 @@
+## D36 — إعادة اختبار HTTPS المصادق وإصلاح نمط معاملة ميزان المراجعة (15 نوفمبر 2026)
+
+- رأس PR #359 في هذه الجولة `2a02c21ed66bbd5fc25fb9981467391d159aa8f7`؛ نجحت بوابات CI الخمس عليه. المعاينة `dpl_5nLA7X5TSZCwUGoECLLgfZ5CiQDy` كانت READY على الالتزام السابق `20f28ae1ac5d187ff3d7dfd7f7e65393c473bbc1` عند اختبار HTTPS، ولذلك لا تمثل قبولًا للرأس الجديد.
+- استُخدمت جلسة Supabase Auth حقيقية لحساب Staging الاختباري المرتبط بجهازه عبر `/internal/d36-http-acceptance`. نجحت قراءة جاهزية الإقفال وتقرير الفرع في النطاق المسموح، ورفض الخادم الطلبات الثلاثة لفرع مستأجر آخر (403)، والطلب المجهول (401)، ومعرّف المستأجر المزور (400). فشل ميزان المراجعة في النطاق المسموح HTTP 500؛ 7 من 8 فحوص هذه الجولة ناجحة، ولا يُعد الاختبار مكتملًا.
+- أثبتت سجلات PostgREST وPostgreSQL أن `powerhub_financial_gl_trial_balance` موسومة `STABLE` وتستدعي فحص تغطية يطلب `SELECT FOR SHARE`؛ يعامل PostgREST الدالة كمعاملة للقراءة فقط ويرفض القفل (`cannot execute SELECT FOR SHARE in a read-only transaction`). أضيف ترحيل `20261116001000_powerhub_financial_d36_trial_balance_postgrest_transaction_mode.sql` لتحويلها `VOLATILE` مع حصر EXECUTE في `service_role`، واختبار عقد دائم. لم يطبق الترحيل بعد على Staging؛ فحص الكتالوج ما زال يعرض `provolatile=s`.
+- تشغيل `Supabase Versioned Migration Release` مطلوب بإدخالات `target=staging` و`source_pr_number=359` ومسار الترحيل أعلاه. محاولتا التشغيل من واجهة GitHub أغلقتا النموذج دون ظهور تشغيل جديد في قائمة الـworkflow (آخرها #56)، فلا يُسجل تطبيق أو موافقة افتراضية. لا يجوز استبدال المسار المحمي بتعديل SQL مباشر.
+- لا يوجد حتى الآن مستخدم Auth اختبار ثانٍ لمستأجر B، ولا مصفوفة أدوار مكتملة. اختبار عزل الطرف الثاني والقبول الشامل والأداء B5/C5 المصادق لم تُنفذ. خط الأساس بعد الجولة: 27 قيدًا و55 سطر GL و361009 حركات و0 دليل افتتاحية؛ ACL للدالة: anon/authenticated مرفوض وservice_role مسموح؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
+- الحالة: `D36_AUTHENTICATED_TENANT_ISOLATION=BLOCKED`، `D_PERFORMANCE_ACCEPTANCE=NOT_EXECUTED`، `D_FINAL_ACCEPTANCE=BLOCKED`. يبقى PR Draft وغير مدمج، وProduction خارج التغيير.
+
 ## D37 — تثبيت معالجة الافتتاحية الاختبارية 19 ضمن Staging (15 نوفمبر 2026)
 
 - وفق التفويض بتعديل البيانات قبل إطلاق المنصة، أضيف قيدان تصحيحيان متوازنان في Staging فقط، يناير/نوفمبر بقيمة 2000 لكل قيد، دون تغيير أو حذف GL 168 و890 أو تعطيل Immutable triggers. نجح اختبار مسبق داخل ROLLBACK، ثم نجح تطبيق المعاملة المحروسة.
