@@ -1,3 +1,13 @@
+## D35 — تدقيق زمن التصحيح الافتتاحي وقبول HTTPS على الرأس النهائي (15 نوفمبر 2026)
+
+- نجاح CI الخمس على `b7cc661ac21d4f716102740eee6b56af97aa0ff8`. معاينة Vercel المطابقة `dpl_HC9VcrssEfonLS6ACzPTs7rtem7h` بحالة READY. عبر Sandbox مقيّد بوجهة HTTPS واحدة: `/api/ready` و`/api/health` ناجحان، 7/7 حالات رفض JWT غير صالح أو غير مصادق ناجحة (401)، ثم 40/40 طلبًا بتزامن 4 دون 500 (p95 في عينة واحدة 463ms). **هذا ليس اختبار عزل مستأجر بعد دخول فعلي**.
+- أعيد تشغيل ملفات D32 وD33 وD34 من GitHub نفسها على Staging؛ كلها أعادت PASS ضمن نطاقها، ولا تغييرات مالية دائمة.
+- تبين أن عكس الافتتاحية الاختبارية 19 بالقيد 890 (نوفمبر) يعيد الصندوق 1010 ورأس المال 3100 إلى الصفر **حتى نهاية نوفمبر فقط**. في تقرير أكتوبر التاريخي يبقى الأثر +2000 مدين للصندوق و-2000 لرأس المال. عدم وجود أدلة مراجعة يمنع الشهادة حتى مع توازن القيود.
+- أضيف فحص D35 للقراءة فقط، يرفض أي تغيير في أزواج القيود أو الإبلاغ الكاذب عن استقلال المراجعة: `docs/security/sql/pr359-financial-d35-temporal-opening-reversal-readonly.sql`. نجح تشغيل منطق المطابقة على Staging: `D35_TEMPORAL_REVERSAL_OCT_BLOCKED_NOV_NET_ZERO_NOT_CERTIFIED_SCOPED_PASS`.
+- التوثيق الكامل: `docs/security/pr359-financial-d35-temporal-reversal-and-final-acceptance-20261115.md`. **D إجمالًا غير معتمدة محاسبيًا** حتى اكتمال المصدر/الفترات وHTTPS المصادق، ولا يبرر كل ذلك الدمج أو Production.
+
+---
+
 ## D34.3 — تصحيح تصنيف JWT المشوه والمنتهي على HTTPS (15 نوفمبر 2026)
 
 - أُنشئت Preview جديدة من الرأس السابق `a4f67afc2d5dac7e481d9c11fa24bd5b216a8f24`، ورقم Deployment `dpl_ebL2PKDYXjRdXe32CUgJQgvL3roy`؛ جاهزة READY، وأعادت `/api/ready` و`/api/health` HTTP 200 مع `supabaseConnectivity=true`.
