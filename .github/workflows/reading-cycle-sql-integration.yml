@@ -185,6 +185,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres financial_d27_pair_provenance_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d27_pair_provenance_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d27_transfer_pair_provenance.sql
 
+      - name: D28 source/document/cash GL proof, negatives and service-role ACL
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_d28_source_gl_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d28_source_gl_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d28_source_cash_gl_chain.sql
+
       - name: Verify A2 general-ledger foundation migration and negative cases in isolated PostgreSQL
         env:
           PGPASSWORD: postgres
