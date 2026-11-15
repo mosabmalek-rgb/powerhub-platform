@@ -7,6 +7,13 @@ vi.mock("./supabase-profile", () => ({ syncSupabaseProfile: state.syncUser }));
 
 import { authenticateSupabaseRequest } from "./_core/supabase-auth";
 
+function structurallyValidTestJwt(subject: string): string {
+  const base64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return [base64url({ alg: "HS256", typ: "JWT" }),
+    base64url({ sub: subject, exp: Math.floor(Date.now() / 1000) + 3600 }),
+    Buffer.alloc(32, 7).toString("base64url")].join(".");
+}
+
 describe("Supabase session authentication", () => {
   beforeEach(() => {
     process.env.VITE_SUPABASE_URL = "https://powerhub-ci.supabase.co";
@@ -25,8 +32,8 @@ describe("Supabase session authentication", () => {
     state.getClaims.mockResolvedValue({ data: { claims: { sub: "supabase-user-id", email: "admin@powerhub.test", role: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600, user_metadata: { name: "مدير المنصة" } } }, error: null });
     state.syncUser.mockResolvedValue(synchronizedUser);
 
-    await expect(authenticateSupabaseRequest({ headers: { authorization: "Bearer supabase-token" } } as never)).resolves.toEqual(synchronizedUser);
-    expect(state.getClaims).toHaveBeenCalledWith("supabase-token");
+    await expect(authenticateSupabaseRequest({ headers: { authorization: `Bearer ${structurallyValidTestJwt("signed-claims")}` } } as never)).resolves.toEqual(synchronizedUser);
+    expect(state.getClaims).toHaveBeenCalledWith(structurallyValidTestJwt("signed-claims"));
     expect(state.syncUser).toHaveBeenCalledWith({ id: "supabase-user-id", email: "admin@powerhub.test", name: "مدير المنصة" }, {});
   });
 
@@ -36,7 +43,7 @@ describe("Supabase session authentication", () => {
     const claims = { sub: "burst-user-id", email: "burst@powerhub.test", role: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 };
     state.getClaims.mockResolvedValue({ data: { claims }, error: null });
     state.syncUser.mockResolvedValue(synchronizedUser);
-    const request = { headers: { authorization: "Bearer burst-test-token" } } as never;
+    const request = { headers: { authorization: `Bearer ${structurallyValidTestJwt("burst")}` } } as never;
     const result = await Promise.all(Array.from({ length: 10 }, () => authenticateSupabaseRequest(request)));
     expect(result).toHaveLength(10);
     expect(state.getClaims).toHaveBeenCalledTimes(1);
@@ -53,20 +60,20 @@ describe("Supabase session authentication", () => {
       exp: Math.floor(Date.now() / 1000) - 10,
     } }, error: null });
     await expect(authenticateSupabaseRequest({ headers: {
-      authorization: "Bearer expired-token",
+      authorization: `Bearer ${structurallyValidTestJwt("expired-sdk-claims")}`,
     } } as never)).rejects.toThrow("Invalid Supabase access token");
     expect(state.syncUser).not.toHaveBeenCalled();
   });
 
   it("rejects verified tokens that do not represent an authenticated user", async () => {
     state.getClaims.mockResolvedValue({ data: { claims: { sub: "supabase-user-id", email: "admin@powerhub.test", role: "anon", exp: Math.floor(Date.now() / 1000) + 3600 } }, error: null });
-    await expect(authenticateSupabaseRequest({ headers: { authorization: "Bearer anon-token" } } as never)).rejects.toThrow("Invalid Supabase access token");
+    await expect(authenticateSupabaseRequest({ headers: { authorization: `Bearer ${structurallyValidTestJwt("anon-role")}` } } as never)).rejects.toThrow("Invalid Supabase access token");
     expect(state.syncUser).not.toHaveBeenCalled();
   });
 
   it("keeps transient Auth failures distinct from a signed-out user", async () => {
     state.getClaims.mockResolvedValue({ data: { claims: null }, error: { status: 503, code: "unexpected_failure" } });
-    await expect(authenticateSupabaseRequest({ headers: { authorization: "Bearer auth-unavailable" } } as never)).rejects.toThrow("temporarily unavailable");
+    await expect(authenticateSupabaseRequest({ headers: { authorization: `Bearer ${structurallyValidTestJwt("auth-unavailable")}` } } as never)).rejects.toThrow("temporarily unavailable");
     expect(state.syncUser).not.toHaveBeenCalled();
   });
 });
