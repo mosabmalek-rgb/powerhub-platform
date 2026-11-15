@@ -724,3 +724,13 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 
 **القرار:** `D13_INTER_SITE_POSITIVE_DB=SCOPED_PASS`، `D13_ELIMINATION_SECURITY=PASS`، `D13_SOURCE_GL_INTEGRITY=PASS_SCOPED`، `D13_DISPOSABLE_TWO_BACKEND_RACES=PASS`، `D13_STAGING_CONCURRENT_WRITER_LOAD=NOT_TESTED`، `D13_REPRESENTATIVE_LOAD_P95_P99=NOT_ACCEPTED`، `D9_NEW_HTTPS=WAIVED_NOT_TESTED`، `MASTER_FINANCE_PHASE_D=IN_PROGRESS`، `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. الرصيد الافتتاحي المستندي المعتمد والقوائم الموحدة والتوقيع المحاسبي النهائي ما زالت بوابات منفصلة. لا دمج ولا Production.
 
+
+## D14 — سباق الكتابة النقدية على مفاتيح Idempotency مشتركة (15 نوفمبر 2026)
+
+**حدود الاختبار:** أضيف `scripts/d14-disposable-shared-key-race.sh` وربط بسير عمل `.github/workflows/b5-synthetic-financial-load.yml`. يستخدم فقط PostgreSQL 17 محليًا في CI بقاعدة `powerhub_b5_synthetic_load_test` وبعد اكتمال حمل B5 الأصلي؛ يرفض التشغيل على Staging أو Production. لا توجد هجرة أو تعديل دائم على Staging.
+
+**تغطية D14 المضافة إلى الكود:** أربعة اتصالات PostgreSQL مستقلة تتنافس على 25 مفتاحًا مشتركًا عبر RPC الحسابات الحقيقية للعمليات النقدية (إيداع، سحب، تحويل). يجري 100 استدعاء؛ المتوقع 25 كتابة أولى و75 إعادة معرّفة على نفس المفتاح، وتسجيل 25 عملية و25 سجل تدقيق و30 حركة حساب بما فيها 5 تحويلات مزدوجة؛ يتحقق الاختبار من ثبات معرّفات الحركات، ورفض الحمولة المتعارضة، ورفض المستأجر الأجنبي، وسلامة أزواج التحويل وأرصدة النقد والمحفظة. يمسك منسق مفتاح القفل الحقيقي لإظهار انتظار فعلي في `pg_stat_activity`، ويتحقق من أربع backend PIDs ومن عدم زيادة `pg_stat_database.deadlocks`. يسجل p50/p95/p99 لكل نوع عملية وإجمالي الطلبات، ولا يتخذ هذه القياسات وحدها دليلاً على الأداء الإنتاجي.
+
+**النتيجة عند إضافة الاختبار:** `D14_SOURCE=COMMITTED_PENDING_CI`؛ `D14_DISPOSABLE_PG_RACE=NOT_YET_VERIFIED`؛ `D14_STAGING_REPRESENTATIVE_WRITE_LOAD=NOT_TESTED`؛ `D14_P95_P99_PRODUCTION_REPRESENTATIVE=NOT_ACCEPTED`. لا تحول D14 إلى PASS إلا بعد فحص تشغيل GitHub المكتمل على SHA الاختبار نفسه. نجاح D14 لن يغلق بوابة حمل Staging الشامل أو يغني عن إثبات التقارير النهائية أو الرصيد الافتتاحي المستندي.
+
+**تثبيت الحالة السابقة:** كان آخر رأس مثبت قبل إضافة D14 هو `1ed04f1b010fa775777d2df4f331de0452be79db` وعليه خمس بوابات CI `SUCCESS`. ظل D10/D11/D12 مثبتًا على Staging، وD13 مقبولًا بحدود SQL المحددة. لا اختبارات HTTPS جديدة وفق قرار صاحب المشروع، و`ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`، وPR #359 ما زال Draft ولا دمج ولا Production.
