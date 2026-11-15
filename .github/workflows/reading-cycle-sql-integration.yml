@@ -281,6 +281,8 @@ jobs:
           bash supabase/tests/financial_d8_versioned_close_payroll_race.sh
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d6_fingerprint_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d21_close_three_writers_setup.sql
           bash supabase/tests/financial_d21_close_three_writers_race.sh
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d6_fingerprint_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d22_close_first_setup.sql
+          bash supabase/tests/financial_d22_close_first_three_writers_race.sh
 
       - name: D10 supplier-return cash refund and inventory valuation GL integration
         env:
