@@ -857,3 +857,19 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **المعالجة المحاسبية المعلقة:** يجب اختيار سياسة قطع الفترة بموافقة محاسبية بشرية: إثبات خدمة أكتوبر غير المفوترة/إثبات استحقاق عند تاريخ الخدمة، ثم تسويتها عند إصدار الفاتورة في نوفمبر **بقيود عكس/تسوية ذات مصدر قابل للتدقيق**، أو اعتماد سياسة توقيت إصدار المستند مع بيان أثر اختلاف فترة الخدمة بصورة صريحة. أي خيار يجب أن يحدد الذمم وإيراد الخدمة والتأجيل/ضريبة القيمة المضافة وكيفية التعامل مع مبلغ 500 المحصل، ويحافظ على التكرار والحركات المرتبطة. **لم تُعتمد أي من السياستين ولم تُنشأ تسوية آلية؛ تغيير تاريخ إصدار الفاتورة السابقة أو تعديل قيد 849 مباشرة ممنوع ضمن هذا الاختبار.**
 
 **القرار الدقيق:** `D23_INSTALLED_STAGING_CUTOFF_AUDIT=PASS_READ_ONLY`، `D23_OCTOBER_CUTOFF_ACCOUNTING_POLICY=AWAITING_APPROVAL`، `D23_OCTOBER_CLOSE=BLOCKED_VALID_SOURCE_GUARD`، `D23_ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. لا تحميل Staging متزامن ممثل ولا اختبارات HTTPS جديدة ولا مساس بـProduction ولا دمج PR #359.
+
+## D24 — تدقيق قبول المستأجرين والفروع المتعددة ومنع التصديق الزائف (15 نوفمبر 2026)
+
+**نطاق الأدلة:** جرى الاستعلام عن تقارير `powerhub_financial_gl_source_coverage` لفرعي المستأجر 1 (`1` و`9000000000099`) وفرعي مستأجر اختباري مستقل `9000000000001` (`9000000000011` و`9000000000012`) للفترة 2026-10، مع أكتوبر/نوفمبر للفرعين الأصليين، ثم استدعاء `powerhub_financial_gl_tenant_rollup(1,2026-10/11)`. هذه فحوص **قاعدة البيانات** لا اختبار HTTP/RBAC ببيانات JWT واقعية.
+
+**ملاحظات واقعية لا يجوز تسويتها في اختبار:** فرع 1 لديه 10 قيود GL في أكتوبر و11 في نوفمبر، سليمة بنيويًا لكن `MISSING_POSTED_OPENING`، ولذلك `NOT_CERTIFIED`. الفرع `9000000000099` لديه قيد واحد في أكتوبر وتغطية مصدر مكتملة نسبيًا؛ **رغم ذلك** `INDEPENDENT_SUBLEDGER_RECONCILIATION_REQUIRED` و`isOpeningReconciled=false`، فلا يُعتبر معتمدًا. في نوفمبر يوجد في الفرع نفسه قيد تصحيح `entryId=890` غير مدقق (`GL_SOURCE_TYPE_NOT_AUDITED`) ما يجعل `isClean=false` و`unreconciledSourceCount=1`؛ لا يجوز تجاهله. الفرعان في المستأجر التجريبي الثاني لديهما صفر GL، ولكن لكل واحد 19,107 حركات نقدية غير مصنفة حاليًا و33,665 قبل الفترة، ومجموع المصادر غير المحسومة في تقرير كل فرع 52,772؛ **انعدام قيود GL ليس دليل قبول**. هذه أعداد قاعدة Staging الاختبارية، وقد تمثل دفتر حسابات شركة مشتركًا عبر الفروع، فلا تُفسَّر على أنها 19,107 حركة مستقلة لكل فرع أو تُجمع لإثبات دخل الشركة.
+
+**تجميع المستأجر 1:** تقرير أكتوبر `PRELIMINARY_MULTI_SITE_ROLLUP` لفرعين و13 قيد GL، ونوفمبر لفرعين و25 قيد GL، مع مصدر واحد غير محسوم في نوفمبر، وكلها `isConsolidatedFinancialStatements=false` و`canBeCertifiedConsolidation=false`. لا تصديق محاسبي نهائي بالرغم من اتزان GL.
+
+**D24 المحفوظ والمنفذ:** `docs/security/sql/pr359-financial-d24-multisite-multitenant-coverage-rollback.sql` أُضيف إلى PR #359 وشُغّل مباشرةً على Staging في معاملة `BEGIN ... ROLLBACK` دون أي DDL أو DML. تحقق من كل النطاقات والحالات السابقة، ثم حاول القراءة بطلبَي مستأجر/فرع غير متطابقين في الاتجاهين وأثبت رفض `SQLSTATE 22023` بدلاً من عزل شكلي على الواجهة. نتيجة الأداة: `D24_MULTI_SITE_MULTI_TENANT_FINANCIAL_FAIL_CLOSED_ROLLBACK_PASS`.
+
+**الأثر المالي:** لا قيود/حركات أضيفت؛ فحص الملف داخل المعاملة أثبت 25 قيد GL، 51 سطر GL، 361009 حركات حساب و0 مراجعات إقفال. كل نتائج `D24` مقيدة بلقطة البيئة هذه، وتُعاد الاختبارات بعد تغيّر بيانات Staging أو ترحيلات قواعد البيانات.
+
+**قبول النطاق:** `D24_INSTALLED_STAGING_MULTISITE_MULTITENANT_COVERAGE=SCOPED_PASS`، `D24_SERVER_SCOPE_REJECTION=PASS`، `D24_JWT_ROLE_BASED_E2E=NOT_TESTED`، `D24_COMPANY_ACCOUNT_GLOBAL_LEDGER_ALLOCATION=NOT_CERTIFIED`، `D24_ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. لا حمولة Staging متزامنة ممثلة ولا HTTPS جديد ولا دمج ولا Production.
+
+**بوابات الفرع:** جميع بوابات CI الخمس كانت ناجحة على الرأس `fccc92ef0635f0c91638630a9024d6240d889475` قبل إضافة D24. يجب التحقق من الرأس الأحدث قبل إعلانه أخضر، ولا تُقدَّم الوثائق الجديدة على أنها اجتازت بوابات لم تُكمل.
