@@ -7,6 +7,7 @@ on:
       - "supabase/tests/b5_disposable_single_site_load_*"
       - "scripts/b5-disposable-financial-load.sh"
       - "scripts/d14-disposable-shared-key-race.sh"
+      - "scripts/d17-disposable-mixed-read-write-race.sh"
       - "scripts/b5-financial-http-benchmark.mjs"
       - "scripts/b5-financial-http-benchmark.test.mjs"
       - "scripts/c5-close-readiness-http-benchmark.mjs"
@@ -31,6 +32,7 @@ on:
       - "supabase/tests/b5_disposable_single_site_load_*"
       - "scripts/b5-disposable-financial-load.sh"
       - "scripts/d14-disposable-shared-key-race.sh"
+      - "scripts/d17-disposable-mixed-read-write-race.sh"
       - "scripts/b5-financial-http-benchmark.mjs"
       - "scripts/b5-financial-http-benchmark.test.mjs"
       - "scripts/c5-close-readiness-http-benchmark.mjs"
@@ -94,6 +96,8 @@ jobs:
         run: bash scripts/b5-disposable-financial-load.sh
       - name: D14 shared-key financial write contention across independent PostgreSQL sessions
         run: bash scripts/d14-disposable-shared-key-race.sh
+      - name: D17 verify four simultaneous PostgreSQL read and write workers on real account RPCs
+        run: bash scripts/d17-disposable-mixed-read-write-race.sh
       - name: Create payroll maker-checker disposable database
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres powerhub_b5_synthetic_payroll_test
