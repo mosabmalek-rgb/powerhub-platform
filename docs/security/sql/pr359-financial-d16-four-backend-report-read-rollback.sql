@@ -1,7 +1,9 @@
 -- D16 Staging-only, scoped concurrent report read-worker.
--- Execute simultaneously in FOUR independent SQL sessions using the exact same
--- source. This is a bounded diagnostic (three repeats per procedure, 36 calls
--- total across four sessions), NOT representative p95/p99 certification.
+-- Orchestrate FOUR independent SQL sessions externally using this exact file.
+-- Verify backend PID uniqueness AND actual firstStart/lastFinish interval overlap;
+-- passing four separate invocations alone is NOT proof of concurrency.
+-- Bounded diagnostic: three repeats per procedure (36 calls across four sessions),
+-- NOT representative p95/p99 or financial certification.
 -- No financial writes or migrations; all local temp results disappear at ROLLBACK.
 BEGIN;
 SET LOCAL statement_timeout = '90000ms';
