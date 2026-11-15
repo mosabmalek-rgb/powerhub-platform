@@ -807,3 +807,15 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **نتيجة ملف المستودع الفعلي:** `D19_STAGING_PREMATURE_CLOSE_AND_SELF_APPROVAL_FAIL_CLOSED_ROLLBACK_PASS`؛ وبعد `ROLLBACK` نجح `D19_STAGING_POST_ROLLBACK_FINANCIAL_BASELINE_PASS`. بقيت 25 قيد GL و51 سطر GL و361009 حركة حساب و0 مراجعات إقفال.
 
 **الحدود والقرار:** `D19_CURRENT_MONTH_CLOSE_GUARD=SCOPED_PASS_STAGING_ROLLBACK`، لكنه لا يثبت تنافس الإقفال مع جميع مُنشئي الحركات أو اختبار قفل فترة سابقة مكتملة في Staging. `D19_FINANCIAL_CERTIFICATION=NOT_CERTIFIED`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. لا تغير في Production، ولا Merge لـPR #359، ولا HTTPS جديد. فحوص CI الخمس كانت ناجحة على SHA `cd5bf89cf35be01dbf01e8bc3691d07f5aad701c` قبل إضافة ملف D19؛ يتطلب رأس هذا التوثيق CI مستقلاً.
+
+## D20 — إقفال سبتمبر المثبت ورفض إقفال أكتوبر لانحراف إصدار الفاتورة (15 نوفمبر 2026)
+
+**تثبت قبل الاختبار:** كانت بوابات GitHub الخمس `SUCCESS` على commit `7de28e75c30590319252c6d0a4700ccc63c10f2f`، وPR #359 لا يزال Draft وغير مدمج. لا تغييرات Production أو HTTPS جديد.
+
+**المانع الحقيقي في أكتوبر:** عند محاولة إقفال `2026-10` بمراجع اختبار مستقل داخل `BEGIN/ROLLBACK`، أعادت دالة C4 الحقيقية `ACCRUAL_CLOSE_UNRESOLVED_SOURCE_issuedOutsideServiceMonthCount` بدل إقفال الفترة. فحص المصدر أثبت `issuedOutsideServiceMonthCount=1`؛ الفاتورة `invoices.id=31` للمستأجر 1/الفرع 1 تمتد خدمتها 1–31 أكتوبر، وتاريخ إصدارها المحلي 1 نوفمبر، ومبلغها 2471.50 شيكل. **لم نغيّر الفاتورة** ولم نعتبر حجب الإقفال فشلًا في سلامة الحارس؛ أبقينا مراجعة أكتوبر `draft` دون `locked_at` أو `source_fingerprint`. هذا يتطلب قرارًا ومراجعة محاسبية لسياسة قطع الفترة قبل إقفال أكتوبر، ولا يجوز تغيير تاريخ المصدر اصطناعيًا لمجرد إنجاح الاختبار.
+
+**الحالة الإيجابية للفترة المنتهية:** في المعاملة نفسها، أُنشئت مسودة مراجعة سبتمبر باستخدام دليل صناعي صالح بنيويًا لكنه **ليس اعتمادًا بشريًا**. نجح `powerhub_financial_accrual_period_lock(1,1,'2026-09',260)` على Staging الحقيقي، وأعادت حالة المراجعة `status=locked`, `fingerprintVersion=financial_v3`, `driftDetected=false`, `isCertifiedProfit=false`. تأكد فصل الحالات: أكتوبر `draft` وسبتمبر `locked` داخل المعاملة فقط.
+
+**حفظ اختبار إعادة الإنتاج:** أضيف `docs/security/sql/pr359-financial-d20-september-close-october-cutoff-rollback.sql`، ثم شُغّل نصه من GitHub على Staging دون تعديل DDL، وكانت نتيجتاه `D20_OCTOBER_CUTOFF_BLOCKED_SEPTEMBER_COMPLETED_V3_LOCK_PASS` و`D20_POST_ROLLBACK_BASELINE_UNCHANGED_PASS`. أُلغيت كل مراجعات الإقفال الاختبارية، وبقي 25 قيد GL و51 سطرًا و361009 حركة حساب و0 مراجعات إقفال محفوظة. لا دليل هنا على حمل الكتابة المتزامن في Staging أو اعتماد أرصدة افتتاحية.
+
+**حالة القبول:** `D20_SEPTEMBER_COMPLETED_PERIOD_CLOSE=SCOPED_PASS_ROLLBACK`؛ `D20_OCTOBER_CUTOFF_GUARD=PASS_BLOCKED_BY_REAL_SOURCE`؛ `D20_OCTOBER_CLOSE=NOT_ACCEPTED_SOURCE_CUTOFF`؛ `D20_STAGING_CONCURRENT_CLOSE_VS_WRITERS=NOT_TESTED`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. لا دمج ولا Production.
