@@ -734,3 +734,11 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **النتيجة عند إضافة الاختبار:** `D14_SOURCE=COMMITTED_PENDING_CI`؛ `D14_DISPOSABLE_PG_RACE=NOT_YET_VERIFIED`؛ `D14_STAGING_REPRESENTATIVE_WRITE_LOAD=NOT_TESTED`؛ `D14_P95_P99_PRODUCTION_REPRESENTATIVE=NOT_ACCEPTED`. لا تحول D14 إلى PASS إلا بعد فحص تشغيل GitHub المكتمل على SHA الاختبار نفسه. نجاح D14 لن يغلق بوابة حمل Staging الشامل أو يغني عن إثبات التقارير النهائية أو الرصيد الافتتاحي المستندي.
 
 **تثبيت الحالة السابقة:** كان آخر رأس مثبت قبل إضافة D14 هو `1ed04f1b010fa775777d2df4f331de0452be79db` وعليه خمس بوابات CI `SUCCESS`. ظل D10/D11/D12 مثبتًا على Staging، وD13 مقبولًا بحدود SQL المحددة. لا اختبارات HTTPS جديدة وفق قرار صاحب المشروع، و`ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`، وPR #359 ما زال Draft ولا دمج ولا Production.
+
+### D14 — نتيجة الاختبار المستقل المثبتة في GitHub Actions
+
+نجح اختبار `D14 shared-key financial write contention across independent PostgreSQL sessions` في GitHub Actions Run [#43712262156](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/43712262156)، على commit `4db1dda4ffb1d685b2f96229b0dfca3ed0603ce5`، ونجح سير عمل B5 بأكمله (`completed/success`). سجل الاختبار: `D14_SHARED_KEY_4_BACKENDS_25_FIRST_WRITES_75_REPLAYS_PASS` و`D14_LOCK_WAITERS_OBSERVED=4 D14_NEW_DEADLOCKS=0`؛ هذا دليل أربعة اتصالات PostgreSQL متنافسة بالفعل على مفاتيح متطابقة، و25 عملية واحدة لكل مفتاح و75 replay، مع فحوص 25 Audit و30 حركة نقد صحيحة.
+
+`D14_DISPOSABLE_PG_RACE=PASS_ON_4db1dda4`، و`D14_B5_SYNTHETIC_GATE=SUCCESS_ON_4db1dda4`. قياسات p50/p95/p99 تخرج في سجلات هذا الاختبار، لكنها مختصة بالقاعدة المؤقتة ونوع الحمل هذا وليست حدود SLA معتمدة. لا تغيير في `D14_STAGING_REPRESENTATIVE_WRITE_LOAD=NOT_TESTED` أو `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
+
+هذه الإضافة التوثيقية نفسها تنشئ SHA جديدًا؛ لا تنسب بوابات CI الأخرى أو نتيجة D14 لهذا SHA إلا بعد اكتمال فحص الرأس الجديد. لا دمج ولا Production.
