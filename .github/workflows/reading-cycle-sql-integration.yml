@@ -282,6 +282,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres financial_d10_supplier_return_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d10_supplier_return_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d10_supplier_return_cash_valuation.sql
 
+      - name: D11 supplier return refund subledger cash reconciliation guards
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres financial_d11_supplier_cash_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname financial_d11_supplier_cash_test --set ON_ERROR_STOP=1 --file supabase/tests/financial_d11_supplier_refund_subledger_cash.sql
+
       - name: Verify operational source GL and month recognition with real migrations
         env:
           PGPASSWORD: postgres

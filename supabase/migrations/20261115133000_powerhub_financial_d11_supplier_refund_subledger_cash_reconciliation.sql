@@ -161,6 +161,9 @@ BEGIN
    AND sl.credit_amount=t.amount AND sl.debit_amount=0
    AND gl.period=to_char(t.occurred_at AT TIME ZONE 'Asia/Gaza','YYYY-MM')
    AND gl.accounting_policy_version='supplier-return-cash-refund-v1'
+   AND (SELECT count(*) FROM public.financial_gl_entries g2
+        WHERE g2.tenant_id=sl.tenant_id AND g2.site_id=sl.site_id
+          AND g2.source_type='supplier_ledger' AND g2.source_id=sl.id::text)=1
    AND ca.account_type IN ('cash','jawwal_pay','palpay','bank_of_palestine','other')
    AND (SELECT count(*) FROM public.account_transactions x
         WHERE x.tenant_id=t.tenant_id
