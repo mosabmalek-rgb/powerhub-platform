@@ -1003,3 +1003,15 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **بوابات CI:** اكتملت الخمس بالنجاح على الرأس `a4bd8b442524f93f7dd856c8624c3efc638ea0a5` بما فيها خطوة PostgreSQL Integration التي تحتوي اختبار D29، بالإضافة إلى PowerHub CI وSecurity وAdmin Guard وB5 Synthetic Financial Load. أي تعديل توثيق لاحق يخلق رأسًا جديدًا ويستلزم مراجعة CI عليه بشكل مستقل.
 
 **الحالة المعتمدة:** `D29_STAGING_INSTALLED=YES`، `D29_INSTALLED_DB_SCOPED_ACCEPTANCE=PASS`، `D29_ACL_SERVICE_ROLE=PASS`، `D29_FULL_FINANCIAL_CERTIFICATION=NOT_ACCEPTED`، `MASTER_FINANCE_PHASE_D=IN_PROGRESS`، `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. فقرات D29 السابقة التي تصف الترحيل بأنه غير مثبت تاريخية، لا تمثل الحالة الحالية. بقي PR #359 Draft غير مدمج؛ لم تُمس Production.
+
+## D30 — جرد فجوات المصادر التاريخية حسب الفترة والفرع (15 نوفمبر 2026)
+
+**التنفيذ الفعلي بعد قبول D29 المثبت:** جرى جرد بيانات `account_transactions` و`company_account_movement_operations` و`financial_gl_entries` في Staging ضمن `BEGIN READ ONLY; ... ROLLBACK`. حفظت SQL القابلة للتكرار في `docs/security/sql/pr359-financial-d30-historical-period-source-gaps-readonly.sql`. نتيجة التشغيل `D30_STAGING_HISTORICAL_PERIOD_SOURCE_GAP_INVENTORY_SCOPED_PASS`.
+
+**حدود الفحص:** مستأجر الاختبار `9000000000001` فقط حتى نهاية أكتوبر 2026 بتوقيت غزة، لا يشمل باقي المستأجرين أو الفترات. أثبتت البيانات 105544 حركة إجمالية، منها 84434 حركة غير تحويلية بلا أي رابط مصدر مباشر، و21110 حركة تحويل داخلي غير مثبتة في سجلات عمليات الشركة. مجموع فرق `transfer_in - transfer_out=10555`، وصفر سجلات `company_account_movement_operations` وصفر قيود GL لذلك النطاق. لم يستنتج الفحص ارتباطًا من رقم حركة أو مرجع أداء أو مبلغ.
+
+**تفصيل الفترة:** أغسطس 2026: 30139 حركة، منها 6030 تحويلات، وفرق تحويل 3015. سبتمبر: 37191 حركة، منها 7438 تحويلًا، وفرق 3719. أكتوبر: 38214 حركة، منها 7642 تحويلًا، وفرق 3821. لم يعثر الاختبار على روابط مباشرة للمصدر في تلك الأشهر. جميع المبالغ هنا أرقام كشف واختبار، وليست قيودًا مصدقة أو مستحقات معترفًا بها.
+
+**التحفظ المحاسبي:** مراجع `PH-PERF-*` وأوصافها تشير إلى توليد بيانات حمل اصطناعي، لكن ذلك **لا يعطي إعفاءً تلقائيًا** ولا يثبت تطابق كل حركة ببصمة مستقلة. لا استبعاد ولا تسوية ولا ترحيل ولا تعديل للبيانات المالية؛ تظل الحاجة إلى إثبات مصدر الكتل التقنية، وفصل الحركة التشغيلية الحقيقية، والتحقق المستقل من تحويلات الفروع والأرصدة الافتتاحية. بقي خط الأساس في Staging: 25 قيد GL، 51 سطرًا، 361009 حركات.
+
+**الحالة:** `D30_HISTORICAL_PERIOD_GAP_INVENTORY=SCOPED_PASS`؛ `D30_DOCUMENT_PROVENANCE=NOT_ACCEPTED`؛ `D30_TRANSFER_PAIR_ACCEPTANCE=NOT_ACCEPTED`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. لا تغير في Production، ولا دمج PR #359. نتائج CI يجب أن تُثبت على رأس الفرع بعد هذا التوثيق.
