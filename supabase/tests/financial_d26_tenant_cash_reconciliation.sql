@@ -99,4 +99,19 @@ BEGIN
  'public.powerhub_financial_company_accounts_tenant_reconciliation(bigint,text)','EXECUTE')
  THEN RAISE EXCEPTION 'D26_SERVER_RPC_PERMISSIONS_INVALID';END IF;
 END $test$;
+-- Verify the actual invoker role can read only its authorised server-side
+-- report (not just that the admin execution had permissions).
+SET ROLE service_role;
+DO $service_actor$
+DECLARE v jsonb;
+BEGIN
+ v:=public.powerhub_financial_company_accounts_tenant_reconciliation(902,'2026-10');
+ IF (v->>'tenantId')::bigint<>902 OR (v->>'accountCount')::bigint<>1
+ OR (v->>'openingBalanceCountedOnceUnverified')::numeric<>900
+ OR (v->>'totalMovementCount')::bigint<>1
+ OR (v->>'signedMovementNet')::numeric<>40
+ OR v->>'accountingCertification' IS DISTINCT FROM 'NOT_CERTIFIED'
+ THEN RAISE EXCEPTION 'D26_SERVICE_ROLE_INVOKER_SCOPE_OR_CALCULATION_FAIL';END IF;
+END $service_actor$;
+RESET ROLE;
 SELECT 'D26_DISPOSABLE_TENANT_ACCOUNT_RECONCILIATION_PASS' AS result;
