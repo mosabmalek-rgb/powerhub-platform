@@ -9,7 +9,7 @@ DECLARE
   d26 jsonb; main jsonb; rollup jsonb; r record;
   v_orig_entries bigint; v_orig_lines bigint; v_orig_movements bigint;
   v_site_moves bigint;v_site_net numeric;
-  v_account_opening numeric;v_account_movements bigint;
+  v_account_opening numeric;v_account_count bigint;v_account_movement_sum bigint;
   v_denied boolean:=false;
 BEGIN
   SELECT count(*) INTO v_orig_entries FROM public.financial_gl_entries;
@@ -65,10 +65,10 @@ BEGIN
 
   SELECT count(*),coalesce(sum((x->>'openingBalanceUnverified')::numeric),0),
          coalesce(sum((x->>'movementCount')::bigint),0)
-  INTO v_account_movements,v_account_opening,v_orig_movements
+  INTO v_account_count,v_account_opening,v_account_movement_sum
   FROM jsonb_array_elements(d26->'accounts') x;
-  IF v_account_movements<>3 OR v_account_opening<>300000
-     OR v_orig_movements<>105544
+  IF v_account_count<>3 OR v_account_opening<>300000
+     OR v_account_movement_sum<>105544
   THEN RAISE EXCEPTION 'D26_INSTALLED_DUPLICATED_ACCOUNT_OPENING_OR_MOVEMENT'; END IF;
 
   SELECT coalesce(sum((x->>'movementCount')::bigint),0),
@@ -97,7 +97,7 @@ BEGIN
 
   IF (SELECT count(*) FROM public.financial_gl_entries)<>v_orig_entries
     OR (SELECT count(*) FROM public.financial_gl_lines)<>v_orig_lines
-    OR (SELECT count(*) FROM public.account_transactions)<>361009
+    OR (SELECT count(*) FROM public.account_transactions)<>v_orig_movements
     OR EXISTS(SELECT 1 FROM public.financial_accrual_period_reviews)
   THEN RAISE EXCEPTION 'D26_INSTALLED_REPORT_MODIFIED_FINANCIAL_DATA'; END IF;
 END $d26$;
