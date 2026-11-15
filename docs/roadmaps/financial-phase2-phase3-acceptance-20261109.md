@@ -1,3 +1,15 @@
+## D34.1 — قطع الاعتراف بإيراد الفاتورة 31 وإعادة التشغيل بعد انتهاء تهيئة Staging (15 نوفمبر 2026)
+
+- أكدت اختبارات Staging الفعلية: فاتورة 31 بقيمة 2471.50 تخص دورة أكتوبر وأُصدرت في نوفمبر. القيد 849 (نوفمبر: 1200 مدين / 2200 دائن) والقيد 867 (أكتوبر: 2200 مدين / 4100 دائن) منفصلان، ولا يوجد قيد إيراد مكرر.
+- الافتتاحية 19 ذات 2000 شيكل تم عكسها في GL بواسطة القيد 890 (يرتبط بوضوح بـ168)، لكن دليل المراجعة المستقلة ما زال مفقودًا، فلا شهادة محاسبية.
+- اكتُشف خلل ترتيب تحقق الافتتاحية/تهيئة ما قبل الإطلاق قبل إعادة تشغيل قيد الاعتراف الموجود، مع انتهاء تهيئة Staging في 30 نوفمبر. رُحّل إصلاح ترتيب الحارس إلى Staging بالنسخة المسجلة `20261115190409_powerhub_financial_d34_service_replay_after_prelaunch_expiry` دون تحرير بيانات أو تعديل مصدر الفاتورة أو إضعاف التفويض.
+- نجح اختبار إعادة التشغيل الفعلي ورفض الشهر الخاطئ وACL والحفاظ على خط الأساس: `D34_INSTALLED_SERVICE_REPLAY_CUTOFF_ACL_ROLLBACK_PASS`.
+- لم ينجح اختبار محاكاة انتهاء التهيئة زمنيًا، إذ منع Trigger ثابت تعديل `expires_at`؛ لا نحاول تعطيل الحماية أو ادعاء نجاح اختبار لم ينفّذ. الدليل البنيوي يؤكد ترتيب الحارس فقط.
+- ما زالت اختبارات القبول E2E بعد انتهاء الصلاحية وقفل الفترات والتزامن والمطابقة المستندية والافتتاحية مفتوحة، وD الإجمالية غير مقبولة نهائيًا.
+- راجع `docs/security/pr359-financial-d34-service-replay-cutoff-20261115.md` و`docs/security/sql/pr359-financial-d34-service-replay-installed-rollback.sql`.
+
+---
+
 ## D32–D34 — Prelaunch Staging verification, status and blockers (15 November 2026)
 
 - Confirmed by owner: platform not yet launched and all current data test-only; controlled Staging rollback testing is authorized. No Production change.
