@@ -614,3 +614,28 @@
 - PR #359 يظل `OPEN/Draft`، ولا يُسمح بالدمج ولا بترحيل Production بناءً على نتائج CI وحدها.
 
 **مهم:** ينطبق وصف `COMMITTED_PENDING_CI` الموجود أعلاه على اللحظة التاريخية السابقة لنجاح التشغيل. هذا السجل اللاحق هو الحالة الأحدث المثبتة، دون إعادة كتابة أدلة القبول السابقة أو تحويل اختبارات PostgreSQL المعزولة إلى قبول محاسبي شامل.
+
+## D9 — Real HTTPS Tenant/Site Isolation & Maker–Checker Acceptance (15 نوفمبر 2026)
+
+**النطاق والنسخة:** PR #359 بقي مفتوحًا كمسودة. اختبارات HTTPS أدناه أجريت على معاينة `a9f1a9926337a30e6e274c30c2f814fb851d7b69`، Deployment `dpl_3cAoijBtwJFRhiPL6d1z28Z2QmUs`، [صفحة الاختبار](https://powerhub-platform-cfklw1lpb-mosabmalek-rgb.vercel.app/internal/d9-http-acceptance). كان `/api/ready` سليمًا واتصال Supabase جاهزًا. استُخدمت جلسة Browser حقيقية للمستخدم الاختباري المالك وجهازها المرتبط؛ لم تُنقل رموز الجلسة أو مفاتيح الخدمة إلى دليل الاختبار. جميع الاستدعاءات المنفذة كانت قراءة فقط، بما فيها طلب التصدير الذي ينتج ملفًا دون كتابة مالية. هذه نتائج ذلك الالتزام تحديدًا، ولا تُنسب تلقائيًا إلى معاينة لاحقة.
+
+| الرمز | حساب/نطاق الطلب ومسار API الفعلي | HTTP/النتيجة الفعلية | الحالة على `a9f1a99` |
+|---|---|---|---|
+| T01 | المالك، المستأجر 1/الفرع 1/2026-11، `financial.accrualCloseReadiness` | 200؛ النطاق صحيح، `BLOCKED` و`NOT_CERTIFIED` | PASS |
+| T02 | موظف A1 يطلب A2، لم تتوفر هوية فرع مقيدة | لم يُنفذ | BLOCKED |
+| T03 | المالك يطلب تقرير جاهزية المستأجر B/فرعه | 403، لا بيانات أجنبية | PASS |
+| T04 | المالك يضيف `tenantId` لمستأجر B إلى `financial.accrualCloseReadiness` | 200 بنطاق المستأجر 1؛ Zod أسقط الحقل الزائد بصمت؛ لا تسرب، لكن رفض الطلب الصريح لم يتحقق | FAIL |
+| T05 | المالك يستبدل `siteId` بفرع المستأجر B في الطلب المباشر | 403، لا بيانات أجنبية | PASS |
+| T06 | طلب API مباشر بلا جلسة | 401 | PASS |
+| T07–T08 | مستخدم مصادق بلا قدرة مالية/مستخدم قراءة يحاول الكتابة | لم تتوفر هوية مقيدة مستقلة ونطاق كتابة آمن | BLOCKED |
+| T09–T18 | إنشاء/اعتماد Maker–Checker، التكرار، التعديل المقفل والوصفي | لم تتوفر هويتان مستقلتان مخولتان أو فترة اختبار معزولة وصالحة | BLOCKED |
+| T19 | المالك يطلب `financial.accrualMonthlyComparison` لمستأجر B/فرعه | 403، لا بيانات أجنبية | PASS |
+| T20 | المالك يطلب `financial.exportAccrualMonthlyComparison` لفرع B | 403، لا ملف صادر | PASS |
+| T21 | تغيير الفرع أو الفترة أثناء طلب جارٍ | لم تُنفذ مناورة واجهة مع طلب قيد التنفيذ | BLOCKED |
+| T22 | طلب API مباشر من الجلسة نفسها إلى جاهزية فرع B | 403 | PASS |
+
+**إصلاح T04:** أضيف عقد إدخال `.strict()` في `server/financial-d9-scope.ts` ووُصل بمسار `financial.accrualCloseReadiness`؛ أضيف اختبار انحدار يرفض `tenantId` و`tenant_id` الزائدين. الالتزام `ee975069f2d60138dc2b00367de5c46cbe5d155d` نجح عليه `PowerHub CI` و`Reading Cycle PostgreSQL Integration` و`PowerHub Security` و`PowerHub Supabase Admin Guard` و`PowerHub B5 Synthetic Financial Load`، ومعاينته `dpl_C8VtNLTsj5Pn8eDRvmPixzoQo3P9` [READY](https://powerhub-platform-69l0wbnwq-mosabmalek-rgb.vercel.app/internal/d9-http-acceptance)، لكن **إعادة HTTPS المصادقة لهذا الإصلاح لم تثبت بعد**؛ لذلك لا يتحول T04 إلى PASS بناءً على CI أو وحدة الاختبار وحدها. حارس الاستجابة في صفحة D9 يعرض HTTP ورمز الخطأ دون رموز الجلسة أو البيانات الحساسة.
+
+**سلامة Staging بعد الجولة القرائية:** tenant 1: قيود GL `25`، أسطر GL `51`، المدين والدائن `18073.50` لكل منهما، مراجعات الإقفال `0`، حركات المخزون `11`، حركات الحسابات في المستأجر `250009` (العدد السابق `361009` كان لجميع المستأجرين، فلا تجوز مقارنته بالعدد المقيّد). لم تنشأ مراجعة أو قيد من هذه الجولة.
+
+**حدود القبول:** حساب المالك ذو وصول واسع لا يثبت صلاحيات الموظف المقيد بالفرع أو فصل المُعدّ عن المعتمد. لا تُستخدم `service_role` كبديل لهوية مستخدم في قبول HTTPS. تحتاج السيناريوهات المحجوبة إلى هويات Auth مستقلة مصرح بها ونطاق فترة/فرع اختبار معزول، ثم قياس أثر عمليات الكتابة وتنظيفها مع حفظ التدقيق. `DB_RLS_TESTED=PREVIOUS_SCOPED_4_OF_4`؛ `HTTPS_AUTHENTICATED_TESTED=PARTIAL_ON_a9f1a99`؛ `TENANT_ISOLATION_ACCEPTED=NO`؛ `BRANCH_ISOLATION_ACCEPTED=NO`؛ `MAKER_CHECKER_ACCEPTED=NO`؛ `API_BYPASS_ACCEPTED=NO`؛ `D9_HTTPS_RBAC=IN_PROGRESS`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا دمج ولا Production.
