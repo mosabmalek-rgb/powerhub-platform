@@ -26,12 +26,21 @@ RETURNS trigger LANGUAGE plpgsql
 SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE v_kind text;
 BEGIN
- IF NEW.tenant_id=901 AND NEW.site_id=9101 AND
- ((TG_TABLE_NAME='expenses' AND
-   to_char(NEW.occurred_at AT TIME ZONE 'Asia/Gaza','YYYY-MM')='2026-04')
- OR (TG_TABLE_NAME='payroll_runs' AND NEW.period='2026-04')) THEN
-   v_kind:=CASE WHEN TG_TABLE_NAME='expenses' THEN 'invalidExpenseCount'
-                ELSE 'invalidPayrollCount' END;
+ -- PostgreSQL does not guarantee PL/pgSQL boolean short-circuiting.
+ -- Access only columns belonging to the trigger's actual source table.
+ IF TG_TABLE_NAME='expenses' THEN
+   IF NEW.tenant_id<>901 OR NEW.site_id<>9101 OR
+      to_char(NEW.occurred_at AT TIME ZONE 'Asia/Gaza','YYYY-MM')<>'2026-04'
+   THEN RETURN NEW; END IF;
+   v_kind:='invalidExpenseCount';
+ ELSIF TG_TABLE_NAME='payroll_runs' THEN
+   IF NEW.tenant_id<>901 OR NEW.site_id<>9101 OR NEW.period<>'2026-04'
+   THEN RETURN NEW; END IF;
+   v_kind:='invalidPayrollCount';
+ ELSE
+   RAISE EXCEPTION 'D21_UNEXPECTED_TRIGGER_TABLE_%',TG_TABLE_NAME;
+ END IF;
+ IF v_kind IS NOT NULL THEN
    UPDATE public.d2_sources
    SET blockers=blockers||jsonb_build_object(v_kind,1),revision=revision+1
    WHERE tenant_id=901 AND site_id=9101 AND period='2026-04';
