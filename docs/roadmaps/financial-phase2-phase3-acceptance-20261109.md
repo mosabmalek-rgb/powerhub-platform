@@ -594,23 +594,23 @@
 
 ## D8 — تثبيت نتائج CI وإقفال فجوة التوثيق (15 نوفمبر 2026)
 
-**التحقق المباشر على GitHub:** رأس PR #359 السابق لهذا التحديث التوثيقي هو \`d69401a04f9b25ef1c38842f0371ab439664accf\`. تشغيل **Reading Cycle PostgreSQL Integration #43637063206** ([سجل التشغيل](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/43637063206)) اكتمل بنجاح على هذا الالتزام؛ تم فحص سجل Job \`132576069766\` مباشرة، وتظهر فيه رسائل النجاح التالية:
+**التحقق المباشر على GitHub:** رأس PR #359 السابق لهذا التحديث التوثيقي هو `d69401a04f9b25ef1c38842f0371ab439664accf`. تشغيل **Reading Cycle PostgreSQL Integration #43637063206** ([سجل التشغيل](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/43637063206)) اكتمل بنجاح على هذا الالتزام؛ تم فحص سجل Job `132576069766` مباشرة، وتظهر فيه رسائل النجاح التالية:
 
-- \`D8_ITEM_VS_C4_CLOSE_INDEPENDENT_BACKENDS_LINEARIZABLE_PASS\` — تنافس تصنيف المخزون وإقفال C4 عبر اتصالين مستقلين في PostgreSQL مؤقت.
-- \`D6_VERSIONED_FINGERPRINT_ISOLATED_ACCEPTANCE_PASS\` — قبول البصمة الإصدارية في نطاق الاختبار المعزول.
-- \`D8_PAYROLL_VS_C4_CLOSE_INDEPENDENT_BACKENDS_LINEARIZABLE_PASS\` — تنافس كتابة الراتب وإقفال C4 عبر اتصالين مستقلين في PostgreSQL مؤقت، بعد تصحيح نص خطأ الرفض المتوقع إلى \`D4_ACCRUAL_SOURCE_PERIOD_LOCKED\`.
+- `D8_ITEM_VS_C4_CLOSE_INDEPENDENT_BACKENDS_LINEARIZABLE_PASS` — تنافس تصنيف المخزون وإقفال C4 عبر اتصالين مستقلين في PostgreSQL مؤقت.
+- `D6_VERSIONED_FINGERPRINT_ISOLATED_ACCEPTANCE_PASS` — قبول البصمة الإصدارية في نطاق الاختبار المعزول.
+- `D8_PAYROLL_VS_C4_CLOSE_INDEPENDENT_BACKENDS_LINEARIZABLE_PASS` — تنافس كتابة الراتب وإقفال C4 عبر اتصالين مستقلين في PostgreSQL مؤقت، بعد تصحيح نص خطأ الرفض المتوقع إلى `D4_ACCRUAL_SOURCE_PERIOD_LOCKED`.
 
-**بوابات CI الخمس على الالتزام d69401a نفسه:** PowerHub CI \`#43637063195\`، Reading Cycle PostgreSQL Integration \`#43637063206\`، PowerHub Security \`#43637063208\`، PowerHub Supabase Admin Guard \`#43637063155\`، PowerHub B5 Synthetic Financial Load \`#43637063228\`، جميعها \`completed/success\`. هذه نتيجة الالتزام المذكور؛ لا تُنسَب تلقائيًا إلى الالتزام التوثيقي الجديد.
+**بوابات CI الخمس على الالتزام d69401a نفسه:** PowerHub CI `#43637063195`، Reading Cycle PostgreSQL Integration `#43637063206`، PowerHub Security `#43637063208`، PowerHub Supabase Admin Guard `#43637063155`، PowerHub B5 Synthetic Financial Load `#43637063228`، جميعها `completed/success`. هذه نتيجة الالتزام المذكور؛ لا تُنسَب تلقائيًا إلى الالتزام التوثيقي الجديد.
 
-**التحقق من Staging:** المشروع \`iyuryuhaylhisjfcrwkz\` بحالة \`ACTIVE_HEALTHY\`؛ ترحيلات C4 وD3 وD4 وD5 وD6 مسجلة بأرقامها؛ حراس D4 الأربعة وحارس D5 مفعلة \`tgenabled='O'\`. فحص قراءة فقط أعاد \`financial_accrual_period_reviews=0\` و\`inventory_stock_movements=11\` و\`account_transactions=361009\`، متطابقًا مع خط الأساس المعروف. لا اختبارات كتابة أو ترحيلات جديدة في هذه الجولة.
+**التحقق من Staging:** المشروع `iyuryuhaylhisjfcrwkz` بحالة `ACTIVE_HEALTHY`؛ ترحيلات C4 وD3 وD4 وD5 وD6 مسجلة بأرقامها؛ حراس D4 الأربعة وحارس D5 مفعلة `tgenabled='O'`. فحص قراءة فقط أعاد `financial_accrual_period_reviews=0` و`inventory_stock_movements=11` و`account_transactions=361009`، متطابقًا مع خط الأساس المعروف. لا اختبارات كتابة أو ترحيلات جديدة في هذه الجولة.
 
-**فجوة Vercel/HTTPS:** استعلام Vercel المقيّد بـSHA \`d69401a\` أعاد \`0 deployments\` لمشروع \`powerhub-platform\`؛ لا يجوز اعتبار معاينة سابقة إثباتًا لـHTTP/RBAC على هذا الرأس. يجب قبل إنشاء معاينة اختبارية جديدة التأكد استقلاليًا من اتصال كل أسرار Preview ببيئة Staging، وخصوصًا \`SUPABASE_SERVICE_ROLE_KEY\` التي لا يثبت وجودها وحده هوية المشروع. حسابات HTTPS والصلاحيات الحقيقية غير مختبرة في هذه الجولة.
+**فجوة Vercel/HTTPS:** استعلام Vercel المقيّد بـSHA `d69401a` أعاد `0 deployments` لمشروع `powerhub-platform`؛ لا يجوز اعتبار معاينة سابقة إثباتًا لـHTTP/RBAC على هذا الرأس. يجب قبل إنشاء معاينة اختبارية جديدة التأكد استقلاليًا من اتصال كل أسرار Preview ببيئة Staging، وخصوصًا `SUPABASE_SERVICE_ROLE_KEY` التي لا يثبت وجودها وحده هوية المشروع. حسابات HTTPS والصلاحيات الحقيقية غير مختبرة في هذه الجولة.
 
 **قرار الحالة بعد التحقق:**
-- \`D8_RACE_TESTS=PASS_ON_SHA_d69401a\`، \`D8_DISPOSABLE_POSTGRESQL=TESTED\`، وليس \`D8_STAGING_INDEPENDENT_WRITERS=TESTED\`.
-- \`D8_STAGING_READ_CONCURRENCY=MEASURED_NOT_ACCEPTED\`؛ ملاحظة القفزة 295.517ms محفوظة.
-- \`D8_HTTPS_RBAC=PENDING\`؛ \`D8_REPRESENTATIVE_LOAD=PENDING\`؛ \`D8_INDIRECT_FINANCIAL_SOURCE_AUDIT=PENDING\`.
-- \`MASTER_FINANCE_PHASE_D=IN_PROGRESS\`؛ \`ACCOUNTING_CERTIFICATION=NOT_CERTIFIED\`.
-- PR #359 يظل \`OPEN/Draft\`، ولا يُسمح بالدمج ولا بترحيل Production بناءً على نتائج CI وحدها.
+- `D8_RACE_TESTS=PASS_ON_SHA_d69401a`، `D8_DISPOSABLE_POSTGRESQL=TESTED`، وليس `D8_STAGING_INDEPENDENT_WRITERS=TESTED`.
+- `D8_STAGING_READ_CONCURRENCY=MEASURED_NOT_ACCEPTED`؛ ملاحظة القفزة 295.517ms محفوظة.
+- `D8_HTTPS_RBAC=PENDING`؛ `D8_REPRESENTATIVE_LOAD=PENDING`؛ `D8_INDIRECT_FINANCIAL_SOURCE_AUDIT=PENDING`.
+- `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
+- PR #359 يظل `OPEN/Draft`، ولا يُسمح بالدمج ولا بترحيل Production بناءً على نتائج CI وحدها.
 
-**مهم:** ينطبق وصف \`COMMITTED_PENDING_CI\` الموجود أعلاه على اللحظة التاريخية السابقة لنجاح التشغيل. هذا السجل اللاحق هو الحالة الأحدث المثبتة، دون إعادة كتابة أدلة القبول السابقة أو تحويل اختبارات PostgreSQL المعزولة إلى قبول محاسبي شامل.
+**مهم:** ينطبق وصف `COMMITTED_PENDING_CI` الموجود أعلاه على اللحظة التاريخية السابقة لنجاح التشغيل. هذا السجل اللاحق هو الحالة الأحدث المثبتة، دون إعادة كتابة أدلة القبول السابقة أو تحويل اختبارات PostgreSQL المعزولة إلى قبول محاسبي شامل.
