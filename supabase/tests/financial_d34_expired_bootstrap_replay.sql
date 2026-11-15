@@ -89,6 +89,16 @@ BEGIN
   target);
  IF length(changed)<=length(original)
  THEN RAISE EXCEPTION 'D34_CI_ACTOR_GUARD_NOT_ADDED'; END IF;
+ -- A later prelaunch-only migration added the technical bootstrap fallback.
+ -- Recreate only that guard shape before testing D34 against the *real* RPC.
+ IF strpos(changed,'     AND b.status=''posted'' AND b.period<=p_period) THEN')=0
+ THEN RAISE EXCEPTION 'D34_CI_PRELAUNCH_SOURCE_ANCHOR_MISSING'; END IF;
+ changed:=replace(changed,
+  '     AND b.status=''posted'' AND b.period<=p_period) THEN',
+  '     AND b.status=''posted'' AND b.period<=p_period)'||chr(10)||
+  ' AND public.powerhub_financial_gl_prelaunch_tech_valid(p_tenant_id,p_site_id,p_period) IS DISTINCT FROM true THEN');
+ IF strpos(changed,'AND public.powerhub_financial_gl_prelaunch_tech_valid')=0
+ THEN RAISE EXCEPTION 'D34_CI_PRELAUNCH_GUARD_NOT_ADDED'; END IF;
  EXECUTE changed;
 END $actor_patch$;
 
