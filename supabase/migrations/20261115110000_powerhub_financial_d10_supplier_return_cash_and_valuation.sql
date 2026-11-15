@@ -615,9 +615,7 @@ BEGIN
 END;
 $function$;
 
--- D10 preserves the optimized keyset-UNION source from B5.18 verbatim except
--- the supplier-return refund proof branch and linked-cash account totals.
--- Never restore the older B4.16 full-scan audit here.
+-- D10 preserves B5.18 optimized keyset-UNION and only adds supplier return cash handling.
 -- The cash reconciliation read model must classify the cash leg from a supplier return
 -- against its own source-linked credit_note GL, rather than report an unsupported transfer.
 CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_company_movement_audit(p_tenant_id bigint, p_site_id bigint, p_period text)
@@ -668,21 +666,7 @@ DECLARE
   v_rec record;
 BEGIN
   IF p_tenant_id IS NULL OR p_site_id IS NULL OR p_tenant_id<=0 OR p_site_id<=0
-    OR p_period IS NULL OR p_period !~ '^[0-9]{4}-(0[1-9]|1[0-2])
-
--- Retain least-privilege EXECUTE grants across replacement on existing databases.
-REVOKE ALL ON FUNCTION public.powerhub_financial_gl_source_plan(bigint,bigint,text,bigint)
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_source_plan(bigint,bigint,text,bigint)
-  TO service_role;
-REVOKE ALL ON FUNCTION public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)
-  TO service_role;
-
-COMMENT ON FUNCTION public.powerhub_financial_gl_source_plan(bigint,bigint,text,bigint)
-IS 'D10: source-backed supplier cash refund via credit_note (DR cash/CR AP); supplier return valuation difference transparently assigned to GL cost 5100; preexisting equal-valued return fingerprint preserved. NOT_CERTIFIED.';
-
+    OR p_period IS NULL OR p_period !~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
     OR NOT EXISTS (SELECT 1 FROM public.sites s
       WHERE s.id=p_site_id AND s.tenant_id=p_tenant_id AND s.status<>'archived')
   THEN RAISE EXCEPTION 'GL_B4_CASH_INVALID_SCOPE' USING ERRCODE='22023'; END IF;
