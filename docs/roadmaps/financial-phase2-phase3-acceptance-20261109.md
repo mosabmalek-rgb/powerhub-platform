@@ -797,3 +797,13 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **التراجع وعدم التأثير:** كل حالة من الاختبارين ضمن `BEGIN; ... ROLLBACK;`، وتحقق Postcheck من 25 قيد GL و51 سطر GL و361009 حركات حساب وعدم حفظ طلب تصحيح أو الإيداع التجريبي. لم تتغير Production أو بيانات Staging المالية الدائمة، ولم تُنشأ موافقة محاسبية بشرية؛ المستخدمان في الاختبار هويتان تقنيتان فقط.
 
 **حالة D12 الصحيحة الآن:** `D12_STAGING_INSTALLED=YES`، `D12_INSTALLED_BEHAVIOR=TESTED_POSITIVE_AND_NEGATIVE`، `D12_INSTALLED_DB_SCOPED_ACCEPTED=YES`، `D12_ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. وتبقى `MASTER_FINANCE_PHASE_D=IN_PROGRESS` بسبب حمل Staging الممثل وباقي متطلبات الإقفال، كما تبقى اختبارات HTTPS الجديدة مستبعدة بقرار صاحب المشروع (`WAIVED_NOT_TESTED`) وليست PASS. PR #359 ما زال Draft وغير مدمج؛ عدم إعلان القبول النهائي أو النشر على Production قائم.
+
+## D19 — رفض الإقفال المبكر والاعتماد الذاتي للفترة الحالية (15 نوفمبر 2026)
+
+**اختبار حقيقي على ترحيلات Staging المثبتة:** نُفّذ ملف `docs/security/sql/pr359-financial-d19-current-period-close-guard-rollback.sql` على Supabase Staging `iyuryuhaylhisjfcrwkz` بنجاح. يستخدم فقط مسودة مراجعة مؤقتة لـ`2026-11` (مستأجر 1/فرع 1) داخل `BEGIN; ... ROLLBACK;`، ويستعمل هويتي اختبار (المُعدّ 4 والمراجع 260) مع دلائل صناعية شكلية **غير معتمدة بشريًا**. لا يوجد إقفال محفوظ أو تصديق محاسبي.
+
+**السيناريوهات المثبتة:** إنشاء مسودة مراجعة دون شهادة ربح؛ رفض قفل المُعدّ لنفسه `ACCRUAL_SEPARATION_OF_DUTIES`؛ رفض محاولة المراجع المستقل إقفال شهر نوفمبر قبل اكتماله `ACCRUAL_PERIOD_NOT_FINISHED`؛ بقاء السجل المؤقت `draft` دون lockedBy أو بصمة/لقطة قفل عند الفشل؛ رفض منح `EXECUTE` للإقفال إلى `anon/authenticated`. الملف يرفض التشغيل عند تغير الشهر أو انتهاء صلاحية حالة الاختبار، حتى لا يعطي نجاحًا زائفًا عند انتقال التاريخ.
+
+**نتيجة ملف المستودع الفعلي:** `D19_STAGING_PREMATURE_CLOSE_AND_SELF_APPROVAL_FAIL_CLOSED_ROLLBACK_PASS`؛ وبعد `ROLLBACK` نجح `D19_STAGING_POST_ROLLBACK_FINANCIAL_BASELINE_PASS`. بقيت 25 قيد GL و51 سطر GL و361009 حركة حساب و0 مراجعات إقفال.
+
+**الحدود والقرار:** `D19_CURRENT_MONTH_CLOSE_GUARD=SCOPED_PASS_STAGING_ROLLBACK`، لكنه لا يثبت تنافس الإقفال مع جميع مُنشئي الحركات أو اختبار قفل فترة سابقة مكتملة في Staging. `D19_FINANCIAL_CERTIFICATION=NOT_CERTIFIED`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. لا تغير في Production، ولا Merge لـPR #359، ولا HTTPS جديد. فحوص CI الخمس كانت ناجحة على SHA `cd5bf89cf35be01dbf01e8bc3691d07f5aad701c` قبل إضافة ملف D19؛ يتطلب رأس هذا التوثيق CI مستقلاً.
