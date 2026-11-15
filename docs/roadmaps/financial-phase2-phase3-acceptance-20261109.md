@@ -756,3 +756,20 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **اختبار الكود الجديد:** `supabase/tests/financial_d15_report_consistency.sql` يستخدم ترحيلات A3/A4 الحقيقية بقاعدة PostgreSQL 17 مؤقتة `financial_gl_atomic_accrual_test`. يحقن فاتورة بلا GL ضمن مستأجر اختبار وفاتورة ثانية لمستأجر آخر، ويتحقق من كشف المصدر المفقود، ورفض اعتماد ميزان متوازن غير مكتمل، وعزل المستأجر، ورفض فترة غير صحيحة، وACL خادم فقط، ومن عدم بقاء مستندات بعد `ROLLBACK`. وُصل الاختبار بعد اختبار A4 في `.github/workflows/reading-cycle-sql-integration.yml`. **نجحت خطوة D15 تحديدًا** في GitHub Actions [PostgreSQL Integration #43713773765](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/43713773765) على commit `ab4fd965cb3c61e341f717a12c18a76cf839c5e8`؛ نجاح بقية فحوص هذا الرأس يتطلب اكتمالها قبل إعلانه.
 
 **الحدود:** `D15_STAGING_REPORT_CONSISTENCY=SCOPED_PASS_ROLLBACK_ONLY`؛ `D15_DISPOSABLE_MISSING_GL_REPORT_GUARD=PASS_ON_ab4fd965`؛ `D15_REPORT_CERTIFICATION=NOT_CERTIFIED`؛ `D15_UNTESTED_REPRESENTATIVE_STAGING_WRITE_LOAD=NOT_TESTED`؛ `D9_HTTPS_REMAINING=OWNER_WAIVED_NOT_TESTED`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. هذا تحديث توثيقي جديد مستقل SHA ويتطلب نجاح CI على رأسه. لا دمج ولا Production.
+
+## D16 — اتساق التقارير عبر اتصالات PostgreSQL مستقلة وحدود إثبات التزامن (15 نوفمبر 2026)
+
+**نطاق التنفيذ:** أضيف ملف اختبار مُقيد بـ`docs/security/sql/pr359-financial-d16-four-backend-report-read-rollback.sql` إلى PR #359. لا يحتوي على كتابة مالية؛ ينشئ جدول نتائج مؤقتًا فقط داخل `BEGIN; ... ROLLBACK;`، ويستدعي دوال Staging الحقيقية: `powerhub_financial_gl_company_movement_audit`، و`powerhub_financial_gl_subledger_reconciliation`، و`powerhub_financial_gl_source_integrity`. يعمل 3 تكرارات لكل تقرير في كل اتصال، ويرفض الفروقات والحالة المحاسبية النهائية الزائفة وبصمات النتائج غير المستقرة داخل الاتصال.
+
+**الدليل الفعلي من Staging:** شُغّلت أربعة استدعاءات مستقلة للأداة مع نفس SQL؛ عادت جميعها `D16_STAGING_SQL_READ_ONLY_EFFECTS_ROLLBACK_WORKER_PASS` وأرقام Backend مختلفة (`3928972`, `3928987`, `3928989`, `3929027`). في كل اتصال، تطابقت بصمات التقارير الثلاثة عبر 3 تكرارات، وكانت البصمات نفسها بين الاتصالات الأربع:
+- Cash audit: `4af0f903044625db01cf617a8b02c7a5`، الحالة `LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED`.
+- GL source integrity: `4770ec810076164f6122b5d4a8e26ecd`، الحالة `SOURCE_CLEAN_NOT_CERTIFIED`.
+- Subledger reconciliation: `5cbad0e42e01a6e16f8b727fb0a7025d`، الحالة `MATCHED_NUMERICALLY_NOT_CERTIFIED`.
+
+**قيد حاسم في التزامن:** فترات القياس كانت متتابعة وليست متداخلة فعليًا: 12:39:31–12:39:32، ثم 12:39:36–12:39:37، ثم 12:39:42–12:39:42، ثم 12:41:29–12:41:30 UTC. لذا `D16_SIMULTANEOUS_STAGING_READ_LOAD=NOT_TESTED` حتى مع تميز أربعة Backends. عُدّل رأس الملف ليطلب من المشغّل التحقق من تداخل فترات `firstStart/lastFinish` قبل ترقية هذه الحالة؛ لا يجوز تسمية `Promise.all` وحده إثباتًا لتزامن DB في حال تسلسل تنفيذ أداة الاتصال.
+
+**مؤشرات عينات، ليست SLA:** ظهرت القيمة العظمى لعينة company movement audit عند 650.09ms، ولتدقيق المصدر 102.50ms، ولمطابقة الأستاذ المساعد 82.24ms. أرقام p50/p95/p99 المحسوبة من 3 نقاط لكل عملية/اتصال وصفية فقط ولا تُستخدم لقبول حمل ممثل. يُستكمل حمل كتابة متزامن ممثل واختبار تداخل مثبت بالزمن أو `pg_stat_activity` بوسيلة تشغيل تدعم اتصالات Staging المتوازية حقًا.
+
+**سلامة البيانات بعد ROLLBACK:** 25 قيد GL، 51 سطرًا، 361009 حركة حساب، 0 قيود غير متوازنة، 0 مصادر GL مكررة، 0 مراجعات إقفال. لم تطبق ترحيلات جديدة أو تتغير Production.
+
+**حالة القبول:** `D16_INDEPENDENT_BACKEND_REPORT_REPEATABILITY=SCOPED_PASS_4_SESSIONS`؛ `D16_TRUE_CONCURRENT_STAGING_READ=NOT_TESTED`؛ `D16_REPRESENTATIVE_WRITE_LOAD=NOT_TESTED`؛ `D16_REPRESENTATIVE_P95_P99=NOT_ACCEPTED`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. جميع بوابات CI الخمس كانت `SUCCESS` على الرأس السابق `d8073ca49832495edc12224360a0774180eab8e8`، ولا تُنسب هذه النتائج تلقائيًا لرأس توثيق D16 الجديد. لا دمج ولا نشر Production ولا اختبارات HTTPS جديدة.
