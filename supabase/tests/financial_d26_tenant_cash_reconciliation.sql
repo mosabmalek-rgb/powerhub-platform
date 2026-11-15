@@ -52,7 +52,7 @@ BEGIN
  OR jsonb_array_length(v->'accounts')<>2
  OR jsonb_array_length(v->'sites')<>2
  OR (v->'sites'->0->>'openingBalanceAllocated')::boolean IS DISTINCT FROM false
- OR v->'blockers' NOT @> '["MOVEMENTS_WITHOUT_SOURCE_LINK"]'::jsonb
+ OR NOT (v->'blockers' @> '["MOVEMENTS_WITHOUT_SOURCE_LINK"]'::jsonb)
  OR v->>'accountingCertification' IS DISTINCT FROM 'NOT_CERTIFIED'
  OR v->>'canBeCertifiedConsolidation' IS DISTINCT FROM 'false'
  OR v->>'glAndOperationalCashIndependentlyReconciled' IS DISTINCT FROM 'false'
@@ -70,17 +70,17 @@ BEGIN
  v:=public.powerhub_financial_company_accounts_tenant_reconciliation(901,'2026-10');
  IF v->>'status' IS DISTINCT FROM 'BLOCKED_OPERATIONAL_RECONCILIATION'
  OR (v->>'transferAmountDifference')::numeric<>1
- OR v->'blockers' NOT @> '["TRANSFER_SIDES_UNBALANCED"]'::jsonb
+ OR NOT (v->'blockers' @> '["TRANSFER_SIDES_UNBALANCED"]'::jsonb)
  THEN RAISE EXCEPTION 'D26_IMBALANCED_TRANSFER_NOT_BLOCKED';END IF;
  INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transaction_type,amount,occurred_at)
  VALUES(6,901,1,10,'unknown',1,'2026-10-03T12:00:00Z');
  v:=public.powerhub_financial_company_accounts_tenant_reconciliation(901,'2026-10');
- IF v->'blockers' NOT @> '["UNKNOWN_MOVEMENT_TYPE"]'::jsonb
+ IF NOT (v->'blockers' @> '["UNKNOWN_MOVEMENT_TYPE"]'::jsonb)
  THEN RAISE EXCEPTION 'D26_UNKNOWN_TYPE_NOT_BLOCKED';END IF;
  INSERT INTO public.account_transactions(id,tenant_id,site_id,account_id,transaction_type,amount,occurred_at)
  VALUES(7,901,3,20,'deposit',1,'2026-10-03T12:00:00Z');
  v:=public.powerhub_financial_company_accounts_tenant_reconciliation(901,'2026-10');
- IF v->'blockers' NOT @> '["ACCOUNT_OUT_OF_TENANT_SCOPE","SITE_OUT_OF_TENANT_SCOPE"]'::jsonb
+ IF NOT (v->'blockers' @> '["ACCOUNT_OUT_OF_TENANT_SCOPE","SITE_OUT_OF_TENANT_SCOPE"]'::jsonb)
  THEN RAISE EXCEPTION 'D26_FOREIGN_SCOPE_REFS_NOT_BLOCKED';END IF;
  BEGIN
   PERFORM public.powerhub_financial_company_accounts_tenant_reconciliation(901,'2026-13');
