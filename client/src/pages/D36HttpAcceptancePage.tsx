@@ -4,31 +4,35 @@ import { getSupabaseAccessToken } from "@/lib/supabase";
 import { useState } from "react";
 
 // Browser-local acceptance: credentials and response bodies never enter the evidence table.
-const SCOPE = { tenantId: 1, siteId: 1, foreignSiteId: 9000000000011, period: "2026-11" } as const;
+const SCOPES = {
+  "owner.e2e@powerhub-staging.example.com": { tenantId: 1, siteId: 1, foreignSiteId: 13, forgedTenantId: 13, period: "2026-11" },
+  "d36.tenantb@powerhub-staging.example.com": { tenantId: 13, siteId: 13, foreignSiteId: 1, forgedTenantId: 1, period: "2026-11" },
+} as const;
+type Scope = typeof SCOPES[keyof typeof SCOPES];
 const ROUTES = ["accrualCloseReadiness", "financialGLTrialBalance", "financialGLSiteStatements"] as const;
 type RouteName = typeof ROUTES[number];
 type Result = { caseId: string; route: string; http: number | null; code: string; result: "PASS" | "FAIL" | "BLOCKED" };
 
-function apiUrl(route: RouteName, siteId: number, forgedTenant = false): string {
-  const input = { siteId, period: SCOPE.period, ...(forgedTenant ? { tenantId: 9000000000001 } : {}) };
+function apiUrl(scope: Scope, route: RouteName, siteId: number, forgedTenant = false): string {
+  const input = { siteId, period: scope.period, ...(forgedTenant ? { tenantId: scope.forgedTenantId } : {}) };
   return `/api/trpc/powerhub.reports.${route}?input=${encodeURIComponent(JSON.stringify({ json: input }))}`;
 }
 function parsed(raw: string): Record<string, any> | null {
   try { const value = JSON.parse(raw); return value && typeof value === "object" ? value : null; }
   catch { return null; }
 }
-function validOwn(route: RouteName, status: number, raw: string): boolean {
+function validOwn(scope: Scope, route: RouteName, status: number, raw: string): boolean {
   if (status !== 200) return false;
   const data = parsed(raw)?.result?.data?.json;
-  if (!data || data.tenantId !== SCOPE.tenantId || data.siteId !== SCOPE.siteId
+  if (!data || data.tenantId !== scope.tenantId || data.siteId !== scope.siteId
     || data.accountingCertification !== "NOT_CERTIFIED") return false;
-  if (route === "accrualCloseReadiness") return data.period === SCOPE.period
+  if (route === "accrualCloseReadiness") return data.period === scope.period
     && data.isFinalFinancialStatement === false && data.canAutomaticallyLock === false
     && data.needsIndependentReviewer === true && Array.isArray(data.blockers);
-  if (route === "financialGLTrialBalance") return data.throughPeriod === SCOPE.period
+  if (route === "financialGLTrialBalance") return data.throughPeriod === scope.period
     && data.isFinalBalanceSheet === false && data.isMathematicallyBalanced === true
     && Number(data.difference) === 0 && Array.isArray(data.accounts) && !!data.sourceCoverage;
-  return data.period === SCOPE.period && data.siteScope === "SITE_ONLY"
+  return data.period === scope.period && data.siteScope === "SITE_ONLY"
     && data.isFinalBalanceSheet === false && data.isFinalProfit === false
     && data.isCompleteAccrualStatement === false && data.isMathematicallyBalanced === true
     && Array.isArray(data.accounts);
@@ -50,10 +54,11 @@ export default function D36HttpAcceptancePage() {
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<Result[]>([]);
   const [message, setMessage] = useState("لم يبدأ الاختبار");
-  const allowed = !loading && isAuthenticated && user?.email === "owner.e2e@powerhub-staging.example.com"
+  const scope = user?.email ? SCOPES[user.email as keyof typeof SCOPES] : undefined;
+  const allowed = !loading && isAuthenticated && !!scope
     && /^powerhub-platform-[a-z0-9]+-mosabmalek-rgb\.vercel\.app$/.test(location.hostname);
   async function run() {
-    if (!allowed || running) return;
+    if (!allowed || !scope || running) return;
     setRunning(true); setResults([]); setMessage("التحقق من جاهزية المعاينة والجهاز");
     try {
       const ready = await fetch("/api/ready", { cache: "no-store", signal: AbortSignal.timeout(8000) });
@@ -67,23 +72,23 @@ export default function D36HttpAcceptancePage() {
       const headers = { authorization: `Bearer ${token}`, "x-powerhub-device-id": device,
         accept: "application/json", "cache-control": "no-store" };
       const probes = ROUTES.flatMap((route, index) => [
-        { caseId: `OWN_${index+1}`, route, siteId: SCOPE.siteId, authenticated: true, kind: "own" },
-        { caseId: `FOREIGN_${index+1}`, route, siteId: SCOPE.foreignSiteId, authenticated: true, kind: "foreign" },
+        { caseId: `OWN_${index+1}`, route, siteId: scope.siteId, authenticated: true, kind: "own" },
+        { caseId: `FOREIGN_${index+1}`, route, siteId: scope.foreignSiteId, authenticated: true, kind: "foreign" },
       ]);
       const cases = [ ...probes,
-        { caseId: "ANONYMOUS", route: ROUTES[0], siteId: SCOPE.siteId, authenticated: false, kind: "anonymous" },
-        { caseId: "FORGED_TENANT", route: ROUTES[0], siteId: SCOPE.siteId, authenticated: true, kind: "forged" },
+        { caseId: "ANONYMOUS", route: ROUTES[0], siteId: scope.siteId, authenticated: false, kind: "anonymous" },
+        { caseId: "FORGED_TENANT", route: ROUTES[0], siteId: scope.siteId, authenticated: true, kind: "forged" },
       ];
       const completed: Result[] = [];
       for (const test of cases) {
         setMessage(`تنفيذ ${test.caseId}`);
         try {
-          const response = await fetch(apiUrl(test.route, test.siteId, test.kind === "forged"), {
+          const response = await fetch(apiUrl(scope, test.route, test.siteId, test.kind === "forged"), {
             method: "GET", headers: test.authenticated ? headers : { accept: "application/json" },
             cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(8000),
           });
           const raw = await response.text();
-          const passed = test.kind === "own" ? validOwn(test.route, response.status, raw)
+          const passed = test.kind === "own" ? validOwn(scope, test.route, response.status, raw)
             : test.kind === "foreign" ? validDenial(response.status, raw)
               : test.kind === "anonymous" ? response.status === 401 && codeOf(response.status, raw) === "UNAUTHORIZED"
                 : response.status === 400 && codeOf(response.status, raw) === "BAD_REQUEST";
@@ -96,7 +101,7 @@ export default function D36HttpAcceptancePage() {
         setResults([...completed]);
       }
       setMessage(completed.every(x => x.result === "PASS")
-        ? "اجتازت جلسة المالك فحوصها الثمانية؛ حساب المستأجر الثاني والأدوار المقيدة لم تُختبر"
+        ? `اجتازت جلسة المستأجر ${scope.tenantId} فحوصها الثمانية؛ الأدوار المقيدة تُختبر بصورة مستقلة`
         : "فشل أو تعذّر فحص؛ D36 غير مقبولة");
     } catch (e) { setMessage(e instanceof Error ? e.message.slice(0,60) : "D36_PRECHECK_FAILED"); }
     finally { setRunning(false); }
@@ -104,7 +109,7 @@ export default function D36HttpAcceptancePage() {
   if (!allowed) return <main dir="rtl" className="p-8">الاختبار متاح لحساب Staging المخصص على المعاينة فقط.</main>;
   return <main dir="rtl" className="min-h-screen bg-[#0D1117] p-6 text-white">
     <h1 className="text-xl font-bold">D36 — فحص HTTPS المصادق المحدود</h1>
-    <p>ثلاثة تقارير مسموحة وثلاثة طلبات فرع أجنبي وطلب مجهول ومستأجر مزوّر. لا كتابة مالية؛ لا قبول كامل دون حساب مستقل للمستأجر الآخر.</p>
+    <p>المستأجر {scope.tenantId}، الفرع {scope.siteId}: ثلاثة تقارير مسموحة وثلاثة طلبات فرع أجنبي وطلب مجهول ومستأجر مزوّر. لا كتابة مالية.</p>
     <button disabled={running} onClick={() => void run()} className="my-4 rounded bg-amber-400 px-4 py-2 text-black disabled:opacity-50">تشغيل فحوص D36</button>
     <p role="status">{message}</p>
     <table className="mt-4 border-collapse" dir="ltr"><thead><tr>{["Case", "API", "HTTP", "Code", "Result"].map(x =>
