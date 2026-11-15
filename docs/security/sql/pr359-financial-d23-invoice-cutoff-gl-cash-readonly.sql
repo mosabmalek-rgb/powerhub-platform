@@ -6,7 +6,7 @@ BEGIN READ ONLY;
 SET LOCAL statement_timeout = '30000ms';
 DO $d23$
 DECLARE
- i public.invoices%ROWTYPE;
+ v_invoice public.invoices%ROWTYPE;
  entry public.financial_gl_entries%ROWTYPE;
  journal_count bigint;
  line_count bigint;
@@ -30,14 +30,14 @@ BEGIN
  OR (SELECT count(*) FROM public.financial_accrual_period_reviews) <> 0
  THEN RAISE EXCEPTION 'D23_STAGING_FIXTURE_NOT_VERIFIED';END IF;
 
- SELECT * INTO STRICT i FROM public.invoices
+ SELECT * INTO STRICT v_invoice FROM public.invoices
  WHERE id=31 AND tenant_id=1 AND site_id=1;
- IF i.status IS DISTINCT FROM 'partially_paid'
- OR (i.cycle_start_at AT TIME ZONE 'Asia/Gaza')::date <> DATE '2026-10-01'
- OR (i.cycle_end_at AT TIME ZONE 'Asia/Gaza')::date <> DATE '2026-10-31'
- OR (i.issue_date AT TIME ZONE 'Asia/Gaza')::date <> DATE '2026-11-01'
- OR i.total_amount <> 2471.50
- OR i.paid_amount <> 500.00
+ IF v_invoice.status IS DISTINCT FROM 'partially_paid'
+ OR (v_invoice.cycle_start_at AT TIME ZONE 'Asia/Gaza')::date <> DATE '2026-10-01'
+ OR (v_invoice.cycle_end_at AT TIME ZONE 'Asia/Gaza')::date <> DATE '2026-10-31'
+ OR (v_invoice.issue_date AT TIME ZONE 'Asia/Gaza')::date <> DATE '2026-11-01'
+ OR v_invoice.total_amount <> 2471.50
+ OR v_invoice.paid_amount <> 500.00
  THEN RAISE EXCEPTION 'D23_INVOICE31_CUTOFF_SOURCE_CHANGED';END IF;
 
  SELECT count(*),coalesce(sum(total_amount),0),
