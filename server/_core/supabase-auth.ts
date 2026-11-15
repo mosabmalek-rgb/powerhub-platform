@@ -47,6 +47,39 @@ const INVALID_ACCESS_TOKEN_ERROR_CODES = new Set([
   "user_not_found",
 ]);
 
+/**
+ * Reject only locally impossible/expired JWT envelopes before involving Auth.
+ * This is a DENIAL fast-path, not JWT verification: structurally plausible
+ * tokens still MUST pass Supabase getClaims signature and expiry checks.
+ *
+ * Some SDK JWT parsing/expiry exceptions do not carry a definitive HTTP code
+ * and were misreported as temporary upstream 500s. Keep genuine network,
+ * throttling and configuration failures separate from malformed credentials.
+ */
+export function isInvalidSupabaseJwtEnvelope(token: string, nowMs = Date.now()): boolean {
+  if (token.length < 20 || token.length > 65_536) return true;
+  const sections = token.split(".");
+  if (sections.length !== 3 || sections.some((part) => !part || !/^[A-Za-z0-9_-]+$/.test(part))) {
+    return true;
+  }
+  try {
+    const header: unknown = JSON.parse(Buffer.from(sections[0], "base64url").toString("utf8"));
+    const payload: unknown = JSON.parse(Buffer.from(sections[1], "base64url").toString("utf8"));
+    if (!header || typeof header !== "object" || Array.isArray(header) ||
+        !payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return true;
+    }
+    const algorithm = (header as { alg?: unknown }).alg;
+    const claims = payload as { sub?: unknown; exp?: unknown };
+    return typeof algorithm !== "string" || !algorithm || algorithm.toLowerCase() === "none" ||
+      typeof claims.sub !== "string" || claims.sub.length === 0 ||
+      typeof claims.exp !== "number" || !Number.isSafeInteger(claims.exp) ||
+      claims.exp * 1000 <= nowMs;
+  } catch {
+    return true;
+  }
+}
+
 const AUTH_UPSTREAM_TIMEOUT_MS = 3_500;
 const AUTH_CLAIMS_TIMEOUT_MS = 6_500;
 // A successful JWT verification can be reused briefly across a burst of
@@ -166,6 +199,11 @@ export async function authenticateSupabaseRequest(
     throw ForbiddenError("Missing Supabase access token");
   }
 
+  const accessToken = authHeader.slice(7);
+  if (isInvalidSupabaseJwtEnvelope(accessToken)) {
+    throw ForbiddenError("Invalid Supabase access token");
+  }
+
   const { url, publishableKey } = getSupabasePublicConfig();
   const supabase = getSupabaseAuthClient(url, publishableKey);
   const authStartedAt = performance.now();
@@ -175,7 +213,7 @@ export async function authenticateSupabaseRequest(
   // Authoritative database access and device checks are never memoized.
   let claims: VerifiedAuthClaims;
   try {
-    claims = await measureB5Stage("jwtVerify", () => getVerifiedSupabaseClaims(supabase, authHeader.slice(7)));
+    claims = await measureB5Stage("jwtVerify", () => getVerifiedSupabaseClaims(supabase, accessToken));
   } catch (error) {
     const authMs = Math.round(performance.now() - authStartedAt);
     if (authMs >= 500) {

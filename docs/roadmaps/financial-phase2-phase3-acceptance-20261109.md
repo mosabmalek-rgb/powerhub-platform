@@ -1,3 +1,14 @@
+## D34.3 — تصحيح تصنيف JWT المشوه والمنتهي على HTTPS (15 نوفمبر 2026)
+
+- أُنشئت Preview جديدة من الرأس السابق `a4f67afc2d5dac7e481d9c11fa24bd5b216a8f24`، ورقم Deployment `dpl_ebL2PKDYXjRdXe32CUgJQgvL3roy`؛ جاهزة READY، وأعادت `/api/ready` و`/api/health` HTTP 200 مع `supabaseConnectivity=true`.
+- عبر Vercel Sandbox مقيّد بعنوان المعاينة وحده نجحت 6/6 فحوص HTTPS للجاهزية والرفض غير المصادق. ثم كشف اختبار سلبي 40 طلبًا متزامنًا (4 بالتزامن) فشلًا مهمًا: 20/20 طلبًا دون Authorization = HTTP 401؛ لكن 20/20 طلبًا مع `Bearer invalid-expired-staging-token` = HTTP 500 (`INTERNAL_SERVER_ERROR`).
+- تكرار فردي أكد: رمز malformed `abc.def.ghi` يعيد HTTP 500؛ رمز مزور بالهيكل الصحيح مع انتهاء بعيد رفض 401؛ ورمز مزور انتهت صلاحيته يعيد 500. لا يثبت ذلك اختراقًا أو كشف بيانات؛ هو خطأ تصنيف auth input يسبب استجابة خادم كاذبة وتحويل حالة الجلسة إلى خطأ مؤقت.
+- أصلحنا مسار `server/_core/supabase-auth.ts` بفحص إنكار مبكر فقط لبنية JWT ومستند `exp` المنتهي، **دون اعتماد أي رمز** محليًا؛ تظل `getClaims` في Supabase مصدر التحقق الإلزامي من التوقيع. تظل أخطاء الشبكة/التحجيم/تهيئة الخدمة أخطاء تشغيلية، لا `401` وهمية.
+- أضيفت اختبارات `server/_core/supabase-auth.test.ts` للحالات المشوهة والمنتهية، ومُدّدت ACL الأصلية دون تعديل. يجب إعادة نشر Preview **على Commit الإصلاح الجديد** وإعادة اختبار 40 طلبًا/4 بالتزامن و6 فحوص الجاهزية، ثم إثبات الخمس بوابات CI على الرأس الجديد قبل قبول الإصلاح.
+- `D34_PUBLIC_HTTPS_BEFORE_FIX=FAIL_ON_INVALID_BEARER`، `D34_AUTH_FIX=COMMITTED_PENDING_TESTS`، `D34_AUTHENTICATED_TENANT_ISOLATION=NOT_YET_TESTED`، `D34_FINAL_ACCEPTANCE=BLOCKED`، `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا Production ولا Merge.
+
+---
+
 ## D34.2 — اختبار PostgreSQL المستقل لانتهاء التهيئة (15 نوفمبر 2026)
 
 - أضيف `supabase/tests/financial_d34_expired_bootstrap_replay.sql` إلى بوابة PostgreSQL Integration في GitHub Actions، باستخدام قاعدة PostgreSQL 17 معزولة.
