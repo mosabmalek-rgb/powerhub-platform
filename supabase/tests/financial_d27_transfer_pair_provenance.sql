@@ -67,7 +67,7 @@ BEGIN
  j:=public.powerhub_financial_company_transfer_pair_provenance(901,'2026-10');
  IF j->>'status' IS DISTINCT FROM 'BLOCKED_TRANSFER_PROVENANCE'
  OR (j->>'invalidOperationPairCount')::bigint<>1
- OR j->'blockers' NOT @> '["TRANSFER_SIDES_UNBALANCED","OPERATION_TRANSFER_PAIR_INVALID"]'::jsonb
+ OR NOT (j->'blockers' @> '["TRANSFER_SIDES_UNBALANCED","OPERATION_TRANSFER_PAIR_INVALID"]'::jsonb)
  THEN RAISE EXCEPTION 'D27_AMOUNT_MISMATCH_NOT_BLOCKED';END IF;
 END $b$;
 UPDATE public.account_transactions SET amount=7.25 WHERE id=2;
@@ -78,7 +78,7 @@ DECLARE j jsonb;
 BEGIN
  j:=public.powerhub_financial_company_transfer_pair_provenance(901,'2026-10');
  IF j->>'status' IS DISTINCT FROM 'BLOCKED_TRANSFER_PROVENANCE'
- OR j->'blockers' NOT @> '["TRANSFER_MOVEMENT_REUSED_BY_MULTIPLE_OPERATIONS"]'::jsonb
+ OR j->'blockers' NOT @> '["TRANSFER_MOVEMENT_REUSED_BY_MULTIPLE_OPERATIONS"]'::jsonb)
  THEN RAISE EXCEPTION 'D27_DUPLICATE_PAIR_NOT_BLOCKED %',j;END IF;
 END $c$;
 SELECT 'D27_DISPOSABLE_OPERATION_PAIR_PROVENANCE_PASS' AS result;
