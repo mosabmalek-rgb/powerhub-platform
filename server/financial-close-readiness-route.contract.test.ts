@@ -11,6 +11,7 @@ describe("C2 protected close-readiness route and guarded UI",()=>{
   expect(end).toBeGreaterThan(start);
   const route=server.slice(start,end);
   expect(route).toContain("requireSupabaseSiteRole(ctx.user.id,input.siteId");
+  expect(route).toContain("protectedProcedure.input(financialCloseReadinessScope)");
   expect(route).toContain('"viewFinancialReports"');
   expect(route).toContain("p_tenant_id:access.tenantId");
   expect(route).toContain("p_site_id:input.siteId");

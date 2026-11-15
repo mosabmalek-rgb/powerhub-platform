@@ -18,7 +18,7 @@ function query(path: string, input: Record<string, unknown>) {
 function errorCode(raw: string): string {
   try {
     const parsed = JSON.parse(raw);
-    const code = parsed?.error?.data?.code;
+    const code = parsed?.error?.data?.code ?? parsed?.error?.json?.data?.code;
     return typeof code === "string" && /^[A-Z_]{3,40}$/.test(code) ? code : "UNVERIFIED_ERROR";
   } catch { return "INVALID_RESPONSE"; }
 }

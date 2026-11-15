@@ -17,6 +17,7 @@ import { reviewFinancialPayrollMonth, InvalidPayrollReview } from "./financial-p
 import { summarizeAccrualComponents, summarizeInvoiceServiceCycleCoverage, isIssuedFinancialInvoiceStatus, InvalidAccrualComponents } from "./financial-accrual-components";
 import { buildDashboardFinancialKpi, type DashboardFinancialKpiMetric } from "./dashboard-financial-kpi";
 import { buildFinancialCloseReadiness } from "./financial-close-readiness";
+import { financialCloseReadinessScope } from "./financial-d9-scope";
 import { validateGLMonthlyComparison } from "./financial-gl-comparison";
 import { validateGLTrend } from "./financial-gl-trend";
 import { buildDashboardKpiRevisions, DASHBOARD_KPI_REVISION_ENTITIES } from "./dashboard-kpi-revisions";
@@ -5018,10 +5019,8 @@ export const powerhubRouter = router({
       };
     }),
     // C2 advisory read-only preflight. Never authorizes posting, approval or lock.
-    accrualCloseReadiness: protectedProcedure.input(z.object({
-      siteId:z.number().int().positive(),
-      period:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
-    })).query(async ({ctx,input})=>{
+    accrualCloseReadiness: protectedProcedure.input(financialCloseReadinessScope)
+      .query(async ({ctx,input})=>{
       const access=await requireSupabaseSiteRole(ctx.user.id,input.siteId,
         ["owner","manager","accountant","viewer"],"viewFinancialReports");
       const now=new Date();
