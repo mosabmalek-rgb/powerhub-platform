@@ -990,3 +990,16 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **بوابة CI الجديدة:** ملف `supabase/tests/financial_d29_fixture_evidence_partition.sql` يطبق ترحيل D29 الأصلي على PostgreSQL مؤقت، مع *Stubs محددة ومعلنة* لتقرير D28 ودليل B5 حتى يختبر منطق الفصل وفشل الإثبات والصلاحيات دون محاولة إعادة 250000 حركة في قاعدة الاختبار. أُضيفت خطوة خاصة به إلى `.github/workflows/reading-cycle-sql-integration.yml`. نجاح Staging المؤقت لا يستبدل نجاح هذه البوابة ولا دليل تثبيت دائم.
 
 **القرار الحالي:** `D29_SOURCE_COMMITTED=YES`، `D29_STAGING_TEMP_TEST=SCOPED_PASS_ROLLBACK_ONLY`، `D29_DISPOSABLE_CI=AWAITING_RESULT`، `D29_STAGING_INSTALLED=NO`، `D29_POST_INSTALL_ACCEPTANCE=NOT_TESTED`، `D29_ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا دمج ولا تعديلات Production. يعتمد أي إصدار جديد على نجاح CI على الرأس الفعلي ثم تطبيق المسار المحمي بنفس رقم الترحيل، واختبار النسخة المثبتة قبل تغيير حالة القبول.
+
+
+## D29.2 — قبول D29 المثبت في Supabase Staging (15 نوفمبر 2026)
+
+**التحقق من أصل الإصدار:** استعلام حي إلى `supabase_migrations.schema_migrations` لمشروع Staging `iyuryuhaylhisjfcrwkz` أثبت النسخة `20261115233000` بالاسم `powerhub_financial_d29_fixture_evidence_partition`. الدالة `public.powerhub_financial_d29_fixture_evidence_partition(bigint,text)` مثبتة بخصائص `STABLE` و`SECURITY INVOKER` و`search_path=pg_catalog, public, pg_temp`، وممنوعة `EXECUTE` لدوري `anon` و`authenticated` ومسموحة لدور `service_role`.
+
+**اختبار قبول حقيقي على النسخة المثبتة:** جرى جلب وتشغيل الملف نفسه `docs/security/sql/pr359-financial-d29-installed-staging-acceptance-rollback.sql` من رأس PR `a4bd8b442524f93f7dd856c8624c3efc638ea0a5` ضمن معاملة `BEGIN READ ONLY` و`ROLLBACK`؛ استجاب بالنتيجة `D29_INSTALLED_STAGING_TECHNICAL_FIXTURE_EVIDENCE_SCOPED_PASS`. أثبت اختبار دور الخدمة، ورفض مستأجر مجهول، والعزل عن المستأجر الاختباري `9000000000001`، وعدم تطبيق فصل المجموعة قبل نطاقها الزمني، وبقاء `technicalPartitionAuthorizesAccountingExclusion=false` و`accountingCertification=NOT_CERTIFIED`.
+
+**نتيجة الأرقام:** المستأجر 1 حتى نوفمبر: 250009 حركات خام، 9 حركات موثقة بمصدرها و250000 حركة أداء مجمدة مفصولة لأغراض التحليل لا المحاسبة؛ تحتفظ D28 بحالة `BLOCKED_SOURCE_CASH_GL_RECONCILIATION`. المستأجر الاختباري الآخر حتى أكتوبر: 105544 حركة، تشمل 84434 حركة تشغيلية بلا روابط و21110 حركات تحويل غير مثبتة؛ لم تُعتمد منها أي حركة بفصل المجموعة الفنية. الخط المالي لم يتغير: 25 قيد GL و51 سطرًا و361009 حركة حساب.
+
+**بوابات CI:** اكتملت الخمس بالنجاح على الرأس `a4bd8b442524f93f7dd856c8624c3efc638ea0a5` بما فيها خطوة PostgreSQL Integration التي تحتوي اختبار D29، بالإضافة إلى PowerHub CI وSecurity وAdmin Guard وB5 Synthetic Financial Load. أي تعديل توثيق لاحق يخلق رأسًا جديدًا ويستلزم مراجعة CI عليه بشكل مستقل.
+
+**الحالة المعتمدة:** `D29_STAGING_INSTALLED=YES`، `D29_INSTALLED_DB_SCOPED_ACCEPTANCE=PASS`، `D29_ACL_SERVICE_ROLE=PASS`، `D29_FULL_FINANCIAL_CERTIFICATION=NOT_ACCEPTED`، `MASTER_FINANCE_PHASE_D=IN_PROGRESS`، `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. فقرات D29 السابقة التي تصف الترحيل بأنه غير مثبت تاريخية، لا تمثل الحالة الحالية. بقي PR #359 Draft غير مدمج؛ لم تُمس Production.
