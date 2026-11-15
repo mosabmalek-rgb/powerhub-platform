@@ -21,7 +21,7 @@ BEGIN
  THEN RAISE EXCEPTION 'D11_SUBLEDGER_ACL_REGRESSION'; END IF;
  SELECT pg_get_functiondef('public.powerhub_financial_gl_subledger_reconciliation(bigint,bigint,text)'::regprocedure)
  INTO def;
- IF position('HASH_ANCHORED_IMMUTABLE' IN def)=0
+ IF position('powerhub_financial_gl_fast_staging_fixture_proof' IN def)=0
    OR position('STG-PERF-20261105' IN def)=0
    OR position('v_refund_valid_count' IN def)=0
    OR position('supplier-return-cash-refund-v1' IN def)=0
