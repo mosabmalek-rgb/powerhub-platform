@@ -63,6 +63,25 @@ INSERT INTO public.account_transactions(
 id,tenant_id,site_id,occurred_at,reference_no,related_supplier_return_id,
 account_id,amount,transaction_type)
 VALUES(1501,901,9101,'2026-10-22T00:00:00Z','RET-D10-1',1201,601,12,'deposit');
+-- The real GL posting gate requires a documented, independently posted opening.
+-- Do not bypass that invariant in the test fixture.
+DO $d10_opening$
+DECLARE v_open jsonb;v_post jsonb;
+BEGIN
+ v_open:=public.powerhub_financial_gl_opening_create(
+  901,9101,9901,'2026-01-01',
+  'D10-DISPOSABLE-OPENING-901',
+  'Disposable documented test opening for supplier returns',
+  'd10-disposable-opening-901',
+  '[{"accountCode":"1010","side":"debit","amount":500,"evidenceReference":"D10-CASH"},
+    {"accountCode":"3100","side":"credit","amount":500,"evidenceReference":"D10-EQUITY"}]'::jsonb);
+ v_post:=public.powerhub_financial_gl_opening_post(
+   901,9101,(v_open->>'openingId')::bigint,9902);
+ IF v_post->>'status'<>'posted' THEN
+   RAISE EXCEPTION 'D10_DISPOSABLE_OPENING_NOT_POSTED: %',v_post;
+ END IF;
+END;
+$d10_opening$;
 DO $d10$
 DECLARE p jsonb; ret jsonb; refund jsonb; low jsonb; legacy jsonb;
   twice jsonb; e_id bigint; v_lines jsonb; reject boolean; c bigint;
