@@ -1,3 +1,14 @@
+## D32–D34 — Prelaunch Staging verification, status and blockers (15 November 2026)
+
+- Confirmed by owner: platform not yet launched and all current data test-only; controlled Staging rollback testing is authorized. No Production change.
+- D32 installed D27 function: positive correct transfer-pair test and four negative scenarios passed in one rollback-only SQL test (amount tampering, broken reciprocal reference, duplicate reuse, orphan).
+- D33 installed Staging read-only gate: balanced 25 GL entries / 51 lines, correct D26 300,000 tenant opening once, D28 nine linked cash/GL matches, D29 analytical 250k partition, 22,200 D27 historical transfers still blocked, service-only ACL, opening 19 evidence missing. **SCOPED PASS**.
+- Source files: `docs/security/sql/pr359-financial-d32-operation-pair-negative-rollback.sql`, `docs/security/sql/pr359-financial-d33-prelaunch-acceptance-readonly.sql`. Detail and D34 decision matrix: `docs/security/pr359-financial-d32-d34-prelaunch-acceptance-20261115.md`.
+- Final D34 acceptance is **not yet granted**: opening 19 independent evidence, cross-site provenance, invoice 31 period cutoff, full document chain, browser/parallel acceptance, and final-SHA CI must be resolved; no false accounting certification or merge.
+- `D32_STAGING_TRANSFER_PAIR_BEHAVIOR=SCOPED_PASS` / `D33_STAGING_PRELAUNCH_FINANCIAL_GATES=SCOPED_PASS` / `D34_FINAL_PHASE_ACCEPTANCE=BLOCKED` / `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
+
+---
+
 ## D31 — فحص بنية وبصمة مجموعات PH-PERF التاريخية (15 نوفمبر 2026)
 
 - على رأس `a3f274e11a634a30a39fada2715ffae6dc8d6436` تأكد نجاح بوابات CI الخمس (PowerHub CI وSecurity وSupabase Admin Guard وPostgreSQL Integration وB5 Synthetic Financial Load)، وسُجلت ترحيلات D26–D29 رسميًا في Staging.
