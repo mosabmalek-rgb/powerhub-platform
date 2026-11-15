@@ -24,8 +24,8 @@ BEGIN
      OR (SELECT count(*) FROM public.account_transactions
          WHERE tenant_id=9000000000001 AND occurred_at<
            ('2026-11-01'::timestamp AT TIME ZONE 'Asia/Gaza'))<>105544
-     OR (SELECT count(*) FROM public.financial_gl_entries)<>25
-     OR (SELECT count(*) FROM public.financial_gl_lines)<>51
+     OR (SELECT count(*) FROM public.financial_gl_entries)<>27
+     OR (SELECT count(*) FROM public.financial_gl_lines)<>55
      OR (SELECT count(*) FROM public.account_transactions)<>361009
      OR EXISTS(SELECT 1 FROM public.financial_gl_entries
           WHERE tenant_id=9000000000001)

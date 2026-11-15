@@ -5,8 +5,8 @@ SET LOCAL statement_timeout='120000ms';
 DO $d33$
 DECLARE x jsonb;y jsonb;z jsonb;p jsonb;g jsonb;o jsonb;bad bigint;
 BEGIN
-IF (SELECT count(*) FROM public.financial_gl_entries)<>25
- OR (SELECT count(*) FROM public.financial_gl_lines)<>51
+IF (SELECT count(*) FROM public.financial_gl_entries)<>27
+ OR (SELECT count(*) FROM public.financial_gl_lines)<>55
  OR (SELECT count(*) FROM public.account_transactions)<>361009
  OR (SELECT count(*) FROM public.company_account_movement_operations)<>0
 THEN RAISE EXCEPTION 'D33_FINANCIAL_BASELINE_DRIFT'; END IF;

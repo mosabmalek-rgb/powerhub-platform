@@ -19,8 +19,8 @@ BEGIN
   IF err NOT IN ('GL_SERVICE_MONTH_OUTSIDE_CYCLE','GL_SERVICE_OPENING_REQUIRED')
   THEN RAISE EXCEPTION 'D34_WRONG_MONTH_ERROR: %',err; END IF;
  END;
- IF (SELECT count(*) FROM public.financial_gl_entries)<>25
- OR (SELECT count(*) FROM public.financial_gl_lines)<>51
+ IF (SELECT count(*) FROM public.financial_gl_entries)<>27
+ OR (SELECT count(*) FROM public.financial_gl_lines)<>55
  OR (SELECT count(*) FROM public.account_transactions)<>361009
  THEN RAISE EXCEPTION 'D34_BASELINE_DRIFT'; END IF;
  IF NOT EXISTS(SELECT 1 FROM supabase_migrations.schema_migrations WHERE

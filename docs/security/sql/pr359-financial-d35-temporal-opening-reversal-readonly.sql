@@ -6,8 +6,8 @@ DO $d35$
 DECLARE oct_cash numeric;nov_cash numeric;oct_equity numeric;nov_equity numeric;
   evidence_oct jsonb;evidence_nov jsonb;
 BEGIN
-  IF (SELECT count(*) FROM public.financial_gl_entries)<>25
-   OR (SELECT count(*) FROM public.financial_gl_lines)<>51
+  IF (SELECT count(*) FROM public.financial_gl_entries)<>27
+   OR (SELECT count(*) FROM public.financial_gl_lines)<>55
    OR (SELECT count(*) FROM public.account_transactions)<>361009
    OR (SELECT count(*) FROM public.financial_gl_opening_evidence)<>0
   THEN RAISE EXCEPTION 'D35_STAGING_BASELINE_DRIFT'; END IF;
