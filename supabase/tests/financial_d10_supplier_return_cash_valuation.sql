@@ -84,6 +84,7 @@ END;
 $d10_opening$;
 DO $d10$
 DECLARE p jsonb; ret jsonb; refund jsonb; low jsonb; legacy jsonb;
+  v_cash_audit jsonb;
   twice jsonb; e_id bigint; v_lines jsonb; reject boolean; c bigint;
 BEGIN
   IF has_function_privilege('authenticated',
@@ -141,6 +142,20 @@ BEGIN
     WHERE e.tenant_id=901 AND e.site_id=9101 GROUP BY e.id
     HAVING sum(CASE WHEN l.side='debit' THEN l.amount ELSE -l.amount END)<>0)
   THEN RAISE EXCEPTION 'D10_UNBALANCED_GL';END IF;
+
+  -- The live cash audit must retain the newer B5.18 keyset index path after D10.
+  IF position('SELECT x.id FROM public.account_transactions x' IN
+      pg_get_functiondef('public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)'::regprocedure))=0
+     OR position(') cash_keys' IN
+      pg_get_functiondef('public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)'::regprocedure))=0
+  THEN RAISE EXCEPTION 'D10_B518_CASH_KEYSET_PERFORMANCE_REGRESSION';END IF;
+  -- The refund must be visible in the company movement audit, not merely the GL.
+  v_cash_audit:=public.powerhub_financial_gl_company_movement_audit(901,9101,'2026-10');
+  IF v_cash_audit->>'accountingCertification'<>'NOT_CERTIFIED'
+    OR (v_cash_audit->>'linkedMovementCount')::bigint<1
+    OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_cash_audit->'mismatchExamples') ex
+      WHERE (ex->>'transactionId')::bigint=1501)
+  THEN RAISE EXCEPTION 'D10_CASH_AUDIT_REFUND_MISMATCH: %',v_cash_audit;END IF;
   -- A forged tenant cannot borrow another tenant's return or refund source.
   reject:=false;
   BEGIN

@@ -615,6 +615,9 @@ BEGIN
 END;
 $function$;
 
+-- D10 preserves the optimized keyset-UNION source from B5.18 verbatim except
+-- the supplier-return refund proof branch and linked-cash account totals.
+-- Never restore the older B4.16 full-scan audit here.
 -- The cash reconciliation read model must classify the cash leg from a supplier return
 -- against its own source-linked credit_note GL, rather than report an unsupported transfer.
 CREATE OR REPLACE FUNCTION public.powerhub_financial_gl_company_movement_audit(p_tenant_id bigint, p_site_id bigint, p_period text)
@@ -648,6 +651,9 @@ DECLARE
   v_corrected_payment_id bigint;
   v_supplier_ledger_debit numeric;
   v_supplier_ledger_credit numeric;
+  v_return_reference text;
+  v_return_date date;
+  v_return_supplier_id bigint;
   v_source_type text;
   v_source_id text;
   v_cash_account_code text;
@@ -662,7 +668,21 @@ DECLARE
   v_rec record;
 BEGIN
   IF p_tenant_id IS NULL OR p_site_id IS NULL OR p_tenant_id<=0 OR p_site_id<=0
-    OR p_period IS NULL OR p_period !~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
+    OR p_period IS NULL OR p_period !~ '^[0-9]{4}-(0[1-9]|1[0-2])
+
+-- Retain least-privilege EXECUTE grants across replacement on existing databases.
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_source_plan(bigint,bigint,text,bigint)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_source_plan(bigint,bigint,text,bigint)
+  TO service_role;
+REVOKE ALL ON FUNCTION public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.powerhub_financial_gl_company_movement_audit(bigint,bigint,text)
+  TO service_role;
+
+COMMENT ON FUNCTION public.powerhub_financial_gl_source_plan(bigint,bigint,text,bigint)
+IS 'D10: source-backed supplier cash refund via credit_note (DR cash/CR AP); supplier return valuation difference transparently assigned to GL cost 5100; preexisting equal-valued return fingerprint preserved. NOT_CERTIFIED.';
+
     OR NOT EXISTS (SELECT 1 FROM public.sites s
       WHERE s.id=p_site_id AND s.tenant_id=p_tenant_id AND s.status<>'archived')
   THEN RAISE EXCEPTION 'GL_B4_CASH_INVALID_SCOPE' USING ERRCODE='22023'; END IF;
@@ -704,16 +724,21 @@ BEGIN
         c.tenant_id,c.site_id,c.payment_id)='SOURCE_BACKED_REVERSAL_VALID');
   FOR v_rec IN
     SELECT t.*,a.account_type
-    FROM public.account_transactions t
+    FROM (
+ SELECT x.id FROM public.account_transactions x
+ WHERE x.tenant_id=p_tenant_id AND x.site_id=p_site_id AND x.occurred_at<v_cutoff
+  AND (x.related_payment_id IS NOT NULL OR x.related_supplier_payment_id IS NOT NULL
+   OR x.related_expense_id IS NOT NULL OR x.related_supplier_return_id IS NOT NULL
+   OR x.related_account_id IS NOT NULL)
+ UNION
+ SELECT c.refund_transaction_id AS id
+ FROM public.financial_supplier_payment_corrections c
+ WHERE c.tenant_id=p_tenant_id AND c.site_id=p_site_id AND c.status='posted'
+  AND c.refund_transaction_id IS NOT NULL
+) cash_keys
+    JOIN public.account_transactions t ON t.id=cash_keys.id
+      AND t.tenant_id=p_tenant_id AND t.site_id=p_site_id AND t.occurred_at<v_cutoff
     JOIN public.company_accounts a ON a.id=t.account_id AND a.tenant_id=t.tenant_id
-    WHERE t.tenant_id=p_tenant_id AND t.site_id=p_site_id
-      AND t.occurred_at<v_cutoff
-      AND (t.related_payment_id IS NOT NULL OR t.related_supplier_payment_id IS NOT NULL
-        OR t.related_expense_id IS NOT NULL OR t.related_supplier_return_id IS NOT NULL
-        OR t.related_account_id IS NOT NULL
-        OR EXISTS(SELECT 1 FROM public.financial_supplier_payment_corrections c
-          WHERE c.tenant_id=t.tenant_id AND c.site_id=t.site_id
-          AND c.refund_transaction_id=t.id AND c.status='posted'))
     ORDER BY t.id
   LOOP
     v_total:=v_total+1;
@@ -807,26 +832,36 @@ BEGIN
       v_source_type:='supplier_ledger';v_source_id:=v_supplier_ledger_id::text;
     ELSIF v_rec.related_supplier_return_id IS NOT NULL THEN
       SELECT r.refund_amount,r.status,r.refund_company_account_id,
-        (r.return_date::timestamp AT TIME ZONE 'UTC')
-      INTO v_amount,v_status,v_related_account_id,v_source_date
+        r.return_number,r.return_date,r.supplier_id
+      INTO v_amount,v_status,v_related_account_id,
+        v_return_reference,v_return_date,v_return_supplier_id
       FROM public.supplier_purchase_returns r
       WHERE r.tenant_id=p_tenant_id AND r.site_id=p_site_id
         AND r.id=v_rec.related_supplier_return_id;
-      SELECT count(*),min(sl.id) INTO v_supplier_ledger_count,v_supplier_ledger_id
+      SELECT count(*),min(sl.id),coalesce(sum(sl.credit_amount),0)
+        INTO v_supplier_ledger_count,v_supplier_ledger_id,v_supplier_ledger_credit
       FROM public.supplier_ledger_entries sl
       WHERE sl.tenant_id=p_tenant_id AND sl.site_id=p_site_id
         AND sl.supplier_return_id=v_rec.related_supplier_return_id
-        AND sl.entry_type='credit_note';
+        AND sl.entry_type='credit_note'
+        AND sl.supplier_id=v_return_supplier_id
+        AND sl.entry_key='supplier-return-refund:'||v_rec.related_supplier_return_id
+        AND sl.debit_amount=0
+        AND sl.reference_no=v_return_reference
+        AND sl.occurred_at=v_rec.occurred_at;
       v_source_type:='supplier_ledger';v_source_id:=v_supplier_ledger_id::text;
       SELECT count(*) INTO v_duplicate_links FROM public.account_transactions t
       WHERE t.tenant_id=p_tenant_id
         AND t.related_supplier_return_id=v_rec.related_supplier_return_id;
       IF v_status IS DISTINCT FROM 'posted' OR v_supplier_ledger_count<>1
         OR v_duplicate_links<>1 OR v_expected_side<>'debit'
-        OR v_amount IS NULL OR v_amount<=0
+        OR v_rec.transaction_type<>'deposit' OR v_amount IS NULL OR v_amount<=0
         OR v_rec.amount IS DISTINCT FROM v_amount
+        OR v_supplier_ledger_credit IS DISTINCT FROM v_amount
         OR v_rec.account_id IS DISTINCT FROM v_related_account_id
-        OR v_rec.occurred_at IS DISTINCT FROM v_source_date
+        OR v_rec.reference_no IS DISTINCT FROM v_return_reference
+        OR (v_rec.occurred_at AT TIME ZONE 'Asia/Gaza')::date
+          IS DISTINCT FROM v_return_date
       THEN v_reason:='SUPPLIER_RETURN_REFUND_CASH_OR_LEDGER_MISMATCH'; END IF;
     ELSIF v_rec.related_expense_id IS NOT NULL THEN
       v_source_type:='expense';v_source_id:=v_rec.related_expense_id::text;
@@ -910,16 +945,39 @@ BEGIN
             AND c.refund_transaction_id=t.id AND c.status='posted'
             AND public.powerhub_financial_supplier_payment_correction_proof(
               c.tenant_id,c.site_id,c.payment_id)='SOURCE_BACKED_REVERSAL_VALID')
+        THEN t.amount
+        WHEN t.transaction_type='deposit'
+          AND t.related_supplier_return_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM public.supplier_purchase_returns sr
+            JOIN public.supplier_ledger_entries sl
+              ON sl.tenant_id=sr.tenant_id AND sl.site_id=sr.site_id
+              AND sl.supplier_return_id=sr.id AND sl.entry_type='credit_note'
+              AND sl.credit_amount=sr.refund_amount AND sl.debit_amount=0
+            JOIN public.financial_gl_entries e
+              ON e.tenant_id=sl.tenant_id AND e.site_id=sl.site_id
+              AND e.source_type='supplier_ledger' AND e.source_id=sl.id::text
+            WHERE sr.tenant_id=t.tenant_id AND sr.site_id=t.site_id
+              AND sr.id=t.related_supplier_return_id
+              AND sr.status='posted' AND sr.refund_amount=t.amount
+              AND sr.refund_company_account_id=t.account_id)
         THEN t.amount ELSE 0 END),0) net_amount
-    FROM public.company_accounts a LEFT JOIN public.account_transactions t
-    ON t.tenant_id=a.tenant_id AND t.account_id=a.id
-      AND t.site_id=p_site_id AND t.occurred_at<v_cutoff
-      AND (t.related_payment_id IS NOT NULL OR t.related_supplier_payment_id IS NOT NULL
-        OR t.related_expense_id IS NOT NULL OR t.related_supplier_return_id IS NOT NULL
-        OR t.related_account_id IS NOT NULL
-        OR EXISTS(SELECT 1 FROM public.financial_supplier_payment_corrections c
-          WHERE c.tenant_id=t.tenant_id AND c.site_id=t.site_id
-            AND c.refund_transaction_id=t.id AND c.status='posted'))
+    FROM public.company_accounts a LEFT JOIN (
+    SELECT t.* FROM (
+ SELECT x.id FROM public.account_transactions x
+ WHERE x.tenant_id=p_tenant_id AND x.site_id=p_site_id AND x.occurred_at<v_cutoff
+  AND (x.related_payment_id IS NOT NULL OR x.related_supplier_payment_id IS NOT NULL
+   OR x.related_expense_id IS NOT NULL OR x.related_supplier_return_id IS NOT NULL
+   OR x.related_account_id IS NOT NULL)
+ UNION
+ SELECT c.refund_transaction_id AS id
+ FROM public.financial_supplier_payment_corrections c
+ WHERE c.tenant_id=p_tenant_id AND c.site_id=p_site_id AND c.status='posted'
+  AND c.refund_transaction_id IS NOT NULL
+) cash_keys
+    JOIN public.account_transactions t ON t.id=cash_keys.id
+      AND t.tenant_id=p_tenant_id AND t.site_id=p_site_id AND t.occurred_at<v_cutoff
+  ) t ON t.tenant_id=a.tenant_id AND t.account_id=a.id
     WHERE a.tenant_id=p_tenant_id
     GROUP BY a.id,a.account_type ORDER BY a.id LIMIT 50
   ) x;
