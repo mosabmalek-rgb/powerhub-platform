@@ -639,3 +639,23 @@
 **سلامة Staging بعد الجولة القرائية:** tenant 1: قيود GL `25`، أسطر GL `51`، المدين والدائن `18073.50` لكل منهما، مراجعات الإقفال `0`، حركات المخزون `11`، حركات الحسابات في المستأجر `250009` (العدد السابق `361009` كان لجميع المستأجرين، فلا تجوز مقارنته بالعدد المقيّد). لم تنشأ مراجعة أو قيد من هذه الجولة.
 
 **حدود القبول:** حساب المالك ذو وصول واسع لا يثبت صلاحيات الموظف المقيد بالفرع أو فصل المُعدّ عن المعتمد. لا تُستخدم `service_role` كبديل لهوية مستخدم في قبول HTTPS. تحتاج السيناريوهات المحجوبة إلى هويات Auth مستقلة مصرح بها ونطاق فترة/فرع اختبار معزول، ثم قياس أثر عمليات الكتابة وتنظيفها مع حفظ التدقيق. `DB_RLS_TESTED=PREVIOUS_SCOPED_4_OF_4`؛ `HTTPS_AUTHENTICATED_TESTED=PARTIAL_ON_a9f1a99`؛ `TENANT_ISOLATION_ACCEPTED=NO`؛ `BRANCH_ISOLATION_ACCEPTED=NO`؛ `MAKER_CHECKER_ACCEPTED=NO`؛ `API_BYPASS_ACCEPTED=NO`؛ `D9_HTTPS_RBAC=IN_PROGRESS`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا دمج ولا Production.
+
+
+### D9 — إعادة اختبار HTTPS المصادق بعد إصلاح T04 (15 نوفمبر 2026)
+
+بعد تسجيل الدخول الآمن لحساب Owner E2E Customer على المعاينة [`ee975069`](https://powerhub-platform-69l0wbnwq-mosabmalek-rgb.vercel.app/internal/d9-http-acceptance)، Deployment `dpl_C8VtNLTsj5Pn8eDRvmPixzoQo3P9`، تحققت الواجهة من `/api/ready` ومن جهاز الجلسة. كان قفل جهاز الاختبار القديم نشطًا مع `last_seen_at` أقدم من دقيقتين بعد الخروج الصريح؛ حُرر صف القفل لهذا الحساب وحده على Staging ثم نجحت إعادة التحقق، دون تعطيل قاعدة الجهاز الواحد أو تغيير عضوية وصلاحيات.
+
+| الرمز | HTTP | رمز الخادم | النتيجة |
+|---|---:|---|---|
+| T01 | 200 | SUCCESS؛ تحقق نطاق المستأجر 1/الفرع 1/2026-11، `BLOCKED` و`NOT_CERTIFIED` | PASS |
+| T03 | 403 | FORBIDDEN | PASS |
+| T04 | 400 | BAD_REQUEST؛ رفض `tenantId` المزوّر صراحةً | PASS |
+| T05 | 403 | FORBIDDEN | PASS |
+| T06 | 401 | UNAUTHORIZED | PASS |
+| T19 | 403 | FORBIDDEN | PASS |
+| T20 | 403 | FORBIDDEN | PASS |
+| T22 | 403 | FORBIDDEN | PASS |
+
+هذه ثمانية طلبات HTTPS حقيقية منفصلة على SHA الإصلاح، ولا تعني نجاح جميع السيناريوهات T01–T22. بقيت T02 وT07–T18 وT21 محجوبة كما في المصفوفة أعلاه. تحققت بعد الاختبار من tenant 1: قيود GL `25`، أسطرها `51`، مجموع المدين والدائن `18073.50` لكل منهما، مراجعات الإقفال `0`، حركات المخزون `11`، وحركات الحسابات `250009`؛ لا أثر مالي جديد. بوابات CI الخمس نجحت على SHA الإصلاح `ee975069`، وكذلك على تحديث الوثيقة السابق `aceb176c`. إصدار هذه الإضافة التوثيقية يحتاج فحص CI خاصًا برأسها ولا تُنقل له نتيجة سابقة.
+
+`HTTPS_AUTHENTICATED_TESTED=PARTIAL_8_OF_8_ON_ee975069`؛ `TENANT_ISOLATION_ACCEPTED=NO`؛ `BRANCH_ISOLATION_ACCEPTED=NO`؛ `MAKER_CHECKER_ACCEPTED=NO`؛ `API_BYPASS_ACCEPTED=NO` لأن نطاق القبول الكامل يتطلب الهويات المقيدة واختبارات الكتابة. `D9_HTTPS_RBAC=IN_PROGRESS`؛ `MASTER_FINANCE_PHASE_D=IN_PROGRESS`؛ `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`.
