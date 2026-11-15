@@ -964,3 +964,15 @@ The prior supplier-return RPC wrote a separately linked `credit_note` and deposi
 **فحوص PostgreSQL المؤقت الجديدة:** ملف `supabase/tests/financial_d28_source_cash_gl_chain.sql` يطبق نص ترحيل D28 الفعلي في قاعدة مؤقتة، ويثبت التحصيل والمصروف ودفع المورد، ويرفض تغير المبلغ وتكرار المستند وفقد خط GL ومصدرًا أجنبيًا، مع تجربة دور `service_role` واختبار ACL. رُبط في `.github/workflows/reading-cycle-sql-integration.yml`. **لا تعتبر هذه الاختبارات ناجحة حتى تنتهي CI على Commit الرأس الحالي وتُراجع النتيجة.** لا يُسمح بتثبيت ترحيل D28 عبر آلية الإصدار المحمية قبل نجاح فحوصه على الرأس المراجع.
 
 **التصنيف:** `D28_SOURCE_COMMITTED=YES`، `D28_STAGING_TEMP_POSITIVE_AND_NEGATIVE=SCOPED_PASS_ROLLBACK_ONLY`، `D28_STAGING_INSTALLED=NO`، `D28_INSTALLED_STAGING_ACCEPTANCE=NOT_TESTED`، `D28_HISTORICAL_FULL_COVERAGE=NOT_ACCEPTED`، `D28_ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. لا تعديل Production، ولا دمج PR #359، ولا تحويل العمل المستثنى من HTTPS إلى PASS.
+
+## D28.2 — قبول D28 بعد تثبيت الترحيل في Staging (15 نوفمبر 2026)
+
+**التثبيت مثبت من قاعدة البيانات:** سجل `supabase_migrations.schema_migrations` يحتوي نسخة `20261115230000` باسم `powerhub_financial_d28_cash_source_gl_chain`، والدالة `public.powerhub_financial_cash_source_gl_chain(bigint,text)` موجودة. الدالة `STABLE SECURITY INVOKER`، و`search_path=pg_catalog, public, pg_temp`، ولا تسمح `EXECUTE` لـ`anon` أو `authenticated`، وتسمح لـ`service_role`.
+
+**اختبار القبول على النسخة المثبتة فعلًا، لا التعريف المؤقت:** شُغّل نص `docs/security/sql/pr359-financial-d28-installed-staging-acceptance-rollback.sql` على مشروع `iyuryuhaylhisjfcrwkz` ضمن `BEGIN READ ONLY; ... ROLLBACK`. النتيجة: `D28_INSTALLED_STAGING_SOURCE_CASH_GL_ACL_AND_SERVICE_SCOPED_PASS`. اختبر التحليل الفعلي تحت دور `service_role`، ورفض المستأجر غير الموجود، وثبات قيد المصادر وربط الحركات دون تصديق زائف.
+
+**الأرقام:** المستأجر 1 حتى نهاية نوفمبر 2026: 250009 حركات نقدية، 9 روابط مصدر مثبتة و9 مطابقات للحركة/المستند/الدفتر الوسيط عند المورد/خط النقد في GL (6 تحصيلات مجموعها 667؛ مصروف واحد 85؛ دفعتا موردين 360). تبقى 250000 حركة ذات بادئة `STG-PERF-%` بلا مصدر صريح، ولم تُستبعد بصمت أو تُعتمد. المستأجر التجريبي `9000000000001` حتى نهاية أكتوبر: 105544 حركة، منها 84434 حركة غير تحويلية دون روابط، و21110 حركة تحويل داخلي، وصفر سلسلة نقد/GL مثبتة. بقيت `BLOCKED_SOURCE_CASH_GL_RECONCILIATION` و`NOT_CERTIFIED` مع موانع ظاهرة.
+
+**خط الأساس:** 25 قيد GL، و51 سطر GL، و361009 حركات حسابات شركة. لا DDL أو DML أثناء اختبار القبول، ولم تُحدّث الحركات أو تُنشأ تسوية. قبول D28 هنا **محدد النطاق**؛ لا يعني إعادة تصنيف الحركات التاريخية أو مطابقة GL كلها أو اعتماد أرصدة افتتاحية أو تصديق حسابات مجمعة.
+
+**حالات الجولة:** `D28_STAGING_INSTALLED=YES`، `D28_INSTALLED_DB_SCOPED_ACCEPTANCE=PASS`، `D28_SERVICE_ROLE_ACL=PASS`، `D28_HISTORICAL_FULL_COVERAGE=NOT_ACCEPTED`، `D28_ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`، `MASTER_FINANCE_PHASE_D=IN_PROGRESS`. فقرات D28 السابقة التي وصفت الترحيل بأنه غير مثبت تمثل الحالة التاريخية قبل تثبيته. PR #359 لا يزال Draft وغير مدمج؛ لا تعديل Production. نجاح بوابات CI السابقة يخص رأسها فقط، ويجب فحص الخمس على رأس التوثيق الجديد.
