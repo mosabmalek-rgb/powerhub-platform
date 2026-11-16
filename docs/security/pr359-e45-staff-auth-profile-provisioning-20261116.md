@@ -10,9 +10,9 @@ The subaccount create route in server/powerhub.ts first created a Supabase Auth 
 
 - server/staff-auth-provisioning.ts: creates the new public.users row through server-only service admin, with Supabase Auth ID, database-generated bigint ID, normalized identity fields, role=user, null platform role, active status and forced temporary-password reset. The response is validated before staff assignment.
 - The route preserves owner/manageTeam site authorization, package and multi-branch entitlement, then uses the existing service-role-only powerhub_assign_existing_staff RPC to assign member, staff profile, quota and audit atomically **within PostgreSQL**.
-- Compensation checks all tenant membership and staff profile associations for the new account after a failed/ambiguous RPC. If already assigned or verification fails, Auth is preserved for reconciliation instead of being cascade-deleted. Auth deletion errors are checked in both returned-error and exception forms.
+- Compensation runs only before assignment or after a definitive PostgreSQL rejection. An ambiguous RPC transport result may still commit later, so Auth is preserved immediately for reconciliation without attempting deletion. In eligible compensation paths, checks for all tenant membership and staff associations must pass; if already assigned or verification fails, Auth is preserved rather than cascade-deleted. Auth deletion errors are checked in both returned-error and exception forms.
 - Auth Admin creation and PostgREST calls cannot share one transaction. This is verified compensation, not a claim of distributed atomicity.
-- server/staff-auth-provisioning.test.ts: regression tests for creation, malformed responses, state uncertainty, assignment already committed, and Auth deletion failure.
+- server/staff-auth-provisioning.test.ts: regression tests for creation, malformed responses, state uncertainty, assignment already committed, ambiguous post-commit outcomes, and Auth deletion failure.
 
 ## Required before accepting E45 live
 
