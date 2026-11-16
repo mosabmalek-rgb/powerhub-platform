@@ -182,7 +182,7 @@ describe("E45 staff profile creation — explicit backend bootstrap", () => {
   it("keeps app request auth reads side-effect free and the assignment server-authorized", () => {
     const source=readFileSync("server/powerhub.ts","utf8");
     const start=source.indexOf("create: protectedProcedure.input(",source.indexOf("permissionCatalog:"));
-    const create=source.slice(start,start+5200);
+    const create=source.slice(start,start+11000);
     expect(create).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam")');
     expect(create).toContain("createNewStaffProfile(admin, {");
     expect(create).toContain('"powerhub_assign_existing_staff_with_permissions"');
