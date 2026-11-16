@@ -185,7 +185,8 @@ describe("E45 staff profile creation — explicit backend bootstrap", () => {
     const create=source.slice(start,start+5200);
     expect(create).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam")');
     expect(create).toContain("createNewStaffProfile(admin, {");
-    expect(create).toContain('admin.rpc("powerhub_assign_existing_staff"');
+    expect(create).toContain('"powerhub_assign_existing_staff_with_permissions"');
+    expect(create).toContain('input.permissions === undefined ? "powerhub_assign_existing_staff"');
     expect(create).toContain("compensateUnassignedStaffAuth(admin, {");
     expect(create).not.toContain('await admin.auth.admin.deleteUser(authData.user.id)');
     const profile=readFileSync("server/supabase-profile.ts","utf8");
