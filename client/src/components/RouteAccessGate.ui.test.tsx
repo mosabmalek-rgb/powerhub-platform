@@ -11,6 +11,9 @@ const state = vi.hoisted(() => ({
   loading: false,
   setLocation: vi.fn(),
   branchId: 1,
+  path: "/readings",
+  staffAccessQuery: { data: { role: "owner", permissions: ["manageGenerators", "recordReadings", "manageTeam"], usesPermissionOverride: false }, isPending: false, isError: false, refetch: vi.fn() },
+  documentationAccessQuery: { data: { allowed: true }, isPending: false, isError: false, refetch: vi.fn() },
   sitesQuery: { data: [{ id: 1 }] as { id: number }[] | undefined, isLoading: false, isError: false, refetch: vi.fn() },
   featureAccessQuery: { data: { support_chat: true, powerhub_ai_assistant: true } as Record<string, boolean> | undefined, isLoading: false, isError: false, refetch: vi.fn() },
   sitesUseQuery: vi.fn(),
@@ -22,18 +25,22 @@ const state = vi.hoisted(() => ({
 vi.mock("@/_core/hooks/useAuth", () => ({
   useAuth: () => ({ user: state.user, isAuthenticated: state.isAuthenticated, loading: state.loading, error: null, logout: vi.fn(), refresh: vi.fn(), hasSession: state.isAuthenticated, powerHubReachable: true }),
 }));
-vi.mock("wouter", () => ({ useLocation: () => ["/readings", state.setLocation] }));
+vi.mock("wouter", () => ({ useLocation: () => [state.path, state.setLocation] }));
 vi.mock("@/hooks/useBranchFilter", () => ({ useBranchFilter: () => ({ branchId: state.branchId }) }));
 vi.mock("@/lib/trpc", () => ({
   trpc: { powerhub: {
     sites: { list: { useQuery: (...args: unknown[]) => { state.sitesUseQuery(...args); return state.sitesQuery; } }, multiBranchAccess: { useQuery: (...args: unknown[]) => { state.multiBranchUseQuery(...args); return state.multiBranchQuery; } } },
-    staff: { myFeatureAccess: { useQuery: (...args: unknown[]) => { state.featureAccessUseQuery(...args); return state.featureAccessQuery; } } },
+    staff: { myFeatureAccess: { useQuery: (...args: unknown[]) => { state.featureAccessUseQuery(...args); return state.featureAccessQuery; } },
+      myAccess: { useQuery: () => state.staffAccessQuery } },
+    paymentDocumentation: { access: { useQuery: () => state.documentationAccessQuery } },
   } },
 }));
 
 afterEach(() => {
   cleanup();
-  state.user = null; state.isAuthenticated = false; state.loading = false; state.branchId = 1;
+  state.user = null; state.isAuthenticated = false; state.loading = false; state.branchId = 1; state.path = "/readings";
+  state.staffAccessQuery = { data: { role: "owner", permissions: ["manageGenerators", "recordReadings", "manageTeam"], usesPermissionOverride: false }, isPending: false, isError: false, refetch: vi.fn() };
+  state.documentationAccessQuery = { data: { allowed: true }, isPending: false, isError: false, refetch: vi.fn() };
   state.sitesQuery = { data: [{ id: 1 }], isLoading: false, isError: false, refetch: vi.fn() };
   state.featureAccessQuery = { data: { support_chat: true, powerhub_ai_assistant: true }, isLoading: false, isError: false, refetch: vi.fn() };
   state.multiBranchQuery = { data: {siteId:1,enabled:false}, isLoading:false, isFetching:false, isError:false };
@@ -41,17 +48,33 @@ afterEach(() => {
 });
 
 describe("RouteAccessGate", () => {
+  it("allows an approve-payment-documentation-only account to review, not to open reports", () => {
+    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.staffAccessQuery = {
+      data: { role: "accountant", permissions: ["approvePaymentDocumentation"], usesPermissionOverride: true },
+      isPending: false, isError: false, refetch: vi.fn(),
+    };
+    state.path = "/payment-documentation/review";
+    const view = render(<RouteAccessGate><p>توثيق الدفع فقط</p></RouteAccessGate>);
+    expect(screen.getByText("توثيق الدفع فقط")).toBeInTheDocument();
+    view.unmount();
+    state.path = "/reports";
+    render(<RouteAccessGate><p>تقارير محظورة</p></RouteAccessGate>);
+    expect(screen.queryByText("تقارير محظورة")).not.toBeInTheDocument();
+    expect(screen.getByText("هذه الصفحة ليست ضمن صلاحيات حسابك")).toBeInTheDocument();
+  });
+
   it("returns an unauthenticated visitor to login", async () => {
     render(<RouteAccessGate><p>تشغيل المولد</p></RouteAccessGate>);
     expect(screen.queryByText("تشغيل المولد")).not.toBeInTheDocument();
     await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/login"));
     expect(state.sitesUseQuery).not.toHaveBeenCalled();
   });
-  it("renders an authenticated generator operational route without feature tRPC context", () => {
+  it("renders an authorized generator operational route after checking branch capabilities", () => {
     state.user = { role: "user" }; state.isAuthenticated = true;
     render(<RouteAccessGate><p>تشغيل المولد</p></RouteAccessGate>);
     expect(screen.getByText("تشغيل المولد")).toBeInTheDocument();
-    expect(state.sitesUseQuery).not.toHaveBeenCalled();
+    expect(state.sitesUseQuery).toHaveBeenCalled();
   });
   it("prevents a generator entering platform admin route", async () => {
     state.user = { role: "user" }; state.isAuthenticated = true;
@@ -61,40 +84,40 @@ describe("RouteAccessGate", () => {
     expect(state.sitesUseQuery).not.toHaveBeenCalled();
   });
   it("allows chat only when server entitlement is true", () => {
-    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.user = { role: "user" }; state.isAuthenticated = true; state.path = "/support-chat";
     render(<RouteAccessGate featureKey="support_chat"><p>مركز الدردشة</p></RouteAccessGate>);
     expect(screen.getByText("مركز الدردشة")).toBeInTheDocument();
     expect(state.featureAccessUseQuery).toHaveBeenCalledWith({ siteId: 1 }, expect.objectContaining({ enabled: true }));
   });
   it("blocks chat when tenant entitlement is disabled", () => {
-    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.user = { role: "user" }; state.isAuthenticated = true; state.path = "/support-chat";
     state.featureAccessQuery = { data: { support_chat: false, powerhub_ai_assistant: true }, isLoading: false, isError: false, refetch: vi.fn() };
     render(<RouteAccessGate featureKey="support_chat"><p>مركز الدردشة</p></RouteAccessGate>);
     expect(screen.queryByText("مركز الدردشة")).not.toBeInTheDocument();
     expect(screen.getByText("الميزة غير متاحة لهذا الاشتراك")).toBeInTheDocument();
   });
   it("fails closed when AI entitlement cannot be loaded", () => {
-    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.user = { role: "user" }; state.isAuthenticated = true; state.path = "/support-chat";
     state.featureAccessQuery = { data: undefined, isLoading: false, isError: true, refetch: vi.fn() };
     render(<RouteAccessGate featureKey="powerhub_ai_assistant"><p>مساعد PowerHub</p></RouteAccessGate>);
     expect(screen.queryByText("مساعد PowerHub")).not.toBeInTheDocument();
     expect(screen.getByText("تعذر التحقق من إتاحة الميزة")).toBeInTheDocument();
   });
   it("uses the selected branch entitlement", () => {
-    state.user = { role: "user" }; state.isAuthenticated = true; state.branchId = 22;
+    state.user = { role: "user" }; state.isAuthenticated = true; state.branchId = 22; state.path = "/support-chat";
     state.sitesQuery = { data: [{ id: 11 }, { id: 22 }], isLoading: false, isError: false, refetch: vi.fn() };
     render(<RouteAccessGate featureKey="support_chat"><p>مركز الدردشة</p></RouteAccessGate>);
     expect(state.featureAccessUseQuery).toHaveBeenCalledWith({ siteId: 22 }, expect.objectContaining({ enabled: true }));
   });
   it("does not render feature content while sites are loading", () => {
-    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.user = { role: "user" }; state.isAuthenticated = true; state.path = "/support-chat";
     state.sitesQuery = { data: undefined, isLoading: true, isError: false, refetch: vi.fn() };
     render(<RouteAccessGate featureKey="support_chat"><p>مركز الدردشة</p></RouteAccessGate>);
     expect(screen.queryByText("مركز الدردشة")).not.toBeInTheDocument();
     expect(screen.getByText("جارٍ التحقق من إتاحة الميزة…")).toBeInTheDocument();
   });
   it("hides the multi-branch route whenever the subscription limit is one", () => {
-    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.user = { role: "user" }; state.isAuthenticated = true; state.path = "/branches";
     render(<RouteAccessGate multiBranchOnly><p>إدارة الأفرع</p></RouteAccessGate>);
     expect(screen.queryByText("إدارة الأفرع")).not.toBeInTheDocument();
     expect(screen.getByText("هذه الصفحة غير متاحة لهذا الاشتراك")).toBeInTheDocument();
@@ -102,7 +125,7 @@ describe("RouteAccessGate", () => {
   });
 
   it("never renders multi-branch content from an unknown or loading entitlement", () => {
-    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.user = { role: "user" }; state.isAuthenticated = true; state.path = "/branches";
     state.multiBranchQuery = { data: {siteId:1,enabled:true}, isLoading:false, isFetching:true, isError:false };
     const view = render(<RouteAccessGate multiBranchOnly><p>إدارة الأفرع</p></RouteAccessGate>);
     expect(screen.queryByText("إدارة الأفرع")).not.toBeInTheDocument();
@@ -115,7 +138,7 @@ describe("RouteAccessGate", () => {
   });
 
   it("allows the multi-site workspace only for the selected site and positive entitlement", () => {
-    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.user = { role: "user" }; state.isAuthenticated = true; state.path = "/branches";
     state.multiBranchQuery = { data: {siteId:1,enabled:true}, isLoading:false, isFetching:false, isError:false };
     const v = render(<RouteAccessGate multiBranchOnly><p>إدارة الأفرع</p></RouteAccessGate>);
     expect(screen.getByText("إدارة الأفرع")).toBeInTheDocument();
