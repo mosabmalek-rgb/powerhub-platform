@@ -49,4 +49,34 @@ describe("mobile subscriber Delta cursor security",()=>{
     expect(nextMobileDeltaCursor(state,80,false)).toMatchObject({mode:"delta",after:80});
     expect(()=>nextMobileDeltaCursor(state,81,true)).toThrowError("CURSOR_INVALID");
   });
+  it("reopens after 26 hours without bootstrap and transfers only changes after the frozen highwater",()=>{
+    const t=Date.now();
+    const old={...cursor,mode:"delta" as const,after:80,highwater:80,ceiling:0,issuedAt:t-26*60*60*1000};
+    const token=encodeMobileDeltaCursor(old);
+    expect(decodeMobileDeltaCursor(token,scope,t)).toEqual(old);
+    const reopened=decodeMobileDeltaCursor(token,scope,t);
+    // A new subscriber/reading event committed after the previous snapshot.
+    // The service raises the highwater from 80 to 82 only on a complete delta.
+    const page=nextMobileDeltaCursor({...reopened,highwater:82,issuedAt:t},81,true);
+    expect(page.mode).toBe("delta");
+    expect(page.after).toBe(81);
+    expect(page.highwater).toBe(82);
+    const final=nextMobileDeltaCursor(page,82,false);
+    expect(final.after).toBe(82);
+    expect(final.highwater).toBe(82);
+    // Same endpoint with no new committed changes cannot move backwards.
+    expect(nextMobileDeltaCursor(final,82,false).after).toBe(82);
+    expect(()=>nextMobileDeltaCursor(final,81,false)).toThrowError("CURSOR_INVALID");
+  });
+  it("rejects an incomplete bootstrap page that claims a cursor outside its fixed ceiling",()=>{
+    const initial={...cursor,highwater:12,ceiling:100,after:20};
+    expect(()=>nextMobileDeltaCursor(initial,101,true)).toThrowError("CURSOR_INVALID");
+    const within=nextMobileDeltaCursor(initial,99,true);
+    expect(within.highwater).toBe(12);
+    expect(within.ceiling).toBe(100);
+    expect(nextMobileDeltaCursor(within,100,false)).toMatchObject({
+      mode:"delta",after:12,highwater:12,ceiling:0
+    });
+  });
+
 });
