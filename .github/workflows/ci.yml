@@ -79,6 +79,9 @@ jobs:
       - name: D36 authenticated financial isolation harness (mock-transport regression)
         run: node --test scripts/d36-financial-tenant-isolation-http.test.mjs
 
+      - name: E44 authenticated non-owner financial role matrix (mock-transport regression)
+        run: node --test scripts/e44-financial-role-matrix-http.test.mjs
+
       - name: Run tests
         run: pnpm test > test-errors.log 2>&1
 
