@@ -2,7 +2,7 @@
 
 ## الهدف والنطاق
 
-يوثق هذا الملف واجهات REST الموجودة فعليًا في `server/mobile-api.ts`. لا يَعِد بمسارات رفع صور منفصلة أو مزامنة مجمعة؛ لم يتم تنفيذ تلك الواجهات بعد. يظل Android مسؤولًا عن Outbox محلي وإعادة إرسال كل قراءة منفردة باستخدام `clientOperationId` ثابت.
+يوثق هذا الملف واجهات REST الموجودة فعليًا في `server/mobile-api.ts`. يوثق واجهة v1 الأصلية، ويشير إلى إضافة E51 الاختيارية **غير المنشورة على Staging**: مسار Delta مشروط بترحيل جديد. لا يَعِد بمسار رفع صور منفصل أو رفع مدفوعات في التطبيق الميداني. يظل Android مسؤولًا عن Outbox محلي وإعادة إرسال كل قراءة منفردة باستخدام `clientOperationId` ثابت.
 
 ## قواعد عامة
 
@@ -27,7 +27,8 @@
 | GET | `/auth/me` | هوية المستخدم ونطاقه الحالي |
 | GET | `/reading-cycle` | إعداد وحدود الدورة |
 | GET | `/reading-cycle-sync-stats` | إحصاء القراءات المزامنة في نطاق زمني |
-| GET | `/subscribers` | قائمة المشتركين المسموح بها |
+| GET | `/subscribers` | قائمة المشتركين المسموح بها (Offset القديم للتوافق) |
+| GET | `/subscribers/delta` | Bootstrap ثم Delta بمؤشر موقّع محدد النطاق؛ يتطلب ترحيل E51 |
 | POST | `/readings` | تسجيل قراءة واحدة |
 | POST | `/sync-events` | تسجيل حدث مزامنة واحد (قياس/تدقيق فقط، وليس رفع دفعة) |
 
@@ -110,3 +111,29 @@ Content-Type: application/json
 ## مسؤولية Android / Room
 
 يحفظ Android على الأقل: `clientOperationId`, `status`, `retryCount`, `lastError`, `serverId`, `updatedAt`. لا يحذف العملية المحلية قبل إقرار الخادم. يجب ألا يعاد توليد UUID عند إعادة المحاولة، وألا يغيّر العميل payload لعملية سبق قبولها.
+
+## E51 — Mobile Subscriber Delta (مصدر الكود، غير مفعل على Staging حتى الترحيل المحمي)
+
+```text
+GET /api/mobile/v1/subscribers/delta?branchId=12&bootstrap=true&limit=100
+GET /api/mobile/v1/subscribers/delta?branchId=12&cursor=<opaque-signed-cursor>&limit=100
+```
+
+الخادم يحدد `tenantId`، `userId`، `sessionId` والفروع المسموحة من Bearer token والجلسة/عضوية الحساب، ولا يقبل `tenantId` في المدخلات. المؤشر موقّع بـHMAC مستقل النطاق، ويضم نوع الصفحة وtenant/user/branch/session ونسخة الصلاحيات وhighwater وafter، ويُرفض عند العبث أو إعادة استخدامه من حساب/فرع أو جلسة أخرى (400 أو 409). مدته القصوى 30 يوماً، و`requiresBootstrap=true` عند تغير النطاق أو انقضاء سجل الحذف.
+
+```json
+{
+  "tenantId": 10, "userId": 7, "branchId": 12,
+  "mode": "delta", "scopeVersion": "<sha256>",
+  "currentCycle": {"key":"2026-11","startAt":"...","endAt":"...","label":"..."},
+  "upserts": [], "deletes": [1001], "nextCursor": "<signed>",
+  "hasMore": false, "requiresBootstrap": false,
+  "serverTime": "2026-11-16T19:00:00.000Z", "transferredCount": 1
+}
+```
+
+- **Bootstrap:** يثبّت حدّ المشتركين الأولي `ceiling` وتسلسل السجل `highwater`. ما يحدث أثناء تنزيل الصفحات يُلتقط عبر Delta بعد انتهاء Bootstrap، وليس عبر ساعة Android. لا تعرض Android الصفحات الجزئية.
+- **Delta:** يقرأ `mobile_subscriber_change_log` بتسلسل رتيب من `after` إلى `highwater` ويعطي projection مباشرة للبيانات التي ما زالت مصرّحاً بها، وإلا `deletes` لإخفائها. يحافظ على تغييرات القراءات دون تغيير سجل المشترك، ونقل الفرع وتغيير الفني، مع re-bootstrap عند تغير صلاحية الفني أو إعداد التوزيع أو دورة القراءة.
+- **قواعد Room:** لا ينتقل `nextCursor` إلى المستوى المحلي إلا بعد تطبيق upserts/deletes مع المؤشر في معاملة Room واحدة، مع الحفاظ على `pending_readings` و`pending_payments` المرتبطتين بنطاق الحساب.
+- **حالة القراءة:** `hasReadingInCurrentCycle` و`currentCycleReading` تأتيان من الخادم. `synced` للقراءة الميدانية لا يثبت إلا بعد استلام معرّف القراءة من الخادم، ولا يعتبر تنزيل Delta إقراراً بإرسال Outbox.
+- **القيود الحالية:** رفع دفعات ميدانية لا توجد له واجهة مؤكدة في Mobile API v1؛ لذا تُحفظ الدفعات محلياً ولا تُعلن مزامنتها. سجل الحذف له حد احتفاظ **90 يوماً على الأقل** عبر إجراء تنقية صريح، ولا ينبغي افتراض وجود جدولة آلية للتنقية قبل إعدادها والتحقق منها. اختبارات Staging الحقيقية وقياسات الأداء مرتبطة بموافقة وتثبيت الترحيل E51.
