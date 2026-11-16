@@ -52,7 +52,8 @@ describe("E47 إنشاء حساب فرعي مع صلاحيات قابلة للت
     fireEvent.change(screen.getByPlaceholderText("accountant@example.com"),{target:{value:"staff@example.test"}});
     fireEvent.change(screen.getByLabelText("كلمة المرور المؤقتة"),{target:{value:"Temporary123!"}});
     fireEvent.click(screen.getByRole("button",{name:/إنشاء الحساب الفرعي بالصلاحيات المختارة/}));
-    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onCreate).toHaveBeenCalledWith({
       siteId:102,name:"محصل تجريبي",email:"staff@example.test",
       temporaryPassword:"Temporary123!",role:"collector",allBranches:true,
       permissions:["viewFinancialReports"],
