@@ -48,6 +48,13 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres e47_staff_permissions_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname e47_staff_permissions_test --set ON_ERROR_STOP=1 --file supabase/tests/e47_staff_custom_permissions_atomic.sql
 
+      - name: Verify E50 expanded staff permission updates, replay, concurrency and ACLs
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres e50_staff_permissions_test
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname e50_staff_permissions_test --set ON_ERROR_STOP=1 --file supabase/tests/e50_staff_expanded_permission_updates.sql
+
       - name: Verify release-tool ledger SQL round-trip on PostgreSQL 17
         env:
           PGHOST: 127.0.0.1
