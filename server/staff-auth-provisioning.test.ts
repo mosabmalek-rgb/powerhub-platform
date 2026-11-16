@@ -80,7 +80,8 @@ describe("E46 RPC discovery preflight", () => {
   it("accepts only the definitive missing-target rejection, without modifying data", async () => {
     const f=setup({ data:null, error:{ code:"P0001", message:"TARGET_USER_NOT_FOUND" } });
     await expect(assertStaffAssignmentRpcAvailable(f.admin, props)).resolves.toBeUndefined();
-    expect(f.rpc).toHaveBeenCalledExactlyOnceWith("powerhub_assign_existing_staff", {
+    expect(f.rpc).toHaveBeenCalledOnce();
+    expect(f.rpc).toHaveBeenCalledWith("powerhub_assign_existing_staff", {
       p_tenant_id:1,p_site_id:7,p_actor_user_id:55,p_target_user_id:-1,
       p_role:"accountant",p_all_branches:false,
     });
