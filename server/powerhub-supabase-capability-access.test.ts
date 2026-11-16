@@ -51,6 +51,15 @@ describe("B5.20 one-RPC fresh tenant/site authorization", () => {
     expect(state.rpc).toHaveBeenCalledTimes(1);
   });
 
+  it("does not advertise capabilities denied by platform policy in staff.myAccess", async () => {
+    state.policy = [{ role: "owner", capability: "viewInventory", is_allowed: false }];
+    const { resolveSupabaseSiteAccess } = await import("./powerhub-supabase");
+    const access = await resolveSupabaseSiteAccess(55, 7);
+    expect(access.permissions).not.toContain("viewInventory");
+    expect(access.permissions).toContain("viewInventoryReports");
+    expect(state.rpc).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects all capabilities denied by platform policy", async () => {
     state.policy = [
       { role: "owner", capability: "viewInventory", is_allowed: false },
