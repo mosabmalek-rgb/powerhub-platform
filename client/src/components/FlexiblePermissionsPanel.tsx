@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -40,6 +40,7 @@ export default function FlexiblePermissionsPanel({ siteId, staff, canManageTeam 
   const [profileId, setProfileId] = useState<number | null>(null);
   const [permissions, setPermissions] = useState<TenantCapability[]>([]);
   const [expandedPermissions, setExpandedPermissions] = useState<PowerCapability[]>([]);
+  const [expandedSelectionInitialized, setExpandedSelectionInitialized] = useState(false);
   const [customRoleId, setCustomRoleId] = useState<number | null>(null);
   const [editingRoleId, setEditingRoleId] = useState<number | undefined>();
   const [roleToDelete, setRoleToDelete] = useState<{ id: number; name: string } | null>(null);
@@ -64,6 +65,16 @@ export default function FlexiblePermissionsPanel({ siteId, staff, canManageTeam 
       ? customRoles.data?.find((role) => role.id === selected.profile.customRoleId)?.permissions ?? []
       : defaultCapabilitiesForRole(selected?.profile.role as PowerRole));
   const ownerCeiling = new Set(availableExpanded);
+  useEffect(() => {
+    if (!selected || expandedSelectionInitialized || selected.profile.permissions !== null ||
+      !selected.profile.customRoleId || !customRoles.isFetchedAfterMount) return;
+    const linkedRole = customRoles.data?.find((role) => role.id === selected.profile.customRoleId);
+    if (!linkedRole) return;
+    setExpandedPermissions(linkedRole.permissions.filter(
+      (right): right is PowerCapability => Object.prototype.hasOwnProperty.call(powerCapabilityLabels, right),
+    ));
+    setExpandedSelectionInitialized(true);
+  }, [selected, expandedSelectionInitialized, customRoles.isFetchedAfterMount, customRoles.data]);
   const existingUnknownRights = (originalRights ?? []).filter(
     (right) => !ownerCeiling.has(right as PowerCapability),
   );
@@ -73,6 +84,7 @@ export default function FlexiblePermissionsPanel({ siteId, staff, canManageTeam 
   // A profile whose stored rights exceed today's owner catalog cannot be
   // silently truncated by saving a partial list. A fresh catalog is mandatory.
   const expandedSaveBlocked = !selected || !expandedCatalogReady ||
+    !expandedSelectionInitialized ||
     Boolean(selected.profile.customRoleId && !customRoles.data) ||
     existingUnknownRights.length > 0 || proposedRightsOutsideCatalog ||
     !selected.profile.updatedAt;
@@ -80,6 +92,7 @@ export default function FlexiblePermissionsPanel({ siteId, staff, canManageTeam 
     onSuccess: async () => {
       setProfileId(null);
       setExpandedPermissions([]);
+      setExpandedSelectionInitialized(false);
       await utils.powerhub.staff.list.invalidate();
       toast.success("تم تحديث صلاحيات الحساب الموسعة.");
     },
@@ -90,7 +103,9 @@ export default function FlexiblePermissionsPanel({ siteId, staff, canManageTeam 
   if (!canManageTeam) return null;
   return <><Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="space-y-5 p-5">
     <div><h2 className="font-bold text-white">مصفوفة الصلاحيات المرنة</h2><p className="mt-1 text-sm leading-6 text-slate-400">اختر مستخدماً وحدد صلاحياته مباشرة، أو احفظ المجموعة كدور مخصص لاستخدامها مع حسابات أخرى.</p></div>
-    <div className="grid gap-3 md:grid-cols-[1fr_1fr]"><label className="text-xs text-slate-400">الحساب الفرعي<select aria-label="اختيار الحساب لتعديل الصلاحيات" value={profileId ?? ""} onChange={(event) => { const id = Number(event.target.value); const row = staff.find((item) => item.profile.id === id); setProfileId(id || null); setCustomRoleId(row?.profile.customRoleId ?? null); setPermissions(asTenantCapabilities(row?.profile.permissions ?? defaultCapabilitiesForRole(row?.profile.role as PowerRole)));
+    <div className="grid gap-3 md:grid-cols-[1fr_1fr]"><label className="text-xs text-slate-400">الحساب الفرعي<select aria-label="اختيار الحساب لتعديل الصلاحيات" value={profileId ?? ""} onChange={(event) => { const id = Number(event.target.value); const row = staff.find((item) => item.profile.id === id); setProfileId(id || null); setCustomRoleId(row?.profile.customRoleId ?? null);
+      setExpandedSelectionInitialized(Boolean(row && (row.profile.permissions !== null ||
+        !row.profile.customRoleId || customRoles.data?.some((role) => role.id === row.profile.customRoleId)))); setPermissions(asTenantCapabilities(row?.profile.permissions ?? defaultCapabilitiesForRole(row?.profile.role as PowerRole)));
       const effective = row?.profile.permissions ?? (
         row?.profile.customRoleId
           ? customRoles.data?.find((role) => role.id === row.profile.customRoleId)?.permissions ?? []
@@ -99,7 +114,13 @@ export default function FlexiblePermissionsPanel({ siteId, staff, canManageTeam 
       setExpandedPermissions((effective ?? []).filter(
         (right): right is PowerCapability => typeof right === "string" &&
           Object.prototype.hasOwnProperty.call(powerCapabilityLabels, right),
-      )); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر حساباً</option>{staff.filter((row) => row.profile.role !== "owner").map((row) => <option key={row.profile.id} value={row.profile.id}>{row.user.name || row.user.email || `حساب #${row.user.id}`}</option>)}</select></label><div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-400">تطبيق دور جاهز<select aria-label="تطبيق دور جاهز" value="" onChange={(event) => { const role = event.target.value as Exclude<PowerRole, "owner"> | ""; if (!role) return; setCustomRoleId(null); setPermissions(asTenantCapabilities(defaultCapabilitiesForRole(role))); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر دوراً جاهزاً</option>{Object.entries(powerRoleLabels).filter(([role]) => role !== "owner").map(([role,label]) => <option key={role} value={role}>{label}</option>)}</select></label><label className="text-xs text-slate-400">تطبيق دور محفوظ<select aria-label="تطبيق دور مخصص" value="" onChange={(event) => { const role = customRoles.data?.find((item) => String(item.id) === event.target.value); setCustomRoleId(role?.id ?? null); if (role) setPermissions(asTenantCapabilities(role.permissions)); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر دوراً مخصصاً</option>{customRoles.data?.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label></div></div>
+      )); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر حساباً</option>{staff.filter((row) => row.profile.role !== "owner").map((row) => <option key={row.profile.id} value={row.profile.id}>{row.user.name || row.user.email || `حساب #${row.user.id}`}</option>)}</select></label><div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-400">تطبيق دور جاهز<select aria-label="تطبيق دور جاهز" value="" onChange={(event) => { const role = event.target.value as Exclude<PowerRole, "owner"> | ""; if (!role) return; setCustomRoleId(null); setPermissions(asTenantCapabilities(defaultCapabilitiesForRole(role)));
+          if (selected) setExpandedPermissions(defaultCapabilitiesForRole(role).filter((right) => availableExpanded.includes(right))); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر دوراً جاهزاً</option>{Object.entries(powerRoleLabels).filter(([role]) => role !== "owner").map(([role,label]) => <option key={role} value={role}>{label}</option>)}</select></label><label className="text-xs text-slate-400">تطبيق دور محفوظ<select aria-label="تطبيق دور مخصص" value="" onChange={(event) => { const role = customRoles.data?.find((item) => String(item.id) === event.target.value); setCustomRoleId(role?.id ?? null); if (role) {
+            setPermissions(asTenantCapabilities(role.permissions));
+            if (selected) setExpandedPermissions(role.permissions.filter(
+              (right): right is PowerCapability => availableExpanded.includes(right as PowerCapability),
+            ));
+          } }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر دوراً مخصصاً</option>{customRoles.data?.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label></div></div>
     {selected && <section aria-label="تعديل الصلاحيات الموسعة للحساب" className="space-y-3">
       <p className="text-sm text-slate-300">الصلاحيات الفعلية للحساب — يمكنك سحب أي صلاحية أو إضافة صلاحية ضمن حقوق صاحب المولد المتاحة، دون إسقاط حقوق أخرى.</p>
       {!expandedCatalogReady && <p role="status" className="text-xs text-amber-200">
