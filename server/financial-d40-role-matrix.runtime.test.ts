@@ -214,6 +214,81 @@ describe("D40 financial-report role/capability matrix — code execution", () =>
   });
 });
 
+describe("E48 permission-only approval and tenant/site isolation — code execution", () => {
+  beforeEach(() => {
+    state.snapshots.clear();
+    state.error = null;
+    const base = snapshot(44, "accountant");
+    base.staff_profiles[0].permissions = ["approvePaymentDocumentation"];
+    state.snapshots.set(7, base);
+    state.rpc.mockReset().mockImplementation(async (
+      name: string, args: { p_user_id: number; p_site_id: number },
+    ) => {
+      if (name !== "powerhub_site_access_snapshot") throw new Error("UNEXPECTED_AUTH_RPC");
+      const value = state.snapshots.get(args.p_site_id);
+      return { data: state.error ? null : (value ? structuredClone(value) : null), error: state.error };
+    });
+  });
+
+  const approveOnly = async (siteId: number) => {
+    const { requireSupabaseSiteRole } = await import("./powerhub-supabase");
+    return requireSupabaseSiteRole(55, siteId, [], "approvePaymentDocumentation");
+  };
+  const collect = async (siteId: number) => {
+    const { requireSupabaseSiteRole } = await import("./powerhub-supabase");
+    return requireSupabaseSiteRole(55, siteId, [], "collectPayments");
+  };
+
+  it("permits approval without enabling collection or inheriting accountant defaults", async () => {
+    await expect(approveOnly(7)).resolves.toMatchObject({ role: "accountant", tenantId: 44 });
+    await expect(collect(7)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("denies the assigned staff on sibling and foreign tenant branches", async () => {
+    const sibling = snapshot(44);
+    sibling.staff_profiles = [];
+    state.snapshots.set(8, sibling);
+    const foreign = snapshot(88);
+    foreign.staff_profiles = [];
+    foreign.membership = null as any;
+    state.snapshots.set(9, foreign);
+    await expect(approveOnly(7)).resolves.toMatchObject({ tenantId: 44 });
+    await expect(approveOnly(8)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(approveOnly(9)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("allows an explicitly tenant-wide profile within its tenant, not outside", async () => {
+    const withinTenant = snapshot(44);
+    withinTenant.staff_profiles[0].site_id = null;
+    withinTenant.staff_profiles[0].permissions = ["approvePaymentDocumentation"];
+    state.snapshots.set(7, withinTenant);
+    state.snapshots.set(8, structuredClone(withinTenant));
+    const foreign = snapshot(88);
+    foreign.staff_profiles = [];
+    foreign.membership = null as any;
+    state.snapshots.set(9, foreign);
+    await expect(approveOnly(7)).resolves.toMatchObject({ tenantId: 44 });
+    await expect(approveOnly(8)).resolves.toMatchObject({ tenantId: 44 });
+    await expect(approveOnly(9)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("observes revocation on the next request and never reconstructs the role defaults", async () => {
+    await expect(approveOnly(7)).resolves.toMatchObject({ role: "accountant" });
+    const revoked = state.snapshots.get(7);
+    revoked.staff_profiles[0].permissions = [];
+    await expect(approveOnly(7)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed on a snapshot transport error, not stale approval grants", async () => {
+    await expect(approveOnly(7)).resolves.toMatchObject({ tenantId: 44 });
+    state.error = { message: "RPC unavailable" };
+    await expect(approveOnly(7)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(state.rpc).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("D40 HTTP financial route guards — source contract, not live HTTPS", () => {
   const source = readFileSync("server/powerhub.ts", "utf8");
   it.each([
