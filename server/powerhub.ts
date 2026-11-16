@@ -1868,6 +1868,7 @@ export const powerhubRouter = router({
         throw new TRPCError({ code: authError?.status === 422 ? "CONFLICT" : "BAD_REQUEST", message: authError?.message || "تعذر إنشاء حساب Supabase Auth." });
       }
 
+      let assignmentMayHaveCommitted = false;
       try {
         // Staff creation uses the same explicit Auth-to-public.users bootstrap model
         // as auth.me and generator-owner provisioning; no auth.users trigger exists.
@@ -1876,6 +1877,8 @@ export const powerhubRouter = router({
           email,
           name: input.name,
         });
+        // A network failure or malformed success response does not prove rollback.
+        assignmentMayHaveCommitted = true;
         const { data, error } = await admin.rpc("powerhub_assign_existing_staff", {
           p_tenant_id: access.tenantId,
           p_site_id: input.siteId,
@@ -1885,6 +1888,11 @@ export const powerhubRouter = router({
           p_all_branches: input.allBranches,
         });
         if (error || !data?.[0]) {
+          // Only a definitive server-side SQL rejection proves this
+          // assignment transaction rolled back and makes deletion eligible.
+          if (error && isDefinitivePostgresRpcFailure(error)) {
+            assignmentMayHaveCommitted = false;
+          }
           const errorText = `${error?.code ?? ""} ${error?.message ?? ""}`;
           if (errorText.includes("SUBACCOUNT_ROLE_NOT_ALLOWED")) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الدور غير مسموح للحسابات الفرعية وفق سياسة آدمن المنصة." });
           if (errorText.includes("SUBACCOUNT_LIMIT_REACHED")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "وصلت إلى الحد الأقصى للحسابات الفرعية في اشتراكك." });
@@ -1894,8 +1902,17 @@ export const powerhubRouter = router({
         }
         return { success: true, userId: profileUserId, profileId: Number(data[0].profile_id) };
       } catch (error) {
-        // The assignment RPC may have committed before a transport timeout.
-        // Do not cascade-delete the legitimate member and staff profile.
+        // A transport failure may arrive while the SQL call is still running:
+        // checking for a membership *now* cannot rule out a later commit.
+        // Keep Auth and its application profile for audited reconciliation.
+        if (assignmentMayHaveCommitted) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "نتيجة تعيين الحساب غير مؤكدة؛ احتُفظ بالحساب للمراجعة، ولا تُعِد إنشاءه قبل التحقق من سجل التدقيق.",
+          });
+        }
+        // A definite PostgreSQL rejection or pre-assignment failure is safe
+        // to compensate only after checking that no links were committed.
         try {
           await compensateUnassignedStaffAuth(admin, {
             authUserId: authData.user.id,
