@@ -10,8 +10,9 @@ import { toast } from "sonner";
 import { defaultCapabilitiesForRole, powerCapabilityLabels, powerRoleLabels, type PowerCapability, type PowerRole } from "@shared/powerhub-rbac";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { runWithStableOperationKey } from "@/lib/offline-operation-idempotency";
+import { delegableCapabilitiesForOwner } from "@shared/staff-permission-selection";
 
-type StaffRow = { profile: { id: number; role: string; permissions: string[] | null; customRoleId: number | null }; user: { id: number; name: string | null; email: string | null } };
+type StaffRow = { profile: { id: number; role: string; permissions: string[] | null; customRoleId: number | null; updatedAt: Date | string }; user: { id: number; name: string | null; email: string | null } };
 type TenantCapability = Extract<PowerCapability,
   | "manageSubscribers" | "manageGenerators" | "recordReadings" | "accessFieldApp"
   | "approveReadings" | "manageTariffs" | "issueInvoices" | "collectPayments"
@@ -38,26 +39,99 @@ export default function FlexiblePermissionsPanel({ siteId, staff, canManageTeam 
   const auth = useAuth();
   const [profileId, setProfileId] = useState<number | null>(null);
   const [permissions, setPermissions] = useState<TenantCapability[]>([]);
+  const [expandedPermissions, setExpandedPermissions] = useState<PowerCapability[]>([]);
   const [customRoleId, setCustomRoleId] = useState<number | null>(null);
   const [editingRoleId, setEditingRoleId] = useState<number | undefined>();
   const [roleToDelete, setRoleToDelete] = useState<{ id: number; name: string } | null>(null);
   const [roleName, setRoleName] = useState("");
   const [roleDescription, setRoleDescription] = useState("");
   const customRoles = trpc.powerhub.staff.customRoles.useQuery({ siteId }, { enabled: Boolean(siteId && canManageTeam) });
+  const permissionCatalog = trpc.powerhub.staff.permissionCatalog.useQuery({ siteId }, {
+    enabled: Boolean(siteId && canManageTeam), refetchOnMount: "always",
+    refetchOnWindowFocus: true, refetchOnReconnect: true,
+  });
+  const availableExpanded = useMemo(
+    () => delegableCapabilitiesForOwner(permissionCatalog.data ?? []),
+    [permissionCatalog.data],
+  );
+  const expandedCatalogReady = permissionCatalog.isFetchedAfterMount === true &&
+    !permissionCatalog.isPending && !permissionCatalog.isError && !permissionCatalog.isFetching;
+
   const selected = useMemo(() => staff.find((row) => row.profile.id === profileId), [staff, profileId]);
   const permissionChanges = trpc.powerhub.staff.permissionChanges.useQuery({ siteId, userId: selected?.user.id }, { enabled: Boolean(siteId && canManageTeam && selected?.user.id) });
-  // This legacy editor exposes only its older capability subset. E47 accounts
-  // may have expanded inventory/report permissions; never silently erase them.
-  const hasExpandedCapabilities = Boolean(selected && Array.isArray(selected.profile.permissions) &&
-    selected.profile.permissions.some((permission) => !tenantCapabilitySet.has(permission)));
-  const update = trpc.powerhub.staff.updatePermissions.useMutation({ onSuccess: async () => { await utils.powerhub.staff.list.invalidate(); toast.success("تم حفظ الصلاحيات المخصصة للحساب."); }, onError: (error) => toast.error(error.message) });
+  const originalRights = selected?.profile.permissions ??
+    (selected?.profile.customRoleId
+      ? customRoles.data?.find((role) => role.id === selected.profile.customRoleId)?.permissions ?? []
+      : defaultCapabilitiesForRole(selected?.profile.role as PowerRole));
+  const ownerCeiling = new Set(availableExpanded);
+  const existingUnknownRights = (originalRights ?? []).filter(
+    (right) => !ownerCeiling.has(right as PowerCapability),
+  );
+  const proposedRightsOutsideCatalog = expandedPermissions.some(
+    (right) => !ownerCeiling.has(right),
+  );
+  // A profile whose stored rights exceed today's owner catalog cannot be
+  // silently truncated by saving a partial list. A fresh catalog is mandatory.
+  const expandedSaveBlocked = !selected || !expandedCatalogReady ||
+    Boolean(selected.profile.customRoleId && !customRoles.data) ||
+    existingUnknownRights.length > 0 || proposedRightsOutsideCatalog ||
+    !selected.profile.updatedAt;
+  const update = trpc.powerhub.staff.updateExpandedPermissions.useMutation({
+    onSuccess: async () => {
+      setProfileId(null);
+      setExpandedPermissions([]);
+      await utils.powerhub.staff.list.invalidate();
+      toast.success("تم تحديث صلاحيات الحساب الموسعة.");
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const saveRole = trpc.powerhub.staff.saveCustomRole.useMutation({ onSuccess: async () => { await utils.powerhub.staff.customRoles.invalidate(); setEditingRoleId(undefined); setRoleName(""); setRoleDescription(""); toast.success("تم حفظ الدور المخصص وإتاحته لإعادة الاستخدام."); }, onError: (error) => toast.error(error.message) });
   const deleteRole = trpc.powerhub.staff.deleteCustomRole.useMutation({ onSuccess: async () => { await utils.powerhub.staff.customRoles.invalidate(); toast.success("تم حذف الدور المخصص."); }, onError: (error) => toast.error(error.message) });
   if (!canManageTeam) return null;
   return <><Card className="border-[#F5B800]/20 bg-[#111823] shadow-panel"><CardContent className="space-y-5 p-5">
     <div><h2 className="font-bold text-white">مصفوفة الصلاحيات المرنة</h2><p className="mt-1 text-sm leading-6 text-slate-400">اختر مستخدماً وحدد صلاحياته مباشرة، أو احفظ المجموعة كدور مخصص لاستخدامها مع حسابات أخرى.</p></div>
-    <div className="grid gap-3 md:grid-cols-[1fr_1fr]"><label className="text-xs text-slate-400">الحساب الفرعي<select aria-label="اختيار الحساب لتعديل الصلاحيات" value={profileId ?? ""} onChange={(event) => { const id = Number(event.target.value); const row = staff.find((item) => item.profile.id === id); setProfileId(id || null); setCustomRoleId(row?.profile.customRoleId ?? null); setPermissions(asTenantCapabilities(row?.profile.permissions ?? defaultCapabilitiesForRole(row?.profile.role as PowerRole))); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر حساباً</option>{staff.filter((row) => row.profile.role !== "owner").map((row) => <option key={row.profile.id} value={row.profile.id}>{row.user.name || row.user.email || `حساب #${row.user.id}`}</option>)}</select></label><div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-400">تطبيق دور جاهز<select aria-label="تطبيق دور جاهز" value="" onChange={(event) => { const role = event.target.value as Exclude<PowerRole, "owner"> | ""; if (!role) return; setCustomRoleId(null); setPermissions(asTenantCapabilities(defaultCapabilitiesForRole(role))); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر دوراً جاهزاً</option>{Object.entries(powerRoleLabels).filter(([role]) => role !== "owner").map(([role,label]) => <option key={role} value={role}>{label}</option>)}</select></label><label className="text-xs text-slate-400">تطبيق دور محفوظ<select aria-label="تطبيق دور مخصص" value="" onChange={(event) => { const role = customRoles.data?.find((item) => String(item.id) === event.target.value); setCustomRoleId(role?.id ?? null); if (role) setPermissions(asTenantCapabilities(role.permissions)); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر دوراً مخصصاً</option>{customRoles.data?.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label></div></div>
-    {selected && <><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{capabilities.map((capability) => <label key={capability} className="flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-3 py-2 text-sm text-slate-200 hover:border-[#F5B800]/50"><input type="checkbox" checked={permissions.includes(capability)} onChange={(event) => setPermissions((current) => event.target.checked ? Array.from(new Set([...current, capability])) : current.filter((item) => item !== capability))} className="h-4 w-4 accent-[#F5B800]" />{powerCapabilityLabels[capability]}</label>)}</div>{hasExpandedCapabilities && <p role="alert" className="rounded-xl border border-amber-400/20 bg-amber-400/[.05] px-3 py-2 text-xs text-amber-200">هذا الحساب يملك صلاحيات موسعة خارج القائمة القديمة؛ حُظر الحفظ من هذه اللوحة لتجنب فقدانها. احتفظ بالصلاحيات الحالية حتى يتاح محرر شامل لها.</p>}<Button type="button" disabled={update.isPending || !selected || hasExpandedCapabilities} onClick={() => update.mutate({ siteId, profileId: selected.profile.id, customRoleId, permissions })} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">{update.isPending ? "جارٍ الحفظ..." : "حفظ صلاحيات الحساب"}</Button></>}
+    <div className="grid gap-3 md:grid-cols-[1fr_1fr]"><label className="text-xs text-slate-400">الحساب الفرعي<select aria-label="اختيار الحساب لتعديل الصلاحيات" value={profileId ?? ""} onChange={(event) => { const id = Number(event.target.value); const row = staff.find((item) => item.profile.id === id); setProfileId(id || null); setCustomRoleId(row?.profile.customRoleId ?? null); setPermissions(asTenantCapabilities(row?.profile.permissions ?? defaultCapabilitiesForRole(row?.profile.role as PowerRole)));
+      const effective = row?.profile.permissions ?? (
+        row?.profile.customRoleId
+          ? customRoles.data?.find((role) => role.id === row.profile.customRoleId)?.permissions ?? []
+          : defaultCapabilitiesForRole(row?.profile.role as PowerRole)
+      );
+      setExpandedPermissions((effective ?? []).filter(
+        (right): right is PowerCapability => typeof right === "string" &&
+          Object.prototype.hasOwnProperty.call(powerCapabilityLabels, right),
+      )); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر حساباً</option>{staff.filter((row) => row.profile.role !== "owner").map((row) => <option key={row.profile.id} value={row.profile.id}>{row.user.name || row.user.email || `حساب #${row.user.id}`}</option>)}</select></label><div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-slate-400">تطبيق دور جاهز<select aria-label="تطبيق دور جاهز" value="" onChange={(event) => { const role = event.target.value as Exclude<PowerRole, "owner"> | ""; if (!role) return; setCustomRoleId(null); setPermissions(asTenantCapabilities(defaultCapabilitiesForRole(role))); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر دوراً جاهزاً</option>{Object.entries(powerRoleLabels).filter(([role]) => role !== "owner").map(([role,label]) => <option key={role} value={role}>{label}</option>)}</select></label><label className="text-xs text-slate-400">تطبيق دور محفوظ<select aria-label="تطبيق دور مخصص" value="" onChange={(event) => { const role = customRoles.data?.find((item) => String(item.id) === event.target.value); setCustomRoleId(role?.id ?? null); if (role) setPermissions(asTenantCapabilities(role.permissions)); }} className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-[#0d1117] px-3 text-sm text-white"><option value="">اختر دوراً مخصصاً</option>{customRoles.data?.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label></div></div>
+    {selected && <section aria-label="تعديل الصلاحيات الموسعة للحساب" className="space-y-3">
+      <p className="text-sm text-slate-300">الصلاحيات الفعلية للحساب — يمكنك سحب أي صلاحية أو إضافة صلاحية ضمن حقوق صاحب المولد المتاحة، دون إسقاط حقوق أخرى.</p>
+      {!expandedCatalogReady && <p role="status" className="text-xs text-amber-200">
+        {permissionCatalog.isError ? "تعذر التحقق من صلاحيات المالك؛ الحفظ معطّل." : "جارٍ التحقق من صلاحيات المالك الحالية…"}
+      </p>}
+      {expandedCatalogReady && <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {availableExpanded.map((capability) => <label key={capability}
+          className="flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/[.025] px-3 py-2 text-sm text-slate-200 hover:border-[#F5B800]/50">
+          <input type="checkbox" checked={expandedPermissions.includes(capability)}
+            onChange={(event) => setExpandedPermissions((current) => event.target.checked
+              ? [...new Set([...current, capability])]
+              : current.filter((item) => item !== capability))}
+            className="h-4 w-4 accent-[#F5B800]" />
+          {powerCapabilityLabels[capability]}
+        </label>)}
+      </div>}
+      {expandedCatalogReady && existingUnknownRights.length > 0 &&
+        <p role="alert" className="rounded-xl border border-amber-400/20 bg-amber-400/[.05] px-3 py-2 text-xs text-amber-200">
+          هذا الحساب يحتوي صلاحيات غير متاحة حالياً للتفويض من صاحب المولد؛ لن تُحذف ضمنيًا. يلزم مراجعة نطاقها قبل إجراء أي حفظ.
+        </p>}
+      <Button type="button" disabled={update.isPending || expandedSaveBlocked}
+        onClick={() => {
+          if (!selected || expandedSaveBlocked) return;
+          const updatedAt = selected.profile.updatedAt instanceof Date
+            ? selected.profile.updatedAt.toISOString() : new Date(selected.profile.updatedAt).toISOString();
+          update.mutate({ siteId, profileId: selected.profile.id, customRoleId,
+            expectedUpdatedAt: updatedAt, permissions: expandedPermissions });
+        }}
+        className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">
+        {update.isPending ? "جارٍ الحفظ..." : "حفظ صلاحيات الحساب"}
+      </Button>
+    </section>}
     <div className="rounded-2xl border border-white/10 bg-white/[.018] p-4"><h3 className="font-bold text-white">حفظ المجموعة كدور مخصص</h3><div className="mt-3 grid gap-3 md:grid-cols-2"><Input value={roleName} onChange={(event) => setRoleName(event.target.value)} placeholder="اسم الدور، مثال: محصل رئيسي" className="border-white/10 bg-[#0d1117] text-white" /><Textarea value={roleDescription} onChange={(event) => setRoleDescription(event.target.value)} placeholder="وصف اختياري" className="border-white/10 bg-[#0d1117] text-white" /></div><div className="mt-3 flex flex-wrap gap-2"><Button type="button" disabled={!roleName.trim() || !permissions.length || saveRole.isPending} onClick={() => {
         const payload = { siteId, id: editingRoleId, name: roleName.trim(), description: roleDescription.trim() || undefined, permissions };
         if (editingRoleId) { saveRole.mutate(payload); return; }
