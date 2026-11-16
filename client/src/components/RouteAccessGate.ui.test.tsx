@@ -12,8 +12,8 @@ const state = vi.hoisted(() => ({
   setLocation: vi.fn(),
   branchId: 1,
   path: "/readings",
-  staffAccessQuery: { data: { role: "owner", permissions: ["manageGenerators", "recordReadings", "manageTeam"], usesPermissionOverride: false }, isPending: false, isError: false, refetch: vi.fn() },
-  documentationAccessQuery: { data: { allowed: true }, isPending: false, isError: false, refetch: vi.fn() },
+  staffAccessQuery: { data: { role: "owner", permissions: ["manageGenerators", "recordReadings", "manageTeam"], usesPermissionOverride: false }, isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn() },
+  documentationAccessQuery: { data: { allowed: true }, isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn() },
   sitesQuery: { data: [{ id: 1 }] as { id: number }[] | undefined, isLoading: false, isError: false, refetch: vi.fn() },
   featureAccessQuery: { data: { support_chat: true, powerhub_ai_assistant: true } as Record<string, boolean> | undefined, isLoading: false, isError: false, refetch: vi.fn() },
   sitesUseQuery: vi.fn(),
@@ -39,8 +39,8 @@ vi.mock("@/lib/trpc", () => ({
 afterEach(() => {
   cleanup();
   state.user = null; state.isAuthenticated = false; state.loading = false; state.branchId = 1; state.path = "/readings";
-  state.staffAccessQuery = { data: { role: "owner", permissions: ["manageGenerators", "recordReadings", "manageTeam"], usesPermissionOverride: false }, isPending: false, isError: false, refetch: vi.fn() };
-  state.documentationAccessQuery = { data: { allowed: true }, isPending: false, isError: false, refetch: vi.fn() };
+  state.staffAccessQuery = { data: { role: "owner", permissions: ["manageGenerators", "recordReadings", "manageTeam"], usesPermissionOverride: false }, isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn() };
+  state.documentationAccessQuery = { data: { allowed: true }, isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn() };
   state.sitesQuery = { data: [{ id: 1 }], isLoading: false, isError: false, refetch: vi.fn() };
   state.featureAccessQuery = { data: { support_chat: true, powerhub_ai_assistant: true }, isLoading: false, isError: false, refetch: vi.fn() };
   state.multiBranchQuery = { data: {siteId:1,enabled:false}, isLoading:false, isFetching:false, isError:false };
@@ -52,7 +52,7 @@ describe("RouteAccessGate", () => {
     state.user = { role: "user" }; state.isAuthenticated = true;
     state.staffAccessQuery = {
       data: { role: "accountant", permissions: ["approvePaymentDocumentation"], usesPermissionOverride: true },
-      isPending: false, isError: false, refetch: vi.fn(),
+      isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn(),
     };
     state.path = "/payment-documentation/review";
     const view = render(<RouteAccessGate><p>توثيق الدفع فقط</p></RouteAccessGate>);
@@ -62,6 +62,77 @@ describe("RouteAccessGate", () => {
     render(<RouteAccessGate><p>تقارير محظورة</p></RouteAccessGate>);
     expect(screen.queryByText("تقارير محظورة")).not.toBeInTheDocument();
     expect(screen.getByText("هذه الصفحة ليست ضمن صلاحيات حسابك")).toBeInTheDocument();
+  });
+
+  it("holds an approval-only route behind a fresh staff access response even when cached rights allow it", () => {
+    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.path = "/payment-documentation/review";
+    state.staffAccessQuery = {
+      data: { role: "accountant", permissions: ["approvePaymentDocumentation"], usesPermissionOverride: true },
+      isPending: false, isError: false, isFetchedAfterMount: false, refetch: vi.fn(),
+    };
+    const view = render(<RouteAccessGate><p>protected review</p></RouteAccessGate>);
+    expect(screen.queryByText("protected review")).not.toBeInTheDocument();
+    expect(screen.getByText("جارٍ التحقق من صلاحيات الصفحة…")).toBeInTheDocument();
+
+    // A fresh server snapshot revokes the only grant while the component is mounted.
+    state.staffAccessQuery = {
+      data: { role: "accountant", permissions: [], usesPermissionOverride: true },
+      isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn(),
+    };
+    view.rerender(<RouteAccessGate><p>protected review</p></RouteAccessGate>);
+    expect(screen.queryByText("protected review")).not.toBeInTheDocument();
+    expect(screen.getByText("هذه الصفحة ليست ضمن صلاحيات حسابك")).toBeInTheDocument();
+  });
+
+  it("requires fresh payment-documentation entitlement and fails closed if the feature was disabled", () => {
+    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.path = "/payment-documentation/review";
+    state.staffAccessQuery = {
+      data: { role: "collector", permissions: ["approvePaymentDocumentation"], usesPermissionOverride: true },
+      isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn(),
+    };
+    state.documentationAccessQuery = {
+      data: { allowed: true }, isPending: false, isError: false, isFetchedAfterMount: false, refetch: vi.fn(),
+    };
+    const view = render(<RouteAccessGate><p>protected review</p></RouteAccessGate>);
+    expect(screen.queryByText("protected review")).not.toBeInTheDocument();
+    expect(screen.getByText("جارٍ التحقق من صلاحيات الصفحة…")).toBeInTheDocument();
+    state.documentationAccessQuery = {
+      data: { allowed: false }, isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn(),
+    };
+    view.rerender(<RouteAccessGate><p>protected review</p></RouteAccessGate>);
+    expect(screen.queryByText("protected review")).not.toBeInTheDocument();
+    expect(screen.getByText("هذه الصفحة ليست ضمن صلاحيات حسابك")).toBeInTheDocument();
+  });
+
+  it.each([
+    "/payment-documentation", "/reports", "/collections", "/invoices",
+    "/settings", "/inventory", "/workspace", "/financial-dashboard",
+  ])("blocks direct navigation to %s for an approval-only customized employee", (path) => {
+    state.user = { role: "user" }; state.isAuthenticated = true;
+    state.path = path;
+    state.staffAccessQuery = {
+      data: { role: "accountant", permissions: ["approvePaymentDocumentation"], usesPermissionOverride: true },
+      isPending: false, isError: false, isFetchedAfterMount: true, refetch: vi.fn(),
+    };
+    render(<RouteAccessGate><p>sensitive page</p></RouteAccessGate>);
+    expect(screen.queryByText("sensitive page")).not.toBeInTheDocument();
+    if (path === "/workspace")
+      expect(state.setLocation).toHaveBeenCalledWith("/payment-documentation/review");
+    else
+      expect(screen.getByText("هذه الصفحة ليست ضمن صلاحيات حسابك")).toBeInTheDocument();
+  });
+
+  it("never renders from stale permissions after a failed live authorization check", () => {
+    state.user = { role: "user" }; state.isAuthenticated = true; state.path = "/reports";
+    state.staffAccessQuery = {
+      data: { role: "accountant", permissions: ["viewFinancialReports"], usesPermissionOverride: true },
+      isPending: false, isError: true, isFetchedAfterMount: false, refetch: vi.fn(),
+    };
+    render(<RouteAccessGate><p>sensitive report</p></RouteAccessGate>);
+    expect(screen.queryByText("sensitive report")).not.toBeInTheDocument();
+    expect(screen.getByText("تعذر التحقق من الصلاحيات")).toBeInTheDocument();
   });
 
   it("returns an unauthenticated visitor to login", async () => {
