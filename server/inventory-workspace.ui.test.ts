@@ -319,9 +319,11 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain("powerhub_inventory_list_stock_movement_report");
     expect(router).toContain("listInventoryReportWarehouses: protectedProcedure");
     expect(reports).toContain("listInventoryReportWarehouses.useQuery");
-    expect(menuAccess).toContain('"/inventory": { capabilities: [');
+    expect(menuAccess).toContain('"/inventory": { capabilities: [...INVENTORY_CAPABILITIES');
     expect(menuAccess).toContain('"viewInventory", "viewInventoryReports", "viewSuppliers", "viewPurchases"');
-    expect(menuAccess).toContain('"receiveInventory", "manageSupplierPayments", "viewSupplierLedger"');
+    for (const capability of ["receiveInventory", "manageSupplierPayments", "viewSupplierLedger"]) {
+      expect(menuAccess).toContain(`"${capability}"`);
+    }
     expect(roleTests).toContain('tenantMenuRouteAllowed("/inventory", "viewer", ["manageSupplierPayments"], true)');
     expect(roleTests).toContain('tenantMenuRouteAllowed("/inventory", "viewer", ["viewInventoryReports"], true)');
     expect(migration).toContain("p_before_occurred_at");
