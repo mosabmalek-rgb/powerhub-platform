@@ -220,8 +220,13 @@ async function resolveSupabaseSiteAccessDetails(userId: number, siteId: number):
 }
 
 export async function resolveSupabaseSiteAccess(userId: number, siteId: number): Promise<{ role: PowerRole; permissions: PowerCapability[]; tenantId: number; usesPermissionOverride: boolean }> {
-  const { role, permissions, tenantId, usesPermissionOverride } = await resolveSupabaseSiteAccessDetails(userId, siteId);
-  return { role, permissions, tenantId, usesPermissionOverride };
+  const { role, permissions, tenantId, usesPermissionOverride, deniedCapabilities } =
+    await resolveSupabaseSiteAccessDetails(userId, siteId);
+  // Client navigation must reflect the same platform policy DENYs that
+  // requireSupabaseSiteRole enforces on every server operation.
+  const policyDeny = new Set(deniedCapabilities);
+  return { role, permissions: permissions.filter((capability) => !policyDeny.has(capability)),
+    tenantId, usesPermissionOverride };
 }
 
 export async function requireSupabaseSiteRole(userId: number, siteId: number, allowed: PowerRole[], capability?: PowerCapability) {
