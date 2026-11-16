@@ -2,6 +2,34 @@ import type { supabaseAdmin } from "./supabase-admin";
 
 type Admin = ReturnType<typeof supabaseAdmin>;
 
+/**
+ * Detect a stale/missing PostgREST function before creating an Auth identity.
+ * The negative target ID cannot exist in our generated positive-ID domain, so
+ * the ordinary RPC must exit at TARGET_USER_NOT_FOUND without mutating data.
+ * A 404/PGRST202, bad signature or unexpected response fails closed.
+ */
+export async function assertStaffAssignmentRpcAvailable(
+  admin: Admin,
+  input: { tenantId: number; siteId: number; actorUserId: number; role: string; allBranches: boolean },
+): Promise<void> {
+  let result: Awaited<ReturnType<typeof admin.rpc>>;
+  try {
+    result = await admin.rpc("powerhub_assign_existing_staff", {
+      p_tenant_id: input.tenantId,
+      p_site_id: input.siteId,
+      p_actor_user_id: input.actorUserId,
+      p_target_user_id: -1,
+      p_role: input.role,
+      p_all_branches: input.allBranches,
+    });
+  } catch {
+    throw new Error("STAFF_ASSIGNMENT_RPC_UNAVAILABLE");
+  }
+  if (result.error?.code === "P0001" &&
+      String(result.error.message ?? "").includes("TARGET_USER_NOT_FOUND")) return;
+  throw new Error("STAFF_ASSIGNMENT_RPC_UNAVAILABLE");
+}
+
 export class StaffAuthRecoveryRequired extends Error {
   constructor(public readonly reason: "UNVERIFIED_DATABASE_STATE" | "ASSIGNMENT_MAY_HAVE_COMMITTED" | "AUTH_COMPENSATION_FAILED") {
     super(reason);
