@@ -37,10 +37,29 @@ export async function loadMobileDeltaScope(tenantId: number, userId: number, bra
       !profiles.data?.some((row) => row.site_id === null || Number(row.site_id) === branchId)) {
     throw new Error("MOBILE_DELTA_SCOPE_NOT_AVAILABLE");
   }
+  const profileIds=(profiles.data??[]).map(x=>Number(x.id)).filter(Number.isSafeInteger);
+  const customIds=(profiles.data??[]).map(x=>Number(x.custom_role_id)).filter(x=>Number.isSafeInteger(x)&&x>0);
+  const [overrides,customRoles,policies]=await Promise.all([
+    profileIds.length?admin.from("staff_profile_capability_overrides")
+      .select("profile_id,capability,is_allowed")
+      .eq("tenant_id",tenantId).in("profile_id",profileIds)
+      .order("profile_id",{ascending:true}).order("capability",{ascending:true})
+      :Promise.resolve({data:[],error:null}),
+    customIds.length?admin.from("custom_permission_roles")
+      .select("id,permissions,updated_at,is_active").eq("tenant_id",tenantId)
+      .in("id",customIds).order("id",{ascending:true})
+      :Promise.resolve({data:[],error:null}),
+    admin.from("platform_role_policies").select("role,capability,is_allowed")
+      .eq("role","technician").order("capability",{ascending:true}),
+  ]);
+  checkDb(overrides.error,"OVERRIDES");checkDb(customRoles.error,"CUSTOM_ROLES");
+  checkDb(policies.error,"ROLE_POLICY");
   const scopeVersion = mobileDeltaScopeVersion({
     tenantId, userId, branchId, member: member.data,
     site: site.data, profiles: profiles.data,
     distribution: distribution.data ?? null,
+    staffOverrides:overrides.data??[],customRoles:customRoles.data??[],
+    rolePolicies:policies.data??[],
   });
   return { scopeVersion, distributionEnabled: distribution.data?.is_enabled === true };
 }
