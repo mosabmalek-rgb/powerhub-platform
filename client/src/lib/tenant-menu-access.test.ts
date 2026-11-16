@@ -85,6 +85,39 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/payment-documentation/review", "collector", ["collectPayments"], true)).toBe(false);
   });
 
+  it.each(["accountant", "collector", "technician", "manager", "viewer"] as const)(
+    "%s with only approval permission sees documentation review, never role default tabs",
+    (role) => {
+      const rights = ["approvePaymentDocumentation"] as const;
+      expect(tenantMenuRouteAllowed("/payment-documentation/review", role, rights, true)).toBe(true);
+      expect(firstPermittedTenantRoute(role, [...rights], true)).toBe("/payment-documentation/review");
+      for (const path of ["/workspace", "/invoices", "/collections", "/readings", "/reports", "/subscribers", "/inventory", "/staff"]) {
+        expect(tenantMenuRouteAllowed(path, role, rights, true), role + ": " + path).toBe(false);
+      }
+    },
+  );
+
+  it.each(["accountant", "collector", "technician", "manager", "viewer"] as const)(
+    "%s with a deliberately empty override has no operational landing page",
+    (role) => {
+      expect(firstPermittedTenantRoute(role, [], true)).toBeNull();
+      for (const path of ["/workspace", "/payment-documentation/review", "/invoices", "/collections", "/readings", "/reports"]) {
+        expect(tenantMenuRouteAllowed(path, role, [], true), role + ": " + path).toBe(false);
+      }
+      expect(tenantMenuRouteAllowed("/profile", role, [], true)).toBe(true);
+    },
+  );
+
+  it("switches access immediately when explicit permissions are removed or replaced", () => {
+    const old = ["approvePaymentDocumentation"] as const;
+    const next = ["recordReadings"] as const;
+    expect(tenantMenuRouteAllowed("/payment-documentation/review", "accountant", old, true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/payment-documentation/review", "accountant", next, true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/readings", "accountant", next, true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/readings", "accountant", [], true)).toBe(false);
+    expect(firstPermittedTenantRoute("accountant", [], true)).toBeNull();
+  });
+
   it("normalizes dynamic detail routes without skipping their authorization rules", () => {
     expect(canonicalTenantRoute("/mobile-sync/readings/321")).toBe("/mobile-sync");
     expect(canonicalTenantRoute("/subscriber-statement/41?tab=payment")).toBe("/subscriber-statement");
