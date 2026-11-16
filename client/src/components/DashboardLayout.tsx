@@ -319,7 +319,9 @@ function DashboardLayoutContent({
       if (item.path === "/payment-documentation/review") return paymentDocumentationAccess.data?.allowed === true &&
         !paymentDocumentationAccess.isError;
       return true;
-    }),
+    }).map((item) => item.path === "/payment-documentation/review" &&
+      displayUser.role !== "admin" && activeTenantAccess?.role !== "owner"
+      ? { ...item, label: "توثيق الدفع" } : item),
   })).filter((group) => group.items.length > 0);
   const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
   const isMobile = useIsMobile();
