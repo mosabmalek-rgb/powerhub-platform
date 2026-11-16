@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { sumKnownFinancialAmounts } from "@/lib/financial-known-amounts";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw } from "lucide-react";
 import FinancialOpeningEvidenceWorkspace from "./FinancialOpeningEvidenceWorkspace";
@@ -344,7 +345,7 @@ export default function FinancialGLAuditPanel({
               <p>التكلفة المباشرة: {b1Amount(b1Income.directServiceCost)}</p>
               <p>مجمل النتيجة: {b1Amount(b1Income.grossResult)}</p>
               <p>الأجور: {b1Amount(b1Income.wages)}</p>
-              <p>الإهلاك والمخصصات: {b1Amount((Number(b1Income.depreciation)||0)+(Number(b1Income.provisions)||0))}</p>
+              <p>الإهلاك والمخصصات: {b1Amount(sumKnownFinancialAmounts(b1Income.depreciation, b1Income.provisions))}</p>
               <p>المصروفات غير التشغيلية: {b1Amount(b1Income.nonOperatingExpenses)}</p>
               <p className="mt-2 font-semibold">النتيجة الأولية: {b1Amount(b1Income.provisionalNetResult)}</p>
             </div>
