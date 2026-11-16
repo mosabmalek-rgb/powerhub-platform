@@ -35,7 +35,8 @@ import { encryptTenantCredential, hashWebhookVerifyToken } from "./tenant-crypto
 import { isActivePlatformAdmin } from "./platform-admin";
 import { activeTenantMembershipOrFilter } from "./tenant-membership-expiry";
 import { approveAndIssueMobileReadingRuntime, executeApproveAndIssueMobileReading } from "./powerhub-mobile-approve-runtime";
-import { rolesWith, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { rolesWith, powerCapabilityLabels, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { delegableCapabilitiesForOwner, permissionsAreDelegable } from "../shared/staff-permission-selection";
 import { COOKIE_NAME } from "../shared/const";
 import { powerhubUnifiedMessagingRouter } from "./powerhub-unified-messaging";
 import { powerhubInventoryRouter } from "./powerhub-inventory-router";
@@ -1771,9 +1772,12 @@ export const powerhubRouter = router({
       };
     }),
     permissionCatalog: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
-      await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
-      const capabilities: PowerCapability[] = ["manageSubscribers", "manageGenerators", "recordReadings", "accessFieldApp", "approveReadings", "manageTariffs", "issueInvoices", "collectPayments", "approvePaymentDocumentation", "manageExpenses", "managePayroll", "manageTeam", "manageMessaging", "viewAudit"];
-      return capabilities;
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      const { data: denied, error } = await supabaseAdmin().from("platform_role_policies")
+        .select("capability").eq("role", "owner").eq("is_allowed", false);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل قائمة الصلاحيات المتاحة للمالك." });
+      const blocked = new Set((denied ?? []).map((row) => row.capability));
+      return delegableCapabilitiesForOwner(access.permissions).filter((capability) => !blocked.has(capability));
     }),
     customRoles: protectedProcedure.input(siteScoped).query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
@@ -1850,10 +1854,27 @@ export const powerhubRouter = router({
         }
         return { success: true };
       }),
-    create: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), email: z.string().email(), name: z.string().trim().min(2).max(160), temporaryPassword: z.string().min(8).max(128), role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+    create: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(), email: z.string().email(),
+      name: z.string().trim().min(2).max(160),
+      temporaryPassword: z.string().min(8).max(128),
+      role: z.enum(["manager", "accountant", "collector", "technician", "viewer"]),
+      allBranches: z.boolean().default(false),
+      permissions: z.array(z.enum(Object.keys(powerCapabilityLabels) as [PowerCapability, ...PowerCapability[]])).optional(),
+    })).mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
       if(input.allBranches) await requireTenantMultiBranchEntitlement(access.tenantId);
       const admin = supabaseAdmin();
+      if (input.permissions !== undefined) {
+        const { data: denied, error: policyError } = await admin.from("platform_role_policies")
+          .select("capability").eq("role", "owner").eq("is_allowed", false);
+        if (policyError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من سياسة صلاحيات المالك." });
+        const allowed = access.permissions.filter((capability) =>
+          !(denied ?? []).some((row) => row.capability === capability));
+        if (!permissionsAreDelegable(input.permissions, allowed)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "تتضمن الصلاحيات المختارة صلاحية غير متاحة للمالك أو مخصصة لإدارة الحساب." });
+        }
+      }
       const email = input.email.trim().toLowerCase();
       const { data: existingUser } = await admin.from("users").select("id, auth_user_id, email").eq("email", email).maybeSingle();
       if (existingUser) throw new TRPCError({ code: "CONFLICT", message: "البريد الإلكتروني مستخدم بالفعل. استخدم حسابًا موجودًا للتعيين بدل إنشاء حساب جديد." });
@@ -1864,6 +1885,7 @@ export const powerhubRouter = router({
         await assertStaffAssignmentRpcAvailable(admin, {
           tenantId: access.tenantId, siteId: input.siteId, actorUserId: ctx.user.id,
           role: input.role, allBranches: input.allBranches,
+          permissions: input.permissions,
         });
       } catch {
         throw new TRPCError({
@@ -1893,14 +1915,18 @@ export const powerhubRouter = router({
         });
         // A network failure or malformed success response does not prove rollback.
         assignmentMayHaveCommitted = true;
-        const { data, error } = await admin.rpc("powerhub_assign_existing_staff", {
-          p_tenant_id: access.tenantId,
-          p_site_id: input.siteId,
-          p_actor_user_id: ctx.user.id,
-          p_target_user_id: profileUserId,
-          p_role: input.role,
-          p_all_branches: input.allBranches,
-        });
+        const { data, error } = await admin.rpc(
+          input.permissions === undefined ? "powerhub_assign_existing_staff" : "powerhub_assign_existing_staff_with_permissions",
+          {
+            p_tenant_id: access.tenantId,
+            p_site_id: input.siteId,
+            p_actor_user_id: ctx.user.id,
+            p_target_user_id: profileUserId,
+            p_role: input.role,
+            p_all_branches: input.allBranches,
+            ...(input.permissions === undefined ? {} : { p_permissions: input.permissions }),
+          },
+        );
         if (error || !data?.[0]) {
           // Only a definitive server-side SQL rejection proves this
           // assignment transaction rolled back and makes deletion eligible.
