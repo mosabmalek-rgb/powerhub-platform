@@ -9,7 +9,7 @@ import { storagePut, storageRemove } from "./storage";
 import { supabaseAdmin } from "./supabase-admin";
 import { consumeHttpRateLimit, getClientIp } from "./http-rate-limit";
 import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./tenant-membership-expiry";
-import { decodeMobileDeltaCursor, encodeMobileDeltaCursor, MobileCursorError, nextMobileDeltaCursor, type MobileDeltaCursor } from "./mobile-delta-protocol";
+import { decodeMobileDeltaCursor, encodeMobileDeltaCursor, MobileCursorError, mobileDeltaScopeVersion, nextMobileDeltaCursor, type MobileDeltaCursor } from "./mobile-delta-protocol";
 import { loadMobileDeltaScope, mobileBootstrapIds, mobileDeltaEvents, mobileDeltaFence, mobileDeltaProject } from "./mobile-delta-service";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
@@ -251,7 +251,7 @@ async function resolveMobileScope(userId: number, tenantId: number, allowPasswor
     admin.from("users").select("id, name, account_status, must_change_password").eq("id", userId).maybeSingle(),
     admin.from("tenant_members").select("id, expires_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle(),
     admin.from("tenants").select("id, status").eq("id", tenantId).maybeSingle(),
-    admin.from("staff_profiles").select("site_id, role, permissions, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true),
+    admin.from("staff_profiles").select("site_id, role, permissions, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).is("archived_at", null),
   ]);
   if (userResult.error || membershipResult.error || tenantResult.error || profilesResult.error) throw new Error("Supabase mobile scope lookup failed");
   const user = userResult.data;
@@ -720,10 +720,23 @@ export function registerMobileApi(app: Express) {
       return sendError(res, 403, "BRANCH_ACCESS_DENIED", "الفرع خارج صلاحيات الحساب.");
     }
     try {
-      const scope = await loadMobileDeltaScope(context.scope.tenantId,context.scope.userId,branchId);
+      const [scope,cycleResult]=await Promise.all([
+        loadMobileDeltaScope(context.scope.tenantId,context.scope.userId,branchId),
+        resolveMobileReadingCycle(context.scope.tenantId,branchId,isoNow()),
+      ]);
+      if(cycleResult.error || !cycleResult.cycle) {
+        return sendSupabaseError(res,cycleResult.error,"تعذر تحديد الدورة الحالية للمزامنة.");
+      }
+      // Cycle rollover can change the per-subscriber read/completed flags
+      // without touching a subscriber or reading row. It is a scope change:
+      // require a safe full bootstrap once per cycle rather than stale flags.
       const binding = {
         tenantId:context.scope.tenantId,userId:context.scope.userId,
-        branchId,sessionId:context.sessionId,scopeVersion:scope.scopeVersion,
+        branchId,sessionId:context.sessionId,
+        scopeVersion:mobileDeltaScopeVersion({
+          access:scope.scopeVersion,cycleKey:cycleResult.cycle.key,
+          start:cycleResult.cycle.startAt,end:cycleResult.cycle.endAt,
+        }),
       };
       let cursor: MobileDeltaCursor;
       let retainedFloor: number;
@@ -751,10 +764,6 @@ export function registerMobileApi(app: Express) {
           requiresBootstrap:true,error:{code:"BOOTSTRAP_REQUIRED",
             message:"يجب تهيئة بيانات هذا الفرع لأول مرة.",retryable:false},
         });
-      }
-      const cycleResult=await resolveMobileReadingCycle(binding.tenantId,branchId,isoNow());
-      if(cycleResult.error || !cycleResult.cycle) {
-        return sendSupabaseError(res,cycleResult.error,"تعذر تحديد الدورة الحالية للمزامنة.");
       }
       let ids: number[];
       let hasMore: boolean;
@@ -788,8 +797,18 @@ export function registerMobileApi(app: Express) {
       const deletes=ids.filter(id=>!projectedIds.has(id));
       // A scope may be revoked while a page is being prepared. Recheck after
       // projection and never emit the page under a changed entitlement.
-      const refreshed=await loadMobileDeltaScope(binding.tenantId,binding.userId,branchId);
-      if(refreshed.scopeVersion!==scope.scopeVersion) {
+      const [refreshed,refreshedCycle]=await Promise.all([
+        loadMobileDeltaScope(binding.tenantId,binding.userId,branchId),
+        resolveMobileReadingCycle(binding.tenantId,branchId,isoNow()),
+      ]);
+      if(refreshedCycle.error || !refreshedCycle.cycle) {
+        return sendSupabaseError(res,refreshedCycle.error,"تعذر إعادة التحقق من الدورة الحالية.");
+      }
+      const finalVersion=mobileDeltaScopeVersion({
+        access:refreshed.scopeVersion,cycleKey:refreshedCycle.cycle.key,
+        start:refreshedCycle.cycle.startAt,end:refreshedCycle.cycle.endAt,
+      });
+      if(finalVersion!==binding.scopeVersion) {
         return res.status(409).json({
           requiresBootstrap:true,error:{code:"CURSOR_SCOPE_CHANGED",
             message:"تغيرت صلاحيات الحساب؛ يلزم إعادة تهيئة الفرع.",retryable:false},
