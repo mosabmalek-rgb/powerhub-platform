@@ -143,3 +143,61 @@ GRANT EXECUTE ON FUNCTION public.powerhub_mobile_append_subscriber_change(bigint
 GRANT EXECUTE ON FUNCTION public.powerhub_mobile_delta_fence(bigint,bigint) TO service_role;
 GRANT EXECUTE ON FUNCTION public.powerhub_mobile_prune_subscriber_changes(bigint,integer) TO service_role;
 -- Existing privileged SQL/trigger owners must retain invoker access.
+
+
+-- Batched, site-scoped projection avoids an N+1 latest-reading query.
+-- All tenant/site/technician predicates are repeated inside the SQL function
+-- even when the API already validated the authenticated scope.
+CREATE OR REPLACE FUNCTION public.powerhub_mobile_subscriber_projection(
+  p_tenant_id bigint,
+  p_branch_id bigint,
+  p_user_id bigint,
+  p_distribution_enabled boolean,
+  p_subscriber_ids bigint[],
+  p_cycle_start timestamptz,
+  p_cycle_end timestamptz
+) RETURNS TABLE(
+  id bigint, subscriber_no text, full_name text, phone text, address text,
+  branch_id bigint, last_reading text, last_reading_at timestamptz,
+  has_reading_in_current_cycle boolean, cycle_reading_id bigint,
+  cycle_reading_value text, cycle_reading_at timestamptz, cycle_reading_status text
+)
+LANGUAGE sql STABLE SECURITY INVOKER
+SET search_path=pg_catalog,public,pg_temp AS $projection$
+  SELECT s.id,s.subscriber_no,s.full_name,s.phone,s.address,s.site_id,
+    approved.reading_value::text,operational.reading_at,
+    cycle.id IS NOT NULL,cycle.id,cycle.reading_value::text,cycle.reading_at,cycle.status
+  FROM public.subscribers s
+  LEFT JOIN LATERAL (
+    SELECT m.reading_value FROM public.meter_readings m
+    WHERE m.tenant_id=p_tenant_id AND m.subscriber_id=s.id AND m.status='approved'
+    ORDER BY m.reading_at DESC,m.id DESC LIMIT 1
+  ) approved ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT m.reading_at FROM public.meter_readings m
+    WHERE m.tenant_id=p_tenant_id AND m.subscriber_id=s.id AND m.status='approved'
+      AND m.is_opening_baseline=false
+    ORDER BY m.reading_at DESC,m.id DESC LIMIT 1
+  ) operational ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT m.id,m.reading_value,m.reading_at,m.status FROM public.meter_readings m
+    WHERE m.tenant_id=p_tenant_id AND m.subscriber_id=s.id AND m.status<>'rejected'
+      AND m.is_opening_baseline=false AND m.reading_at >= p_cycle_start
+      AND m.reading_at <= p_cycle_end
+    ORDER BY m.reading_at DESC,m.id DESC LIMIT 1
+  ) cycle ON TRUE
+  WHERE s.tenant_id=p_tenant_id AND s.site_id=p_branch_id
+    AND s.id=ANY(p_subscriber_ids) AND s.service_status='active'
+    AND s.archived_at IS NULL
+    AND (NOT p_distribution_enabled OR s.assigned_reader_user_id=p_user_id)
+  ORDER BY s.id
+$projection$;
+REVOKE ALL ON FUNCTION public.powerhub_mobile_subscriber_projection(
+  bigint,bigint,bigint,boolean,bigint[],timestamptz,timestamptz
+) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.powerhub_mobile_subscriber_projection(
+  bigint,bigint,bigint,boolean,bigint[],timestamptz,timestamptz
+) TO service_role;
+CREATE INDEX IF NOT EXISTS mobile_reading_projection_latest_idx
+  ON public.meter_readings(tenant_id,subscriber_id,reading_at DESC,id DESC)
+  INCLUDE(status,is_opening_baseline);
