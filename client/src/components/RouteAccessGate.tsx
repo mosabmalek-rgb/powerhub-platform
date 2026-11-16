@@ -9,6 +9,7 @@ import { useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useBranchFilter } from "@/hooks/useBranchFilter";
 import { useLocation } from "wouter";
+import { firstPermittedTenantRoute, tenantMenuRouteAllowed } from "@/lib/tenant-menu-access";
 
 type RouteAccessGateProps = {
   children: React.ReactNode;
@@ -68,11 +69,80 @@ export function RouteAccessGate({ children, platformAdminOnly = false, supportOn
     return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" dir="rtl"><div><p className="text-sm font-bold text-[#F5B800]">PowerHub</p><h1 className="mt-3 text-xl font-extrabold text-white">جارٍ توجيهك إلى المساحة المناسبة…</h1><p className="mt-2 text-sm text-slate-400">سجّل الدخول أولاً للوصول إلى واجهات التشغيل والصلاحيات الخاصة بحسابك.</p></div></main>;
   }
 
-  if (multiBranchOnly && user && user.role !== "admin") {
-    return <MultiBranchRouteGate>{children}</MultiBranchRouteGate>;
+  if (user && user.role !== "admin") {
+    const permittedPage = <TenantPermissionRouteGate>{children}</TenantPermissionRouteGate>;
+    if (multiBranchOnly) return <MultiBranchRouteGate>{permittedPage}</MultiBranchRouteGate>;
+    if (featureKey) return <TenantFeatureAccessGate featureKey={featureKey}>{permittedPage}</TenantFeatureAccessGate>;
+    return permittedPage;
   }
-  if (featureKey && user && user.role !== "admin") {
-    return <TenantFeatureAccessGate featureKey={featureKey}>{children}</TenantFeatureAccessGate>;
+  return <>{children}</>;
+}
+
+/**
+ * A page-level permission barrier, not just sidebar filtering. The resolver
+ * is server-authoritative and revalidates the active user + branch. Never
+ * mount a disallowed page (whose queries might otherwise request its data).
+ * Business RPCs retain their independent mandatory authorization checks.
+ */
+function TenantPermissionRouteGate({ children }: { children: React.ReactNode }) {
+  const [location, setLocation] = useLocation();
+  const { user } = useAuth();
+  const sites = trpc.powerhub.sites.list.useQuery(undefined, {
+    refetchOnMount: "always", refetchOnWindowFocus: true, refetchOnReconnect: true,
+  });
+  const { branchId } = useBranchFilter(sites.data);
+  const siteId = sites.data?.find((site) => site.id === branchId)?.id ?? sites.data?.[0]?.id ?? 0;
+  const access = trpc.powerhub.staff.myAccess.useQuery({ siteId }, {
+    enabled: siteId > 0,
+    staleTime: 0,
+    refetchInterval: 15_000,
+    refetchOnMount: "always", refetchOnWindowFocus: true, refetchOnReconnect: true,
+  });
+  const isDocumentationRoute = location === "/payment-documentation" ||
+    location === "/payment-documentation/review";
+  const paymentDocumentation = trpc.powerhub.paymentDocumentation.access.useQuery(
+    { siteId },
+    { enabled: siteId > 0 && isDocumentationRoute, staleTime: 0,
+      refetchOnMount: "always", refetchOnReconnect: true },
+  );
+  const ready = Boolean(!sites.isPending && !sites.isError && siteId &&
+    !access.isPending && !access.isError && access.data);
+  const allowed = ready && tenantMenuRouteAllowed(
+    location, access.data?.role, access.data?.permissions,
+    access.data?.usesPermissionOverride,
+  ) && (!isDocumentationRoute || (paymentDocumentation.data?.allowed === true &&
+    !paymentDocumentation.isError));
+  const fallback = access.data && firstPermittedTenantRoute(
+    access.data.role, access.data.permissions, access.data.usesPermissionOverride,
+  );
+
+  useEffect(() => {
+    // Login currently targets /workspace. Send constrained E47 staff to their
+    // first actual operation instead of displaying a dashboard they cannot use.
+    if (ready && !allowed && location === "/workspace" && fallback &&
+      fallback !== location && !isDocumentationRoute) setLocation(fallback);
+  }, [ready, allowed, location, fallback, isDocumentationRoute, setLocation]);
+
+  if (sites.isPending || (siteId > 0 && access.isPending) ||
+      (isDocumentationRoute && paymentDocumentation.isPending)) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-200" role="status" dir="rtl">جارٍ التحقق من صلاحيات الصفحة…</main>;
+  }
+  if (!ready || (isDocumentationRoute && paymentDocumentation.isError)) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" role="alert" dir="rtl">
+      <div><h1 className="text-lg font-bold text-white">تعذر التحقق من الصلاحيات</h1>
+      <p className="mt-3 text-sm text-slate-300">لم تُفتح الصفحة دون تحقق موثوق من صلاحيات الحساب والفرع.</p>
+      <button type="button" className="mt-5 rounded-xl bg-[#F5B800] px-5 py-3 text-sm font-bold text-[#0D1117]"
+        onClick={() => { void sites.refetch(); if (siteId) { void access.refetch(); if (isDocumentationRoute) void paymentDocumentation.refetch(); } }}>إعادة التحقق</button></div>
+    </main>;
+  }
+  if (!allowed) {
+    return <main className="grid min-h-screen place-items-center bg-[#0D1117] px-5 text-center" role="alert" dir="rtl">
+      <div><h1 className="text-lg font-bold text-white">هذه الصفحة ليست ضمن صلاحيات حسابك</h1>
+      <p className="mt-3 text-sm text-slate-300">يمكن لصاحب المولد تعديل صلاحياتك وفق نطاق الفرع المخصص.</p>
+      {fallback && fallback !== location && <button type="button"
+        onClick={() => setLocation(fallback)}
+        className="mt-5 rounded-xl bg-[#F5B800] px-5 py-3 text-sm font-bold text-[#0D1117]">فتح القسم المصرح به</button>}</div>
+    </main>;
   }
   return <>{children}</>;
 }
