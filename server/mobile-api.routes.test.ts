@@ -71,6 +71,7 @@ function responseRecorder() {
 
 describe("Mobile API subscribers route", () => {
   let subscribersHandler: RouteHandler;
+  let deltaHandler: RouteHandler;
 
   beforeEach(() => {
     process.env.JWT_SECRET = JWT_SECRET;
@@ -156,12 +157,74 @@ describe("Mobile API subscribers route", () => {
       }
       await handler(req, res);
     };
+    const delta = routes.get("/api/mobile/v1/subscribers/delta");
+    if (!delta) throw new Error("Mobile Delta route was not registered");
+    deltaHandler = async (req, res) => {
+      for (const middleware of routeMiddlewares.get("/api/mobile/v1/subscribers/delta") ?? []) {
+        let nextCalled = false;
+        await middleware(req, res, () => { nextCalled = true; });
+        if (!nextCalled) return;
+      }
+      await delta(req, res);
+    };
   });
 
   afterEach(() => {
     if (originalJwtSecret === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = originalJwtSecret;
   });
+
+  async function callDelta(query: Record<string, string>, token?: string) {
+    const req = {
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+      query,
+    } as unknown as Request;
+    const res = responseRecorder();
+    await deltaHandler(req, res as unknown as Response);
+    return res;
+  }
+
+  function setupDeltaFixture() {
+    state.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "powerhub_cycle_for_reading") return { data: [{
+        cycle_key: "cycle-2026-11",
+        cycle_start_at: "2026-11-01T00:00:00.000Z",
+        cycle_end_at: "2026-12-01T00:00:00.000Z",
+        cycle_label: "دورة نوفمبر",
+      }], error: null };
+      if (name === "powerhub_mobile_delta_fence")
+        return { data: [{ highwater: 4, retained_floor: 0, max_subscriber_id: 202 }], error: null };
+      if (name === "powerhub_mobile_subscriber_projection") {
+        const ids = args.p_subscriber_ids as number[];
+        return { data: ids.map((id) => ({
+          id,subscriber_no: `SUB-${id}`,full_name: `Subscriber ${id}`,
+          phone:"0590",address:"Gaza",branch_id:12,last_reading:"100",
+          last_reading_at:"2026-11-01T10:00:00.000Z",
+          has_reading_in_current_cycle:false,
+          cycle_reading_id:null,cycle_reading_value:null,
+          cycle_reading_at:null,cycle_reading_status:null,
+        })),error:null };
+      }
+      return {data:null,error:{message:"Unexpected RPC: "+name}};
+    });
+    const previous=state.resolve.getMockImplementation();
+    state.resolve.mockImplementation(async (table: string, query: any, terminal: string) => {
+      if (table === "subscribers" && query.selected === "id") {
+        const ids = [201,202].filter((id) =>
+          query.filters.some((f:unknown[]) => f[0]==="gt" && f[1]==="id")
+            ? id>Number(query.filters.find((f:unknown[])=>f[0]==="gt"&&f[1]==="id")[2]):true
+        );
+        const limit=Number(query.filters.find((f:unknown[])=>f[0]==="limit")?.[1]??100);
+        return {data:ids.slice(0,limit).map(id=>({id})),error:null};
+      }
+      if (table==="mobile_subscriber_change_log") {
+        return {data:[{sequence_id:3,subscriber_id:201,change_type:"touch"}],error:null};
+      }
+      return previous ? previous(table,query,terminal) : {data:null,error:null};
+    });
+  }
 
   async function callRoute(query: Record<string, string>, token?: string) {
     const req = {
@@ -174,6 +237,51 @@ describe("Mobile API subscribers route", () => {
     await subscribersHandler(req, res as unknown as Response);
     return res;
   }
+
+  it("requires an authorized session and branch before the Delta journal can be read", async () => {
+    const unauthenticated=await callDelta({branchId:"12",bootstrap:"true"});
+    expect(unauthenticated.statusCode).toBe(401);
+    const foreignBranch=await callDelta({branchId:"13",bootstrap:"true"},await accessToken());
+    expect(foreignBranch.statusCode).toBe(403);
+    expect(state.queries.some((q) => q.table==="mobile_subscriber_change_log")).toBe(false);
+  });
+
+  it("boots with stable pages, then returns signed Delta without refetching the full subscriber list", async () => {
+    setupDeltaFixture();
+    const token=await accessToken();
+    const page1=await callDelta({branchId:"12",bootstrap:"true",limit:"1"},token);
+    expect(page1.statusCode).toBe(200);
+    expect(page1.body).toMatchObject({
+      tenantId:20,userId:7,branchId:12,mode:"bootstrap",hasMore:true,requiresBootstrap:false,
+    });
+    expect(page1.body.upserts.map((x:any)=>x.id)).toEqual([201]);
+    const page2=await callDelta({branchId:"12",cursor:page1.body.nextCursor,limit:"1"},token);
+    expect(page2.statusCode).toBe(200);
+    expect(page2.body.upserts.map((x:any)=>x.id)).toEqual([202]);
+    expect(page2.body.hasMore).toBe(false);
+    const delta=await callDelta({branchId:"12",cursor:page2.body.nextCursor,limit:"10"},token);
+    expect(delta.statusCode).toBe(200);
+    expect(delta.body.mode).toBe("delta");
+    expect(delta.body.scopeVersion).toBe(page2.body.scopeVersion);
+    expect(delta.body.upserts.map((x:any)=>x.id)).toEqual([201]);
+    expect(delta.body.hasMore).toBe(false);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_mobile_subscriber_projection",
+      expect.objectContaining({p_tenant_id:20,p_branch_id:12,p_user_id:7}));
+  });
+
+  it("rejects a reused cursor after a distribution scope change and a tampered token", async () => {
+    setupDeltaFixture();
+    const token=await accessToken();
+    const bootstrap=await callDelta({branchId:"12",bootstrap:"true",limit:"1"},token);
+    expect(bootstrap.statusCode).toBe(200);
+    const tampered=await callDelta({branchId:"12",cursor:bootstrap.body.nextCursor+"x"},token);
+    expect(tampered.statusCode).toBe(400);
+    expect(tampered.body.requiresBootstrap).toBe(true);
+    state.distributionEnabled=true;
+    const changed=await callDelta({branchId:"12",cursor:bootstrap.body.nextCursor},token);
+    expect(changed.statusCode).toBe(409);
+    expect(changed.body.error.code).toBe("CURSOR_SCOPE_CHANGED");
+  });
 
   it("rejects an absent or invalid mobile session before querying subscriber data", async () => {
     const res = await callRoute({ branchId: "12" });
