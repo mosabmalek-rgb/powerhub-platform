@@ -444,7 +444,10 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_delete_custom_permission_role") return resolved([{ role_id: 122 }]);
       if (name === "powerhub_update_staff_profile_permissions") return resolved([{ profile_id: 120, target_user_id: 2 }]);
       if (name === "powerhub_update_staff_profile_status") return resolved([{ profile_id: 120, is_active: true, suspension_ends_at: "2026-08-10T12:00:00.000Z" }]);
-      if (name === "powerhub_assign_existing_staff") return resolved([{ profile_id: 121, target_user_id: 2 }]);
+      if (name === "powerhub_assign_existing_staff") {
+        if ((args as { p_target_user_id?: number }).p_target_user_id === -1) return Promise.resolve({ data: null, error: { code: "P0001", message: "TARGET_USER_NOT_FOUND" } });
+        return resolved([{ profile_id: 121, target_user_id: 2 }]);
+      }
       return resolved([{ subscriber_id: 31, subscriber_no: "MAIN-NEW", replayed: false }]);
     },
   };
@@ -1446,6 +1449,22 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.tables.users).toEqual(expect.arrayContaining([expect.objectContaining({ id: 2, auth_user_id: "auth-staff-1", role: "user", platform_role: null, must_change_password: true })]));
   });
 
+  it("يرفض إنشاء Auth إذا تعذر اكتشاف RPC التعيين في PostgREST", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1" }];
+    const createUser = vi.fn();
+    state.client.auth = { admin: { createUser } };
+    state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_assign_existing_staff") return { data: null, error: { code: "PGRST202", message: "schema cache unavailable" } };
+      return { data: [{ success: true }], error: null };
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.create({ siteId: 10, name: "محاسب تجريبي", email: "test@example.com", temporaryPassword: "StrongPass1!", role: "accountant", allBranches: false }))
+      .rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(createUser).not.toHaveBeenCalled();
+    expect(state.rpcCalls).toContainEqual(expect.objectContaining({ name: "powerhub_assign_existing_staff", args: expect.objectContaining({ p_target_user_id: -1 }) }));
+  });
+
   it("لا يحذف Auth عند مهلة RPC قد تكون انتهت بعد اعتماد العضوية في الخادم", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "admin@example.test" }];
     const deleteUser = vi.fn(async () => ({ error: null }));
@@ -1456,6 +1475,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
       state.rpcCalls.push({ name, args });
       if (name === "powerhub_assign_existing_staff") {
+        if (args.p_target_user_id === -1) return { data: null, error: { code: "P0001", message: "TARGET_USER_NOT_FOUND" } };
         return { data: null, error: { code: "PGRST500", message: "postgrest transport timeout" } };
       }
       return { data: [{ success: true }], error: null };
