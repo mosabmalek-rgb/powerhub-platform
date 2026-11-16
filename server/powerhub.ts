@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
-import { createNewStaffProfile, compensateUnassignedStaffAuth, StaffAuthRecoveryRequired } from "./staff-auth-provisioning";
+import { createNewStaffProfile, compensateUnassignedStaffAuth, StaffAuthRecoveryRequired, assertStaffAssignmentRpcAvailable } from "./staff-auth-provisioning";
 import { measureB5Stage } from "./b5-request-trace";
 import { measureSlowStage, withAbortSignalIfSupported, withTimeout } from "./performance-telemetry";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -1857,6 +1857,20 @@ export const powerhubRouter = router({
       const email = input.email.trim().toLowerCase();
       const { data: existingUser } = await admin.from("users").select("id, auth_user_id, email").eq("email", email).maybeSingle();
       if (existingUser) throw new TRPCError({ code: "CONFLICT", message: "البريد الإلكتروني مستخدم بالفعل. استخدم حسابًا موجودًا للتعيين بدل إنشاء حساب جديد." });
+
+      // Do not create an Auth identity if the staff assignment RPC is
+      // undiscoverable in PostgREST. This negative-ID probe does not write.
+      try {
+        await assertStaffAssignmentRpcAvailable(admin, {
+          tenantId: access.tenantId, siteId: input.siteId, actorUserId: ctx.user.id,
+          role: input.role, allBranches: input.allBranches,
+        });
+      } catch {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "خدمة تعيين الحسابات الفرعية غير جاهزة في قاعدة البيانات؛ لم يُنشأ أي حساب. حاول لاحقًا أو راجع الإدارة.",
+        });
+      }
 
       const { data: authData, error: authError } = await admin.auth.admin.createUser({
         email,
