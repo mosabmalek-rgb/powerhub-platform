@@ -20,7 +20,7 @@ const future = "2100-01-01T00:00:00.000Z";
 
 function snapshot(tenantId: number, role = "accountant", profileSite: number | null = 7) {
   return {
-    user: { role: "user", platform_role: null, account_status: "active" },
+    user: { role: "user", platform_role: null as string | null, account_status: "active" },
     site: { tenant_id: tenantId, status: "active", invoice_due_days: 14, invoice_due_hours: 336 },
     membership: { role: "member", is_active: true, membership_status: "active", expires_at: null },
     subscription: { status: "active", ends_at: future, read_only_until: null },
@@ -59,7 +59,8 @@ describe("D40 financial-report role/capability matrix — code execution", () =>
     const access = await financialRead(7);
     expect(access).toMatchObject({ role: "accountant", tenantId: 44 });
     expect(access.permissions).toContain(reportCapability);
-    expect(state.rpc).toHaveBeenCalledExactlyOnceWith(
+    expect(state.rpc).toHaveBeenCalledOnce();
+    expect(state.rpc).toHaveBeenCalledWith(
       "powerhub_site_access_snapshot", { p_user_id: 55, p_site_id: 7 },
     );
   });
