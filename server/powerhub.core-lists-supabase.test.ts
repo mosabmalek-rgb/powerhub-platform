@@ -1446,6 +1446,31 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     expect(state.tables.users).toEqual(expect.arrayContaining([expect.objectContaining({ id: 2, auth_user_id: "auth-staff-1", role: "user", platform_role: null, must_change_password: true })]));
   });
 
+  it("لا يحذف Auth عند مهلة RPC قد تكون انتهت بعد اعتماد العضوية في الخادم", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "admin@example.test" }];
+    const deleteUser = vi.fn(async () => ({ error: null }));
+    state.client.auth = { admin: {
+      createUser: vi.fn(async () => ({ data: { user: { id: "auth-staff-uncertain" } }, error: null })),
+      deleteUser,
+    } };
+    state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "powerhub_assign_existing_staff") {
+        return { data: null, error: { code: "PGRST500", message: "postgrest transport timeout" } };
+      }
+      return { data: [{ success: true }], error: null };
+    });
+    const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
+    await expect(caller.staff.create({
+      siteId: 10, name: "محاسب انتظار", email: "pending-accountant@example.com",
+      temporaryPassword: "StrongPass1!", role: "accountant", allBranches: false,
+    })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(deleteUser).not.toHaveBeenCalled();
+    expect(state.tables.users).toEqual(expect.arrayContaining([
+      expect.objectContaining({ auth_user_id: "auth-staff-uncertain", must_change_password: true }),
+    ]));
+  });
+
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.subscribers.create({ siteId: 10, fullName: "مشترك جديد", phone: "+970595123456", subscriptionType: "residential", clientOperationId: "11111111-1111-4111-8111-111111111111" }))
