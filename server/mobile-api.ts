@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
 import crypto from "node:crypto";
-import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { can, applyStaffCapabilityOverrides, defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
 import { storagePut, storageRemove } from "./storage";
 import { supabaseAdmin } from "./supabase-admin";
 import { consumeHttpRateLimit, getClientIp } from "./http-rate-limit";
@@ -247,22 +247,55 @@ async function syncMobileProfile(input: { id: string; email: string; name?: stri
 
 async function resolveMobileScope(userId: number, tenantId: number, allowPasswordChange = false): Promise<MobileScope | null> {
   const admin = supabaseAdmin();
-  const [userResult, membershipResult, tenantResult, profilesResult] = await Promise.all([
+  const [userResult, membershipResult, tenantResult, profilesResult, policyResult] = await Promise.all([
     admin.from("users").select("id, name, account_status, must_change_password").eq("id", userId).maybeSingle(),
     admin.from("tenant_members").select("id, expires_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle(),
     admin.from("tenants").select("id, status").eq("id", tenantId).maybeSingle(),
-    admin.from("staff_profiles").select("site_id, role, permissions, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).is("archived_at", null),
+    admin.from("staff_profiles").select("id, site_id, role, permissions, custom_role_id, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).is("archived_at", null),
+    admin.from("platform_role_policies").select("role,capability,is_allowed")
+      .eq("role","technician").eq("is_allowed",false),
   ]);
-  if (userResult.error || membershipResult.error || tenantResult.error || profilesResult.error) throw new Error("Supabase mobile scope lookup failed");
+  if (userResult.error || membershipResult.error || tenantResult.error ||
+      profilesResult.error || policyResult.error) throw new Error("Supabase mobile scope lookup failed");
   const user = userResult.data;
   if (!user || user.account_status !== "active" || (!allowPasswordChange && user.must_change_password) || !isTenantMembershipUnexpired(membershipResult.data) || tenantResult.data?.status !== "active") return null;
 
+  const profiles = profilesResult.data ?? [];
+  const ids=profiles.map(profile=>Number(profile.id)).filter(id=>Number.isSafeInteger(id) && id>0);
+  const customIds=profiles.map(profile=>Number(profile.custom_role_id)).filter(id=>Number.isSafeInteger(id) && id>0);
+  const [overridesResult,customRolesResult] = await Promise.all([
+    ids.length
+      ? admin.from("staff_profile_capability_overrides").select("profile_id,capability,is_allowed")
+        .eq("tenant_id",tenantId).in("profile_id",ids)
+      : Promise.resolve({data:[],error:null}),
+    customIds.length
+      ? admin.from("custom_permission_roles").select("id,permissions,is_active")
+        .eq("tenant_id",tenantId).in("id",customIds).eq("is_active",true)
+      : Promise.resolve({data:[],error:null}),
+  ]);
+  if(overridesResult.error || customRolesResult.error) throw new Error("Supabase mobile permission lookup failed");
+  const deniedPolicy=new Set((policyResult.data??[])
+    .filter(x=>x.is_allowed===false).map(x=>String(x.capability)));
+  const effectiveRights=(profile: (typeof profiles)[number]): PowerCapability[] => {
+    const role=profile.role as PowerRole;
+    const explicit=profile.permissions!==null && profile.permissions!==undefined;
+    let rights:PowerCapability[]=explicit
+      ? (Array.isArray(profile.permissions)?profile.permissions:[])
+      : defaultCapabilitiesForRole(role);
+    if(!explicit && profile.custom_role_id){
+      const custom=(customRolesResult.data??[]).find(x=>Number(x.id)===Number(profile.custom_role_id));
+      rights=Array.isArray(custom?.permissions)?custom.permissions:[];
+    }
+    rights=applyStaffCapabilityOverrides(rights,(overridesResult.data??[])
+      .filter(x=>Number(x.profile_id)===Number(profile.id)));
+    return rights.filter(right=>!deniedPolicy.has(right));
+  };
   const now = new Date();
-  const permitted = (profilesResult.data ?? []).filter((profile) => {
+  const permitted = profiles.filter((profile) => {
     const suspendedAt = profile.suspension_started_at ? new Date(profile.suspension_started_at) : null;
     const suspensionEndsAt = profile.suspension_ends_at ? new Date(profile.suspension_ends_at) : null;
     const suspended = Boolean(suspendedAt && suspendedAt <= now && (!suspensionEndsAt || suspensionEndsAt >= now));
-    return !suspended && hasFieldAppAccess(profile.role as PowerRole, (profile.permissions as PowerCapability[] | null) ?? null);
+    return !suspended && hasFieldAppAccess(profile.role as PowerRole, effectiveRights(profile));
   });
   if (!permitted.length) return null;
 
@@ -292,7 +325,7 @@ async function resolveMobileScope(userId: number, tenantId: number, allowPasswor
   const subscriptionActive = Boolean(subscription && ["trial", "active"].includes(String(subscription.status)) && (!subscriptionEndsAt || new Date(subscriptionEndsAt).getTime() > Date.now()));
   if (!subscriptionActive || !subscriptionEndsAt) return null;
   const selected = permitted[0];
-  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: (selected.permissions as string[] | null) ?? null, subscriptionEndsAt, mustChangePassword: Boolean(user.must_change_password) };
+  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: effectiveRights(selected), subscriptionEndsAt, mustChangePassword: Boolean(user.must_change_password) };
 }
 
 async function authenticateMobile(req: Request, allowPasswordChange = false): Promise<{ scope: MobileScope; sessionId: number } | null> {
