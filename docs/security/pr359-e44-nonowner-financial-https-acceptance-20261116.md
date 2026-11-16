@@ -4,11 +4,13 @@
 
 ## Required Staging identities and topology
 
-The **current** test-only Staging topology is tenant 1/site 1, a second active branch site 9000000000099 in tenant 1, and independent tenant 13/site 13. Existing active test memberships/staff profiles observed during this work have **only owner roles**; they cannot substitute for the following new legitimate identities:
+**E46 authenticated HTTPS staff creation: PASS for one accountant** and versioned migration `20261116150000` is installed in Staging. **E44 authenticated financial-report role matrix and revocation: NOT EXECUTED** until the required actual device-bound HTTPS calls are made. The correct account branch is `9000000000099`, not `1`; a 403 on the latter branch is an expected isolation result, not an accountant-access failure.
 
-1. A device-bound **non-platform-admin accountant** with site-scoped \`viewFinancialReports\` on tenant 1/site 1, **not** site 9000000000099 or tenant 13/site 13.
-2. A separate, device-bound active **non-owner identity** on tenant 1/site 1 without \`viewFinancialReports\`, whose protected financial requests must return 403 \`FORBIDDEN\`.
-3. Another separate, device-bound active **non-owner identity** with report permission on tenant 1/site 1 to be **revoked by an authorized Staging admin between runs**. The same genuine session and bound device must be retained, and the denial must apply without a new sign-in, role-cache delay or lease bypass.
+**Updated 2026-11-16 after E46 PASS:** Tenant 1 has two test branches: site 9000000000099 (the **actual** assigned branch for the newly created accountant) and site 1 (the same-tenant **forbidden sibling**). Tenant 13/site 13 is the foreign-tenant denial fixture. A read-only Staging check confirmed one active site-scoped accountant profile on 9000000000099, an active membership, a linked Auth/application user, first-login password reset, and no cross-tenant active membership. These SQL facts **do not establish live report-access permission or HTTPS 200**; the actual capability must be checked from the signed-in accountant session. The other two distinct non-owner test identities remain required:
+
+1. A device-bound **non-platform-admin accountant** assigned to tenant 1/site 9000000000099, with effective \`viewFinancialReports\` verified on a live session; **not** permitted on tenant 1/site 1 or tenant 13/site 13.
+2. A separate, device-bound active **non-owner identity** on tenant 1/site 9000000000099 without \`viewFinancialReports\`, whose protected financial requests must return 403 \`FORBIDDEN\`.
+3. Another separate, device-bound active **non-owner identity** with report permission on tenant 1/site 9000000000099 to be **revoked by an authorized Staging admin between runs**. The same genuine session and bound device must be retained, and the denial must apply without a new sign-in, role-cache delay or lease bypass.
 
 Provision identities only using supported Staging Auth and normal membership/profile flows. Do not fabricate JWTs or reuse account/device identities. Never weaken the single-device lock, alter source GL ledgers, modify Production, or disable Vercel Deployment Protection.
 
@@ -25,8 +27,8 @@ To run actual **HTTPS**, supply all these variables securely as environment vari
 \`\`\`text
 POWERHUB_E44_PREVIEW_URL=https://powerhub-platform-<sha-preview>-mosabmalek-rgb.vercel.app
 POWERHUB_E44_TENANT_ID=1
-POWERHUB_E44_SITE_ID=1
-POWERHUB_E44_SIBLING_SITE_ID=9000000000099
+POWERHUB_E44_SITE_ID=9000000000099
+POWERHUB_E44_SIBLING_SITE_ID=1
 POWERHUB_E44_FOREIGN_SITE_ID=13
 POWERHUB_E44_PERIOD=2026-11
 POWERHUB_E44_PHASE=before
