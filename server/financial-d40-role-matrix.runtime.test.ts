@@ -289,6 +289,27 @@ describe("E48 permission-only approval and tenant/site isolation — code execut
   });
 });
 
+describe("E48 payment-documentation route contract — code inspection, not HTTPS", () => {
+  const source = readFileSync("server/powerhub.ts", "utf8");
+  const paymentRoutes = source.slice(source.indexOf("  paymentDocumentation: router({"));
+  it.each(["recipientAccounts", "list", "revision", "approve", "receiptUrl", "reject"])(
+    "%s checks the approval capability before accessing private data or service-role RPCs",
+    (name) => {
+      const start = paymentRoutes.indexOf(name + ": protectedProcedure");
+      expect(start, name).toBeGreaterThan(-1);
+      const route = paymentRoutes.slice(start, start + 1400);
+      expect(route).toContain("requireSupabaseSiteRole(ctx.user.id, input.siteId, [], \"approvePaymentDocumentation\")");
+    },
+  );
+  it("requires collection rights for submitting documentation, not merely approval rights", () => {
+    const start = paymentRoutes.indexOf("submit: protectedProcedure");
+    expect(start).toBeGreaterThan(-1);
+    const route = paymentRoutes.slice(start, start + 1200);
+    expect(route).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, recordRoles, "collectPayments")');
+    expect(route).not.toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, [], "approvePaymentDocumentation")');
+  });
+});
+
 describe("D40 HTTP financial route guards — source contract, not live HTTPS", () => {
   const source = readFileSync("server/powerhub.ts", "utf8");
   it.each([
