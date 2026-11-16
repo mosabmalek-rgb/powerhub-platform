@@ -40,11 +40,8 @@ const ACTION_CAPABILITIES: readonly PowerCapability[] = [
 ];
 
 const TENANT_MENU_RULES: Record<string, TenantMenuRule> = {
-  "/workspace": { capabilities: [
-    "manageSubscribers", "manageGenerators", "recordReadings", "approveReadings",
-    "issueInvoices", "collectPayments", "viewFinancialReports", "manageExpenses",
-  ] },
-  "/quick-actions": { capabilities: ACTION_CAPABILITIES },
+  "/workspace": { legacyStaffOnly: true },
+  "/quick-actions": { legacyStaffOnly: true },
   "/profile": {},
   "/notifications-center": {},
   "/announcements": { legacyStaffOnly: true },
@@ -118,7 +115,7 @@ export function tenantMenuRouteAllowed(
   const rule = TENANT_MENU_RULES[canonicalTenantRoute(path)];
   if (!rule) return false;
   if (rule.ownerOnly && role !== "owner") return false;
-  if (rule.roles && !rule.roles.includes(role)) return false;
+  if (rule.roles && !rule.roles.includes(role) && !usesPermissionOverride) return false;
 
   const effective = permissions ?? (usesPermissionOverride ? [] : defaultCapabilitiesForRole(role));
   if (rule.legacyStaffOnly) return role === "owner" || !usesPermissionOverride;
