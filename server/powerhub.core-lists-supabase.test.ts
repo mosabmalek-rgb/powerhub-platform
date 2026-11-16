@@ -146,12 +146,25 @@ const state = vi.hoisted(() => {
         update(values: unknown) { updates.push({ table, values }); updateQuery.__values = (values && typeof values === "object" ? values : {}) as Record<string, unknown>; return updateQuery; },
         upsert(values: unknown) {
           inserts.push({ table, values });
+          let result = values;
+          // The live public.users identity column generates a bigint ID on
+          // server-only Auth profile bootstrap. Simulate that DB postcondition
+          // rather than requiring a trigger-created row in this mock.
+          if (table === "users" && values && typeof values === "object") {
+            const incoming = values as Record<string, unknown>;
+            const existing = rows.find((row) =>
+              (row as Record<string, unknown>).auth_user_id === incoming.auth_user_id) as Record<string, unknown> | undefined;
+            const profile = { ...existing, ...incoming, id: existing?.id ?? 2 };
+            if (existing) Object.assign(existing, profile);
+            else rows.push(profile);
+            result = profile;
+          }
           return {
-            select: () => ({ maybeSingle: () => resolved(values), single: () => resolved(values) }),
+            select: () => ({ maybeSingle: () => resolved(result), single: () => resolved(result) }),
             then: <TResult1 = { data: unknown; error: null }, TResult2 = never>(
               onfulfilled?: ((value: { data: unknown; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
               onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-            ) => resolved({ data: values, error: null }).then(onfulfilled, onrejected),
+            ) => resolved({ data: result, error: null }).then(onfulfilled, onrejected),
           };
         },
       };
@@ -1426,11 +1439,11 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
 
   it("ينشئ الحساب الفرعي عبر Supabase Auth ثم يعيّنه عبر RPC دون MySQL", async () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "admin@example.test" }];
-    state.tables.users.push({ id: 2, auth_user_id: "auth-staff-1", email: "auth-staff@example.test", role: "user", account_status: "active" });
     state.client.auth = { admin: { createUser: vi.fn(async () => ({ data: { user: { id: "auth-staff-1" } }, error: null })), deleteUser: vi.fn(async () => ({ error: null })) } };
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.create({ siteId: 10, name: "محاسب تجريبي", email: "accountant@example.com", temporaryPassword: "StrongPass1!", role: "accountant", allBranches: false })).resolves.toMatchObject({ success: true, userId: 2 });
     expect(state.rpcCalls).toContainEqual(expect.objectContaining({ name: "powerhub_assign_existing_staff", args: expect.objectContaining({ p_target_user_id: 2, p_role: "accountant", p_all_branches: false }) }));
+    expect(state.tables.users).toEqual(expect.arrayContaining([expect.objectContaining({ id: 2, auth_user_id: "auth-staff-1", role: "user", platform_role: null, must_change_password: true })]));
   });
 
   it("ينشئ المشترك بالدالة الذرية في Supabase من دون تشغيل عامل الرسائل الموروث", async () => {
