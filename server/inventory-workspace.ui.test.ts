@@ -319,7 +319,7 @@ describe("inventory workspace UI contract", () => {
     expect(router).toContain("powerhub_inventory_list_stock_movement_report");
     expect(router).toContain("listInventoryReportWarehouses: protectedProcedure");
     expect(reports).toContain("listInventoryReportWarehouses.useQuery");
-    expect(menuAccess).toContain('"/inventory": { capabilities: [...INVENTORY_CAPABILITIES');
+    expect(menuAccess).toContain('"/inventory": { capabilities: INVENTORY_CAPABILITIES');
     expect(menuAccess).toContain('"viewInventory", "viewInventoryReports", "viewSuppliers", "viewPurchases"');
     for (const capability of ["receiveInventory", "manageSupplierPayments", "viewSupplierLedger"]) {
       expect(menuAccess).toContain(`"${capability}"`);
