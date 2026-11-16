@@ -54,16 +54,18 @@ BEGIN
     PERFORM public.powerhub_mobile_append_subscriber_change(
       OLD.tenant_id,OLD.site_id,OLD.id,'leave',OLD.assigned_reader_user_id,NULL);
     RETURN OLD;
-  END IF;
-  IF TG_OP='UPDATE' AND (OLD.tenant_id,OLD.site_id) IS DISTINCT FROM
-                        (NEW.tenant_id,NEW.site_id) THEN
+  ELSIF TG_OP='INSERT' THEN
     PERFORM public.powerhub_mobile_append_subscriber_change(
-      OLD.tenant_id,OLD.site_id,OLD.id,'leave',OLD.assigned_reader_user_id,NULL);
+      NEW.tenant_id,NEW.site_id,NEW.id,'touch',NULL,NEW.assigned_reader_user_id);
+  ELSE
+    IF (OLD.tenant_id,OLD.site_id) IS DISTINCT FROM (NEW.tenant_id,NEW.site_id) THEN
+      PERFORM public.powerhub_mobile_append_subscriber_change(
+        OLD.tenant_id,OLD.site_id,OLD.id,'leave',OLD.assigned_reader_user_id,NULL);
+    END IF;
+    PERFORM public.powerhub_mobile_append_subscriber_change(
+      NEW.tenant_id,NEW.site_id,NEW.id,'touch',
+      OLD.assigned_reader_user_id,NEW.assigned_reader_user_id);
   END IF;
-  PERFORM public.powerhub_mobile_append_subscriber_change(
-    NEW.tenant_id,NEW.site_id,NEW.id,'touch',
-    CASE WHEN TG_OP='UPDATE' THEN OLD.assigned_reader_user_id ELSE NULL END,
-    NEW.assigned_reader_user_id);
   RETURN NEW;
 END $trigger$;
 DROP TRIGGER IF EXISTS powerhub_mobile_subscriber_changes ON public.subscribers;
@@ -76,15 +78,29 @@ RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER
 SET search_path=pg_catalog,public,pg_temp AS $trigger$
 DECLARE s record;
 BEGIN
-  FOR s IN
-    SELECT DISTINCT sub.tenant_id,sub.site_id,sub.id,sub.assigned_reader_user_id
-    FROM public.subscribers sub
-    WHERE (TG_OP <> 'INSERT' AND sub.id=OLD.subscriber_id)
-       OR (TG_OP <> 'DELETE' AND sub.id=NEW.subscriber_id)
-  LOOP
-    PERFORM public.powerhub_mobile_append_subscriber_change(
-      s.tenant_id,s.site_id,s.id,'touch',s.assigned_reader_user_id,s.assigned_reader_user_id);
-  END LOOP;
+  IF TG_OP='INSERT' THEN
+    FOR s IN SELECT tenant_id,site_id,id,assigned_reader_user_id
+      FROM public.subscribers WHERE id=NEW.subscriber_id
+    LOOP
+      PERFORM public.powerhub_mobile_append_subscriber_change(
+        s.tenant_id,s.site_id,s.id,'touch',s.assigned_reader_user_id,s.assigned_reader_user_id);
+    END LOOP;
+  ELSIF TG_OP='DELETE' THEN
+    FOR s IN SELECT tenant_id,site_id,id,assigned_reader_user_id
+      FROM public.subscribers WHERE id=OLD.subscriber_id
+    LOOP
+      PERFORM public.powerhub_mobile_append_subscriber_change(
+        s.tenant_id,s.site_id,s.id,'touch',s.assigned_reader_user_id,s.assigned_reader_user_id);
+    END LOOP;
+  ELSE
+    FOR s IN SELECT DISTINCT tenant_id,site_id,id,assigned_reader_user_id
+      FROM public.subscribers
+      WHERE id=OLD.subscriber_id OR id=NEW.subscriber_id
+    LOOP
+      PERFORM public.powerhub_mobile_append_subscriber_change(
+        s.tenant_id,s.site_id,s.id,'touch',s.assigned_reader_user_id,s.assigned_reader_user_id);
+    END LOOP;
+  END IF;
   RETURN NULL;
 END $trigger$;
 -- Use an AFTER trigger: changes to a reading's value, status, cycle or removal
