@@ -443,6 +443,7 @@ const state = vi.hoisted(() => {
       if (name === "powerhub_save_custom_permission_role") return resolved([{ role_id: 122, mutation: "create" }]);
       if (name === "powerhub_delete_custom_permission_role") return resolved([{ role_id: 122 }]);
       if (name === "powerhub_update_staff_profile_permissions") return resolved([{ profile_id: 120, target_user_id: 2 }]);
+      if (name === "powerhub_update_staff_profile_permissions_e50") return resolved([{ profile_id: 120, target_user_id: 2, replayed: false }]);
       if (name === "powerhub_update_staff_profile_status") return resolved([{ profile_id: 120, is_active: true, suspension_ends_at: "2026-08-10T12:00:00.000Z" }]);
       if (name === "powerhub_assign_existing_staff") {
         if ((args as { p_target_user_id?: number }).p_target_user_id === -1) return Promise.resolve({ data: null, error: { code: "P0001", message: "TARGET_USER_NOT_FOUND" } });
@@ -1346,6 +1347,63 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
     await expect(caller.staff.updatePermissions({ siteId: 10, profileId: 120, customRoleId: 122, permissions: ["collectPayments"] })).resolves.toEqual({ success: true });
     expect(state.rpcCalls).toContainEqual({ name: "powerhub_update_staff_profile_permissions", args: expect.objectContaining({ p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1, p_profile_id: 120, p_custom_role_id: 122, p_permissions: ["collectPayments"] }) });
+  });
+
+  it("E50 updates complete extended rights with expected revision and a tenant-scoped service RPC", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    const caller = powerhubRouter.createCaller({ user: {
+      id: 1, role: "admin", platform_role: "platform_admin", account_status: "active",
+      platformRole: "platform_admin", accountStatus: "active",
+    } as never, req: {} as never, res: {} as never });
+    const expectedUpdatedAt = "2026-11-16T18:00:00.000Z";
+    await expect(caller.staff.updateExpandedPermissions({
+      siteId: 10, profileId: 120, customRoleId: null, expectedUpdatedAt,
+      permissions: ["viewInventoryReports", "approvePaymentDocumentation"],
+    })).resolves.toEqual({ success: true, replayed: false });
+    expect(state.rpcCalls).toContainEqual({
+      name: "powerhub_update_staff_profile_permissions_e50",
+      args: expect.objectContaining({
+        p_tenant_id: 20, p_site_id: 10, p_actor_user_id: 1,
+        p_profile_id: 120, p_expected_updated_at: expectedUpdatedAt,
+        p_custom_role_id: null,
+        p_permissions: ["viewInventoryReports", "approvePaymentDocumentation"],
+      }),
+    });
+  });
+
+  it("E50 rejects reserved, unknown and duplicate permissions before privileged RPC", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    const caller = powerhubRouter.createCaller({ user: {
+      id: 1, role: "admin", platform_role: "platform_admin", account_status: "active",
+      platformRole: "platform_admin", accountStatus: "active",
+    } as never, req: {} as never, res: {} as never });
+    const base = { siteId: 10, profileId: 120, expectedUpdatedAt: "2026-11-16T18:00:00.000Z" };
+    state.rpcCalls.splice(0);
+    await expect(caller.staff.updateExpandedPermissions({ ...base, permissions: ["manageTeam"] }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.staff.updateExpandedPermissions({ ...base, permissions: ["unknownCapability"] }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.staff.updateExpandedPermissions({ ...base, permissions: ["collectPayments", "collectPayments"] }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpcCalls.some((call) => call.name === "powerhub_update_staff_profile_permissions_e50")).toBe(false);
+  });
+
+  it("E50 turns an optimistic version mismatch into a clean conflict with no fallback", async () => {
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
+    const caller = powerhubRouter.createCaller({ user: {
+      id: 1, role: "admin", platform_role: "platform_admin", account_status: "active",
+      platformRole: "platform_admin", accountStatus: "active",
+    } as never, req: {} as never, res: {} as never });
+    const original = state.client.rpc;
+    state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) =>
+      name === "powerhub_update_staff_profile_permissions_e50"
+        ? { data: null, error: { code: "P0001", message: "STAFF_PERMISSION_VERSION_CONFLICT" } }
+        : original(name, args));
+    await expect(caller.staff.updateExpandedPermissions({
+      siteId: 10, profileId: 120, expectedUpdatedAt: "2026-11-16T18:00:00.000Z",
+      permissions: ["viewFinancialReports"],
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(state.rpcCalls.some((call) => call.name === "powerhub_update_staff_profile_permissions")).toBe(false);
   });
 
   it("يوقف الحساب الفرعي ويرفع التوقيف ويحدث حالته عبر Supabase دون MySQL", async () => {
