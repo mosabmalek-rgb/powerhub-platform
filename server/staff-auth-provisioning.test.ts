@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  createNewStaffProfile, compensateUnassignedStaffAuth, StaffAuthRecoveryRequired,
+  createNewStaffProfile, compensateUnassignedStaffAuth, StaffAuthRecoveryRequired, assertStaffAssignmentRpcAvailable,
 } from "./staff-auth-provisioning";
 
 type Admin = Parameters<typeof createNewStaffProfile>[0];
@@ -70,6 +70,41 @@ function fixture(overrides: {
     captured, deleteUser, from,
   };
 }
+describe("E46 RPC discovery preflight", () => {
+  const props = { tenantId: 1, siteId: 7, actorUserId: 55, role: "accountant", allBranches: false };
+  const setup = (response: { data: unknown; error: { code: string; message: string } | null }) => {
+    const rpc=vi.fn(async () => response);
+    const createUser=vi.fn();
+    return { admin: { rpc, auth: { admin: { createUser } } } as unknown as Admin, rpc, createUser };
+  };
+  it("accepts only the definitive missing-target rejection, without modifying data", async () => {
+    const f=setup({ data:null, error:{ code:"P0001", message:"TARGET_USER_NOT_FOUND" } });
+    await expect(assertStaffAssignmentRpcAvailable(f.admin, props)).resolves.toBeUndefined();
+    expect(f.rpc).toHaveBeenCalledExactlyOnceWith("powerhub_assign_existing_staff", {
+      p_tenant_id:1,p_site_id:7,p_actor_user_id:55,p_target_user_id:-1,
+      p_role:"accountant",p_all_branches:false,
+    });
+    expect(f.createUser).not.toHaveBeenCalled();
+  });
+  it.each([
+    { data:null,error:{code:"PGRST202",message:"function not found in schema cache"}},
+    { data:null,error:{code:"42501",message:"permission denied"}},
+    { data:null,error:{code:"P0001",message:"SITE_OUT_OF_SCOPE"}},
+    { data:[{profile_id:99}],error:null },
+    { data:null,error:null },
+  ])("fails closed on missing/invalid RPC result (%o)",async result=>{
+    const f=setup(result);
+    await expect(assertStaffAssignmentRpcAvailable(f.admin,props))
+      .rejects.toThrow("STAFF_ASSIGNMENT_RPC_UNAVAILABLE");
+    expect(f.createUser).not.toHaveBeenCalled();
+  });
+  it("hides unexpected service exceptions",async()=>{
+    const rpc=vi.fn(async()=>{throw Error("private exception with credentials");});
+    await expect(assertStaffAssignmentRpcAvailable({rpc} as unknown as Admin,props))
+      .rejects.toThrow("STAFF_ASSIGNMENT_RPC_UNAVAILABLE");
+  });
+});
+
 describe("E45 staff profile creation — explicit backend bootstrap", () => {
   it("persists the new Auth-linked user, with restricted role and temporary-password flags", async () => {
     const f=fixture();
