@@ -9,6 +9,8 @@ import { storagePut, storageRemove } from "./storage";
 import { supabaseAdmin } from "./supabase-admin";
 import { consumeHttpRateLimit, getClientIp } from "./http-rate-limit";
 import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./tenant-membership-expiry";
+import { decodeMobileDeltaCursor, encodeMobileDeltaCursor, MobileCursorError, nextMobileDeltaCursor, type MobileDeltaCursor } from "./mobile-delta-protocol";
+import { loadMobileDeltaScope, mobileBootstrapIds, mobileDeltaEvents, mobileDeltaFence, mobileDeltaProject } from "./mobile-delta-service";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -29,6 +31,14 @@ const mobileChangePasswordSchema = z.object({ newPassword: z.string().min(8).max
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
 const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100), cursor: z.coerce.number().int().min(0).default(0) });
 
+const mobileSubscriberDeltaQuerySchema = z.object({
+  branchId: z.coerce.number().int().positive(),
+  cursor: z.string().min(1).max(2048).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  bootstrap: z.enum(["true", "false"]).optional(),
+}).strict().refine((input) => !input.cursor || input.bootstrap !== "true", {
+  message: "Bootstrap and cursor cannot be combined.",
+});
 const mobileCycleSyncStatsQuerySchema = z.object({
   branchId: z.coerce.number().int().positive(),
   from: z.string().datetime(),
@@ -679,6 +689,133 @@ export function registerMobileApi(app: Express) {
     return res.json({ branchId, from, to, syncedReadingCount: readingIds.size });
   });
 
+  // E51: stable per-session scoped bootstrap/delta; v1 offset endpoint remains
+  // available to older Android installs. A missing or stale cursor is NEVER
+  // interpreted as an offset or as authority to switch tenant or branch.
+  app.get("/api/mobile/v1/subscribers/delta", rateLimit({
+    windowMs: 60_000, limit: 240,
+    standardHeaders: "draft-8", legacyHeaders: false,
+  }), async (req, res, next) => {
+    const allowed = await consumeHttpRateLimit({
+      req, scope: "mobile-delta-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!allowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "طلبات تحديث المشتركين متكررة للغاية.", true);
+    }
+    return next();
+  }, async (req, res) => {
+    const context = await authenticateMobile(req);
+    if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const allowed = await consumeHttpRateLimit({
+      req, scope: "mobile-delta-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 60,
+    });
+    if (!allowed) return sendError(res, 429, "RATE_LIMITED", "تم تجاوز حد المزامنة.", true);
+    const parsed = mobileSubscriberDeltaQuerySchema.safeParse(req.query);
+    if (!parsed.success) return sendError(res, 400, "INVALID_DELTA_QUERY", "طلب Delta غير صالح.");
+    const { branchId, limit } = parsed.data;
+    if (!context.scope.branchIds.includes(branchId)) {
+      return sendError(res, 403, "BRANCH_ACCESS_DENIED", "الفرع خارج صلاحيات الحساب.");
+    }
+    try {
+      const scope = await loadMobileDeltaScope(context.scope.tenantId,context.scope.userId,branchId);
+      const binding = {
+        tenantId:context.scope.tenantId,userId:context.scope.userId,
+        branchId,sessionId:context.sessionId,scopeVersion:scope.scopeVersion,
+      };
+      let cursor: MobileDeltaCursor;
+      let retainedFloor: number;
+      if (parsed.data.cursor) {
+        cursor = decodeMobileDeltaCursor(parsed.data.cursor,binding);
+        const fence = await mobileDeltaFence(binding.tenantId,branchId);
+        retainedFloor=fence.retainedFloor;
+        if (cursor.mode==="bootstrap" && cursor.highwater<retainedFloor ||
+            cursor.mode==="delta" && cursor.after<retainedFloor) {
+          return res.status(409).json({
+            requiresBootstrap:true,error:{code:"CURSOR_EXPIRED",
+              message:"تجاوز المؤشر حدود سجل التغييرات المحتفظ به.",retryable:false},
+          });
+        }
+        if (cursor.mode==="delta" && cursor.after===cursor.highwater) {
+          cursor = {...cursor,highwater:fence.highwater,issuedAt:Date.now()};
+        }
+      } else if (parsed.data.bootstrap === "true") {
+        const fence=await mobileDeltaFence(binding.tenantId,branchId);
+        retainedFloor=fence.retainedFloor;
+        cursor={v:1,mode:"bootstrap",...binding,
+          highwater:fence.highwater,after:0,ceiling:fence.ceiling,issuedAt:Date.now()};
+      } else {
+        return res.status(409).json({
+          requiresBootstrap:true,error:{code:"BOOTSTRAP_REQUIRED",
+            message:"يجب تهيئة بيانات هذا الفرع لأول مرة.",retryable:false},
+        });
+      }
+      const cycleResult=await resolveMobileReadingCycle(binding.tenantId,branchId,isoNow());
+      if(cycleResult.error || !cycleResult.cycle) {
+        return sendSupabaseError(res,cycleResult.error,"تعذر تحديد الدورة الحالية للمزامنة.");
+      }
+      let ids: number[];
+      let hasMore: boolean;
+      let nextAfter: number;
+      if (cursor.mode==="bootstrap") {
+        const page=await mobileBootstrapIds({
+          tenantId:binding.tenantId,branchId,userId:binding.userId,
+          distributed:scope.distributionEnabled,after:cursor.after,
+          ceiling:cursor.ceiling,limit,
+        });
+        ids=page.ids;
+        hasMore=page.hasMore;
+        nextAfter=ids.at(-1)??cursor.after;
+      } else {
+        const page=await mobileDeltaEvents({
+          tenantId:binding.tenantId,branchId,userId:binding.userId,
+          distributed:scope.distributionEnabled,after:cursor.after,
+          highwater:cursor.highwater,limit,
+        });
+        ids=[...new Set(page.events.map(e=>e.id))];
+        hasMore=page.hasMore;
+        nextAfter=page.events.at(-1)?.sequence??cursor.after;
+        if(!hasMore)nextAfter=cursor.highwater;
+      }
+      const upserts=await mobileDeltaProject({
+        tenantId:binding.tenantId,branchId,userId:binding.userId,
+        distributed:scope.distributionEnabled,ids,
+        cycleStart:cycleResult.cycle.startAt,cycleEnd:cycleResult.cycle.endAt,
+      });
+      const projectedIds=new Set(upserts.map(x=>x.id));
+      const deletes=ids.filter(id=>!projectedIds.has(id));
+      // A scope may be revoked while a page is being prepared. Recheck after
+      // projection and never emit the page under a changed entitlement.
+      const refreshed=await loadMobileDeltaScope(binding.tenantId,binding.userId,branchId);
+      if(refreshed.scopeVersion!==scope.scopeVersion) {
+        return res.status(409).json({
+          requiresBootstrap:true,error:{code:"CURSOR_SCOPE_CHANGED",
+            message:"تغيرت صلاحيات الحساب؛ يلزم إعادة تهيئة الفرع.",retryable:false},
+        });
+      }
+      const next=nextMobileDeltaCursor(cursor,nextAfter,hasMore);
+      return res.json({
+        tenantId:binding.tenantId,userId:binding.userId,branchId,
+        mode:cursor.mode,scopeVersion:binding.scopeVersion,
+        currentCycle:cycleResult.cycle,
+        upserts,deletes,nextCursor:encodeMobileDeltaCursor(next),
+        hasMore,requiresBootstrap:false,serverTime:isoNow(),
+        transferredCount:upserts.length+deletes.length,
+      });
+    } catch (error) {
+      if(error instanceof MobileCursorError) {
+        return res.status(error.code==="CURSOR_INVALID"?400:409).json({
+          requiresBootstrap:true,error:{code:error.code,
+            message:"مؤشر المزامنة لم يعد صالحاً لهذا الحساب أو الفرع.",retryable:false},
+        });
+      }
+      return sendSupabaseError(res,
+        error instanceof Error?error:null,"تعذر تنفيذ Delta؛ بقي المؤشر المحلي دون تغيير.");
+    }
+  });
+
   app.get("/api/mobile/v1/subscribers", rateLimit({
     windowMs: 60000,
     limit: 240,
@@ -955,4 +1092,4 @@ export function registerMobileApi(app: Express) {
   });
 }
 
-export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, cycleSyncStats: mobileCycleSyncStatsQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
+export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, subscriberDelta: mobileSubscriberDeltaQuerySchema, cycleSyncStats: mobileCycleSyncStatsQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
