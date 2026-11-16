@@ -50,7 +50,9 @@ export async function createNewStaffProfile(
  * A failed RPC can be an ambiguous network response AFTER the database commit.
  * Check the post-condition before deleting Auth: FK ON DELETE CASCADE would
  * otherwise delete a legitimately assigned member/staff identity and audit
- * references. On any uncertain read, preserve the identity for reconciliation.
+ * references. Check all tenant memberships, not just the requested tenant,
+ * because a newly provisioned identity could become assigned elsewhere.
+ * On any uncertain read, preserve the identity for reconciliation.
  */
 export async function compensateUnassignedStaffAuth(
   admin: Admin,
@@ -65,10 +67,8 @@ export async function compensateUnassignedStaffAuth(
       if (!Number.isSafeInteger(id) || id <= 0)
         throw new StaffAuthRecoveryRequired("UNVERIFIED_DATABASE_STATE");
       const [memberResult, staffResult] = await Promise.all([
-        admin.from("tenant_members").select("id").eq("tenant_id", input.tenantId)
-          .eq("user_id", id).limit(1).maybeSingle(),
-        admin.from("staff_profiles").select("id").eq("tenant_id", input.tenantId)
-          .eq("user_id", id).limit(1).maybeSingle(),
+        admin.from("tenant_members").select("id").eq("user_id", id).limit(1).maybeSingle(),
+        admin.from("staff_profiles").select("id").eq("user_id", id).limit(1).maybeSingle(),
       ]);
       if (memberResult.error || staffResult.error)
         throw new StaffAuthRecoveryRequired("UNVERIFIED_DATABASE_STATE");
