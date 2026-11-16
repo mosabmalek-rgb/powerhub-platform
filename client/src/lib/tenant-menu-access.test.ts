@@ -57,6 +57,20 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/profile", "accountant", rights, true)).toBe(true);
   });
 
+  it("does not expose unrelated invoice, inventory, dashboard or report tabs from a single delegated operation", () => {
+    const cases: Array<{ capability: "collectPayments" | "recordReadings" | "viewFinancialReports" | "manageGenerators"; shown: string; denied: string[] }> = [
+      { capability: "collectPayments", shown: "/collections", denied: ["/invoices", "/readings", "/inventory", "/workspace", "/reports"] },
+      { capability: "recordReadings", shown: "/readings", denied: ["/invoices", "/generators", "/inventory", "/workspace", "/collections"] },
+      { capability: "viewFinancialReports", shown: "/reports", denied: ["/invoices", "/expenses", "/company-accounts", "/workspace", "/collections"] },
+      { capability: "manageGenerators", shown: "/generators", denied: ["/inventory", "/readings", "/workspace", "/collections"] },
+    ];
+    for (const scenario of cases) {
+      expect(tenantMenuRouteAllowed(scenario.shown, "viewer", [scenario.capability], true)).toBe(true);
+      for (const denied of scenario.denied)
+        expect(tenantMenuRouteAllowed(denied, "viewer", [scenario.capability], true), scenario.capability + ": " + denied).toBe(false);
+    }
+  });
+
   it("hides every operational page for an explicit empty capability set", () => {
     expect(firstPermittedTenantRoute("collector", [], true)).toBeNull();
     expect(tenantMenuRouteAllowed("/workspace", "collector", [], true)).toBe(false);
