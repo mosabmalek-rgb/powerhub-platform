@@ -211,6 +211,9 @@ describe("Mobile API subscribers route", () => {
     });
     const previous=state.resolve.getMockImplementation();
     state.resolve.mockImplementation(async (table: string, query: any, terminal: string) => {
+      if (table === "sites" && query.selected === "id,status,updated_at") {
+        return {data:{id:12,status:"active",updated_at:"2026-11-16T00:00:00.000Z"},error:null};
+      }
       if (table === "subscribers" && query.selected === "id") {
         const ids = [201,202].filter((id) =>
           query.filters.some((f:unknown[]) => f[0]==="gt" && f[1]==="id")
