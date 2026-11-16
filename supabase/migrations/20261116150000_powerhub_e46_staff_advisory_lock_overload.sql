@@ -52,7 +52,7 @@ begin
   insert into public.staff_profiles(tenant_id,site_id,user_id,role,is_active) values(p_tenant_id,v_target_site_id,p_target_user_id,p_role,true) on conflict(user_id,site_id,role) do update set is_active=true,updated_at=now() returning id into v_profile_id;
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,actor_tenant_role,entity_type,entity_id,action,before_data,after_data) values(p_tenant_id,p_site_id,p_actor_user_id,v_actor_platform_role,v_actor_tenant_role,'staff_profile',v_profile_id::text,'assign_role',jsonb_build_object('membership',v_before_member,'profiles',v_before_profiles),jsonb_build_object('targetUserId',p_target_user_id,'role',p_role,'allBranches',p_all_branches,'assignedSiteId',v_target_site_id,'membershipRole',v_target_membership_role));
   return query select v_profile_id,p_target_user_id;
-end; $function$
+end; $function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_delete_custom_permission_role(p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_role_id bigint)
  RETURNS TABLE(role_id bigint)
@@ -69,7 +69,7 @@ begin
   if exists(select 1 from public.staff_profiles where tenant_id=p_tenant_id and custom_role_id=p_role_id and is_active=true for key share) then raise exception 'CUSTOM_ROLE_LINKED' using errcode='P0001'; end if;
   update public.custom_permission_roles set is_active=false,updated_at=now() where id=p_role_id and tenant_id=p_tenant_id;
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,actor_tenant_role,entity_type,entity_id,action,before_data,after_data) values(p_tenant_id,p_site_id,p_user_id,v_actor_platform_role,v_actor_tenant_role,'custom_permission_role',p_role_id::text,'delete',v_before,jsonb_build_object('isActive',false)); return query select p_role_id;
-end; $function$
+end; $function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_staff_reset_password_begin(p_tenant_id bigint, p_site_id bigint, p_actor_user_id bigint, p_profile_id bigint)
  RETURNS TABLE(intent_id bigint, auth_user_id uuid, target_user_id bigint, expires_at timestamp with time zone)
@@ -147,7 +147,7 @@ begin
 
   return query select intent_id,v_auth_user_id,v_target_user_id,v_expires_at;
 end;
-$function$
+$function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_update_staff_profile_permissions(p_tenant_id bigint, p_site_id bigint, p_actor_user_id bigint, p_profile_id bigint, p_custom_role_id bigint, p_permissions jsonb)
  RETURNS TABLE(profile_id bigint, target_user_id bigint)
@@ -166,7 +166,7 @@ begin
   select to_jsonb(profile),profile.user_id into v_before,v_target_user_id from public.staff_profiles profile where profile.id=p_profile_id and profile.tenant_id=p_tenant_id and (profile.site_id=p_site_id or profile.site_id is null) for update; if not found then raise exception 'STAFF_PROFILE_OUT_OF_SCOPE' using errcode='P0001'; end if;
   update public.staff_profiles set custom_role_id=p_custom_role_id,permissions=p_permissions,updated_at=now() where id=p_profile_id and tenant_id=p_tenant_id;
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,actor_tenant_role,entity_type,entity_id,action,before_data,after_data) values(p_tenant_id,p_site_id,p_actor_user_id,v_actor_platform_role,v_actor_tenant_role,'staff_profile',p_profile_id::text,'update_permissions',v_before,jsonb_build_object('customRoleId',p_custom_role_id,'permissions',p_permissions,'targetUserId',v_target_user_id)); return query select p_profile_id,v_target_user_id;
-end; $function$
+end; $function$;
 
 CREATE OR REPLACE FUNCTION public.powerhub_update_staff_profile_status(p_tenant_id bigint, p_site_id bigint, p_actor_user_id bigint, p_profile_id bigint, p_operation text, p_suspension_started_at timestamp with time zone, p_suspension_ends_at timestamp with time zone, p_is_active boolean)
  RETURNS TABLE(profile_id bigint, is_active boolean, suspension_ends_at timestamp with time zone)
@@ -188,7 +188,7 @@ begin
   else update public.staff_profiles set is_active=p_is_active,updated_at=now() where id=p_profile_id and tenant_id=p_tenant_id; v_audit_action:=case when p_is_active then 'activate' else 'deactivate' end; v_after:=jsonb_build_object('isActive',p_is_active,'userId',v_target_user_id); v_profile_active:=p_is_active; end if;
   insert into public.audit_logs(tenant_id,site_id,user_id,actor_platform_role,actor_tenant_role,entity_type,entity_id,action,before_data,after_data) values(p_tenant_id,p_site_id,p_actor_user_id,v_actor_platform_role,v_actor_tenant_role,'staff_profile',p_profile_id::text,v_audit_action,v_before,v_after);
   return query select p_profile_id,v_profile_active,v_suspension_end;
-end; $function$
+end; $function$;
 
 -- Read-only post-deployment inspection: all five must use supported bigint
 -- lock overload, with no anonymous or authenticated EXECUTE grant.
