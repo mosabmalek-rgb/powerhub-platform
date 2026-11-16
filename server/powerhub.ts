@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
+import { createNewStaffProfile, compensateUnassignedStaffAuth, StaffAuthRecoveryRequired } from "./staff-auth-provisioning";
 import { measureB5Stage } from "./b5-request-trace";
 import { measureSlowStage, withAbortSignalIfSupported, withTimeout } from "./performance-telemetry";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -1868,21 +1869,18 @@ export const powerhubRouter = router({
       }
 
       try {
-        const { data: profileUser, error: profileError } = await admin.from("users")
-          .select("id")
-          .eq("auth_user_id", authData.user.id)
-          .maybeSingle();
-        if (profileError || !profileUser) throw new Error("تعذر إنشاء ملف المستخدم في Supabase بعد إنشاء Auth.");
-        const { error: passwordPolicyError } = await admin.from("users")
-          .update({ must_change_password: true, temporary_password_issued_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq("id", Number(profileUser.id))
-          .eq("auth_user_id", authData.user.id);
-        if (passwordPolicyError) throw new Error("تعذر تثبيت سياسة كلمة المرور المؤقتة للحساب الفرعي.");
+        // Staff creation uses the same explicit Auth-to-public.users bootstrap model
+        // as auth.me and generator-owner provisioning; no auth.users trigger exists.
+        const profileUserId = await createNewStaffProfile(admin, {
+          authUserId: authData.user.id,
+          email,
+          name: input.name,
+        });
         const { data, error } = await admin.rpc("powerhub_assign_existing_staff", {
           p_tenant_id: access.tenantId,
           p_site_id: input.siteId,
           p_actor_user_id: ctx.user.id,
-          p_target_user_id: Number(profileUser.id),
+          p_target_user_id: profileUserId,
           p_role: input.role,
           p_all_branches: input.allBranches,
         });
@@ -1894,13 +1892,27 @@ export const powerhubRouter = router({
           if (errorText.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({ code: "NOT_FOUND", message: "الفرع غير موجود ضمن مساحة صاحب المولد." });
           throw new Error(error?.message || "تعذر تعيين الحساب الفرعي في Supabase.");
         }
-        return { success: true, userId: Number(profileUser.id), profileId: Number(data[0].profile_id) };
+        return { success: true, userId: profileUserId, profileId: Number(data[0].profile_id) };
       } catch (error) {
-        await admin.auth.admin.deleteUser(authData.user.id).catch((deleteError) => {
-          console.error("[PowerHub] failed to compensate orphaned staff Auth user", deleteError);
-        });
+        // The assignment RPC may have committed before a transport timeout.
+        // Do not cascade-delete the legitimate member and staff profile.
+        try {
+          await compensateUnassignedStaffAuth(admin, {
+            authUserId: authData.user.id,
+            tenantId: access.tenantId,
+          });
+        } catch (recoveryError) {
+          console.error("[PowerHub] staff Auth compensation requires reconciliation", {
+            reason: recoveryError instanceof StaffAuthRecoveryRequired
+              ? recoveryError.reason : "UNVERIFIED_DATABASE_STATE",
+          });
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "تعذر تأكيد نتيجة إنشاء الحساب الفرعي أو التراجع عنها؛ راجع الحسابات وسجل التدقيق قبل إعادة المحاولة.",
+          });
+        }
         if (error instanceof TRPCError) throw error;
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "تعذر إكمال إنشاء الحساب الفرعي." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إكمال إنشاء الحساب الفرعي؛ تم التراجع عن حساب Auth غير المعيّن." });
       }
     }),
     activity: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive() })).query(async ({ ctx, input }) => {
