@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Loader2, UserRoundPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +34,7 @@ export default function CreateSubaccountForm({
   const [role, setRole] = useState<StaffRole>(roles[0] ?? "viewer");
   const [allBranches, setAllBranches] = useState(false);
   const [permissions, setPermissions] = useState<PowerCapability[]>([]);
+  const initialized = useRef(false);
   const accessible = useMemo(() => new Set(availableCapabilities), [availableCapabilities]);
   const selected = useMemo(() => new Set(permissions), [permissions]);
   const defaultPermissions = useMemo(() =>
@@ -41,10 +42,16 @@ export default function CreateSubaccountForm({
   [role, ownerCapabilities, accessible]);
 
   useEffect(() => {
-    // React Query may refresh the catalog after role selection. Never reset an
-    // already customized selection in that case; clamp to the latest rights.
+    if (isCatalogLoading || isCatalogError) return;
+    // Initialize from the selected role once the verified owner-scoped catalog
+    // arrives. A refetch must not silently restore a permission the user removed.
+    if (!initialized.current) {
+      initialized.current = true;
+      setPermissions(defaultStaffPermissionSelection(role, availableCapabilities));
+      return;
+    }
     setPermissions((current) => current.filter((capability) => accessible.has(capability)));
-  }, [accessible]);
+  }, [accessible, availableCapabilities, isCatalogLoading, isCatalogError, role]);
 
   const allBranchesPossible = canUseAllBranches && sites.length > 1;
   const canSubmit = roles.includes(role) && sites.some((site) => site.id === siteId) &&
