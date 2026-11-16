@@ -1314,7 +1314,9 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
     state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active" }];
     state.tables.custom_permission_roles = [{ id: 122, tenant_id: 20, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], is_active: true }];
     const caller = powerhubRouter.createCaller({ user: { id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", platformRole: "platform_admin", accountStatus: "active" } as never, req: {} as never, res: {} as never });
-    await expect(caller.staff.permissionCatalog({ siteId: 10 })).resolves.toContain("manageTeam");
+    await expect(caller.staff.permissionCatalog({ siteId: 10 })).resolves.toContain("viewFinancialReports");
+    await expect(caller.staff.permissionCatalog({ siteId: 10 })).resolves.not.toContain("manageTeam");
+    await expect(caller.staff.permissionCatalog({ siteId: 10 })).resolves.not.toContain("manageMessaging");
     await expect(caller.staff.customRoles({ siteId: 10 })).resolves.toEqual([{ id: 122, name: "دور التحصيل", description: "صلاحيات تحصيل", permissions: ["collectPayments"], isActive: true }]);
   });
 
