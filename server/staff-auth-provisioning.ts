@@ -10,18 +10,22 @@ type Admin = ReturnType<typeof supabaseAdmin>;
  */
 export async function assertStaffAssignmentRpcAvailable(
   admin: Admin,
-  input: { tenantId: number; siteId: number; actorUserId: number; role: string; allBranches: boolean },
+  input: { tenantId: number; siteId: number; actorUserId: number; role: string; allBranches: boolean; permissions?: string[] },
 ): Promise<void> {
   let result: Awaited<ReturnType<typeof admin.rpc>>;
   try {
-    result = await admin.rpc("powerhub_assign_existing_staff", {
-      p_tenant_id: input.tenantId,
-      p_site_id: input.siteId,
-      p_actor_user_id: input.actorUserId,
-      p_target_user_id: -1,
-      p_role: input.role,
-      p_all_branches: input.allBranches,
-    });
+    result = await admin.rpc(
+      input.permissions === undefined ? "powerhub_assign_existing_staff" : "powerhub_assign_existing_staff_with_permissions",
+      {
+        p_tenant_id: input.tenantId,
+        p_site_id: input.siteId,
+        p_actor_user_id: input.actorUserId,
+        p_target_user_id: -1,
+        p_role: input.role,
+        p_all_branches: input.allBranches,
+        ...(input.permissions === undefined ? {} : { p_permissions: input.permissions }),
+      },
+    );
   } catch {
     throw new Error("STAFF_ASSIGNMENT_RPC_UNAVAILABLE");
   }
