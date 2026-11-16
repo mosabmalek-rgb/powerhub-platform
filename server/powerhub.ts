@@ -1834,6 +1834,51 @@ export const powerhubRouter = router({
       }
       return { success: true };
     }),
+    // E50: E47-complete individual permissions, independently version-guarded.
+    // Legacy updatePermissions remains untouched for existing older clients.
+    updateExpandedPermissions: protectedProcedure.input(z.object({
+      siteId: z.number().int().positive(),
+      profileId: z.number().int().positive(),
+      customRoleId: z.number().int().positive().nullable().optional(),
+      expectedUpdatedAt: z.string().datetime(),
+      permissions: z.array(z.string()).max(41),
+    })).mutation(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
+      if (!permissionsAreDelegable(input.permissions as PowerCapability[], access.permissions)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "تتضمن الصلاحيات المطلوبة حقاً غير متاح للمالك أو مكرراً." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_update_staff_profile_permissions_e50", {
+        p_tenant_id: access.tenantId,
+        p_site_id: input.siteId,
+        p_actor_user_id: ctx.user.id,
+        p_profile_id: input.profileId,
+        p_custom_role_id: input.customRoleId ?? null,
+        p_permissions: input.permissions,
+        p_expected_updated_at: input.expectedUpdatedAt,
+      });
+      if (error) {
+        const message = String(error.message ?? "");
+        if (message.includes("STAFF_PERMISSION_VERSION_CONFLICT")) throw new TRPCError({
+          code: "CONFLICT", message: "عُدلت صلاحيات هذا الحساب من جلسة أخرى؛ حدّث البيانات ثم حاول مجدداً.",
+        });
+        if (message.includes("STAFF_PROFILE_OUT_OF_SCOPE") || message.includes("SITE_OUT_OF_SCOPE")) throw new TRPCError({
+          code: "NOT_FOUND", message: "الحساب الفرعي أو الفرع المحدد خارج نطاقك.",
+        });
+        if (message.includes("STAFF_PERMISSION_OUTSIDE_OWNER_SCOPE") ||
+            message.includes("STAFF_PERMISSION_MANAGEMENT_FORBIDDEN") ||
+            message.includes("INVALID_STAFF_PERMISSION_CAPABILITY")) throw new TRPCError({
+          code: "FORBIDDEN", message: "لا تملك صلاحية منح هذه الحقوق أو تعديل هذا الحساب.",
+        });
+        if (message.includes("CUSTOM_ROLE_NOT_FOUND")) throw new TRPCError({
+          code: "NOT_FOUND", message: "الدور المخصص غير موجود أو لم يعد نشطاً.",
+        });
+        if (message.includes("INVALID_STAFF_PERMISSIONS")) throw new TRPCError({
+          code: "BAD_REQUEST", message: "قائمة الصلاحيات أو نسخة الحساب غير صالحة.",
+        });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحديث الصلاحيات الموسعة في Supabase." });
+      }
+      return { success: true, replayed: Boolean(data?.[0]?.replayed) };
+    }),
     assign: protectedProcedure.input(z.object({ siteId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]), allBranches: z.boolean().default(false) }))
       .mutation(async ({ ctx, input }) => {
         const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner"], "manageTeam");
