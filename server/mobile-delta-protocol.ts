@@ -59,8 +59,8 @@ export function decodeMobileDeltaCursor(
     || ![c.tenantId, c.userId, c.branchId, c.sessionId, c.highwater,
       c.after, c.ceiling, c.issuedAt].every(isInt)
     || typeof c.scopeVersion !== "string" || c.scopeVersion.length !== 64
-    || (c.mode === "delta" && c.after > c.highwater)
-    || (c.mode === "bootstrap" && c.after > c.ceiling)
+    || (c.mode === "delta" && (c.after as number) > (c.highwater as number))
+    || (c.mode === "bootstrap" && (c.after as number) > (c.ceiling as number))
     || (c.issuedAt as number) > now + 60_000) throw new MobileCursorError("CURSOR_INVALID");
   if (now - (c.issuedAt as number) > MAX_CURSOR_AGE_MS) throw new MobileCursorError("CURSOR_EXPIRED");
   if (c.tenantId !== scope.tenantId || c.userId !== scope.userId
