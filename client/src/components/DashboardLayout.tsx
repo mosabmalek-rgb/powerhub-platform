@@ -70,7 +70,7 @@ const menuGroups = [
       { icon: ChartNoAxesCombined, label: "لوحة المالية", path: "/financial-dashboard" },
       { icon: ChartNoAxesCombined, label: "التسويات المالية", path: "/financial-settlements" },
       { icon: ClipboardCheck, label: "توثيق الدفع", path: "/payment-documentation" },
-      { icon: ClipboardCheck, label: "مراجعة توثيق الدفع", path: "/payment-documentation/review", capability: "approvePaymentDocumentation" as PowerCapability },
+      { icon: ClipboardCheck, label: "توثيق الدفع — المراجعة والاعتماد", path: "/payment-documentation/review", capability: "approvePaymentDocumentation" as PowerCapability },
     ],
   },
   {
@@ -301,16 +301,24 @@ function DashboardLayoutContent({
     ...group,
     items: group.items.filter((item) => {
       if (displayUser.role === "admin") return true;
+      // Do not show cached, unverified capabilities after a live access error.
+      if (!hasActiveTenantAccess || activeAccess.isError || !activeTenantAccess) return false;
+      const permitted = tenantMenuRouteAllowed(
+        item.path, activeTenantAccess.role,
+        activeTenantAccess.permissions, activeTenantAccess.usesPermissionOverride,
+      );
+      if (!permitted) return false;
+      // /profile remains accessible directly for password changes and account
+      // management, but is not an operational sidebar tab for E47 staff.
+      if (item.path === "/profile" && activeTenantAccess.role !== "owner" &&
+          activeTenantAccess.usesPermissionOverride) return false;
       if (item.path === "/support-chat") return !tenantFeatureAccess.isError && tenantFeatureAccess.data?.support_chat === true;
       if (item.path === "/ai-support") return !tenantFeatureAccess.isError && tenantFeatureAccess.data?.powerhub_ai_assistant === true;
-      if (item.path === "/payment-documentation") return Boolean(paymentDocumentationAccess.data?.allowed);
-      if (!hasActiveTenantAccess) {
-        // Keep navigation discoverable during a transient access-check outage.
-        // Every route and operation still validates authorization on the server.
-        return accessCheckTemporarilyUnavailable || item.path === "/workspace" || item.path === "/profile";
-      }
-      if (!activeTenantAccess) return item.path === "/workspace" || item.path === "/profile";
-      return tenantMenuRouteAllowed(item.path, activeTenantAccess.role, activeTenantAccess.permissions, activeTenantAccess.usesPermissionOverride);
+      if (item.path === "/payment-documentation") return paymentDocumentationAccess.data?.allowed === true &&
+        !paymentDocumentationAccess.isError;
+      if (item.path === "/payment-documentation/review") return paymentDocumentationAccess.data?.allowed === true &&
+        !paymentDocumentationAccess.isError;
+      return true;
     }),
   })).filter((group) => group.items.length > 0);
   const activeMenuItem = permissionAwareGroups.flatMap(group => group.items).find(item => item.path === location);
