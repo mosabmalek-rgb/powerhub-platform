@@ -105,13 +105,19 @@ function TenantPermissionRouteGate({ children }: { children: React.ReactNode }) 
     { enabled: siteId > 0 && isDocumentationRoute, staleTime: 0,
       refetchOnMount: "always", refetchOnReconnect: true },
   );
+  // Cached TanStack Query / DashboardLayout initialData is not a fresh permission
+  // decision. Wait for a server response after this page gate mounts before
+  // rendering child routes, including after a branch or user switch.
+  const accessVerified = access.isFetchedAfterMount === true;
+  const documentationVerified = !isDocumentationRoute ||
+    paymentDocumentation.isFetchedAfterMount === true;
   const ready = Boolean(!sites.isPending && !sites.isError && siteId &&
-    !access.isPending && !access.isError && access.data);
+    !access.isPending && !access.isError && access.data && accessVerified);
   const allowed = ready && tenantMenuRouteAllowed(
     location, access.data?.role, access.data?.permissions,
     access.data?.usesPermissionOverride,
-  ) && (!isDocumentationRoute || (paymentDocumentation.data?.allowed === true &&
-    !paymentDocumentation.isError));
+  ) && (!isDocumentationRoute || (documentationVerified &&
+    paymentDocumentation.data?.allowed === true && !paymentDocumentation.isError));
   const fallback = access.data && firstPermittedTenantRoute(
     access.data.role, access.data.permissions, access.data.usesPermissionOverride,
   );
@@ -123,8 +129,9 @@ function TenantPermissionRouteGate({ children }: { children: React.ReactNode }) 
       fallback !== location && !isDocumentationRoute) setLocation(fallback);
   }, [ready, allowed, location, fallback, isDocumentationRoute, setLocation]);
 
-  if (sites.isPending || (siteId > 0 && access.isPending) ||
-      (isDocumentationRoute && paymentDocumentation.isPending)) {
+  if (sites.isPending || (siteId > 0 && (access.isPending || (!access.isError && !accessVerified))) ||
+      (isDocumentationRoute && (paymentDocumentation.isPending ||
+        (!paymentDocumentation.isError && !documentationVerified)))) {
     return <main className="grid min-h-screen place-items-center bg-[#0D1117] text-slate-200" role="status" dir="rtl">جارٍ التحقق من صلاحيات الصفحة…</main>;
   }
   if (!ready || (isDocumentationRoute && paymentDocumentation.isError)) {
