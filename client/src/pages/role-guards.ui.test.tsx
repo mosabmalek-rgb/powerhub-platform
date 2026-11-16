@@ -55,6 +55,7 @@ const mocks = vi.hoisted(() => {
   createReadingMutateAsync: vi.fn(async () => ({ status: "approved", readingId: 900, invoiceId: 901 })),
   createPaymentMutateAsync: vi.fn(async (_input: unknown) => ({ id: 901, replayed: false })),
   saveCustomRoleMutateAsync: vi.fn(async () => ({ success: true, id: 123 })),
+  updateExpandedPermissionsMutate: vi.fn(),
   runWithStableOperationKey: vi.fn(async (_scope: unknown, action: (key: string) => Promise<unknown>) => action("00000000-0000-4000-8000-000000000359")),
   sendDeferredInvoices: vi.fn(),
   sendPendingSms: vi.fn(),
@@ -108,7 +109,7 @@ vi.mock("@/lib/trpc", () => ({
       siteBillingPolicy: { get: { useQuery: () => mocks.query({ automaticFractionDiscountEnabled: false, fractionCarryEnabled: false }) }, save: { useMutation: mocks.mutation } },
       reportBranding: { get: { useQuery: () => mocks.query({ companyName: "PowerHub", logoUrl: null }) }, update: { useMutation: mocks.mutation } },
       readingCycle: { get: { useQuery: () => mocks.query({ cycleType: "MONTHLY", weeklyStartDay: 7, monthlyStartDay: 1 }) }, currentBounds: { useQuery: () => mocks.query({ cycleKey: "2026-10", cycleLabel: "أكتوبر 2026", billingPeriod: "2026-10", startAt: "2026-10-01T00:00:00.000Z", endAt: "2026-10-31T20:59:59.999Z" }) }, boundsAt: { useQuery: () => mocks.query({ cycleKey: "2026-09", cycleLabel: "سبتمبر 2026", billingPeriod: "2026-09", startAt: "2026-09-01T00:00:00.000Z", endAt: "2026-09-30T20:59:59.999Z" }) }, save: { useMutation: mocks.mutation } },
-      staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, readingDistribution: { useQuery: () => mocks.query({ isEnabled: false, readerUserIds: [], assignedSubscriberCount: 0, unassignedSubscriberCount: 0 }) }, configureReadingDistribution: { useMutation: mocks.mutation }, fieldReaderAssignments: { useQuery: () => mocks.query({ items: [], totalCount: 0 }) }, moveFieldReaderSubscriber: { useMutation: mocks.mutation }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, archived: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"], fieldUserLimit: 4, fieldUserCount: 0, fieldUserRemaining: 4 }) }, permissionCatalog: { useQuery: () => ({ ...mocks.query(["recordReadings", "accessFieldApp", "collectPayments", "viewFinancialReports"]), isFetchedAfterMount: true }) }, assign: { useMutation: mocks.mutation }, archive: { useMutation: mocks.mutation }, restore: { useMutation: mocks.mutation }, setActive: { useMutation: mocks.mutation }, suspend: { useMutation: mocks.mutation }, clearSuspension: { useMutation: mocks.mutation }, create: { useMutation: mocks.mutation }, activity: { useQuery: () => mocks.query([]) }, resetPassword: { useMutation: mocks.mutation }, customRoles: { useQuery: () => mocks.query([]) }, permissionChanges: { useQuery: () => mocks.query([]) }, updatePermissions: { useMutation: mocks.mutation }, updateExpandedPermissions: { useMutation: mocks.mutation }, saveCustomRole: { useMutation: () => ({ mutate: vi.fn(), mutateAsync: mocks.saveCustomRoleMutateAsync, isPending: false }) }, deleteCustomRole: { useMutation: mocks.mutation } },
+      staff: { myAccess: { useQuery: () => mocks.query({ role: mocks.activeRole }) }, readingDistribution: { useQuery: () => mocks.query({ isEnabled: false, readerUserIds: [], assignedSubscriberCount: 0, unassignedSubscriberCount: 0 }) }, configureReadingDistribution: { useMutation: mocks.mutation }, fieldReaderAssignments: { useQuery: () => mocks.query({ items: [], totalCount: 0 }) }, moveFieldReaderSubscriber: { useMutation: mocks.mutation }, directory: { useQuery: () => mocks.query([]) }, list: { useQuery: () => mocks.query([]) }, archived: { useQuery: () => mocks.query([]) }, allowedSubaccountRoles: { useQuery: () => mocks.query({ roles: ["manager", "accountant", "collector", "technician", "viewer"], fieldUserLimit: 4, fieldUserCount: 0, fieldUserRemaining: 4 }) }, permissionCatalog: { useQuery: () => ({ ...mocks.query(["recordReadings", "accessFieldApp", "collectPayments", "viewFinancialReports", "viewInventoryReports"]), isFetchedAfterMount: true }) }, assign: { useMutation: mocks.mutation }, archive: { useMutation: mocks.mutation }, restore: { useMutation: mocks.mutation }, setActive: { useMutation: mocks.mutation }, suspend: { useMutation: mocks.mutation }, clearSuspension: { useMutation: mocks.mutation }, create: { useMutation: mocks.mutation }, activity: { useQuery: () => mocks.query([]) }, resetPassword: { useMutation: mocks.mutation }, customRoles: { useQuery: () => mocks.query([]) }, permissionChanges: { useQuery: () => mocks.query([]) }, updatePermissions: { useMutation: mocks.mutation }, updateExpandedPermissions: { useMutation: () => ({ mutate: mocks.updateExpandedPermissionsMutate, isPending: false }) }, saveCustomRole: { useMutation: () => ({ mutate: vi.fn(), mutateAsync: mocks.saveCustomRoleMutateAsync, isPending: false }) }, deleteCustomRole: { useMutation: mocks.mutation } },
       meters: { list: { useQuery: () => mocks.query([]) }, create: { useMutation: mocks.mutation } },
       readings: { list: { useQuery: () => mocks.query([]) }, page: { useQuery: (input?: unknown, options?: { enabled?: boolean }) => { mocks.recordQuery("readings.page", input, options); return mocks.query({ items: [], hasNext: false, nextCursor: null }); } }, create: { useMutation: () => ({ mutate: mocks.createReadingMutate, mutateAsync: mocks.createReadingMutateAsync, isPending: false }) }, getImage: { useMutation: mocks.mutation }, updatePending: { useMutation: mocks.mutation }, deletePending: { useMutation: mocks.mutation }, approve: { useMutation: mocks.mutation } }, mobileSync: { approveAndIssue: { useMutation: mocks.mutation } },
       tariffs: { list: { useQuery: () => mocks.query([]) }, history: { useQuery: () => mocks.query({ items: [], total: 0, hasNext: false }) }, create: { useMutation: mocks.mutation }, update: { useMutation: mocks.mutation } },
@@ -517,6 +518,38 @@ describe("role guards in administration UI", () => {
     expect(fieldAppPermission).not.toBeChecked();
     fireEvent.click(fieldAppPermission);
     expect(fieldAppPermission).toBeChecked();
+  });
+
+  it("E50 edits the full permission list with an optimistic profile revision", () => {
+    mocks.updateExpandedPermissionsMutate.mockClear();
+    const updatedAt = new Date("2026-11-16T18:00:00.000Z");
+    render(<FlexiblePermissionsPanel siteId={1} canManageTeam staff={[{
+      profile: { id: 10, role: "accountant", permissions: ["recordReadings", "viewInventoryReports"],
+        customRoleId: null, updatedAt },
+      user: { id: 20, name: "موظف الاختبار", email: "staff@powerhub.test" },
+    }]} />);
+    fireEvent.change(screen.getByLabelText("اختيار الحساب لتعديل الصلاحيات"), { target: { value: "10" } });
+    expect(screen.getByLabelText("عرض وتصدير تقارير المخزون")).toBeChecked();
+    fireEvent.click(screen.getByLabelText("تسجيل التحصيلات"));
+    expect(screen.getByLabelText("تسجيل التحصيلات")).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ صلاحيات الحساب" }));
+    expect(mocks.updateExpandedPermissionsMutate).toHaveBeenCalledWith({
+      siteId: 1, profileId: 10, customRoleId: null, expectedUpdatedAt: updatedAt.toISOString(),
+      permissions: ["recordReadings", "viewInventoryReports", "collectPayments"],
+    });
+  });
+
+  it("E50 refuses to erase an existing capability missing from the verified owner catalog", () => {
+    mocks.updateExpandedPermissionsMutate.mockClear();
+    render(<FlexiblePermissionsPanel siteId={1} canManageTeam staff={[{
+      profile: { id: 10, role: "accountant", permissions: ["recordReadings", "manageSupplierPayments"],
+        customRoleId: null, updatedAt: new Date("2026-11-16T18:00:00.000Z") },
+      user: { id: 20, name: "موظف مقيد", email: "staff@powerhub.test" },
+    }]} />);
+    fireEvent.change(screen.getByLabelText("اختيار الحساب لتعديل الصلاحيات"), { target: { value: "10" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("صلاحيات غير متاحة");
+    expect(screen.getByRole("button", { name: "حفظ صلاحيات الحساب" })).toBeDisabled();
+    expect(mocks.updateExpandedPermissionsMutate).not.toHaveBeenCalled();
   });
 
   it("uses a durable stable operation key when creating a reusable custom role", async () => {
