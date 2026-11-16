@@ -1450,7 +1450,7 @@ describe("قوائم التشغيل الأساسية عبر Supabase", () => {
   });
 
   it("يرفض إنشاء Auth إذا تعذر اكتشاف RPC التعيين في PostgREST", async () => {
-    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1" }];
+    state.tables.users = [{ id: 1, role: "admin", platform_role: "platform_admin", account_status: "active", auth_user_id: "auth-admin-1", email: "admin@example.test" }];
     const createUser = vi.fn();
     state.client.auth = { admin: { createUser } };
     state.client.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
