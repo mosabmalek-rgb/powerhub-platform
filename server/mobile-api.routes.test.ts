@@ -249,6 +249,29 @@ describe("Mobile API subscribers route", () => {
     expect(state.queries.some((q) => q.table==="mobile_subscriber_change_log")).toBe(false);
   });
 
+  it("denies a technician immediately after a platform policy revokes field-app permission", async () => {
+    setupDeltaFixture();
+    const previous=state.resolve.getMockImplementation();
+    state.resolve.mockImplementation(async (table: string, query: any, terminal: string) => {
+      if (table==="platform_role_policies") {
+        return { data:[{role:"technician",capability:"accessFieldApp",is_allowed:false}],error:null };
+      }
+      return previous ? previous(table,query,terminal) : {data:null,error:null};
+    });
+    const result=await callDelta({branchId:"12",bootstrap:"true"},await accessToken());
+    expect(result.statusCode).toBe(401);
+    expect(result.body.error.code).toBe("UNAUTHORIZED");
+    expect(state.queries.some((x)=>x.table==="mobile_subscriber_change_log")).toBe(false);
+  });
+
+  it("rejects client-supplied tenant overrides on the new endpoint", async () => {
+    setupDeltaFixture();
+    const result=await callDelta({branchId:"12",bootstrap:"true",tenantId:"99"},await accessToken());
+    expect(result.statusCode).toBe(400);
+    expect(result.body.error.code).toBe("INVALID_DELTA_QUERY");
+    expect(state.queries.some((x)=>x.table==="mobile_subscriber_change_log")).toBe(false);
+  });
+
   it("boots with stable pages, then returns signed Delta without refetching the full subscriber list", async () => {
     setupDeltaFixture();
     const token=await accessToken();
