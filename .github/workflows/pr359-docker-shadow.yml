@@ -1,0 +1,55 @@
+name: PR359 Docker Shadow (disposable)
+on:
+  push:
+    branches: [feat/auth-local-first-single-pr]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pr359-docker-shadow-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/feat/auth-local-first-single-pr'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check guards and immutable transaction renderer
+        run: |
+          node --test scripts/pr359-shadow/guard.test.mjs scripts/pr359-shadow/render.test.mjs
+          node --check scripts/pr359-shadow/render.mjs
+          bash -n scripts/pr359-shadow/run.sh
+      - name: Disposable Docker credit replay and rollback
+        run: bash scripts/pr359-shadow/run.sh smoke
+  real-restored-finance:
+    if: github.ref == 'refs/heads/feat/auth-local-first-single-pr' && vars.PR359_ENABLE_PRODUCTION_DOCKER_SHADOW == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: pr359-shadow
+    env:
+      SHADOW_CONFIRM_PRODUCTION_TEST_DATA: YES_PRODUCTION_TEST_DATA
+      SHADOW_SOURCE_DB_URL: ${{ secrets.PR359_SHADOW_SOURCE_DB_URL }}
+      SHADOW_APPROVED_HEAD: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.122.1
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - name: Source hostname guard and 3 isolated Docker financial upgrades
+        run: bash scripts/pr359-shadow/run.sh full
