@@ -69,6 +69,8 @@ jobs:
           node --test scripts/pr359-financial-shadow-preflight.test.mjs
           node scripts/pr359-financial-shadow-preflight.mjs --out pr359-financial-shadow-preflight.json
           node scripts/pr359-migration-evidence.mjs --out pr359-migration-evidence-resolved.json
+          node --test scripts/pr359-historical-review-matrix.test.mjs
+          node scripts/pr359-historical-review-matrix.mjs --out pr359-historical-review-matrix.json
 
       - name: Upload historical migration source-hash evidence
         uses: actions/upload-artifact@v4
@@ -78,6 +80,7 @@ jobs:
             pr359-migration-evidence-resolved.json
             pr359-full-ledger-crosswalk.json
             pr359-financial-shadow-preflight.json
+            pr359-historical-review-matrix.json
           if-no-files-found: error
 
       - name: Supabase runtime boundary
