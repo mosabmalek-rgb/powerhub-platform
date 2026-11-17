@@ -42,12 +42,21 @@ start(){
   if [[ -n "$container" ]]; then docker rm -f "$container" >/dev/null; fi
   container="pr359-shadow-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
   docker run --rm -d --network none --name "$container" -e "POSTGRES_PASSWORD=$password" -e POSTGRES_DB=postgres "$image" >/dev/null
-  local ok=0
-  for i in $(seq 1 60); do
-    if docker exec "$container" pg_isready -h /var/run/postgresql -U postgres -d postgres >/dev/null 2>&1; then ok=1;break;fi
+  # A newly initialized PostgreSQL container first starts a temporary Unix-socket-only
+  # postmaster and then shuts it down; pg_isready on that socket can pass too early.
+  # Only the final postmaster listens on TCP loopback inside --network none Docker.
+  # Two consecutive TCP probes avoid racing the final transition.
+  local stable_ready=0
+  for i in $(seq 1 120); do
+    if docker exec "$container" pg_isready -h 127.0.0.1 -p 5432 -U postgres -d postgres >/dev/null 2>&1; then
+      stable_ready=$((stable_ready + 1))
+      if [[ "$stable_ready" -ge 2 ]]; then break; fi
+    else
+      stable_ready=0
+    fi
     sleep 1
   done
-  [[ "$ok" == 1 ]] || { echo 'Docker postgres did not become ready' >&2; exit 1; }
+  [[ "$stable_ready" -ge 2 ]] || { echo 'PR359_DOCKER_FINAL_POSTMASTER_NOT_READY: TCP readiness never stabilized' >&2; exit 1; }
   [[ "$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$container")" == none ]] || exit 1
   [[ -z "$(docker port "$container")" ]] || { echo 'Unexpected published Docker port' >&2; exit 1; }
 }
