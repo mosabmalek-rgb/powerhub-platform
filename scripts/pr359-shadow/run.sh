@@ -8,7 +8,34 @@ for tool in docker node sha256sum; do command -v "$tool" >/dev/null || { echo "M
 work="$(mktemp -d)"
 container=''
 cleanup(){ if [[ -n "$container" ]]; then docker rm -f "$container" >/dev/null 2>&1 || :; fi; rm -rf -- "$work"; }
-trap cleanup EXIT
+# Print resource metadata only, never database SQL/dump contents, credentials or raw container logs.
+shadow_diagnose(){
+  local code="$1"
+  [[ "$mode" == full ]] || return 0
+  echo "PR359_SHADOW_FAILURE_STAGE=${SHADOW_STAGE:-unknown}; EXIT_CODE=$code" >&2
+  if [[ -n "$container" ]] && docker inspect "$container" >/dev/null 2>&1; then
+    docker inspect --format 'PR359_SHADOW_DOCKER_STATE running={{.State.Running}} oom_killed={{.State.OOMKilled}} exit_code={{.State.ExitCode}}' "$container" >&2 || :
+    docker stats --no-stream --format 'PR359_SHADOW_DOCKER_MEM={{.MemUsage}}' "$container" >&2 || :
+  else
+    echo 'PR359_SHADOW_CONTAINER_NOT_AVAILABLE' >&2
+  fi
+  if command -v free >/dev/null 2>&1; then
+    free -m | awk 'NR==2 {printf "PR359_SHADOW_HOST_MEM_MB total=%s available=%s used=%s\\n", $2,$7,$3}' >&2 || :
+  fi
+  if command -v df >/dev/null 2>&1; then
+    df -Pm "$work" | awk 'NR==2 {printf "PR359_SHADOW_TMP_STORAGE_MB total=%s available=%s used=%s\\n",$2,$4,$3}' >&2 || :
+  fi
+  if [[ "$code" -eq 137 ]]; then
+    echo 'PR359_SHADOW_SIGKILL_137: resource exhaustion is suspected, but must be confirmed using the captured Docker/host metrics' >&2
+  fi
+}
+on_exit(){
+  local code="$?"
+  if [[ "$code" -ne 0 ]]; then shadow_diagnose "$code"; fi
+  cleanup
+  return "$code"
+}
+trap on_exit EXIT
 password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 start(){
   local image="$1"
@@ -135,6 +162,7 @@ unset PGOPTIONS SHADOW_SOURCE_DB_URL
 node scripts/pr359-shadow/render.mjs "$work/transactions"
 image=supabase/postgres:17.6.1.155
 restore(){
+  SHADOW_STAGE=container-start
   start "$image"
   [[ "$(value 'SHOW server_version_num;')" == 17* ]] || exit 1
   # Supabase CLI --role-only intentionally omits reserved platform roles.
@@ -145,8 +173,11 @@ restore(){
   # Create the original source-attested Vault schema/extension in local Docker first.
   runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
   echo 'PR359_SHADOW_STAGE: prepared local reserved role and Vault schema'
+  SHADOW_STAGE=restore-roles
   runfile_local_admin "$work/dump/roles.sql"
   echo 'PR359_SHADOW_STAGE: role/ACL dump imported'
+  SHADOW_STAGE=restore-application-schema
+  echo 'PR359_SHADOW_STAGE: starting application schema restore'
   runfile postgres "$work/dump/schema.sql"
   echo 'PR359_SHADOW_STAGE: application schema imported'
   # Match confirmed source Auth audit metadata without changing reserved schemas remotely.
@@ -155,15 +186,17 @@ restore(){
   node scripts/pr359-shadow/check-managed-catalog.mjs \
     "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
+  SHADOW_STAGE=restore-data
   runfile postgres "$work/restore-data.sql"
   if [[ "$(value "SELECT to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == f ]]; then
     runfile postgres "$work/dump/history-schema.sql"
   fi
+  SHADOW_STAGE=restore-history
   runfile postgres "$work/dump/history-data.sql"
   [[ "$(value "$source_sql")" == "$(cat "$work/source-counts")" ]] || { echo 'Source and restore row counts differ' >&2;exit 1; }
   [[ "$(value "SELECT to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == t ]] || { echo 'Managed schema missing' >&2;exit 1; }
 }
-apply(){ for i in $(seq "$1" 4); do runfile postgres "$work/transactions/$i-apply.sql";done; }
+apply(){ for i in $(seq "$1" 4); do SHADOW_STAGE="finance-migration-$i";runfile postgres "$work/transactions/$i-apply.sql";done; }
 fingerprint(){ sql postgres < scripts/pr359-shadow/fingerprint.sql | tail -1; }
 restore
 apply 1
