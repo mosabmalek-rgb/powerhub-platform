@@ -22,3 +22,11 @@ Documentation: https://supabase.com/docs/guides/self-hosting/restore-from-platfo
 GitHub Actions hosted runners do not support Supabase's default IPv6-only direct database endpoint. The protected job now **fails before network access** with `PR359_SOURCE_IPV4_REQUIRED` if its database URI uses `db.vvcdiqcyhaloxesvpppc.supabase.co`. Set the protected environment secret to the exact **Session Pooler** connection URI from Supabase Production > Connect (username `postgres.vvcdiqcyhaloxesvpppc`, Supavisor regional hostname shown by Supabase, port `5432`, database `postgres`). Do **not** use Transaction Pooler port `6543`. The script normalizes absent `sslmode` to `require`, never accepts `disable`, and prints only categorized (credential-free) errors if the first read-only source check fails. No database secret, hostname or raw libpq stderr is sent to CI artifacts.
 
 Source: https://supabase.com/docs/guides/platform/ipv4-address
+
+## Restored Docker role preflight — 2026-11-17
+
+The first Production-derived logical backup passed remote read-only connection, dump, SQL rendering and Supabase Postgres 17 image pull, but failed while executing `roles.sql` with `ERROR: role "supabase_realtime_admin" does not exist`. The Supabase CLI's `--role-only` export excludes reserved roles, so raw `supabase/postgres` initialization may not reproduce the managed platform role set.
+
+`scripts/pr359-shadow/bootstrap-realtime-role.sql` creates **only** the missing `supabase_realtime_admin` in the disposable `--network none` container before importing the role dump and verifies its exact source-attested role flags: `NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`. Source flags were inspected read-only on project `vvcdiqcyhaloxesvpppc` on 2026-11-17. Existing roles with conflicting flags fail closed. The automatic smoke replays this bootstrap twice, proving it is idempotent.
+
+**Do not** apply this SQL to managed Supabase, copy it into the release migrations, or weaken database privileges. This is a compatibility preflight, not proof of restore equivalence. Remaining reserved roles, extensions, Auth/Storage schema compatibility, migration history and financial acceptance require actual execution evidence.

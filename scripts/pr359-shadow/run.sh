@@ -31,6 +31,9 @@ runfile(){ sql "$1" < "$2" >/dev/null; }
 value(){ printf '%s\n' "$1" | sql postgres | tail -1; }
 if [[ "$mode" == smoke ]]; then
   start postgres:17.6
+  # Test local-only reserved role initialization and idempotence.
+  runfile postgres scripts/pr359-shadow/bootstrap-realtime-role.sql
+  runfile postgres scripts/pr359-shadow/bootstrap-realtime-role.sql
   runfile postgres supabase/tests/pr359_full_legacy_backfill_setup.sql
   for i in 1 2; do
     runfile postgres supabase/migrations/20261103145232_powerhub_legacy_unlinked_payments_to_subscriber_credit.sql
@@ -97,6 +100,9 @@ image=supabase/postgres:17.6.1.155
 restore(){
   start "$image"
   [[ "$(value 'SHOW server_version_num;')" == 17* ]] || exit 1
+  # Supabase CLI --role-only intentionally omits reserved platform roles.
+  # The hosted reserved role below is source-attested and created ONLY in networkless Docker.
+  runfile postgres scripts/pr359-shadow/bootstrap-realtime-role.sql
   runfile postgres "$work/dump/roles.sql"
   runfile postgres "$work/dump/schema.sql"
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
