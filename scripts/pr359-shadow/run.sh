@@ -100,6 +100,11 @@ if [[ "$mode" == smoke ]]; then
   runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
   runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
   runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
+  runfile_local_admin scripts/pr359-shadow/bootstrap-graphql-parity.sql
+  runfile_local_admin scripts/pr359-shadow/bootstrap-graphql-parity.sql
+  # Regression: DDL must not invoke a stale graphql.seq_schema_version OID.
+  printf 'CREATE TABLE public.pr359_graphql_ddl_probe(id bigint); DROP TABLE public.pr359_graphql_ddl_probe;\n' | sql_local_admin >/dev/null
+  [[ "$(value "SELECT to_regclass('graphql.seq_schema_version') IS NULL;")" == t ]] || exit 1
   [[ "$(value "SELECT NOT rolcanlogin AND NOT rolinherit AND NOT rolsuper AND NOT rolbypassrls FROM pg_roles WHERE rolname='supabase_realtime_admin';")" == t ]] || {
     echo 'PR359_LOCAL_RESERVED_ROLE_CHECK_FAILED' >&2; exit 1;
   }
@@ -153,6 +158,12 @@ if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
   echo 'PR359_SOURCE_MANAGED_CATALOG_READ_FAILED' >&2; exit 1
 fi
 [[ -s "$work/source-managed-catalog.json" ]] || { echo 'PR359_SOURCE_MANAGED_CATALOG_EMPTY' >&2;exit 1; }
+# Exact-source parity attestation: never drop an extension that exists upstream.
+source_graphql_check="SELECT NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_graphql') AND to_regclass('graphql.seq_schema_version') IS NULL;"
+if ! graphql_check="$(psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" --command "$source_graphql_check" 2>/dev/null)" || [[ "$graphql_check" != t ]]; then
+  echo 'PR359_SOURCE_GRAPHQL_PARITY_UNPROVEN: source does not match verified absent extension/sequence contract' >&2
+  exit 1
+fi
 dump roles.sql --role-only
 dump schema.sql
 dump data.sql --data-only --use-copy
@@ -172,7 +183,9 @@ restore(){
   # Supabase role dumps refer to reserved schema ACLs excluded by managed schema filters.
   # Create the original source-attested Vault schema/extension in local Docker first.
   runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
-  echo 'PR359_SHADOW_STAGE: prepared local reserved role and Vault schema'
+  # Drop only the image's extra pg_graphql extension, with RESTRICT (never CASCADE).
+  runfile_local_admin scripts/pr359-shadow/bootstrap-graphql-parity.sql
+  echo 'PR359_SHADOW_STAGE: prepared reserved role, Vault and GraphQL source parity'
   SHADOW_STAGE=restore-roles
   runfile_local_admin "$work/dump/roles.sql"
   echo 'PR359_SHADOW_STAGE: role/ACL dump imported'
