@@ -41,6 +41,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
 
+      - name: PR359 real migration release transaction and historical SQL ledger/recovery/race
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: node scripts/test-pr359-ledger-bound-credit-release.mjs
+
       - name: PR359 full legacy credit backfill, idempotent replay and rollback on disposable PostgreSQL 17
         env:
           PGHOST: 127.0.0.1
