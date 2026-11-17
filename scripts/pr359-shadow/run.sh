@@ -54,7 +54,7 @@ node scripts/pr359-shadow/guard.mjs
 [[ "$(supabase --version | cut -d. -f1)" == 2 ]] || { echo 'Supabase CLI v2 required' >&2;exit 2; }
 mkdir -p "$work/dump" "$work/transactions"
 export PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require
-source_sql="SELECT jsonb_build_object('payments',(SELECT count(*) FROM public.payments),'invoices',(SELECT count(*) FROM public.invoices),'cash',(SELECT count(*) FROM public.account_transactions),'migration_rows',(SELECT count(*) FROM supabase_migrations.schema_migrations))::text;"
+source_sql="SELECT jsonb_build_object('payments',(SELECT count(*) FROM public.payments),'invoices',(SELECT count(*) FROM public.invoices),'cash',(SELECT count(*) FROM public.account_transactions),'auth_users',(SELECT count(*) FROM auth.users),'migration_rows',(SELECT count(*) FROM supabase_migrations.schema_migrations))::text;"
 if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" --command "$source_sql" > "$work/source-counts" 2>/dev/null; then
   echo 'Read-only source check failed' >&2;exit 1
 fi
@@ -68,7 +68,6 @@ dump(){
 dump roles.sql --role-only
 dump schema.sql
 dump data.sql --data-only --use-copy
-dump managed.sql --schema auth,storage,realtime
 dump history-schema.sql --schema supabase_migrations
 dump history-data.sql --schema supabase_migrations --data-only --use-copy
 unset PGOPTIONS SHADOW_SOURCE_DB_URL
@@ -78,7 +77,6 @@ restore(){
   start "$image"
   [[ "$(value 'SHOW server_version_num;')" == 17* ]] || exit 1
   runfile postgres "$work/dump/roles.sql"
-  runfile postgres "$work/dump/managed.sql"
   runfile postgres "$work/dump/schema.sql"
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
   runfile postgres "$work/restore-data.sql"
