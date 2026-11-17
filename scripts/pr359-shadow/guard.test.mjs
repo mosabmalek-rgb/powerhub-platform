@@ -21,6 +21,19 @@ test('only pinned Production with TLS, no secret output',()=>{
   'postgresql://postgres:p@127.0.0.1:5432/postgres?sslmode=require'
  ])assert.throws(()=>validateSource(v));
 });
+test('GitHub-hosted source must be IPv4 Session Pooler without weakening original allowlist',()=>{
+ const prior=process.env.SHADOW_REQUIRE_SESSION_POOLER;
+ try {
+  process.env.SHADOW_REQUIRE_SESSION_POOLER='true';
+  assert.throws(()=>validateSource(direct),/PR359_SOURCE_IPV4_REQUIRED/);
+  assert.equal(validateSource(pooler).route,'session-pooler');
+  assert.equal(validateSource(pooler.replace('?sslmode=require','')).route,'session-pooler');
+  assert.throws(()=>validateSource(pooler.replace('5432','6543')));
+ } finally {
+  if(prior===undefined) delete process.env.SHADOW_REQUIRE_SESSION_POOLER;
+  else process.env.SHADOW_REQUIRE_SESSION_POOLER=prior;
+ }
+});
 test('reject remote target',()=>{
  assert.equal(validateShadowTarget({host:'127.0.0.1',port:'5432',database:'postgres'}),true);
  assert.throws(()=>validateShadowTarget({host:'db.vvcdiqcyhaloxesvpppc.supabase.co',port:'5432',database:'postgres'}));

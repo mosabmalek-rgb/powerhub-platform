@@ -46,6 +46,7 @@ jobs:
       name: pr359-shadow
     env:
       SHADOW_CONFIRM_PRODUCTION_TEST_DATA: YES_PRODUCTION_TEST_DATA
+      SHADOW_REQUIRE_SESSION_POOLER: 'true'
       SHADOW_SOURCE_DB_URL: ${{ secrets.PR359_SHADOW_SOURCE_DB_URL }}
       SHADOW_APPROVED_HEAD: ${{ github.sha }}
     steps:

@@ -60,8 +60,24 @@ node scripts/pr359-shadow/guard.mjs
 mkdir -p "$work/dump" "$work/transactions"
 export PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require
 source_sql="SELECT jsonb_build_object('payments',(SELECT count(*) FROM public.payments),'invoices',(SELECT count(*) FROM public.invoices),'cash',(SELECT count(*) FROM public.account_transactions),'auth_users',(SELECT count(*) FROM auth.users),'migration_rows',(SELECT count(*) FROM supabase_migrations.schema_migrations))::text;"
-if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" --command "$source_sql" > "$work/source-counts" 2>/dev/null; then
-  echo 'Read-only source check failed' >&2;exit 1
+if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" --command "$source_sql" > "$work/source-counts" 2>"$work/source-check-stderr"; then
+  # Never publish raw libpq stderr: it may contain user/host or source credentials.
+  if grep -Eqi 'Network is unreachable|No route to host' "$work/source-check-stderr"; then
+    echo 'PR359_SOURCE_NETWORK_UNREACHABLE: use the IPv4 Session Pooler at port 5432 on GitHub-hosted runners.' >&2
+  elif grep -Eqi 'could not translate host name|Name or service not known|Temporary failure in name resolution' "$work/source-check-stderr"; then
+    echo 'PR359_SOURCE_DNS_ERROR: verify the hostname copied from Supabase Connect > Session Pooler.' >&2
+  elif grep -Eqi 'password authentication failed|28P01' "$work/source-check-stderr"; then
+    echo 'PR359_SOURCE_AUTH_FAILED: verify the protected database password and pooler username.' >&2
+  elif grep -Eqi 'connection refused|timeout expired|Connection timed out' "$work/source-check-stderr"; then
+    echo 'PR359_SOURCE_UNREACHABLE: verify the Session Pooler endpoint and port 5432.' >&2
+  elif grep -Eqi 'permission denied|insufficient privilege|42501' "$work/source-check-stderr"; then
+    echo 'PR359_SOURCE_PERMISSION_DENIED: source account cannot read required baseline tables.' >&2
+  elif grep -Eqi 'SSL|certificate|TLS' "$work/source-check-stderr"; then
+    echo 'PR359_SOURCE_TLS_FAILED: verify the SSL connection policy.' >&2
+  else
+    echo 'PR359_SOURCE_PREFLIGHT_FAILED: read-only SQL failed for an unclassified reason; raw error retained only in the ephemeral runner.' >&2
+  fi
+  exit 1
 fi
 dump(){
   local output="$1";shift

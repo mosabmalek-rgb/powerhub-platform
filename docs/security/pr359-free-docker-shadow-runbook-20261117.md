@@ -15,3 +15,10 @@ The protected job follows Supabase's documented role, application-schema and dat
 Local WSL2 procedure: run `node --test scripts/pr359-shadow/*.test.mjs`, then `bash scripts/pr359-shadow/run.sh smoke`; for opt-in full run set the secret via a local read-s prompt, `SHADOW_APPROVED_HEAD=$(git rev-parse HEAD)`, `SHADOW_CONFIRM_PRODUCTION_TEST_DATA=YES_PRODUCTION_TEST_DATA` and execute `bash scripts/pr359-shadow/run.sh full`. Use GitHub environment protections for CI. Never use the hosted migration release workflow for this rehearsal.
 
 Documentation: https://supabase.com/docs/guides/self-hosting/restore-from-platform
+
+
+## GitHub-hosted runner IPv4 guard (2026-11-17)
+
+GitHub Actions hosted runners do not support Supabase's default IPv6-only direct database endpoint. The protected job now **fails before network access** with `PR359_SOURCE_IPV4_REQUIRED` if its database URI uses `db.vvcdiqcyhaloxesvpppc.supabase.co`. Set the protected environment secret to the exact **Session Pooler** connection URI from Supabase Production > Connect (username `postgres.vvcdiqcyhaloxesvpppc`, Supavisor regional hostname shown by Supabase, port `5432`, database `postgres`). Do **not** use Transaction Pooler port `6543`. The script normalizes absent `sslmode` to `require`, never accepts `disable`, and prints only categorized (credential-free) errors if the first read-only source check fails. No database secret, hostname or raw libpq stderr is sent to CI artifacts.
+
+Source: https://supabase.com/docs/guides/platform/ipv4-address
