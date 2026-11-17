@@ -71,6 +71,8 @@ if [[ "$mode" == smoke ]]; then
   assert_local_admin
   runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
   runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
+  runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
+  runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
   [[ "$(value "SELECT NOT rolcanlogin AND NOT rolinherit AND NOT rolsuper AND NOT rolbypassrls FROM pg_roles WHERE rolname='supabase_realtime_admin';")" == t ]] || {
     echo 'PR359_LOCAL_RESERVED_ROLE_CHECK_FAILED' >&2; exit 1;
   }
@@ -139,8 +141,14 @@ restore(){
   # The hosted reserved role below is source-attested and created ONLY in networkless Docker.
   assert_local_admin
   runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
+  # Supabase role dumps refer to reserved schema ACLs excluded by managed schema filters.
+  # Create the original source-attested Vault schema/extension in local Docker first.
+  runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
+  echo 'PR359_SHADOW_STAGE: prepared local reserved role and Vault schema'
   runfile_local_admin "$work/dump/roles.sql"
+  echo 'PR359_SHADOW_STAGE: role/ACL dump imported'
   runfile postgres "$work/dump/schema.sql"
+  echo 'PR359_SHADOW_STAGE: application schema imported'
   # Match confirmed source Auth audit metadata without changing reserved schemas remotely.
   runfile postgres scripts/pr359-shadow/bootstrap-auth-audit-column.sql
   sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
