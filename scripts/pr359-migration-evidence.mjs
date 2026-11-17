@@ -63,11 +63,12 @@ export function assertPhase1ReleaseReady(snapshot, result) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = process.argv.slice(2);
-  const inputPath = args.find(a => a.endsWith('.json') && !a.startsWith('--')) ??
+  const outIndex = args.indexOf('--out');
+  const inputPath = args.filter((a, i) => i !== outIndex + 1 && a !== '--out')
+    .find(a => a.endsWith('.json') && !a.startsWith('--')) ??
     'docs/security/pr359-phase1-migration-ledger-payload-evidence-20261117.json';
   const snapshot = JSON.parse(readFileSync(inputPath, 'utf8'));
   const report = validateMigrationEvidence(snapshot);
-  const outIndex = args.indexOf('--out');
   if (outIndex >= 0) {
     assert(args[outIndex + 1], '--out requires a file path');
     writeFileSync(args[outIndex + 1], JSON.stringify({ sourceHead: snapshot.sourceHead,
