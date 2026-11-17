@@ -39,3 +39,11 @@ The isolated bootstrap now uses `psql -U supabase_admin` **exclusively inside th
 The automatic smoke also starts the **actual Supabase Postgres pinned image**, verifies the local admin privilege and executes the exact reserved-role bootstrap twice to guard against regressions. No unapproved elevated rights, Docker ports or network are introduced. If the privilege assertion or reserved-role policy fails, the run is marked FAIL, not silently skipped.
 
 The Production source connection remains read-only via the protected Supabase Session Pooler. The real restored financial rehearsal still requires a fresh protected approval and must not be reported as accepted until it succeeds.
+
+## Auth-managed schema COPY mismatch, source-derived remediation (2026-11-17)
+
+A source-derived logical restore on the previous SHA passed the Session Pooler read, logical export, SQL rendering, Docker image pull, and the reserved Realtime role initialization, but failed during managed data import: `ERROR: column "ip_address" of relation "audit_log_entries" does not exist`. The source `auth.audit_log_entries.ip_address` was verified **read-only** on the original Production test database as `character varying NOT NULL DEFAULT ''::character varying`. The pinned Docker image lacks this newer managed Auth column.
+
+`bootstrap-auth-audit-column.sql` introduces only that source-attested additive column on the disposable, networkless Docker database. Its type, nullability and default are explicitly validated. It is **not** a migration and must never run on managed Production or Staging. The Docker synthetic smoke verifies it applies twice without error.
+
+To avoid repeated late failures and blind schema edits, `managed-catalog.sql` now captures only column identifiers/types from the hosted Auth/Storage/Realtime tables and again from the local restored schema. `check-managed-catalog.mjs` compares every source column and prints missing/type-drift identifiers (no user records or secrets), then fails **before** the data COPY if unknown drift remains. Discrepancies must be reviewed and matched exactly or explicitly shown irrelevant; do not infer upgrade equivalence.

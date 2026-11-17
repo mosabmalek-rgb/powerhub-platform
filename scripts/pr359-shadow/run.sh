@@ -48,6 +48,11 @@ if [[ "$mode" == smoke ]]; then
   # Test local-only reserved role initialization and idempotence.
   runfile postgres scripts/pr359-shadow/bootstrap-realtime-role.sql
   runfile postgres scripts/pr359-shadow/bootstrap-realtime-role.sql
+  # Simulate the older managed Auth schema before applying the exact source-attested additive patch.
+  printf 'CREATE SCHEMA auth; CREATE TABLE auth.audit_log_entries (id uuid PRIMARY KEY);\n' | sql postgres >/dev/null
+  runfile postgres scripts/pr359-shadow/bootstrap-auth-audit-column.sql
+  runfile postgres scripts/pr359-shadow/bootstrap-auth-audit-column.sql
+  [[ "$(value "SELECT count(*) FROM information_schema.columns WHERE table_schema='auth' AND table_name='audit_log_entries' AND column_name='ip_address' AND data_type='character varying' AND is_nullable='NO';")" == 1 ]] || { echo 'PR359_DOCKER_AUTH_COMPAT_TEST_FAILED' >&2; exit 1; }
   runfile postgres supabase/tests/pr359_full_legacy_backfill_setup.sql
   for i in 1 2; do
     runfile postgres supabase/migrations/20261103145232_powerhub_legacy_unlinked_payments_to_subscriber_credit.sql
@@ -113,6 +118,12 @@ dump(){
   fi
   [[ -s "$work/dump/$output" ]] || { echo "Empty dump: $output" >&2;exit 1; }
 }
+# Capture source-managed table metadata only, never business rows or secrets.
+if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-shadow/managed-catalog.sql > "$work/source-managed-catalog.json" 2>/dev/null; then
+  echo 'PR359_SOURCE_MANAGED_CATALOG_READ_FAILED' >&2; exit 1
+fi
+[[ -s "$work/source-managed-catalog.json" ]] || { echo 'PR359_SOURCE_MANAGED_CATALOG_EMPTY' >&2;exit 1; }
 dump roles.sql --role-only
 dump schema.sql
 dump data.sql --data-only --use-copy
@@ -130,6 +141,11 @@ restore(){
   runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
   runfile_local_admin "$work/dump/roles.sql"
   runfile postgres "$work/dump/schema.sql"
+  # Match confirmed source Auth audit metadata without changing reserved schemas remotely.
+  runfile postgres scripts/pr359-shadow/bootstrap-auth-audit-column.sql
+  sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
+  node scripts/pr359-shadow/check-managed-catalog.mjs \
+    "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
   runfile postgres "$work/restore-data.sql"
   if [[ "$(value "SELECT to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == f ]]; then
