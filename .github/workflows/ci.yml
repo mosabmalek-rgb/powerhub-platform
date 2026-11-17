@@ -74,6 +74,9 @@ jobs:
           node --check scripts/pr359-p0-live-catalog-review.mjs
           node --test scripts/pr359-p0-live-catalog-review.test.mjs
           node scripts/pr359-p0-live-catalog-review.mjs --out pr359-p0-live-catalog-review.json
+          node --check scripts/pr359-finance-live-cash-proof.mjs
+          node --test scripts/pr359-finance-live-cash-proof.test.mjs
+          node scripts/pr359-finance-live-cash-proof.mjs --out pr359-finance-live-cash-proof.json
 
       - name: Upload historical migration source-hash evidence
         uses: actions/upload-artifact@v4
@@ -85,6 +88,7 @@ jobs:
             pr359-financial-shadow-preflight.json
             pr359-historical-review-matrix.json
             pr359-p0-live-catalog-review.json
+            pr359-finance-live-cash-proof.json
           if-no-files-found: error
 
       - name: Supabase runtime boundary
