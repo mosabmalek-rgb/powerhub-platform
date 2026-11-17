@@ -63,13 +63,17 @@ jobs:
           node --check scripts/pr359-migration-evidence.mjs
           node --test scripts/pr359-migration-evidence.test.mjs
           node --test scripts/pr359-production-three-catalog-evidence.test.mjs
+          node --test scripts/pr359-full-ledger-crosswalk.test.mjs
+          node scripts/pr359-full-ledger-crosswalk.mjs --out pr359-full-ledger-crosswalk.json
           node scripts/pr359-migration-evidence.mjs --out pr359-migration-evidence-resolved.json
 
       - name: Upload historical migration source-hash evidence
         uses: actions/upload-artifact@v4
         with:
           name: pr359-migration-source-evidence
-          path: pr359-migration-evidence-resolved.json
+          path: |
+            pr359-migration-evidence-resolved.json
+            pr359-full-ledger-crosswalk.json
           if-no-files-found: error
 
       - name: Supabase runtime boundary
