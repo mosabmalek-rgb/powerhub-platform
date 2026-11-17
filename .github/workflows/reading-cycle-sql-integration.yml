@@ -41,6 +41,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
 
+      - name: PR359 verify actual migrated payment split CHECK and credit isolation in PostgreSQL 17
+        env:
+          PGPASSWORD: postgres
+        run: |
+          createdb --host 127.0.0.1 --port 5432 --username postgres pr359_finance_shadow_fixture
+          node scripts/pr359-financial-shadow-preflight.mjs --fixture /tmp/pr359_finance_split_source.sql
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname pr359_finance_shadow_fixture --set ON_ERROR_STOP=1 --file /tmp/pr359_finance_split_source.sql --file supabase/tests/pr359_financial_shadow_source_contract.sql
+
       - name: Verify E47 atomic staff permissions, branch scope, owner ceiling and RPC ACLs
         env:
           PGPASSWORD: postgres
