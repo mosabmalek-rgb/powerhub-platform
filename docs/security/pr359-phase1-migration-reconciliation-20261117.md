@@ -24,7 +24,7 @@ No legacy migration ledger row was edited, no historical SQL was replayed, and n
 | Staging | `iyuryuhaylhisjfcrwkz` | 553 | 82 | 82 rows are not automatically accepted as applied |
 | Production | `vvcdiqcyhaloxesvpppc` | 486 | 3 | 3 rows are not automatically accepted as applied |
 
-The previously discussed set of 12 historical Staging files is therefore a subset of the current 82 unavailable-payload rows, not a reason to mark the whole set as applied. The current evidence does not support claiming that a separate “70” set has been proven; those records remain subject to the same fail-closed rule unless an independent content/object proof is recorded.
+Correction: the **12 source migration files with nonmatching Staging ledger versions** are a separate source/history crosswalk from the **12 older Staging rows with missing SQL payload**. The identical counts must not be confused or assumed to overlap. The payload-absence cohort consists of 12 pre-November rows and 70 rows from 2026-11-01 onward; all 82 remain `UNPROVEN` for historical SQL execution. The three Production payload-absence rows form a third group. No historical-application proof follows merely from a matching filename.
 
 ## Source crosswalk policy
 
@@ -64,3 +64,9 @@ Changed in the isolated PR worktree:
 `PRODUCTION_SHADOW_UPGRADE_PASS` remains **NOT PROVEN**. The available Supabase branch inventory did not provide a verified disposable shadow clone containing a protected copy of Production. A shadow upgrade must be performed only after an isolated database/backup is provisioned and its source, retention, access controls, and cleanup are verified.
 
 Until then, do not apply the 12 historical migrations, do not fill old `schema_migrations` payloads, and do not merge or release a migration whose live status is `UNPROVEN` or `DIVERGENT`.
+
+## Follow-up — 85-item read-only ledger evidence (2026-11-17)
+
+A separate source-pinned snapshot is committed at `docs/security/pr359-phase1-migration-ledger-payload-evidence-20261117.json` (82 Staging + 3 Production). Matching source file paths were checked against the PR diff (70 recent files) and against GitHub file content directly (the 12 older Staging files and three Production files). CI calculates and uploads each exact source SHA-256 in an enriched JSON artifact using `scripts/pr359-migration-evidence.mjs`, without confusing a source hash with the unavailable historically executed SQL. Every row stays `UNPROVEN` pending catalog and behavioral attestation.
+
+The code-only evidence check is **not** `MIGRATION_RECONCILIATION_PASS`. Neither Supabase project has an existing development branch, and an empty schema-only branch is not a Production-derived clone with preserved safe data, extensions and permissions. Protected Production-shadow restore, repeatable upgrade and failure-recovery testing remain unexecuted. **NO-GO stays in force.** No migration, historical ledger edit or Production modification was performed.
