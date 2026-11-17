@@ -102,6 +102,16 @@ if [[ "$mode" == smoke ]]; then
   runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
   runfile_local_admin scripts/pr359-shadow/bootstrap-graphql-parity.sql
   runfile_local_admin scripts/pr359-shadow/bootstrap-graphql-parity.sql
+  # Prove the exact hosted Auth owner can be retained when adding missing
+  # source-attested audit metadata through Docker-only local superuser.
+  [[ "$(value "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='auth.audit_log_entries'::regclass;")" == supabase_auth_admin ]] || {
+    echo 'PR359_SUPABASE_IMAGE_AUTH_OWNER_MISMATCH' >&2; exit 1;
+  }
+  runfile_local_admin scripts/pr359-shadow/bootstrap-auth-audit-column.sql
+  runfile_local_admin scripts/pr359-shadow/bootstrap-auth-audit-column.sql
+  [[ "$(value "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='auth.audit_log_entries'::regclass;")" == supabase_auth_admin ]] || {
+    echo 'PR359_SUPABASE_IMAGE_AUTH_OWNER_CHANGED' >&2; exit 1;
+  }
   # Regression: DDL must not invoke a stale graphql.seq_schema_version OID.
   printf 'CREATE TABLE public.pr359_graphql_ddl_probe(id bigint); DROP TABLE public.pr359_graphql_ddl_probe;\n' | sql_local_admin >/dev/null
   [[ "$(value "SELECT to_regclass('graphql.seq_schema_version') IS NULL;")" == t ]] || exit 1
@@ -194,7 +204,24 @@ restore(){
   runfile postgres "$work/dump/schema.sql"
   echo 'PR359_SHADOW_STAGE: application schema imported'
   # Match confirmed source Auth audit metadata without changing reserved schemas remotely.
-  runfile postgres scripts/pr359-shadow/bootstrap-auth-audit-column.sql
+  # Production's auth.audit_log_entries is owned by supabase_auth_admin. The
+  # Docker-only supabase_admin is a verified local superuser; using postgres
+  # here fails "must be owner" and must never be fixed by changing ownership.
+  local audit_owner_before audit_owner_after
+  audit_owner_before="$(value "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='auth.audit_log_entries'::regclass;")"
+  [[ "$audit_owner_before" == supabase_auth_admin ]] || {
+    echo 'PR359_SHADOW_AUTH_AUDIT_UNEXPECTED_OWNER: refusing to change the managed Auth schema' >&2
+    exit 1
+  }
+  assert_local_admin
+  SHADOW_STAGE=restore-auth-audit-compat
+  runfile_local_admin scripts/pr359-shadow/bootstrap-auth-audit-column.sql
+  audit_owner_after="$(value "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='auth.audit_log_entries'::regclass;")"
+  [[ "$audit_owner_after" == "$audit_owner_before" ]] || {
+    echo 'PR359_SHADOW_AUTH_AUDIT_OWNER_DRIFT: refusing modified Auth table owner' >&2
+    exit 1
+  }
+  SHADOW_STAGE=verify-managed-catalog
   sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
   node scripts/pr359-shadow/check-managed-catalog.mjs \
     "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
