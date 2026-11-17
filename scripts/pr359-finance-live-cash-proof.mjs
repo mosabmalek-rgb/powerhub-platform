@@ -10,7 +10,7 @@ const versions=[
  ['20261103145232','powerhub_legacy_unlinked_payments_to_subscriber_credit']
 ];
 const cents=x=>{
- assert.match(x,/^\\d+\\.\\d{2}$/,'Exact two-decimal amount text required');
+ assert.match(x,/^\d+\.\d{2}$/,'Exact two-decimal amount text required');
  const [a,b]=x.split('.');
  return BigInt(a)*100n+BigInt(b);
 };
