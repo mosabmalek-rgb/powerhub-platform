@@ -5,7 +5,7 @@ import path from 'node:path';
 export const SOURCE_REF='vvcdiqcyhaloxesvpppc';
 export function validateSource(value) {
  assert.equal(typeof value,'string','Missing database URL');
- assert.ok(/^postgres(?:ql)?:\/\//.test(value),'Expected PostgreSQL URI');
+ assert.ok(/^postgres(?:ql)?:\/\//.test(value),'Expected a PostgreSQL connection URI starting with postgres:// or postgresql:// (not the Supabase HTTPS project URL). Copy the Database URI under Supabase Connect, replace the password placeholder and append ?sslmode=require. Do not paste credentials into logs or chat.');
  const authority=value.slice(value.indexOf('://')+3).split('/')[0];
  assert.equal((authority.match(/@/g)||[]).length,1,'Credentials must be URL-encoded');
  const uri=new URL(value);

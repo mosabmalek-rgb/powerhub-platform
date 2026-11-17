@@ -55,6 +55,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Validate protected connection URI format without network access
+        run: node scripts/pr359-shadow/guard.mjs
       - uses: supabase/setup-cli@v3
         with:
           version: 2.122.1

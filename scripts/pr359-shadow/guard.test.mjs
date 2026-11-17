@@ -10,6 +10,7 @@ test('only pinned Production with TLS, no secret output',()=>{
  for(const v of [
   direct.replace(ref,'iyuryuhaylhisjfcrwkz'),
   direct.replace('sslmode=require','sslmode=disable'),
+  'https://vvcdiqcyhaloxesvpppc.supabase.co',
   direct.replace('5432','6543'),
   direct.replace('postgres?sslmode','template1?sslmode'),
   direct.replace('p%40ss','p@ss'),
