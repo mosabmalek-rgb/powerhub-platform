@@ -41,6 +41,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
 
+      - name: PR359 full legacy credit backfill, idempotent replay and rollback on disposable PostgreSQL 17
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: bash scripts/test-pr359-full-legacy-credit-backfill.sh
+
       - name: PR359 verify actual migrated payment split CHECK and credit isolation in PostgreSQL 17
         env:
           PGPASSWORD: postgres

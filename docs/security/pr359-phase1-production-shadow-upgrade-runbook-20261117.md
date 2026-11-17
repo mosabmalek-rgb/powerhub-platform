@@ -21,3 +21,7 @@
 `MIGRATION_RECONCILIATION_PASS` requires a reviewable, comprehensive source/history and catalog/behavior crosswalk, not merely a successful CI check.
 `PRODUCTION_SHADOW_UPGRADE_PASS` requires actual protected restore, two identical upgrade runs, failure recovery and no unexplained data/financial changes.
 **Never** promote PR #359 or change Production while either gate is open.
+
+## Full original source credit-backfill transaction test (2026-11-17)
+
+The isolated PostgreSQL 17 CI harness `scripts/test-pr359-full-legacy-credit-backfill.sh` applies the **entire unchanged historical** `20261103145232_powerhub_legacy_unlinked_payments_to_subscriber_credit.sql` to a disposable, synthetic two-tenant schema, asserts cash conservation and cross-scope ledger entries, re-applies the same SQL and asserts no duplicate receipt/audit, then applies it in a fresh database followed by a deliberate exception inside **one transaction**, verifying that all changes roll back. Unlike the prior predicate-only fixture, this runs the full 4.5KB source including ledger inserts and audit records. The test is not a full Production-derived Shadow restore, and it does not certify the earlier 53KB/94KB finance foundation migrations. Note the historical source contains a metadata `sourceMigration` label of `20261103160000` whereas its Git prefix is `20261103145232`; the applied source must stay immutable and this provenance alias requires separate review.
