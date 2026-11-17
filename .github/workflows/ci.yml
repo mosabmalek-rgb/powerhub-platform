@@ -62,6 +62,7 @@ jobs:
         run: |
           node --check scripts/pr359-migration-evidence.mjs
           node --test scripts/pr359-migration-evidence.test.mjs
+          node --test scripts/pr359-production-three-catalog-evidence.test.mjs
           node scripts/pr359-migration-evidence.mjs --out pr359-migration-evidence-resolved.json
 
       - name: Upload historical migration source-hash evidence
