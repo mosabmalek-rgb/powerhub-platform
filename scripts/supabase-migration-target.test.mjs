@@ -9,6 +9,7 @@ import {
   assertSupabaseMigrationFileInventory,
   assertSupabaseMigrationReleaseVersionIsUnique,
   classifySupabaseMigrationHistory,
+  reconcileSupabaseMigrationHistory,
   computeSupabaseMigrationContentSha256,
   parseSupabaseMigrationHistoryRows,
   SUPABASE_PROJECT_BY_TARGET,
@@ -182,6 +183,25 @@ describe("Supabase migration history reconciliation guard", () => {
       ...candidate,
       records: [stored(candidate.version, candidate.name)],
     })).toBe("already-applied");
+  });
+
+  it("returns explicit auditable decisions without making unavailable payloads releasable", () => {
+    expect(reconcileSupabaseMigrationHistory({
+      ...candidate,
+      records: [stored(candidate.version, candidate.name)],
+    })).toEqual({ status: "EXACT_APPLIED", releasable: true, reason: "version-name-and-sql-sha-match" });
+    expect(reconcileSupabaseMigrationHistory({
+      ...candidate,
+      records: [{ version: candidate.version, name: candidate.name, contentSha: "unavailable" }],
+    })).toEqual({ status: "UNPROVEN", releasable: false, reason: "stored-sql-payload-unavailable" });
+    expect(reconcileSupabaseMigrationHistory({
+      ...candidate,
+      records: [stored(candidate.version, candidate.name, "select 2;\n")],
+    })).toEqual({ status: "DIVERGENT", releasable: false, reason: "stored-sql-content-differs" });
+    expect(reconcileSupabaseMigrationHistory({
+      ...candidate,
+      records: [],
+    })).toEqual({ status: "MISSING", releasable: true, reason: "version-and-name-absent" });
   });
 
   it("allows a migration only when neither its version nor name exists", () => {
@@ -382,4 +402,3 @@ describe("Supabase migration release file path guard", () => {
     })).rejects.toThrow(/repository's supabase\/migrations directory/i);
   });
 });
-
