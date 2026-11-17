@@ -30,3 +30,12 @@ The first Production-derived logical backup passed remote read-only connection, 
 `scripts/pr359-shadow/bootstrap-realtime-role.sql` creates **only** the missing `supabase_realtime_admin` in the disposable `--network none` container before importing the role dump and verifies its exact source-attested role flags: `NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`. Source flags were inspected read-only on project `vvcdiqcyhaloxesvpppc` on 2026-11-17. Existing roles with conflicting flags fail closed. The automatic smoke replays this bootstrap twice, proving it is idempotent.
 
 **Do not** apply this SQL to managed Supabase, copy it into the release migrations, or weaken database privileges. This is a compatibility preflight, not proof of restore equivalence. Remaining reserved roles, extensions, Auth/Storage schema compatibility, migration history and financial acceptance require actual execution evidence.
+## 2026-11-17 — Reserved role requires local superuser
+
+The protected source-derived restore run `44132626459` failed after downloading the logical backup and starting `supabase/postgres:17.6.1.155` with `"supabase_realtime_admin" is a reserved role, only superusers can modify it`. The previous local bootstrap had invoked `psql -U postgres`, which **is not a superuser in Supabase Postgres**. This is not an error from financial migration SQL.
+
+The isolated bootstrap now uses `psql -U supabase_admin` **exclusively inside the networkless disposable Supabase Postgres container**. A privilege assertion must confirm `current_user=supabase_admin` with `rolsuper=true` before any privileged role setup. The `roles.sql` dump is also restored locally using this role; subsequent application schema, data, and all four financial migrations still run as local `postgres` to preserve permission checks.
+
+The automatic smoke also starts the **actual Supabase Postgres pinned image**, verifies the local admin privilege and executes the exact reserved-role bootstrap twice to guard against regressions. No unapproved elevated rights, Docker ports or network are introduced. If the privilege assertion or reserved-role policy fails, the run is marked FAIL, not silently skipped.
+
+The Production source connection remains read-only via the protected Supabase Session Pooler. The real restored financial rehearsal still requires a fresh protected approval and must not be reported as accepted until it succeeds.

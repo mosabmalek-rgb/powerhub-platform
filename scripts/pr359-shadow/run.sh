@@ -28,6 +28,20 @@ sql(){
   docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d "${1:-postgres}"
 }
 runfile(){ sql "$1" < "$2" >/dev/null; }
+# Supabase reserves certain role names for database superusers. This account is
+# used ONLY inside --network none Docker for role bootstrap and role dump restore.
+# Never switch the remote source connection or apply SQL to hosted Supabase.
+sql_local_admin(){
+  docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U supabase_admin -d postgres
+}
+runfile_local_admin(){ sql_local_admin < "$1" >/dev/null; }
+assert_local_admin(){
+  local result
+  if ! result="$(printf '%s\n' "SELECT current_user='supabase_admin' AND (SELECT rolsuper FROM pg_roles WHERE rolname=current_user);" | sql_local_admin 2>/dev/null)"; then
+    echo 'PR359_LOCAL_SUPERUSER_UNAVAILABLE: isolated Supabase image cannot authenticate supabase_admin' >&2; exit 1
+  fi
+  [[ "$result" == t ]] || { echo 'PR359_LOCAL_SUPERUSER_REQUIRED: local Supabase admin role lacks superuser' >&2; exit 1; }
+}
 value(){ printf '%s\n' "$1" | sql postgres | tail -1; }
 if [[ "$mode" == smoke ]]; then
   start postgres:17.6
@@ -46,6 +60,16 @@ if [[ "$mode" == smoke ]]; then
   if sql shadow_failure < "$work/fault.sql" >"$work/fault.log" 2>&1; then echo 'Expected failure missing' >&2;exit 1;fi
   grep -q PR359_CONTROLLED_DOCKER_FAULT "$work/fault.log" || { echo 'Unexpected error before fault boundary' >&2;exit 1; }
   runfile shadow_failure supabase/tests/pr359_full_legacy_backfill_rollback_assert.sql
+  # Exercise the SAME privileged bootstrap on the real Supabase Postgres image.
+  # A plain postgres:17 image cannot reproduce Supabase reserved-role guards.
+  start supabase/postgres:17.6.1.155
+  assert_local_admin
+  runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
+  runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
+  [[ "$(value "SELECT NOT rolcanlogin AND NOT rolinherit AND NOT rolsuper AND NOT rolbypassrls FROM pg_roles WHERE rolname='supabase_realtime_admin';")" == t ]] || {
+    echo 'PR359_LOCAL_RESERVED_ROLE_CHECK_FAILED' >&2; exit 1;
+  }
+  echo 'PR359_DOCKER_SUPABASE_RESERVED_ROLE_SMOKE_PASS'
   echo 'PR359_DOCKER_ISOLATED_SMOKE_PASS'
   exit 0
 fi
@@ -102,8 +126,9 @@ restore(){
   [[ "$(value 'SHOW server_version_num;')" == 17* ]] || exit 1
   # Supabase CLI --role-only intentionally omits reserved platform roles.
   # The hosted reserved role below is source-attested and created ONLY in networkless Docker.
-  runfile postgres scripts/pr359-shadow/bootstrap-realtime-role.sql
-  runfile postgres "$work/dump/roles.sql"
+  assert_local_admin
+  runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
+  runfile_local_admin "$work/dump/roles.sql"
   runfile postgres "$work/dump/schema.sql"
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
   runfile postgres "$work/restore-data.sql"
