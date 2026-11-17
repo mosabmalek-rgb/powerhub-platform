@@ -230,12 +230,11 @@ export function parseSupabaseMigrationHistoryRows(output) {
 }
 
 /**
- * Classify one migration against the live migration ledger.
- * An exact version/name match is already applied only when the retained SQL
- * bytes also match the checked-in migration. Missing or changed payloads fail
- * closed and require an evidence-backed manual reconciliation.
+ * Return an explicit, auditable reconciliation decision for one migration.
+ * This is intentionally separate from the release decision: an historical
+ * row with an unavailable payload is UNPROVEN, not already applied.
  */
-export function classifySupabaseMigrationHistory({ version, name, contentSha, records }) {
+export function reconcileSupabaseMigrationHistory({ version, name, contentSha, records }) {
   if (!/^\d{14}$/.test(version) || !/^[a-z0-9_]+$/.test(name)) {
     throw new Error("Migration history lookup requires a valid 14-digit version and snake_case name.");
   }
@@ -257,7 +256,6 @@ export function classifySupabaseMigrationHistory({ version, name, contentSha, re
 
   const sameVersion = records.filter((record) => record.version === version);
   const sameName = records.filter((record) => record.name === name);
-
   if (sameVersion.length > 1) {
     throw new Error(`Migration version "${version}" appears more than once in the database ledger.`);
   }
@@ -267,20 +265,40 @@ export function classifySupabaseMigrationHistory({ version, name, contentSha, re
   }
   if (sameVersion.length === 1) {
     if (sameVersion[0].name !== name) {
-      throw new Error(`Ledger version "${version}" already exists with a different name ("${sameVersion[0].name}").`);
+      return { status: "DIVERGENT", releasable: false, reason: "version-recorded-under-different-name" };
     }
     if (sameVersion[0].contentSha === "unavailable") {
-      throw new Error(`Migration "${version}_${name}" is recorded but its stored SQL payload is unavailable; verify schema postconditions and reconcile history instead of assuming it is applied.`);
+      return { status: "UNPROVEN", releasable: false, reason: "stored-sql-payload-unavailable" };
     }
     if (sameVersion[0].contentSha !== contentSha) {
-      throw new Error(`Migration "${version}_${name}" is recorded with different SQL content; reconcile the source and live schema instead of skipping or replaying it.`);
+      return { status: "DIVERGENT", releasable: false, reason: "stored-sql-content-differs" };
     }
-    return "already-applied";
+    return { status: "EXACT_APPLIED", releasable: true, reason: "version-name-and-sql-sha-match" };
   }
   if (sameName.length === 1) {
-    throw new Error(`Migration name "${name}" is already recorded under version "${sameName[0].version}", but this file uses "${version}". Reconcile migration history instead of replaying it.`);
+    return { status: "DIVERGENT", releasable: false, reason: "name-recorded-under-different-version" };
   }
-
-  return "not-applied";
+  return { status: "MISSING", releasable: true, reason: "version-and-name-absent" };
 }
 
+/**
+ * Classify one migration against the live migration ledger.
+ * An exact version/name match is already applied only when the retained SQL
+ * bytes also match the checked-in migration. Missing or changed payloads fail
+ * closed and require an evidence-backed manual reconciliation.
+ */
+export function classifySupabaseMigrationHistory({ version, name, contentSha, records }) {
+  const decision = reconcileSupabaseMigrationHistory({ version, name, contentSha, records });
+  if (decision.status === "EXACT_APPLIED") return "already-applied";
+  if (decision.status === "MISSING") return "not-applied";
+  const prefix = `Migration "${version}_${name}" is ${decision.status}: `;
+  const messages = {
+    UNPROVEN: "stored SQL payload is unavailable; verify schema postconditions and reconcile history instead of assuming it is applied.",
+    DIVERGENT: {
+      "stored-sql-content-differs": "recorded with different SQL content; reconcile the source and live schema instead of skipping or replaying it.",
+      "version-recorded-under-different-name": "ledger version already exists with a different name; reconcile the source and live schema instead of skipping or replaying it.",
+      "name-recorded-under-different-version": "migration name is already recorded under version different from the source; reconcile history instead of replaying it.",
+    }[decision.reason] ?? `live ledger identity or SQL content differs (${decision.reason}); reconcile the source and live schema instead of skipping or replaying it.`,
+  };
+  throw new Error(prefix + (messages[decision.status] ?? decision.reason));
+}
