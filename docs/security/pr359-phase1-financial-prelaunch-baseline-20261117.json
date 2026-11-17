@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "observedDate": "2026-11-17",
+  "sourceHead": "80edce2c08d9c684ca181f9b3b87caa93facd948",
+  "prelaunchSyntheticData": true,
+  "productionReadOnly": true,
+  "sourceProjects": {
+    "staging": "iyuryuhaylhisjfcrwkz",
+    "production": "vvcdiqcyhaloxesvpppc"
+  },
+  "orderedFinanceMigrations": [
+    {
+      "version": "20261103131052",
+      "name": "powerhub_subscriber_credit_ledger"
+    },
+    {
+      "version": "20261103131104",
+      "name": "powerhub_subscriber_liability_and_cash_allocation"
+    },
+    {
+      "version": "20261103131125",
+      "name": "powerhub_statement_operating_collection_summary"
+    },
+    {
+      "version": "20261103145232",
+      "name": "powerhub_legacy_unlinked_payments_to_subscriber_credit"
+    }
+  ],
+  "environments": {
+    "staging": {
+      "columns": [
+        "amount",
+        "invoice_applied_amount",
+        "payment_purpose",
+        "subscriber_credit_amount"
+      ],
+      "payments": {
+        "rows": 6,
+        "completed": 6,
+        "nonpositive": 0,
+        "totalAmount": 667,
+        "orphanInvoices": 0,
+        "completedAmount": 667,
+        "crossScopeInvoices": 0,
+        "completedUnlinkedCount": 0,
+        "excessDecimalPrecision": 0
+      },
+      "migrations": [
+        {
+          "name": "powerhub_subscriber_credit_ledger",
+          "version": "20261103131052",
+          "sqlAvailable": true
+        },
+        {
+          "name": "powerhub_subscriber_liability_and_cash_allocation",
+          "version": "20261103131104",
+          "sqlAvailable": true
+        },
+        {
+          "name": "powerhub_statement_operating_collection_summary",
+          "version": "20261103131125",
+          "sqlAvailable": true
+        },
+        {
+          "name": "powerhub_legacy_unlinked_payments_to_subscriber_credit",
+          "version": "20261103145232",
+          "sqlAvailable": true
+        }
+      ],
+      "constraints": [
+        "payments_invoice_credit_split_check",
+        "payments_payment_purpose_check"
+      ],
+      "liabilityLedgerExists": true
+    },
+    "production": {
+      "columns": [
+        "amount"
+      ],
+      "payments": {
+        "rows": 5,
+        "completed": 5,
+        "nonpositive": 0,
+        "totalAmount": 1260,
+        "orphanInvoices": 0,
+        "completedAmount": 1260,
+        "crossScopeInvoices": 0,
+        "completedUnlinkedCount": 0,
+        "excessDecimalPrecision": 0
+      },
+      "migrations": [],
+      "constraints": [],
+      "liabilityLedgerExists": false
+    }
+  },
+  "shadowUpgrade": "NOT_TESTED",
+  "releaseDecision": "NO_GO"
+}
