@@ -7,6 +7,9 @@ const pooler=`postgresql://postgres.${ref}:p%40ss@aws-0-ap-southeast-1.pooler.su
 test('only pinned Production with TLS, no secret output',()=>{
  assert.equal(validateSource(direct).route,'direct');
  assert.equal(validateSource(pooler).route,'session-pooler');
+ // Supabase Connect sometimes omits sslmode: the runner adds it, never disables TLS.
+ assert.equal(validateSource(direct.replace('?sslmode=require','')).route,'direct');
+ assert.equal(validateSource(pooler.replace('?sslmode=require','')).route,'session-pooler');
  for(const v of [
   direct.replace(ref,'iyuryuhaylhisjfcrwkz'),
   direct.replace('sslmode=require','sslmode=disable'),

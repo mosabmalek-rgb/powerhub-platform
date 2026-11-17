@@ -51,6 +51,11 @@ fi
 [[ "$(git rev-parse HEAD)" == "${SHADOW_APPROVED_HEAD:-}" ]] || { echo 'Source HEAD SHA mismatch' >&2;exit 2; }
 command -v supabase >/dev/null && command -v psql >/dev/null || { echo 'Missing Supabase CLI or psql' >&2;exit 2; }
 node scripts/pr359-shadow/guard.mjs
+# Append TLS requirement for dashboard URIs without a query. The guard rejects extra/insecure parameters.
+if [[ "$SHADOW_SOURCE_DB_URL" != *\?* ]]; then
+  export SHADOW_SOURCE_DB_URL="${SHADOW_SOURCE_DB_URL}?sslmode=require"
+fi
+node scripts/pr359-shadow/guard.mjs
 [[ "$(supabase --version | cut -d. -f1)" == 2 ]] || { echo 'Supabase CLI v2 required' >&2;exit 2; }
 mkdir -p "$work/dump" "$work/transactions"
 export PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require

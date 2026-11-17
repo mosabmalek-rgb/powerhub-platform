@@ -8,13 +8,17 @@ export function validateSource(value) {
  assert.ok(/^postgres(?:ql)?:\/\//.test(value),'Expected a PostgreSQL connection URI starting with postgres:// or postgresql:// (not the Supabase HTTPS project URL). Copy the Database URI under Supabase Connect, replace the password placeholder and append ?sslmode=require. Do not paste credentials into logs or chat.');
  const authority=value.slice(value.indexOf('://')+3).split('/')[0];
  assert.equal((authority.match(/@/g)||[]).length,1,'Credentials must be URL-encoded');
- const uri=new URL(value);
+ let uri;
+ try { uri=new URL(value); }
+ catch { throw new Error('Invalid PostgreSQL URI (credentials redacted).'); }
  assert.ok(['postgres:','postgresql:'].includes(uri.protocol),'Invalid protocol');
  assert.ok(uri.password,'Missing password');
  assert.equal(uri.port,'5432','Only PostgreSQL session/direct port 5432 is allowed');
  assert.equal(uri.pathname,'/postgres','Wrong database');
- assert.equal(uri.searchParams.get('sslmode'),'require','Source TLS required');
- assert.deepEqual([...uri.searchParams.keys()],['sslmode'],'No extra parameters');
+ const ssl=uri.searchParams.get('sslmode');
+ assert.ok(ssl===null||ssl==='require','Source TLS must be require; insecure values are rejected');
+ const keys=[...uri.searchParams.keys()];
+ assert.ok(keys.length===0||(keys.length===1&&keys[0]==='sslmode'),'No extra parameters');
  assert.equal(uri.hash,'','Fragments forbidden');
  const direct=uri.hostname===`db.${SOURCE_REF}.supabase.co`&&uri.username==='postgres';
  const pooler=/^aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(uri.hostname)&&uri.username===`postgres.${SOURCE_REF}`;
