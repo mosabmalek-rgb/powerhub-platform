@@ -22,7 +22,7 @@ start(){
   done
   [[ "$ok" == 1 ]] || { echo 'Docker postgres did not become ready' >&2; exit 1; }
   [[ "$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$container")" == none ]] || exit 1
-  [[ "$(docker inspect -f '{{json .HostConfig.PortBindings}}' "$container")" == null ]] || { echo 'Unexpected bound port' >&2; exit 1; }
+  [[ -z "$(docker port "$container")" ]] || { echo 'Unexpected published Docker port' >&2; exit 1; }
 }
 sql(){
   docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d "${1:-postgres}"
