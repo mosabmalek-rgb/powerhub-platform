@@ -74,7 +74,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1]
  const s=JSON.parse(readFileSync('docs/security/pr359-phase1-finance-live-cash-proof-20261117.json','utf8'));
  const report=validateFinancialLiveEvidence(s);
  const at=process.argv.indexOf('--out');
- if(at>=0){assert.ok(process.argv[at+1],'Missing output file');writeFileSync(process.argv[at+1],JSON.stringify(report,null,2)+'\\n');}
+ if(at>=0){assert.ok(process.argv[at+1],'Missing output file');writeFileSync(process.argv[at+1],JSON.stringify(report,null,2)+'\n');}
  console.log('PR359 live financial baseline PASS, Production Shadow NOT_TESTED, release NO_GO');
  if(process.argv.includes('--require-release'))throw Error('NO_GO: actual Production-derived Shadow replay, reconciliation and recovery not evidenced');
 }
