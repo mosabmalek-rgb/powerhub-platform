@@ -2,6 +2,8 @@ name: PR359 Docker Shadow (disposable)
 on:
   push:
     branches: [feat/auth-local-first-single-pr]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -10,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   smoke:
-    if: github.ref == 'refs/heads/feat/auth-local-first-single-pr'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/feat/auth-local-first-single-pr'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
