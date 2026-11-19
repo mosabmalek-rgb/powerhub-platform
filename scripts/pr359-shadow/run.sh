@@ -88,7 +88,7 @@ if [[ "$mode" == smoke ]]; then
   printf 'CREATE SCHEMA auth; CREATE TABLE auth.audit_log_entries (id uuid PRIMARY KEY);\n' | sql postgres >/dev/null
   runfile postgres scripts/pr359-shadow/bootstrap-auth-audit-column.sql
   runfile postgres scripts/pr359-shadow/bootstrap-auth-audit-column.sql
-  [[ "$(value "SELECT count(*) FROM information_schema.columns WHERE table_schema='auth' AND table_name='audit_log_entries' AND column_name='ip_address' AND data_type='character varying' AND is_nullable='NO';")" == 1 ]] || { echo 'PR359_DOCKER_AUTH_COMPAT_TEST_FAILED' >&2; exit 1; }
+  [[ "$(value "SELECT count(*) FROM information_schema.columns WHERE table_schema='auth' AND table_name='audit_log_entries' AND column_name='ip_address' AND data_type='character varying' AND character_maximum_length=64 AND is_nullable='NO';")" == 1 ]] || { echo 'PR359_DOCKER_AUTH_COMPAT_TEST_FAILED' >&2; exit 1; }
   runfile postgres supabase/tests/pr359_full_legacy_backfill_setup.sql
   for i in 1 2; do
     runfile postgres supabase/migrations/20261103145232_powerhub_legacy_unlinked_payments_to_subscriber_credit.sql
