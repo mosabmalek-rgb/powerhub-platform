@@ -56,3 +56,8 @@ Source hashes checked:
 - CI final-SHA green gates are required for merge; do not mistake catalog enumeration for acceptance.
 
 **Gate stays:** `R0_ACCEPTED=false`, `R1_STARTED=false`, `STAGING_INPLACE_GO=false`, `PRODUCTION_INPLACE_GO=false`, `PR359_MERGE_GO=false`.
+
+## Follow-up: Android release branch inspection
+Verified Android `FieldReadingApi.kt` on `release/signed-1.5.4`, `release/official-1.5.4-cycle-guard`, and `build/official-release-1.5.3`: **none** declares `/subscribers/delta`; all use the legacy `/subscribers` endpoint. Corresponding content blob SHAs: `4c01e35d9e8765e96b9ce99bc2b709ef436a4577`, `cda3e4b234b6faec160cf23d8b99745f0a5962f6`, and `4c01e35d9e8765e96b9ce99bc2b709ef436a4577`. This verifies a gap on the **three examined release/build branches**, not all uninspected branches.
+
+Security advisors were checked read-only on both projects and reported `rls_enabled_no_policy` informational findings matching the observed 54 Production and 78 Staging catalog counts. Reference: https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy . This count is not proof of a vulnerability; deliberate service-role-only tables can have no RLS policies. Evaluate privilege grants and behaviors individually.
