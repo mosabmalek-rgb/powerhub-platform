@@ -35,3 +35,11 @@ The managed audit field `auth.audit_log_entries.ip_address` was confirmed `chara
 5. Keep unrelated R0 blockers open: missing Staging RPC contracts, SECURITY DEFINER review, ownership classification and migration Epoch v2.
 
 **Gates:** `R0_ACCEPTED=false`, `BACKUP_RESTORE_PASS=false`, `STAGING_INPLACE_GO=false`, `PRODUCTION_INPLACE_GO=false`, `PR359_MERGE_GO=false`. Do not infer final-SHA CI results from earlier source SHA.
+
+## Read-only follow-up: Realtime discrepancy explained (partition lifecycle)
+
+Inspected `pg_class`, `pg_namespace`, and `pg_inherits` for `realtime` in both hosted projects. **Both** have the same three base relations: `realtime.messages` (partitioned parent, 11 columns), `realtime.schema_migrations` (2 columns), and `realtime.subscription` (9 columns). Staging additionally has seven managed child partitions, all owned by `supabase_realtime_admin`, all **11 columns** and attached to parent `realtime.messages`:
+
+`messages_2026_11_14`, `messages_2026_11_15`, `messages_2026_11_16`, `messages_2026_11_17`, `messages_2026_11_18`, `messages_2026_11_19`, `messages_2026_11_20`.
+
+These account exactly for Staging's **7 extra managed tables and 77 extra columns**. This is **lifecycle-managed Realtime partition drift**, not proven incompatible base schema. Future comparator design should explicitly distinguish deterministic **base schema parity** from separately validated **partition topology and data coverage**. Any normalization must verify partition parent, ownership, attached ranges, uniqueness/overlaps, data coverage, and restore behavior, and must not blanket-ignore unmatched provider tables. Current strict comparator intentionally remains unchanged pending tested partition-aware policy. Production's absence of these partitions does not authorize creation or deletion of partitions in R0.
