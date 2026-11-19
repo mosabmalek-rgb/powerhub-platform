@@ -57,3 +57,16 @@ Hosted Production catalog baseline (read-only R0 observations): Auth 27/273, Sto
 The new probe correctly prints `PR359_LOCAL_STACK_SOURCE_PARITY=NOT_PROVEN` and `PR359_PRODUCTION_SHADOW_UPGRADE_PASS=NOT_GRANTED`. Its successful startup must not be conflated with a full source data restore, R0 acceptance, R1 backup or permission to run any remote SQL mutation.
 
 A follow-up source-only change adds deterministic per-service migration-set SHA-256 outputs from the locally collected ordered metadata. Their values must be checked on the SHA actually running this follow-up; the completed initial run predates this fingerprint enhancement.
+
+## 6. Reproducible metadata-only hosted reference and CLI-version matrix
+
+Created `docs/security/pr359-r0-prod-managed-source-reference-20261119.json` from read-only system-catalog / service-ledger SQL:
+- 386 Production columns across managed Auth, Storage and Realtime relations (column name and PostgreSQL type only).
+- 262 service migration records: 84 Auth, 81 Storage (including historical migration hashes), 97 Realtime.
+- Independently checked Staging's **exact full service migration records matched** Production. Staging retains seven lifecycle-managed Realtime partitions, so it has 77 extra managed columns, none with a shared-key type drift. The record capture uses separate SELECT calls and is **not** a single repeatable-read snapshot; this reference is provisional for R0 until separately attested.
+
+Added `scripts/pr359-shadow/local-managed-reference-comparison.mjs` with unit tests and connected it to the disposable local stack probe. It compares the local Auth/Storage/Realtime metadata with the recorded Production reference through the existing **bidirectional, fail-closed comparison libraries**. The probe reports metadata differences but **does not confer release acceptance**, while the protected full-restore runner still hard-fails when service catalogs or histories differ.
+
+To identify a version-compatible service baseline without mutating any hosted project, the isolated local-stack workflow now runs independent CLI **2.122.1** and **3.2.0** jobs (`fail-fast: false`), pinned explicitly, each with no production credentials, temporary local resources and loopback-only publication checks. The first baseline CLI 2.122.1 test passed as a startup probe but was not fully source-compatible. The new two-version matrix is experimental; its results must be read from completed workflow logs before selecting a provider stack.
+
+**Next R0 decision:** classify exact missing/extra migration IDs, checksum mismatches and service schema differences by CLI version, including Realtime partition lifecycle. Only a verified compatible version may be used to attempt isolated full restores; no bypass, blind provider DDL or historical ledger edit is approved.
