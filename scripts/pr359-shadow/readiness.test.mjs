@@ -91,3 +91,22 @@ test('provider-managed service migration ledger parity runs before app schema an
  assert.equal(guards.length,2,'managed service migration parity must be checked twice');
  assert.doesNotMatch(restore,/PR359_SKIP_MANAGED_MIGRATIONS|PR359_ALLOW_MIGRATION_DRIFT/);
 });
+
+test('source dump is blocked before ANY business data export if local provider schema cannot match',()=>{
+ const sh=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const from=sh.indexOf("SHADOW_STAGE=pre-export-managed-start");
+ const catalog=sh.indexOf("SHADOW_STAGE=pre-export-managed-catalog",from);
+ const migrations=sh.indexOf("SHADOW_STAGE=pre-export-managed-migrations",from);
+ const dumpRoles=sh.indexOf("dump roles.sql --role-only",from);
+ const dumpSchema=sh.indexOf("dump schema.sql",from);
+ const dumpData=sh.indexOf("dump data.sql --data-only --use-copy",from);
+ assert.ok(from>0&&catalog>from&&migrations>catalog,
+   'pre-export image and provider catalog/migration guards must exist');
+ assert.ok(dumpRoles>migrations&&dumpSchema>migrations&&dumpData>migrations,
+   'provider-managed parity must pass before even exporting business source data');
+ const gate=sh.slice(from,dumpRoles);
+ assert.match(gate,/start supabase\/postgres:17\.6\.1\.155/);
+ assert.match(gate,/node scripts\/pr359-shadow\/check-managed-catalog\.mjs/);
+ assert.match(gate,/node scripts\/pr359-shadow\/check-managed-migrations\.mjs/);
+ assert.doesNotMatch(gate,/PR359_SKIP_MANAGED|PR359_ALLOW_MIGRATION_DRIFT/);
+});
