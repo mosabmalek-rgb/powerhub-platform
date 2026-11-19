@@ -235,6 +235,10 @@ fi
 # represent the source-managed service catalog and migration history. Running this
 # pre-export gate avoids repeated expensive/pointless source dumps on known drift.
 SHADOW_STAGE=pre-export-managed-start
+# The source URL remains explicit and TLS-protected; do not leak its libpq TLS
+# requirement into the disposable Local Stack, which intentionally serves plain
+# loopback PostgreSQL.
+unset PGOPTIONS PGSSLMODE
 # Full restore uses the pinned Supabase Local Stack, not a standalone PostgreSQL image.
 start
 assert_local_admin
