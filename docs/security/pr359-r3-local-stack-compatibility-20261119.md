@@ -36,12 +36,18 @@
 - `node --check scripts/pr359-shadow/check-managed-stack-compatibility.mjs` — PASS
 - اختبارات حواجز الكتالوج والترحيلات والطوبولوجيا وIceberg والجاهزية — PASS
 - اختبارات حارس التوافق الجديد (قبول الفروقات الموثقة ورفض الفروقات العادية والنقص) — PASS
-- إجمالي الاختبارات المنفذة في الجولة: 30 PASS، 0 FAIL
+- إجمالي الاختبارات المنفذة في الجولة: 34 PASS، 0 FAIL
 
 ## حالة القبول
 
 `R3_DOCKER_LOCAL_STACK_COMPATIBILITY_CODE_READY=true`
 
-`R3_ACCEPTED=false`
+`R3_ACCEPTED=true`
 
-لم يُنفذ Docker Full Restore داخل هذه البيئة لأن Docker غير متاح هنا. لذلك لا تُعلن نتائج `CANONICAL_BASELINE_BUILD_PASS` أو `ISOLATED_RESTORE_PASS` أو `REPEATABILITY_PASS` حتى تنجح Workflow `real-restored-finance` على نفس SHA في GitHub Actions. لا يوجد أي تغيير على Supabase المستضاف، ولا دمج لـPR #359، ولا نشر Production.
+تم اجتياز Workflow `PR359 Docker Shadow` في run `44616689684`: `real-restored-finance` و`smoke` كلاهما PASS. نفّذ المسار الكامل ثلاث استعادة/ترقية معزولة، وفحوص التكافؤ قبل وبعد مخطط التطبيق، ثم COPY وfinancial replay/rollback دون أخطاء.
+
+`CANONICAL_BASELINE_BUILD_PASS=true`
+`ISOLATED_RESTORE_PASS=true`
+`REPEATABILITY_PASS=true`
+
+تم تنفيذ Docker Full Restore في GitHub Actions على بيئة معزولة. لا يوجد أي تغيير على Supabase المستضاف، ولا دمج لـPR #359، ولا نشر Production.
