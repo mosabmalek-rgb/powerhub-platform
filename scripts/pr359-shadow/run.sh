@@ -7,7 +7,17 @@ mode="${1:-}"
 for tool in docker node sha256sum; do command -v "$tool" >/dev/null || { echo "Missing: $tool" >&2; exit 2; }; done
 work="$(mktemp -d)"
 container=''
-cleanup(){ if [[ -n "$container" ]]; then docker rm -f "$container" >/dev/null 2>&1 || :; fi; rm -rf -- "$work"; }
+stack_dir=''
+stack_network=''
+target_db_url=''
+cleanup(){
+  if [[ "${mode:-}" == full && -n "$stack_dir" && -f "$stack_dir/supabase/config.toml" ]]; then
+    (cd "$stack_dir" && supabase stop --no-backup >/dev/null 2>&1) || :
+  fi
+  if [[ -n "$container" && "$mode" == smoke ]]; then docker rm -f "$container" >/dev/null 2>&1 || :; fi
+  if [[ -n "$stack_network" ]]; then docker network rm "$stack_network" >/dev/null 2>&1 || :; fi
+  rm -rf -- "$work" "$stack_dir";
+}
 # Print resource metadata only, never database SQL/dump contents, credentials or raw container logs.
 shadow_diagnose(){
   local code="$1"
@@ -38,14 +48,30 @@ on_exit(){
 trap on_exit EXIT
 password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 start(){
+  if [[ "${mode:-}" == full ]]; then
+    if [[ -n "$stack_dir" && -f "$stack_dir/supabase/config.toml" ]]; then
+      (cd "$stack_dir" && supabase stop --no-backup >/dev/null 2>&1) || :
+      [[ -n "$stack_network" ]] && docker network rm "$stack_network" >/dev/null 2>&1 || :
+      stack_dir=''; stack_network=''; target_db_url=''; container=''
+    fi
+    stack_dir="$(mktemp -d)"
+    stack_network="pr359-shadow-stack-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+    docker network create -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$stack_network" >/dev/null
+    (cd "$stack_dir" && supabase init --yes >/dev/null 2>&1 &&
+      supabase start --network-id "$stack_network" \
+        --exclude studio,imgproxy,mailpit,edge-runtime,logflare,vector,supavisor,postgres-meta >/dev/null 2>&1)
+    target_db_url="$(cd "$stack_dir" && supabase status -o env | sed -n 's/^DB_URL=//p' | head -1 | tr -d '"')"
+    [[ "$target_db_url" =~ ^postgres(ql)?://[^@]+@127[.]0[.]0[.]1:[0-9]+/postgres$ ]] || {
+      echo 'PR359_LOCAL_STACK_DB_ENDPOINT_NOT_LOOPBACK' >&2; exit 1;
+    }
+    container="$(docker ps --filter "network=$stack_network" --filter 'name=supabase_db' --format '{{.ID}}' | head -1)"
+    [[ -n "$container" ]] || { echo 'PR359_LOCAL_STACK_DB_CONTAINER_MISSING' >&2; exit 1; }
+    return 0
+  fi
   local image="$1"
   if [[ -n "$container" ]]; then docker rm -f "$container" >/dev/null; fi
   container="pr359-shadow-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
   docker run --rm -d --network none --name "$container" -e "POSTGRES_PASSWORD=$password" -e POSTGRES_DB=postgres "$image" >/dev/null
-  # A newly initialized PostgreSQL container first starts a temporary Unix-socket-only
-  # postmaster and then shuts it down; pg_isready on that socket can pass too early.
-  # Only the final postmaster listens on TCP loopback inside --network none Docker.
-  # Two consecutive TCP probes avoid racing the final transition.
   local stable_ready=0
   for i in $(seq 1 120); do
     if docker exec "$container" pg_isready -h 127.0.0.1 -p 5432 -U postgres -d postgres >/dev/null 2>&1; then
@@ -60,26 +86,34 @@ start(){
   [[ "$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$container")" == none ]] || exit 1
   [[ -z "$(docker port "$container")" ]] || { echo 'Unexpected published Docker port' >&2; exit 1; }
 }
+
 sql(){
-  docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d "${1:-postgres}"
+  if [[ "${mode:-}" == full ]]; then
+    psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$target_db_url"
+  else
+    docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d "${1:-postgres}"
+  fi
 }
 runfile(){ sql "$1" < "$2" >/dev/null; }
-# Supabase reserves certain role names for database superusers. This account is
-# used ONLY inside --network none Docker for role bootstrap and role dump restore.
-# Never switch the remote source connection or apply SQL to hosted Supabase.
+# In the full run the DB URL is the disposable Local Stack endpoint only.
+# In smoke this remains the isolated Docker-only admin bootstrap.
 sql_local_admin(){
-  docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U supabase_admin -d postgres
+  if [[ "${mode:-}" == full ]]; then
+    sql postgres
+  else
+    docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U supabase_admin -d postgres
+  fi
 }
 runfile_local_admin(){ sql_local_admin < "$1" >/dev/null; }
 assert_local_admin(){
   local result
-  if ! result="$(printf '%s\n' "SELECT current_user='supabase_admin' AND (SELECT rolsuper FROM pg_roles WHERE rolname=current_user);" | sql_local_admin 2>/dev/null)"; then
+  if ! result="$(printf '%s\n' "SELECT current_user IN ('postgres','supabase_admin') AND (SELECT rolsuper FROM pg_roles WHERE rolname=current_user);" | sql_local_admin 2>/dev/null)"; then
     echo 'PR359_LOCAL_SUPERUSER_UNAVAILABLE: isolated Supabase image cannot authenticate supabase_admin' >&2; exit 1
   fi
   [[ "$result" == t ]] || { echo 'PR359_LOCAL_SUPERUSER_REQUIRED: local Supabase admin role lacks superuser' >&2; exit 1; }
 }
 value(){ printf '%s\n' "$1" | sql postgres | tail -1; }
-if [[ "$mode" == smoke ]]; then
+if [[ "${mode:-}" == smoke ]]; then
   start postgres:17.6
   # Test local-only reserved role initialization and idempotence.
   runfile postgres scripts/pr359-shadow/bootstrap-realtime-role.sql
@@ -141,7 +175,7 @@ if [[ "$SHADOW_SOURCE_DB_URL" != *\?* ]]; then
   export SHADOW_SOURCE_DB_URL="${SHADOW_SOURCE_DB_URL}?sslmode=require"
 fi
 node scripts/pr359-shadow/guard.mjs
-[[ "$(supabase --version | cut -d. -f1)" == 2 ]] || { echo 'Supabase CLI v2 required' >&2;exit 2; }
+[[ "$(supabase --version | cut -d. -f1)" == 3 ]] || { echo 'Supabase CLI v3 required' >&2;exit 2; }
 mkdir -p "$work/dump" "$work/transactions"
 export PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require
 source_sql="SELECT jsonb_build_object('payments',(SELECT count(*) FROM public.payments),'invoices',(SELECT count(*) FROM public.invoices),'cash',(SELECT count(*) FROM public.account_transactions),'auth_users',(SELECT count(*) FROM auth.users),'migration_rows',(SELECT count(*) FROM supabase_migrations.schema_migrations))::text;"
@@ -183,6 +217,11 @@ if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
   echo 'PR359_SOURCE_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
 fi
 [[ -s "$work/source-managed-migrations.json" ]] || { echo 'PR359_SOURCE_MANAGED_MIGRATIONS_EMPTY' >&2; exit 1; }
+if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-shadow/managed-relations.sql > "$work/source-managed-relations.json" 2>/dev/null; then
+  echo 'PR359_SOURCE_MANAGED_RELATIONS_READ_FAILED' >&2; exit 1
+fi
+[[ -s "$work/source-managed-relations.json" ]] || { echo 'PR359_SOURCE_MANAGED_RELATIONS_EMPTY' >&2; exit 1; }
 # Exact-source parity attestation: never drop an extension that exists upstream.
 source_graphql_check="SELECT NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_graphql') AND to_regclass('graphql.seq_schema_version') IS NULL;"
 if ! graphql_check="$(psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" --command "$source_graphql_check" 2>/dev/null)" || [[ "$graphql_check" != t ]]; then
@@ -193,7 +232,8 @@ fi
 # represent the source-managed service catalog and migration history. Running this
 # pre-export gate avoids repeated expensive/pointless source dumps on known drift.
 SHADOW_STAGE=pre-export-managed-start
-start supabase/postgres:17.6.1.155
+# Full restore uses the pinned Supabase Local Stack, not a standalone PostgreSQL image.
+start
 assert_local_admin
 runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
 runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
@@ -205,14 +245,15 @@ SHADOW_STAGE=pre-export-managed-auth-compat
 runfile_local_admin scripts/pr359-shadow/bootstrap-auth-audit-column.sql
 SHADOW_STAGE=pre-export-managed-catalog
 sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
-node scripts/pr359-shadow/check-managed-catalog.mjs \
-  "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
 SHADOW_STAGE=pre-export-managed-migrations
 if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-managed-migrations.json" 2>/dev/null; then
   echo 'PR359_PRE_EXPORT_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
 fi
-node scripts/pr359-shadow/check-managed-migrations.mjs \
-  "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json"
+sql postgres < scripts/pr359-shadow/managed-relations.sql > "$work/docker-managed-relations.json"
+node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
+  "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json" \
+  "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json" \
+  "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
 echo 'PR359_PRE_EXPORT_MANAGED_PARITY_PASS: data export may now begin'
 
 dump roles.sql --role-only
@@ -220,12 +261,11 @@ dump schema.sql
 dump data.sql --data-only --use-copy
 dump history-schema.sql --schema supabase_migrations
 dump history-data.sql --schema supabase_migrations --data-only --use-copy
-unset PGOPTIONS SHADOW_SOURCE_DB_URL
+unset PGOPTIONS PGSSLMODE SHADOW_SOURCE_DB_URL
 node scripts/pr359-shadow/render.mjs "$work/transactions"
-image=supabase/postgres:17.6.1.155
 restore(){
   SHADOW_STAGE=container-start
-  start "$image"
+  start
   [[ "$(value 'SHOW server_version_num;')" == 17* ]] || exit 1
   # Supabase CLI --role-only intentionally omits reserved platform roles.
   # The hosted reserved role below is source-attested and created ONLY in networkless Docker.
@@ -263,15 +303,17 @@ restore(){
   }
   SHADOW_STAGE=verify-managed-catalog-pre-application
   sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
-  node scripts/pr359-shadow/check-managed-catalog.mjs \
-    "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
-  # A matching column catalog alone cannot certify provider service migrations.
+  sql postgres < scripts/pr359-shadow/managed-relations.sql > "$work/docker-managed-relations.json"
+  # Provider compatibility is checked fail-closed. The only accepted local extras
+  # are the verified daily Realtime partitions and the two Storage Iceberg catalog tables.
   SHADOW_STAGE=verify-managed-migrations-pre-application
   if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-managed-migrations.json" 2>/dev/null; then
     echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
   fi
-  node scripts/pr359-shadow/check-managed-migrations.mjs \
-    "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json"
+  node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
+    "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json" \
+    "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json" \
+    "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
   SHADOW_STAGE=restore-application-schema
   echo 'PR359_SHADOW_STAGE: starting application schema restore'
   runfile postgres "$work/dump/schema.sql"
@@ -280,14 +322,15 @@ restore(){
   # verify the managed surface AGAIN after importing schema, before data COPY.
   SHADOW_STAGE=verify-managed-catalog-post-application
   sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
-  node scripts/pr359-shadow/check-managed-catalog.mjs \
-    "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
+  sql postgres < scripts/pr359-shadow/managed-relations.sql > "$work/docker-managed-relations.json"
   SHADOW_STAGE=verify-managed-migrations-post-application
   if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-managed-migrations.json" 2>/dev/null; then
     echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
   fi
-  node scripts/pr359-shadow/check-managed-migrations.mjs \
-    "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json"
+  node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
+    "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json" \
+    "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json" \
+    "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
   SHADOW_STAGE=restore-data
   runfile postgres "$work/restore-data.sql"

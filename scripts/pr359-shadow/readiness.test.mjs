@@ -59,19 +59,15 @@ test('full Docker restore fails closed on provider-managed schema drift before i
  const idxData=body.indexOf('SHADOW_STAGE=restore-data');
  assert.ok(idxPre>=0&&idxPre<idxSchema,'managed parity must be checked before application schema restore');
  assert.ok(idxPost>idxSchema&&idxPost<idxData,'managed parity must also be checked after schema restore, before data COPY');
- for(const stage of ['verify-managed-catalog-pre-application','verify-managed-catalog-post-application']){
-   const start=body.indexOf('SHADOW_STAGE='+stage);
-   const next=body.indexOf('SHADOW_STAGE=',start+1);
-   const section=body.slice(start,next>start?next:undefined);
-   assert.match(section,/node scripts\/pr359-shadow\/check-managed-catalog\.mjs/,'both checks must fail closed');
- }
+ assert.equal((body.match(/node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/g)||[]).length,2,
+   'both managed compatibility checks must fail closed');
  assert.doesNotMatch(body,/PR359_SKIP_MANAGED|MANAGED_CATALOG_BYPASS/,'no managed catalog bypass switches');
 });
 
 test('provider-managed service migration ledger parity runs before app schema and business data',()=>{
  const shell=readFileSync('scripts/pr359-shadow/run.sh','utf8');
  const sourceRead=shell.indexOf('--file scripts/pr359-shadow/managed-migrations.sql');
- const sourceSecretUnset=shell.indexOf('unset PGOPTIONS SHADOW_SOURCE_DB_URL');
+ const sourceSecretUnset=shell.indexOf('unset PGOPTIONS PGSSLMODE SHADOW_SOURCE_DB_URL');
  assert.ok(sourceRead>0&&sourceRead<sourceSecretUnset,
    'source managed ledger must be exported using read-only source connection before unsetting it');
  const restore=shell.slice(shell.indexOf('\nrestore(){'),shell.indexOf('\napply(){'));
@@ -87,7 +83,7 @@ test('provider-managed service migration ledger parity runs before app schema an
  assert.ok(offsets.every(v=>v>=0),'missing restore or managed migration guard stage');
  assert.deepEqual([...offsets].sort((a,b)=>a-b),offsets,
    'managed migration checks must precede application schema and data restore');
- const guards=restore.match(/node scripts\/pr359-shadow\/check-managed-migrations\.mjs/g)||[];
+ const guards=restore.match(/node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/g)||[];
  assert.equal(guards.length,2,'managed service migration parity must be checked twice');
  assert.doesNotMatch(restore,/PR359_SKIP_MANAGED_MIGRATIONS|PR359_ALLOW_MIGRATION_DRIFT/);
 });
@@ -105,8 +101,8 @@ test('source dump is blocked before ANY business data export if local provider s
  assert.ok(dumpRoles>migrations&&dumpSchema>migrations&&dumpData>migrations,
    'provider-managed parity must pass before even exporting business source data');
  const gate=sh.slice(from,dumpRoles);
- assert.match(gate,/start supabase\/postgres:17\.6\.1\.155/);
- assert.match(gate,/node scripts\/pr359-shadow\/check-managed-catalog\.mjs/);
- assert.match(gate,/node scripts\/pr359-shadow\/check-managed-migrations\.mjs/);
+ assert.match(sh,/supabase start --network-id/);
+ assert.doesNotMatch(gate,/start supabase\/postgres:17\.6\.1\.155/);
+ assert.match(gate,/node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/);
  assert.doesNotMatch(gate,/PR359_SKIP_MANAGED|PR359_ALLOW_MIGRATION_DRIFT/);
 });
