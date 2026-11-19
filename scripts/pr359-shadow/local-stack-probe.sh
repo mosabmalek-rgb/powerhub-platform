@@ -79,6 +79,9 @@ for(const service of ['auth','storage','realtime']){
 }
 if(invalid)process.exitCode=2;
 JS
+node "$repo_root/scripts/pr359-shadow/local-managed-reference-comparison.mjs" \
+  "$repo_root/docs/security/pr359-r0-prod-managed-source-reference-20261119.json" \
+  "$temp/managed-catalog.sql.json" "$temp/managed-migrations.sql.json"
 echo 'PR359_LOCAL_STACK_METADATA_PROBE_PASS: local service initialization only'
 echo 'PR359_LOCAL_STACK_SOURCE_PARITY=NOT_PROVEN'
 echo 'PR359_PRODUCTION_SHADOW_UPGRADE_PASS=NOT_GRANTED'
