@@ -22,6 +22,7 @@
 1. `storage.iceberg_namespaces`.
 2. `storage.iceberg_tables`.
 3. Realtime daily partitions التي يكون مالكها `supabase_realtime_admin`، وأصلها `realtime.messages`، وحدودها يومًا واحدًا متصلًا.
+4. قد يثبت Local Stack امتداد `supabase_vault` بالإصدار `0.3.2` بدل `0.3.1` الموجود في Production؛ يُقبل هذا الفرق فقط لهذين الإصدارين وبعد التحقق من schema `vault` ووجود `vault.secrets` و`vault.decrypted_secrets`. أي إصدار آخر يظل مرفوضًا.
 
 أي جدول أو عمود إضافي آخر، أو أي نقص، أو اختلاف نوع، أو اختلاف Ledger، أو partition بمالك/حدود غير صحيحة يظل مانعًا ويؤدي إلى فشل البوابة. لا توجد متغيرات Skip أو Allowlist عامة.
 
