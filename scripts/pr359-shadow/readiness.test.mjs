@@ -67,3 +67,27 @@ test('full Docker restore fails closed on provider-managed schema drift before i
  }
  assert.doesNotMatch(body,/PR359_SKIP_MANAGED|MANAGED_CATALOG_BYPASS/,'no managed catalog bypass switches');
 });
+
+test('provider-managed service migration ledger parity runs before app schema and business data',()=>{
+ const shell=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const sourceRead=shell.indexOf('--file scripts/pr359-shadow/managed-migrations.sql');
+ const sourceSecretUnset=shell.indexOf('unset PGOPTIONS SHADOW_SOURCE_DB_URL');
+ assert.ok(sourceRead>0&&sourceRead<sourceSecretUnset,
+   'source managed ledger must be exported using read-only source connection before unsetting it');
+ const restore=shell.slice(shell.indexOf('\nrestore(){'),shell.indexOf('\napply(){'));
+ const order=[
+  'SHADOW_STAGE=verify-managed-catalog-pre-application',
+  'SHADOW_STAGE=verify-managed-migrations-pre-application',
+  'SHADOW_STAGE=restore-application-schema',
+  'SHADOW_STAGE=verify-managed-catalog-post-application',
+  'SHADOW_STAGE=verify-managed-migrations-post-application',
+  'SHADOW_STAGE=restore-data'
+ ];
+ const offsets=order.map(x=>restore.indexOf(x));
+ assert.ok(offsets.every(v=>v>=0),'missing restore or managed migration guard stage');
+ assert.deepEqual([...offsets].sort((a,b)=>a-b),offsets,
+   'managed migration checks must precede application schema and data restore');
+ const guards=restore.match(/node scripts\/pr359-shadow\/check-managed-migrations\.mjs/g)||[];
+ assert.equal(guards.length,2,'managed service migration parity must be checked twice');
+ assert.doesNotMatch(restore,/PR359_SKIP_MANAGED_MIGRATIONS|PR359_ALLOW_MIGRATION_DRIFT/);
+});
