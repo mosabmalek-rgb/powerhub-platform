@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {checkManagedCatalog} from './check-managed-catalog.mjs';
 const source=[
  {schema:'auth',table:'audit_log_entries',column:'id',type:'uuid'},
@@ -30,4 +31,12 @@ test('source Auth audit varchar(64) must not be represented as unbounded varchar
  shadow[1].type='character varying';
  assert.deepEqual(checkManagedCatalog(source,shadow).typeMismatch,
    [{column:'auth.audit_log_entries.ip_address',source:'character varying(64)',docker:'character varying'}]);
+});
+
+test('Docker-only Auth compatibility patch matches production bounded type and validates it',()=>{
+ const sql=readFileSync(new URL('./bootstrap-auth-audit-column.sql',import.meta.url),'utf8');
+ assert.match(sql,/ADD COLUMN ip_address character varying\(64\) NOT NULL/);
+ assert.match(sql,/character_maximum_length\s*=\s*64/);
+ assert.match(sql,/column_default\s*=\s*\$\$''::character varying\$\$/);
+ assert.match(sql,/PR359_SHADOW_AUTH_AUDIT_IP_COLUMN_MISMATCH/);
 });
