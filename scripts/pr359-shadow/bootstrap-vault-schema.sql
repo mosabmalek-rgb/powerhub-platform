@@ -29,6 +29,21 @@ BEGIN
 END
 $pr359_vault_available$;
 
+DO $pr359_vault_install$
+DECLARE extension_version text;
+DECLARE extension_schema text;
+BEGIN
+ SELECT e.extversion, n.nspname INTO extension_version, extension_schema
+ FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace
+ WHERE e.extname='supabase_vault';
+ IF extension_version IS NOT NULL AND extension_version <> '0.3.1' THEN
+   RAISE EXCEPTION 'PR359_DOCKER_SUPABASE_VAULT_VERSION_DRIFT: %', extension_version;
+ ELSIF extension_version IS NOT NULL AND extension_schema <> 'vault' THEN
+   ALTER EXTENSION supabase_vault SET SCHEMA vault;
+ END IF;
+END
+$pr359_vault_install$;
+
 CREATE EXTENSION IF NOT EXISTS supabase_vault WITH SCHEMA vault VERSION '0.3.1';
 
 DO $pr359_vault_verify$
