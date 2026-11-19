@@ -99,7 +99,10 @@ runfile(){ sql "$1" < "$2" >/dev/null; }
 # In smoke this remains the isolated Docker-only admin bootstrap.
 sql_local_admin(){
   if [[ "${mode:-}" == full ]]; then
-    sql postgres
+    # Local Stack may expose the DB URL with a non-superuser-compatible
+    # password policy. Bootstrap privileged roles over the disposable DB
+    # container's Unix socket instead; this never reaches the hosted source.
+    docker exec -i "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres
   else
     docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U supabase_admin -d postgres
   fi
