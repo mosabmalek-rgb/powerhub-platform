@@ -1,0 +1,245 @@
+{
+  "date": "2026-11-19",
+  "read_only": true,
+  "warning": "pg_depend direct edges only, not transitive closure; functions' SQL-body references not necessarily tracked",
+  "result": [
+    {
+      "environment": "production",
+      "section": "extension_members",
+      "items": [
+        {
+          "extname": "pg_cron",
+          "extversion": "1.6.4",
+          "extension_namespace": "pg_catalog",
+          "object_schema": "cron",
+          "catalog_class": "pg_class",
+          "member_count": 4
+        },
+        {
+          "extname": "pg_cron",
+          "extversion": "1.6.4",
+          "extension_namespace": "pg_catalog",
+          "object_schema": "cron",
+          "catalog_class": "pg_proc",
+          "member_count": 7
+        },
+        {
+          "extname": "pg_cron",
+          "extversion": "1.6.4",
+          "extension_namespace": "pg_catalog",
+          "object_schema": "cron",
+          "catalog_class": "pg_type",
+          "member_count": 4
+        },
+        {
+          "extname": "pg_cron",
+          "extversion": "1.6.4",
+          "extension_namespace": "pg_catalog",
+          "object_schema": null,
+          "catalog_class": "pg_namespace",
+          "member_count": 1
+        },
+        {
+          "extname": "pg_net",
+          "extversion": "0.20.4",
+          "extension_namespace": "extensions",
+          "object_schema": "net",
+          "catalog_class": "pg_class",
+          "member_count": 3
+        },
+        {
+          "extname": "pg_net",
+          "extversion": "0.20.4",
+          "extension_namespace": "extensions",
+          "object_schema": "net",
+          "catalog_class": "pg_proc",
+          "member_count": 12
+        },
+        {
+          "extname": "pg_net",
+          "extversion": "0.20.4",
+          "extension_namespace": "extensions",
+          "object_schema": "net",
+          "catalog_class": "pg_type",
+          "member_count": 12
+        },
+        {
+          "extname": "pg_net",
+          "extversion": "0.20.4",
+          "extension_namespace": "extensions",
+          "object_schema": null,
+          "catalog_class": "pg_namespace",
+          "member_count": 1
+        },
+        {
+          "extname": "supabase_vault",
+          "extversion": "0.3.1",
+          "extension_namespace": "vault",
+          "object_schema": "vault",
+          "catalog_class": "pg_class",
+          "member_count": 2
+        },
+        {
+          "extname": "supabase_vault",
+          "extversion": "0.3.1",
+          "extension_namespace": "vault",
+          "object_schema": "vault",
+          "catalog_class": "pg_proc",
+          "member_count": 5
+        },
+        {
+          "extname": "supabase_vault",
+          "extversion": "0.3.1",
+          "extension_namespace": "vault",
+          "object_schema": "vault",
+          "catalog_class": "pg_type",
+          "member_count": 4
+        }
+      ]
+    },
+    {
+      "environment": "production",
+      "section": "managed_deps",
+      "items": []
+    },
+    {
+      "environment": "staging",
+      "section": "extension_members",
+      "items": [
+        {
+          "extname": "pg_cron",
+          "extversion": "1.6.4",
+          "extension_namespace": "pg_catalog",
+          "object_schema": "cron",
+          "catalog_class": "pg_class",
+          "member_count": 4
+        },
+        {
+          "extname": "pg_cron",
+          "extversion": "1.6.4",
+          "extension_namespace": "pg_catalog",
+          "object_schema": "cron",
+          "catalog_class": "pg_proc",
+          "member_count": 7
+        },
+        {
+          "extname": "pg_cron",
+          "extversion": "1.6.4",
+          "extension_namespace": "pg_catalog",
+          "object_schema": "cron",
+          "catalog_class": "pg_type",
+          "member_count": 4
+        },
+        {
+          "extname": "pg_cron",
+          "extversion": "1.6.4",
+          "extension_namespace": "pg_catalog",
+          "object_schema": null,
+          "catalog_class": "pg_namespace",
+          "member_count": 1
+        },
+        {
+          "extname": "pg_net",
+          "extversion": "0.20.4",
+          "extension_namespace": "public",
+          "object_schema": "net",
+          "catalog_class": "pg_class",
+          "member_count": 3
+        },
+        {
+          "extname": "pg_net",
+          "extversion": "0.20.4",
+          "extension_namespace": "public",
+          "object_schema": "net",
+          "catalog_class": "pg_proc",
+          "member_count": 12
+        },
+        {
+          "extname": "pg_net",
+          "extversion": "0.20.4",
+          "extension_namespace": "public",
+          "object_schema": "net",
+          "catalog_class": "pg_type",
+          "member_count": 12
+        },
+        {
+          "extname": "pg_net",
+          "extversion": "0.20.4",
+          "extension_namespace": "public",
+          "object_schema": null,
+          "catalog_class": "pg_namespace",
+          "member_count": 1
+        },
+        {
+          "extname": "pg_trgm",
+          "extversion": "1.6",
+          "extension_namespace": "extensions",
+          "object_schema": "extensions",
+          "catalog_class": "pg_operator",
+          "member_count": 10
+        },
+        {
+          "extname": "pg_trgm",
+          "extversion": "1.6",
+          "extension_namespace": "extensions",
+          "object_schema": "extensions",
+          "catalog_class": "pg_proc",
+          "member_count": 31
+        },
+        {
+          "extname": "pg_trgm",
+          "extversion": "1.6",
+          "extension_namespace": "extensions",
+          "object_schema": "extensions",
+          "catalog_class": "pg_type",
+          "member_count": 2
+        },
+        {
+          "extname": "pg_trgm",
+          "extversion": "1.6",
+          "extension_namespace": "extensions",
+          "object_schema": null,
+          "catalog_class": "pg_opclass",
+          "member_count": 2
+        },
+        {
+          "extname": "pg_trgm",
+          "extversion": "1.6",
+          "extension_namespace": "extensions",
+          "object_schema": null,
+          "catalog_class": "pg_opfamily",
+          "member_count": 2
+        },
+        {
+          "extname": "supabase_vault",
+          "extversion": "0.3.1",
+          "extension_namespace": "vault",
+          "object_schema": "vault",
+          "catalog_class": "pg_class",
+          "member_count": 2
+        },
+        {
+          "extname": "supabase_vault",
+          "extversion": "0.3.1",
+          "extension_namespace": "vault",
+          "object_schema": "vault",
+          "catalog_class": "pg_proc",
+          "member_count": 5
+        },
+        {
+          "extname": "supabase_vault",
+          "extversion": "0.3.1",
+          "extension_namespace": "vault",
+          "object_schema": "vault",
+          "catalog_class": "pg_type",
+          "member_count": 4
+        }
+      ]
+    },
+    {
+      "environment": "staging",
+      "section": "managed_deps",
+      "items": []
+    }
+  ]
+}
