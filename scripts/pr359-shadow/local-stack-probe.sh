@@ -49,7 +49,7 @@ db_url="$(printf %s "$db_url" | tr -d '"')"
 [[ "$db_url" =~ ^postgres(ql)?://[^@]+@127[.]0[.]0[.]1:[0-9]+/postgres$ ]] || {
   echo 'PR359_LOCAL_PROBE_DB_ENDPOINT_NOT_LOOPBACK' >&2; exit 2;
 }
-for file in managed-catalog.sql managed-migrations.sql managed-relations.sql; do
+for file in managed-catalog.sql managed-migrations.sql managed-relations.sql local-iceberg-catalog.sql; do
   psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$db_url" \
     --file "$repo_root/scripts/pr359-shadow/$file" \
     >"$temp/$file.json" 2>"$temp/psql.err" || {
@@ -85,6 +85,8 @@ node "$repo_root/scripts/pr359-shadow/local-managed-reference-comparison.mjs" \
 node "$repo_root/scripts/pr359-shadow/compare-managed-topology.mjs" \
   "$repo_root/docs/security/pr359-r0-prod-managed-topology-reference-20261119.json" \
   "$temp/managed-relations.sql.json"
+node "$repo_root/scripts/pr359-shadow/check-local-iceberg.mjs" \
+  "$temp/local-iceberg-catalog.sql.json"
 echo 'PR359_LOCAL_STACK_METADATA_PROBE_PASS: local service initialization only'
 echo 'PR359_LOCAL_STACK_SOURCE_PARITY=NOT_PROVEN'
 echo 'PR359_PRODUCTION_SHADOW_UPGRADE_PASS=NOT_GRANTED'

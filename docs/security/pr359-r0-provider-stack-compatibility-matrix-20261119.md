@@ -66,3 +66,27 @@ The independent topology check reports CLI 3.2.0 `sourceRelations=40 localRelati
 5. **Other R0 blockers:** resolve 19 missing Staging RPC contracts, Auth trigger divergence, SECURITY DEFINER review, object ownership and Epoch v2 design. Retain original `supabase_migrations` history.
 
 **Gates stay:** `R0_ACCEPTED=false`, `R1_STARTED=false`, `BACKUP_RESTORE_PASS=false`, `PRODUCTION_SHADOW_UPGRADE_PASS=false`, `PR359_MERGE_GO=false`.
+
+## 5. Iceberg Storage provenance check — 2026-11-19
+
+Read-only catalog queries in Production and Staging show the Storage migration
+records 38, 47 and 48, but neither managed project has the tables
+storage.iceberg_namespaces and storage.iceberg_tables. Both have the
+storage.buckets_analytics relation with RLS enabled and provider ownership.
+
+Upstream Supabase Storage migration 0038 creates the two tables only
+when the migration-time storage.multitenant flag is false. Migrations 0047
+and 0048 similarly branch on that flag. Therefore matching migration
+ledger records alone cannot prove the same resulting schema.
+Upstream: https://github.com/supabase/storage/blob/master/migrations/tenant/0038-iceberg-catalog-flag-on-buckets.sql
+https://github.com/supabase/storage/blob/master/migrations/tenant/0047-iceberg-table-metadata.sql
+https://github.com/supabase/storage/blob/master/migrations/tenant/0048-iceberg-catalog-ids.sql
+
+Actual hosted migration-time flag values and exact upstream source revision
+remain unverified. The current session's GUC setting cannot prove history.
+
+New local-only metadata probe checks these three migrations, relation ownership,
+RLS, role write access and FK topology on both CLI versions. This remains
+investigation only: no managed schema exceptions, hosted SQL changes,
+restoration acceptance, branch merge or Production deployment are granted.
+R0_ACCEPTED=false; R1_STARTED=false; BACKUP_RESTORE_PASS=false.

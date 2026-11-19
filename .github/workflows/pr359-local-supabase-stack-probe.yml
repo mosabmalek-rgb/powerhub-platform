@@ -8,8 +8,11 @@ on:
       - scripts/pr359-shadow/local-managed-reference-comparison.mjs
       - scripts/pr359-shadow/local-managed-reference-comparison.test.mjs
       - scripts/pr359-shadow/compare-managed-topology.mjs
-      - scripts/pr359-shadow/compare-managed-topology.test.mjs
+      - scripts/pr359-shadow/compare-managed-topology.test.mjs scripts/pr359-shadow/check-local-iceberg.test.mjs
       - scripts/pr359-shadow/managed-relations.sql
+      - scripts/pr359-shadow/local-iceberg-catalog.sql
+      - scripts/pr359-shadow/check-local-iceberg.mjs
+      - scripts/pr359-shadow/check-local-iceberg.test.mjs
       - docs/security/pr359-r0-prod-managed-topology-reference-20261119.json
       - docs/security/pr359-r0-prod-managed-source-reference-20261119.json
       - .github/workflows/pr359-local-supabase-stack-probe.yml
