@@ -40,3 +40,34 @@ test('Docker-only Auth compatibility patch matches production bounded type and v
  assert.match(sql,/column_default\s*=\s*\$\$''::character varying\$\$/);
  assert.match(sql,/PR359_SHADOW_AUTH_AUDIT_IP_COLUMN_MISMATCH/);
 });
+
+test('strict managed parity rejects extra Docker columns even when source columns match',()=>{
+ const shadow=[...structuredClone(source),{schema:'auth',table:'users',column:'local_only',type:'text'}];
+ const result=checkManagedCatalog(source,shadow);
+ assert.equal(result.compatible,false);
+ assert.deepEqual(result.unexpected,['auth.users.local_only']);
+ assert.deepEqual(result.unexpectedTables,['auth.users']);
+ assert.equal(result.unexpectedBySchema.auth,1);
+});
+test('strict managed parity rejects extra columns in existing managed table',()=>{
+ const shadow=[...structuredClone(source),{schema:'auth',table:'audit_log_entries',column:'unexpected_column',type:'text'}];
+ const result=checkManagedCatalog(source,shadow);
+ assert.equal(result.compatible,false);
+ assert.equal(result.unexpected.length,1);
+ assert.deepEqual(result.unexpectedTables,[]);
+});
+test('source table absence is reported as a missing table rather than silently ignored',()=>{
+ const result=checkManagedCatalog(source,source.filter(r=>r.schema!=='storage'));
+ assert.equal(result.compatible,false);
+ assert.deepEqual(result.missingTables,['storage.objects']);
+ assert.equal(result.missingBySchema.storage,1);
+});
+test('exact parity reports no missing, unexpected, or type discrepancies',()=>{
+ const result=checkManagedCatalog(source,structuredClone(source));
+ assert.equal(result.compatible,true);
+ assert.deepEqual(result.missing,[]);
+ assert.deepEqual(result.unexpected,[]);
+ assert.deepEqual(result.missingTables,[]);
+ assert.deepEqual(result.unexpectedTables,[]);
+ assert.deepEqual(result.typeMismatch,[]);
+});
