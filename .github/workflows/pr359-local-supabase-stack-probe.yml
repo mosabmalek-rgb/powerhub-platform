@@ -1,0 +1,40 @@
+name: PR359 Isolated Supabase Managed Stack Probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/auth-local-first-single-pr]
+    paths:
+      - scripts/pr359-shadow/local-stack-probe.sh
+      - .github/workflows/pr359-local-supabase-stack-probe.yml
+permissions:
+  contents: read
+concurrency:
+  group: pr359-local-stack-probe-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  local-managed-service-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.122.1
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Verify local flags and syntax
+        run: |
+          bash -n scripts/pr359-shadow/local-stack-probe.sh
+          supabase --version
+          supabase start --help | grep -q -- '--network-id'
+          supabase start --help | grep -q -- '--exclude'
+          supabase status --help | grep -q -- '--output'
+      - name: Isolated local managed service schema initialization probe
+        run: bash scripts/pr359-shadow/local-stack-probe.sh
