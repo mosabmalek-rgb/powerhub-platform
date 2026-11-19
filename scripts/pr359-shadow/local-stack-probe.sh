@@ -58,6 +58,7 @@ for file in managed-catalog.sql managed-migrations.sql; do
 done
 node --input-type=module - "$temp/managed-catalog.sql.json" "$temp/managed-migrations.sql.json" <<'JS'
 import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 const files=process.argv.slice(2);
 const columns=JSON.parse(readFileSync(files[0],'utf8').trim());
 const migrations=JSON.parse(readFileSync(files[1],'utf8').trim());
@@ -66,8 +67,14 @@ for(const service of ['auth','storage','realtime']){
   const rows=columns.filter(x=>x.schema===service);
   const ledger=migrations.filter(x=>x.service===service);
   const tables=new Set(rows.map(x=>x.table));
+  const digestInput=ledger
+    .map(r=>service==='storage'?r.version+':'+(r.checksum??''):r.version)
+    .sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'variant'}))
+    .join('\\n');
+  const migrationSha256=createHash('sha256').update(digestInput,'utf8').digest('hex');
   console.log('PR359_LOCAL_SERVICE_METADATA '+service+' tables='+tables.size+
-    ' columns='+rows.length+' migrations='+ledger.length);
+    ' columns='+rows.length+' migrations='+ledger.length+
+    ' migrationSetSha256='+migrationSha256);
   if(!rows.length||!ledger.length)invalid=true;
 }
 if(invalid)process.exitCode=2;
