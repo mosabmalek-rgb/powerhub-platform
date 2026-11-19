@@ -208,10 +208,9 @@ restore(){
   SHADOW_STAGE=restore-roles
   runfile_local_admin "$work/dump/roles.sql"
   echo 'PR359_SHADOW_STAGE: role/ACL dump imported'
-  SHADOW_STAGE=restore-application-schema
-  echo 'PR359_SHADOW_STAGE: starting application schema restore'
-  runfile postgres "$work/dump/schema.sql"
-  echo 'PR359_SHADOW_STAGE: application schema imported'
+  # Fail closed before importing ANY application schema if provider-managed
+  # Auth/Storage/Realtime tables differ from the hosted source. This avoids
+  # importing an app schema into a disposable but fundamentally incompatible DB.
   # Match confirmed source Auth audit metadata without changing reserved schemas remotely.
   # Production's auth.audit_log_entries is owned by supabase_auth_admin. The
   # Docker-only supabase_admin is a verified local superuser; using postgres
@@ -230,7 +229,17 @@ restore(){
     echo 'PR359_SHADOW_AUTH_AUDIT_OWNER_DRIFT: refusing modified Auth table owner' >&2
     exit 1
   }
-  SHADOW_STAGE=verify-managed-catalog
+  SHADOW_STAGE=verify-managed-catalog-pre-application
+  sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
+  node scripts/pr359-shadow/check-managed-catalog.mjs \
+    "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
+  SHADOW_STAGE=restore-application-schema
+  echo 'PR359_SHADOW_STAGE: starting application schema restore'
+  runfile postgres "$work/dump/schema.sql"
+  echo 'PR359_SHADOW_STAGE: application schema imported'
+  # A compatible baseline can still be changed by the application schema dump;
+  # verify the managed surface AGAIN after importing schema, before data COPY.
+  SHADOW_STAGE=verify-managed-catalog-post-application
   sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
   node scripts/pr359-shadow/check-managed-catalog.mjs \
     "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
