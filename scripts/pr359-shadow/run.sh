@@ -189,6 +189,32 @@ if ! graphql_check="$(psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURC
   echo 'PR359_SOURCE_GRAPHQL_PARITY_UNPROVEN: source does not match verified absent extension/sequence contract' >&2
   exit 1
 fi
+# Do NOT copy business data until the local networkless engine proves it can
+# represent the source-managed service catalog and migration history. Running this
+# pre-export gate avoids repeated expensive/pointless source dumps on known drift.
+SHADOW_STAGE=pre-export-managed-start
+start supabase/postgres:17.6.1.155
+assert_local_admin
+runfile_local_admin scripts/pr359-shadow/bootstrap-realtime-role.sql
+runfile_local_admin scripts/pr359-shadow/bootstrap-vault-schema.sql
+runfile_local_admin scripts/pr359-shadow/bootstrap-graphql-parity.sql
+[[ "$(value "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='auth.audit_log_entries'::regclass;")" == supabase_auth_admin ]] || {
+  echo 'PR359_PRE_EXPORT_AUTH_OWNER_MISMATCH' >&2; exit 1
+}
+SHADOW_STAGE=pre-export-managed-auth-compat
+runfile_local_admin scripts/pr359-shadow/bootstrap-auth-audit-column.sql
+SHADOW_STAGE=pre-export-managed-catalog
+sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
+node scripts/pr359-shadow/check-managed-catalog.mjs \
+  "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
+SHADOW_STAGE=pre-export-managed-migrations
+if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-managed-migrations.json" 2>/dev/null; then
+  echo 'PR359_PRE_EXPORT_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
+fi
+node scripts/pr359-shadow/check-managed-migrations.mjs \
+  "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json"
+echo 'PR359_PRE_EXPORT_MANAGED_PARITY_PASS: data export may now begin'
+
 dump roles.sql --role-only
 dump schema.sql
 dump data.sql --data-only --use-copy
