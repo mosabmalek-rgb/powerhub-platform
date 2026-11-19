@@ -27,65 +27,8 @@
       "powerhub_create_subscriber_with_security_deposit",
       "powerhub_financial_supplier_payment_correction_approve_post"
     ],
-    "potential_staging_named_mismatch": [
-      {
-        "rpc": "powerhub_approve_payment_documentation",
-        "path": "server/powerhub.ts",
-        "line": 4024,
-        "supplied_keys": [
-          "p_payment_id",
-          "p_request_id",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_financial_gl_subledger_reconciliation",
-        "path": "server/powerhub.ts",
-        "line": 6539,
-        "supplied_keys": [
-          "p_period",
-          "p_site_id",
-          "p_site_ids",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_financial_supplier_payment_correction_approve_post",
-        "path": "server/powerhub.ts",
-        "line": 5403,
-        "supplied_keys": [
-          "p_approver_id",
-          "p_correction_id",
-          "p_payment_id",
-          "p_site_id",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      }
-    ],
-    "potential_production_named_mismatch": [
-      {
-        "rpc": "powerhub_approve_payment_documentation",
-        "path": "server/powerhub.ts",
-        "line": 4024,
-        "supplied_keys": [
-          "p_payment_id",
-          "p_request_id",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      }
-    ],
+    "potential_staging_named_mismatch": [],
+    "potential_production_named_mismatch": [],
     "source_call_count": 30
   },
   "source_files": [
@@ -479,14 +422,22 @@
           "path": "server/powerhub.ts",
           "line": 4024,
           "supplied_keys": [
+            "p_tenant_id",
+            "p_site_id",
+            "p_user_id",
+            "p_request_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true,
+          "heuristic_supplied_keys": [
             "p_payment_id",
             "p_request_id",
             "p_site_id",
             "p_tenant_id",
             "p_user_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "manual_source_review": true,
+          "manual_review_reason": "Regex traversed subsequent receipt-context RPC and included p_payment_id unrelated to approval."
         }
       ]
     },
@@ -760,13 +711,20 @@
           "path": "server/powerhub.ts",
           "line": 6539,
           "supplied_keys": [
+            "p_tenant_id",
+            "p_site_id",
+            "p_period"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false,
+          "heuristic_supplied_keys": [
             "p_period",
             "p_site_id",
             "p_site_ids",
             "p_tenant_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "manual_source_review": true,
+          "manual_review_reason": "Regex traversed subsequent adjacent calls and included p_site_ids unrelated to reconciliation."
         }
       ]
     },
@@ -2456,14 +2414,22 @@
           "path": "server/powerhub.ts",
           "line": 5403,
           "supplied_keys": [
+            "p_tenant_id",
+            "p_site_id",
+            "p_correction_id",
+            "p_approver_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false,
+          "heuristic_supplied_keys": [
             "p_approver_id",
             "p_correction_id",
             "p_payment_id",
             "p_site_id",
             "p_tenant_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "manual_source_review": true,
+          "manual_review_reason": "Regex traversed subsequent object field/payment verification and included p_payment_id unrelated to approval."
         }
       ]
     },
@@ -2564,5 +2530,43 @@
         }
       ]
     }
-  ]
+  ],
+  "manual_followup": {
+    "date": "2026-11-19",
+    "reviewed": [
+      {
+        "rpc": "powerhub_approve_payment_documentation",
+        "line": 4024,
+        "actual": [
+          "p_tenant_id",
+          "p_site_id",
+          "p_user_id",
+          "p_request_id"
+        ],
+        "cause": "Regex traversed subsequent receipt-context RPC and included p_payment_id unrelated to approval."
+      },
+      {
+        "rpc": "powerhub_financial_gl_subledger_reconciliation",
+        "line": 6539,
+        "actual": [
+          "p_tenant_id",
+          "p_site_id",
+          "p_period"
+        ],
+        "cause": "Regex traversed subsequent adjacent calls and included p_site_ids unrelated to reconciliation."
+      },
+      {
+        "rpc": "powerhub_financial_supplier_payment_correction_approve_post",
+        "line": 5403,
+        "actual": [
+          "p_tenant_id",
+          "p_site_id",
+          "p_correction_id",
+          "p_approver_id"
+        ],
+        "cause": "Regex traversed subsequent object field/payment verification and included p_payment_id unrelated to approval."
+      }
+    ],
+    "interpretation": "All three initial candidate mismatches were source-scanner false positives; manually parsed source key sets match at least one staging signature and, where function exists, production signature. No runtime proof."
+  }
 }
