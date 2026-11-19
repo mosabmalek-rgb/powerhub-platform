@@ -5,6 +5,9 @@ on:
     branches: [feat/auth-local-first-single-pr]
     paths:
       - scripts/pr359-shadow/local-stack-probe.sh
+      - scripts/pr359-shadow/local-managed-reference-comparison.mjs
+      - scripts/pr359-shadow/local-managed-reference-comparison.test.mjs
+      - docs/security/pr359-r0-prod-managed-source-reference-20261119.json
       - .github/workflows/pr359-local-supabase-stack-probe.yml
 permissions:
   contents: read
@@ -32,6 +35,7 @@ jobs:
       - name: Verify local flags and syntax
         run: |
           bash -n scripts/pr359-shadow/local-stack-probe.sh
+          node --test scripts/pr359-shadow/local-managed-reference-comparison.test.mjs
           supabase --version
           supabase start --help | grep -q -- '--network-id'
           supabase start --help | grep -q -- '--exclude'
