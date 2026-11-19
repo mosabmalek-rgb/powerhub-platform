@@ -2,8 +2,8 @@
   "kind": "PR359_R0_CRITICAL_RPC_ARGUMENT_NAME_AUDIT",
   "date": "2026-11-19",
   "source_commit": "6d644b1901b8827c7ff94737fbf63677247d9f5d",
-  "method": "read-only pg_proc + heuristic literal-argument extraction",
-  "limitations": "Key extraction is heuristic; no actual RPC invocation, PostgREST overload resolution, dynamic parameter objects, RLS or runtime acceptance tested. Potential mismatch requires source-level manual review.",
+  "method": "Read-only pg_proc + heuristic source argument key extraction. PostgreSQL proargmodes returned as a text array literal and normalized to modes; excludes output/table args from match.",
+  "limitations": "Supplied-key extraction may include a nearby nested object or stop early; a match only proves names observed, not complete required keys, overload resolution, call behavior or return shapes. Non-match demands manual review.",
   "statistics": {
     "critical_names": 27,
     "source_files": 8,
@@ -29,36 +29,11 @@
     ],
     "potential_staging_named_mismatch": [
       {
-        "rpc": "powerhub_create_payment_with_discount",
-        "path": "server/powerhub.ts",
-        "line": 3526,
-        "supplied_keys": [
-          "p_manual_discount_amount",
-          "p_manual_discount_reason"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
         "rpc": "powerhub_approve_payment_documentation",
         "path": "server/powerhub.ts",
         "line": 4024,
         "supplied_keys": [
           "p_payment_id",
-          "p_request_id",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_reject_payment_documentation",
-        "path": "server/powerhub.ts",
-        "line": 4110,
-        "supplied_keys": [
-          "p_rejection_reason",
           "p_request_id",
           "p_site_id",
           "p_tenant_id",
@@ -81,218 +56,6 @@
         "production_candidate_match": false
       },
       {
-        "rpc": "powerhub_create_financial_settlement",
-        "path": "server/powerhub.ts",
-        "line": 4855,
-        "supplied_keys": [
-          "p_actual_cash",
-          "p_notes",
-          "p_period_end",
-          "p_period_start",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_inventory_purchase_auto_receive",
-        "path": "server/powerhub-inventory-router.ts",
-        "line": 1439,
-        "supplied_keys": [
-          "p_company_account_id",
-          "p_due_date",
-          "p_invoice_date",
-          "p_lines",
-          "p_notes",
-          "p_operation_key",
-          "p_payment_date",
-          "p_payment_mode",
-          "p_payment_notes",
-          "p_payment_reference_no",
-          "p_payment_terms_days",
-          "p_receipt_date",
-          "p_reference_no",
-          "p_site_id",
-          "p_supplier_id",
-          "p_supplier_invoice_no",
-          "p_tenant_id",
-          "p_user_id",
-          "p_warehouse_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_inventory_record_supplier_payment",
-        "path": "server/powerhub-inventory-router.ts",
-        "line": 1996,
-        "supplied_keys": [
-          "p_amount",
-          "p_company_account_id",
-          "p_notes",
-          "p_operation_key",
-          "p_payment_date",
-          "p_purchase_id",
-          "p_reference_no",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_assign_existing_staff",
-        "path": "server/powerhub.ts",
-        "line": 1886,
-        "supplied_keys": [
-          "p_actor_user_id",
-          "p_all_branches",
-          "p_role",
-          "p_site_id",
-          "p_target_user_id",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_update_staff_profile_permissions_e50",
-        "path": "server/powerhub.ts",
-        "line": 1850,
-        "supplied_keys": [
-          "p_actor_user_id",
-          "p_custom_role_id",
-          "p_expected_updated_at",
-          "p_permissions",
-          "p_profile_id",
-          "p_site_id",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_admin_set_staff_capability_override",
-        "path": "server/admin-role-policy-router.ts",
-        "line": 203,
-        "supplied_keys": [
-          "p_actor_user_id",
-          "p_capability",
-          "p_is_allowed",
-          "p_profile_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_mobile_create_field_reading",
-        "path": "server/mobile-api.ts",
-        "line": 1048,
-        "supplied_keys": [
-          "p_actor_tenant_role",
-          "p_capture_method",
-          "p_client_operation_id",
-          "p_field_verified",
-          "p_image_hash",
-          "p_image_key",
-          "p_is_reading_reset",
-          "p_latitude",
-          "p_longitude",
-          "p_notes",
-          "p_reading_at",
-          "p_reading_value",
-          "p_site_id",
-          "p_subscriber_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_mobile_delta_fence",
-        "path": "server/mobile-delta-service.ts",
-        "line": 68,
-        "supplied_keys": [
-          "p_branch_id",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_subscriber_balance_snapshot",
-        "path": "server/powerhub.ts",
-        "line": 2660,
-        "supplied_keys": [
-          "p_site_id",
-          "p_subscriber_id",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_subscriber_balance_snapshot",
-        "path": "server/powerhub-supabase.ts",
-        "line": 512,
-        "supplied_keys": [
-          "p_site_id",
-          "p_subscriber_id",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_subscriber_balance_snapshot",
-        "path": "server/powerhub-supabase.ts",
-        "line": 564,
-        "supplied_keys": [
-          "p_site_id",
-          "p_subscriber_id",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_create_subscriber_with_security_deposit",
-        "path": "server/powerhub.ts",
-        "line": 2780,
-        "supplied_keys": [
-          "p_address",
-          "p_client_operation_id",
-          "p_full_name",
-          "p_offline_device_id",
-          "p_offline_grant_id",
-          "p_offline_number_value",
-          "p_opening_image_hash",
-          "p_opening_image_key",
-          "p_opening_reading",
-          "p_opening_reading_approved",
-          "p_opening_reading_at",
-          "p_phone",
-          "p_quota_limit",
-          "p_security_deposit_amount",
-          "p_security_deposit_company_account_id",
-          "p_security_deposit_operation_id",
-          "p_security_deposit_payment_method",
-          "p_security_deposit_payment_no",
-          "p_security_deposit_reference_no",
-          "p_site_id",
-          "p_subscription_type",
-          "p_tenant_id",
-          "p_user_id",
-          "p_whatsapp_number"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
         "rpc": "powerhub_financial_supplier_payment_correction_approve_post",
         "path": "server/powerhub.ts",
         "line": 5403,
@@ -305,34 +68,9 @@
         ],
         "staging_candidate_match": false,
         "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_pay_payroll",
-        "path": "server/powerhub.ts",
-        "line": 8541,
-        "supplied_keys": [
-          "p_account_id",
-          "p_payroll_run_id",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
       }
     ],
     "potential_production_named_mismatch": [
-      {
-        "rpc": "powerhub_create_payment_with_discount",
-        "path": "server/powerhub.ts",
-        "line": 3526,
-        "supplied_keys": [
-          "p_manual_discount_amount",
-          "p_manual_discount_reason"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
       {
         "rpc": "powerhub_approve_payment_documentation",
         "path": "server/powerhub.ts",
@@ -340,97 +78,6 @@
         "supplied_keys": [
           "p_payment_id",
           "p_request_id",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_reject_payment_documentation",
-        "path": "server/powerhub.ts",
-        "line": 4110,
-        "supplied_keys": [
-          "p_rejection_reason",
-          "p_request_id",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_create_financial_settlement",
-        "path": "server/powerhub.ts",
-        "line": 4855,
-        "supplied_keys": [
-          "p_actual_cash",
-          "p_notes",
-          "p_period_end",
-          "p_period_start",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_inventory_record_supplier_payment",
-        "path": "server/powerhub-inventory-router.ts",
-        "line": 1996,
-        "supplied_keys": [
-          "p_amount",
-          "p_company_account_id",
-          "p_notes",
-          "p_operation_key",
-          "p_payment_date",
-          "p_purchase_id",
-          "p_reference_no",
-          "p_site_id",
-          "p_tenant_id",
-          "p_user_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_assign_existing_staff",
-        "path": "server/powerhub.ts",
-        "line": 1886,
-        "supplied_keys": [
-          "p_actor_user_id",
-          "p_all_branches",
-          "p_role",
-          "p_site_id",
-          "p_target_user_id",
-          "p_tenant_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_admin_set_staff_capability_override",
-        "path": "server/admin-role-policy-router.ts",
-        "line": 203,
-        "supplied_keys": [
-          "p_actor_user_id",
-          "p_capability",
-          "p_is_allowed",
-          "p_profile_id"
-        ],
-        "staging_candidate_match": false,
-        "production_candidate_match": false
-      },
-      {
-        "rpc": "powerhub_pay_payroll",
-        "path": "server/powerhub.ts",
-        "line": 8541,
-        "supplied_keys": [
-          "p_account_id",
-          "p_payroll_run_id",
           "p_site_id",
           "p_tenant_id",
           "p_user_id"
@@ -536,15 +183,22 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_subscriber_id",
+                "p_invoice_id",
                 "p_payment_no",
+                "p_amount",
                 "p_payment_method",
+                "p_company_account_id",
                 "p_transfer_from_account",
+                "p_transfer_from_type",
                 "p_reference_no",
+                "p_receipt_image_key",
                 "p_receipt_image_hash",
-                "p_client_operation_id",
-                "replayed"
+                "p_collector_session_id",
+                "p_client_operation_id"
               ]
             }
           ]
@@ -581,15 +235,22 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_subscriber_id",
+                "p_invoice_id",
                 "p_payment_no",
+                "p_amount",
                 "p_payment_method",
+                "p_company_account_id",
                 "p_transfer_from_account",
+                "p_transfer_from_type",
                 "p_reference_no",
+                "p_receipt_image_key",
                 "p_receipt_image_hash",
-                "p_client_operation_id",
-                "replayed"
+                "p_collector_session_id",
+                "p_client_operation_id"
               ]
             }
           ]
@@ -646,16 +307,24 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_subscriber_id",
+                "p_invoice_id",
                 "p_payment_no",
+                "p_amount",
                 "p_payment_method",
+                "p_company_account_id",
                 "p_transfer_from_account",
+                "p_transfer_from_type",
                 "p_reference_no",
+                "p_receipt_image_key",
                 "p_receipt_image_hash",
+                "p_collector_session_id",
                 "p_client_operation_id",
-                "p_manual_discount_reason",
-                "replayed"
+                "p_manual_discount_amount",
+                "p_manual_discount_reason"
               ]
             }
           ]
@@ -694,16 +363,24 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_subscriber_id",
+                "p_invoice_id",
                 "p_payment_no",
+                "p_amount",
                 "p_payment_method",
+                "p_company_account_id",
                 "p_transfer_from_account",
+                "p_transfer_from_type",
                 "p_reference_no",
+                "p_receipt_image_key",
                 "p_receipt_image_hash",
+                "p_collector_session_id",
                 "p_client_operation_id",
-                "p_manual_discount_reason",
-                "replayed"
+                "p_manual_discount_amount",
+                "p_manual_discount_reason"
               ]
             }
           ]
@@ -717,8 +394,8 @@
             "p_manual_discount_amount",
             "p_manual_discount_reason"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "staging_candidate_match": true,
+          "production_candidate_match": true
         }
       ]
     },
@@ -760,9 +437,10 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
-                "p_request_id",
-                "replayed"
+                "p_user_id",
+                "p_request_id"
               ]
             }
           ]
@@ -787,9 +465,10 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
-                "p_request_id",
-                "replayed"
+                "p_user_id",
+                "p_request_id"
               ]
             }
           ]
@@ -849,9 +528,11 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_request_id",
-                "request_id"
+                "p_rejection_reason"
               ]
             }
           ]
@@ -876,9 +557,11 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_request_id",
-                "request_id"
+                "p_rejection_reason"
               ]
             }
           ]
@@ -895,8 +578,8 @@
             "p_tenant_id",
             "p_user_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "staging_candidate_match": true,
+          "production_candidate_match": true
         }
       ]
     },
@@ -1332,11 +1015,15 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_period_start",
+                "p_period_end",
                 "p_total_collected",
+                "p_total_expenses",
                 "p_actual_cash",
-                "settlement_id"
+                "p_notes"
               ]
             }
           ]
@@ -1363,10 +1050,13 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_period_start",
+                "p_period_end",
                 "p_actual_cash",
-                "settlement_id"
+                "p_notes"
               ]
             }
           ]
@@ -1385,8 +1075,8 @@
             "p_tenant_id",
             "p_user_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "staging_candidate_match": true,
+          "production_candidate_match": true
         }
       ]
     },
@@ -1529,19 +1219,25 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_supplier_id",
+                "p_warehouse_id",
                 "p_supplier_invoice_no",
+                "p_invoice_date",
                 "p_due_date",
+                "p_payment_terms_days",
                 "p_payment_mode",
+                "p_reference_no",
                 "p_notes",
+                "p_company_account_id",
                 "p_payment_date",
+                "p_payment_reference_no",
                 "p_payment_notes",
+                "p_receipt_date",
                 "p_operation_key",
-                "purchase_id",
-                "purchase_status",
-                "receipt_number",
-                "replayed"
+                "p_lines"
               ]
             }
           ]
@@ -1572,7 +1268,7 @@
             "p_user_id",
             "p_warehouse_id"
           ],
-          "staging_candidate_match": false,
+          "staging_candidate_match": true,
           "production_candidate_match": false
         }
       ]
@@ -1634,16 +1330,16 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_purchase_id",
+                "p_company_account_id",
                 "p_amount",
+                "p_payment_date",
                 "p_reference_no",
-                "p_operation_key",
-                "purchase_id",
-                "account_transaction_id",
-                "payment_date",
-                "outstanding_amount",
-                "replayed"
+                "p_notes",
+                "p_operation_key"
               ]
             }
           ]
@@ -1682,16 +1378,16 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_purchase_id",
+                "p_company_account_id",
                 "p_amount",
+                "p_payment_date",
                 "p_reference_no",
-                "p_operation_key",
-                "purchase_id",
-                "account_transaction_id",
-                "payment_date",
-                "outstanding_amount",
-                "replayed"
+                "p_notes",
+                "p_operation_key"
               ]
             }
           ]
@@ -1713,8 +1409,8 @@
             "p_tenant_id",
             "p_user_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "staging_candidate_match": true,
+          "production_candidate_match": true
         }
       ]
     },
@@ -1832,10 +1528,12 @@
               "security_definer": true,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_actor_user_id",
                 "p_target_user_id",
-                "p_all_branches",
-                "target_user_id"
+                "p_role",
+                "p_all_branches"
               ]
             }
           ]
@@ -1862,10 +1560,12 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_actor_user_id",
                 "p_target_user_id",
-                "p_all_branches",
-                "target_user_id"
+                "p_role",
+                "p_all_branches"
               ]
             }
           ]
@@ -1883,8 +1583,8 @@
             "p_target_user_id",
             "p_tenant_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "staging_candidate_match": true,
+          "production_candidate_match": true
         }
       ]
     },
@@ -1919,10 +1619,13 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_actor_user_id",
                 "p_target_user_id",
+                "p_role",
                 "p_all_branches",
-                "profile_id"
+                "p_permissions"
               ]
             }
           ]
@@ -1978,11 +1681,13 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_actor_user_id",
                 "p_profile_id",
+                "p_custom_role_id",
                 "p_permissions",
-                "profile_id",
-                "replayed"
+                "p_expected_updated_at"
               ]
             }
           ]
@@ -2001,7 +1706,7 @@
             "p_site_id",
             "p_tenant_id"
           ],
-          "staging_candidate_match": false,
+          "staging_candidate_match": true,
           "production_candidate_match": false
         }
       ]
@@ -2045,10 +1750,10 @@
               "security_definer": true,
               "service_execute": true,
               "input_arg_names": [
+                "p_actor_user_id",
                 "p_profile_id",
-                "p_is_allowed",
-                "profile_id",
-                "is_allowed"
+                "p_capability",
+                "p_is_allowed"
               ]
             }
           ]
@@ -2075,10 +1780,10 @@
               "security_definer": true,
               "service_execute": true,
               "input_arg_names": [
+                "p_actor_user_id",
                 "p_profile_id",
-                "p_is_allowed",
-                "profile_id",
-                "is_allowed"
+                "p_capability",
+                "p_is_allowed"
               ]
             }
           ]
@@ -2094,8 +1799,8 @@
             "p_is_allowed",
             "p_profile_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "staging_candidate_match": true,
+          "production_candidate_match": true
         }
       ]
     },
@@ -2166,16 +1871,22 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_subscriber_id",
+                "p_client_operation_id",
                 "p_reading_at",
+                "p_reading_value",
                 "p_capture_method",
+                "p_image_key",
                 "p_image_hash",
+                "p_notes",
                 "p_is_reading_reset",
+                "p_field_verified",
                 "p_actor_tenant_role",
-                "p_longitude",
-                "consumption_kwh",
-                "replayed"
+                "p_latitude",
+                "p_longitude"
               ]
             }
           ]
@@ -2203,7 +1914,7 @@
             "p_tenant_id",
             "p_user_id"
           ],
-          "staging_candidate_match": false,
+          "staging_candidate_match": true,
           "production_candidate_match": false
         }
       ]
@@ -2246,8 +1957,8 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
-                "p_branch_id",
-                "retained_floor"
+                "p_tenant_id",
+                "p_branch_id"
               ]
             }
           ]
@@ -2261,7 +1972,7 @@
             "p_branch_id",
             "p_tenant_id"
           ],
-          "staging_candidate_match": false,
+          "staging_candidate_match": true,
           "production_candidate_match": false
         }
       ]
@@ -2491,8 +2202,9 @@
               "security_definer": true,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
-                "available_credit"
+                "p_subscriber_id"
               ]
             }
           ]
@@ -2507,7 +2219,7 @@
             "p_subscriber_id",
             "p_tenant_id"
           ],
-          "staging_candidate_match": false,
+          "staging_candidate_match": true,
           "production_candidate_match": false
         },
         {
@@ -2518,7 +2230,7 @@
             "p_subscriber_id",
             "p_tenant_id"
           ],
-          "staging_candidate_match": false,
+          "staging_candidate_match": true,
           "production_candidate_match": false
         },
         {
@@ -2529,7 +2241,7 @@
             "p_subscriber_id",
             "p_tenant_id"
           ],
-          "staging_candidate_match": false,
+          "staging_candidate_match": true,
           "production_candidate_match": false
         }
       ]
@@ -2626,21 +2338,30 @@
               "security_definer": true,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_full_name",
+                "p_phone",
                 "p_whatsapp_number",
+                "p_address",
                 "p_subscription_type",
+                "p_client_operation_id",
                 "p_quota_limit",
+                "p_opening_reading",
                 "p_opening_reading_at",
+                "p_opening_image_key",
                 "p_opening_image_hash",
+                "p_opening_reading_approved",
                 "p_offline_device_id",
+                "p_offline_grant_id",
                 "p_offline_number_value",
+                "p_security_deposit_amount",
                 "p_security_deposit_company_account_id",
+                "p_security_deposit_payment_method",
                 "p_security_deposit_payment_no",
-                "p_security_deposit_operation_id",
-                "subscriber_no",
-                "opening_reading_status",
-                "security_deposit_payment_id"
+                "p_security_deposit_reference_no",
+                "p_security_deposit_operation_id"
               ]
             }
           ]
@@ -2676,7 +2397,7 @@
             "p_user_id",
             "p_whatsapp_number"
           ],
-          "staging_candidate_match": false,
+          "staging_candidate_match": true,
           "production_candidate_match": false
         }
       ]
@@ -2786,10 +2507,11 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_payroll_run_id",
-                "payroll_run_id",
-                "transaction_id"
+                "p_account_id"
               ]
             }
           ]
@@ -2816,10 +2538,11 @@
               "security_definer": false,
               "service_execute": true,
               "input_arg_names": [
+                "p_tenant_id",
                 "p_site_id",
+                "p_user_id",
                 "p_payroll_run_id",
-                "payroll_run_id",
-                "transaction_id"
+                "p_account_id"
               ]
             }
           ]
@@ -2836,8 +2559,8 @@
             "p_tenant_id",
             "p_user_id"
           ],
-          "staging_candidate_match": false,
-          "production_candidate_match": false
+          "staging_candidate_match": true,
+          "production_candidate_match": true
         }
       ]
     }
