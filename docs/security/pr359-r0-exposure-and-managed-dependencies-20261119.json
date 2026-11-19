@@ -1,0 +1,2920 @@
+{
+  "format": "R0 read-only boundary exposure v1",
+  "capture_date": "2026-11-19",
+  "warning": "Schema and EXECUTE privileges do not prove Data API exposure or tenant isolation; recorded metadata only",
+  "results": [
+    {
+      "environment": "production",
+      "section": "extensions",
+      "error": null,
+      "records": []
+    },
+    {
+      "environment": "production",
+      "section": "security",
+      "error": null,
+      "records": [
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.current_tenant_ids()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public, powerhub_private"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.current_user_id()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public, private, powerhub_private"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.has_tenant_access(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public, powerhub_private"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.is_platform_admin()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public, powerhub_private"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.is_platform_user()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public, private, powerhub_private"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_after_support_conversation_create()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": true,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_notify_message_visibility()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": true,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_prepare_support_conversation()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": true,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_rls_can_select_conversation(bigint,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_rls_can_select_participant(bigint,bigint,bigint,timestamp with time zone)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_current_user_id()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_platform_capability(text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_tenant_access(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_is_platform_admin()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_is_platform_management_admin()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_ai_rate_message(bigint,text,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_create_conversation(bigint,text,text,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_all_notifications_read()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_delivered(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_notification_read(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_read_up_to(bigint,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_read(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_receipts_for_message(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_send_message(bigint,text,uuid,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_users()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_unread_notification_count()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_list(integer)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_mark_all_read()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_mark_read(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_unread_count()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_sync_generator_create(bigint,text,text,text,numeric,text,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_sync_generator_update(bigint,bigint,text,numeric,numeric,numeric,text,timestamp with time zone,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        }
+      ]
+    },
+    {
+      "environment": "production",
+      "section": "rls",
+      "error": null,
+      "records": [
+        {
+          "schema": "private",
+          "table_name": "chat_ai_rate_limit_buckets",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "chat_ai_request_claims",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "chat_ai_runs",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "chat_ai_settings",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "chat_rate_limit_buckets",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "http_rate_limit_buckets",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "platform_capability_policies",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "billing_adjustments",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "employee_adjustment_repayments",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "feature_catalog",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "feature_global_control_audit",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_fuel_alert_setting_operations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_fuel_alert_settings",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_fuel_events",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_fuel_readings",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_alert_events",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_audit_events",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_preventive_plans",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_work_order_parts",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_work_orders",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_owner_provisioning_operations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "inventory_item_units",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "inventory_stock_transfers",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "inventory_stocktake_lines",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "inventory_stocktakes",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "package_feature_policies",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "password_reset_intents",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "payment_documentation_requests",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "platform_announcement_reads",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "platform_announcements",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_fuel_alert_dispatches",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_fuel_alert_states",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_invoice_sequences",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_automation_runs",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_automations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_campaign_recipients",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_campaigns",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_templates",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_offline_number_claims",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_offline_number_grants",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_quota_alerts",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_sync_changes",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_sync_scope_state",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_user_device_locks",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "site_billing_policies",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "staff_password_reset_intents",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "subscription_renewal_operations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "supplier_purchase_return_lines",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "supplier_purchase_returns",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tariff_price_history",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_addon_renewal_decisions",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_addon_requests",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_feature_control_audit",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_feature_controls",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_feature_entitlements",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_member_capability_overrides",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_member_permission_audit",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_owner_alerts",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_reading_cycle_configurations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_sms_recharge_ledger",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_sms_wallets",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        }
+      ]
+    },
+    {
+      "environment": "production",
+      "section": "triggers",
+      "error": null,
+      "records": [
+        {
+          "schema": "auth",
+          "table_name": "users",
+          "trigger": "on_auth_user_created_powerhub",
+          "function_owner": "postgres",
+          "function_name": "private.powerhub_create_profile_for_auth_user()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "enforce_bucket_name_length_trigger",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.enforce_bucket_name_length()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "enforce_versioning_status_transition",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.enforce_versioning_status_transition()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_active_lifecycle_states",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_active_lifecycle_states()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_bucket_control_insert",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_bucket_control_columns()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_bucket_control_update",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_bucket_control_columns()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_bucket_control_update_role",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.enforce_bucket_lifecycle_service_role()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_buckets_delete",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_delete()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "wake_lifecycle_on_policy_write",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.wake_lifecycle_state()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "wake_lifecycle_on_versioning_enable",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.wake_lifecycle_state()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "objects",
+          "trigger": "protect_objects_delete",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_delete()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "objects",
+          "trigger": "update_objects_updated_at",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "environment": "staging",
+      "section": "extensions",
+      "error": null,
+      "records": []
+    },
+    {
+      "environment": "staging",
+      "section": "security",
+      "error": null,
+      "records": [
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.current_tenant_ids()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.current_user_id()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.has_tenant_access(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.is_platform_admin()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.is_platform_user()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_rls_can_select_conversation(bigint,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_rls_can_select_participant(bigint,bigint,bigint,timestamp with time zone)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_current_user_id()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_company_account_access(bigint,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_company_account_capability(bigint,bigint,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_platform_capability(text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_site_access(bigint,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_site_capability(bigint,bigint,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_staff_profile_site_access(bigint,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_tenant_access(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_is_platform_admin()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_is_platform_management_admin()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_realtime_can_read_delta_topic(bigint,bigint,boolean)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_ai_rate_message(bigint,text,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_assign_support(bigint,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_create_conversation(bigint,text,text,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_all_notifications_read()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_delivered(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_notification_read(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_read_up_to(bigint,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_read(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_rate_support(bigint,smallint,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_receipts_for_message(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_release_support(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_reopen_support_conversation(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_send_internal_note(bigint,text,uuid)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_send_message(bigint,text,uuid,bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_set_conversation_tags(bigint,bigint[])",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_save_settings(integer,integer)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_snapshot()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_upsert_category(text,text,text,integer,integer,integer,boolean)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_upsert_quick_reply(text,text,text,text,boolean)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_upsert_sla(text,numeric)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_upsert_tag(text,text,text,boolean)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_metrics(timestamp with time zone,timestamp with time zone)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_queue(text,text,text,bigint,text,integer,integer)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_set_metadata(bigint,text,text,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_users()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_ticket_timeline(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_transition_conversation(bigint,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "chat_unread_notification_count()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_list(integer)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_mark_all_read()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_mark_read(bigint)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_unread_count()",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_sync_generator_create(bigint,text,text,text,numeric,text,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_sync_generator_update(bigint,bigint,text,numeric,numeric,numeric,text,timestamp with time zone,text)",
+          "owner": "postgres",
+          "security_definer": true,
+          "config": [
+            "search_path=\"\""
+          ],
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_execute": false,
+          "authenticated_execute": true
+        }
+      ]
+    },
+    {
+      "environment": "staging",
+      "section": "rls",
+      "error": null,
+      "records": [
+        {
+          "schema": "private",
+          "table_name": "chat_ai_rate_limit_buckets",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "chat_ai_request_claims",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "chat_ai_runs",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "chat_ai_settings",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "chat_rate_limit_buckets",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "http_rate_limit_buckets",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "platform_admin_search_metrics_daily",
+          "rls": true,
+          "force_rls": true,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "platform_capability_policies",
+          "rls": false,
+          "force_rls": false,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "platform_tenant_search_metrics_daily",
+          "rls": true,
+          "force_rls": true,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "private",
+          "table_name": "powerhub_storage_image_retention_claims",
+          "rls": true,
+          "force_rls": true,
+          "anon_schema_usage": false,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "billing_adjustments",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "emergency_requests",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "employee_adjustment_repayments",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "feature_catalog",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "feature_global_control_audit",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "field_reading_distribution_settings",
+          "rls": true,
+          "force_rls": true,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_accrual_journals",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_accrual_period_reviews",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_accounts",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_central_allocation_policies",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_entries",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_inter_site_elimination_lines",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_inter_site_eliminations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_lines",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_opening_batches",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_opening_lines",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_gl_prelaunch_technical_bootstrap",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "financial_supplier_payment_corrections",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_fuel_alert_setting_operations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_fuel_alert_settings",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_fuel_events",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_fuel_readings",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_alert_events",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_audit_events",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_preventive_plans",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_work_order_parts",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_maintenance_work_orders",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "generator_owner_provisioning_operations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "inventory_item_units",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "inventory_stock_transfers",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "inventory_stocktake_lines",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "inventory_stocktakes",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "mobile_subscriber_change_log",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "mobile_subscriber_retention_floor",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "package_feature_policies",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "password_reset_intents",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "payment_documentation_requests",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "platform_announcement_reads",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "platform_announcements",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_expense_offline_operation_results",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_fuel_alert_dispatches",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_fuel_alert_states",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_hr_delta_scope_membership",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_hr_offline_operation_results",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_inventory_stocktake_count_operations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_invoice_sequences",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_automation_runs",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_automations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_campaign_recipients",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_campaigns",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_message_templates",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_offline_number_claims",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_offline_number_grants",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_quota_alerts",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_sync_changes",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_sync_scope_state",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "powerhub_user_device_locks",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "site_billing_policies",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "sms_dispatch_queue",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "staff_password_reset_intents",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "subscriber_balance_ledger",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "subscription_renewal_operations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tariff_price_history",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_addon_renewal_decisions",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_addon_requests",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_feature_control_audit",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_feature_controls",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_feature_entitlements",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_member_capability_overrides",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_member_permission_audit",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_owner_alerts",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_reading_cycle_configurations",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_sms_recharge_ledger",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tenant_sms_wallets",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        },
+        {
+          "schema": "public",
+          "table_name": "tweet_sms_report_snapshots",
+          "rls": true,
+          "force_rls": false,
+          "anon_schema_usage": true,
+          "auth_schema_usage": true,
+          "anon_select_grant": false,
+          "auth_select_grant": false,
+          "policy_count": 0
+        }
+      ]
+    },
+    {
+      "environment": "staging",
+      "section": "triggers",
+      "error": null,
+      "records": [
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "enforce_bucket_name_length_trigger",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.enforce_bucket_name_length()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "enforce_versioning_status_transition",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.enforce_versioning_status_transition()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_active_lifecycle_states",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_active_lifecycle_states()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_bucket_control_insert",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_bucket_control_columns()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_bucket_control_update",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_bucket_control_columns()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_bucket_control_update_role",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.enforce_bucket_lifecycle_service_role()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "protect_buckets_delete",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_delete()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "wake_lifecycle_on_policy_write",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.wake_lifecycle_state()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "buckets",
+          "trigger": "wake_lifecycle_on_versioning_enable",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.wake_lifecycle_state()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "objects",
+          "trigger": "protect_objects_delete",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.protect_delete()"
+        },
+        {
+          "schema": "storage",
+          "table_name": "objects",
+          "trigger": "update_objects_updated_at",
+          "function_owner": "supabase_storage_admin",
+          "function_name": "storage.update_updated_at_column()"
+        }
+      ]
+    }
+  ]
+}
