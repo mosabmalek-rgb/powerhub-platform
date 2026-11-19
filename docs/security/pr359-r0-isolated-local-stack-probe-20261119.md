@@ -41,3 +41,19 @@ References: https://supabase.com/docs/guides/local-development/cli/getting-start
 - Continue independent P0 work for 19 Staging-missing runtime RPCs,  SECURITY DEFINER audit and migration Epoch v2 canonical ownership classification.
 
 **No changes to linked Staging or Production and no authorization for rebaseline.**
+
+## 5. First completed local-stack run — confirmed PASS (source SHA `9e39389be63e77a3116c6afb76806baa3494382f`)
+
+Workflow `PR359 Isolated Supabase Managed Stack Probe`, run `44605071709`, job `135846461370`, **completed SUCCESS** using Supabase CLI `2.122.1`. The disposable stack started and metadata queries returned:
+
+| Service | Local relations | Local columns | Local service migration entries | Hosted Production service migration entries |
+|---|---:|---:|---:|---:|
+| Auth | 27 | 271 | 82 | 84 |
+| Storage | 10 | 91 | 75 | 81 |
+| Realtime | 8 | 71 | 91 | 97 |
+
+Hosted Production catalog baseline (read-only R0 observations): Auth 27/273, Storage 10/91, Realtime 3 base tables/22 columns, with partition lifecycle expected to differ from local. Hosted Staging has seven attached managed Realtime daily partitions. Local Realtime's five extra relations are **not yet classified as comparable partitions**. The service migration deficits relative to the hosted source are Auth **2**, Storage **6**, Realtime **6** (based on totals only, not proven identity of missing entries). These are evidence that **the CLI 2.122.1 local stack starts successfully but is NOT a proven compatible hosted service baseline**.
+
+The new probe correctly prints `PR359_LOCAL_STACK_SOURCE_PARITY=NOT_PROVEN` and `PR359_PRODUCTION_SHADOW_UPGRADE_PASS=NOT_GRANTED`. Its successful startup must not be conflated with a full source data restore, R0 acceptance, R1 backup or permission to run any remote SQL mutation.
+
+A follow-up source-only change adds deterministic per-service migration-set SHA-256 outputs from the locally collected ordered metadata. Their values must be checked on the SHA actually running this follow-up; the completed initial run predates this fingerprint enhancement.
