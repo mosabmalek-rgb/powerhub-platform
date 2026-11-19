@@ -46,3 +46,24 @@ echo PR359_FINAL_POSTMASTER_TCP_READY_TEST_PASS
  assert.equal(child.status,0,child.stderr||child.stdout||'mocked probe failed');
  assert.match(child.stdout,/PR359_FINAL_POSTMASTER_TCP_READY_TEST_PASS/);
 });
+
+test('full Docker restore fails closed on provider-managed schema drift before importing app schema or business rows',()=>{
+ const sh=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const functionStart=sh.indexOf('\nrestore(){');
+ const functionEnd=sh.indexOf('\napply(){',functionStart);
+ assert.ok(functionStart>0&&functionEnd>functionStart,'isolated restore function missing');
+ const body=sh.slice(functionStart,functionEnd);
+ const idxPre=body.indexOf('SHADOW_STAGE=verify-managed-catalog-pre-application');
+ const idxSchema=body.indexOf('SHADOW_STAGE=restore-application-schema');
+ const idxPost=body.indexOf('SHADOW_STAGE=verify-managed-catalog-post-application');
+ const idxData=body.indexOf('SHADOW_STAGE=restore-data');
+ assert.ok(idxPre>=0&&idxPre<idxSchema,'managed parity must be checked before application schema restore');
+ assert.ok(idxPost>idxSchema&&idxPost<idxData,'managed parity must also be checked after schema restore, before data COPY');
+ for(const stage of ['verify-managed-catalog-pre-application','verify-managed-catalog-post-application']){
+   const start=body.indexOf('SHADOW_STAGE='+stage);
+   const next=body.indexOf('SHADOW_STAGE=',start+1);
+   const section=body.slice(start,next>start?next:undefined);
+   assert.match(section,/node scripts\/pr359-shadow\/check-managed-catalog\.mjs/,'both checks must fail closed');
+ }
+ assert.doesNotMatch(body,/PR359_SKIP_MANAGED|MANAGED_CATALOG_BYPASS/,'no managed catalog bypass switches');
+});
