@@ -340,7 +340,10 @@ restore(){
     "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
   SHADOW_STAGE=restore-data
-  runfile postgres "$work/restore-data.sql"
+  # COPY includes provider-owned Storage rows such as buckets_vectors. Import
+  # into the disposable target through its local superuser socket so source
+  # ACLs cannot block a faithful data restore; no hosted role is elevated.
+  runfile_local_admin "$work/restore-data.sql"
   if [[ "$(value "SELECT to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == f ]]; then
     runfile postgres "$work/dump/history-schema.sql"
   fi
