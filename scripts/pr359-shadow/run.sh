@@ -177,6 +177,12 @@ if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
   echo 'PR359_SOURCE_MANAGED_CATALOG_READ_FAILED' >&2; exit 1
 fi
 [[ -s "$work/source-managed-catalog.json" ]] || { echo 'PR359_SOURCE_MANAGED_CATALOG_EMPTY' >&2;exit 1; }
+# Record provider-managed Auth/Storage/Realtime migration provenance without data rows.
+if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-shadow/managed-migrations.sql > "$work/source-managed-migrations.json" 2>/dev/null; then
+  echo 'PR359_SOURCE_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
+fi
+[[ -s "$work/source-managed-migrations.json" ]] || { echo 'PR359_SOURCE_MANAGED_MIGRATIONS_EMPTY' >&2; exit 1; }
 # Exact-source parity attestation: never drop an extension that exists upstream.
 source_graphql_check="SELECT NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_graphql') AND to_regclass('graphql.seq_schema_version') IS NULL;"
 if ! graphql_check="$(psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" --command "$source_graphql_check" 2>/dev/null)" || [[ "$graphql_check" != t ]]; then
@@ -233,6 +239,13 @@ restore(){
   sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
   node scripts/pr359-shadow/check-managed-catalog.mjs \
     "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
+  # A matching column catalog alone cannot certify provider service migrations.
+  SHADOW_STAGE=verify-managed-migrations-pre-application
+  if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-managed-migrations.json" 2>/dev/null; then
+    echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
+  fi
+  node scripts/pr359-shadow/check-managed-migrations.mjs \
+    "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json"
   SHADOW_STAGE=restore-application-schema
   echo 'PR359_SHADOW_STAGE: starting application schema restore'
   runfile postgres "$work/dump/schema.sql"
@@ -243,6 +256,12 @@ restore(){
   sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
   node scripts/pr359-shadow/check-managed-catalog.mjs \
     "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json"
+  SHADOW_STAGE=verify-managed-migrations-post-application
+  if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-managed-migrations.json" 2>/dev/null; then
+    echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
+  fi
+  node scripts/pr359-shadow/check-managed-migrations.mjs \
+    "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json"
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
   SHADOW_STAGE=restore-data
   runfile postgres "$work/restore-data.sql"
