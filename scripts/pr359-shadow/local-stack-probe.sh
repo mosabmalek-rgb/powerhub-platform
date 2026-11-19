@@ -70,7 +70,7 @@ for(const service of ['auth','storage','realtime']){
   const digestInput=ledger
     .map(r=>service==='storage'?r.version+':'+(r.checksum??''):r.version)
     .sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'variant'}))
-    .join('\\n');
+    .join('\n');
   const migrationSha256=createHash('sha256').update(digestInput,'utf8').digest('hex');
   console.log('PR359_LOCAL_SERVICE_METADATA '+service+' tables='+tables.size+
     ' columns='+rows.length+' migrations='+ledger.length+
