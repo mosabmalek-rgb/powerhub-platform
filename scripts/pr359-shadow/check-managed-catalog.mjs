@@ -40,6 +40,15 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1]
     console.error('PR359_SHADOW_MANAGED_SCHEMA_DRIFT: sourceCols='+result.sourceColumns+
       ' dockerCols='+result.dockerColumns+' missing='+result.missing.length+
       ' incompatibleTypes='+result.typeMismatch.length);
+    // Aggregate metadata by managed schema without logging source rows, secrets,
+    // or raw SQL. An absent provider-managed table is not an app migration.
+    const perSchema=new Map();
+    for(const key of result.missing){
+      const schema=key.split('.')[0];
+      perSchema.set(schema,(perSchema.get(schema)||0)+1);
+    }
+    for(const [schema,count] of [...perSchema.entries()].sort((a,b)=>a[0].localeCompare(b[0])))
+      console.error('PR359_MANAGED_MISSING_SCHEMA_COLUMNS: '+schema+'='+count);
     for(const name of result.missing.slice(0,35))console.error('PR359_MISSING_MANAGED_COLUMN: '+name);
     for(const row of result.typeMismatch.slice(0,25))
       console.error('PR359_MANAGED_COLUMN_TYPE_DRIFT: '+JSON.stringify(row));
