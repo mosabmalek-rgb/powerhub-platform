@@ -21,7 +21,7 @@ test('type drift and duplicated identifiers fail closed',()=>{
  const shadow=structuredClone(source);
  shadow[1].type='inet';
  assert.deepEqual(checkManagedCatalog(source,shadow).typeMismatch,
-   [{column:'auth.audit_log_entries.ip_address',source:'character varying',docker:'inet'}]);
+   [{column:'auth.audit_log_entries.ip_address',source:'character varying(64)',docker:'inet'}]);
  assert.throws(()=>checkManagedCatalog(source,[...shadow,shadow[1]]),/duplicate column/);
 });
 
