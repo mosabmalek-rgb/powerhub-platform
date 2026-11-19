@@ -26,6 +26,10 @@ if(process.argv[1] && import.meta.url===pathToFileURL(path.resolve(process.argv[
   console.log('PR359_LOCAL_REFERENCE_CATALOG source='+c.sourceColumns+
     ' local='+c.dockerColumns+' missing='+c.missing.length+
     ' unexpected='+c.unexpected.length+' typeDrift='+c.typeMismatch.length);
+  for(const table of c.unexpectedTables.slice(0,30))
+    console.log('PR359_LOCAL_REFERENCE_UNEXPECTED_MANAGED_TABLE: '+table);
+  for(const table of c.missingTables.slice(0,30))
+    console.log('PR359_LOCAL_REFERENCE_MISSING_MANAGED_TABLE: '+table);
   for(const [service,counts] of Object.entries(m.totals))
     console.log('PR359_LOCAL_REFERENCE_SERVICE '+service+
       ' sourceMigrations='+counts.source+
