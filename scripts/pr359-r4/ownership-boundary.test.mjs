@@ -183,3 +183,29 @@ test('Staging local restore must attest provider-managed reverse dependencies be
  assert.ok(s.includes('PR359_STAGING_MANAGED_REVERSE_TARGET_PARITY_PASS'));
  assert.ok(s.includes('if [[ "$mode" == staging-restore ]]; then'));
 });
+
+test('R4 source jsonb key order differs from JS literals but must still pass',()=>{
+ const fixture=structuredClone(EXPECTED_REVERSE_DEPENDENCIES);
+ // PostgreSQL jsonb serializes keys in catalog-defined order, not insertion order.
+ const sqlJsonbRows=fixture.groups.map(group=>Object.fromEntries(
+   Object.entries(group).sort(([a],[b])=>a.localeCompare(b))
+ ));
+ const source=Object.fromEntries([
+  ['groups',sqlJsonbRows],['identity_sha256',fixture.identity_sha256],
+  ['edge_count',fixture.edge_count],['scope',fixture.scope]
+ ]);
+ const result=assessManagedReverseDependencies(JSON.stringify(source)+'\n');
+ assert.equal(result.matched,true,'identical JSONB values cannot fail due to key ordering');
+ assert.equal(result.edgeCount,48);
+ assert.equal(result.appOwnedApproved,false);
+ assert.equal(result.stagingInplaceGo,false);
+ const reorderedGroups=structuredClone(source);
+ reorderedGroups.groups.reverse();
+ assert.equal(assessManagedReverseDependencies(JSON.stringify(reorderedGroups)).matched,false,
+   'inventory group ordering remains pinned');
+ const changedValue=structuredClone(source);
+ changedValue.groups[0].edges=31;
+ changedValue.edge_count=47;
+ assert.equal(assessManagedReverseDependencies(JSON.stringify(changedValue)).matched,false,
+   'value drift still fails closed');
+});

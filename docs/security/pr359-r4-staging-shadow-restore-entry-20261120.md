@@ -566,3 +566,20 @@ on the hosted database.
 `R4_PROTECTED_STAGING_RESTORE=NOT_PROVEN`  
 `APP_OWNED_APPROVED=false`  
 `PR359_MERGE_GO=false`
+
+
+## R4 JSONB serialization order regression (2026-11-20)
+
+An independent READ ONLY execution of the exact committed reverse-dependency
+SQL returned the expected 48 edges and SHA-256, but exposed a bug in the JS
+checker: comparing serialized `JSON.stringify(groups)` is sensitive to
+object key insertion order. PostgreSQL `jsonb` reorders object keys, so this
+comparison would reject a valid Staging inventory. The checker now uses
+key-order-independent deep equality for objects while preserving the ordered
+group array, strict expected fields, edge count and fingerprint. A regression
+passes a PostgreSQL-like reordered-key fixture and rejects changed counts and
+reordered groups. This is a source verification fix, not a restore approval.
+
+`R4_MANAGED_REVERSE_JSONB_ORDER_GUARD=CODE_READY_PENDING_CI`  
+`APP_OWNED_APPROVED=false`  
+`STAGING_INPLACE_GO=false`

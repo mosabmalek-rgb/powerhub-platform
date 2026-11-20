@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {isDeepStrictEqual} from 'node:util';
 
 // Verified twice in read-only transactions on Staging 2026-11-20.
 // This is a drift guard, never a destructive-operations allowlist.
@@ -37,7 +38,9 @@ export function assessManagedReverseDependencies(raw){
  assert.equal(total,incoming.edge_count,'reverse dependency group count mismatch');
  const same=incoming.edge_count===EXPECTED_REVERSE_DEPENDENCIES.edge_count &&
   incoming.identity_sha256===EXPECTED_REVERSE_DEPENDENCIES.identity_sha256 &&
-  JSON.stringify(incoming.groups)===JSON.stringify(EXPECTED_REVERSE_DEPENDENCIES.groups);
+  // PostgreSQL jsonb object keys may appear in a different order than JS object
+  // literals. Compare the reviewed values/array order, never JSON key order.
+  isDeepStrictEqual(incoming.groups,EXPECTED_REVERSE_DEPENDENCIES.groups);
  return {matched:same,edgeCount:incoming.edge_count,
    reviewedObjectRemoval:false,appOwnedApproved:false,stagingInplaceGo:false};
 }
