@@ -13,7 +13,7 @@ test('source read-only fingerprint is acquired while TLS guarded source is avail
  const readonly=sh.indexOf("export PGOPTIONS='-c default_transaction_read_only=on'");
  const stage=sh.indexOf('SHADOW_STAGE=source-historical-ledger-attestation');
  const exportRoles=sh.indexOf('dump roles.sql --role-only');
- const disableReadOnly=sh.indexOf('unset PGOPTIONS PGSSLMODE;');
+ const disableReadOnly=sh.indexOf('\nunset PGOPTIONS PGSSLMODE\n');
  const unsetSource=sh.indexOf('unset PGOPTIONS PGSSLMODE SHADOW_SOURCE_DB_URL');
  assert.ok(readonly>0&&readonly<stage&&stage<disableReadOnly&&disableReadOnly<exportRoles&&exportRoles<unsetSource);
  const segment=sh.slice(stage,exportRoles);
