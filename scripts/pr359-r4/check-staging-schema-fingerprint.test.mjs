@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {EXPECTED_SURFACE,parseSchemaFingerprint,assessSchemaFingerprint} from './check-staging-schema-fingerprint.mjs';
+import {EXPECTED_SURFACE,REVIEWED_STAGING_SHA256,parseSchemaFingerprint,assessSchemaFingerprint,assessReviewedStagingSource} from './check-staging-schema-fingerprint.mjs';
 const fixture=()=>Object.entries(EXPECTED_SURFACE).map(([category,objects])=>
  JSON.stringify({category,objects,sha256:'a'.repeat(64)})).join('\n')+'\n';
 test('R0 complete schema counts are included but cannot grant destructive permission',()=>{
@@ -43,4 +43,27 @@ test('snapshot export and pre-data + post-restore checks are wired for Staging o
  assert.match(b,/SHADOW_STAGE=staging-schema-before-data/);
  assert.match(b,/SHADOW_STAGE=staging-restored-schema-fingerprint/);
  assert.ok(b.includes('PR359_STAGING_INPLACE_GO=FALSE'));
+});
+
+test('reviewed Staging SHA-256 rejects same-count silent DDL changes',()=>{
+ const reference=Object.entries(EXPECTED_SURFACE).map(([category,objects])=>
+  JSON.stringify({category,objects,sha256:REVIEWED_STAGING_SHA256[category]})).join('\n')+'\n';
+ const result=assessReviewedStagingSource(reference);
+ assert.equal(result.reviewedSourceMatch,true);
+ assert.equal(result.checked,7);
+ assert.equal(result.canonicalBaselineApproved,false);
+ assert.equal(result.appOwnedSigned,false);
+ assert.equal(result.stagingInplaceGo,false);
+ const wrong=reference.trim().split('\n');
+ wrong[2]=JSON.stringify({...JSON.parse(wrong[2]),sha256:'0'.repeat(64)});
+ const drift=assessReviewedStagingSource(wrong.join('\n')+'\n');
+ assert.equal(drift.reviewedSourceMatch,false);
+ assert.deepEqual(drift.changedCategories,[JSON.parse(wrong[2]).category]);
+});
+test('snapshot exporter checks pinned Staging SHA before data pg_dump',()=>{
+ const exporter=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
+ assert.ok(exporter.includes('check-staging-schema-fingerprint.mjs --verify-reviewed-source'));
+ assert.ok(exporter.indexOf('check-staging-schema-fingerprint.mjs --verify-reviewed-source')<
+  exporter.indexOf('dump_schema schema.sql'));
+ assert.ok(exporter.includes('PR359_STAGING_INPLACE_GO=FALSE'));
 });

@@ -50,6 +50,9 @@ node scripts/pr359-r4/check-staging-table-content.mjs --compare "$workdir/stagin
 source_psql "$workdir/staging-managed-source.jsonl" scripts/pr359-r4/staging-managed-data-content.sql
 node scripts/pr359-r4/check-staging-managed-data.mjs --compare "$workdir/staging-managed-source.jsonl" "$workdir/staging-managed-source.jsonl"
 source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-schema-fingerprint.sql
+# Source-versus-restore equality alone can accept a drifted source; require
+# exact independent, reviewed Staging definition fingerprints before any COPY.
+node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --verify-reviewed-source "$workdir/staging-schema-source.jsonl"
 node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare "$workdir/staging-schema-source.jsonl" "$workdir/staging-schema-source.jsonl"
 source_psql "$workdir/staging-managed-fks-source.jsonl" scripts/pr359-r4/staging-managed-fks.sql
 node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-managed-fks-source.jsonl" "$workdir/staging-managed-fks-source.jsonl"

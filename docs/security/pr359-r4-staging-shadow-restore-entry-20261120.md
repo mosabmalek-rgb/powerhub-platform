@@ -427,3 +427,28 @@ source restore* only, not destruction, rebaseline or a merge.
 `APP_OWNED_APPROVED=false`
 `CANONICAL_BASELINE_APPROVED=false`
 `STAGING_INPLACE_GO=false`
+
+## R4 source schema drift pin — reviewed observations (2026-11-20)
+
+A second direct hosted-Staging `REPEATABLE READ READ ONLY` catalog audit
+returned the exact same seven category counts and SHA-256 fingerprints as
+the preceding direct read-only observation. The independent reviewed-source
+hashes are now pinned in `check-staging-schema-fingerprint.mjs` and checked
+by `staging-atomic-export.sh` **before** any application/schema/managed
+data `pg_dump`. Previously, only source-to-restored SHA equality and
+catalog counts were required. A changed function body, trigger, policy,
+constraint, index or ACL with identical object counts could otherwise
+match source and restore, despite differing from reviewed Staging.
+
+This gate refuses drift and reports changed category names only. It does
+not reveal definitions, credentials or business data. Intentional schema
+changes require a new approved source review and an explicit update of the
+pinned reference, not an automatic fallback or destructive action.
+This is a drift detector, **not** an approval of the app-owned allowlist
+or canonical migration baseline.
+
+`R4_PINNED_STAGING_SCHEMA=CODE_READY_PENDING_CI`
+`R4_REAL_STAGING_RESTORE=NOT_EXECUTED`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
