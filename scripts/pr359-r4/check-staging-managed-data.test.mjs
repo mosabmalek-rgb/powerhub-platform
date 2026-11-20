@@ -45,3 +45,15 @@ test('source and both disposable restores include managed row parity gate',()=>{
  assert.match(r,/check-staging-managed-data\.mjs --compare/);
  assert.ok(r.includes('PR359_STAGING_INPLACE_GO=FALSE'));
 });
+
+test('managed Auth/Storage dynamic hash query is dollar-quoted, safe, and scope-limited',()=>{
+ const sql=readFileSync('scripts/pr359-r4/staging-managed-data-content.sql','utf8');
+ assert.match(sql,/format\(\$managed_hash\$/);
+ assert.match(sql,/\$managed_hash\$,v\.schema_name,v\.table_name,v\.schema_name,v\.table_name\)/);
+ assert.match(sql,/FROM %I\.%I AS t/);
+ assert.match(sql,/\\gexec/);
+ assert.match(sql,/REPEATABLE READ READ ONLY/);
+ assert.doesNotMatch(sql,/\|\|\s*'encode\(/);
+ for(const table of ["('auth','identities')","('auth','users')","('storage','buckets')","('storage','objects')"])
+  assert.ok(sql.includes(table));
+});
