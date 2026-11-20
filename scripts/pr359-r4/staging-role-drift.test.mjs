@@ -28,6 +28,9 @@ function exercise(before,after){
    'set -euo pipefail',
    'mode=staging-restore',
    'work='+JSON.stringify(dir),
+   // This unit harness extracts the role-only gate without the outer runner.
+   // Provide the runner's diagnostics helper; retain all production drift checks.
+   'r4_progress(){ :; }',
    'dump(){ [[ "$1" == roles-after.sql && "$2" == --role-only ]] || exit 87; printf "%s" "$ROLE_AFTER" > "$work/dump/roles-after.sql"; }',
    gate
   ].join('\n');
