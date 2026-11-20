@@ -252,6 +252,15 @@ fi
 if [[ "$mode" == staging-restore ]]; then
   node scripts/pr359-r4/check-staging-legacy-ledger.mjs "$work/source-history-attestation.json"
 fi
+if [[ "$mode" == staging-restore ]]; then
+  SHADOW_STAGE=staging-source-all-table-counts
+  if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+      --file scripts/pr359-r4/staging-table-counts.sql > "$work/staging-tables-source.jsonl" 2>/dev/null; then
+    echo 'PR359_STAGING_APP_TABLE_SOURCE_COUNT_FAILED' >&2;exit 1
+  fi
+  node scripts/pr359-r4/check-staging-table-counts.mjs --compare \
+    "$work/staging-tables-source.jsonl" "$work/staging-tables-source.jsonl"
+fi
 
 # Do NOT copy business data until the local networkless engine proves it can
 # represent the source-managed service catalog and migration history. Running this
@@ -310,6 +319,14 @@ if [[ "$mode" == staging-restore ]]; then
   cmp -s "$work/source-counts" "$work/source-counts-after-export" || {
     echo 'PR359_STAGING_COUNTS_CHANGED_DURING_EXPORT' >&2;exit 1;
   }
+  SHADOW_STAGE=staging-source-post-export-table-counts
+  if ! PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require \
+    psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-r4/staging-table-counts.sql > "$work/staging-tables-after-export.jsonl" 2>/dev/null; then
+    echo 'PR359_STAGING_APP_TABLE_POST_EXPORT_COUNT_FAILED' >&2;exit 1
+  fi
+  node scripts/pr359-r4/check-staging-table-counts.mjs --compare \
+    "$work/staging-tables-source.jsonl" "$work/staging-tables-after-export.jsonl"
 fi
 unset PGOPTIONS PGSSLMODE SHADOW_SOURCE_DB_URL
 if [[ "$mode" == full ]]; then
@@ -404,6 +421,13 @@ cmp -s "$work/source-history-attestation.json" "$work/target-history-attestation
 echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
 
 [[ "$(value "$source_sql")" == "$(cat "$work/source-counts")" ]] || { echo 'Source and restore row counts differ' >&2;exit 1; }
+  if [[ "$mode" == staging-restore ]]; then
+    SHADOW_STAGE=staging-restored-table-counts
+    sql postgres < scripts/pr359-r4/staging-table-counts.sql > "$work/staging-tables-restored.jsonl"
+    node scripts/pr359-r4/check-staging-table-counts.mjs --compare \
+      "$work/staging-tables-source.jsonl" "$work/staging-tables-restored.jsonl"
+    echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_PASS'
+  fi
   [[ "$(value "SELECT to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == t ]] || { echo 'Managed schema missing' >&2;exit 1; }
 }
 apply(){ for i in $(seq "$1" 4); do SHADOW_STAGE="finance-migration-$i";runfile postgres "$work/transactions/$i-apply.sql";done; }

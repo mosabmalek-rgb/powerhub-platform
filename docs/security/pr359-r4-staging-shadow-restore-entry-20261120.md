@@ -87,3 +87,26 @@ registration; no merge is being performed now.
 
 These checks are separate from the long-standing Production release
 protection. The test-only Staging request never grants database modification.
+
+## Full application table row-count consistency (additional gate)
+
+The read-only source metadata inventory contains **183 Staging application tables**
+(173 in public, 10 in private, zero partitions). The new
+`scripts/pr359-r4/staging-table-counts.sql` performs quote-safe catalog
+enumeration and individual `COUNT(*)` queries inside one
+`REPEATABLE READ, READ ONLY` snapshot. The table count collector
+stores no individual user or financial rows and uses no hosted DML.
+
+`scripts/pr359-r4/check-staging-table-counts.mjs` verifies exact names,
+uniqueness, nonnegative safe integer counts, and complete coverage against
+the R0 inventory. Before export, after export, and after each independent
+local restore, it compares **each** table's counts, not just the payments/
+invoices aggregates; a single missing or changed table fails closed.
+
+Each invocation is a consistent row-count snapshot; cross-invocation or
+cross-database equality does NOT prove unchanged row contents or globally
+atomic source+restore snapshots. Additional row-level or WAL-consistent
+backups remain a separate production-grade acceptance gate.
+
+`R4_STAGING_183_TABLE_COUNT_GUARD=CODE_READY_PENDING_PROTECTED_RUN`
+`R4_STAGING_INPLACE_GO=false`
