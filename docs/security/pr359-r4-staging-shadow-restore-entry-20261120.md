@@ -191,3 +191,17 @@ R4_STAGING_SCHEMA_RESTORE_COMPARISON=CODE_READY_PENDING_PROTECTED_RUN
 CANONICAL_BASELINE_APPROVED=false
 APP_OWNED_SIGNED=false
 STAGING_INPLACE_GO=false
+
+## R4 disposable catalog fingerprint sensitivity proof
+
+An independent PostgreSQL 17.6 container with `--network none` executes the exact
+seven-category schema fingerprint SQL against a synthetic table, index,
+constraint, function, trigger and RLS policy. It modifies a function body,
+policy predicate and trigger enablement while keeping all category object counts
+identical. The test requires only the function, policy and trigger SHA-256
+digests to change, demonstrating that row counts alone cannot mask those
+schema/security changes. No hosted source or test-user credentials are used.
+
+`R4_DISPOSABLE_SCHEMA_SHA_SENSITIVITY=CODE_READY_PENDING_CI`
+`R4_STAGING_REAL_RESTORE=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`

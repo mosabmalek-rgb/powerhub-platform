@@ -38,6 +38,10 @@ jobs:
         run: |
           bash -n scripts/pr359-r4/staging-atomic-snapshot-disposable.sh
           bash scripts/pr359-r4/staging-atomic-snapshot-disposable.sh
+      - name: Real PostgreSQL schema fingerprint sensitivity (function, RLS, trigger)
+        run: |
+          bash -n scripts/pr359-r4/staging-schema-fingerprint-disposable.sh
+          bash scripts/pr359-r4/staging-schema-fingerprint-disposable.sh
   real-restored-finance:
     if: >-
       vars.PR359_ENABLE_PRODUCTION_DOCKER_SHADOW == 'true' &&
