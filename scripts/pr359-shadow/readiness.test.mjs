@@ -60,7 +60,7 @@ test('full Docker restore fails closed on provider-managed schema drift before i
  const idxData=body.indexOf('SHADOW_STAGE=restore-data');
  assert.ok(idxPre>=0&&idxPre<idxSchema,'managed parity must be checked before application schema restore');
  assert.ok(idxPost>idxSchema&&idxPost<idxData,'managed parity must also be checked after schema restore, before data COPY');
- assert.equal((body.match(/node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/g)||[]).length,2,
+ assert.equal((body.match(/check_restore_managed_compatibility/g)||[]).length,2,
    'both managed compatibility checks must fail closed');
  assert.doesNotMatch(body,/PR359_SKIP_MANAGED|MANAGED_CATALOG_BYPASS/,'no managed catalog bypass switches');
 });
@@ -84,7 +84,7 @@ test('provider-managed service migration ledger parity runs before app schema an
  assert.ok(offsets.every(v=>v>=0),'missing restore or managed migration guard stage');
  assert.deepEqual([...offsets].sort((a,b)=>a-b),offsets,
    'managed migration checks must precede application schema and data restore');
- const guards=restore.match(/node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/g)||[];
+ const guards=restore.match(/check_restore_managed_compatibility/g)||[];
  assert.equal(guards.length,2,'managed service migration parity must be checked twice');
  assert.doesNotMatch(restore,/PR359_SKIP_MANAGED_MIGRATIONS|PR359_ALLOW_MIGRATION_DRIFT/);
 });
@@ -106,4 +106,19 @@ test('source dump is blocked before ANY business data export if local provider s
  assert.doesNotMatch(gate,/start supabase\/postgres:17\.6\.1\.155/);
  assert.match(gate,/node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/);
  assert.doesNotMatch(gate,/PR359_SKIP_MANAGED|PR359_ALLOW_MIGRATION_DRIFT/);
+});
+
+test('restore wrapper delegates to real managed checker with strict non-Staging fallback',()=>{
+ const sh=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const start=sh.indexOf('check_restore_managed_compatibility(){');
+ const end=sh.indexOf('\nrestore(){',start);
+ assert.ok(start>0&&end>start,'managed restore verifier must exist');
+ const helper=sh.slice(start,end);
+ assert.equal((helper.match(/node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/g)||[]).length,2,
+   'both staging and non-staging checker branches must invoke real code');
+ assert.match(helper,/\[\[ "\$snapshot_count" == 0 \]\]/,
+   'the Staging-only Realtime partition exception requires exact snapshot zero evidence');
+ assert.match(helper,/PR359_CONFIRMED_EMPTY_STAGING_REALTIME=true node/);
+ assert.match(helper,/else\n    node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/);
+ assert.doesNotMatch(helper,/PR359_SKIP_MANAGED|MANAGED_CATALOG_BYPASS|PR359_ALLOW_MIGRATION_DRIFT/);
 });
