@@ -47,6 +47,8 @@ source_psql "$workdir/staging-tables-source.jsonl" scripts/pr359-r4/staging-tabl
 node scripts/pr359-r4/check-staging-table-counts.mjs --compare "$workdir/staging-tables-source.jsonl" "$workdir/staging-tables-source.jsonl"
 source_psql "$workdir/staging-content-source.jsonl" scripts/pr359-r4/staging-table-content.sql
 node scripts/pr359-r4/check-staging-table-content.mjs --compare "$workdir/staging-content-source.jsonl" "$workdir/staging-content-source.jsonl"
+source_psql "$workdir/staging-managed-source.jsonl" scripts/pr359-r4/staging-managed-data-content.sql
+node scripts/pr359-r4/check-staging-managed-data.mjs --compare "$workdir/staging-managed-source.jsonl" "$workdir/staging-managed-source.jsonl"
 pgdump(){
  docker run --rm --network host -e SHADOW_SOURCE_DB_URL -e PR359_SNAPSHOT_ID \
    -e PGSSLMODE=require -e PGOPTIONS --entrypoint /bin/sh postgres:17.6 -ec \
@@ -112,6 +114,8 @@ dump_schema history-schema.sql --schema=supabase_migrations
 dump_data history-data.sql --schema=supabase_migrations
 source_psql "$workdir/staging-content-after-export.jsonl" scripts/pr359-r4/staging-table-content.sql
 node scripts/pr359-r4/check-staging-table-content.mjs --compare "$workdir/staging-content-source.jsonl" "$workdir/staging-content-after-export.jsonl"
+source_psql "$workdir/staging-managed-after-export.jsonl" scripts/pr359-r4/staging-managed-data-content.sql
+node scripts/pr359-r4/check-staging-managed-data.mjs --compare "$workdir/staging-managed-source.jsonl" "$workdir/staging-managed-after-export.jsonl"
 sha256sum "$dumpdir/roles.sql" "$dumpdir/schema.sql" "$dumpdir/data.sql" \
  "$dumpdir/history-schema.sql" "$dumpdir/history-data.sql" >"$workdir/staging-export-manifest.sha256"
 sha256sum -c --status "$workdir/staging-export-manifest.sha256"

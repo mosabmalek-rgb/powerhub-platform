@@ -150,3 +150,21 @@ An independent Bash execution regression now simulates `pg_dump` exiting nonzero
 
 `R4_STAGING_DATA_DUMP_PIPELINE_FAILURE_GUARD=CODE_READY_PENDING_CI`
 `STAGING_INPLACE_GO=false`
+
+## Staging Auth/Storage managed-row fidelity guard
+
+A read-only SHA-256 content attestation now covers the four exact tables:
+auth.users, auth.identities, storage.buckets and storage.objects.
+The source fingerprints are generated from the same exported snapshot as the
+schema, data and migration ledger dumps, then compared after export and after
+each of the two separate disposable Local Stack restores. It outputs only
+table identities, row counts and hashes. Missing, unexpected, duplicate or
+equal-count changed contents fail closed.
+
+Scope limitation: storage.objects holds object metadata, not the actual blob
+bytes. Physical Storage bytes, Auth signing secrets, provider configuration,
+and the role-only dump outside the snapshot need separate evidence.
+
+R4_STAGING_AUTH_STORAGE_ROW_PARITY=CODE_READY_PENDING_PROTECTED_RUN
+R4_STORAGE_EXTERNAL_BLOB_BYTES=NOT_PROVEN
+STAGING_INPLACE_GO=false

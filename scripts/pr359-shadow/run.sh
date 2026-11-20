@@ -458,7 +458,12 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
     sql postgres < scripts/pr359-r4/staging-table-content.sql > "$work/staging-content-restored.jsonl"
     node scripts/pr359-r4/check-staging-table-content.mjs --compare \
       "$work/staging-content-source.jsonl" "$work/staging-content-restored.jsonl"
+    SHADOW_STAGE=staging-restored-managed-data
+    sql postgres < scripts/pr359-r4/staging-managed-data-content.sql > "$work/staging-managed-restored.jsonl"
+    node scripts/pr359-r4/check-staging-managed-data.mjs --compare \
+      "$work/staging-managed-source.jsonl" "$work/staging-managed-restored.jsonl"
     echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_AND_CONTENT_PASS'
+    echo 'PR359_STAGING_MANAGED_AUTH_STORAGE_ROW_PARITY_PASS'
   fi
   [[ "$(value "SELECT to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == t ]] || { echo 'Managed schema missing' >&2;exit 1; }
 }
