@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 const source=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
 const start=source.indexOf('dump_data(){');
-const end=source.indexOf('\ndump_schema schema.sql',start);
+const end=source.indexOf('\nschema_exclude_args=()',start);
 assert.ok(start>=0 && end>start,'dump_data function definition must be isolated');
 const fn=source.slice(start,end);
 

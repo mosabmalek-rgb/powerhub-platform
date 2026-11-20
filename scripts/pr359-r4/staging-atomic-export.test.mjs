@@ -9,7 +9,7 @@ test('Staging only, guard and bounded exported snapshot owner',()=>{
 });
 test('all four data/schema/history files share one exported snapshot',()=>{
  const s=script();
- for(const fragment of ['--snapshot="$PR359_SNAPSHOT_ID"','dump_schema schema.sql','dump_data data.sql','dump_schema history-schema.sql','dump_data history-data.sql','--schema=supabase_migrations','--exclude-schema="$internal"','--exclude-schema="$data_excluded"','postgres:17.6','--role postgres']) assert.ok(s.includes(fragment),fragment);
+ for(const fragment of ['--snapshot="$PR359_SNAPSHOT_ID"','dump_schema schema.sql','dump_data data.sql','dump_schema history-schema.sql','dump_data history-data.sql','--schema=supabase_migrations','schema_exclude_args+=("--exclude-schema=$pattern")','data_exclude_args+=("--exclude-schema=$pattern")','postgres:17.6','--role postgres']) assert.ok(s.includes(fragment),fragment);
 });
 test('source reference attestations use imported transaction snapshot and manifest',()=>{
  const s=script();
