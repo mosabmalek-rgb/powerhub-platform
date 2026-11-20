@@ -42,6 +42,10 @@ jobs:
         run: |
           bash -n scripts/pr359-r4/staging-schema-fingerprint-disposable.sh
           bash scripts/pr359-r4/staging-schema-fingerprint-disposable.sh
+      - name: Run exact Staging pg_dump filters against isolated PostgreSQL source and restore
+        run: |
+          bash -n scripts/pr359-r4/staging-dump-filter-real-restore.sh
+          bash scripts/pr359-r4/staging-dump-filter-real-restore.sh
   real-restored-finance:
     if: >-
       vars.PR359_ENABLE_PRODUCTION_DOCKER_SHADOW == 'true' &&

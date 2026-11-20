@@ -238,3 +238,23 @@ atomic role snapshot or evidence of a durable recovery backup.
 `R4_STAGING_GLOBAL_ROLE_DRIFT_GUARD=CODE_READY_PENDING_PROTECTED_RUN`
 `R4_STAGING_ROLE_ATOMICITY=NOT_PROVEN`
 `STAGING_INPLACE_GO=false`
+
+## R4 end-to-end Staging exporter SQL filters and restore (disposable)
+
+A networkless PostgreSQL 17.6 integration test now extracts the exact
+`schema_filter`, `dump_schema`, `dump_data`, internal exclusion and data
+inclusion definitions from the protected Staging exporter. It runs actual
+`pg_dump` against a synthetic app table and provider-managed Auth table,
+ensures the schema export excludes the managed Auth DDL while the data export
+includes the existing Auth row, then restores the resulting SQL files to a
+second database in the same networkless container. Acceptance requires the
+app rows, numeric amount, provider row, and index to survive. There are no
+hosted credentials, hosted connections, or destructive hosted operations.
+
+The test proves the application/provider filter semantics but does NOT
+prove the real Supabase Local Stack managed-catalog parity or hosted Staging
+restore. Those remain protected run requirements.
+
+`R4_ACTUAL_PGDUMP_FILTER_RESTORE=CODE_READY_PENDING_CI`
+`R4_STAGING_REAL_RESTORE=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`
