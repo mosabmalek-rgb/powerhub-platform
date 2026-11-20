@@ -71,14 +71,14 @@ pgdump(){
  docker exec -e "PGPASSWORD=$password" "$container" \
    pg_dump -w -U postgres -d postgres "$@"
 }
-dump_schema schema.sql --exclude-schema="$internal"
-dump_data data.sql --exclude-schema="$data_excluded" --schema='*'
+dump_schema schema.sql "${schema_exclude_args[@]}"
+dump_data data.sql "${data_exclude_args[@]}" --schema='*'
 [[ -s "$dumpdir/schema.sql" && -s "$dumpdir/data.sql" ]] || exit 1
-if grep -q 'CREATE TABLE "auth"."pr359_provider_probe"' "$dumpdir/schema.sql"; then
+if grep -Eq 'CREATE TABLE (IF NOT EXISTS )?"auth"\."pr359_provider_probe"' "$dumpdir/schema.sql"; then
  echo 'PR359_REAL_EXPORT_MANAGED_SCHEMA_EXCLUSION_FAILED' >&2
  exit 1
 fi
-grep -q 'CREATE TABLE "public"."pr359_export_probe"' "$dumpdir/schema.sql" || {
+grep -Eq 'CREATE TABLE (IF NOT EXISTS )?"public"\."pr359_export_probe"' "$dumpdir/schema.sql" || {
  echo 'PR359_REAL_EXPORT_APP_SCHEMA_MISSING' >&2; exit 1;
 }
 grep -q 'test-provider' "$dumpdir/data.sql" || {

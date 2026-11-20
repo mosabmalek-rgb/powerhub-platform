@@ -258,3 +258,10 @@ restore. Those remain protected run requirements.
 `R4_ACTUAL_PGDUMP_FILTER_RESTORE=CODE_READY_PENDING_CI`
 `R4_STAGING_REAL_RESTORE=NOT_PROVEN`
 `STAGING_INPLACE_GO=false`
+
+## Native pg_dump exclusions fixed after executable fixture failure
+
+PostgreSQL `--exclude-schema` accepts a single pattern per occurrence, not a pipe-separated collection. The Staging-only exporter now expands each reviewed pattern into a separate pg_dump argument, retaining glob wildcards. The integration fixture also checks the transformed `CREATE TABLE IF NOT EXISTS` syntax and rejects managed Auth DDL, missing provider row data, and incomplete application/index restoration. No hosted database writes are authorized.
+
+R4_NATIVE_SCHEMA_EXCLUSION=FIXED_PENDING_CI
+STAGING_INPLACE_GO=false

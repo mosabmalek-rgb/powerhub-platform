@@ -122,8 +122,22 @@ dump_data(){
  printf '\nRESET ALL;\n' >>"$destination"
  [[ -s "$destination" ]] || return 1
 }
-dump_schema schema.sql --exclude-schema="$internal"
-dump_data data.sql --exclude-schema="$data_excluded" --schema='*'
+# Native pg_dump takes one schema PATTERN per --exclude-schema flag, not
+# the CLI pipe-separated list; keep wildcard patterns as individual entries.
+schema_exclude_args=()
+data_exclude_args=()
+IFS='|' read -r -a internal_patterns <<< "$internal"
+IFS='|' read -r -a data_patterns <<< "$data_excluded"
+for pattern in "${internal_patterns[@]}"; do
+ [[ -n "$pattern" ]] || { echo PR359_EMPTY_SCHEMA_EXCLUDE >&2; exit 1; }
+ schema_exclude_args+=("--exclude-schema=$pattern")
+done
+for pattern in "${data_patterns[@]}"; do
+ [[ -n "$pattern" ]] || { echo PR359_EMPTY_DATA_EXCLUDE >&2; exit 1; }
+ data_exclude_args+=("--exclude-schema=$pattern")
+done
+dump_schema schema.sql "${schema_exclude_args[@]}"
+dump_data data.sql "${data_exclude_args[@]}" --schema='*'
 dump_schema history-schema.sql --schema=supabase_migrations
 dump_data history-data.sql --schema=supabase_migrations
 source_psql "$workdir/staging-content-after-export.jsonl" scripts/pr359-r4/staging-table-content.sql
