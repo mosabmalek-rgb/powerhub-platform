@@ -263,6 +263,18 @@ node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
   "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
 echo 'PR359_PRE_EXPORT_MANAGED_PARITY_PASS: data export may now begin'
 
+# Read-only fingerprint of the exact historical application migration ledger,
+# including all six columns and statement arrays. Never print statement content.
+SHADOW_STAGE=source-historical-ledger-attestation
+if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-shadow/history-attestation.sql \
+    > "$work/source-history-attestation.json" 2>/dev/null; then
+  echo 'PR359_SOURCE_HISTORY_ATTESTATION_FAILED' >&2; exit 1
+fi
+[[ -s "$work/source-history-attestation.json" ]] || {
+  echo 'PR359_SOURCE_HISTORY_ATTESTATION_EMPTY' >&2; exit 1;
+}
+
 dump roles.sql --role-only
 dump schema.sql
 dump data.sql --data-only --use-copy
@@ -349,7 +361,16 @@ restore(){
   fi
   SHADOW_STAGE=restore-history
   runfile postgres "$work/dump/history-data.sql"
-  [[ "$(value "$source_sql")" == "$(cat "$work/source-counts")" ]] || { echo 'Source and restore row counts differ' >&2;exit 1; }
+  # Full-row cryptographic history attestation after each independent restore,
+# BEFORE any financial migration changes the migration ledger.
+SHADOW_STAGE=verify-restored-legacy-ledger-sha256
+sql postgres < scripts/pr359-shadow/history-attestation.sql > "$work/target-history-attestation.json"
+cmp -s "$work/source-history-attestation.json" "$work/target-history-attestation.json" || {
+  echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_MISMATCH' >&2; exit 1;
+}
+echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
+
+[[ "$(value "$source_sql")" == "$(cat "$work/source-counts")" ]] || { echo 'Source and restore row counts differ' >&2;exit 1; }
   [[ "$(value "SELECT to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == t ]] || { echo 'Managed schema missing' >&2;exit 1; }
 }
 apply(){ for i in $(seq "$1" 4); do SHADOW_STAGE="finance-migration-$i";runfile postgres "$work/transactions/$i-apply.sql";done; }
