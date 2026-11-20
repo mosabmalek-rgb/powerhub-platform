@@ -1,0 +1,170 @@
+{
+  "format": "PR359 R4 Staging relation read-only metadata parity v1",
+  "source_ref": "docs/security/pr359-r0-staging-relations-20261119.json",
+  "source_sha_at_observation": "d64e54537e46a91733ffce913e7aae88f42ea23b",
+  "observed_on": "2026-11-20",
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "method": "14 Supabase execute_sql SELECT only batches with JSON structural comparison against R0 metadata",
+  "metadata_scope": [
+    "relation type",
+    "owner",
+    "RLS",
+    "FORCE RLS",
+    "extension membership",
+    "ACL SHA256 of relacl::text",
+    "anon SELECT and authenticated SELECT role privileges",
+    "ordered column name/type/nullability/identity/generated/default expression SHA256"
+  ],
+  "source_relation_count": 337,
+  "source_column_count": 2723,
+  "reports": [
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 1,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 2,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 3,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 4,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 5,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 6,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 7,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 8,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 9,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 10,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 11,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 12,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 13,
+      "batches": 14,
+      "expected": 25,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    },
+    {
+      "scope": "PR359_R4_RELATIONS_READ_ONLY_V1",
+      "batch": 14,
+      "batches": 14,
+      "expected": 12,
+      "actual_total": 337,
+      "missing": 0,
+      "changed": 0,
+      "samples": []
+    }
+  ],
+  "limitations": [
+    "14 independent SELECT statements, not atomic snapshot",
+    "Source role privileges, not behavioral cross-tenant authorization",
+    "Not a complete table DDL proof: triggers, constraints and indexes have separate evidence",
+    "Not evidence of APP_OWNED classification",
+    "Not a fresh durable encrypted backup or Staging rebaseline approval"
+  ],
+  "staging_inplace_go": false
+}
