@@ -8,6 +8,13 @@ const counts=new Map([
  ['function:powerhub_private',5],['function:private',57],['function:public',579],
  ['relation:private',12],['relation:public',325],
 ]);
+// Cross-schema FKs are owned by pg_constraint and are omitted from a generic
+// pg_class/pg_proc dependency scan. Keep the exact known three edges visible.
+const knownManagedFks=new Map([
+ ['powerhub_user_device_locks_user_id_fkey','powerhub_user_device_locks'],
+ ['staff_password_reset_intents_auth_user_id_fkey','staff_password_reset_intents'],
+ ['users_auth_user_id_fkey','users'],
+]);
 const jobs=new Map([
  ['powerhub-subscription-lifecycle','*/15 * * * *'],
  ['powerhub_reconcile_expired_field_readers','*/5 * * * *'],
@@ -38,6 +45,28 @@ export function assessR4OwnershipBoundary(snapshot){
  }
  if(!Array.isArray(m.managed_edges)) blockers.push('MISSING_DEPENDENCY_EVIDENCE');
  else if(m.managed_edges.length!==0) blockers.push('MANAGED_DEPENDENCY_REVIEW_REQUIRED');
+ if(!Array.isArray(m.managed_foreign_keys)) blockers.push('MISSING_MANAGED_FK_INVENTORY');
+ else{
+   if(m.managed_foreign_keys.length!==knownManagedFks.size)
+     blockers.push('MANAGED_FK_COUNT_DRIFT');
+   const seen=new Set();
+   for(const edge of m.managed_foreign_keys){
+     if(!edge || typeof edge.constraint_name!=='string' ||
+        !knownManagedFks.has(edge.constraint_name)){
+       blockers.push('UNREVIEWED_MANAGED_FK'); continue;
+     }
+     if(seen.has(edge.constraint_name))
+       blockers.push('DUPLICATE_MANAGED_FK:'+edge.constraint_name);
+     seen.add(edge.constraint_name);
+     if(edge.source_schema!=='public' ||
+        edge.source_table!==knownManagedFks.get(edge.constraint_name) ||
+        edge.target_schema!=='auth' || edge.target_table!=='users' ||
+        edge.validated!==true || edge.deferrable!==false || edge.deferred!==false)
+       blockers.push('MANAGED_FK_DEFINITION_OR_TARGET_DRIFT:'+edge.constraint_name);
+   }
+   for(const name of knownManagedFks.keys())
+     if(!seen.has(name)) blockers.push('MISSING_MANAGED_FK:'+name);
+ }
  if(!Array.isArray(m.cron_inventory)) blockers.push('MISSING_CRON_INVENTORY');
  else{
    const found=new Set();

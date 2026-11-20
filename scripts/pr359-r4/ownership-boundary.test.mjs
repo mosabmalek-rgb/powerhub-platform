@@ -13,6 +13,17 @@ const fixture=()=>({
    {kind:'relation',schema:'public',owner:'postgres',extension_owned:false,object_count:325},
   ],
   managed_edges:[],
+  managed_foreign_keys:[
+   {constraint_name:'powerhub_user_device_locks_user_id_fkey',source_schema:'public',
+    source_table:'powerhub_user_device_locks',target_schema:'auth',target_table:'users',
+    validated:true,deferrable:false,deferred:false},
+   {constraint_name:'staff_password_reset_intents_auth_user_id_fkey',source_schema:'public',
+    source_table:'staff_password_reset_intents',target_schema:'auth',target_table:'users',
+    validated:true,deferrable:false,deferred:false},
+   {constraint_name:'users_auth_user_id_fkey',source_schema:'public',
+    source_table:'users',target_schema:'auth',target_table:'users',
+    validated:true,deferrable:false,deferred:false},
+  ],
   cron_inventory:[
    {name:'powerhub-subscription-lifecycle',schedule:'*/15 * * * *',active:true},
    {name:'powerhub_reconcile_expired_field_readers',schedule:'*/5 * * * *',active:true},
@@ -54,4 +65,21 @@ test('different database, schema and absent audit are never accepted',()=>{
  assert.equal(assessR4OwnershipBoundary(y).inventoryMatches,false);
  const z=fixture();delete z.metadata.owned_groups;
  assert.ok(assessR4OwnershipBoundary(z).blockers.includes('MISSING_OBJECT_GROUPS'));
+});
+
+test('ownership inventory requires the three provider Auth foreign keys explicitly',()=>{
+ const missing=fixture(); delete missing.metadata.managed_foreign_keys;
+ assert.ok(assessR4OwnershipBoundary(missing).blockers.includes('MISSING_MANAGED_FK_INVENTORY'));
+ const omitted=fixture(); omitted.metadata.managed_foreign_keys.pop();
+ const omittedResult=assessR4OwnershipBoundary(omitted);
+ assert.ok(omittedResult.blockers.includes('MANAGED_FK_COUNT_DRIFT'));
+ assert.ok(omittedResult.blockers.some(x=>x.startsWith('MISSING_MANAGED_FK:')));
+ const changed=fixture(); changed.metadata.managed_foreign_keys[0].target_table='identities';
+ assert.ok(assessR4OwnershipBoundary(changed).blockers.some(x=>x.startsWith('MANAGED_FK_DEFINITION_OR_TARGET_DRIFT:')));
+ const invalid=fixture(); invalid.metadata.managed_foreign_keys[0].validated=false;
+ assert.ok(assessR4OwnershipBoundary(invalid).blockers.some(x=>x.startsWith('MANAGED_FK_DEFINITION_OR_TARGET_DRIFT:')));
+ const unexpected=fixture(); unexpected.metadata.managed_foreign_keys[0].constraint_name='unknown_fk';
+ assert.ok(assessR4OwnershipBoundary(unexpected).blockers.includes('UNREVIEWED_MANAGED_FK'));
+ const duplicate=fixture(); duplicate.metadata.managed_foreign_keys[1]={...duplicate.metadata.managed_foreign_keys[0]};
+ assert.ok(assessR4OwnershipBoundary(duplicate).blockers.some(x=>x.startsWith('DUPLICATE_MANAGED_FK:')));
 });

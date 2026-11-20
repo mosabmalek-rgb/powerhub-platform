@@ -300,3 +300,21 @@ remains Supabase-managed and is never approved for app-owned deletion.
 R4_MANAGED_AUTH_FK_PARITY=CODE_READY_PENDING_PROTECTED_RUN
 APP_OWNED_APPROVED=false
 STAGING_INPLACE_GO=false
+
+## R4 ownership-boundary cross-schema FK visibility hardening
+
+The preliminary `APP_OWNED` register examines 978 candidate relations/functions,
+but the earlier generic `pg_depend` edge query inspected only `pg_class` and
+`pg_proc` members and could not represent foreign keys whose owning object
+is `pg_constraint`. A read-only Staging query confirmed three application
+foreign keys into the managed `auth.users` table. The ownership inventory
+now emits those FK identities, sources, targets, validation and deferral
+properties explicitly, rejecting absent/unknown/duplicated/drifted edges.
+Generic dependency enumeration is also restricted to the actual object class
+to prevent unrelated OID matches. This is a completeness guard, **not** an
+approval of `APP_OWNED`, a complete dynamic-SQL dependency analysis, or
+authorization to remove any application/provider object.
+
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
