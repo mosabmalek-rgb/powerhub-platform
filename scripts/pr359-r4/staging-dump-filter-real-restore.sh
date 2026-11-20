@@ -83,6 +83,9 @@ JS
 mkdir -m 700 "$work/dump"
 dumpdir="$work/dump"
 # shellcheck disable=SC1090
+# The isolated test extracts just the exporter functions, not its prologue.
+# Match the real runner's harmless progress API without changing export logic.
+r4_progress(){ :; }
 source "$work/export-functions.sh"
 pgdump(){
  docker exec -e "PGPASSWORD=$password" "$container" \
