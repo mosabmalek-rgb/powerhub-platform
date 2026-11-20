@@ -402,3 +402,28 @@ fail-closed recovery behavior even if FK DDL is VALIDATED.
 `APP_OWNED_APPROVED=false`
 `CANONICAL_BASELINE_APPROVED=false`
 `STAGING_INPLACE_GO=false`
+
+## R4 protected Staging request commit-binding hardening
+
+The isolated staging workflow remains opt-in and does **not** run on normal
+PR commits. Its request validator now requires all of the following on an
+activation commit: a reviewed 40-character parent SHA recorded as
+`approved_parent_sha`, a checked-out HEAD that matches the GitHub
+`SHADOW_APPROVED_HEAD`, exactly one Git parent, the exact PR branch ref,
+and a Git diff containing **only** the run-request JSON file. Checkout
+fetches two commits so the actual parent can be checked. A request cannot
+be silently reused after unrelated code changes; a fresh request-only
+activation commit and environment review are needed on the new head.
+
+The checked-in request remains `requested=false`, its token and parent
+are `UNSET`, and the repository opt-in variable, protected environment
+approval and Staging-only secret are still separate prerequisites. The
+approval token is a non-secret review marker, not a substitute for GitHub
+environment protection. The code guards authorize *isolated read-only
+source restore* only, not destruction, rebaseline or a merge.
+
+`R4_STAGING_REQUEST_PARENT_SHA_BOUND=CODE_READY_PENDING_CI`
+`R4_STAGING_PROTECTED_RESTORE=NOT_EXECUTED`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`

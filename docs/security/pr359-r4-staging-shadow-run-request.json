@@ -4,5 +4,6 @@
   "project_ref": "iyuryuhaylhisjfcrwkz",
   "purpose": "two isolated read-only source logical exports and Staging legacy-ledger restorations",
   "approval_token": "UNSET",
-  "warning": "Protected GitHub environment approval and enabled repository variable are also required. Keep requested=false until explicitly authorized."
+  "warning": "Protected environment approval and repository opt-in remain required. Activation must be a single-purpose commit changing only this file; set approved_parent_sha to its reviewed parent HEAD. Keep requested=false until authorized.",
+  "approved_parent_sha": "UNSET"
 }
