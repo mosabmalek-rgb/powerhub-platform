@@ -59,3 +59,14 @@ test('Staging workflow checks before export, after export and each restore only'
  assert.ok(shell.indexOf('SHADOW_STAGE=staging-source-content-after-export')<shell.indexOf('unset PGOPTIONS PGSSLMODE SHADOW_SOURCE_DB_URL'));
  assert.ok(shell.includes('PR359_STAGING_INPLACE_GO=FALSE'));
 });
+
+test('dynamic content query uses dollar-quoted SQL and safe identifier quoting',()=>{
+ const sql=readFileSync('scripts/pr359-r4/staging-table-content.sql','utf8');
+ assert.match(sql,/SELECT format\(\$content_sql\$/);
+ assert.match(sql,/\$content_sql\$, n\.nspname, c\.relname, n\.nspname, c\.relname\)/);
+ assert.match(sql,/FROM %I\.%I AS t/);
+ assert.match(sql,/\bstring_agg\(/);
+ assert.match(sql,/\bsha256\b/);
+ assert.match(sql,/\\gexec/);
+ assert.doesNotMatch(sql,/\|\|\s*'encode\(/,'unsafe quote-concatenation regression');
+});
