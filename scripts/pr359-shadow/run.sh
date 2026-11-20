@@ -3,7 +3,7 @@ set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.." 
 mode="${1:-}"
-[[ "$mode" == smoke || "$mode" == full ]] || { echo 'Usage: run.sh smoke|full' >&2; exit 2; }
+[[ "$mode" == smoke || "$mode" == full || "$mode" == staging-restore ]] || { echo 'Usage: run.sh smoke|full|staging-restore' >&2; exit 2; }
 for tool in docker node sha256sum; do command -v "$tool" >/dev/null || { echo "Missing: $tool" >&2; exit 2; }; done
 work="$(mktemp -d)"
 container=''
@@ -11,7 +11,7 @@ stack_dir=''
 stack_network=''
 target_db_url=''
 cleanup(){
-  if [[ "${mode:-}" == full && -n "$stack_dir" && -f "$stack_dir/supabase/config.toml" ]]; then
+  if [[ "${mode:-}" != smoke && -n "$stack_dir" && -f "$stack_dir/supabase/config.toml" ]]; then
     (cd "$stack_dir" && supabase stop --no-backup >/dev/null 2>&1) || :
   fi
   if [[ -n "$container" && "$mode" == smoke ]]; then docker rm -f "$container" >/dev/null 2>&1 || :; fi
@@ -21,7 +21,7 @@ cleanup(){
 # Print resource metadata only, never database SQL/dump contents, credentials or raw container logs.
 shadow_diagnose(){
   local code="$1"
-  [[ "$mode" == full ]] || return 0
+  [[ "$mode" != smoke ]] || return 0
   echo "PR359_SHADOW_FAILURE_STAGE=${SHADOW_STAGE:-unknown}; EXIT_CODE=$code" >&2
   if [[ -n "$container" ]] && docker inspect "$container" >/dev/null 2>&1; then
     docker inspect --format 'PR359_SHADOW_DOCKER_STATE running={{.State.Running}} oom_killed={{.State.OOMKilled}} exit_code={{.State.ExitCode}}' "$container" >&2 || :
@@ -48,7 +48,7 @@ on_exit(){
 trap on_exit EXIT
 password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 start(){
-  if [[ "${mode:-}" == full ]]; then
+  if [[ "${mode:-}" != smoke ]]; then
     if [[ -n "$stack_dir" && -f "$stack_dir/supabase/config.toml" ]]; then
       (cd "$stack_dir" && supabase stop --no-backup >/dev/null 2>&1) || :
       [[ -n "$stack_network" ]] && docker network rm "$stack_network" >/dev/null 2>&1 || :
@@ -88,7 +88,7 @@ start(){
 }
 
 sql(){
-  if [[ "${mode:-}" == full ]]; then
+  if [[ "${mode:-}" != smoke ]]; then
     psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$target_db_url"
   else
     docker exec -i -e "PGPASSWORD=$password" "$container" psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d "${1:-postgres}"
@@ -98,7 +98,7 @@ runfile(){ sql "$1" < "$2" >/dev/null; }
 # In the full run the DB URL is the disposable Local Stack endpoint only.
 # In smoke this remains the isolated Docker-only admin bootstrap.
 sql_local_admin(){
-  if [[ "${mode:-}" == full ]]; then
+  if [[ "${mode:-}" != smoke ]]; then
     # Local Stack may expose the DB URL with a non-superuser-compatible
     # password policy. Bootstrap privileged roles over the disposable DB
     # container's Unix socket instead; this never reaches the hosted source.
@@ -168,7 +168,14 @@ if [[ "${mode:-}" == smoke ]]; then
   echo 'PR359_DOCKER_ISOLATED_SMOKE_PASS'
   exit 0
 fi
-[[ "${SHADOW_CONFIRM_PRODUCTION_TEST_DATA:-}" == YES_PRODUCTION_TEST_DATA ]] || exit 2
+if [[ "$mode" == staging-restore ]]; then
+  [[ "${SHADOW_SOURCE_KIND:-}" == staging ]] || { echo 'STAGING_SOURCE_KIND_REQUIRED' >&2;exit 2; }
+  [[ "${SHADOW_CONFIRM_STAGING_TEST_DATA:-}" == YES_STAGING_TEST_DATA ]] || { echo 'STAGING_TEST_DATA_ATTESTATION_REQUIRED' >&2;exit 2; }
+  [[ -z "${SHADOW_CONFIRM_PRODUCTION_TEST_DATA:-}" ]] || { echo 'STAGING_PRODUCTION_ATTESTATION_FORBIDDEN' >&2;exit 2; }
+else
+  [[ "${SHADOW_SOURCE_KIND:-production}" == production ]] || { echo 'PRODUCTION_SOURCE_KIND_REQUIRED' >&2;exit 2; }
+  [[ "${SHADOW_CONFIRM_PRODUCTION_TEST_DATA:-}" == YES_PRODUCTION_TEST_DATA ]] || exit 2
+fi
 [[ -n "${SHADOW_SOURCE_DB_URL:-}" ]] || { echo 'Missing source secret' >&2;exit 2; }
 [[ "$(git rev-parse HEAD)" == "${SHADOW_APPROVED_HEAD:-}" ]] || { echo 'Source HEAD SHA mismatch' >&2;exit 2; }
 command -v supabase >/dev/null && command -v psql >/dev/null || { echo 'Missing Supabase CLI or psql' >&2;exit 2; }
@@ -242,6 +249,9 @@ fi
 [[ -s "$work/source-history-attestation.json" ]] || {
   echo 'PR359_SOURCE_HISTORY_ATTESTATION_EMPTY' >&2; exit 1;
 }
+if [[ "$mode" == staging-restore ]]; then
+  node scripts/pr359-r4/check-staging-legacy-ledger.mjs "$work/source-history-attestation.json"
+fi
 
 # Do NOT copy business data until the local networkless engine proves it can
 # represent the source-managed service catalog and migration history. Running this
@@ -280,8 +290,31 @@ dump schema.sql
 dump data.sql --data-only --use-copy
 dump history-schema.sql --schema supabase_migrations
 dump history-data.sql --schema supabase_migrations --data-only --use-copy
+if [[ "$mode" == staging-restore ]]; then
+  # Source verification before unsetting credentials. These are independent
+  # read-only TLS transactions, not an atomic snapshot of Staging.
+  SHADOW_STAGE=staging-source-post-export-verify
+  if ! PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require \
+    psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-shadow/history-attestation.sql > "$work/source-history-after-export.json" 2>/dev/null; then
+    echo 'PR359_STAGING_POST_EXPORT_HISTORY_READ_FAILED' >&2;exit 1
+  fi
+  cmp -s "$work/source-history-attestation.json" "$work/source-history-after-export.json" || {
+    echo 'PR359_STAGING_HISTORY_CHANGED_DURING_EXPORT' >&2;exit 1;
+  }
+  if ! PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require \
+    psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --command "$source_sql" > "$work/source-counts-after-export" 2>/dev/null; then
+    echo 'PR359_STAGING_POST_EXPORT_COUNTS_READ_FAILED' >&2;exit 1
+  fi
+  cmp -s "$work/source-counts" "$work/source-counts-after-export" || {
+    echo 'PR359_STAGING_COUNTS_CHANGED_DURING_EXPORT' >&2;exit 1;
+  }
+fi
 unset PGOPTIONS PGSSLMODE SHADOW_SOURCE_DB_URL
-node scripts/pr359-shadow/render.mjs "$work/transactions"
+if [[ "$mode" == full ]]; then
+  node scripts/pr359-shadow/render.mjs "$work/transactions"
+fi
 restore(){
   SHADOW_STAGE=container-start
   start
@@ -376,6 +409,18 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
 apply(){ for i in $(seq "$1" 4); do SHADOW_STAGE="finance-migration-$i";runfile postgres "$work/transactions/$i-apply.sql";done; }
 fingerprint(){ sql postgres < scripts/pr359-shadow/fingerprint.sql | tail -1; }
 restore
+if [[ "$mode" == staging-restore ]]; then
+  cp "$work/target-history-attestation.json" "$work/staging-first-restored-history.json"
+  SHADOW_STAGE=staging-independent-second-restore
+  restore
+  cmp -s "$work/staging-first-restored-history.json" "$work/target-history-attestation.json" || {
+    echo 'PR359_STAGING_INDEPENDENT_RESTORE_HISTORY_DRIFT' >&2;exit 1;
+  }
+  echo 'PR359_STAGING_REAL_LEDGER_RESTORED_TWICE_PASS'
+  echo 'PR359_STAGING_EPOCH_V2_CUTOVER_PASS=NOT_GRANTED'
+  echo 'PR359_STAGING_INPLACE_GO=FALSE'
+  exit 0
+fi
 apply 1
 fingerprint > "$work/first"
 restore

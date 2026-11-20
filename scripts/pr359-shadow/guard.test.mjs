@@ -38,3 +38,26 @@ test('reject remote target',()=>{
  assert.equal(validateShadowTarget({host:'127.0.0.1',port:'5432',database:'postgres'}),true);
  assert.throws(()=>validateShadowTarget({host:'db.vvcdiqcyhaloxesvpppc.supabase.co',port:'5432',database:'postgres'}));
 });
+
+test('Staging source must be explicitly selected and Production URI never passes',()=>{
+ const staging='iyuryuhaylhisjfcrwkz';
+ const stagingDirect=direct.replaceAll(ref,staging);
+ const stagingPooler=pooler.replaceAll(ref,staging);
+ assert.equal(validateSource(stagingPooler,'staging').project,staging);
+ assert.equal(validateSource(stagingDirect,'staging').route,'direct');
+ assert.throws(()=>validateSource(direct,'staging'));
+ assert.throws(()=>validateSource(pooler,'staging'));
+ assert.throws(()=>validateSource(stagingDirect,'production'));
+ assert.throws(()=>validateSource(stagingPooler,'production'));
+ assert.throws(()=>validateSource(stagingPooler,'unrecognized'));
+ const prev=process.env.SHADOW_REQUIRE_SESSION_POOLER;
+ try{
+  process.env.SHADOW_REQUIRE_SESSION_POOLER='true';
+  assert.throws(()=>validateSource(stagingDirect,'staging'),/PR359_SOURCE_IPV4_REQUIRED/);
+  assert.equal(validateSource(stagingPooler,'staging').route,'session-pooler');
+  assert.throws(()=>validateSource(stagingPooler.replace('sslmode=require','sslmode=disable'),'staging'));
+ }finally{
+  if(prev===undefined)delete process.env.SHADOW_REQUIRE_SESSION_POOLER;
+  else process.env.SHADOW_REQUIRE_SESSION_POOLER=prev;
+ }
+});

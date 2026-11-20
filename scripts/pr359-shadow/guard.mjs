@@ -3,7 +3,10 @@ import {pathToFileURL} from 'node:url';
 import path from 'node:path';
 
 export const SOURCE_REF='vvcdiqcyhaloxesvpppc';
-export function validateSource(value) {
+export const STAGING_REF='iyuryuhaylhisjfcrwkz';
+export function validateSource(value,kind='production') {
+ assert.ok(['production','staging'].includes(kind),'Unrecognized source kind');
+ const sourceRef=kind==='production'?SOURCE_REF:STAGING_REF;
  assert.equal(typeof value,'string','Missing database URL');
  assert.ok(/^postgres(?:ql)?:\/\//.test(value),'Expected a PostgreSQL connection URI starting with postgres:// or postgresql:// (not the Supabase HTTPS project URL). Copy the Database URI under Supabase Connect, replace the password placeholder and append ?sslmode=require. Do not paste credentials into logs or chat.');
  const authority=value.slice(value.indexOf('://')+3).split('/')[0];
@@ -20,13 +23,13 @@ export function validateSource(value) {
  const keys=[...uri.searchParams.keys()];
  assert.ok(keys.length===0||(keys.length===1&&keys[0]==='sslmode'),'No extra parameters');
  assert.equal(uri.hash,'','Fragments forbidden');
- const direct=uri.hostname===`db.${SOURCE_REF}.supabase.co`&&uri.username==='postgres';
- const pooler=/^aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(uri.hostname)&&uri.username===`postgres.${SOURCE_REF}`;
- assert.ok(direct||pooler,'Only the known PowerHub Production source is permitted');
+ const direct=uri.hostname===`db.${sourceRef}.supabase.co`&&uri.username==='postgres';
+ const pooler=/^aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(uri.hostname)&&uri.username===`postgres.${sourceRef}`;
+ assert.ok(direct||pooler,'Only the explicitly selected PowerHub source is permitted');
  if (process.env.SHADOW_REQUIRE_SESSION_POOLER==='true' && !pooler) {
-  throw new Error('PR359_SOURCE_IPV4_REQUIRED: GitHub-hosted runners require Supabase Session Pooler (IPv4). In Supabase Production > Connect > Session Pooler > URI, copy the full port-5432 URI into the protected PR359_SHADOW_SOURCE_DB_URL secret. Direct db.<project>.supabase.co is IPv6-only without a paid IPv4 add-on. Never paste the URI in logs or chat.');
+  throw new Error('PR359_SOURCE_IPV4_REQUIRED: GitHub-hosted runners require Supabase Session Pooler (IPv4). In the selected Supabase project > Connect > Session Pooler > URI, copy the full port-5432 URI into the protected PR359_SHADOW_SOURCE_DB_URL secret. Direct db.<project>.supabase.co is IPv6-only without a paid IPv4 add-on. Never paste the URI in logs or chat.');
  }
- return {project:SOURCE_REF,route:direct?'direct':'session-pooler'};
+ return {project:sourceRef,route:direct?'direct':'session-pooler'};
 }
 export function validateShadowTarget({host,port,database}) {
  assert.equal(host,'127.0.0.1','Shadow target must be loopback');
@@ -35,6 +38,6 @@ export function validateShadowTarget({host,port,database}) {
  return true;
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
- const info=validateSource(process.env.SHADOW_SOURCE_DB_URL);
+ const info=validateSource(process.env.SHADOW_SOURCE_DB_URL,process.env.SHADOW_SOURCE_KIND||'production');
  console.log('PR359_SOURCE_GUARD_PASS: '+info.project+' / '+info.route+', TLS required');
 }
