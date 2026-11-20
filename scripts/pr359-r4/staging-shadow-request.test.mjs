@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import {validateStagingRequest,REQUEST_PATH,STAGING_BRANCH_REF} from './staging-shadow-request.mjs';
+import {readFileSync,mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {validateStagingRequest,currentGitRequestContext,REQUEST_PATH,STAGING_BRANCH_REF} from './staging-shadow-request.mjs';
 const approvedParent='a'.repeat(40);
 const reviewedHead='b'.repeat(40);
 const context=()=>({
@@ -50,4 +53,34 @@ test('request is pinned to the reviewed parent, exact SHA and request-only commi
   {changedFiles:[]}
  ]) assert.throws(()=>validateStagingRequest(a,{...context(),...broken}));
  assert.equal(validateStagingRequest(a,context()).stagingInplaceGo,false);
+});
+
+test('actual Git commit topology and changed-files parser isolates a request-only commit',()=>{
+ const root=mkdtempSync(join(tmpdir(),'pr359-r4-request-git-'));
+ const original=process.cwd();
+ try{
+  const git=(...args)=>execFileSync('git',args,{cwd:root,encoding:'utf8',
+   stdio:['ignore','pipe','pipe']}).trim();
+  git('init','-q');
+  git('config','user.email','r4-test@example.invalid');
+  git('config','user.name','R4 Test');
+  mkdirSync(join(root,'docs/security'),{recursive:true});
+  writeFileSync(join(root,'README.md'),'parent\n');
+  git('add','README.md');git('commit','-qm','reviewed parent');
+  const parent=git('rev-parse','HEAD');
+  writeFileSync(join(root,REQUEST_PATH),'requested=true\n');
+  git('add',REQUEST_PATH);git('commit','-qm','reviewed activation request');
+  const head=git('rev-parse','HEAD');
+  process.chdir(root);
+  const ctx=currentGitRequestContext({
+   GITHUB_REF:STAGING_BRANCH_REF,SHADOW_APPROVED_HEAD:head
+  });
+  assert.equal(ctx.parentSha,parent);
+  assert.equal(ctx.parentCount,1);
+  assert.deepEqual(ctx.changedFiles,[REQUEST_PATH]);
+  const request=base();request.requested=true;
+  request.approval_token='STAGING-SHADOW-TEST_REQUEST_001';
+  request.approved_parent_sha=parent;
+  assert.equal(validateStagingRequest(request,ctx).requestValid,true);
+ }finally{process.chdir(original);rmSync(root,{recursive:true,force:true});}
 });

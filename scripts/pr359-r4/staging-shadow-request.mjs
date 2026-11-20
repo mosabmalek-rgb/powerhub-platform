@@ -37,9 +37,9 @@ function gitValue(args) {
  return execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
 }
 export function currentGitRequestContext(env=process.env) {
- const parents=gitValue(['rev-list','--parents','-n','1','HEAD']).split(/\\s+/);
+ const parents=gitValue(['rev-list','--parents','-n','1','HEAD']).split(/\s+/);
  const changed=gitValue(['diff-tree','--no-commit-id','--name-only','-r','HEAD'])
-  .split(/\\r?\\n/).filter(Boolean);
+  .split(/\r?\n/).filter(Boolean);
  return {
   ref:env.GITHUB_REF,headSha:gitValue(['rev-parse','HEAD']),
   parentSha:parents[1],parentCount:parents.length-1,
