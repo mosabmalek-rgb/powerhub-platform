@@ -260,6 +260,13 @@ if [[ "$mode" == staging-restore ]]; then
   fi
   node scripts/pr359-r4/check-staging-table-counts.mjs --compare \
     "$work/staging-tables-source.jsonl" "$work/staging-tables-source.jsonl"
+  SHADOW_STAGE=staging-source-content-before-export
+  if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-r4/staging-table-content.sql > "$work/staging-content-source.jsonl" 2>/dev/null; then
+    echo 'PR359_STAGING_SOURCE_CONTENT_SHA256_FAILED' >&2;exit 1
+  fi
+  node scripts/pr359-r4/check-staging-table-content.mjs --compare \
+    "$work/staging-content-source.jsonl" "$work/staging-content-source.jsonl"
 fi
 
 # Do NOT copy business data until the local networkless engine proves it can
@@ -327,6 +334,14 @@ if [[ "$mode" == staging-restore ]]; then
   fi
   node scripts/pr359-r4/check-staging-table-counts.mjs --compare \
     "$work/staging-tables-source.jsonl" "$work/staging-tables-after-export.jsonl"
+  SHADOW_STAGE=staging-source-content-after-export
+  if ! PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require \
+    psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-r4/staging-table-content.sql > "$work/staging-content-after-export.jsonl" 2>/dev/null; then
+    echo 'PR359_STAGING_POST_EXPORT_CONTENT_SHA256_FAILED' >&2;exit 1
+  fi
+  node scripts/pr359-r4/check-staging-table-content.mjs --compare \
+    "$work/staging-content-source.jsonl" "$work/staging-content-after-export.jsonl"
 fi
 unset PGOPTIONS PGSSLMODE SHADOW_SOURCE_DB_URL
 if [[ "$mode" == full ]]; then
@@ -426,7 +441,11 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
     sql postgres < scripts/pr359-r4/staging-table-counts.sql > "$work/staging-tables-restored.jsonl"
     node scripts/pr359-r4/check-staging-table-counts.mjs --compare \
       "$work/staging-tables-source.jsonl" "$work/staging-tables-restored.jsonl"
-    echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_PASS'
+    SHADOW_STAGE=staging-restored-table-content
+    sql postgres < scripts/pr359-r4/staging-table-content.sql > "$work/staging-content-restored.jsonl"
+    node scripts/pr359-r4/check-staging-table-content.mjs --compare \
+      "$work/staging-content-source.jsonl" "$work/staging-content-restored.jsonl"
+    echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_AND_CONTENT_PASS'
   fi
   [[ "$(value "SELECT to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == t ]] || { echo 'Managed schema missing' >&2;exit 1; }
 }

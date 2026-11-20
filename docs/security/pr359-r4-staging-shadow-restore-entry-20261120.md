@@ -110,3 +110,28 @@ backups remain a separate production-grade acceptance gate.
 
 `R4_STAGING_183_TABLE_COUNT_GUARD=CODE_READY_PENDING_PROTECTED_RUN`
 `R4_STAGING_INPLACE_GO=false`
+
+## Equal-count row-content mutation guard (source and disposable restore)
+
+An additional Staging-only `staging-table-content.sql` gate calculates deterministic
+SHA-256 fingerprints over SHA-256 hashes of all rows in each of the **183**
+application tables. It canonicalizes timezone, float and bytea output, sorts
+row digests so row ordering is irrelevant, and emits only schema/table names,
+row counts and hashes. The source is queried read-only before and after export,
+and compared with **each** independent disposable restore. Differences in
+row values fail even if the table counts are unchanged. `node --test`
+regressions cover equal-count mutation, omitted/unknown/duplicate tables and
+invalid digests. This is defense in depth, **not** snapshot atomicity.
+
+**Remaining hard blocker:** `supabase db dump` invokes separate `pg_dump`
+transactions for roles/schema/data/history. Matching before/after fingerprints
+is not a proof that those independent dumps imported one MVCC snapshot; a
+write that is reverted between checks is still possible. Before granting R4,
+implement and verify a shared `pg_export_snapshot()`/`pg_dump --snapshot`
+protocol (or a separately reviewed, operationally enforced source write-freeze)
+with content integrity, and run the protected real-Staging restore. No claim
+of successful source snapshot is made by these changes.
+
+`R4_STAGING_183_TABLE_CONTENT_SHA256=CODE_READY_PENDING_PROTECTED_RUN`
+`R4_CROSS_EXPORT_ATOMIC_SNAPSHOT=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`
