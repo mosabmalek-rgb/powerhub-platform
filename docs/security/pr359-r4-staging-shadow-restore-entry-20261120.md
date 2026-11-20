@@ -205,3 +205,20 @@ schema/security changes. No hosted source or test-user credentials are used.
 `R4_DISPOSABLE_SCHEMA_SHA_SENSITIVITY=CODE_READY_PENDING_CI`
 `R4_STAGING_REAL_RESTORE=NOT_PROVEN`
 `STAGING_INPLACE_GO=false`
+
+## R4 provider-managed source metadata bound to shared MVCC snapshot
+
+The three source-managed crosswalks (managed-catalog.sql, managed-migrations.sql,
+and managed-relations.sql) were originally captured in independent pre-export
+transactions. The Staging-only atomic exporter now re-runs all three inside
+the same exported read-only MVCC snapshot used by the application, Auth/Storage
+content and legacy migration ledger, and compares their metadata to preflight.
+Any drift fails closed before a SQL dump. Subsequent Local Stack compatibility
+checks still use the source-managed catalogs whose equality was established.
+
+This does not make global roles atomically backed up, nor Storage blob bytes,
+nor grant Staging in-place rebaseline. A protected real Staging run remains pending.
+
+R4_STAGING_MANAGED_CATALOG_SNAPSHOT=CODE_READY_PENDING_PROTECTED_RUN
+R4_STAGING_PROVIDER_ROLES_ATOMIC=NOT_PROVEN
+STAGING_INPLACE_GO=false

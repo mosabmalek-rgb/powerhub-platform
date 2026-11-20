@@ -51,6 +51,18 @@ source_psql "$workdir/staging-managed-source.jsonl" scripts/pr359-r4/staging-man
 node scripts/pr359-r4/check-staging-managed-data.mjs --compare "$workdir/staging-managed-source.jsonl" "$workdir/staging-managed-source.jsonl"
 source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-schema-fingerprint.sql
 node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare "$workdir/staging-schema-source.jsonl" "$workdir/staging-schema-source.jsonl"
+# Bind the provider-managed crosswalk to the same exported source snapshot.
+# A changed provider catalog between preflight and export fails closed.
+for surface in catalog migrations relations; do
+  source_psql "$workdir/staging-managed-$surface-snapshot.json" \
+    "scripts/pr359-shadow/managed-$surface.sql"
+  if ! cmp -s "$workdir/source-managed-$surface.json" \
+      "$workdir/staging-managed-$surface-snapshot.json"; then
+    echo "PR359_STAGING_PROVIDER_MANAGED_PREFLIGHT_SNAPSHOT_DRIFT=$surface" >&2
+    exit 1
+  fi
+done
+echo 'PR359_STAGING_MANAGED_SOURCE_METADATA_SNAPSHOT_BOUND_PASS'
 pgdump(){
  docker run --rm --network host -e SHADOW_SOURCE_DB_URL -e PR359_SNAPSHOT_ID \
    -e PGSSLMODE=require -e PGOPTIONS --entrypoint /bin/sh postgres:17.6 -ec \
