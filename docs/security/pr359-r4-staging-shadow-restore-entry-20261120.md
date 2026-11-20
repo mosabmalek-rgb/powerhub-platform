@@ -265,3 +265,17 @@ PostgreSQL `--exclude-schema` accepts a single pattern per occurrence, not a pip
 
 R4_NATIVE_SCHEMA_EXCLUSION=FIXED_PENDING_CI
 STAGING_INPLACE_GO=false
+
+## R4 combined native export filters and one MVCC snapshot
+
+The existing networkless PostgreSQL 17.6 real pg_dump filter-and-restore
+integration now holds an exported REPEATABLE READ snapshot across application
+schema and managed-inclusive data dumps. A separate source connection inserts
+an app row and updates an Auth row between the two dumps; a fresh negative
+control confirms the writes committed, but the snapshot-bound SQL must restore
+only pre-write records, indexes, and financial totals. The test exercises
+native pg_dump --snapshot together with all reviewed schema exclude options.
+This is an isolated model, not real-Staging restore or an approved baseline.
+
+R4_COMBINED_NATIVE_FILTER_MVCC_SNAPSHOT=CODE_READY_PENDING_CI
+STAGING_INPLACE_GO=false

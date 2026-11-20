@@ -14,7 +14,11 @@ done
 work="$(mktemp -d)"
 container="pr359-real-export-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
 password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+keeper_pid=''
+keeper_in=''
 cleanup(){
+ if [[ -n "$keeper_in" ]]; then printf 'ROLLBACK;\n\\q\n' >&"$keeper_in" 2>/dev/null || :; fi
+ if [[ -n "$keeper_pid" ]]; then kill "$keeper_pid" 2>/dev/null || :; wait "$keeper_pid" 2>/dev/null || :; fi
  docker rm -f "$container" >/dev/null 2>&1 || :
  rm -rf -- "$work"
 }
@@ -48,6 +52,19 @@ INSERT INTO public.pr359_export_probe VALUES
  (1,'test-one',12.50),(2,'test-two',0);
 INSERT INTO auth.pr359_provider_probe VALUES(1,'test-provider');
 SQL
+# Export a single MVCC snapshot and keep its transaction open across the dumps.
+coproc SNAPSHOT_KEEPER {
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+  psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres 2>"$work/keeper.err"
+}
+keeper_pid="$SNAPSHOT_KEEPER_PID"
+keeper_out="${SNAPSHOT_KEEPER[0]}"
+keeper_in="${SNAPSHOT_KEEPER[1]}"
+printf 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSELECT pg_export_snapshot();\n' >&"$keeper_in"
+snapshot=''
+if ! IFS= read -r -t 30 snapshot <&"$keeper_out" || [[ ! "$snapshot" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[0-9]+$ ]]; then
+ echo 'PR359_REAL_EXPORT_SNAPSHOT_KEEPER_FAILED' >&2; exit 1
+fi
 
 # Evaluate the ACTUAL schema/data export functions and filters. In the test
 # only, redirect their pg_dump wrapper to the Docker internal socket.
@@ -69,9 +86,17 @@ dumpdir="$work/dump"
 source "$work/export-functions.sh"
 pgdump(){
  docker exec -e "PGPASSWORD=$password" "$container" \
-   pg_dump -w -U postgres -d postgres "$@"
+   pg_dump -w -U postgres -d postgres --snapshot="$snapshot" "$@"
 }
 dump_schema schema.sql "${schema_exclude_args[@]}"
+# Concurrent writer commits after schema dump but before data dump.
+cat <<'SQL' | db postgres >/dev/null
+INSERT INTO public.pr359_export_probe VALUES (3,'late-test',99.99);
+UPDATE auth.pr359_provider_probe SET payload='late-provider' WHERE id=1;
+SQL
+docker exec -e "PGPASSWORD=$password" "$container" pg_dump -w -U postgres -d postgres \
+ --data-only --table=public.pr359_export_probe --column-inserts > "$work/fresh.sql"
+grep -q 'late-test' "$work/fresh.sql" || { echo 'PR359_NEGATIVE_CONTROL_FAILED' >&2; exit 1; }
 dump_data data.sql "${data_exclude_args[@]}" --schema='*'
 [[ -s "$dumpdir/schema.sql" && -s "$dumpdir/data.sql" ]] || exit 1
 if grep -Eq 'CREATE TABLE (IF NOT EXISTS )?"auth"\."pr359_provider_probe"' "$dumpdir/schema.sql"; then
@@ -86,6 +111,9 @@ grep -q 'test-provider' "$dumpdir/data.sql" || {
 }
 grep -q 'test-one' "$dumpdir/data.sql" || exit 1
 grep -q 'test-two' "$dumpdir/data.sql" || exit 1
+if grep -Eq 'late-test|late-provider' "$dumpdir/data.sql"; then
+ echo 'PR359_SNAPSHOT_CONCURRENT_ROW_LEAK' >&2; exit 1;
+fi
 
 docker exec "$container" createdb -U postgres pr359_export_restored
 cat <<'SQL' | db pr359_export_restored >/dev/null
@@ -105,6 +133,7 @@ result="$(printf '%s\n' \
  echo 'PR359_REAL_EXPORT_RESTORED_SCHEMA_OR_ROW_DRIFT' >&2;exit 1;
 }
 echo 'PR359_R4_ACTUAL_STAGING_PGDUMP_FILTERS_AND_RESTORE_PASS'
+echo 'PR359_R4_COMBINED_NATIVE_FILTER_MVCC_SNAPSHOT_PASS'
 echo 'PR359_R4_PROVIDER_SCHEMA_EXCLUDED_PROVIDER_ROWS_PRESERVED_PASS'
 echo 'PR359_R4_HOSTED_STAGING_RESTORE_NOT_PROVEN'
 echo 'PR359_STAGING_INPLACE_GO=FALSE'
