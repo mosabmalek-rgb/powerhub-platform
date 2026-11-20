@@ -25,7 +25,11 @@ keeper_in="${SNAPSHOT_KEEPER[1]}"
 # Never hold a source MVCC snapshot without a finite server-side lifetime.
 # These limits are local to this READ ONLY transaction (PG17 source tested).
 # A timed-out keeper terminates and all subsequent snapshot imports fail closed.
-printf 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSET LOCAL idle_in_transaction_session_timeout = \'20min\';\nSET LOCAL transaction_timeout = \'40min\';\nSELECT pg_export_snapshot();\n' >&"$keeper_in"
+printf '%s\\n' \
+  'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;' \
+  "SET LOCAL idle_in_transaction_session_timeout = '20min';" \
+  "SET LOCAL transaction_timeout = '40min';" \
+  'SELECT pg_export_snapshot();' >&"$keeper_in"
 if ! IFS= read -r -t 45 snapshot <&"$keeper_out" || [[ ! "$snapshot" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[0-9]+$ ]]; then
  echo PR359_STAGING_SNAPSHOT_EXPORT_FAILED >&2; exit 1
 fi

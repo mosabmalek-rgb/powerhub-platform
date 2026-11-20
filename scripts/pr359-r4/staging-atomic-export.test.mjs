@@ -25,8 +25,8 @@ test('source snapshot has finite idle and transaction limits, not an unbounded k
  const s=script();
  assert.doesNotMatch(s,/SET LOCAL idle_in_transaction_session_timeout\s*=\s*0\b/);
  assert.doesNotMatch(s,/SET LOCAL transaction_timeout\s*=\s*0\b/);
- assert.match(s,/SET LOCAL idle_in_transaction_session_timeout = \\\'20min\\\'/);
- assert.match(s,/SET LOCAL transaction_timeout = \\\'40min\\\'/);
+ assert.ok(s.includes("SET LOCAL idle_in_transaction_session_timeout = '20min';"));
+ assert.ok(s.includes("SET LOCAL transaction_timeout = '40min';"));
  const d=readFileSync('scripts/pr359-r4/staging-atomic-snapshot-disposable.sh','utf8');
  assert.ok(d.includes('PR359_SOURCE_SNAPSHOT_IDLE_TIMEOUT_NEGATIVE_PASS'));
  assert.ok(d.includes('idle_in_transaction_session_timeout'));

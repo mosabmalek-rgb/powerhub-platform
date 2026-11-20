@@ -28,6 +28,7 @@ jobs:
           node --check scripts/pr359-shadow/render.mjs
           bash -n scripts/pr359-shadow/run.sh
           bash -n scripts/pr359-r4/staging-atomic-export.sh
+          bash -n scripts/pr359-r4/staging-atomic-snapshot-disposable.sh
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
       - name: Epoch v2 isolated ledger integrity and replay/rollback protocol
