@@ -48,7 +48,7 @@ WITH inventory AS (
 SELECT jsonb_build_object(
  'category',category,
  'identity',identity,
- 'sha256',encode(extensions.digest(identity||E'\\x1F'||attributes::text,'sha256'),'hex')
+ 'sha256',encode(extensions.digest(identity||E'\x1F'||attributes::text,'sha256'),'hex')
 )::text
 FROM inventory ORDER BY category,identity;
 COMMIT;

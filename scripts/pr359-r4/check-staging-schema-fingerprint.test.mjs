@@ -71,8 +71,8 @@ test('snapshot exporter checks pinned Staging SHA before data pg_dump',()=>{
 
 test('per-object SHA diagnostics reveal missing/extra/changed identities but no SQL definitions',()=>{
  const item=(category,identity,sha)=>JSON.stringify({category,identity,sha256:sha.repeat(64)});
- const source=[item('relations','public.invoice','a'),item('functions','public.billing()','b'),item('columns','public.invoice.1','c')].join('\\n')+'\\n';
- const target=[item('relations','public.invoice','d'),item('functions','public.billing()','b'),item('columns','public.invoice.2','c')].join('\\n')+'\\n';
+ const source=[item('relations','public.invoice','a'),item('functions','public.billing()','b'),item('columns','public.invoice.1','c')].join('\n')+'\n';
+ const target=[item('relations','public.invoice','d'),item('functions','public.billing()','b'),item('columns','public.invoice.2','c')].join('\n')+'\n';
  const r=diagnoseSchemaObjectDrift(source,target);
  assert.equal(r.match,false);
  assert.equal(r.sourceObjects,3);
@@ -83,7 +83,7 @@ test('per-object SHA diagnostics reveal missing/extra/changed identities but no 
  assert.deepEqual(r.summary.find(x=>x.category==='relations').changed,['public.invoice']);
  assert.equal(r.stagingInplaceGo,false);
  assert.equal(r.productionInplaceGo,false);
- assert.throws(()=>parseSchemaObjectDigests(source+item('relations','public.invoice','a')+'\\n'),/duplicate/);
+ assert.throws(()=>parseSchemaObjectDigests(source+item('relations','public.invoice','a')+'\n'),/duplicate/);
  assert.throws(()=>parseSchemaObjectDigests(''));
  assert.throws(()=>parseSchemaObjectDigests(item('relations','public.invoice','x')));
  assert.equal(diagnoseSchemaObjectDrift(source,source).match,true);
@@ -94,12 +94,20 @@ test('schema diagnostics stay linked to the identical source snapshot and fail c
  const sql=readFileSync('scripts/pr359-r4/staging-schema-object-digests.sql','utf8');
  assert.match(sql,/pg_get_functiondef/);
  assert.match(sql,/ORDER BY category,identity/);
- assert.match(sql,/extensions\\.digest/);
- assert.doesNotMatch(sql,/\\b(DROP|DELETE|INSERT|UPDATE|TRUNCATE)\\b.*;/i);
+ assert.match(sql,/extensions\.digest/);
+ assert.doesNotMatch(sql,/\b(DROP|DELETE|INSERT|UPDATE|TRUNCATE)\b.*;/i);
  assert.ok(exported.includes('source_psql "$workdir/staging-schema-object-source.jsonl"'));
  assert.ok(exported.indexOf('staging-schema-object-source.jsonl')<exported.indexOf('dump_schema schema.sql'));
  assert.ok(restore.includes('staging-schema-object-drift-diagnostics'));
  assert.ok(restore.includes('PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED'));
  assert.ok(restore.includes('exit 2'));
  assert.ok(restore.indexOf('staging-schema-object-drift-diagnostics')<restore.indexOf('SHADOW_STAGE=staging-managed-fks-before-data'));
+});
+
+test('diagnostic per-object hash uses the exact aggregate catalog delimiter',()=>{
+ const source=readFileSync('scripts/pr359-r4/staging-schema-fingerprint.sql','utf8');
+ const detail=readFileSync('scripts/pr359-r4/staging-schema-object-digests.sql','utf8');
+ const fragment=String.raw`identity||E'\x1F'||attributes::text`;
+ assert.ok(source.includes(fragment));
+ assert.ok(detail.includes(fragment));
 });

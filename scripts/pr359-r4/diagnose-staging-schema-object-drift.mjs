@@ -9,7 +9,7 @@ const CATEGORIES=new Set(['columns','constraints','functions','indexes','policie
 export function parseSchemaObjectDigests(raw){
  assert.equal(typeof raw,'string');
  const out=new Map();
- const lines=raw.split(/\\r?\\n/).filter(Boolean);
+ const lines=raw.split(/\r?\n/).filter(Boolean);
  assert.ok(lines.length>0,'schema object evidence is empty');
  for(const line of lines){
   const obj=JSON.parse(line);
