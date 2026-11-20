@@ -23,14 +23,12 @@ export function checkManagedStackCompatibility(sourceCatalog, targetCatalog, sou
   const sourceRows = Array.isArray(sourceTopology) ? sourceTopology : sourceTopology.relations;
   const targetRows = Array.isArray(targetTopology) ? targetTopology : targetTopology.relations;
   const sourceMap = new Map(sourceRows.map(r=>[r.schema+'.'+r.table,r]));
-  const targetMap = new Map(targetRows.map(r=>[r.schema+'.'+r.table,r]));
   const strictDaily = r => {
-    if(!r||!isManagedDailyRealtimePartition(r)||!/^messages_\\d{4}_\\d{2}_\\d{2}$/.test(r.table))return false;
-    const match=/^FOR VALUES FROM \\('(\\d{4}-\\d{2}-\\d{2}) 00:00:00'\\) TO/.exec(r.partition_bound);
+    if(!r||!isManagedDailyRealtimePartition(r)||!/^messages_\d{4}_\d{2}_\d{2}$/.test(r.table))return false;
+    const match=/^FOR VALUES FROM \('(\d{4}-\d{2}-\d{2}) 00:00:00'\) TO/.exec(r.partition_bound);
     return !!match && r.table==='messages_'+match[1].replaceAll('-','_');
   };
   const srcColumns=new Map(sourceCatalog.map(r=>[r.schema+'.'+r.table+'.'+r.column,r.type]));
-  const dstColumns=new Map(targetCatalog.map(r=>[r.schema+'.'+r.table+'.'+r.column,r.type]));
   const partitionColumnsMatch=(schema,table,rows)=>{
     const child=rows.filter(r=>r.schema===schema && r.table===table);
     const parent=rows.filter(r=>r.schema===schema && r.table==='messages');
