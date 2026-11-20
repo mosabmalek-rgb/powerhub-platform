@@ -1,6 +1,10 @@
 name: PR359 Staging Shadow Restore (isolated, read-only source)
 on:
   workflow_dispatch:
+  push:
+    branches: [feat/auth-local-first-single-pr]
+    paths:
+      - docs/security/pr359-r4-staging-shadow-run-request.json
 permissions:
   contents: read
 concurrency:
@@ -28,6 +32,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Require an explicit reviewed Staging-only run request
+        run: node scripts/pr359-r4/staging-shadow-request.mjs
       - name: Validate Staging-only source identity and TLS
         run: node scripts/pr359-shadow/guard.mjs
       - uses: supabase/setup-cli@v3

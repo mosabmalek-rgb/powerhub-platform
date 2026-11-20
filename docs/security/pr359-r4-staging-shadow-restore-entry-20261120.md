@@ -64,3 +64,26 @@ permission for destructive Staging commands.
 `STAGING_INPLACE_GO=false`
 `PRODUCTION_INPLACE_GO=false`
 `PR359_MERGE_GO=false`
+
+## GitHub workflow registration requirement and protected opt-in
+
+GitHub's `workflow_dispatch` event only triggers when a workflow exists on
+the repository's default branch. This brand-new workflow exists solely in
+PR #359, which is deliberately Draft; it cannot yet be manually dispatched
+by the standard GitHub Actions button. Therefore it ALSO has a restricted
+`push` trigger matching only the purpose-built file:
+
+`docs/security/pr359-r4-staging-shadow-run-request.json`
+
+The checked-in file has `requested=false` and an unusable approval token,
+so it **cannot execute any restore**. To request a protected isolated run,
+an authorized operator must edit this request to `requested=true` with a
+fresh `STAGING-SHADOW-...` token, enable the opt-in repository variable,
+and have a trusted reviewer approve the `pr359-staging-shadow` environment.
+The workflow invokes the request validator before source authentication.
+An ordinary push modifying unrelated PR files does not trigger this Staging
+job. The Workflow Dispatch entry remains available only after default-branch
+registration; no merge is being performed now.
+
+These checks are separate from the long-standing Production release
+protection. The test-only Staging request never grants database modification.

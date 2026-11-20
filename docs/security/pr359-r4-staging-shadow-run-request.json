@@ -1,0 +1,8 @@
+{
+  "format": "PR359_STAGING_SHADOW_MANUAL_REQUEST_V1",
+  "requested": false,
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "purpose": "two isolated read-only source logical exports and Staging legacy-ledger restorations",
+  "approval_token": "UNSET",
+  "warning": "Protected GitHub environment approval and enabled repository variable are also required. Keep requested=false until explicitly authorized."
+}

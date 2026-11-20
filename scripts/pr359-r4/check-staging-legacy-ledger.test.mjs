@@ -52,7 +52,9 @@ test('read-only TLS source history and counts are rechecked post export',()=>{
 });
 test('Staging GitHub workflow can only be manually dispatched with separate protected env',()=>{
  assert.match(flow,/\n  workflow_dispatch:/);
- assert.doesNotMatch(flow,/\n\s*push:/);
+ assert.match(flow,/\n  push:/);
+ assert.match(flow,/docs\/security\/pr359-r4-staging-shadow-run-request\.json/);
+ assert.match(flow,/staging-shadow-request\.mjs/);
  assert.doesNotMatch(flow,/\n\s*pull_request:/);
  assert.match(flow,/name: pr359-staging-shadow/);
  assert.match(flow,/PR359_STAGING_SHADOW_SOURCE_DB_URL/);
