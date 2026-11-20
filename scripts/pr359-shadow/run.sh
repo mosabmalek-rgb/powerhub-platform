@@ -8,6 +8,8 @@ for tool in docker node sha256sum; do command -v "$tool" >/dev/null || { echo "M
 work="$(mktemp -d)"
 # Select the evidence corresponding to each *independent source export*.
 restore_work="$work"
+# Safe phase timestamps to identify slow source reads, exports and restores.
+r4_progress(){ printf 'PR359_R4_PROGRESS utc=%s elapsed_seconds=%s phase=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$SECONDS" "$1"; }
 container=''
 stack_dir=''
 stack_network=''
@@ -327,6 +329,7 @@ echo 'PR359_PRE_EXPORT_MANAGED_PARITY_PASS: data export may now begin'
 dump roles.sql --role-only
 if [[ "$mode" == staging-restore ]]; then
   SHADOW_STAGE=staging-atomic-cross-dump-export
+  r4_progress 'first-independent-export-start'
   SOURCE_COUNTS_SQL="$source_sql" bash scripts/pr359-r4/staging-atomic-export.sh "$work/dump" "$work"
    cmp -s "$work/source-realtime-messages-count" "$work/staging-realtime-messages-source" || {
      echo 'PR359_STAGING_REALTIME_PRECHECK_SNAPSHOT_CHANGED' >&2; exit 1
@@ -350,11 +353,13 @@ if [[ "$mode" == staging-restore ]]; then
     echo 'PR359_STAGING_ROLE_METADATA_DRIFT_DURING_EXPORT' >&2
     exit 1
   fi
+  r4_progress 'first-independent-export-complete'
   echo 'PR359_STAGING_ROLE_REEXPORT_PARITY_PASS'
   # A second source read must use a new keeper, a new pg_export_snapshot(),
   # and its OWN schema/data/history artifacts. The first copy is never reused
   # as the source of the second independent disposable restore.
   SHADOW_STAGE=staging-second-independent-source-export
+  r4_progress 'second-independent-export-start'
   second_work="$work/second-export"
   mkdir -p "$second_work/dump"
   for surface in catalog migrations relations; do
@@ -380,6 +385,7 @@ if [[ "$mode" == staging-restore ]]; then
     exit 1
   }
   node scripts/pr359-r4/check-independent-staging-exports.mjs "$work" "$second_work"
+  r4_progress 'two-source-exports-parity-complete'
   echo 'PR359_STAGING_TWO_INDEPENDENT_SOURCE_EXPORTS_PASS'
 fi
 if [[ "$mode" == staging-restore ]]; then
@@ -460,6 +466,9 @@ check_restore_managed_compatibility(){
 }
 restore(){
   if [[ "$mode" == staging-restore ]]; then
+    r4_progress "disposable-restore-start"
+  fi
+  if [[ "$mode" == staging-restore ]]; then
     sha256sum -c --status "$restore_work/staging-export-manifest.sha256" || {
       echo 'PR359_STAGING_DUMP_MANIFEST_CHANGED_BEFORE_RESTORE' >&2;exit 1;
     }
@@ -536,6 +545,7 @@ restore(){
       echo 'PR359_STAGING_MANAGED_REVERSE_TARGET_PARITY_FAILED' >&2
       exit 1
     }
+    r4_progress 'managed-policy-parity-checked'
     echo 'PR359_STAGING_MANAGED_REVERSE_TARGET_PARITY_PASS'
   fi
   # A compatible baseline can still be changed by the application schema dump;
@@ -603,6 +613,7 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
     echo 'PR359_STAGING_AUTH_USER_FK_DEFINITION_PARITY_PASS'
     echo 'PR359_STAGING_SCHEMA_FINGERPRINT_PASS'
     echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_AND_CONTENT_PASS'
+    r4_progress 'disposable-restore-evidence-complete'
     echo 'PR359_STAGING_MANAGED_AUTH_STORAGE_ROW_PARITY_PASS'
   fi
   [[ "$(value "SELECT to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == t ]] || { echo 'Managed schema missing' >&2;exit 1; }

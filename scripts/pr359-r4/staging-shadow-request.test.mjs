@@ -14,9 +14,31 @@ const context=()=>({
 });
 
 const base=()=>JSON.parse(readFileSync(REQUEST_PATH,'utf8'));
-test('default committed Staging shadow run request is disabled',()=>{
- assert.equal(base().requested,false);
- assert.throws(()=>validateStagingRequest(base(),context()));
+test('committed request is either disabled or a strictly scoped reviewed activation',()=>{
+ const req=base();
+ // The protected request is intentionally true for a one-file activation
+ // commit. Smoke tests must verify BOTH legal states rather than demanding
+ // false on the activation commit. The real Git topology is separately enforced
+ // by the protected workflow and tested in the temporary Git fixture below.
+ const inactive={...req,requested:false,approval_token:'UNSET',approved_parent_sha:'UNSET'};
+ assert.throws(()=>validateStagingRequest(inactive,context()),
+   'disabled requests must never authorize a restore');
+ if(req.requested===false){
+  assert.equal(req.approval_token,'UNSET');
+  assert.equal(req.approved_parent_sha,'UNSET');
+ }else{
+  assert.equal(req.requested,true,'request must be an explicit boolean');
+  assert.match(req.approved_parent_sha,/^[a-f0-9]{40}$/);
+  assert.match(req.approval_token,/^STAGING-SHADOW-[A-Z0-9_-]{10,64}$/);
+  const pinned={...context(),parentSha:req.approved_parent_sha};
+  const accepted=validateStagingRequest(req,pinned);
+  assert.equal(accepted.requestValid,true);
+  assert.equal(accepted.stagingInplaceGo,false);
+  assert.throws(()=>validateStagingRequest(req,{...pinned,parentSha:'c'.repeat(40)}),
+    'wrong reviewed parent must fail');
+  assert.throws(()=>validateStagingRequest(req,{...pinned,changedFiles:[REQUEST_PATH,'scripts/pr359-shadow/run.sh']}),
+    'activation with code changes must fail');
+ }
 });
 test('explicit allowed request cannot authorize rebaseline',()=>{
  const req=base();req.requested=true;req.approval_token='STAGING-SHADOW-TEST_REQUEST_001';

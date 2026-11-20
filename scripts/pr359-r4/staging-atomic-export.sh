@@ -10,6 +10,8 @@ dumpdir="$(cd "$1" && pwd)"
 workdir="$(cd "$2" && pwd)"
 [[ "$dumpdir" == "$workdir"/dump && -s "$dumpdir/roles.sql" ]] || exit 2
 export PGSSLMODE=require PGOPTIONS='-c default_transaction_read_only=on'
+# Timing markers contain no source rows, SQL, credentials, or snapshot IDs.
+r4_progress(){ printf 'PR359_R4_PROGRESS utc=%s elapsed_seconds=%s phase=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$SECONDS" "$1"; }
 snapshot=''
 keeper_pid=''
 keeper_in=''
@@ -51,6 +53,7 @@ source_psql(){
  }
  [[ -s "$output" ]] || exit 1
 }
+r4_progress 'before-source-counts'
 source_psql "$workdir/source-counts" --sql
 source_psql "$workdir/staging-realtime-messages-source" scripts/pr359-r4/staging-realtime-empty.sql
 [[ "$(tr -d '[:space:]' < "$workdir/staging-realtime-messages-source")" == 0 ]] || {
@@ -60,6 +63,7 @@ source_psql "$workdir/source-history-attestation.json" scripts/pr359-shadow/hist
 node scripts/pr359-r4/check-staging-legacy-ledger.mjs "$workdir/source-history-attestation.json"
 source_psql "$workdir/staging-tables-source.jsonl" scripts/pr359-r4/staging-table-counts.sql
 node scripts/pr359-r4/check-staging-table-counts.mjs --compare "$workdir/staging-tables-source.jsonl" "$workdir/staging-tables-source.jsonl"
+r4_progress 'before-source-content'
 source_psql "$workdir/staging-content-source.jsonl" scripts/pr359-r4/staging-table-content.sql
 node scripts/pr359-r4/check-staging-table-content.mjs --compare "$workdir/staging-content-source.jsonl" "$workdir/staging-content-source.jsonl"
 source_psql "$workdir/staging-managed-source.jsonl" scripts/pr359-r4/staging-managed-data-content.sql
@@ -84,6 +88,7 @@ node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-
 source_psql "$workdir/staging-managed-fk-orphans-source.jsonl" scripts/pr359-r4/staging-managed-fk-orphans.sql
 node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs --compare "$workdir/staging-managed-fk-orphans-source.jsonl" "$workdir/staging-managed-fk-orphans-source.jsonl"
 # Integrity of all 561 app FKs, including 106 composite references.
+r4_progress 'before-source-fk-561'
 source_psql "$workdir/staging-all-fks-source.jsonl" scripts/pr359-r4/staging-all-fk-integrity.sql
 node scripts/pr359-r4/check-staging-all-fk-integrity.mjs --compare "$workdir/staging-all-fks-source.jsonl" "$workdir/staging-all-fks-source.jsonl"
 # Bind the provider-managed crosswalk to the same exported source snapshot.
@@ -171,9 +176,13 @@ for pattern in "${data_patterns[@]}"; do
  [[ -n "$pattern" ]] || { echo PR359_EMPTY_DATA_EXCLUDE >&2; exit 1; }
  data_exclude_args+=("--exclude-schema=$pattern")
 done
+r4_progress 'before-pg-dump-schema'
 dump_schema schema.sql "${schema_exclude_args[@]}"
+r4_progress 'before-pg-dump-data'
 dump_data data.sql "${data_exclude_args[@]}" --schema='*'
+r4_progress 'before-pg-dump-history-schema'
 dump_schema history-schema.sql --schema=supabase_migrations
+r4_progress 'before-pg-dump-history-data'
 dump_data history-data.sql --schema=supabase_migrations
 source_psql "$workdir/staging-realtime-messages-after-export" scripts/pr359-r4/staging-realtime-empty.sql
 cmp -s "$workdir/staging-realtime-messages-source" "$workdir/staging-realtime-messages-after-export" || {
@@ -206,6 +215,7 @@ node scripts/pr359-r4/check-staging-all-fk-integrity.mjs --compare "$workdir/sta
 sha256sum "$dumpdir/roles.sql" "$dumpdir/schema.sql" "$dumpdir/data.sql" \
  "$dumpdir/history-schema.sql" "$dumpdir/history-data.sql" >"$workdir/staging-export-manifest.sha256"
 sha256sum -c --status "$workdir/staging-export-manifest.sha256"
+r4_progress 'source-export-manifest-complete'
 echo PR359_STAGING_SHARED_PG_SNAPSHOT_EXPORT_PASS
 echo PR359_STAGING_ROLES_CROSS_DUMP_ATOMICITY_NOT_PROVEN
 echo PR359_STAGING_INPLACE_GO=FALSE
