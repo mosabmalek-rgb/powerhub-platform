@@ -583,3 +583,36 @@ reordered groups. This is a source verification fix, not a restore approval.
 `R4_MANAGED_REVERSE_JSONB_ORDER_GUARD=CODE_READY_PENDING_CI`  
 `APP_OWNED_APPROVED=false`  
 `STAGING_INPLACE_GO=false`
+
+
+## R4 — two genuinely independent Staging source exports and disposable restores
+
+Earlier code exported one hosted PostgreSQL MVCC snapshot then restored the
+same SQL dump twice. That proved repeatable restore but did **not** satisfy
+independent-source export coverage. The Staging-only protected path now creates
+**two** separate exports with distinct PostgreSQL snapshot keeper transactions
+and snapshot IDs (only SHA-256 digests of IDs are retained), independent
+`pg_dump --snapshot` schema/data/history artifacts and separate role-only
+exports. Both run the full source catalog, ledger, Auth/Storage content, schema,
+foreign-key, ownership, and reverse dependency attestations. The second source
+export is accepted only if all these reviewed evidence files equal the first
+and the keeper snapshot digests differ. Source SQL manifests are checked for
+each export; raw SQL bytes are not required to match because pg_dump may emit
+non-semantic randomized restriction markers. Each export is then restored to
+its **own freshly started** isolated Supabase Local Stack. Every restored
+table-content, 561-FK, Auth/Storage and schema fingerprint is compared to its
+corresponding source evidence, and final restore-to-restore attestations
+must match. Any drift fails closed before in-place operations (which remain
+forbidden).
+
+The global-role dump is outside any MVCC snapshot: it is generated for each
+export and independently checked before/after; no claim of role transaction
+atomicity is made. Hosted-source credentials are unset before local restores.
+No protected hosted Staging run is claimed based solely on these code changes.
+
+`R4_TWO_INDEPENDENT_STAGING_SOURCE_EXPORTS=CODE_READY_PENDING_CI_AND_PROTECTED_RUN`  
+`R4_TWO_INDEPENDENT_DISPOSABLE_STAGING_RESTORES=CODE_READY_PENDING_CI_AND_PROTECTED_RUN`  
+`R4_PROTECTED_HOSTED_STAGING_EXECUTION=NOT_PROVEN`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`

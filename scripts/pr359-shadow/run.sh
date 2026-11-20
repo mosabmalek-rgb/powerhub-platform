@@ -6,6 +6,8 @@ mode="${1:-}"
 [[ "$mode" == smoke || "$mode" == full || "$mode" == staging-restore ]] || { echo 'Usage: run.sh smoke|full|staging-restore' >&2; exit 2; }
 for tool in docker node sha256sum; do command -v "$tool" >/dev/null || { echo "Missing: $tool" >&2; exit 2; }; done
 work="$(mktemp -d)"
+# Select the evidence corresponding to each *independent source export*.
+restore_work="$work"
 container=''
 stack_dir=''
 stack_network=''
@@ -325,6 +327,33 @@ if [[ "$mode" == staging-restore ]]; then
     exit 1
   fi
   echo 'PR359_STAGING_ROLE_REEXPORT_PARITY_PASS'
+  # A second source read must use a new keeper, a new pg_export_snapshot(),
+  # and its OWN schema/data/history artifacts. The first copy is never reused
+  # as the source of the second independent disposable restore.
+  SHADOW_STAGE=staging-second-independent-source-export
+  second_work="$work/second-export"
+  mkdir -p "$second_work/dump"
+  for surface in catalog migrations relations; do
+    cp -- "$work/source-managed-$surface.json" "$second_work/source-managed-$surface.json"
+  done
+  dump roles-second-before.sql --role-only
+  cp -- "$work/dump/roles-second-before.sql" "$second_work/dump/roles.sql"
+  cmp -s "$work/dump/roles.sql" "$second_work/dump/roles.sql" || {
+    echo 'PR359_STAGING_ROLES_DRIFT_BETWEEN_SOURCE_EXPORTS' >&2
+    exit 1
+  }
+  SOURCE_COUNTS_SQL="$source_sql" bash scripts/pr359-r4/staging-atomic-export.sh     "$second_work/dump" "$second_work"
+  dump roles-second-after.sql --role-only
+  cmp -s "$second_work/dump/roles.sql" "$work/dump/roles-second-after.sql" || {
+    echo 'PR359_STAGING_ROLES_DRIFT_DURING_SECOND_EXPORT' >&2
+    exit 1
+  }
+  sha256sum -c --status "$second_work/staging-export-manifest.sha256" || {
+    echo 'PR359_STAGING_SECOND_EXPORT_MANIFEST_INVALID' >&2
+    exit 1
+  }
+  node scripts/pr359-r4/check-independent-staging-exports.mjs "$work" "$second_work"
+  echo 'PR359_STAGING_TWO_INDEPENDENT_SOURCE_EXPORTS_PASS'
 fi
 if [[ "$mode" == staging-restore ]]; then
   # Source verification before unsetting credentials. These are independent
@@ -369,7 +398,7 @@ if [[ "$mode" == full ]]; then
 fi
 restore(){
   if [[ "$mode" == staging-restore ]]; then
-    sha256sum -c --status "$work/staging-export-manifest.sha256" || {
+    sha256sum -c --status "$restore_work/staging-export-manifest.sha256" || {
       echo 'PR359_STAGING_DUMP_MANIFEST_CHANGED_BEFORE_RESTORE' >&2;exit 1;
     }
   fi
@@ -387,7 +416,7 @@ restore(){
   runfile_local_admin scripts/pr359-shadow/bootstrap-graphql-parity.sql
   echo 'PR359_SHADOW_STAGE: prepared reserved role, Vault and GraphQL source parity'
   SHADOW_STAGE=restore-roles
-  runfile_local_admin "$work/dump/roles.sql"
+  runfile_local_admin "$restore_work/dump/roles.sql"
   echo 'PR359_SHADOW_STAGE: role/ACL dump imported'
   # Fail closed before importing ANY application schema if provider-managed
   # Auth/Storage/Realtime tables differ from the hosted source. This avoids
@@ -411,40 +440,40 @@ restore(){
     exit 1
   }
   SHADOW_STAGE=verify-managed-catalog-pre-application
-  sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
-  sql postgres < scripts/pr359-shadow/managed-relations.sql > "$work/docker-managed-relations.json"
+  sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$restore_work/docker-managed-catalog.json"
+  sql postgres < scripts/pr359-shadow/managed-relations.sql > "$restore_work/docker-managed-relations.json"
   # Provider compatibility is checked fail-closed. The only accepted local extras
   # are the verified daily Realtime partitions and the two Storage Iceberg catalog tables.
   SHADOW_STAGE=verify-managed-migrations-pre-application
-  if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-managed-migrations.json" 2>/dev/null; then
+  if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$restore_work/docker-managed-migrations.json" 2>/dev/null; then
     echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
   fi
   node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
-    "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json" \
-    "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json" \
-    "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
+    "$restore_work/source-managed-catalog.json" "$restore_work/docker-managed-catalog.json" \
+    "$restore_work/source-managed-migrations.json" "$restore_work/docker-managed-migrations.json" \
+    "$restore_work/source-managed-relations.json" "$restore_work/docker-managed-relations.json"
   SHADOW_STAGE=restore-application-schema
   echo 'PR359_SHADOW_STAGE: starting application schema restore'
-  runfile postgres "$work/dump/schema.sql"
+  runfile postgres "$restore_work/dump/schema.sql"
   echo 'PR359_SHADOW_STAGE: application schema imported'
   if [[ "$mode" == staging-restore ]]; then
     SHADOW_STAGE=staging-schema-before-data
-    sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$work/staging-schema-pre-data.jsonl"
+    sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$restore_work/staging-schema-pre-data.jsonl"
     node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
-      "$work/staging-schema-source.jsonl" "$work/staging-schema-pre-data.jsonl"
+      "$restore_work/staging-schema-source.jsonl" "$restore_work/staging-schema-pre-data.jsonl"
     echo 'PR359_STAGING_SCHEMA_PRE_DATA_FINGERPRINT_PASS'
     SHADOW_STAGE=staging-managed-fks-before-data
-    sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$work/staging-managed-fks-pre-data.jsonl"
+    sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$restore_work/staging-managed-fks-pre-data.jsonl"
     node scripts/pr359-r4/check-staging-managed-fks.mjs --compare \
-      "$work/staging-managed-fks-source.jsonl" "$work/staging-managed-fks-pre-data.jsonl"
+      "$restore_work/staging-managed-fks-source.jsonl" "$restore_work/staging-managed-fks-pre-data.jsonl"
     echo 'PR359_STAGING_AUTH_USER_FK_PRE_DATA_PASS'
     # Source provider-managed policies can reference restored PowerHub tables
     # and functions. A matching source inventory alone cannot prove that those
     # policies survived into the isolated target; attest them before data COPY.
     SHADOW_STAGE=staging-reverse-managed-dependencies-before-data
-    sql postgres < scripts/pr359-r4/staging-managed-reverse-dependencies.sql > "$work/staging-managed-reverse-restored.json"
-    node scripts/pr359-r4/check-staging-managed-reverse-dependencies.mjs "$work/staging-managed-reverse-restored.json"
-    cmp -s "$work/staging-managed-reverse-source.json" "$work/staging-managed-reverse-restored.json" || {
+    sql postgres < scripts/pr359-r4/staging-managed-reverse-dependencies.sql > "$restore_work/staging-managed-reverse-restored.json"
+    node scripts/pr359-r4/check-staging-managed-reverse-dependencies.mjs "$restore_work/staging-managed-reverse-restored.json"
+    cmp -s "$restore_work/staging-managed-reverse-source.json" "$restore_work/staging-managed-reverse-restored.json" || {
       echo 'PR359_STAGING_MANAGED_REVERSE_TARGET_PARITY_FAILED' >&2
       exit 1
     }
@@ -453,68 +482,68 @@ restore(){
   # A compatible baseline can still be changed by the application schema dump;
   # verify the managed surface AGAIN after importing schema, before data COPY.
   SHADOW_STAGE=verify-managed-catalog-post-application
-  sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$work/docker-managed-catalog.json"
-  sql postgres < scripts/pr359-shadow/managed-relations.sql > "$work/docker-managed-relations.json"
+  sql postgres < scripts/pr359-shadow/managed-catalog.sql > "$restore_work/docker-managed-catalog.json"
+  sql postgres < scripts/pr359-shadow/managed-relations.sql > "$restore_work/docker-managed-relations.json"
   SHADOW_STAGE=verify-managed-migrations-post-application
-  if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-managed-migrations.json" 2>/dev/null; then
+  if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$restore_work/docker-managed-migrations.json" 2>/dev/null; then
     echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
   fi
   node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
-    "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json" \
-    "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json" \
-    "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
-  { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$work/restore-data.sql"
+    "$restore_work/source-managed-catalog.json" "$restore_work/docker-managed-catalog.json" \
+    "$restore_work/source-managed-migrations.json" "$restore_work/docker-managed-migrations.json" \
+    "$restore_work/source-managed-relations.json" "$restore_work/docker-managed-relations.json"
+  { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$restore_work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$restore_work/restore-data.sql"
   SHADOW_STAGE=restore-data
   # COPY includes provider-owned Storage rows such as buckets_vectors. Import
   # into the disposable target through its local superuser socket so source
   # ACLs cannot block a faithful data restore; no hosted role is elevated.
-  runfile_local_admin "$work/restore-data.sql"
+  runfile_local_admin "$restore_work/restore-data.sql"
   if [[ "$(value "SELECT to_regclass('supabase_migrations.schema_migrations') IS NOT NULL;")" == f ]]; then
-    runfile postgres "$work/dump/history-schema.sql"
+    runfile postgres "$restore_work/dump/history-schema.sql"
   fi
   SHADOW_STAGE=restore-history
-  runfile postgres "$work/dump/history-data.sql"
+  runfile postgres "$restore_work/dump/history-data.sql"
   # Full-row cryptographic history attestation after each independent restore,
 # BEFORE any financial migration changes the migration ledger.
 SHADOW_STAGE=verify-restored-legacy-ledger-sha256
-sql postgres < scripts/pr359-shadow/history-attestation.sql > "$work/target-history-attestation.json"
-cmp -s "$work/source-history-attestation.json" "$work/target-history-attestation.json" || {
+sql postgres < scripts/pr359-shadow/history-attestation.sql > "$restore_work/target-history-attestation.json"
+cmp -s "$restore_work/source-history-attestation.json" "$restore_work/target-history-attestation.json" || {
   echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_MISMATCH' >&2; exit 1;
 }
 echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
 
-[[ "$(value "$source_sql")" == "$(cat "$work/source-counts")" ]] || { echo 'Source and restore row counts differ' >&2;exit 1; }
+[[ "$(value "$source_sql")" == "$(cat "$restore_work/source-counts")" ]] || { echo 'Source and restore row counts differ' >&2;exit 1; }
   if [[ "$mode" == staging-restore ]]; then
     SHADOW_STAGE=staging-restored-table-counts
-    sql postgres < scripts/pr359-r4/staging-table-counts.sql > "$work/staging-tables-restored.jsonl"
+    sql postgres < scripts/pr359-r4/staging-table-counts.sql > "$restore_work/staging-tables-restored.jsonl"
     node scripts/pr359-r4/check-staging-table-counts.mjs --compare \
-      "$work/staging-tables-source.jsonl" "$work/staging-tables-restored.jsonl"
+      "$restore_work/staging-tables-source.jsonl" "$restore_work/staging-tables-restored.jsonl"
     SHADOW_STAGE=staging-restored-table-content
-    sql postgres < scripts/pr359-r4/staging-table-content.sql > "$work/staging-content-restored.jsonl"
+    sql postgres < scripts/pr359-r4/staging-table-content.sql > "$restore_work/staging-content-restored.jsonl"
     node scripts/pr359-r4/check-staging-table-content.mjs --compare \
-      "$work/staging-content-source.jsonl" "$work/staging-content-restored.jsonl"
+      "$restore_work/staging-content-source.jsonl" "$restore_work/staging-content-restored.jsonl"
     SHADOW_STAGE=staging-restored-managed-data
-    sql postgres < scripts/pr359-r4/staging-managed-data-content.sql > "$work/staging-managed-restored.jsonl"
+    sql postgres < scripts/pr359-r4/staging-managed-data-content.sql > "$restore_work/staging-managed-restored.jsonl"
     node scripts/pr359-r4/check-staging-managed-data.mjs --compare \
-      "$work/staging-managed-source.jsonl" "$work/staging-managed-restored.jsonl"
+      "$restore_work/staging-managed-source.jsonl" "$restore_work/staging-managed-restored.jsonl"
     SHADOW_STAGE=staging-restored-schema-fingerprint
-    sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$work/staging-schema-restored.jsonl"
+    sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$restore_work/staging-schema-restored.jsonl"
     node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
-      "$work/staging-schema-source.jsonl" "$work/staging-schema-restored.jsonl"
+      "$restore_work/staging-schema-source.jsonl" "$restore_work/staging-schema-restored.jsonl"
     SHADOW_STAGE=staging-restored-all-app-fks
-    sql postgres < scripts/pr359-r4/staging-all-fk-integrity.sql > "$work/staging-all-fks-restored.jsonl"
+    sql postgres < scripts/pr359-r4/staging-all-fk-integrity.sql > "$restore_work/staging-all-fks-restored.jsonl"
     node scripts/pr359-r4/check-staging-all-fk-integrity.mjs --compare \
-      "$work/staging-all-fks-source.jsonl" "$work/staging-all-fks-restored.jsonl"
+      "$restore_work/staging-all-fks-source.jsonl" "$restore_work/staging-all-fks-restored.jsonl"
     echo 'PR359_STAGING_ALL_APP_FK_INTEGRITY_PASS'
     SHADOW_STAGE=staging-restored-managed-fk-orphans
-    sql postgres < scripts/pr359-r4/staging-managed-fk-orphans.sql > "$work/staging-managed-fk-orphans-restored.jsonl"
+    sql postgres < scripts/pr359-r4/staging-managed-fk-orphans.sql > "$restore_work/staging-managed-fk-orphans-restored.jsonl"
     node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs --compare \
-      "$work/staging-managed-fk-orphans-source.jsonl" "$work/staging-managed-fk-orphans-restored.jsonl"
+      "$restore_work/staging-managed-fk-orphans-source.jsonl" "$restore_work/staging-managed-fk-orphans-restored.jsonl"
     echo 'PR359_STAGING_AUTH_FK_ROW_INTEGRITY_PASS'
     SHADOW_STAGE=staging-restored-managed-fks
-    sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$work/staging-managed-fks-restored.jsonl"
+    sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$restore_work/staging-managed-fks-restored.jsonl"
     node scripts/pr359-r4/check-staging-managed-fks.mjs --compare \
-      "$work/staging-managed-fks-source.jsonl" "$work/staging-managed-fks-restored.jsonl"
+      "$restore_work/staging-managed-fks-source.jsonl" "$restore_work/staging-managed-fks-restored.jsonl"
     echo 'PR359_STAGING_AUTH_USER_FK_DEFINITION_PARITY_PASS'
     echo 'PR359_STAGING_SCHEMA_FINGERPRINT_PASS'
     echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_AND_CONTENT_PASS'
@@ -526,13 +555,19 @@ apply(){ for i in $(seq "$1" 4); do SHADOW_STAGE="finance-migration-$i";runfile 
 fingerprint(){ sql postgres < scripts/pr359-shadow/fingerprint.sql | tail -1; }
 restore
 if [[ "$mode" == staging-restore ]]; then
-  cp "$work/target-history-attestation.json" "$work/staging-first-restored-history.json"
+  # First independently exported Staging snapshot has now been imported and
+  # attested in its own disposable Local Stack. The next restore deliberately
+  # consumes the SECOND source export and creates a FRESH Local Stack.
   SHADOW_STAGE=staging-independent-second-restore
+  restore_work="$work/second-export"
   restore
-  cmp -s "$work/staging-first-restored-history.json" "$work/target-history-attestation.json" || {
-    echo 'PR359_STAGING_INDEPENDENT_RESTORE_HISTORY_DRIFT' >&2;exit 1;
-  }
-  echo 'PR359_STAGING_REAL_LEDGER_RESTORED_TWICE_PASS'
+  for restored_file in "target-history-attestation.json" "staging-tables-restored.jsonl" "staging-content-restored.jsonl" "staging-managed-restored.jsonl" "staging-schema-restored.jsonl" "staging-all-fks-restored.jsonl" "staging-managed-fk-orphans-restored.jsonl" "staging-managed-fks-restored.jsonl" "staging-managed-reverse-restored.json"; do
+    cmp -s "$work/$restored_file" "$restore_work/$restored_file" || {
+      echo "PR359_STAGING_TWO_RESTORES_DIFFER=$restored_file" >&2
+      exit 1
+    }
+  done
+  echo 'PR359_STAGING_TWO_INDEPENDENT_EXPORT_RESTORE_PAIRS_PASS'
   echo 'PR359_STAGING_EPOCH_V2_CUTOVER_PASS=NOT_GRANTED'
   echo 'PR359_STAGING_INPLACE_GO=FALSE'
   exit 0

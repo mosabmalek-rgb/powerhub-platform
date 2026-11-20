@@ -31,3 +31,20 @@ test('source snapshot has finite idle and transaction limits, not an unbounded k
  assert.ok(d.includes('PR359_SOURCE_SNAPSHOT_IDLE_TIMEOUT_NEGATIVE_PASS'));
  assert.ok(d.includes('idle_in_transaction_session_timeout'));
 });
+
+test('two independent Staging source MVCC exports and two fresh local restores are mandatory',()=>{
+ const r=runner(),e=script();
+ assert.ok(e.includes('staging-snapshot-token.sha256'));
+ assert.ok(r.includes('second_work="$work/second-export"'));
+ assert.match(r,/SOURCE_COUNTS_SQL="\$source_sql" bash scripts\/pr359-r4\/staging-atomic-export\.sh[\s\\]*"\$second_work\/dump" "\$second_work"/);
+ assert.ok(r.includes('check-independent-staging-exports.mjs "$work" "$second_work"'));
+ assert.ok(r.includes('restore_work="$work/second-export"'));
+ assert.ok(r.includes('PR359_STAGING_TWO_INDEPENDENT_EXPORT_RESTORE_PAIRS_PASS'));
+ assert.ok(!r.includes('PR359_STAGING_REAL_LEDGER_RESTORED_TWICE_PASS'));
+ const restore=r.slice(r.indexOf('restore(){'),r.indexOf('\napply(){'));
+ assert.ok(!restore.includes('$work/'),'restoration must not fall back to the first export');
+ assert.ok(restore.includes('$restore_work/dump/schema.sql'));
+ assert.ok(restore.includes('$restore_work/staging-managed-reverse-source.json'));
+ assert.ok(r.includes('PR359_STAGING_ROLES_DRIFT_BETWEEN_SOURCE_EXPORTS'));
+ assert.ok(r.includes('PR359_STAGING_ROLES_DRIFT_DURING_SECOND_EXPORT'));
+});

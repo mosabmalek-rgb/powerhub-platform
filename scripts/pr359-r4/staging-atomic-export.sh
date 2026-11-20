@@ -34,6 +34,10 @@ if ! IFS= read -r -t 45 snapshot <&"$keeper_out" || [[ ! "$snapshot" =~ ^[0-9A-F
  echo PR359_STAGING_SNAPSHOT_EXPORT_FAILED >&2; exit 1
 fi
 export PR359_SNAPSHOT_ID="$snapshot"
+# Never expose the snapshot ID; retain only its digest to prove the two
+# exports used distinct PostgreSQL transactions/keepers.
+printf '%s' "$snapshot" | sha256sum | awk '{print $1}' > "$workdir/staging-snapshot-token.sha256"
+[[ -s "$workdir/staging-snapshot-token.sha256" ]] || exit 1
 source_psql(){
  local output="$1"; shift
  {
