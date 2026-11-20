@@ -43,12 +43,63 @@ WITH objects AS (
  WHERE co.contype='f'
    AND srcns.nspname IN ('public','private','powerhub_private')
    AND dstns.nspname NOT IN ('public','private','powerhub_private')
+
+), managed_subobjects AS (
+ -- pg_depend on subobjects (constraint, policy, rewrite, trigger, default)
+ -- is invisible to scans limited to pg_class/pg_proc object IDs.
+ SELECT 'pg_constraint'::regclass::oid AS classid,co.oid AS objid FROM pg_constraint co
+ JOIN pg_class c ON c.oid=co.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname IN ('public','private','powerhub_private')
+ UNION ALL SELECT 'pg_policy'::regclass::oid,po.oid FROM pg_policy po
+ JOIN pg_class c ON c.oid=po.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname IN ('public','private','powerhub_private')
+ UNION ALL SELECT 'pg_rewrite'::regclass::oid,r.oid FROM pg_rewrite r
+ JOIN pg_class c ON c.oid=r.ev_class JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname IN ('public','private','powerhub_private')
+ UNION ALL SELECT 'pg_trigger'::regclass::oid,t.oid FROM pg_trigger t
+ JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname IN ('public','private','powerhub_private') AND NOT t.tgisinternal
+ UNION ALL SELECT 'pg_attrdef'::regclass::oid,a.oid FROM pg_attrdef a
+ JOIN pg_class c ON c.oid=a.adrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname IN ('public','private','powerhub_private')
+), managed_subobject_edges AS (
+ SELECT s.classid::regclass::text AS source_catalog,d.refclassid::regclass::text AS target_catalog,
+        d.deptype,coalesce(rn.nspname,pn.nspname,tn.nspname,ns.nspname) AS target_schema
+ FROM managed_subobjects s JOIN pg_depend d ON d.classid=s.classid AND d.objid=s.objid
+ LEFT JOIN pg_class rc ON d.refclassid='pg_class'::regclass AND rc.oid=d.refobjid
+ LEFT JOIN pg_namespace rn ON rn.oid=rc.relnamespace
+ LEFT JOIN pg_proc rp ON d.refclassid='pg_proc'::regclass AND rp.oid=d.refobjid
+ LEFT JOIN pg_namespace pn ON pn.oid=rp.pronamespace
+ LEFT JOIN pg_type rt ON d.refclassid='pg_type'::regclass AND rt.oid=d.refobjid
+ LEFT JOIN pg_namespace tn ON tn.oid=rt.typnamespace
+ LEFT JOIN pg_namespace ns ON d.refclassid='pg_namespace'::regclass AND ns.oid=d.refobjid
+), managed_subobject_dependencies AS (
+ SELECT source_catalog,target_catalog,target_schema,deptype,count(*)::integer AS edges
+ FROM managed_subobject_edges
+ WHERE target_schema IN ('auth','storage','realtime','vault','extensions','cron','net','supabase_migrations','supabase_functions')
+ GROUP BY source_catalog,target_catalog,target_schema,deptype
+), managed_policy_functions AS (
+ -- Identity check prevents a different managed Auth function replacing an
+ -- existing dependency while leaving aggregate counts unchanged.
+ SELECT n.nspname AS source_schema,c.relname AS source_table,po.polname AS policy_name,
+ pn.nspname AS target_schema,
+ format('%I.%I(%s)',pn.nspname,rp.proname,pg_get_function_identity_arguments(rp.oid)) AS target_function,
+ d.deptype AS dependency_type
+ FROM pg_policy po JOIN pg_class c ON c.oid=po.polrelid
+ JOIN pg_namespace n ON n.oid=c.relnamespace
+ JOIN pg_depend d ON d.classid='pg_policy'::regclass AND d.objid=po.oid
+ JOIN pg_proc rp ON rp.oid=d.refobjid AND d.refclassid='pg_proc'::regclass
+ JOIN pg_namespace pn ON pn.oid=rp.pronamespace
+ WHERE n.nspname IN ('public','private','powerhub_private')
+ AND pn.nspname IN ('auth','storage','realtime','vault','extensions','cron','net','supabase_migrations','supabase_functions')
 )
 SELECT jsonb_build_object(
  'scope','PR359_R4_STAGING_OWNERSHIP_BOUNDARY_V1',
  'owned_groups',(SELECT coalesce(jsonb_agg(to_jsonb(g) ORDER BY g.kind,g.schema,g.owner),'[]'::jsonb) FROM grouped g),
  'managed_edges',(SELECT coalesce(jsonb_agg(to_jsonb(e) ORDER BY e.schema,e.kind,e.referenced_schema),'[]'::jsonb) FROM managed_edges e),
  'managed_foreign_keys',(SELECT coalesce(jsonb_agg(to_jsonb(f) ORDER BY f.source_schema,f.source_table,f.constraint_name),'[]'::jsonb) FROM managed_foreign_keys f),
+ 'managed_subobject_dependencies',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.source_catalog,x.target_catalog,x.target_schema,x.deptype),'[]'::jsonb) FROM managed_subobject_dependencies x),
+ 'managed_policy_functions',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.source_schema,x.source_table,x.policy_name,x.target_function),'[]'::jsonb) FROM managed_policy_functions x),
  'cron_inventory',(SELECT coalesce(jsonb_agg(jsonb_build_object('name',jobname,'schedule',schedule,'active',active) ORDER BY jobname),'[]'::jsonb) FROM cron.job),
  'app_trigger_count',(SELECT count(*) FROM pg_trigger t
    JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace

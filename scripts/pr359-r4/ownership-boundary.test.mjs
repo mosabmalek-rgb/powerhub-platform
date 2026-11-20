@@ -13,6 +13,14 @@ const fixture=()=>({
    {kind:'relation',schema:'public',owner:'postgres',extension_owned:false,object_count:325},
   ],
   managed_edges:[],
+  managed_subobject_dependencies:[
+   {source_catalog:'pg_constraint',target_catalog:'pg_class',target_schema:'auth',deptype:'n',edges:6},
+   {source_catalog:'pg_policy',target_catalog:'pg_proc',target_schema:'auth',deptype:'n',edges:1},
+  ],
+  managed_policy_functions:[
+   {source_schema:'public',source_table:'users',policy_name:'users_self_read',
+    target_schema:'auth',target_function:'auth.uid()',dependency_type:'n'},
+  ],
   managed_foreign_keys:[
    {constraint_name:'powerhub_user_device_locks_user_id_fkey',source_schema:'public',
     source_table:'powerhub_user_device_locks',target_schema:'auth',target_table:'users',
@@ -82,4 +90,25 @@ test('ownership inventory requires the three provider Auth foreign keys explicit
  assert.ok(assessR4OwnershipBoundary(unexpected).blockers.includes('UNREVIEWED_MANAGED_FK'));
  const duplicate=fixture(); duplicate.metadata.managed_foreign_keys[1]={...duplicate.metadata.managed_foreign_keys[0]};
  assert.ok(assessR4OwnershipBoundary(duplicate).blockers.some(x=>x.startsWith('DUPLICATE_MANAGED_FK:')));
+});
+
+test('subobject edges fail closed when absent, changed, duplicated or unreviewed',()=>{
+ const a=fixture();delete a.metadata.managed_subobject_dependencies;
+ assert.ok(assessR4OwnershipBoundary(a).blockers.includes('MISSING_MANAGED_SUBOBJECT_DEPENDENCIES'));
+ const b=fixture();b.metadata.managed_subobject_dependencies[0].edges=5;
+ assert.ok(assessR4OwnershipBoundary(b).blockers.some(x=>x.startsWith('MANAGED_SUBOBJECT_DEPENDENCY_REVIEW_REQUIRED')));
+ const c=fixture();c.metadata.managed_subobject_dependencies.push({source_catalog:'pg_rewrite',target_catalog:'pg_class',target_schema:'storage',deptype:'n',edges:1});
+ assert.ok(assessR4OwnershipBoundary(c).blockers.some(x=>x.startsWith('MANAGED_SUBOBJECT_DEPENDENCY_REVIEW_REQUIRED')));
+ const d=fixture();d.metadata.managed_subobject_dependencies.push({...d.metadata.managed_subobject_dependencies[0]});
+ assert.ok(assessR4OwnershipBoundary(d).blockers.some(x=>x.startsWith('DUPLICATE_MANAGED_SUBOBJECT_DEPENDENCY')));
+});
+test('managed RLS policy function must have exact identity',()=>{
+ const a=fixture();delete a.metadata.managed_policy_functions;
+ assert.ok(assessR4OwnershipBoundary(a).blockers.includes('MISSING_MANAGED_POLICY_FUNCTIONS'));
+ const b=fixture();b.metadata.managed_policy_functions[0].target_function='auth.jwt()';
+ assert.ok(assessR4OwnershipBoundary(b).blockers.includes('MANAGED_POLICY_FUNCTION_REVIEW_REQUIRED'));
+ const c=fixture();c.metadata.managed_policy_functions[0].policy_name='unexpected_policy';
+ assert.ok(assessR4OwnershipBoundary(c).blockers.includes('MANAGED_POLICY_FUNCTION_REVIEW_REQUIRED'));
+ const d=fixture();d.metadata.managed_policy_functions.push({...d.metadata.managed_policy_functions[0]});
+ assert.ok(assessR4OwnershipBoundary(d).blockers.includes('MANAGED_POLICY_FUNCTION_COUNT_DRIFT'));
 });

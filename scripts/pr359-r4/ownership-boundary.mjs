@@ -67,6 +67,39 @@ export function assessR4OwnershipBoundary(snapshot){
    for(const name of knownManagedFks.keys())
      if(!seen.has(name)) blockers.push('MISSING_MANAGED_FK:'+name);
  }
+
+ // Subobject catalog edges cannot be inferred from ordinary table/function scans.
+ const reviewedSubobjectDependencies=new Map([
+  ['pg_constraint|pg_class|auth|n',6],
+  ['pg_policy|pg_proc|auth|n',1],
+ ]);
+ if(!Array.isArray(m.managed_subobject_dependencies))
+   blockers.push('MISSING_MANAGED_SUBOBJECT_DEPENDENCIES');
+ else{
+   const seen=new Set();
+   for(const edge of m.managed_subobject_dependencies){
+     const key=[edge?.source_catalog,edge?.target_catalog,edge?.target_schema,edge?.deptype].join('|');
+     if(seen.has(key)) blockers.push('DUPLICATE_MANAGED_SUBOBJECT_DEPENDENCY:'+key);
+     seen.add(key);
+     if(!reviewedSubobjectDependencies.has(key)||edge.edges!==reviewedSubobjectDependencies.get(key))
+       blockers.push('MANAGED_SUBOBJECT_DEPENDENCY_REVIEW_REQUIRED:'+key);
+   }
+   for(const key of reviewedSubobjectDependencies.keys())
+     if(!seen.has(key)) blockers.push('MISSING_MANAGED_SUBOBJECT_DEPENDENCY:'+key);
+ }
+ const reviewedPolicy={
+   source_schema:'public',source_table:'users',policy_name:'users_self_read',
+   target_schema:'auth',target_function:'auth.uid()',dependency_type:'n'
+ };
+ if(!Array.isArray(m.managed_policy_functions))
+   blockers.push('MISSING_MANAGED_POLICY_FUNCTIONS');
+ else{
+   if(m.managed_policy_functions.length!==1) blockers.push('MANAGED_POLICY_FUNCTION_COUNT_DRIFT');
+   for(const edge of m.managed_policy_functions)
+     if(!edge||Object.keys(reviewedPolicy).some(k=>edge[k]!==reviewedPolicy[k])||
+        Object.keys(edge).length!==Object.keys(reviewedPolicy).length)
+       blockers.push('MANAGED_POLICY_FUNCTION_REVIEW_REQUIRED');
+ }
  if(!Array.isArray(m.cron_inventory)) blockers.push('MISSING_CRON_INVENTORY');
  else{
    const found=new Set();
