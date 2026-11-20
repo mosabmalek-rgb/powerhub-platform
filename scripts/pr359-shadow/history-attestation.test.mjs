@@ -23,13 +23,13 @@ test('source read-only fingerprint is acquired while TLS guarded source is avail
 });
 test('history digest parity is checked after COPY and BEFORE any financial upgrades',()=>{
  const restore=sh.slice(sh.indexOf('\nrestore(){'),sh.indexOf('\napply(){'));
- const historyData=restore.indexOf('runfile postgres "$work/dump/history-data.sql"');
+ const historyData=restore.indexOf('runfile postgres "$restore_work/dump/history-data.sql"');
  const stage=restore.indexOf('SHADOW_STAGE=verify-restored-legacy-ledger-sha256');
  const countGuard=restore.indexOf('Source and restore row counts differ');
  assert.ok(historyData>=0&&stage>historyData&&countGuard>stage);
  const section=restore.slice(stage,countGuard);
  assert.match(section,/sql postgres < scripts\/pr359-shadow\/history-attestation\.sql/);
- assert.match(section,/cmp -s "\$work\/source-history-attestation\.json" "\$work\/target-history-attestation\.json"/);
+ assert.match(section,/cmp -s "\$restore_work\/source-history-attestation\.json" "\$restore_work\/target-history-attestation\.json"/);
  assert.match(section,/PR359_RESTORED_LEGACY_LEDGER_SHA256_MISMATCH/);
  assert.match(section,/exit 1/);
  assert.doesNotMatch(section,/ALLOW_DRIFT|SKIP_HISTORY|BYPASS/);

@@ -10,9 +10,14 @@ const marker='SHADOW_STAGE=staging-roles-after-export';
 const position=runner.indexOf(marker);
 assert.ok(position>=0,'source role drift guard must exist');
 const start=runner.lastIndexOf('if [[ "$mode" == staging-restore ]]; then',position);
-const end=runner.indexOf('\nfi\n',position)+4;
+const roleSuccess="  echo 'PR359_STAGING_ROLE_REEXPORT_PARITY_PASS'";
+const successAt=runner.indexOf(roleSuccess,position);
+assert.ok(successAt>position,'first-export role parity success marker required');
+// The protected stage has additional, independently tested second-export work;
+// isolate only the FIRST role check for this unit-test fault harness.
+const end=successAt+roleSuccess.length;
 assert.ok(start>=0 && end>position,'source role drift guard must be independently executable');
-const gate=runner.slice(start,end);
+const gate=runner.slice(start,end)+'\nfi\n';
 
 function exercise(before,after){
  const dir=mkdtempSync(join(tmpdir(),'pr359-roles-'));

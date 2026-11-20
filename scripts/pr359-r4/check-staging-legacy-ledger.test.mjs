@@ -34,9 +34,9 @@ test('two Staging restores exit before Production-only finance migration replay'
  const body=sh.slice(idx);
  const stage=body.slice(body.indexOf('if [[ "$mode" == staging-restore ]]'),body.indexOf('\nfi\n')+4);
  assert.match(stage,/SHADOW_STAGE=staging-independent-second-restore/);
- assert.match(stage,/PR359_STAGING_REAL_LEDGER_RESTORED_TWICE_PASS/);
+ assert.match(stage,/PR359_STAGING_TWO_INDEPENDENT_EXPORT_RESTORE_PAIRS_PASS/);
  assert.match(stage,/exit 0/);
- assert.ok(body.indexOf('\napply 1\n')>body.indexOf('PR359_STAGING_REAL_LEDGER_RESTORED_TWICE_PASS'));
+ assert.ok(body.indexOf('\napply 1\n')>body.indexOf('PR359_STAGING_TWO_INDEPENDENT_EXPORT_RESTORE_PAIRS_PASS'));
  assert.match(sh,/SHADOW_STAGE=verify-restored-legacy-ledger-sha256/);
 });
 test('read-only TLS source history and counts are rechecked post export',()=>{
