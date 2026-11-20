@@ -52,6 +52,10 @@ source_psql(){
  [[ -s "$output" ]] || exit 1
 }
 source_psql "$workdir/source-counts" --sql
+source_psql "$workdir/staging-realtime-messages-source" scripts/pr359-r4/staging-realtime-empty.sql
+[[ "$(tr -d '[:space:]' < "$workdir/staging-realtime-messages-source")" == 0 ]] || {
+  echo 'PR359_STAGING_SNAPSHOT_REALTIME_NONEMPTY' >&2; exit 1
+}
 source_psql "$workdir/source-history-attestation.json" scripts/pr359-shadow/history-attestation.sql
 node scripts/pr359-r4/check-staging-legacy-ledger.mjs "$workdir/source-history-attestation.json"
 source_psql "$workdir/staging-tables-source.jsonl" scripts/pr359-r4/staging-table-counts.sql
@@ -171,6 +175,10 @@ dump_schema schema.sql "${schema_exclude_args[@]}"
 dump_data data.sql "${data_exclude_args[@]}" --schema='*'
 dump_schema history-schema.sql --schema=supabase_migrations
 dump_data history-data.sql --schema=supabase_migrations
+source_psql "$workdir/staging-realtime-messages-after-export" scripts/pr359-r4/staging-realtime-empty.sql
+cmp -s "$workdir/staging-realtime-messages-source" "$workdir/staging-realtime-messages-after-export" || {
+  echo 'PR359_STAGING_SNAPSHOT_REALTIME_CONTENT_CHANGED' >&2; exit 1
+}
 source_psql "$workdir/staging-content-after-export.jsonl" scripts/pr359-r4/staging-table-content.sql
 node scripts/pr359-r4/check-staging-table-content.mjs --compare "$workdir/staging-content-source.jsonl" "$workdir/staging-content-after-export.jsonl"
 source_psql "$workdir/staging-managed-after-export.jsonl" scripts/pr359-r4/staging-managed-data-content.sql

@@ -10,6 +10,7 @@ import {pathToFileURL} from 'node:url';
 // source-vs-target content, schema, FK, managed-row and history signatures.
 export const INDEPENDENT_SOURCE_EVIDENCE_FILES=Object.freeze([
  'source-counts',
+ 'staging-realtime-messages-source',
  'source-history-attestation.json',
  'staging-tables-source.jsonl',
  'staging-content-source.jsonl',

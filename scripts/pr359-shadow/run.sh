@@ -217,6 +217,20 @@ dump(){
   fi
   [[ -s "$work/dump/$output" ]] || { echo "Empty dump: $output" >&2;exit 1; }
 }
+# Missing *source* Realtime daily partitions in Docker are only acceptable
+# when the hosted source's partitioned parent is empty. Never assume this.
+if [[ "$mode" == staging-restore ]]; then
+  if ! PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require \
+    psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+      --file scripts/pr359-r4/staging-realtime-empty.sql \
+      > "$work/source-realtime-messages-count" 2>/dev/null; then
+    echo 'PR359_STAGING_REALTIME_EMPTY_SOURCE_READ_FAILED' >&2; exit 1
+  fi
+  [[ "$(tr -d '[:space:]' < "$work/source-realtime-messages-count")" == 0 ]] || {
+    echo 'PR359_STAGING_REALTIME_MANAGED_ROWS_NONEMPTY' >&2; exit 1
+  }
+  echo 'PR359_STAGING_REALTIME_ZERO_ROWS_PRECHECK_PASS'
+fi
 # Capture source-managed table metadata only, never business rows or secrets.
 if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
     --file scripts/pr359-shadow/managed-catalog.sql > "$work/source-managed-catalog.json" 2>/dev/null; then
@@ -297,16 +311,26 @@ if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$work/docker-
   echo 'PR359_PRE_EXPORT_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
 fi
 sql postgres < scripts/pr359-shadow/managed-relations.sql > "$work/docker-managed-relations.json"
-node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
+if [[ "$mode" == staging-restore ]]; then
+  PR359_CONFIRMED_EMPTY_STAGING_REALTIME=true node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
   "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json" \
   "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json" \
   "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
+else
+  node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
+  "$work/source-managed-catalog.json" "$work/docker-managed-catalog.json" \
+  "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json" \
+  "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
+fi
 echo 'PR359_PRE_EXPORT_MANAGED_PARITY_PASS: data export may now begin'
 
 dump roles.sql --role-only
 if [[ "$mode" == staging-restore ]]; then
   SHADOW_STAGE=staging-atomic-cross-dump-export
   SOURCE_COUNTS_SQL="$source_sql" bash scripts/pr359-r4/staging-atomic-export.sh "$work/dump" "$work"
+   cmp -s "$work/source-realtime-messages-count" "$work/staging-realtime-messages-source" || {
+     echo 'PR359_STAGING_REALTIME_PRECHECK_SNAPSHOT_CHANGED' >&2; exit 1
+   }
   sha256sum -c --status "$work/staging-export-manifest.sha256" || {
     echo 'PR359_STAGING_DUMP_MANIFEST_DRIFT' >&2;exit 1;
   }
@@ -343,6 +367,9 @@ if [[ "$mode" == staging-restore ]]; then
     exit 1
   }
   SOURCE_COUNTS_SQL="$source_sql" bash scripts/pr359-r4/staging-atomic-export.sh     "$second_work/dump" "$second_work"
+   cmp -s "$work/source-realtime-messages-count" "$second_work/staging-realtime-messages-source" || {
+     echo 'PR359_STAGING_REALTIME_SECOND_SNAPSHOT_CHANGED' >&2; exit 1
+   }
   dump roles-second-after.sql --role-only
   cmp -s "$second_work/dump/roles.sql" "$work/dump/roles-second-after.sql" || {
     echo 'PR359_STAGING_ROLES_DRIFT_DURING_SECOND_EXPORT' >&2
@@ -374,6 +401,16 @@ if [[ "$mode" == staging-restore ]]; then
   fi
   cmp -s "$work/source-counts" "$work/source-counts-after-export" || {
     echo 'PR359_STAGING_COUNTS_CHANGED_DURING_EXPORT' >&2;exit 1;
+  }
+  SHADOW_STAGE=staging-source-post-export-realtime-messages
+  if ! PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require \
+    psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+      --file scripts/pr359-r4/staging-realtime-empty.sql \
+      > "$work/source-realtime-messages-after-export" 2>/dev/null; then
+    echo 'PR359_STAGING_REALTIME_POST_EXPORT_READ_FAILED' >&2; exit 1
+  fi
+  cmp -s "$work/source-realtime-messages-count" "$work/source-realtime-messages-after-export" || {
+    echo 'PR359_STAGING_REALTIME_CHANGED_AFTER_EXPORT' >&2; exit 1
   }
   SHADOW_STAGE=staging-source-post-export-table-counts
   if ! PGOPTIONS='-c default_transaction_read_only=on' PGSSLMODE=require \

@@ -51,3 +51,27 @@ test('rejects missing columns and migration ledger drift', () => {
   assert.equal(result.compatible, false);
   assert.equal(result.allUnexpectedColumnsAllowed, false);
 });
+
+test('Staging can review missing source daily Realtime partitions only if zero-row source proved',()=>{
+ const dailyTable='messages_2026_11_16';
+ const dailyBound="FOR VALUES FROM ('2026-11-16 00:00:00') TO ('2026-11-17 00:00:00')";
+ const part={schema:'realtime',table:dailyTable,kind:'r',owner:'supabase_realtime_admin',
+   is_partition:true,parent:'realtime.messages',partition_bound:dailyBound};
+ const fields=[{schema:'realtime',table:'messages',column:'id',type:'bigint'}];
+ const sourceCols=[...sourceCatalog,{...fields[0],table:dailyTable}];
+ const targetCols=[...targetCatalog];
+ const srcRelations=[...sourceRelations,part];
+ assert.equal(checkManagedStackCompatibility(sourceCols,targetCols,migrations,migrations,
+   srcRelations,targetRelations).compatible,false);
+ const allowed=checkManagedStackCompatibility(sourceCols,targetCols,migrations,migrations,
+   srcRelations,targetRelations,{allowEmptyStagingRealtime:true});
+ assert.equal(allowed.compatible,true);
+ assert.deepEqual(allowed.reviewedAbsent,['realtime.'+dailyTable]);
+ assert.deepEqual(allowed.allowedMissingColumns,['realtime.'+dailyTable+'.id']);
+ const other={...part,owner:'postgres'};
+ assert.equal(checkManagedStackCompatibility(sourceCols,targetCols,migrations,migrations,
+  [...sourceRelations,other],targetRelations,{allowEmptyStagingRealtime:true}).compatible,false);
+ const malicious={...part,partition_bound:"FOR VALUES FROM ('2026-11-17 00:00:00') TO ('2026-11-18 00:00:00')"};
+ assert.equal(checkManagedStackCompatibility(sourceCols,targetCols,migrations,migrations,
+  [...sourceRelations,malicious],targetRelations,{allowEmptyStagingRealtime:true}).compatible,false);
+});
