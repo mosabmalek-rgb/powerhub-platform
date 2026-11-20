@@ -4,6 +4,7 @@ import {pathToFileURL} from 'node:url';
 import path from 'node:path';
 
 const hex64=/^[a-f0-9]{64}$/;
+const gitBlobSha=/^[a-f0-9]{40}$/;
 export function assessR4ObjectRegister(register) {
  const blockers=[];
  if(register?.format!=='PR359 R4 provisional object review register v1'||
@@ -31,7 +32,7 @@ export function assessR4ObjectRegister(register) {
  }
  if(totals.relation!==337||totals.function!==641) blockers.push('CLASS_COUNTS_DRIFT');
  if(!Array.isArray(register.source_evidence)||register.source_evidence.length!==3||
-    register.source_evidence.some(x=>typeof x.blob_sha!=='string'||!hex64.test(x.blob_sha)))
+    register.source_evidence.some(x=>typeof x.blob_sha!=='string'||!gitBlobSha.test(x.blob_sha)))
     blockers.push('SOURCE_EVIDENCE_MISSING');
  // R0 indexes/constraint source was not parseable in a GitHub fetch. Do not certify it.
  if(register.source_evidence?.[2]?.parseable!==false)
