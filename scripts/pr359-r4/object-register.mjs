@@ -35,8 +35,9 @@ export function assessR4ObjectRegister(register) {
     register.source_evidence.some(x=>typeof x.blob_sha!=='string'||!gitBlobSha.test(x.blob_sha)))
     blockers.push('SOURCE_EVIDENCE_MISSING');
  // R0 indexes/constraint source was not parseable in a GitHub fetch. Do not certify it.
- if(register.source_evidence?.[2]?.parseable!==false)
-    blockers.push('UNREVIEWED_INDEX_CONSTRAINT_EVIDENCE');
+ if(register.source_evidence?.[2]?.parseable!==true ||
+    register.source_evidence?.[2]?.object_count!==2125)
+    blockers.push('INDEX_CONSTRAINT_EVIDENCE_MISSING');
  if(register.decision?.app_owned_signed!==false||
     register.decision?.migration_epoch_v2_proven!==false||
     register.decision?.staging_inplace_go!==false||

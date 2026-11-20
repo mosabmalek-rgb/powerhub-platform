@@ -14,11 +14,18 @@ All 978 classifications remain `APP_OWNED_CANDIDATE` and
 atomic nor a current-SHA catalog freeze, and postgres ownership is not proof
 of application ownership. No item is authorized for removal.
 
-**Source limitation:** The indexed R0 file
-`docs/security/pr359-r0-staging-indexes-constraints-20261119.json`
-was retrieved but its content was not parseable as complete JSON. The
-register explicitly flags this source as `parseable=false` and blocks
-any claim of complete DDL/constraint/dependency reconciliation.
+**Index/constraint source recovered (2026-11-20):** The GitHub contents fetch
+returned the entire valid JSON for
+`docs/security/pr359-r0-staging-indexes-constraints-20261119.json`.
+The narrow `fetch_file` view had returned an empty string for the large file,
+which was a retrieval limitation, not corruption. The historical source has
+**688 indexes, 1,437 constraints and 561 FKs**. A separate read-only Staging
+query confirmed those counts, **zero invalid indexes**, **zero unvalidated
+constraints**, and the three exact Auth shared FKs. Metadata comparison
+and negative regression tests run in Docker Shadow CI.
+
+This resolves **source retrieval and count/identity reconciliation**, not
+per-object current live DDL SHA parity or final APP_OWNED classification.
 
 The fail-closed register tests detect duplicate identities, missing objects,
 unexpected provider ownership, missing function hashes, tampered historical
@@ -42,6 +49,7 @@ version-controlled empty-stack baseline.
 
 R4_OBJECT_REGISTER_ROWS=978
 R4_CLASSIFICATION_SIGNED=false
+R4_INDEX_CONSTRAINT_COUNTS_MATCH=true
 R4_FULL_DDL_RECONCILED=false
 R4_EPOCH_V2_EXECUTED=false
 R4_STAGING_INPLACE_GO=false

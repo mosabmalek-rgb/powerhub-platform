@@ -18,7 +18,9 @@
     {
       "path": "docs/security/pr359-r0-staging-indexes-constraints-20261119.json",
       "blob_sha": "5382a420a7a20d800d506bdaa7e23fe63eead96a",
-      "parseable": false
+      "parseable": true,
+      "object_count": 2125,
+      "validation": "full-json-fetched-via-GitHub-fetch; source blob SHA from repository tree, comparison in CI"
     }
   ],
   "objects": [

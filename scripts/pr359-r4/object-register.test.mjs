@@ -15,13 +15,13 @@ test('duplicate or missing identity is fail closed',()=>{
  const m=fixture();m.objects.pop();
  assert.ok(assessR4ObjectRegister(m).blockers.includes('OBJECT_COUNT_DRIFT'));
 });
-test('provider object, missing hash and unreviewed index evidence block',()=>{
+test('provider object, missing hash and tampered index evidence block',()=>{
  const a=fixture();a.objects[0].owner='supabase_admin';
  assert.ok(assessR4ObjectRegister(a).blockers.some(e=>e.startsWith('PROVIDER_OR_OWNER')));
  const b=fixture();b.objects.find(x=>x.kind==='function').definition_sha256=null;
  assert.ok(assessR4ObjectRegister(b).blockers.some(e=>e.startsWith('FUNCTION_SHA')));
- const c=fixture();c.source_evidence[2].parseable=true;
- assert.ok(assessR4ObjectRegister(c).blockers.includes('UNREVIEWED_INDEX_CONSTRAINT_EVIDENCE'));
+ const c=fixture();c.source_evidence[2].parseable=false;
+ assert.ok(assessR4ObjectRegister(c).blockers.includes('INDEX_CONSTRAINT_EVIDENCE_MISSING'));
 });
 test('cannot smuggle authorization via candidate classification or drop list',()=>{
  const a=fixture();a.decision.destructive_allowlist=['public.users'];
