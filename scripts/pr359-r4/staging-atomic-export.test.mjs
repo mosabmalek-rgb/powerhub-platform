@@ -5,7 +5,7 @@ const script=()=>readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8'
 const runner=()=>readFileSync('scripts/pr359-shadow/run.sh','utf8');
 test('Staging only, guard and bounded exported snapshot owner',()=>{
  const s=script();
- for(const fragment of ['SHADOW_SOURCE_KIND:-','SHADOW_REQUIRE_SESSION_POOLER:-','guard.mjs','coproc SNAPSHOT_KEEPER','pg_export_snapshot()','read -r -t 45 snapshot','trap cleanup EXIT',"SET LOCAL idle_in_transaction_session_timeout = \\'20min\\';","SET LOCAL transaction_timeout = \\'40min\\';"]) assert.ok(s.includes(fragment),fragment);
+ for(const fragment of ['SHADOW_SOURCE_KIND:-','SHADOW_REQUIRE_SESSION_POOLER:-','guard.mjs','coproc SNAPSHOT_KEEPER','pg_export_snapshot()','read -r -t 45 snapshot','trap cleanup EXIT',"SET LOCAL idle_in_transaction_session_timeout = '20min';","SET LOCAL transaction_timeout = '40min';"]) assert.ok(s.includes(fragment),fragment);
 });
 test('all four data/schema/history files share one exported snapshot',()=>{
  const s=script();
