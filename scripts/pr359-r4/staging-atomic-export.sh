@@ -61,6 +61,11 @@ source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-sche
 # exact independent, reviewed Staging definition fingerprints before any COPY.
 node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --verify-reviewed-source "$workdir/staging-schema-source.jsonl"
 node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare "$workdir/staging-schema-source.jsonl" "$workdir/staging-schema-source.jsonl"
+# Attest APP_OWNED and managed-provider subobject dependencies from this same
+# exported MVCC snapshot, before initiating any schema/data pg_dump.
+# This evidence does NOT authorize deleting or recreating a hosted object.
+source_psql "$workdir/staging-ownership-source.json" scripts/pr359-r4/ownership-boundary.sql
+node scripts/pr359-r4/check-staging-ownership-source.mjs "$workdir/staging-ownership-source.json"
 source_psql "$workdir/staging-managed-fks-source.jsonl" scripts/pr359-r4/staging-managed-fks.sql
 node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-managed-fks-source.jsonl" "$workdir/staging-managed-fks-source.jsonl"
 # COPY during restore disables referential triggers: attest source FK row integrity too.
@@ -164,6 +169,12 @@ source_psql "$workdir/staging-managed-after-export.jsonl" scripts/pr359-r4/stagi
 node scripts/pr359-r4/check-staging-managed-data.mjs --compare "$workdir/staging-managed-source.jsonl" "$workdir/staging-managed-after-export.jsonl"
 source_psql "$workdir/staging-schema-after-export.jsonl" scripts/pr359-r4/staging-schema-fingerprint.sql
 node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare "$workdir/staging-schema-source.jsonl" "$workdir/staging-schema-after-export.jsonl"
+source_psql "$workdir/staging-ownership-after-export.json" scripts/pr359-r4/ownership-boundary.sql
+node scripts/pr359-r4/check-staging-ownership-source.mjs "$workdir/staging-ownership-after-export.json"
+cmp -s "$workdir/staging-ownership-source.json" "$workdir/staging-ownership-after-export.json" || {
+ echo PR359_STAGING_OWNERSHIP_SNAPSHOT_MISMATCH >&2
+ exit 1
+}
 source_psql "$workdir/staging-managed-fks-after-export.jsonl" scripts/pr359-r4/staging-managed-fks.sql
 node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-managed-fks-source.jsonl" "$workdir/staging-managed-fks-after-export.jsonl"
 source_psql "$workdir/staging-managed-fk-orphans-after-export.jsonl" scripts/pr359-r4/staging-managed-fk-orphans.sql

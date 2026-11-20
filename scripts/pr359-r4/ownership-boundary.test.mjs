@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {assessR4OwnershipBoundary} from './ownership-boundary.mjs';
+import {assessCapturedSourceOwnership} from './check-staging-ownership-source.mjs';
+import {readFileSync} from 'node:fs';
 const fixture=()=>({
  project_ref:'iyuryuhaylhisjfcrwkz',capture_mode:'single-statement-read-only',
  metadata:{
@@ -111,4 +113,27 @@ test('managed RLS policy function must have exact identity',()=>{
  assert.ok(assessR4OwnershipBoundary(c).blockers.includes('MANAGED_POLICY_FUNCTION_REVIEW_REQUIRED'));
  const d=fixture();d.metadata.managed_policy_functions.push({...d.metadata.managed_policy_functions[0]});
  assert.ok(assessR4OwnershipBoundary(d).blockers.includes('MANAGED_POLICY_FUNCTION_COUNT_DRIFT'));
+});
+
+test('Staging ownership source attestation validates one catalog row but never grants deletion',()=>{
+ const evidence=JSON.stringify(fixture().metadata)+'\n';
+ const r=assessCapturedSourceOwnership(evidence);
+ assert.equal(r.inventoryMatches,true);
+ assert.equal(r.appOwnedApproved,false);
+ assert.equal(r.stagingInplaceGo,false);
+ assert.throws(()=>assessCapturedSourceOwnership(evidence+evidence),/exactly one/);
+ assert.throws(()=>assessCapturedSourceOwnership('not json'));
+ const drift=fixture();drift.metadata.managed_policy_functions[0].target_function='auth.jwt()';
+ assert.ok(assessCapturedSourceOwnership(JSON.stringify(drift.metadata)).blockers.includes('MANAGED_POLICY_FUNCTION_REVIEW_REQUIRED'));
+});
+test('protected Staging exporter runs ownership guard in its shared snapshot before pg_dump',()=>{
+ const s=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
+ const before=s.indexOf('staging-ownership-source.json');
+ const dump=s.indexOf('dump_schema schema.sql');
+ const after=s.indexOf('staging-ownership-after-export.json');
+ assert.ok(before>=0 && dump>before && after>dump);
+ assert.ok(s.includes('source_psql "$workdir/staging-ownership-source.json" scripts/pr359-r4/ownership-boundary.sql'));
+ assert.ok(s.includes('check-staging-ownership-source.mjs "$workdir/staging-ownership-source.json"'));
+ assert.ok(s.includes('PR359_STAGING_OWNERSHIP_SNAPSHOT_MISMATCH'));
+ assert.ok(s.includes('PR359_STAGING_INPLACE_GO=FALSE'));
 });

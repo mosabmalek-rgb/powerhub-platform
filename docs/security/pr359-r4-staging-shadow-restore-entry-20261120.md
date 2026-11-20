@@ -478,3 +478,33 @@ Staging. It is not proof that a real Staging restore has executed.
 `STAGING_INPLACE_GO=false`
 `PRODUCTION_INPLACE_GO=false`
 `CANONICAL_BASELINE_APPROVED=false`
+
+
+## R4 shared-snapshot ownership subobject attestation (2026-11-20 follow-up)
+
+The reviewed `APP_OWNED` inventory now includes catalog dependencies on
+application-owned constraints, RLS policies, rewrite rules, triggers and
+column-default objects (in addition to tables/functions). A read-only Staging
+inspection found 6 `pg_constraint -> pg_class` edges into managed `auth`
+(two references per existing Auth FK) and 1 `pg_policy -> pg_proc` edge:
+`public.users / users_self_read -> auth.uid()`.
+
+The protected **Staging-only** shared-snapshot exporter now executes
+`ownership-boundary.sql` through the same imported `pg_export_snapshot()`
+snapshot used by schema/data/history. The `check-staging-ownership-source.mjs`
+validator rejects missing/new/drifted provider dependency edges before
+`pg_dump`; the export reads the metadata again under the same snapshot and
+requires byte-for-byte parity. These are catalog-only, read-only checks.
+Existing negative regression tests cover exact record counts, function identity,
+unexpected dependencies, and exporter sequencing. The existing Production
+shadow workflow is unaffected.
+
+This is a **code gate**, not a signed deletion allowlist. The environment
+requires a separately reviewed, manual Staging request; the real hosted-source
+two-restore run has **not** been authorized or executed by this change.
+
+`R4_STAGING_OWNERSHIP_SNAPSHOT_GUARD=CODE_READY_PENDING_PROTECTED_RUN`  
+`APP_OWNED_APPROVED=false`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`
