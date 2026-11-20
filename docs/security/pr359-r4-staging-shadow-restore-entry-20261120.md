@@ -222,3 +222,19 @@ nor grant Staging in-place rebaseline. A protected real Staging run remains pend
 R4_STAGING_MANAGED_CATALOG_SNAPSHOT=CODE_READY_PENDING_PROTECTED_RUN
 R4_STAGING_PROVIDER_ROLES_ATOMIC=NOT_PROVEN
 STAGING_INPLACE_GO=false
+
+## Protected Staging global-role re-export drift guard
+
+Global PostgreSQL role definitions cannot be included in an exported per-database
+MVCC snapshot using `pg_dumpall --roles-only`. The Staging-only workflow now
+re-exports role metadata after the shared-snapshot schema/data/history dumps,
+compares both CLI-transformed SQL files byte-for-byte, and fails closed before
+local restoration if the role graph changed during the export window. A Node
+regression executes the exact Bash guard with identical, altered, and missing
+role SQL fixtures. The second role dump remains runner-ephemeral; neither role
+data nor credentials are logged. This is a drift-detection gate, **not** an
+atomic role snapshot or evidence of a durable recovery backup.
+
+`R4_STAGING_GLOBAL_ROLE_DRIFT_GUARD=CODE_READY_PENDING_PROTECTED_RUN`
+`R4_STAGING_ROLE_ATOMICITY=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`

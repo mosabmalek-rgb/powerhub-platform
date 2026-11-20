@@ -315,6 +315,18 @@ else
   dump history-data.sql --schema supabase_migrations --data-only --use-copy
 fi
 if [[ "$mode" == staging-restore ]]; then
+  # pg_dumpall --roles-only cannot join a PostgreSQL MVCC snapshot.
+  # Fail closed if global role definitions drift during the SQL export.
+  # This parity check is NOT proof of a role-atomic backup.
+  SHADOW_STAGE=staging-roles-after-export
+  dump roles-after.sql --role-only
+  if ! cmp -s "$work/dump/roles.sql" "$work/dump/roles-after.sql"; then
+    echo 'PR359_STAGING_ROLE_METADATA_DRIFT_DURING_EXPORT' >&2
+    exit 1
+  fi
+  echo 'PR359_STAGING_ROLE_REEXPORT_PARITY_PASS'
+fi
+if [[ "$mode" == staging-restore ]]; then
   # Source verification before unsetting credentials. These are independent
   # read-only TLS transactions, not an atomic snapshot of Staging.
   SHADOW_STAGE=staging-source-post-export-verify
