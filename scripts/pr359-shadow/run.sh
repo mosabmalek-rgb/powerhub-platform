@@ -433,6 +433,11 @@ restore(){
     node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
       "$work/staging-schema-source.jsonl" "$work/staging-schema-pre-data.jsonl"
     echo 'PR359_STAGING_SCHEMA_PRE_DATA_FINGERPRINT_PASS'
+    SHADOW_STAGE=staging-managed-fks-before-data
+    sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$work/staging-managed-fks-pre-data.jsonl"
+    node scripts/pr359-r4/check-staging-managed-fks.mjs --compare \
+      "$work/staging-managed-fks-source.jsonl" "$work/staging-managed-fks-pre-data.jsonl"
+    echo 'PR359_STAGING_AUTH_USER_FK_PRE_DATA_PASS'
   fi
   # A compatible baseline can still be changed by the application schema dump;
   # verify the managed surface AGAIN after importing schema, before data COPY.
@@ -485,6 +490,11 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
     sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$work/staging-schema-restored.jsonl"
     node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
       "$work/staging-schema-source.jsonl" "$work/staging-schema-restored.jsonl"
+    SHADOW_STAGE=staging-restored-managed-fks
+    sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$work/staging-managed-fks-restored.jsonl"
+    node scripts/pr359-r4/check-staging-managed-fks.mjs --compare \
+      "$work/staging-managed-fks-source.jsonl" "$work/staging-managed-fks-restored.jsonl"
+    echo 'PR359_STAGING_AUTH_USER_FK_DEFINITION_PARITY_PASS'
     echo 'PR359_STAGING_SCHEMA_FINGERPRINT_PASS'
     echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_AND_CONTENT_PASS'
     echo 'PR359_STAGING_MANAGED_AUTH_STORAGE_ROW_PARITY_PASS'

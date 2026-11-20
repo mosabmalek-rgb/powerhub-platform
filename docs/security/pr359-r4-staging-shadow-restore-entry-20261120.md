@@ -279,3 +279,24 @@ This is an isolated model, not real-Staging restore or an approved baseline.
 
 R4_COMBINED_NATIVE_FILTER_MVCC_SNAPSHOT=CODE_READY_PENDING_CI
 STAGING_INPLACE_GO=false
+
+## R4 cross-schema Auth foreign key definition parity
+
+A read-only Staging catalog inspection on 2026-11-20 confirmed exactly three
+application foreign keys to `auth.users`:
+`powerhub_user_device_locks_user_id_fkey`,
+`staff_password_reset_intents_auth_user_id_fkey`, and
+`users_auth_user_id_fkey`. All were VALIDATED, not deferrable, and
+owned by application tables in public. The guard computes SHA-256 over
+`pg_get_constraintdef`, captures the three exact relationships in the SAME
+exported MVCC snapshot as application schema and migration history, and
+compares them again after export, after schema import before data, and after
+each of the two independent disposable restores. Unknown/missing/duplicate
+references and even equal-count changes in FK definitions fail closed.
+
+This classification evidence is NOT a destructive allowlist. `auth.users`
+remains Supabase-managed and is never approved for app-owned deletion.
+
+R4_MANAGED_AUTH_FK_PARITY=CODE_READY_PENDING_PROTECTED_RUN
+APP_OWNED_APPROVED=false
+STAGING_INPLACE_GO=false
