@@ -302,10 +302,18 @@ node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
 echo 'PR359_PRE_EXPORT_MANAGED_PARITY_PASS: data export may now begin'
 
 dump roles.sql --role-only
-dump schema.sql
-dump data.sql --data-only --use-copy
-dump history-schema.sql --schema supabase_migrations
-dump history-data.sql --schema supabase_migrations --data-only --use-copy
+if [[ "$mode" == staging-restore ]]; then
+  SHADOW_STAGE=staging-atomic-cross-dump-export
+  SOURCE_COUNTS_SQL="$source_sql" bash scripts/pr359-r4/staging-atomic-export.sh "$work/dump" "$work"
+  sha256sum -c --status "$work/staging-export-manifest.sha256" || {
+    echo 'PR359_STAGING_DUMP_MANIFEST_DRIFT' >&2;exit 1;
+  }
+else
+  dump schema.sql
+  dump data.sql --data-only --use-copy
+  dump history-schema.sql --schema supabase_migrations
+  dump history-data.sql --schema supabase_migrations --data-only --use-copy
+fi
 if [[ "$mode" == staging-restore ]]; then
   # Source verification before unsetting credentials. These are independent
   # read-only TLS transactions, not an atomic snapshot of Staging.
@@ -348,6 +356,11 @@ if [[ "$mode" == full ]]; then
   node scripts/pr359-shadow/render.mjs "$work/transactions"
 fi
 restore(){
+  if [[ "$mode" == staging-restore ]]; then
+    sha256sum -c --status "$work/staging-export-manifest.sha256" || {
+      echo 'PR359_STAGING_DUMP_MANIFEST_CHANGED_BEFORE_RESTORE' >&2;exit 1;
+    }
+  fi
   SHADOW_STAGE=container-start
   start
   [[ "$(value 'SHOW server_version_num;')" == 17* ]] || exit 1

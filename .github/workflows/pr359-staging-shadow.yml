@@ -46,4 +46,5 @@ jobs:
       - name: Two independent disposable Staging history restores
         run: |
           bash -n scripts/pr359-shadow/run.sh
+          bash -n scripts/pr359-r4/staging-atomic-export.sh
           bash scripts/pr359-shadow/run.sh staging-restore
