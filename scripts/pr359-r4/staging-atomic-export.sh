@@ -53,6 +53,9 @@ source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-sche
 node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare "$workdir/staging-schema-source.jsonl" "$workdir/staging-schema-source.jsonl"
 source_psql "$workdir/staging-managed-fks-source.jsonl" scripts/pr359-r4/staging-managed-fks.sql
 node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-managed-fks-source.jsonl" "$workdir/staging-managed-fks-source.jsonl"
+# COPY during restore disables referential triggers: attest source FK row integrity too.
+source_psql "$workdir/staging-managed-fk-orphans-source.jsonl" scripts/pr359-r4/staging-managed-fk-orphans.sql
+node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs --compare "$workdir/staging-managed-fk-orphans-source.jsonl" "$workdir/staging-managed-fk-orphans-source.jsonl"
 # Bind the provider-managed crosswalk to the same exported source snapshot.
 # A changed provider catalog between preflight and export fails closed.
 for surface in catalog migrations relations; do
@@ -150,6 +153,8 @@ source_psql "$workdir/staging-schema-after-export.jsonl" scripts/pr359-r4/stagin
 node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare "$workdir/staging-schema-source.jsonl" "$workdir/staging-schema-after-export.jsonl"
 source_psql "$workdir/staging-managed-fks-after-export.jsonl" scripts/pr359-r4/staging-managed-fks.sql
 node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-managed-fks-source.jsonl" "$workdir/staging-managed-fks-after-export.jsonl"
+source_psql "$workdir/staging-managed-fk-orphans-after-export.jsonl" scripts/pr359-r4/staging-managed-fk-orphans.sql
+node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs --compare "$workdir/staging-managed-fk-orphans-source.jsonl" "$workdir/staging-managed-fk-orphans-after-export.jsonl"
 sha256sum "$dumpdir/roles.sql" "$dumpdir/schema.sql" "$dumpdir/data.sql" \
  "$dumpdir/history-schema.sql" "$dumpdir/history-data.sql" >"$workdir/staging-export-manifest.sha256"
 sha256sum -c --status "$workdir/staging-export-manifest.sha256"

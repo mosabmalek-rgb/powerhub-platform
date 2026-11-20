@@ -318,3 +318,27 @@ authorization to remove any application/provider object.
 `APP_OWNED_APPROVED=false`
 `CANONICAL_BASELINE_APPROVED=false`
 `STAGING_INPLACE_GO=false`
+
+## R4 post-COPY FK row-integrity gate (2026-11-20)
+
+The Staging restore wraps application and managed data import in
+`session_replication_role=replica`, which suppresses foreign-key
+enforcement triggers during import. Restoring a `VALIDATED` constraint
+definition, and matching the constraint SHA-256, cannot by themselves prove
+that imported rows satisfy its reference to managed `auth.users`.
+
+Added `staging-managed-fk-orphans.sql` and a strict three-edge JSONL
+comparator. The read-only source scan runs under the same exported MVCC
+snapshot as application/auth data and is checked again after export.
+**Every** independent local restore counts unmatched, non-null FK values
+in the three exact application tables and fails on any nonzero, missing,
+unexpected, duplicated or drifted count. The SQL outputs aggregate counts
+only, never user identifiers. A networkless PostgreSQL integration
+injects an orphan with triggers disabled and proves the guard rejects it.
+The live Staging read-only observation was 0/0/0 orphans on 2026-11-20.
+This does not certify all intra-application FKs or grant a destructive action.
+
+`R4_AUTH_FK_ORPHAN_GATE=CODE_READY_PENDING_PROTECTED_RESTORE`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`

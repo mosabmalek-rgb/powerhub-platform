@@ -490,6 +490,11 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
     sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$work/staging-schema-restored.jsonl"
     node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
       "$work/staging-schema-source.jsonl" "$work/staging-schema-restored.jsonl"
+    SHADOW_STAGE=staging-restored-managed-fk-orphans
+    sql postgres < scripts/pr359-r4/staging-managed-fk-orphans.sql > "$work/staging-managed-fk-orphans-restored.jsonl"
+    node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs --compare \
+      "$work/staging-managed-fk-orphans-source.jsonl" "$work/staging-managed-fk-orphans-restored.jsonl"
+    echo 'PR359_STAGING_AUTH_FK_ROW_INTEGRITY_PASS'
     SHADOW_STAGE=staging-restored-managed-fks
     sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$work/staging-managed-fks-restored.jsonl"
     node scripts/pr359-r4/check-staging-managed-fks.mjs --compare \

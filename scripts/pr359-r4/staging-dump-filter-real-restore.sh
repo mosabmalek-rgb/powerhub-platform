@@ -132,6 +132,38 @@ result="$(printf '%s\n' \
 [[ "$result" == '2:12.50:1:true' ]] || {
  echo 'PR359_REAL_EXPORT_RESTORED_SCHEMA_OR_ROW_DRIFT' >&2;exit 1;
 }
+# A validated FK definition is not sufficient: COPY with replication triggers
+# disabled can import orphans. Validate the exact source-audit SQL on local PG.
+cat <<'SQL' | db pr359_export_restored >/dev/null
+CREATE TABLE auth.users (id uuid PRIMARY KEY);
+CREATE TABLE public.powerhub_user_device_locks (
+ user_id uuid REFERENCES auth.users(id));
+CREATE TABLE public.staff_password_reset_intents (
+ auth_user_id uuid REFERENCES auth.users(id));
+CREATE TABLE public.users (
+ auth_user_id uuid REFERENCES auth.users(id));
+INSERT INTO auth.users VALUES ('11111111-1111-4111-8111-111111111111');
+INSERT INTO public.powerhub_user_device_locks VALUES ('11111111-1111-4111-8111-111111111111');
+INSERT INTO public.staff_password_reset_intents VALUES ('11111111-1111-4111-8111-111111111111');
+INSERT INTO public.users VALUES ('11111111-1111-4111-8111-111111111111');
+SQL
+db pr359_export_restored < scripts/pr359-r4/staging-managed-fk-orphans.sql > "$work/fk-clean.jsonl"
+node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs \
+  --compare "$work/fk-clean.jsonl" "$work/fk-clean.jsonl" >/dev/null
+# Reproduce a broken restore, never on hosted Staging.
+cat <<'SQL' | db pr359_export_restored >/dev/null
+BEGIN;
+SET LOCAL session_replication_role=replica;
+INSERT INTO public.users VALUES ('22222222-2222-4222-8222-222222222222');
+COMMIT;
+SQL
+db pr359_export_restored < scripts/pr359-r4/staging-managed-fk-orphans.sql > "$work/fk-orphan.jsonl"
+if node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs \
+     --compare "$work/fk-clean.jsonl" "$work/fk-orphan.jsonl" >/dev/null 2>&1; then
+ echo 'PR359_R4_FK_ORPHAN_INJECTED_FAILURE_NOT_DETECTED' >&2
+ exit 1
+fi
+echo 'PR359_R4_REAL_PG_FK_ORPHAN_NEGATIVE_CONTROL_PASS'
 echo 'PR359_R4_ACTUAL_STAGING_PGDUMP_FILTERS_AND_RESTORE_PASS'
 echo 'PR359_R4_COMBINED_NATIVE_FILTER_MVCC_SNAPSHOT_PASS'
 echo 'PR359_R4_PROVIDER_SCHEMA_EXCLUDED_PROVIDER_ROWS_PRESERVED_PASS'
