@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {assessR4OwnershipBoundary} from './ownership-boundary.mjs';
 import {assessCapturedSourceOwnership} from './check-staging-ownership-source.mjs';
+import {assessManagedReverseDependencies,EXPECTED_REVERSE_DEPENDENCIES} from './check-staging-managed-reverse-dependencies.mjs';
 import {readFileSync} from 'node:fs';
 const fixture=()=>({
  project_ref:'iyuryuhaylhisjfcrwkz',capture_mode:'single-statement-read-only',
@@ -136,4 +137,37 @@ test('protected Staging exporter runs ownership guard in its shared snapshot bef
  assert.ok(s.includes('check-staging-ownership-source.mjs "$workdir/staging-ownership-source.json"'));
  assert.ok(s.includes('PR359_STAGING_OWNERSHIP_SNAPSHOT_MISMATCH'));
  assert.ok(s.includes('PR359_STAGING_INPLACE_GO=FALSE'));
+});
+
+test('managed reverse dependency fingerprints reject same-count rewiring, missing and unreviewed edges',()=>{
+ const fixture=()=>structuredClone(EXPECTED_REVERSE_DEPENDENCIES);
+ const read=x=>assessManagedReverseDependencies(JSON.stringify(x)+'\n');
+ const good=read(fixture());
+ assert.equal(good.matched,true);
+ assert.equal(good.edgeCount,48);
+ assert.equal(good.appOwnedApproved,false);
+ assert.equal(good.stagingInplaceGo,false);
+ const rewired=fixture();rewired.identity_sha256='0'.repeat(64);
+ assert.equal(read(rewired).matched,false);
+ const missing=fixture();missing.groups[0].edges--;
+ missing.edge_count--;
+ assert.equal(read(missing).matched,false);
+ const newGroup=fixture();newGroup.groups.push({source_catalog:'pg_policy',
+  source_schema:'auth',target_catalog:'pg_class',deptype:'n',edges:1});
+ newGroup.edge_count++;
+ assert.equal(read(newGroup).matched,false);
+ const wrongScope=fixture();wrongScope.scope='untrusted';
+ assert.throws(()=>read(wrongScope));
+ const duplicated=JSON.stringify(fixture())+'\n'+JSON.stringify(fixture());
+ assert.throws(()=>assessManagedReverseDependencies(duplicated),/expected one/);
+});
+test('protected Staging exporter verifies incoming managed dependencies before and after pg_dump',()=>{
+ const s=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
+ const pre=s.indexOf('staging-managed-reverse-source.json');
+ const dump=s.indexOf('dump_schema schema.sql');
+ const post=s.indexOf('staging-managed-reverse-after-export.json');
+ assert.ok(pre>=0 && pre<dump && post>dump);
+ assert.ok(s.includes('PR359_STAGING_REVERSE_DEPENDENCY_SNAPSHOT_MISMATCH'));
+ assert.ok(s.includes('check-staging-managed-reverse-dependencies.mjs'));
+ assert.ok(!s.includes('APP_OWNED_APPROVED=TRUE'));
 });

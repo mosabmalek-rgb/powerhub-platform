@@ -66,6 +66,10 @@ node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare "$workdir/s
 # This evidence does NOT authorize deleting or recreating a hosted object.
 source_psql "$workdir/staging-ownership-source.json" scripts/pr359-r4/ownership-boundary.sql
 node scripts/pr359-r4/check-staging-ownership-source.mjs "$workdir/staging-ownership-source.json"
+# Provider-owned RLS policies in realtime/storage depend on PowerHub tables and
+# functions. Verify the exact 48 incoming catalog edges before exporting anything.
+source_psql "$workdir/staging-managed-reverse-source.json" scripts/pr359-r4/staging-managed-reverse-dependencies.sql
+node scripts/pr359-r4/check-staging-managed-reverse-dependencies.mjs "$workdir/staging-managed-reverse-source.json"
 source_psql "$workdir/staging-managed-fks-source.jsonl" scripts/pr359-r4/staging-managed-fks.sql
 node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-managed-fks-source.jsonl" "$workdir/staging-managed-fks-source.jsonl"
 # COPY during restore disables referential triggers: attest source FK row integrity too.
@@ -173,6 +177,12 @@ source_psql "$workdir/staging-ownership-after-export.json" scripts/pr359-r4/owne
 node scripts/pr359-r4/check-staging-ownership-source.mjs "$workdir/staging-ownership-after-export.json"
 cmp -s "$workdir/staging-ownership-source.json" "$workdir/staging-ownership-after-export.json" || {
  echo PR359_STAGING_OWNERSHIP_SNAPSHOT_MISMATCH >&2
+ exit 1
+}
+source_psql "$workdir/staging-managed-reverse-after-export.json" scripts/pr359-r4/staging-managed-reverse-dependencies.sql
+node scripts/pr359-r4/check-staging-managed-reverse-dependencies.mjs "$workdir/staging-managed-reverse-after-export.json"
+cmp -s "$workdir/staging-managed-reverse-source.json" "$workdir/staging-managed-reverse-after-export.json" || {
+ echo PR359_STAGING_REVERSE_DEPENDENCY_SNAPSHOT_MISMATCH >&2
  exit 1
 }
 source_psql "$workdir/staging-managed-fks-after-export.jsonl" scripts/pr359-r4/staging-managed-fks.sql

@@ -508,3 +508,39 @@ two-restore run has **not** been authorized or executed by this change.
 `STAGING_INPLACE_GO=false`  
 `PRODUCTION_INPLACE_GO=false`  
 `PR359_MERGE_GO=false`
+
+
+## R4 managed-to-APP_OWNED incoming dependencies (2026-11-20)
+
+A second, independent read-only Staging catalog inspection uncovered a
+provider-to-application dependency direction that the prior outgoing-only
+ownership checks did not attest. PostgreSQL `pg_depend` identified **48**
+incoming edges: `realtime` policy dependencies on PowerHub relations (32)
+and functions (11), plus `storage` policy dependencies on relations (4)
+and a function (1). Examples: Realtime conversation and Delta policies, and
+Storage chat attachment read policy. This discovery **does not** establish an
+existing runtime security failure; it is a blocker to approving a destructive
+APP_OWNED rebaseline without reviewed handling of dependent managed policies.
+
+New `staging-managed-reverse-dependencies.sql` checks provider-owned functions,
+relations, types, constraints, policies, triggers, rewrite rules and defaults
+for dependencies into PowerHub's public/private/powerhub_private objects.
+It uses an identity-sensitive SHA-256 and grouped edge counts observed twice
+in READ ONLY transactions. The exact reviewed fingerprint is pinned in
+`check-staging-managed-reverse-dependencies.mjs`. Both snapshots are queried
+inside the SAME exported Staging MVCC snapshot before and after pg_dump, with
+fail-closed comparison. Synthetic tests reject equal-count but different
+object identities, missing/extra groups and malformed inventories.
+
+The check detects source drift. It **does not** prove that the managed
+Realtime/Storage policies are present and functional in the disposable target;
+that needs separate managed-policy restoration/acceptance evidence. Do not
+declare `APP_OWNED` approved based solely on a matching source fingerprint.
+
+`R4_MANAGED_REVERSE_DEPENDENCY_INVENTORY=PASS_READ_ONLY_SOURCE`  
+`R4_MANAGED_REVERSE_DEPENDENCY_GUARD=CODE_READY_PENDING_PROTECTED_RUN`  
+`R4_MANAGED_POLICY_TARGET_REPLAY=NOT_PROVEN`  
+`APP_OWNED_APPROVED=false`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`
