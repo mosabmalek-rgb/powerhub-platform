@@ -438,6 +438,17 @@ restore(){
     node scripts/pr359-r4/check-staging-managed-fks.mjs --compare \
       "$work/staging-managed-fks-source.jsonl" "$work/staging-managed-fks-pre-data.jsonl"
     echo 'PR359_STAGING_AUTH_USER_FK_PRE_DATA_PASS'
+    # Source provider-managed policies can reference restored PowerHub tables
+    # and functions. A matching source inventory alone cannot prove that those
+    # policies survived into the isolated target; attest them before data COPY.
+    SHADOW_STAGE=staging-reverse-managed-dependencies-before-data
+    sql postgres < scripts/pr359-r4/staging-managed-reverse-dependencies.sql > "$work/staging-managed-reverse-restored.json"
+    node scripts/pr359-r4/check-staging-managed-reverse-dependencies.mjs "$work/staging-managed-reverse-restored.json"
+    cmp -s "$work/staging-managed-reverse-source.json" "$work/staging-managed-reverse-restored.json" || {
+      echo 'PR359_STAGING_MANAGED_REVERSE_TARGET_PARITY_FAILED' >&2
+      exit 1
+    }
+    echo 'PR359_STAGING_MANAGED_REVERSE_TARGET_PARITY_PASS'
   fi
   # A compatible baseline can still be changed by the application schema dump;
   # verify the managed surface AGAIN after importing schema, before data COPY.

@@ -171,3 +171,15 @@ test('protected Staging exporter verifies incoming managed dependencies before a
  assert.ok(s.includes('check-staging-managed-reverse-dependencies.mjs'));
  assert.ok(!s.includes('APP_OWNED_APPROVED=TRUE'));
 });
+
+test('Staging local restore must attest provider-managed reverse dependencies before importing business data',()=>{
+ const s=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const sourceRead=s.indexOf('staging-managed-reverse-dependencies.sql');
+ const copy=s.indexOf('SHADOW_STAGE=restore-data');
+ assert.ok(sourceRead>=0 && sourceRead<copy);
+ assert.ok(s.includes('staging-managed-reverse-restored.json'));
+ assert.ok(s.includes('PR359_STAGING_MANAGED_REVERSE_TARGET_PARITY_FAILED'));
+ assert.ok(s.includes('check-staging-managed-reverse-dependencies.mjs'));
+ assert.ok(s.includes('PR359_STAGING_MANAGED_REVERSE_TARGET_PARITY_PASS'));
+ assert.ok(s.includes('if [[ "$mode" == staging-restore ]]; then'));
+});

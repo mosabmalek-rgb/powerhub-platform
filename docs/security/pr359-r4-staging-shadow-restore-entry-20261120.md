@@ -544,3 +544,25 @@ declare `APP_OWNED` approved based solely on a matching source fingerprint.
 `STAGING_INPLACE_GO=false`  
 `PRODUCTION_INPLACE_GO=false`  
 `PR359_MERGE_GO=false`
+
+
+## R4 restored managed-policy dependency parity gate (2026-11-20)
+
+The Staging-only disposable `restore()` path now compares the **target**
+provider-managed incoming dependency graph against the exact exported source
+graph immediately after application-schema replay and **before business data
+COPY**. If restored Realtime/Storage managed RLS policies are absent or refer
+to different PowerHub functions/tables, the target verification fails closed.
+The same check is repeated on the second independent disposable restore.
+Production Docker shadow remains unchanged.
+
+The source dependency guard alone was not sufficient: a logically consistent
+application schema could still coexist with missing provider-managed RLS
+policies in the target. No provider-managed policy is modified on hosted
+Staging, and this change does not authorize recreating or replacing policies
+on the hosted database.
+
+`R4_MANAGED_REVERSE_TARGET_PARITY=CODE_READY_PENDING_PROTECTED_RUN`  
+`R4_PROTECTED_STAGING_RESTORE=NOT_PROVEN`  
+`APP_OWNED_APPROVED=false`  
+`PR359_MERGE_GO=false`
