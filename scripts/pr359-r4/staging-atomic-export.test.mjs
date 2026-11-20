@@ -48,3 +48,28 @@ test('two independent Staging source MVCC exports and two fresh local restores a
  assert.ok(r.includes('PR359_STAGING_ROLES_DRIFT_BETWEEN_SOURCE_EXPORTS'));
  assert.ok(r.includes('PR359_STAGING_ROLES_DRIFT_DURING_SECOND_EXPORT'));
 });
+
+test('both restore-side managed compatibility gates require this exports snapshot-scoped Realtime zero evidence',()=>{
+ const r=runner();
+ const helperStart=r.indexOf('check_restore_managed_compatibility(){');
+ const restoreStart=r.indexOf('restore(){');
+ assert.ok(helperStart>=0 && restoreStart>helperStart);
+ const helper=r.slice(helperStart,restoreStart);
+ const restore=r.slice(restoreStart,r.indexOf('\napply(){'));
+ assert.match(helper,/\[\[ "\$mode" == staging-restore \]\]/);
+ assert.match(helper,/SHADOW_SOURCE_KIND:-/);
+ assert.match(helper,/\-f "\$restore_work\/staging-realtime-messages-source"/);
+ assert.match(helper,/snapshot_count="\$\(cat "\$restore_work\/staging-realtime-messages-source"\)"/);
+ assert.match(helper,/\[\[ "\$snapshot_count" == 0 \]\]/);
+ assert.match(helper,/PR359_RESTORE_REALTIME_SNAPSHOT_ZERO_EVIDENCE_MISSING/);
+ assert.match(helper,/PR359_RESTORE_REALTIME_SNAPSHOT_NONZERO_OR_MALFORMED/);
+ assert.match(helper,/PR359_CONFIRMED_EMPTY_STAGING_REALTIME=true node/);
+ assert.equal((restore.match(/check_restore_managed_compatibility/g)||[]).length,2,
+   'both pre/post-application local restore compatibility checks must be covered');
+ assert.doesNotMatch(restore,/\n  node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/,
+   'an unguarded restore-side compatibility invocation must not remain');
+ assert.ok(r.includes('restore_work="$work/second-export"'),
+   'second restore uses its own independent snapshot proof');
+ assert.match(helper,/else\n    node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/,
+   'non-Staging path must stay strict without the lifecycle exception');
+});

@@ -433,6 +433,31 @@ unset PGOPTIONS PGSSLMODE SHADOW_SOURCE_DB_URL
 if [[ "$mode" == full ]]; then
   node scripts/pr359-shadow/render.mjs "$work/transactions"
 fi
+# Restore-side managed catalog checks MUST receive the same narrowly scoped
+# empty-Realtime evidence as the pre-export gate. Validate the evidence from
+# the CURRENT independent source export before every invocation, never infer it
+# from the branch, environment or another export's zero-row check.
+check_restore_managed_compatibility(){
+  local snapshot_count
+  if [[ "$mode" == staging-restore ]]; then
+    [[ "${SHADOW_SOURCE_KIND:-}" == staging && -f "$restore_work/staging-realtime-messages-source" ]] || {
+      echo 'PR359_RESTORE_REALTIME_SNAPSHOT_ZERO_EVIDENCE_MISSING' >&2; return 2
+    }
+    snapshot_count="$(cat "$restore_work/staging-realtime-messages-source")"
+    [[ "$snapshot_count" == 0 ]] || {
+      echo 'PR359_RESTORE_REALTIME_SNAPSHOT_NONZERO_OR_MALFORMED' >&2; return 2
+    }
+    PR359_CONFIRMED_EMPTY_STAGING_REALTIME=true node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
+      "$restore_work/source-managed-catalog.json" "$restore_work/docker-managed-catalog.json" \
+      "$restore_work/source-managed-migrations.json" "$restore_work/docker-managed-migrations.json" \
+      "$restore_work/source-managed-relations.json" "$restore_work/docker-managed-relations.json"
+  else
+    node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
+      "$restore_work/source-managed-catalog.json" "$restore_work/docker-managed-catalog.json" \
+      "$restore_work/source-managed-migrations.json" "$restore_work/docker-managed-migrations.json" \
+      "$restore_work/source-managed-relations.json" "$restore_work/docker-managed-relations.json"
+  fi
+}
 restore(){
   if [[ "$mode" == staging-restore ]]; then
     sha256sum -c --status "$restore_work/staging-export-manifest.sha256" || {
@@ -485,10 +510,7 @@ restore(){
   if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$restore_work/docker-managed-migrations.json" 2>/dev/null; then
     echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
   fi
-  node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
-    "$restore_work/source-managed-catalog.json" "$restore_work/docker-managed-catalog.json" \
-    "$restore_work/source-managed-migrations.json" "$restore_work/docker-managed-migrations.json" \
-    "$restore_work/source-managed-relations.json" "$restore_work/docker-managed-relations.json"
+  check_restore_managed_compatibility
   SHADOW_STAGE=restore-application-schema
   echo 'PR359_SHADOW_STAGE: starting application schema restore'
   runfile postgres "$restore_work/dump/schema.sql"
@@ -525,10 +547,7 @@ restore(){
   if ! sql postgres < scripts/pr359-shadow/managed-migrations.sql > "$restore_work/docker-managed-migrations.json" 2>/dev/null; then
     echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
   fi
-  node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
-    "$restore_work/source-managed-catalog.json" "$restore_work/docker-managed-catalog.json" \
-    "$restore_work/source-managed-migrations.json" "$restore_work/docker-managed-migrations.json" \
-    "$restore_work/source-managed-relations.json" "$restore_work/docker-managed-relations.json"
+  check_restore_managed_compatibility
   { printf 'BEGIN;\nSET LOCAL session_replication_role=replica;\n'; cat "$restore_work/dump/data.sql"; printf '\nCOMMIT;\n'; } > "$restore_work/restore-data.sql"
   SHADOW_STAGE=restore-data
   # COPY includes provider-owned Storage rows such as buckets_vectors. Import

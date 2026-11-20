@@ -616,3 +616,19 @@ No protected hosted Staging run is claimed based solely on these code changes.
 `STAGING_INPLACE_GO=false`  
 `PRODUCTION_INPLACE_GO=false`  
 `PR359_MERGE_GO=false`
+
+
+## R4 restore-side daily Realtime evidence (2026-11-20)
+
+Protected hosted Staging run [#44813482042](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/44813482042) **proved two separate MVCC source exports** and full source parity, including 183 table hashes, 561 app FK integrity checks, APP_OWNED inventory (978 candidates) and 48 reverse managed dependencies. It failed during the FIRST disposable restore, at `verify-managed-migrations-pre-application`: the two restore-side managed compatibility checker calls had not been passed the already-proven zero-row Realtime lifecycle gate, producing `blockedMissing=33` on the source's three historic daily partitions. This was not a successful pair of restores.
+
+`check_restore_managed_compatibility` now validates the zero-row Realtime source evidence **inside the current independent export directory**, on each pre/post-application check. The Staging-only flag is applied exclusively to these checker invocations when the source proof is exactly `0` and the source kind is `staging`. Missing/nonzero evidence fails closed. The Production/full path retains its original strict validator behavior. Regression enforces both restore-side calls and distinct export selection.
+
+This is code remediation only; a fresh protected request, reviewer approval and real Staging-to-disposable-restore acceptance are still required. No hosted schema/data writes, destructive reset, PR merge or Production deployment are authorized.
+
+`R4_TWO_INDEPENDENT_SOURCE_EXPORTS=PROVEN_RUN_44813482042`  
+`R4_FIRST_LOCAL_RESTORE=FAILED_MANAGED_LIFECYCLE_GUARD`  
+`R4_TWO_RESTORES=NOT_PROVEN`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`
