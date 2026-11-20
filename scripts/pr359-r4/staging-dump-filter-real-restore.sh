@@ -147,6 +147,14 @@ INSERT INTO public.powerhub_user_device_locks VALUES ('11111111-1111-4111-8111-1
 INSERT INTO public.staff_password_reset_intents VALUES ('11111111-1111-4111-8111-111111111111');
 INSERT INTO public.users VALUES ('11111111-1111-4111-8111-111111111111');
 SQL
+db pr359_export_restored < scripts/pr359-r4/staging-all-fk-integrity.sql > "$work/all-fk-clean.jsonl"
+node --input-type=module - "$work/all-fk-clean.jsonl" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {assessAllFkIntegrity} from './scripts/pr359-r4/check-staging-all-fk-integrity.mjs';
+const clean=readFileSync(process.argv[2],'utf8');
+assert.equal(assessAllFkIntegrity(clean,clean,3).clean,true);
+JS
 db pr359_export_restored < scripts/pr359-r4/staging-managed-fk-orphans.sql > "$work/fk-clean.jsonl"
 node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs \
   --compare "$work/fk-clean.jsonl" "$work/fk-clean.jsonl" >/dev/null
@@ -157,6 +165,17 @@ SET LOCAL session_replication_role=replica;
 INSERT INTO public.users VALUES ('22222222-2222-4222-8222-222222222222');
 COMMIT;
 SQL
+db pr359_export_restored < scripts/pr359-r4/staging-all-fk-integrity.sql > "$work/all-fk-corrupt.jsonl"
+node --input-type=module - "$work/all-fk-clean.jsonl" "$work/all-fk-corrupt.jsonl" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {assessAllFkIntegrity} from './scripts/pr359-r4/check-staging-all-fk-integrity.mjs';
+const a=readFileSync(process.argv[2],'utf8');
+const b=readFileSync(process.argv[3],'utf8');
+const result=assessAllFkIntegrity(a,b,3);
+assert.equal(result.clean,false);
+assert.equal(result.restoredViolations,1);
+JS
 db pr359_export_restored < scripts/pr359-r4/staging-managed-fk-orphans.sql > "$work/fk-orphan.jsonl"
 if node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs \
      --compare "$work/fk-clean.jsonl" "$work/fk-orphan.jsonl" >/dev/null 2>&1; then

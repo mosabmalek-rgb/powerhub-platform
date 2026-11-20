@@ -56,6 +56,9 @@ node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-
 # COPY during restore disables referential triggers: attest source FK row integrity too.
 source_psql "$workdir/staging-managed-fk-orphans-source.jsonl" scripts/pr359-r4/staging-managed-fk-orphans.sql
 node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs --compare "$workdir/staging-managed-fk-orphans-source.jsonl" "$workdir/staging-managed-fk-orphans-source.jsonl"
+# Integrity of all 561 app FKs, including 106 composite references.
+source_psql "$workdir/staging-all-fks-source.jsonl" scripts/pr359-r4/staging-all-fk-integrity.sql
+node scripts/pr359-r4/check-staging-all-fk-integrity.mjs --compare "$workdir/staging-all-fks-source.jsonl" "$workdir/staging-all-fks-source.jsonl"
 # Bind the provider-managed crosswalk to the same exported source snapshot.
 # A changed provider catalog between preflight and export fails closed.
 for surface in catalog migrations relations; do
@@ -155,6 +158,8 @@ source_psql "$workdir/staging-managed-fks-after-export.jsonl" scripts/pr359-r4/s
 node scripts/pr359-r4/check-staging-managed-fks.mjs --compare "$workdir/staging-managed-fks-source.jsonl" "$workdir/staging-managed-fks-after-export.jsonl"
 source_psql "$workdir/staging-managed-fk-orphans-after-export.jsonl" scripts/pr359-r4/staging-managed-fk-orphans.sql
 node scripts/pr359-r4/check-staging-managed-fk-orphans.mjs --compare "$workdir/staging-managed-fk-orphans-source.jsonl" "$workdir/staging-managed-fk-orphans-after-export.jsonl"
+source_psql "$workdir/staging-all-fks-after-export.jsonl" scripts/pr359-r4/staging-all-fk-integrity.sql
+node scripts/pr359-r4/check-staging-all-fk-integrity.mjs --compare "$workdir/staging-all-fks-source.jsonl" "$workdir/staging-all-fks-after-export.jsonl"
 sha256sum "$dumpdir/roles.sql" "$dumpdir/schema.sql" "$dumpdir/data.sql" \
  "$dumpdir/history-schema.sql" "$dumpdir/history-data.sql" >"$workdir/staging-export-manifest.sha256"
 sha256sum -c --status "$workdir/staging-export-manifest.sha256"

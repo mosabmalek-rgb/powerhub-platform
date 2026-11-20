@@ -342,3 +342,33 @@ This does not certify all intra-application FKs or grant a destructive action.
 `APP_OWNED_APPROVED=false`
 `CANONICAL_BASELINE_APPROVED=false`
 `STAGING_INPLACE_GO=false`
+
+## R4 post-COPY all-application-FK integrity (2026-11-20)
+
+Read-only Staging catalog inspection identified **561** application foreign-key
+constraints (455 single-column and 106 composite); all were VALIDATED,
+all use MATCH SIMPLE and built-in equality, and three reference managed
+Auth tables. COPY during the isolated restore disables constraint triggers,
+so a clean schema fingerprint alone cannot certify restored FK row integrity.
+
+The Staging shared-snapshot exporter now runs a PostgreSQL catalog-driven,
+read-only `psql \gexec` integrity audit over every application FK, using
+MATCH SIMPLE null semantics and multi-column equality. Only schema/table/FK
+identities, validation/operator flags and aggregate orphan counts are returned.
+The strict verifier requires all 561 unique relationships, accepted operator
+semantics, zero source violations, zero restore violations, and identical
+identities. Each of the **two** independent isolated restores runs the audit
+after data import; a networkless PostgreSQL regression exercises both a
+clean state and an intentionally injected orphan with FK triggers disabled.
+This is independent of the exact-three managed Auth FK guard and the
+constraint-definition SHA-256 parity guard.
+
+Caveats: SQL/catalog coverage and tests do not replace real Staging restore,
+cannot prove external dynamic SQL or provider blob bytes, and do not approve
+a destructive action. The 561-count reference is intentionally fail-closed
+on a changed Staging schema and must be reviewed before updating.
+
+`R4_ALL_561_APP_FK_INTEGRITY=CODE_READY_PENDING_PROTECTED_RESTORE`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
