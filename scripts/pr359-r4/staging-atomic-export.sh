@@ -69,6 +69,9 @@ node scripts/pr359-r4/check-staging-table-content.mjs --compare "$workdir/stagin
 source_psql "$workdir/staging-managed-source.jsonl" scripts/pr359-r4/staging-managed-data-content.sql
 node scripts/pr359-r4/check-staging-managed-data.mjs --compare "$workdir/staging-managed-source.jsonl" "$workdir/staging-managed-source.jsonl"
 source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-schema-fingerprint.sql
+# Keep per-object SHA evidence inside the very SAME MVCC source snapshot.
+# These are identity/hash-only diagnostics, never SQL or user data.
+source_psql "$workdir/staging-schema-object-source.jsonl" scripts/pr359-r4/staging-schema-object-digests.sql
 # Source-versus-restore equality alone can accept a drifted source; require
 # exact independent, reviewed Staging definition fingerprints before any COPY.
 node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --verify-reviewed-source "$workdir/staging-schema-source.jsonl"

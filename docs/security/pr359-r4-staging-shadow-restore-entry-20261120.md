@@ -632,3 +632,33 @@ This is code remediation only; a fresh protected request, reviewer approval and 
 `STAGING_INPLACE_GO=false`  
 `PRODUCTION_INPLACE_GO=false`  
 `PR359_MERGE_GO=false`
+
+
+## R4 schema parity diagnostics — protected run 44819760433 (2026-11-20)
+
+The protected two-source export and first isolated restore reached
+`staging-schema-before-data` and failed closed. Source and target had
+matching seven-category object counts, but the SHA-256 categories
+`columns`, `functions`, and `relations` differed after restoring the
+application schema. No business data COPY occurred and no hosted write was
+performed. Docker showed no OOM (around 121.5 MiB used).
+
+New `staging-schema-object-digests.sql` derives the **exact SAME seven-category
+inventory and attribute expression** as the reviewed aggregate fingerprint
+query and emits only catalog category, qualified object identity, and SHA-256.
+Source fingerprints are collected within EACH independently exported snapshot.
+`diagnose-staging-schema-object-drift.mjs` compares individual hashes,
+lists bounded changed/missing/extra **object identities only**, and never
+prints function bodies, ACL values, source rows, SQL statements, URLs or
+secrets. Upon aggregate mismatch, the protected restore runs the diagnostic
+before exiting **nonzero**, so no mismatch can be treated as success.
+Independent source export parity includes the new evidence file and regression
+tests validate negative cases. This is a diagnostic gate, not a permission to
+normalize or bypass mismatches. A fresh protected run is required to identify
+the exact differences and then apply a minimally scoped fix.
+
+The failed request has been reset to `requested=false`. PR remains Draft;
+`R4_TWO_SOURCE_EXPORTS=PASS_PRIOR_RUN`,
+`R4_BOTH_DISPOSABLE_RESTORES=NOT_PROVEN`,
+`STAGING_INPLACE_GO=false`, `PRODUCTION_INPLACE_GO=false`,
+`APP_OWNED_APPROVED=false`, `PR359_MERGE_GO=false`.

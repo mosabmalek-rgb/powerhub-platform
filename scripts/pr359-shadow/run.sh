@@ -527,8 +527,21 @@ restore(){
   if [[ "$mode" == staging-restore ]]; then
     SHADOW_STAGE=staging-schema-before-data
     sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$restore_work/staging-schema-pre-data.jsonl"
-    node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
-      "$restore_work/staging-schema-source.jsonl" "$restore_work/staging-schema-pre-data.jsonl"
+    if ! node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
+      "$restore_work/staging-schema-source.jsonl" "$restore_work/staging-schema-pre-data.jsonl"; then
+      # Never bypass schema parity. Before failing, emit bounded object identities
+      # with DIFFERING HASHES only, not SQL definitions or sensitive data.
+      SHADOW_STAGE=staging-schema-object-drift-diagnostics
+      sql postgres < scripts/pr359-r4/staging-schema-object-digests.sql \
+        > "$restore_work/staging-schema-objects-pre-data.jsonl" || {
+        echo 'PR359_R4_SCHEMA_DIGEST_DIAGNOSTIC_QUERY_FAILED' >&2; exit 2;
+      }
+      node scripts/pr359-r4/diagnose-staging-schema-object-drift.mjs \
+        "$restore_work/staging-schema-object-source.jsonl" \
+        "$restore_work/staging-schema-objects-pre-data.jsonl" || :
+      echo 'PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED' >&2
+      exit 2
+    fi
     echo 'PR359_STAGING_SCHEMA_PRE_DATA_FINGERPRINT_PASS'
     SHADOW_STAGE=staging-managed-fks-before-data
     sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$restore_work/staging-managed-fks-pre-data.jsonl"
