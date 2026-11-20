@@ -15,6 +15,7 @@ test('Docker startup only accepts stable final TCP postmaster, never temporary U
  const mocked=`set -euo pipefail
 calls=0
 container=''
+mode=smoke
 password=local-test-password
 docker() {
   case "$1" in

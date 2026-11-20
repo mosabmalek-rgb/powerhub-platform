@@ -29,7 +29,7 @@ test('staging and production source-kind attestations cannot cross',()=>{
  assert.match(sh,/if \[\[ "\$mode" == full \]\]; then\s+node scripts\/pr359-shadow\/render\.mjs/);
 });
 test('two Staging restores exit before Production-only finance migration replay',()=>{
- const idx=sh.lastIndexOf('\nrestore\n');
+ const idx=sh.indexOf('\nrestore\nif [[ "$mode" == staging-restore ]]');
  assert.ok(idx>0);
  const body=sh.slice(idx);
  const stage=body.slice(body.indexOf('if [[ "$mode" == staging-restore ]]'),body.indexOf('\nfi\n')+4);
