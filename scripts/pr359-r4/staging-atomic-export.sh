@@ -92,13 +92,19 @@ dump_schema(){
 }
 dump_data(){
  local output="$1"; shift
- { printf 'SET session_replication_role = replica;\n\n'
-   pgdump --data-only --quote-all-identifiers --role postgres \
+ local destination="$dumpdir/$output"
+ printf 'SET session_replication_role = replica;\n\n' >"$destination"
+ # Never wrap the entire group in a success-producing trailing printf:
+ # pg_dump failures in an intermediate pipeline must terminate the export.
+ if ! pgdump --data-only --quote-all-identifiers --role postgres \
       --exclude-table=auth.schema_migrations --exclude-table=storage.migrations \
-      --exclude-table=supabase_functions.migrations "$@" | sed -E 's/^\\(un)?restrict .*$/-- &/'
-   printf '\nRESET ALL;\n'
- } >"$dumpdir/$output" || { echo "PR359_STAGING_ATOMIC_DATA_DUMP_FAILED=$output" >&2; exit 1; }
- [[ -s "$dumpdir/$output" ]] || exit 1
+      --exclude-table=supabase_functions.migrations "$@" \
+      | sed -E 's/^\\(un)?restrict .*$/-- &/' >>"$destination"; then
+   echo "PR359_STAGING_ATOMIC_DATA_DUMP_FAILED=$output" >&2
+   return 1
+ fi
+ printf '\nRESET ALL;\n' >>"$destination"
+ [[ -s "$destination" ]] || return 1
 }
 dump_schema schema.sql --exclude-schema="$internal"
 dump_data data.sql --exclude-schema="$data_excluded" --schema='*'

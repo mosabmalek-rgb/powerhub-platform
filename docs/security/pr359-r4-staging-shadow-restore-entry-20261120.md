@@ -143,3 +143,10 @@ The protected staging-restore path now starts an exported read-only REPEATABLE R
 `R4_STAGING_SHARED_PG_SNAPSHOT=CODE_READY_PENDING_PROTECTED_RUN`
 `R4_STAGING_ROLES_SNAPSHOT=NOT_PROVEN`
 `STAGING_INPLACE_GO=false`
+
+## Fail-closed data-export pipeline regression
+
+An independent Bash execution regression now simulates `pg_dump` exiting nonzero after emitting partial SQL. `dump_data()` checks the actual `pgdump | sed` pipeline status before appending `RESET ALL`, so a successful trailing printf cannot mask a failed export. The test also verifies the successful path produces the expected SQL envelope. The tests run in Docker Shadow smoke and require no hosted database.
+
+`R4_STAGING_DATA_DUMP_PIPELINE_FAILURE_GUARD=CODE_READY_PENDING_CI`
+`STAGING_INPLACE_GO=false`
