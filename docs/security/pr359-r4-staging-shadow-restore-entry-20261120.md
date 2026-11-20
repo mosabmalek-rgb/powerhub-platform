@@ -452,3 +452,29 @@ or canonical migration baseline.
 `APP_OWNED_APPROVED=false`
 `CANONICAL_BASELINE_APPROVED=false`
 `STAGING_INPLACE_GO=false`
+
+## R4 bounded PostgreSQL snapshot keeper (2026-11-20)
+
+The Staging-only source exporter previously set
+`idle_in_transaction_session_timeout=0`, explicitly disabling protection
+against an abandoned long-lived MVCC snapshot. A stranded read-only
+snapshot can retain dead tuples and contribute to vacuum bloat.
+
+The source snapshot keeper now sets **transaction-local** PostgreSQL 17
+limits: `idle_in_transaction_session_timeout='20min'` and
+`transaction_timeout='40min'` before calling `pg_export_snapshot()`.
+Timeout or connection loss invalidates that snapshot; the downstream
+attestation or `pg_dump --snapshot` fails closed. The controls are not
+database-wide settings and do not touch Production. A read-only
+transaction on hosted Staging PostgreSQL 17.6 confirmed both SET LOCAL
+values are accepted, and was rolled back.
+
+The Docker Smoke MVCC regression now also exercises a networkless PG17
+negative control with a deliberately short idle deadline and verifies
+the server terminates the abandoned transaction, without touching
+Staging. It is not proof that a real Staging restore has executed.
+
+`R4_SOURCE_SNAPSHOT_LIFETIME_BOUNDED=CODE_READY_PENDING_CI`
+`STAGING_INPLACE_GO=false`
+`PRODUCTION_INPLACE_GO=false`
+`CANONICAL_BASELINE_APPROVED=false`

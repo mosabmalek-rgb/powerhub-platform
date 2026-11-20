@@ -89,6 +89,25 @@ keeper_in=''
 if pg_dump_local --snapshot="$snapshot" --data-only >"$work/expired.sql" 2>"$work/expired.err"; then
  echo 'PR359_EXPIRED_SNAPSHOT_WAS_ACCEPTED' >&2; exit 1
 fi
+# Negative control: a source snapshot owner left idle must be killed by PG17
+# without relying on a GitHub runner timeout. Values are deliberately tiny
+# ONLY inside this networkless synthetic database.
+if {
+  printf 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\n'
+  printf "SET LOCAL idle_in_transaction_session_timeout = '600ms';\n"
+  printf "SET LOCAL transaction_timeout = '2000ms';\n"
+  printf 'SELECT pg_export_snapshot();\n'
+  sleep 2
+  printf 'SELECT 1;\n'
+} | psql_local postgres >"$work/idle-expiry.out" 2>"$work/idle-expiry.err"; then
+  echo 'PR359_SOURCE_SNAPSHOT_IDLE_TIMEOUT_NOT_ENFORCED' >&2
+  exit 1
+fi
+if ! grep -Eqi 'idle-in-transaction timeout|idle_in_transaction_session_timeout' "$work/idle-expiry.err"; then
+  echo 'PR359_SOURCE_SNAPSHOT_IDLE_TIMEOUT_DIAGNOSTIC_MISSING' >&2
+  exit 1
+fi
+echo 'PR359_SOURCE_SNAPSHOT_IDLE_TIMEOUT_NEGATIVE_PASS'
 echo 'PR359_DISPOSABLE_MVCC_CONCURRENT_WRITES_PASS'
 echo 'PR359_DISPOSABLE_MVCC_EXPIRED_SNAPSHOT_REJECTED_PASS'
 echo 'PR359_STAGING_REAL_RESTORE=NOT_PROVEN'
