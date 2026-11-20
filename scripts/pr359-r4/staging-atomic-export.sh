@@ -25,7 +25,7 @@ keeper_in="${SNAPSHOT_KEEPER[1]}"
 # Never hold a source MVCC snapshot without a finite server-side lifetime.
 # These limits are local to this READ ONLY transaction (PG17 source tested).
 # A timed-out keeper terminates and all subsequent snapshot imports fail closed.
-printf '%s\\n' \
+printf '%s\n' \
   'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;' \
   "SET LOCAL idle_in_transaction_session_timeout = '20min';" \
   "SET LOCAL transaction_timeout = '40min';" \
