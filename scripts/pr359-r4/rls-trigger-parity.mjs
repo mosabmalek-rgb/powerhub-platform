@@ -44,6 +44,8 @@ function normalized(o){
   assert.ok(sha256.test(o.details?.using_sha256||''));
   assert.ok(sha256.test(o.details?.check_sha256||''));
   assert.ok(Array.isArray(o.details?.roles)&&o.details.roles.every(r=>typeof r==='string'));
+  assert.equal(o.details.roles.length,1,'reviewed application R0 policies have exactly one role');
+  assert.ok(['authenticated','service_role'].includes(o.details.roles[0]),'unreviewed policy principal');
   assert.ok(typeof o.details.command==='string');
   assert.equal(typeof o.details.permissive,'boolean');
   return {category:'POLICY',schema:'public',identity:o.identity,
