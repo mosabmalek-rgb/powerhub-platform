@@ -372,3 +372,33 @@ on a changed Staging schema and must be reviewed before updating.
 `APP_OWNED_APPROVED=false`
 `CANONICAL_BASELINE_APPROVED=false`
 `STAGING_INPLACE_GO=false`
+
+## R4 verified live Staging FK integrity and composite negative control (2026-11-20)
+
+On source head `f7348fc0b754debcf72b69ac439ac579ae5c3b42`,
+all six GitHub Actions workflows completed successfully, including
+Docker Smoke with the all-application-FK checker.
+
+A separate actual hosted-Staging **read-only** audit generated 561 FK-specific
+SELECT statements from the checked-in PostgreSQL catalog query and executed
+the resulting checks in **six** bounded `REPEATABLE READ READ ONLY`
+transactions (100, 95, 95, 95, 95, 81 constraints). Results:
+`checked=561`, `total_fk_violations=0`,
+`constraints_with_violations=0`, `invalid_metadata_flags=0`.
+This is **not** one source-wide MVCC snapshot across all six live batches;
+each statement batch was transactionally consistent. It does not show any
+restored Staging dataset or prove recoverability.
+
+The isolated PostgreSQL fixture now includes a composite two-column FK,
+verifies MATCH SIMPLE accepts source rows with a partially NULL key, and
+injects an invalid fully populated two-column reference with
+`session_replication_role=replica`. The post-import check must detect
+both that composite orphan and the existing managed-Auth orphan, preserving
+fail-closed recovery behavior even if FK DDL is VALIDATED.
+
+`R4_LIVE_STAGING_561_FK_ROW_INTEGRITY=PASS_READ_ONLY`
+`R4_COMPOSITE_FK_NEGATIVE_CONTROL=CODE_READY_PENDING_CI`
+`R4_STAGING_REAL_RESTORED_561_FK_ROW_INTEGRITY=NOT_PROVEN`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
