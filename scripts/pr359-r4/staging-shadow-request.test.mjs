@@ -56,6 +56,7 @@ test('request is pinned to the reviewed parent, exact SHA and request-only commi
 });
 
 test('actual Git commit topology and changed-files parser isolates a request-only commit',()=>{
+ const request=base(); // Capture source fixture before entering the temp Git repository.
  const root=mkdtempSync(join(tmpdir(),'pr359-r4-request-git-'));
  const original=process.cwd();
  try{
@@ -78,7 +79,7 @@ test('actual Git commit topology and changed-files parser isolates a request-onl
   assert.equal(ctx.parentSha,parent);
   assert.equal(ctx.parentCount,1);
   assert.deepEqual(ctx.changedFiles,[REQUEST_PATH]);
-  const request=base();request.requested=true;
+  request.requested=true;
   request.approval_token='STAGING-SHADOW-TEST_REQUEST_001';
   request.approved_parent_sha=parent;
   assert.equal(validateStagingRequest(request,ctx).requestValid,true);
