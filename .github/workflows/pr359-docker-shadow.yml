@@ -24,7 +24,7 @@ jobs:
           node-version: 24
       - name: Check guards and immutable transaction renderer
         run: |
-          node --test scripts/pr359-shadow/guard.test.mjs scripts/pr359-shadow/render.test.mjs scripts/pr359-shadow/check-managed-catalog.test.mjs scripts/pr359-shadow/check-managed-migrations.test.mjs scripts/pr359-shadow/check-managed-stack-compatibility.test.mjs scripts/pr359-shadow/readiness.test.mjs scripts/pr359-r4/staging-preflight.test.mjs scripts/pr359-r4/ownership-boundary.test.mjs
+          node --test scripts/pr359-shadow/guard.test.mjs scripts/pr359-shadow/render.test.mjs scripts/pr359-shadow/check-managed-catalog.test.mjs scripts/pr359-shadow/check-managed-migrations.test.mjs scripts/pr359-shadow/check-managed-stack-compatibility.test.mjs scripts/pr359-shadow/readiness.test.mjs scripts/pr359-r4/staging-preflight.test.mjs scripts/pr359-r4/ownership-boundary.test.mjs scripts/pr359-r4/object-register.test.mjs
           node --check scripts/pr359-shadow/render.mjs
           bash -n scripts/pr359-shadow/run.sh
       - name: Disposable Docker credit replay and rollback
