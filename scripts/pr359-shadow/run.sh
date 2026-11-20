@@ -415,6 +415,13 @@ restore(){
   echo 'PR359_SHADOW_STAGE: starting application schema restore'
   runfile postgres "$work/dump/schema.sql"
   echo 'PR359_SHADOW_STAGE: application schema imported'
+  if [[ "$mode" == staging-restore ]]; then
+    SHADOW_STAGE=staging-schema-before-data
+    sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$work/staging-schema-pre-data.jsonl"
+    node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
+      "$work/staging-schema-source.jsonl" "$work/staging-schema-pre-data.jsonl"
+    echo 'PR359_STAGING_SCHEMA_PRE_DATA_FINGERPRINT_PASS'
+  fi
   # A compatible baseline can still be changed by the application schema dump;
   # verify the managed surface AGAIN after importing schema, before data COPY.
   SHADOW_STAGE=verify-managed-catalog-post-application
@@ -462,6 +469,11 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
     sql postgres < scripts/pr359-r4/staging-managed-data-content.sql > "$work/staging-managed-restored.jsonl"
     node scripts/pr359-r4/check-staging-managed-data.mjs --compare \
       "$work/staging-managed-source.jsonl" "$work/staging-managed-restored.jsonl"
+    SHADOW_STAGE=staging-restored-schema-fingerprint
+    sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$work/staging-schema-restored.jsonl"
+    node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
+      "$work/staging-schema-source.jsonl" "$work/staging-schema-restored.jsonl"
+    echo 'PR359_STAGING_SCHEMA_FINGERPRINT_PASS'
     echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_AND_CONTENT_PASS'
     echo 'PR359_STAGING_MANAGED_AUTH_STORAGE_ROW_PARITY_PASS'
   fi

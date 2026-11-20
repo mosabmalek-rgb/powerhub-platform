@@ -168,3 +168,26 @@ and the role-only dump outside the snapshot need separate evidence.
 R4_STAGING_AUTH_STORAGE_ROW_PARITY=CODE_READY_PENDING_PROTECTED_RUN
 R4_STORAGE_EXTERNAL_BLOB_BYTES=NOT_PROVEN
 STAGING_INPLACE_GO=false
+
+## 2026-11-20 — seven-category schema digest parity
+
+Live hosted Staging was queried READ-ONLY on PostgreSQL 17.6 and all seven
+application-namespace catalog categories matched the R0 counts:
+functions 641, relations/sequences 337, columns 2723, indexes 688,
+constraints 1437, policies 129, triggers 202. The SQL produces SHA-256
+digests over canonically ordered category metadata (including ACL, owner,
+SECURITY DEFINER, RLS, definitions, and trigger enablement), without returning
+object source definitions or business rows. The source query now shares the
+same MVCC snapshot as the Staging SQL exports. Each disposable restoration
+compares the seven category digests **before application data import** and
+again after the restore. Any drift fails closed.
+
+The live read-only Staging metadata verification is not an independent real
+Staging Docker restoration, signed APP_OWNED list, or a new Canonical Baseline
+generated from reviewed SQL. No in-place reset is authorized.
+
+R4_STAGING_SCHEMA_SEVEN_CATEGORY_LIVE_READ_ONLY=PASS
+R4_STAGING_SCHEMA_RESTORE_COMPARISON=CODE_READY_PENDING_PROTECTED_RUN
+CANONICAL_BASELINE_APPROVED=false
+APP_OWNED_SIGNED=false
+STAGING_INPLACE_GO=false
