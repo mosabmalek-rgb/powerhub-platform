@@ -31,3 +31,7 @@ Production ledger fidelity in a Docker shadow is not a Staging Epoch v2 cutover 
 `R4_STAGING_INPLACE_GO=false`
 `R6_PRODUCTION_INPLACE_GO=false`
 `PR359_MERGE_GO=false`
+
+## Guard ordering correction
+
+The legacy source hash check is performed **before** `unset PGOPTIONS PGSSLMODE` and before any Docker-local SQL connection. The regression test now asserts that exact security boundary, preventing an accidental source query after the source read-only requirement has been unset. This is a source-only protection improvement; no hosted writes were made.

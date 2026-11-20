@@ -231,6 +231,18 @@ if ! graphql_check="$(psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURC
   echo 'PR359_SOURCE_GRAPHQL_PARITY_UNPROVEN: source does not match verified absent extension/sequence contract' >&2
   exit 1
 fi
+# Read-only fingerprint of the exact historical application migration ledger,
+# including all six columns and statement arrays. Never print statement content.
+SHADOW_STAGE=source-historical-ledger-attestation
+if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
+    --file scripts/pr359-shadow/history-attestation.sql \
+    > "$work/source-history-attestation.json" 2>/dev/null; then
+  echo 'PR359_SOURCE_HISTORY_ATTESTATION_FAILED' >&2; exit 1
+fi
+[[ -s "$work/source-history-attestation.json" ]] || {
+  echo 'PR359_SOURCE_HISTORY_ATTESTATION_EMPTY' >&2; exit 1;
+}
+
 # Do NOT copy business data until the local networkless engine proves it can
 # represent the source-managed service catalog and migration history. Running this
 # pre-export gate avoids repeated expensive/pointless source dumps on known drift.
@@ -262,18 +274,6 @@ node scripts/pr359-shadow/check-managed-stack-compatibility.mjs \
   "$work/source-managed-migrations.json" "$work/docker-managed-migrations.json" \
   "$work/source-managed-relations.json" "$work/docker-managed-relations.json"
 echo 'PR359_PRE_EXPORT_MANAGED_PARITY_PASS: data export may now begin'
-
-# Read-only fingerprint of the exact historical application migration ledger,
-# including all six columns and statement arrays. Never print statement content.
-SHADOW_STAGE=source-historical-ledger-attestation
-if ! psql -X -w -qAt -v ON_ERROR_STOP=1 --dbname "$SHADOW_SOURCE_DB_URL" \
-    --file scripts/pr359-shadow/history-attestation.sql \
-    > "$work/source-history-attestation.json" 2>/dev/null; then
-  echo 'PR359_SOURCE_HISTORY_ATTESTATION_FAILED' >&2; exit 1
-fi
-[[ -s "$work/source-history-attestation.json" ]] || {
-  echo 'PR359_SOURCE_HISTORY_ATTESTATION_EMPTY' >&2; exit 1;
-}
 
 dump roles.sql --role-only
 dump schema.sql
