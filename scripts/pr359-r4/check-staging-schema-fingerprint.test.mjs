@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {EXPECTED_SURFACE,REVIEWED_STAGING_SHA256,parseSchemaFingerprint,assessSchemaFingerprint,assessReviewedStagingSource} from './check-staging-schema-fingerprint.mjs';
 import {parseSchemaObjectDigests,diagnoseSchemaObjectDrift} from './diagnose-staging-schema-object-drift.mjs';
+import {parseAttributeDigests,compareSchemaAttributes} from './diagnose-staging-schema-attribute-drift.mjs';
 const fixture=()=>Object.entries(EXPECTED_SURFACE).map(([category,objects])=>
  JSON.stringify({category,objects,sha256:'a'.repeat(64)})).join('\n')+'\n';
 test('R0 complete schema counts are included but cannot grant destructive permission',()=>{
@@ -110,4 +111,43 @@ test('diagnostic per-object hash uses the exact aggregate catalog delimiter',()=
  const fragment=String.raw`identity||E'\x1F'||attributes::text`;
  assert.ok(source.includes(fragment));
  assert.ok(detail.includes(fragment));
+});
+
+test('catalog per-attribute mismatch identifies exact field without disclosing values',()=>{
+ const row=(category,identity,field,digest)=>JSON.stringify({category,identity,field,sha256:digest.repeat(64)});
+ const original=[row('functions','public.f()','acl','a'),
+                 row('functions','public.f()','def','b'),
+                 row('relations','public.r','owner','c'),
+                 row('columns','public.r.1','name','d')].join('\n')+'\n';
+ const restored=[row('functions','public.f()','acl','e'),
+                 row('functions','public.f()','def','b'),
+                 row('relations','public.r','owner','c'),
+                 row('columns','public.r.2','name','d')].join('\n')+'\n';
+ const r=compareSchemaAttributes(original,restored);
+ assert.equal(r.match,false);
+ assert.deepEqual(r.summary.map(x=>x.category+'/'+x.field),['columns/name','functions/acl']);
+ assert.deepEqual(r.summary.find(x=>x.category==='functions').changed,['public.f()']);
+ assert.equal(r.appOwnedApproved,false);
+ assert.equal(r.stagingInplaceGo,false);
+ assert.throws(()=>parseAttributeDigests(original+row('functions','public.f()','acl','a')+'\n'),/duplicate/);
+ assert.throws(()=>parseAttributeDigests(''));
+ assert.throws(()=>parseAttributeDigests(row('functions','public.f()','acl','x')));
+ assert.equal(compareSchemaAttributes(original,original).match,true);
+});
+test('per-attribute R4 diagnostics have identical source snapshot and fail-closed restore scope',()=>{
+ const source=readFileSync('scripts/pr359-r4/staging-schema-fingerprint.sql','utf8');
+ const detail=readFileSync('scripts/pr359-r4/staging-schema-attribute-digests.sql','utf8');
+ const exportSh=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
+ const restore=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const cteStart='WITH inventory AS (',cteEnd='\nSELECT jsonb_build_object(';
+ assert.equal(detail.slice(detail.indexOf(cteStart),detail.indexOf('\n-- Emit only')),
+   source.slice(source.indexOf(cteStart),source.indexOf(cteEnd)));
+ assert.match(detail,/jsonb_each\(i\.attributes\)/);
+ assert.match(detail,/a\.value::text,'sha256'/);
+ assert.match(detail,/WHERE i\.category IN \('columns','functions','relations'\)/);
+ assert.ok(exportSh.includes('source_psql "$workdir/staging-schema-attribute-source.jsonl"'));
+ assert.ok(exportSh.indexOf('staging-schema-attribute-source.jsonl')<exportSh.indexOf('dump_schema schema.sql'));
+ assert.ok(restore.includes('staging-schema-attribute-drift-diagnostics'));
+ assert.ok(restore.includes('PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED'));
+ assert.ok(restore.indexOf('staging-schema-attribute-drift-diagnostics')<restore.indexOf('staging-managed-fks-before-data'));
 });

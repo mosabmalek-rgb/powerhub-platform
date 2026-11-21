@@ -662,3 +662,17 @@ The failed request has been reset to `requested=false`. PR remains Draft;
 `R4_BOTH_DISPOSABLE_RESTORES=NOT_PROVEN`,
 `STAGING_INPLACE_GO=false`, `PRODUCTION_INPLACE_GO=false`,
 `APP_OWNED_APPROVED=false`, `PR359_MERGE_GO=false`.
+
+
+## 2026-11-21 — confirmed per-object schema drift and field-level diagnostic
+
+Protected [run 44872103604](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/44872103604) completed **FAILURE** after ~30 minutes. It re-proved two independent source MVCC dumps, 183 app table content hashes, 561 source FK checks, 978 APP_OWNED candidate identities and 48 incoming managed dependencies. First disposable restore imported application schema, then failed closed before any data COPY at `staging-schema-object-drift-diagnostics`. Source and restored object counts both 6,157. Exact object drift: 5 changed and 1 missing/1 extra column identity, 579 function hashes changed, and 216 relation hashes changed. Not OOM. Source `public.tenant_invoice_message_templates` contains a **dropped attribute at attnum 3** with subsequent active attributes numbered 4–9; native pg_dump rebuilds live columns with fresh numbers. This physical attnum renumbering needs a separately reviewed semantic column gate; it is not evidence that any source data was lost.
+
+To identify the likely systematic ACL/owner/definition differences without logging function definitions or privilege text, an additional catalog query now emits only `category,identity,field,sha256` for the SAME 7-category source inventory, restricted to columns/functions/relations. Each export captures this inside its own MVCC snapshot, twin-source export parity pins the evidence, and the failed disposable restore reports bounded field-level hash/count differences before EXIT 2. This **never relaxes** full schema parity. The request was disabled; a fresh protected reviewer-gated run is needed after CI. No hosted writes or in-place operations.
+
+`R4_TWO_SOURCE_EXPORTS=PASS`  
+`R4_TWO_RESTORED_TARGETS=NOT_PROVEN`  
+`APP_OWNED_APPROVED=false`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`

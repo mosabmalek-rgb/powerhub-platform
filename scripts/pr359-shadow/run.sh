@@ -539,6 +539,16 @@ restore(){
       node scripts/pr359-r4/diagnose-staging-schema-object-drift.mjs \
         "$restore_work/staging-schema-object-source.jsonl" \
         "$restore_work/staging-schema-objects-pre-data.jsonl" || :
+      # Show field-level drift counts, never values. This is diagnostic-only;
+      # restoring business data remains prohibited after any schema mismatch.
+      SHADOW_STAGE=staging-schema-attribute-drift-diagnostics
+      sql postgres < scripts/pr359-r4/staging-schema-attribute-digests.sql \
+        > "$restore_work/staging-schema-attributes-pre-data.jsonl" || {
+        echo 'PR359_R4_SCHEMA_ATTRIBUTE_DIAGNOSTIC_QUERY_FAILED' >&2; exit 2;
+      }
+      node scripts/pr359-r4/diagnose-staging-schema-attribute-drift.mjs \
+        "$restore_work/staging-schema-attribute-source.jsonl" \
+        "$restore_work/staging-schema-attributes-pre-data.jsonl" || :
       echo 'PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED' >&2
       exit 2
     fi
