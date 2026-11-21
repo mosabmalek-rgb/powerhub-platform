@@ -36,6 +36,7 @@ export async function executeReadyOperations({
   transport,
   now = Date.now(),
   random = Math.random,
+  isCurrent,
 }: {
   items: readonly QueuedOfflineWork[];
   metadataByOperationId: ReadonlyMap<string, SyncMetadata>;
@@ -43,7 +44,17 @@ export async function executeReadyOperations({
   transport: SyncTransport;
   now?: number;
   random?: () => number;
+  /** Cancel a replay run after its user, site or authenticated session changes. */
+  isCurrent?: () => boolean;
 }): Promise<SyncExecutionResult[]> {
+  const assertRunCurrent = () => {
+    if (isCurrent && !isCurrent()) {
+      throw Object.assign(new Error("توقف تنفيذ Outbox لأن هوية الحساب أو نطاق التشغيل تغيّر."), {
+        name: "PowerHubOfflineSyncRunSupersededError",
+      });
+    }
+  };
+  assertRunCurrent();
   const completed = new Set(completedIds ?? []);
   const results: SyncExecutionResult[] = [];
   const handled = new Set<string>();
@@ -51,6 +62,7 @@ export async function executeReadyOperations({
   // A crash can persist terminal metadata before the Outbox status update.
   // Reconcile that row locally; never send it to the server again.
   for (const item of items) {
+    assertRunCurrent();
     if (completed.has(item.clientOperationId)) continue;
     const metadata = metadataByOperationId.get(item.clientOperationId);
     const outcome = metadata?.outcome;
@@ -76,6 +88,7 @@ export async function executeReadyOperations({
     if (plan.length === 0) break;
 
     for (const { item, metadata } of plan) {
+      assertRunCurrent();
       handled.add(item.clientOperationId);
       const inFlightMetadata: SyncExecutionMetadata = {
         ...metadata,
@@ -86,6 +99,7 @@ export async function executeReadyOperations({
       try {
         transportResult = await transport(item, metadata);
       } catch (error) {
+        assertRunCurrent();
         transportResult = {
           outcome: "retryable",
           errorCode: error instanceof Error ? "INTERNAL_SERVER_ERROR" : "UNKNOWN_ERROR",
@@ -93,6 +107,7 @@ export async function executeReadyOperations({
         };
       }
 
+      assertRunCurrent();
       const outcome = transportResult.errorCode
         ? classifySyncResult(transportResult.errorCode)
         : transportResult.outcome;
@@ -134,5 +149,6 @@ export async function executeReadyOperations({
     }
   }
 
+  assertRunCurrent();
   return results.sort((left, right) => left.item.createdAt - right.item.createdAt);
 }

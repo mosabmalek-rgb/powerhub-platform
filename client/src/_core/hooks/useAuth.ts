@@ -2,9 +2,9 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { clearOfflineQueryCacheForUser, getOfflineAuthUser, persistOfflineAuthUser, removeOfflineAuthUser } from "@/lib/offline-query-cache";
 import { getValidOfflineAuthLease, renewOfflineAuthLease, revokeOfflineAuthLease } from "@/lib/offline-auth";
-import { resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition } from "@/lib/offline-auth-state";
-import { usePowerHubConnectivity } from "@/lib/offline-connectivity";
-import { getSupabaseSession, subscribeSupabaseAuthState } from "@/lib/supabase";
+import { isNonAuthoritativeInitialNullSessionEvent, resolveOfflineAuthTransition, shouldClearQueryCacheForAuthTransition, shouldValidateOnlineSession } from "@/lib/offline-auth-state";
+import { verifyPowerHubClockForRetry, usePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { getSupabaseSession, resetSupabaseSessionReadBackoff, subscribeSupabaseAuthState } from "@/lib/supabase";
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -19,7 +19,39 @@ const OFFLINE_AUTH_BOOTSTRAP_TIMEOUT_MS = 1_500;
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 5_000;
 // A protected session check must not trap the app in an endless loading/redirect
 // loop if the network request or browser auth lock never settles.
-const AUTH_PROFILE_CHECK_TIMEOUT_MS = 8_000;
+// Bounded stages: 7.5s token resolution + 3.5s getUser + 3.5s profile sync
+// + 2s device claim, plus a small transport/scheduling margin.
+const AUTH_PROFILE_CHECK_TIMEOUT_MS = 18_000;
+const SESSION_RECOVERY_TIMEOUT_MS = 8_000;
+
+// These failures happen before a protected HTTP request can be authenticated.
+// Replaying auth.me cannot repair an expired/unresolvable token or invalid
+// device identity; it repeats the same bounded bootstrap path and delays the
+// recovery UI. Explicit retry and reconnect events remain available.
+const NON_RETRYABLE_AUTH_BOOTSTRAP_ERROR_NAMES = new Set([
+  "PowerHubSessionRefreshFailedError",
+  "PowerHubSessionRefreshTimeoutError",
+  "PowerHubSessionReadFailedError",
+  "PowerHubSessionReadTimeoutError",
+  "PowerHubSupabaseRateLimitError",
+  "PowerHubSessionIdentityChangedError",
+  "PowerHubSessionTokenUnavailableError",
+  "PowerHubDeviceIdentityUnavailableError",
+  "PowerHubConnectivityUnresolvedError",
+  "PowerHubDeviceClockSkewError",
+]);
+
+function isNonRetryableAuthBootstrapError(error: unknown): boolean {
+  let cause: unknown = error;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < 5 && cause && typeof cause === "object" && !seen.has(cause); depth += 1) {
+    seen.add(cause);
+    const name = (cause as { name?: unknown }).name;
+    if (typeof name === "string" && NON_RETRYABLE_AUTH_BOOTSTRAP_ERROR_NAMES.has(name)) return true;
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return false;
+}
 const AUTH_PROFILE_CHECK_TIMEOUT_ERROR = Object.assign(new Error(
   "تعذر التحقق من جلسة الدخول في الوقت المحدد. أعد المحاولة لاستعادة البيانات.",
 ), { name: "PowerHubAuthProfileCheckTimeoutError" });
@@ -71,28 +103,40 @@ function useAuthController() {
   const [sessionRecoveryPending, setSessionRecoveryPending] = useState(false);
   const [sessionRecoveryTimedOut, setSessionRecoveryTimedOut] = useState(false);
   const [sessionRecoveryFailed, setSessionRecoveryFailed] = useState(false);
+  const [explicitRetryError, setExplicitRetryError] = useState<Error | null>(null);
   const { isOnline: powerHubReachable, isChecking: powerHubConnectivityChecking } = usePowerHubConnectivity();
+  const canValidateOnlineSession = shouldValidateOnlineSession(
+    hasSession,
+    powerHubReachable,
+    powerHubConnectivityChecking,
+  );
   const explicitLogoutInProgress = useRef(false);
   const observedUserIdRef = useRef<string | null>(null);
   const transientSignOutRecovery = useRef(false);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
-    enabled: hasSession,
+    enabled: canValidateOnlineSession,
     // Retry transient server/network failures, but do not retry definitive
     // authorization failures as if they were connectivity problems.
     retry: (failureCount, error) => {
       const code = (error as { data?: { code?: string } } | null)?.data?.code;
-      return failureCount < 2 && code !== "FORBIDDEN";
+      if (code === "FORBIDDEN") return false;
+      if (isNonRetryableAuthBootstrapError(error)) return false;
+      if (code === "GATEWAY_TIMEOUT") return failureCount < 1;
+      return failureCount < 2;
     },
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchInterval: (query) => query.state.status === "error" ? 15_000 : false,
+    // Do not keep replaying a known token/device bootstrap failure every 15s.
+    // Generic transport errors retain a low-frequency recovery attempt.
+    refetchInterval: (query) => query.state.status === "error" &&
+      !isNonRetryableAuthBootstrapError(query.state.error) ? 15_000 : false,
   });
   type CachedAuthUser = Exclude<typeof meQuery.data, undefined>;
   const [cachedUser, setCachedUser] = useState<CachedAuthUser | null>(null);
 
   useEffect(() => {
-    if (!hasSession || !meQuery.isPending) {
+    if (!canValidateOnlineSession || !meQuery.isPending) {
       setAuthProfileCheckTimedOut(false);
       return;
     }
@@ -103,7 +147,7 @@ function useAuthController() {
       AUTH_PROFILE_CHECK_TIMEOUT_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [hasSession, meQuery.isPending, authValidationAttempt]);
+  }, [canValidateOnlineSession, meQuery.isPending, authValidationAttempt]);
   const [offlineLeaseUserId, setOfflineLeaseUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -118,7 +162,7 @@ function useAuthController() {
       setCachedUser(null);
       setOfflineLeaseUserId(null);
       setSessionReady(true);
-    }, AUTH_PROFILE_CHECK_TIMEOUT_MS);
+    }, SESSION_RECOVERY_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [sessionRecoveryPending, authValidationAttempt]);
 
@@ -161,6 +205,10 @@ function useAuthController() {
     };
 
     const unsubscribe = subscribeSupabaseAuthState((event, session) => {
+      // The shared Supabase client filters this event too, but keep this
+      // consumer boundary defensive: a null initial snapshot must not advance
+      // transitionRevision and invalidate the pending persisted-session read.
+      if (isNonAuthoritativeInitialNullSessionEvent(event, session)) return;
       const nextUserId = session?.user.id ?? null;
       let explicitLogoutRequested = explicitLogoutInProgress.current;
       try {
@@ -408,20 +456,20 @@ function useAuthController() {
     (hasSession && meQuery.isPending && authProfileCheckTimedOut),
   );
   const isOnlineAuthenticated = Boolean(
-    hasSession &&
+    canValidateOnlineSession &&
       !meQueryAuthorizationDenied &&
       (meQuery.isSuccess && meQuery.data || cachedUser || meQueryTemporarilyUnavailable),
   );
   const offlineAuthenticated = Boolean(
-    !hasSession &&
-      offlineLeaseUserId &&
+    offlineLeaseUserId &&
       cachedUser &&
-      !powerHubReachable,
+      !powerHubReachable &&
+      !powerHubConnectivityChecking,
   );
   // Keep the last confirmed profile during a transient auth.me failure/refetch.
   // The server remains the authority for every protected operation; this prevents
   // a temporary profile/API error from looking like a real logout in the UI.
-  const user = sessionRecoveryTimedOut || sessionRecoveryFailed
+  const user = (sessionRecoveryTimedOut || sessionRecoveryFailed) && !offlineAuthenticated
     ? null
     : meQuery.data ?? cachedUser ?? (offlineAuthenticated ? cachedUser : null);
   const state = {
@@ -433,21 +481,19 @@ function useAuthController() {
     // A terminal profile-check error must not keep the whole workspace in a
     // permanent loading state. It becomes a recoverable error with a retry path.
     loading: isLoggingOut || !sessionReady ||
-      Boolean(hasSession && meQuery.isPending && !authProfileCheckTimedOut) ||
+      Boolean(canValidateOnlineSession && meQuery.isPending && !authProfileCheckTimedOut) ||
       Boolean(sessionRecoveryPending && !sessionRecoveryTimedOut) ||
-      // When a valid signed offline lease and cached profile are already loaded,
-      // wait for the first real reachability result before redirecting to login.
-      // Otherwise a slow/offline health probe can cause /workspace -> /login ->
-      // /workspace loops because the hook starts with an optimistic online value.
-      Boolean(!hasSession && offlineLeaseUserId && cachedUser && powerHubConnectivityChecking),
+      // Don't decide the route until the first origin check settles when an
+      // online session or a restorable local snapshot exists.
+      Boolean(powerHubConnectivityChecking && (hasSession || (offlineLeaseUserId && cachedUser))),
     // A server-side token check can race a browser refresh. Keep this as a
     // recoverable profile validation state while the browser still has a
     // session; RouteAccessGate must not present it as a forced logout.
-    error: sessionRecoveryFailed
+    error: explicitRetryError ?? (sessionRecoveryFailed
       ? SESSION_RECOVERY_FAILED_ERROR
       : sessionRecoveryTimedOut
       ? SESSION_RECOVERY_TIMEOUT_ERROR
-      : meQuery.error ?? (authProfileCheckTimedOut ? AUTH_PROFILE_CHECK_TIMEOUT_ERROR : null),
+      : meQuery.error ?? (authProfileCheckTimedOut ? AUTH_PROFILE_CHECK_TIMEOUT_ERROR : null)),
     isAuthenticated: !isLoggingOut && Boolean(isOnlineAuthenticated || offlineAuthenticated),
     isOnlineAuthenticated: !isLoggingOut && isOnlineAuthenticated,
     isLoggingOut,
@@ -458,7 +504,41 @@ function useAuthController() {
     powerHubReachable,
     refresh: async () => {
       setAuthProfileCheckTimedOut(false);
+      setExplicitRetryError(null);
       setAuthValidationAttempt((attempt) => attempt + 1);
+
+      // Always run a dedicated health request started after the user pressed
+      // retry. Do not join an older connectivity probe that may have captured
+      // the pre-correction device clock.
+      const clockCheck = await verifyPowerHubClockForRetry().catch(() => ({
+        reachable: false, sampleAvailable: false, localMinusServerMs: null,
+        skewDetected: false, clockCheckPending: true, thresholdMs: 300_000,
+      }));
+      if (clockCheck.skewDetected) {
+        const error = Object.assign(new Error("ساعة جهازك غير متزامنة مع وقت خادم PowerHub."), {
+          name: "PowerHubDeviceClockSkewError",
+          deviceClockSkewMs: clockCheck.localMinusServerMs,
+          deviceClockSkewThresholdMs: clockCheck.thresholdMs,
+        });
+        setExplicitRetryError(error);
+        return;
+      }
+      if (!clockCheck.sampleAvailable || clockCheck.clockCheckPending) {
+        setExplicitRetryError(Object.assign(
+          new Error("تعذر الحصول على عينة وقت حديثة من خادم PowerHub. تحقق من الاتصال ثم أعد المحاولة."),
+          { name: "PowerHubDeviceClockVerificationPendingError" },
+        ));
+        return;
+      }
+      if (!clockCheck.reachable) {
+        setExplicitRetryError(Object.assign(
+          new Error("تعذر الوصول إلى خادم PowerHub للتحقق من الجلسة. أعد المحاولة عند استقرار الاتصال."),
+          { name: "PowerHubConnectivityUnresolvedError" },
+        ));
+        return;
+      }
+
+      resetSupabaseSessionReadBackoff();
 
       if (sessionRecoveryPending || sessionRecoveryTimedOut || sessionRecoveryFailed) {
         transientSignOutRecovery.current = false;

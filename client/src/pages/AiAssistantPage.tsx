@@ -167,6 +167,7 @@ export default function AiAssistantPage() {
       .eq("user_id", user.id)
       .eq("is_active", true)
       .eq("membership_status", "active")
+      .or("expires_at.is.null,expires_at.gt." + new Date().toISOString())
       .limit(1);
 
     if (membershipError || !memberships?.[0]) {
@@ -267,6 +268,7 @@ export default function AiAssistantPage() {
         .eq("user_id", user.id)
         .eq("is_active", true)
         .eq("membership_status", "active")
+        .or("expires_at.is.null,expires_at.gt." + new Date().toISOString())
         .limit(1);
 
       if (membershipError || !memberships?.[0]) {

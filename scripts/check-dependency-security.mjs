@@ -20,30 +20,141 @@ const direct = packageJson.dependencies ?? {};
 const dev = packageJson.devDependencies ?? {};
 atLeast(versionOf(direct, "nanoid"), [5, 1, 16], "nanoid");
 atLeast(versionOf(direct, "axios"), [1, 16, 0], "axios");
-atLeast(versionOf(dev, "vite"), [7, 3, 5], "vite");
 atLeast(versionOf(direct, "@trpc/server"), [11, 8, 0], "@trpc/server");
+atLeast(versionOf(dev, "vite"), [7, 3, 7], "vite");
+atLeast(versionOf(dev, "vitest"), [4, 1, 12], "vitest");
 
 const requiredOverrides = {
-  "fast-xml-parser": "5.5.6",
+  "fast-xml-parser": "5.12.0",
+  "archiver-utils": "5.0.2",
+  "archiver-utils@5.0.2>glob": "14.0.3",
+  "exceljs@4.4.0>unzipper": "0.12.5",
   tar: "7.5.21",
+  minimatch: "11.0.3",
+  "readdir-glob@1.1.3>minimatch": "11.0.3",
+  uuid: "11.1.1",
+  tmp: "0.2.7",
+  "@smithy/config-resolver": "4.7.2",
+  mermaid: "11.17.2",
+  katex: "0.18.10",
+  "mdast-util-to-hast": "13.2.1",
+  "@babel/core": "7.29.7",
+  "source-map-js": "1.2.2",
+  tinypool: "2.1.2",
+  vite: "7.3.7",
   postcss: "8.5.28",
-  rollup: "4.59.0",
   "path-to-regexp": "0.1.13",
   picomatch: "4.0.7",
   lodash: "4.18.1",
   "lodash-es": "4.18.1",
   browserslist: "4.29.1",
   "form-data": "4.0.6",
+  "proxy-addr": "2.0.8",
+  dompurify: "3.4.17",
+  "brace-expansion@^1.0.0": "1.1.21",
+  "brace-expansion@^2.0.0": "2.1.6",
+  "follow-redirects": "1.16.2",
+  zod: "4.6.6",
+  "body-parser": "1.20.9",
+  "postcss-selector-parser": "6.1.5",
+  qs: "6.17.1",
+  undici: "8.12.2",
+  rollup: "4.59.0",
 };
 for (const [name, version] of Object.entries(requiredOverrides)) {
-  if (!new RegExp(`^\\s+${name.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}:\\s*${version.replaceAll(".", "\\.")}\\s*$`, "m").test(workspace)) {
+  const expectedLine = `${name}: ${version}`;
+  const quotedExpectedLine = `"${name}": ${version}`;
+  if (!workspace.split(/\r?\n/).some((line) => line.trim() === expectedLine || line.trim() === quotedExpectedLine)) {
     throw new Error(`missing secure pnpm override: ${name}@${version}`);
   }
 }
 
 if (!lockfile.includes("lockfileVersion: '9.0'")) throw new Error("unsupported pnpm lockfile version");
-if (lockfile.includes("nanoid@5.1.5") || lockfile.includes("postcss@8.5.6") || lockfile.includes("rollup@4.58.")) {
-  throw new Error("lockfile contains a known high-severity vulnerable package version");
+
+const vulnerableLockEntries = [
+  "proxy-addr@2.0.7",
+  "dompurify@3.4.16",
+  "dompurify@3.4.14",
+  "brace-expansion@1.1.18",
+  "brace-expansion@1.1.20",
+  "brace-expansion@2.1.4",
+  "follow-redirects@1.16.0",
+  "zod@4.1.12",
+  "body-parser@1.20.3",
+  "nanoid@5.1.5",
+  "postcss@8.5.6",
+  "minimatch@5.1.9",
+  "minimatch@3.1.5",
+  "glob@7.2.3",
+  "glob@10.5.0",
+  "unzipper@0.10.14",
+  "fstream@1.0.12",
+  "rimraf@2.7.1",
+  "archiver-utils@2.1.0",
+  "archiver-utils@3.0.4",
+  "postcss-selector-parser@6.0.10",
+  "qs@6.13.0",
+  "undici@8.10.0",
+  "fast-xml-parser@5.5.6",
+  "fast-xml-parser@5.11.2",
+  "mermaid@11.12.0",
+  "vite@7.3.6",
+  "vitest@3.2.7",
+  "@vitest/mocker@3.2.7",
+  "tinypool@1.1.1",
+  "source-map-js@1.2.1",
+  "katex@0.16.25",
+  "mdast-util-to-hast@13.2.0",
+  "uuid@8.3.2",
+  "uuid@11.1.0",
+  "@smithy/config-resolver@4.3.0",
+  "@babel/core@7.28.4",
+];
+const remainingVulnerableEntries = vulnerableLockEntries.filter((entry) => lockfile.includes(entry));
+if (remainingVulnerableEntries.length > 0) {
+  throw new Error(`lockfile contains vulnerable package entries: ${remainingVulnerableEntries.join(", ")}`);
 }
 
-console.log("Dependency security guard passed: direct minimums, required overrides, and lockfile version checks are satisfied.");
+if (lockfile.includes("minimatch@5.1.9")) {
+  throw new Error("vulnerable minimatch 5.x must not remain in the lockfile.");
+}
+
+const requiredPatchedLockEntries = [
+  "fast-xml-parser@5.12.0",
+  "archiver-utils@5.0.2",
+  "glob@14.0.3",
+  "unzipper@0.12.5",
+  "brace-expansion@5.0.12",
+  "minimatch@11.0.3",
+  "uuid@11.1.1",
+  "tmp@0.2.7",
+  "mermaid@11.17.2",
+  "katex@0.18.10",
+  "mdast-util-to-hast@13.2.1",
+  "source-map-js@1.2.2",
+  "vite@7.3.7",
+  "vitest@4.1.12",
+  "@vitest/mocker@4.1.12",
+  "@smithy/config-resolver@4.7.2",
+  "@babel/core@7.29.7",
+  "postcss-selector-parser@6.1.5",
+  "qs@6.17.1",
+  "undici@8.12.2",
+  "body-parser@1.20.9",
+  "follow-redirects@1.16.2",
+];
+if (!lockfile.includes("glob@14.0.3")) {
+  throw new Error("lockfile must resolve archiver-utils to fixed glob@14.0.3.");
+}
+if (!lockfile.includes("unzipper@0.12.5")) {
+  throw new Error("lockfile must resolve ExcelJS to unzipper@0.12.5.");
+}
+
+const missingPatchedLockEntries = requiredPatchedLockEntries.filter((entry) => !lockfile.includes(entry));
+if (missingPatchedLockEntries.length > 0) {
+  throw new Error(`lockfile is missing required patched package entries: ${missingPatchedLockEntries.join(", ")}`);
+}
+
+console.log("Dependency security guard passed: ExcelJS uses unzipper 0.12.5, Archiver uses fixed glob 14.0.3, and legacy vulnerable package entries are removed.");
+
+// Lockfile is generated and committed only after the complete audit and compatibility contract passes.

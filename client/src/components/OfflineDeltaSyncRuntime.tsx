@@ -3,13 +3,19 @@ import { onlineManager, useQueryClient, type Query } from "@tanstack/react-query
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getSupabaseSession } from "@/lib/supabase";
-import { persistOfflineQuery } from "@/lib/offline-query-cache";
+import { persistOfflineQueryForDeltaSync } from "@/lib/offline-query-cache";
 import {
   clearDeltaSyncDataForUser,
+  isDeltaSyncRunCurrent,
+  applyDeltaChanges,
+  compareMaintenanceWorkOrderNewestFirst,
+  listDeltaEntities,
+  limitDeltaEntityRows,
   getDeltaCursor,
   getDeltaSyncStatus,
   saveDeltaSyncStatus,
   pullDeltaPages,
+  withDeltaSyncLock,
   type DeltaCursorScope,
   type DeltaEntityType,
   type DeltaPage,
@@ -20,14 +26,33 @@ import {
   refreshReadingSubscriberProjection,
   normalizeDeltaEntityRow,
   snapshotRowsFromQuery,
+  projectInvoiceDeltaPage,
+  projectPaymentDeltaPage,
+  projectExpenseDeltaPage,
+  projectReadingDeltaPage,
+  projectSubscriberDirectoryPage,
+  refreshPaymentRelatedProjection,
   type DeltaOperationalEntity,
 } from "@/lib/offline-delta-query-bridge";
 import { isOfflineCacheableQueryKey } from "@/lib/offline-query-cache";
+import { getOfflineQueryDeltaEntity } from "@/lib/offline-query-policy";
 
 type AnyRow = Record<string, unknown>;
 type Candidate = { entityType: DeltaOperationalEntity; siteId: number; tenantId: number };
+
+function assertDeltaRuntimeCurrent(isCurrent: () => boolean): void {
+  if (!isCurrent()) {
+    throw Object.assign(new Error("توقف تشغيل Delta لأن هوية المستخدم أو الجلسة تغيّرت."), {
+      name: "PowerHubDeltaSyncRunSupersededError",
+    });
+  }
+}
 const SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const SYNC_DEBOUNCE_MS = 350;
+const MAX_LOCAL_FUEL_READING_QUERY_ROWS = 100;
+const MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS = 500;
+const MAX_LOCAL_HR_EMPLOYEE_ROWS = 500;
+const MAX_LOCAL_HR_ATTENDANCE_ROWS = 1000;
 
 function getSegments(queryKey: readonly unknown[]): string[] {
   const first = queryKey[0];
@@ -69,14 +94,76 @@ function rowTenantId(value: unknown): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
-  if (!isOfflineCacheableQueryKey(query.queryKey) || !Array.isArray(query.state.data)) return null;
-  const segments = getSegments(query.queryKey);
-  if (segments[0] !== "powerhub" || segments[2] !== "list") return null;
-  if (segments[1] === "sites" || segments[1] === "subscribers" || segments[1] === "generators" || segments[1] === "readings" || segments[1] === "tariffs") {
-    return segments[1];
+function getOfflineQueryInput(queryKey: readonly unknown[]): Record<string, unknown> {
+  const options = queryKey[1];
+  if (options && typeof options === "object" && !Array.isArray(options)) {
+    const wrapper = options as Record<string, unknown>;
+    const input = Object.prototype.hasOwnProperty.call(wrapper, "input") ? wrapper.input : wrapper;
+    if (input && typeof input === "object" && !Array.isArray(input)) return input as Record<string, unknown>;
   }
-  return null;
+  // tRPC's flattened cache-key shape ends with the procedure input object.
+  const trailing = queryKey[queryKey.length - 1];
+  return trailing && typeof trailing === "object" && !Array.isArray(trailing)
+    ? trailing as Record<string, unknown>
+    : {};
+}
+
+function getQueryRows(query: Query): AnyRow[] | null {
+  const segments = getSegments(query.queryKey);
+  const data = query.state.data;
+  if (segments[0] === "powerhub" &&
+      (((segments[1] === "invoices" || segments[1] === "readings" || segments[1] === "payments" || segments[1] === "expenses") && segments[2] === "page") ||
+        (segments[1] === "subscribers" && segments[2] === "directoryPage")) &&
+      data !== null && typeof data === "object" && !Array.isArray(data)) {
+    const items = (data as Record<string, unknown>).items;
+    return Array.isArray(items) ? items as AnyRow[] : null;
+  }
+  return Array.isArray(data) ? data as AnyRow[] : null;
+}
+
+function queryIsSupportedList(query: Query): DeltaOperationalEntity | null {
+  if (!isOfflineCacheableQueryKey(query.queryKey) || !getQueryRows(query)) return null;
+  return getOfflineQueryDeltaEntity(query.queryKey);
+}
+
+function sortPurchaseReceiptRows(rows: AnyRow[], limit: number): AnyRow[] {
+  return [...rows].sort((a, b) => {
+    const left = Date.parse(String(a.received_at ?? a.receipt_date ?? ""));
+    const right = Date.parse(String(b.received_at ?? b.receipt_date ?? ""));
+    const leftTime = Number.isFinite(left) ? left : 0;
+    const rightTime = Number.isFinite(right) ? right : 0;
+    return rightTime - leftTime || Number(b.receipt_id ?? b.id) - Number(a.receipt_id ?? a.id);
+  }).slice(0, limit);
+}
+
+function sortSupplierReturnRows(rows: AnyRow[], limit: number): AnyRow[] {
+  return [...rows].sort((a, b) => {
+    const left = Date.parse(String(a.return_date ?? ""));
+    const right = Date.parse(String(b.return_date ?? ""));
+    const leftTime = Number.isFinite(left) ? left : 0;
+    const rightTime = Number.isFinite(right) ? right : 0;
+    return rightTime - leftTime || Number(b.return_id ?? b.id) - Number(a.return_id ?? a.id);
+  }).slice(0, limit);
+}
+
+function sortPurchaseHeaderRows(rows: AnyRow[], limit: number): AnyRow[] {
+  return [...rows].sort((a, b) => {
+    const left = Date.parse(String(a.invoice_date ?? a.invoiceDate ?? ""));
+    const right = Date.parse(String(b.invoice_date ?? b.invoiceDate ?? ""));
+    const leftTime = Number.isFinite(left) ? left : 0;
+    const rightTime = Number.isFinite(right) ? right : 0;
+    return rightTime - leftTime || Number(b.purchase_id ?? b.id) - Number(a.purchase_id ?? a.id);
+  }).slice(0, limit);
+}
+
+function sortStocktakeRows(rows: AnyRow[], limit: number): AnyRow[] {
+  return [...rows].sort((a, b) => {
+    const left = Date.parse(String(a.created_at ?? a.createdAt ?? ""));
+    const right = Date.parse(String(b.created_at ?? b.createdAt ?? ""));
+    const leftTime = Number.isFinite(left) ? left : 0;
+    const rightTime = Number.isFinite(right) ? right : 0;
+    return rightTime - leftTime || Number(b.stocktake_id ?? b.id) - Number(a.stocktake_id ?? a.id);
+  }).slice(0, limit);
 }
 
 function getLoadedSiteTenants(queries: Query[]) {
@@ -103,7 +190,7 @@ function makeCandidates(queries: Query[]): Candidate[] {
   for (const query of queries) {
     const entityType = queryIsSupportedList(query);
     if (!entityType) continue;
-    const data = query.state.data as unknown[];
+    const data = getQueryRows(query) ?? [];
     if (entityType === "sites") {
       for (const site of data) {
         if (!site || typeof site !== "object") continue;
@@ -115,8 +202,13 @@ function makeCandidates(queries: Query[]): Candidate[] {
       }
       continue;
     }
-    const siteId = findNumberProperty(query.queryKey, "siteId");
-    if (!siteId) continue;
+    const queryInput = getOfflineQueryInput(query.queryKey);
+    // Company-account lists are scoped to the selected branchId, while siteId
+    // is the anchor used by the authorization procedure and may be a different branch.
+    const siteId = entityType === "company_accounts"
+      ? Number(queryInput.branchId)
+      : findNumberProperty(query.queryKey, "siteId");
+    if (siteId === null || !Number.isSafeInteger(siteId) || siteId < 1) continue;
     const tenantId = tenants.get(siteId) ?? data.map(rowTenantId).find((value) => value !== null) ?? null;
     if (!tenantId) continue;
     const candidate = { entityType, siteId, tenantId };
@@ -141,32 +233,256 @@ async function patchQueryCaches(
   entityType: DeltaOperationalEntity,
   page: DeltaPage<AnyRow>,
   cacheOwnerId: string,
+  isCurrent: () => boolean,
 ): Promise<void> {
+  assertDeltaRuntimeCurrent(isCurrent);
   const changedQueries = new Set<Query>();
   const queries = queryClient.getQueryCache().findAll();
   const subscribers = subscriberRowsForSite(queries, scope.siteId, scope.tenantId);
+  let invoiceRowsAfterPage: AnyRow[] | null = null;
+  let readingRowsAfterPage: AnyRow[] | null = null;
+  let paymentRowsAfterPage: AnyRow[] | null = null;
+  let expenseRowsAfterPage: AnyRow[] | null = null;
+  let subscriberRowsAfterPage: AnyRow[] | null = null;
+  const hasSubscriberDirectoryQueries = queries.some((query) => {
+    const segments = getSegments(query.queryKey);
+    return segments[0] === "powerhub" && segments[1] === "subscribers" &&
+      segments[2] === "directoryPage" && isOfflineCacheableQueryKey(query.queryKey);
+  });
+  if ((entityType === "invoices" || entityType === "readings" || entityType === "payments" ||
+      entityType === "expenses" || (entityType === "subscribers" && hasSubscriberDirectoryQueries)) &&
+      page.changes.length > 0) {
+    const local = await listDeltaEntities<AnyRow>(scope);
+    assertDeltaRuntimeCurrent(isCurrent);
+    const nextRows = applyDeltaChanges(local.map((record) => record.rowData), page.changes);
+    if (entityType === "invoices") invoiceRowsAfterPage = nextRows;
+    else if (entityType === "readings") readingRowsAfterPage = nextRows;
+    else if (entityType === "payments") paymentRowsAfterPage = nextRows;
+    else if (entityType === "expenses") expenseRowsAfterPage = nextRows;
+    else if (entityType === "subscribers") subscriberRowsAfterPage = nextRows;
+  }
+
   for (const query of queries) {
+    assertDeltaRuntimeCurrent(isCurrent);
     const queryEntity = queryIsSupportedList(query);
     if (!queryEntity) continue;
     const segments = getSegments(query.queryKey);
     if (queryEntity === "sites") {
       if (segments[0] !== "powerhub" || segments[1] !== "sites" || segments[2] !== "list") continue;
-    } else if (findNumberProperty(query.queryKey, "siteId") !== scope.siteId) {
+    } else if (
+      (queryEntity === "company_accounts"
+        ? Number(getOfflineQueryInput(query.queryKey).branchId)
+        : findNumberProperty(query.queryKey, "siteId")) !== scope.siteId
+    ) {
       continue;
     }
-    const rows = query.state.data;
-    if (!Array.isArray(rows)) continue;
+    const rows = getQueryRows(query);
+    if (!rows) continue;
     if (queryEntity === entityType) {
-      queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, page, scope, subscribers));
+      if (entityType === "subscribers" && segments[1] === "subscribers" && segments[2] === "directoryPage") {
+        if (!subscriberRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectSubscriberDirectoryPage(
+          subscriberRowsAfterPage, getOfflineQueryInput(query.queryKey), scope,
+        ));
+        changedQueries.add(query);
+      } else if (entityType === "hr_employee_directory" || entityType === "hr_attendance") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            if (change.operation !== "upsert" || !change.row_data) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, change.row_data as AnyRow) };
+          }),
+        };
+        const nextRows = (applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[])
+          .sort((a, b) => {
+            if (entityType === "hr_attendance") {
+              const left = (a.attendance ?? a) as AnyRow;
+              const right = (b.attendance ?? b) as AnyRow;
+              const leftDate = left.workDate instanceof Date ? left.workDate.getTime() : Date.parse(String(left.workDate ?? left.work_date ?? ""));
+              const rightDate = right.workDate instanceof Date ? right.workDate.getTime() : Date.parse(String(right.workDate ?? right.work_date ?? ""));
+              return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) ||
+                Number(right.id ?? 0) - Number(left.id ?? 0);
+            }
+            const leftDate = a.createdAt instanceof Date ? a.createdAt.getTime() : Date.parse(String(a.createdAt ?? a.created_at ?? ""));
+            const rightDate = b.createdAt instanceof Date ? b.createdAt.getTime() : Date.parse(String(b.createdAt ?? b.created_at ?? ""));
+            return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) ||
+              Number(b.id) - Number(a.id);
+          }).slice(0, entityType === "hr_employee_directory" ? MAX_LOCAL_HR_EMPLOYEE_ROWS : MAX_LOCAL_HR_ATTENDANCE_ROWS);
+        queryClient.setQueryData(query.queryKey, nextRows);
+      } else if (entityType === "hr_employee_advances" || entityType === "hr_payroll_runs") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            if (change.operation !== "upsert" || !change.row_data) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, change.row_data as AnyRow) };
+          }),
+        };
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        queryClient.setQueryData(query.queryKey, limitDeltaEntityRows(entityType, nextRows));
+      } else if (entityType === "inventory_item_units") {
+        const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
+        const visibleIds = new Set(rows.filter((row: AnyRow) =>
+          Number(row.itemId ?? row.item_id) === itemId
+        ).map((row: AnyRow) => String(row.id)));
+        const scopedPage = {
+          ...page,
+          changes: page.changes.filter((change) => {
+            if (change.operation === "upsert") {
+              return Number(change.row_data?.itemId ?? change.row_data?.item_id) === itemId;
+            }
+            return visibleIds.has(change.entity_id);
+          }),
+        };
+        queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers));
+      } else if (entityType === "inventory_purchase_receipt_headers" || entityType === "inventory_supplier_return_headers") {
+        const normalizedRows = rows.map(row => {
+          const normalized = normalizeDeltaEntityRow(entityType, row);
+          // These two authorized RPC list projections omit tenant/site columns;
+          // scope comes from the already-authorized query key, not user input.
+          return {
+            ...normalized,
+            tenantId: Number(normalized.tenantId) > 0 ? normalized.tenantId : scope.tenantId,
+            siteId: Number(normalized.siteId) > 0 ? normalized.siteId : scope.siteId,
+          };
+        });
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            const rowData = change.row_data;
+            if (change.operation !== "upsert" || rowData === null || typeof rowData !== "object" || Array.isArray(rowData)) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, rowData as AnyRow) };
+          }),
+        };
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+        queryClient.setQueryData(query.queryKey, entityType === "inventory_purchase_receipt_headers"
+          ? sortPurchaseReceiptRows(nextRows, limit)
+          : sortSupplierReturnRows(nextRows, limit));
+      } else if (entityType === "fuel_readings" || entityType === "maintenance_preventive_plans" || entityType === "fuel_events" || entityType === "maintenance_work_orders" || entityType.startsWith("maintenance_work_order_parts:")) {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow(entityType, row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            if (change.operation !== "upsert" || !change.row_data) return change;
+            return { ...change, row_data: normalizeDeltaEntityRow(entityType, change.row_data as AnyRow) };
+          }),
+        };
+        const filtered = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        const queryInput = getOfflineQueryInput(query.queryKey);
+        const generatorId = Number(queryInput.generatorId);
+        const workOrderId = Number(queryInput.workOrderId);
+        const nextRows = filtered
+          .filter((row) => (entityType !== "fuel_readings" && entityType !== "maintenance_preventive_plans") ||
+            !Number.isSafeInteger(generatorId) || generatorId < 1 ||
+            Number(row.generator_id ?? row.generatorId) === generatorId)
+          .filter((row) => !entityType.startsWith("maintenance_work_order_parts:") ||
+            Number(row.work_order_id ?? row.workOrderId) === workOrderId)
+          .sort((a, b) => {
+            if (entityType === "fuel_readings" || entityType === "fuel_events") {
+              const field = entityType === "fuel_readings" ? "recorded_at" : "occurred_at";
+              const left = Date.parse(String(a[field] ?? ""));
+              const right = Date.parse(String(b[field] ?? ""));
+              const idField = entityType === "fuel_readings" ? "reading_id" : "event_id";
+              return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                Number(b[idField] ?? b.id) - Number(a[idField] ?? a.id);
+            }
+            if (entityType === "maintenance_work_orders") {
+              return compareMaintenanceWorkOrderNewestFirst(a, b);
+            }
+            if (entityType.startsWith("maintenance_work_order_parts:")) {
+              const left = Date.parse(String(a.issued_at ?? ""));
+              const right = Date.parse(String(b.issued_at ?? ""));
+              return (Number.isFinite(left) ? left : 0) - (Number.isFinite(right) ? right : 0) ||
+                Number(a.part_id ?? a.id) - Number(b.part_id ?? b.id);
+            }
+            const priority = (row: AnyRow) => row.alert_type === "overdue" ? 0 : row.alert_type === "due_soon" ? 1 : 2;
+            return priority(a) - priority(b) ||
+              String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
+              Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
+          });
+        const requestedLimit = Number(queryInput.limit ?? 100);
+        const limit = entityType === "fuel_readings"
+          ? Math.min(MAX_LOCAL_FUEL_READING_QUERY_ROWS, Math.max(1, requestedLimit))
+          : entityType === "fuel_events"
+            ? 100
+            : entityType === "maintenance_work_orders"
+              ? 200
+              : entityType.startsWith("maintenance_work_order_parts:")
+                ? nextRows.length
+                : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
+        queryClient.setQueryData(query.queryKey, nextRows.slice(0, limit));
+      } else if (entityType === "inventory_purchase_headers") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_purchase_headers", row));
+        const normalizedPage = {
+          ...page,
+          changes: page.changes.map(change => {
+            const rowData = change.row_data;
+            if (change.operation !== "upsert" || rowData === null ||
+                typeof rowData !== "object" || Array.isArray(rowData)) return change;
+            return {
+              ...change,
+              row_data: normalizeDeltaEntityRow("inventory_purchase_headers", rowData as AnyRow),
+            };
+          }),
+        };
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, normalizedPage, scope, subscribers) as AnyRow[];
+        queryClient.setQueryData(query.queryKey, sortPurchaseHeaderRows(nextRows, Number(getOfflineQueryInput(query.queryKey).limit ?? 100)));
+      } else if (entityType === "inventory_stocktakes") {
+        const normalizedRows = rows.map(row => normalizeDeltaEntityRow("inventory_stocktakes", row));
+        const nextRows = applyDeltaPageToList(entityType, normalizedRows, page, scope, subscribers) as AnyRow[];
+        queryClient.setQueryData(query.queryKey, sortStocktakeRows(nextRows, Number(getOfflineQueryInput(query.queryKey).limit ?? 100)));
+      } else if (entityType === "inventory_stock_movements") {
+        const scopedPage = {
+          ...page,
+          changes: page.changes.filter((change) => {
+            if (change.operation === "upsert") {
+              return Number(change.row_data?.siteId ?? change.row_data?.site_id) === scope.siteId &&
+                Number(change.row_data?.tenantId ?? change.row_data?.tenant_id) === scope.tenantId;
+            }
+            return rows.some((row: AnyRow) => String(row.id ?? row.movement_id) === change.entity_id);
+          }),
+        };
+        const nextRows = (applyDeltaPageToList(entityType, rows, scopedPage, scope, subscribers) as AnyRow[])
+          .sort((a, b) => {
+            const dateDiff = new Date(String(b.occurred_at ?? "")).getTime() - new Date(String(a.occurred_at ?? "")).getTime();
+            return dateDiff || Number(b.id ?? b.movement_id) - Number(a.id ?? a.movement_id);
+          })
+          .slice(0, Number(getOfflineQueryInput(query.queryKey).limit ?? 100));
+        queryClient.setQueryData(query.queryKey, nextRows);
+      } else if (entityType === "invoices") {
+        if (!invoiceRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
+          invoiceRowsAfterPage, getOfflineQueryInput(query.queryKey), query.state.data, scope,
+        ));
+      } else if (entityType === "readings" && segments[2] === "page") {
+        if (!readingRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(readingRowsAfterPage, subscribers, getOfflineQueryInput(query.queryKey), query.state.data, scope));
+      } else if (entityType === "payments" && segments[2] === "page") {
+        if (!paymentRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(paymentRowsAfterPage, getOfflineQueryInput(query.queryKey), query.state.data, scope));
+      } else if (entityType === "expenses" && segments[2] === "page") {
+        if (!expenseRowsAfterPage) continue;
+        queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(expenseRowsAfterPage, getOfflineQueryInput(query.queryKey), query.state.data, scope));
+      } else {
+        queryClient.setQueryData(query.queryKey, applyDeltaPageToList(entityType, rows, page, scope, subscribers));
+      }
       changedQueries.add(query);
     } else if (entityType === "subscribers" && queryEntity === "readings") {
       queryClient.setQueryData(query.queryKey, refreshReadingSubscriberProjection(rows, page, scope));
       changedQueries.add(query);
+    } else if ((entityType === "subscribers" || entityType === "invoices") && queryEntity === "payments" && segments[2] === "page") {
+      queryClient.setQueryData(query.queryKey, refreshPaymentRelatedProjection(rows, page, scope, entityType));
+      changedQueries.add(query);
     }
   }
-  // The cursor is committed only after every affected durable query snapshot is
-  // written, so a browser restart cannot resume beyond a change absent from cache.
-  for (const query of changedQueries) await persistOfflineQuery(query, cacheOwnerId);
+  // The cursor is committed only after every affected durable query snapshot is written.
+  for (const query of changedQueries) {
+    assertDeltaRuntimeCurrent(isCurrent);
+    await persistOfflineQueryForDeltaSync(query, cacheOwnerId, Date.now(), isCurrent);
+    assertDeltaRuntimeCurrent(isCurrent);
+  }
 }
 
 export function OfflineDeltaSyncRuntime() {
@@ -177,6 +493,8 @@ export function OfflineDeltaSyncRuntime() {
   const rerunRequested = useRef(false);
   const lastOnlineUserId = useRef<number | null>(null);
   const activeUserId = Number(auth.user?.id);
+  const activeUserIdRef = useRef<number | null>(Number.isSafeInteger(activeUserId) && activeUserId > 0 ? activeUserId : null);
+  activeUserIdRef.current = Number.isSafeInteger(activeUserId) && activeUserId > 0 ? activeUserId : null;
   const isAuthorizedOnline = auth.isOnlineAuthenticated && !auth.isLoggingOut &&
     auth.powerHubReachable && onlineManager.isOnline() &&
     Number.isSafeInteger(activeUserId) && activeUserId > 0;
@@ -192,15 +510,22 @@ export function OfflineDeltaSyncRuntime() {
     }
     lastOnlineUserId.current = activeUserId;
 
+    const isRunCurrent = () => isDeltaSyncRunCurrent(activeUserId, activeUserIdRef.current, disposed);
+
     const syncOne = async (candidate: Candidate, cacheOwnerId: string) => {
+      assertDeltaRuntimeCurrent(isRunCurrent);
       const scope: DeltaCursorScope = {
         userId: activeUserId,
         tenantId: candidate.tenantId,
         siteId: candidate.siteId,
         entityType: candidate.entityType,
       };
+      await withDeltaSyncLock(scope, async () => {
+      assertDeltaRuntimeCurrent(isRunCurrent);
       const afterCursor = await getDeltaCursor(scope);
+      assertDeltaRuntimeCurrent(isRunCurrent);
       const pull = async (args: { afterCursor: string | null; throughCursor: string | null; pageSize: number }) => {
+        assertDeltaRuntimeCurrent(isRunCurrent);
         const response = await utils.powerhub.deltaSync.pull.fetch({
           siteId: candidate.siteId,
           entityType: candidate.entityType,
@@ -208,15 +533,18 @@ export function OfflineDeltaSyncRuntime() {
           throughCursor: args.throughCursor,
           pageSize: args.pageSize,
         });
+        assertDeltaRuntimeCurrent(isRunCurrent);
         return normalizeDeltaPage(candidate.entityType, response as unknown as DeltaPage<AnyRow>);
       };
       const rebuildSnapshot = async () => {
+        assertDeltaRuntimeCurrent(isRunCurrent);
         // Rows and cursor are read by one STABLE PostgreSQL RPC, so changes committed
         // during snapshot creation cannot fall between the snapshot and its cursor.
         const snapshot = await utils.powerhub.deltaSync.snapshot.fetch({
           siteId: candidate.siteId,
           entityType: candidate.entityType,
         });
+        assertDeltaRuntimeCurrent(isRunCurrent);
         if (!Array.isArray(snapshot.rows) || typeof snapshot.snapshot_cursor !== "string") {
           throw new Error("استجابة لقطة المزامنة غير صالحة.");
         }
@@ -231,23 +559,30 @@ export function OfflineDeltaSyncRuntime() {
           : snapshot.rows.map((row: any) => normalizeDeltaEntityRow(candidate.entityType, row));
         for (const row of queryRows) {
           const scoped = (candidate.entityType === "readings" ? row.subscriber : row) as Record<string, unknown> | undefined;
+          const sharedInventoryEntity = candidate.entityType === "inventory_items" || candidate.entityType === "inventory_item_units" || candidate.entityType === "suppliers";
+          const sharedEmployee = candidate.entityType === "hr_employee_directory" && scoped?.siteId === null;
+          const sharedPayroll = candidate.entityType === "hr_payroll_runs" && scoped?.siteId === null;
           const matchesScope = candidate.entityType === "sites"
             ? Number(scoped?.id) === candidate.siteId && Number(scoped?.tenantId) === candidate.tenantId
-            : Number(scoped?.tenantId) === candidate.tenantId && Number(scoped?.siteId) === candidate.siteId;
+            : Number(scoped?.tenantId) === candidate.tenantId &&
+              (sharedInventoryEntity || sharedEmployee || sharedPayroll || Number(scoped?.siteId) === candidate.siteId);
           if (!matchesScope) {
             throw new Error("لقطة المزامنة تحتوي بيانات خارج نطاق الفرع.");
           }
         }
         const matchingQueries = queryClient.getQueryCache().findAll().filter((query) => {
-          if (queryIsSupportedList(query) !== candidate.entityType || !Array.isArray(query.state.data)) return false;
+          if (queryIsSupportedList(query) !== candidate.entityType || !getQueryRows(query)) return false;
           if (candidate.entityType === "sites") {
             const segments = getSegments(query.queryKey);
             return segments[0] === "powerhub" && segments[1] === "sites" && segments[2] === "list";
           }
-          return findNumberProperty(query.queryKey, "siteId") === candidate.siteId;
+          return (candidate.entityType === "company_accounts"
+            ? Number(getOfflineQueryInput(query.queryKey).branchId)
+            : findNumberProperty(query.queryKey, "siteId")) === candidate.siteId;
         });
         if (matchingQueries.length === 0) throw new Error("لا يوجد استعلام قائمة لاستقبال لقطة المزامنة.");
         for (const query of matchingQueries) {
+          assertDeltaRuntimeCurrent(isRunCurrent);
           if (candidate.entityType === "sites") {
             const current = query.state.data as AnyRow[];
             const siteRows = (queryRows as AnyRow[]).filter((row) => Number(row.id) === candidate.siteId);
@@ -260,10 +595,112 @@ export function OfflineDeltaSyncRuntime() {
               return bDate - aDate;
             });
             queryClient.setQueryData(query.queryKey, merged);
+          } else if (candidate.entityType === "subscribers" &&
+              getSegments(query.queryKey)[1] === "subscribers" &&
+              getSegments(query.queryKey)[2] === "directoryPage") {
+            queryClient.setQueryData(query.queryKey, projectSubscriberDirectoryPage(
+              queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), scope,
+            ));
+          } else if (candidate.entityType === "hr_employee_advances" || candidate.entityType === "hr_payroll_runs") {
+            queryClient.setQueryData(query.queryKey, limitDeltaEntityRows(candidate.entityType, queryRows as AnyRow[]));
+          } else if (candidate.entityType === "hr_employee_directory" || candidate.entityType === "hr_attendance") {
+            const ordered = (queryRows as AnyRow[]).slice().sort((a, b) => {
+              if (candidate.entityType === "hr_attendance") {
+                const left = (a.attendance ?? a) as AnyRow;
+                const right = (b.attendance ?? b) as AnyRow;
+                const leftDate = left.workDate instanceof Date ? left.workDate.getTime() : Date.parse(String(left.workDate ?? left.work_date ?? ""));
+                const rightDate = right.workDate instanceof Date ? right.workDate.getTime() : Date.parse(String(right.workDate ?? right.work_date ?? ""));
+                return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) ||
+                  Number(right.id ?? 0) - Number(left.id ?? 0);
+              }
+              const leftDate = a.createdAt instanceof Date ? a.createdAt.getTime() : Date.parse(String(a.createdAt ?? a.created_at ?? ""));
+              const rightDate = b.createdAt instanceof Date ? b.createdAt.getTime() : Date.parse(String(b.createdAt ?? b.created_at ?? ""));
+              return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) || Number(b.id) - Number(a.id);
+            });
+            queryClient.setQueryData(query.queryKey, ordered.slice(0, candidate.entityType === "hr_employee_directory" ? MAX_LOCAL_HR_EMPLOYEE_ROWS : MAX_LOCAL_HR_ATTENDANCE_ROWS));
+          } else if (candidate.entityType === "invoices") {
+            queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
+              queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), query.state.data, scope,
+            ));
+          } else if (candidate.entityType === "readings" && getSegments(query.queryKey)[2] === "page") {
+            queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(snapshotRowsFromQuery("readings", queryRows), subscriberRowsForSite(queryClient.getQueryCache().findAll(), candidate.siteId, candidate.tenantId), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "payments" && getSegments(query.queryKey)[2] === "page") {
+            queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
+            queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+          } else if (candidate.entityType === "fuel_readings" || candidate.entityType === "maintenance_preventive_plans" || candidate.entityType === "fuel_events" || candidate.entityType === "maintenance_work_orders" || candidate.entityType.startsWith("maintenance_work_order_parts:")) {
+            const queryInput = getOfflineQueryInput(query.queryKey);
+            const generatorId = Number(queryInput.generatorId);
+            const workOrderId = Number(queryInput.workOrderId);
+            const filtered = (queryRows as AnyRow[])
+              .filter((row) => (candidate.entityType !== "fuel_readings" && candidate.entityType !== "maintenance_preventive_plans") ||
+                !Number.isSafeInteger(generatorId) || generatorId < 1 ||
+                Number(row.generator_id ?? row.generatorId) === generatorId)
+              .filter((row) => !candidate.entityType.startsWith("maintenance_work_order_parts:") ||
+                Number(row.work_order_id ?? row.workOrderId) === workOrderId)
+              .sort((a, b) => {
+                if (candidate.entityType === "fuel_readings" || candidate.entityType === "fuel_events") {
+                  const field = candidate.entityType === "fuel_readings" ? "recorded_at" : "occurred_at";
+                  const left = Date.parse(String(a[field] ?? ""));
+                  const right = Date.parse(String(b[field] ?? ""));
+                  const idField = candidate.entityType === "fuel_readings" ? "reading_id" : "event_id";
+                  return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                    Number(b[idField] ?? b.id) - Number(a[idField] ?? a.id);
+                }
+                if (candidate.entityType === "maintenance_work_orders") {
+                  const left = Date.parse(String(a.reported_at ?? ""));
+                  const right = Date.parse(String(b.reported_at ?? ""));
+                  return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                    Number(b.work_order_id ?? b.id) - Number(a.work_order_id ?? a.id);
+                }
+                if (candidate.entityType.startsWith("maintenance_work_order_parts:")) {
+                  const left = Date.parse(String(a.issued_at ?? ""));
+                  const right = Date.parse(String(b.issued_at ?? ""));
+                  return (Number.isFinite(left) ? left : 0) - (Number.isFinite(right) ? right : 0) ||
+                    Number(a.part_id ?? a.id) - Number(b.part_id ?? b.id);
+                }
+                const priority = (row: AnyRow) => row.alert_type === "overdue" ? 0 : row.alert_type === "due_soon" ? 1 : 2;
+                return priority(a) - priority(b) ||
+                  String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
+                  Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
+              });
+            const requestedLimit = Number(queryInput.limit ?? 100);
+            const limit = candidate.entityType === "fuel_readings"
+              ? Math.min(MAX_LOCAL_FUEL_READING_QUERY_ROWS, Math.max(1, requestedLimit))
+              : candidate.entityType === "fuel_events"
+                ? 100
+                : candidate.entityType === "maintenance_work_orders"
+                  ? 200
+                  : candidate.entityType.startsWith("maintenance_work_order_parts:")
+                    ? filtered.length
+                    : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
+            queryClient.setQueryData(query.queryKey, filtered.slice(0, limit));
+          } else if (candidate.entityType === "inventory_purchase_receipt_headers" || candidate.entityType === "inventory_supplier_return_headers") {
+            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            queryClient.setQueryData(query.queryKey, candidate.entityType === "inventory_purchase_receipt_headers"
+              ? sortPurchaseReceiptRows(queryRows as AnyRow[], limit)
+              : sortSupplierReturnRows(queryRows as AnyRow[], limit));
+          } else if (candidate.entityType === "inventory_purchase_headers") {
+            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            queryClient.setQueryData(query.queryKey, sortPurchaseHeaderRows(queryRows as AnyRow[], limit));
+          } else if (candidate.entityType === "inventory_stocktakes") {
+            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            queryClient.setQueryData(query.queryKey, sortStocktakeRows(queryRows as AnyRow[], limit));
+          } else if (candidate.entityType === "inventory_stock_movements") {
+            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+            const movements = (queryRows as AnyRow[]).slice().sort((a, b) => {
+              const dateDiff = new Date(String(b.occurred_at ?? "")).getTime() - new Date(String(a.occurred_at ?? "")).getTime();
+              return dateDiff || Number(b.id ?? b.movement_id) - Number(a.id ?? a.movement_id);
+            }).slice(0, limit);
+            queryClient.setQueryData(query.queryKey, movements);
+          } else if (candidate.entityType === "inventory_item_units") {
+            const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
+            queryClient.setQueryData(query.queryKey, queryRows.filter((row: AnyRow) => Number(row.itemId ?? row.item_id) === itemId));
           } else {
             queryClient.setQueryData(query.queryKey, queryRows);
           }
-          await persistOfflineQuery(query, cacheOwnerId);
+          await persistOfflineQueryForDeltaSync(query, cacheOwnerId, Date.now(), isRunCurrent);
+          assertDeltaRuntimeCurrent(isRunCurrent);
         }
         return {
           cursor: snapshot.snapshot_cursor,
@@ -271,25 +708,35 @@ export function OfflineDeltaSyncRuntime() {
         };
       };
       try {
+        assertDeltaRuntimeCurrent(isRunCurrent);
         await pullDeltaPages({
           scope,
           afterCursor,
           pull,
           rebuildSnapshot,
-          applyPage: async (page) => patchQueryCaches(queryClient, scope, candidate.entityType, page as DeltaPage<AnyRow>, cacheOwnerId),
+          isCurrent: isRunCurrent,
+          applyPage: async (page) => patchQueryCaches(
+            queryClient, scope, candidate.entityType, page as DeltaPage<AnyRow>, cacheOwnerId, isRunCurrent,
+          ),
         });
+        assertDeltaRuntimeCurrent(isRunCurrent);
         const now = Date.now();
+        const syncedCursor = await getDeltaCursor(scope) ?? "0";
+        assertDeltaRuntimeCurrent(isRunCurrent);
         await saveDeltaSyncStatus({
           ...scope,
-          cursor: await getDeltaCursor(scope) ?? "0",
+          cursor: syncedCursor,
           lastSyncedAt: now,
           lastAttemptAt: now,
           outcome: "success",
         });
       } catch (error) {
+        if (!isRunCurrent()) throw error;
         const now = Date.now();
         const previous = await getDeltaSyncStatus(scope).catch(() => undefined);
+        if (!isRunCurrent()) throw error;
         const currentCursor = await getDeltaCursor(scope).catch(() => previous?.cursor ?? "0");
+        if (!isRunCurrent()) throw error;
         await saveDeltaSyncStatus({
           ...scope,
           cursor: currentCursor ?? "0",
@@ -298,18 +745,20 @@ export function OfflineDeltaSyncRuntime() {
           outcome: "failed",
           lastError: error instanceof Error ? error.message : "تعذر تنفيذ المزامنة التفاضلية.",
         }).catch((statusError) => console.warn("[PowerHub] Could not persist Delta sync status", statusError));
-        if (typeof window !== "undefined") {
+        if (isRunCurrent() && typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("powerhub:delta-sync-status-changed", {
             detail: { userId: activeUserId, siteId: candidate.siteId },
           }));
         }
         throw error;
       }
-      if (typeof window !== "undefined") {
+      assertDeltaRuntimeCurrent(isRunCurrent);
+      if (isRunCurrent() && typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("powerhub:delta-sync-status-changed", {
           detail: { userId: activeUserId, siteId: candidate.siteId },
         }));
       }
+      });
     };
 
     const run = async () => {
@@ -323,16 +772,18 @@ export function OfflineDeltaSyncRuntime() {
       rerunRequested.current = false;
       try {
         const session = await getSupabaseSession();
-        if (!session?.user.id) return;
+        if (!isRunCurrent() || !session?.user.id) return;
         const cacheOwnerId = session.user.id;
         const queryList = queryClient.getQueryCache().findAll();
         const candidates = makeCandidates(queryList);
         for (const candidate of candidates) {
-          if (disposed || !onlineManager.isOnline()) break;
+          if (!isRunCurrent() || !onlineManager.isOnline()) break;
           try {
             await syncOne(candidate, cacheOwnerId);
           } catch (error) {
-            console.warn("[PowerHub] Delta sync deferred for scoped list", candidate.entityType, candidate.siteId, error);
+            if (isRunCurrent()) {
+              console.warn("[PowerHub] Delta sync deferred for scoped list", candidate.entityType, candidate.siteId, error);
+            }
           }
         }
       } finally {

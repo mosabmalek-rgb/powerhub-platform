@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { TRPCError } from "@trpc/server";
 
 const state = vi.hoisted(() => ({
@@ -10,7 +12,8 @@ const state = vi.hoisted(() => ({
 
 vi.mock("./powerhub-supabase", () => ({
   requireSupabaseSiteRole: state.access,
-  resolveSupabaseSiteAccess: state.siteAccess,
+  requireSupabaseSiteAnyCapability: state.siteAccess,
+  resolveSupabaseSiteCapabilityAccess: state.siteAccess,
 }));
 
 vi.mock("./supabase-admin", () => ({
@@ -18,6 +21,40 @@ vi.mock("./supabase-admin", () => ({
 }));
 
 describe("PowerHub inventory catalog and supplier API", () => {
+  it("returns only the three tenant-scoped stocktake UI capabilities for offline draft hints", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44, role: "manager", permissions: ["manageStocktakes"],
+      allowedCapabilities: ["manageStocktakes"],
+      usesPermissionOverride: true,
+    });
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.stocktakeOfflineAccess;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 77 } },
+      input: { siteId: 7 },
+    });
+    expect(result).toEqual({
+      tenantId: 44,
+      canViewStocktakes: false,
+      canManageStocktakes: true,
+      canApproveStocktakes: false,
+    });
+    expect(state.siteAccess).toHaveBeenCalledWith(77, 7, ["viewStocktakes", "manageStocktakes", "approveStocktakes"]);
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("denies the offline stocktake capability projection when no stocktake capability is granted", async () => {
+    state.siteAccess.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.stocktakeOfflineAccess;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 77 } },
+      input: { siteId: 7 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
   it("checks the individual inventory-management capability before inserting a catalog item", async () => {
     state.from.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
@@ -30,6 +67,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
         siteId: 3,
         name: "Diesel",
         category: "fuel",
+        accountingTreatment: "expense_on_issue",
         baseUnit: "liter",
         reorderPoint: 20,
       },
@@ -37,6 +75,28 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
     expect(state.access).toHaveBeenCalledWith(99, 3, expect.any(Array), "createInventoryItems");
     expect(state.from).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicit accounting treatment to the atomic catalog RPC", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      id: 501, tenant_id: 44, category: "other", accounting_treatment: "capital_asset",
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.createItem;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 99 } },
+      input: {
+        siteId: 3, name: "Alternator assembly", category: "other",
+        accountingTreatment: "capital_asset", baseUnit: "piece", reorderPoint: 0,
+      },
+    });
+    expect(result.accounting_treatment).toBe("capital_asset");
+    expect(state.access).toHaveBeenCalledWith(99, 3, expect.any(Array), "createInventoryItems");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_create_item_v2", expect.objectContaining({
+      p_tenant_id: 44, p_site_id: 3, p_user_id: 99, p_category: "other",
+      p_accounting_treatment: "capital_asset",
+    }));
   });
 
   it("requires supplier-directory visibility before reading supplier data", async () => {
@@ -52,6 +112,38 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
     expect(state.access).toHaveBeenCalledWith(22, 7, expect.any(Array), "viewSuppliers");
     expect(state.from).not.toHaveBeenCalled();
+  });
+
+  it("routes authorized supplier-directory reads through the tenant-scoped admin client", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockClear();
+    const rows = [{ id: 9, tenant_id: 44, name: "Approved Supplier", is_active: true }];
+    const supplierQuery: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      or: vi.fn().mockReturnThis(),
+      then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+        Promise.resolve({ data: rows, error: null }).then(resolve, reject),
+    };
+    state.from.mockReset().mockReturnValue(supplierQuery);
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listSuppliers;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 22 } },
+      input: { siteId: 7, includeInactive: false, search: "Approved" },
+    });
+
+    expect(result).toEqual(rows);
+    expect(state.access).toHaveBeenCalledWith(22, 7, expect.any(Array), "viewSuppliers");
+    expect(state.from).toHaveBeenCalledWith("suppliers");
+    expect(supplierQuery.eq).toHaveBeenCalledWith("tenant_id", 44);
+    expect(supplierQuery.eq).toHaveBeenCalledWith("is_active", true);
+    expect(supplierQuery.order).toHaveBeenCalledWith("name", { ascending: true });
+    expect(supplierQuery.limit).toHaveBeenCalledWith(500);
+    expect(supplierQuery.or).toHaveBeenCalledWith("name.ilike.%Approved%,supplier_code.ilike.%Approved%,phone.ilike.%Approved%");
+    expect(state.rpc).not.toHaveBeenCalled();
   });
 
   it("requires supplier-management capability before creating a supplier", async () => {
@@ -71,14 +163,84 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
   it("requires purchase visibility before reading the purchase ledger", async () => {
     state.from.mockClear();
-    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 2, role: "technician", permissions: [], usesPermissionOverride: false });
+    state.siteAccess.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.listPurchases;
 
     await expect(query._def.resolver({ ctx: { user: { id: 45 } }, input: { siteId: 6 } }))
       .rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.siteAccess).toHaveBeenCalledWith(45, 6);
+    expect(state.siteAccess).toHaveBeenCalledWith(45, 6, ["viewPurchases", "manageSupplierPayments", "receiveInventory", "adjustInventory"]);
     expect(state.from).not.toHaveBeenCalled();
+  });
+
+  it("stops purchase-detail hydration when the invoice is absent from the authorized tenant and site", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44,
+      canViewFinancials: true,
+      allowedCapabilities: ["viewPurchases"],
+    });
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockClear();
+    const purchaseQuery: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    };
+    state.from.mockReset().mockReturnValue(purchaseQuery);
+
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.getPurchase;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 45 } },
+      input: { siteId: 6, purchaseId: 92 },
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    expect(state.from).toHaveBeenCalledTimes(1);
+    expect(state.from).toHaveBeenCalledWith("supplier_purchases");
+    expect(purchaseQuery.eq).toHaveBeenCalledWith("tenant_id", 44);
+    expect(purchaseQuery.eq).toHaveBeenCalledWith("site_id", 6);
+    expect(purchaseQuery.eq).toHaveBeenCalledWith("id", 92);
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("requires purchase creation, approval, and supplier-payment capabilities independently for walk-in purchases", async () => {
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.createWalkInPurchase;
+    const input = { siteId: 6, warehouseId: 3, companyAccountId: 2,
+      invoiceDate: "2026-11-09", paymentDate: "2026-11-09", operationKey: "walk-in:test:1",
+      lines: [{ itemId: 9, quantity: 2, unit: "liter", unitsToBaseFactor: 1,
+        unitPrice: 4, discountAmount: 0, taxAmount: 0 }] };
+    for (const failAt of ["createPurchases", "approvePurchases", "manageSupplierPayments"]) {
+      state.rpc.mockClear();
+      state.access.mockReset().mockImplementation(async (_user, _site, _roles, capability) => {
+        if (capability === failAt) throw new TRPCError({ code: "FORBIDDEN" });
+        return { tenantId: 44 };
+      });
+      await expect(mutation._def.resolver({ ctx: { user: { id: 45 } }, input }))
+        .rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(state.rpc).not.toHaveBeenCalled();
+    }
+  });
+
+  it("uses ONE atomic walk-in purchase RPC with a stable operation key", async () => {
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.createWalkInPurchase;
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      purchase_id: 71, purchase_number: "PUR-20261109-000001", payment_id: 20,
+      total_amount: 8, replayed: false,
+    }], error: null });
+    const result = await mutation._def.resolver({ ctx: { user: { id: 45 } },
+      input: { siteId: 6, warehouseId: 3, companyAccountId: 2,
+        invoiceDate: "2026-11-09", paymentDate: "2026-11-09", operationKey: "walk-in:test:stable",
+        lines: [{ itemId: 9, quantity: 2, unit: "liter",
+          unitsToBaseFactor: 1, unitPrice: 4, discountAmount: 0, taxAmount: 0 }] },
+    });
+    expect(result.purchase_id).toBe(71);
+    expect(state.rpc).toHaveBeenCalledTimes(1);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_create_walk_in_immediate_purchase",
+      expect.objectContaining({ p_tenant_id: 44, p_site_id: 6, p_user_id: 45,
+        p_company_account_id: 2, p_operation_key: "walk-in:test:stable" }));
   });
 
   it("requires createPurchases before calling the purchase draft RPC", async () => {
@@ -155,6 +317,124 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.from).not.toHaveBeenCalled();
   });
 
+  it("requires branch-scoped supplier-payment access before reading payment history", async () => {
+    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.from.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listSupplierPaymentHistory;
+
+    await expect(query._def.resolver({
+      ctx: { user: { id: 81 } }, input: { siteId: 7, limit: 50 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(state.access).toHaveBeenCalledWith(81, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.from).not.toHaveBeenCalled();
+  });
+
+  it("loads payment document references only from the selected branch and matching supplier", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    const paymentRows = [{
+      id: 501, tenant_id: 44, site_id: 7, supplier_id: 4, company_account_id: 100,
+      amount: "10.00", payment_date: "2026-11-07", status: "posted",
+    }];
+    const allocationRows = [
+      { payment_id: 501, purchase_id: 92, supplier_ledger_entry_id: null, amount: "4.00" },
+      { payment_id: 501, purchase_id: null, supplier_ledger_entry_id: 300, amount: "6.00" },
+    ];
+    const dataByTable: Record<string, { data: any[]; error: null }> = {
+      supplier_payments: { data: paymentRows, error: null },
+      supplier_payment_allocations: { data: allocationRows, error: null },
+      suppliers: { data: [{ id: 4, name: "Supplier A", supplier_code: "SUP-4" }], error: null },
+      company_accounts: { data: [{ id: 100, name: "Main Account", account_type: "cash" }], error: null },
+      supplier_purchases: { data: [{
+        id: 92, tenant_id: 44, site_id: 7, supplier_id: 4, purchase_number: "PUR-92",
+      }], error: null },
+      supplier_ledger_entries: { data: [{
+        id: 300, tenant_id: 44, site_id: 7, supplier_id: 4, entry_type: "opening_balance",
+        purchase_id: null, supplier_payment_id: null, reference_no: "OPEN-300", description: null,
+      }], error: null },
+    };
+    const queries = new Map<string, any>();
+    state.from.mockReset().mockImplementation((table: string) => {
+      const query: any = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        in: vi.fn().mockReturnThis(),
+        is: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+        then: (resolve: (value: any) => unknown, reject?: (reason: unknown) => unknown) =>
+          Promise.resolve(dataByTable[table] ?? { data: [], error: null }).then(resolve, reject),
+      };
+      queries.set(table, query);
+      return query;
+    });
+
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listSupplierPaymentHistory;
+    const result = await query._def.resolver({
+      ctx: { user: { id: 82 } }, input: { siteId: 7, limit: 50 },
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].allocations).toEqual([
+      {
+        purchase_id: 92, supplier_ledger_entry_id: null, amount: 4,
+        document_type: "purchase_invoice", document_reference: "PUR-92",
+      },
+      {
+        purchase_id: null, supplier_ledger_entry_id: 300, amount: 6,
+        document_type: "opening_balance", document_reference: "OPEN-300",
+      },
+    ]);
+    expect(queries.get("supplier_purchases").eq).toHaveBeenCalledWith("tenant_id", 44);
+    expect(queries.get("supplier_purchases").eq).toHaveBeenCalledWith("site_id", 7);
+    expect(queries.get("supplier_purchases").in).toHaveBeenCalledWith("supplier_id", [4]);
+    expect(queries.get("supplier_ledger_entries").eq).toHaveBeenCalledWith("tenant_id", 44);
+    expect(queries.get("supplier_ledger_entries").eq).toHaveBeenCalledWith("site_id", 7);
+    expect(queries.get("supplier_ledger_entries").in).toHaveBeenCalledWith("supplier_id", [4]);
+    expect(queries.get("supplier_ledger_entries").eq).toHaveBeenCalledWith("entry_type", "opening_balance");
+    expect(queries.get("supplier_ledger_entries").is).toHaveBeenCalledWith("purchase_id", null);
+    expect(queries.get("supplier_ledger_entries").is).toHaveBeenCalledWith("supplier_payment_id", null);
+  });
+
+  it("fails closed when a payment allocation resolves to a different supplier's purchase", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    const dataByTable: Record<string, { data: any[]; error: null }> = {
+      supplier_payments: { data: [
+        { id: 501, tenant_id: 44, site_id: 7, supplier_id: 4, company_account_id: 100, amount: "5.00", status: "posted" },
+        { id: 502, tenant_id: 44, site_id: 7, supplier_id: 5, company_account_id: 100, amount: "5.00", status: "posted" },
+      ], error: null },
+      supplier_payment_allocations: { data: [
+        { payment_id: 501, purchase_id: 93, supplier_ledger_entry_id: null, amount: "5.00" },
+      ], error: null },
+      suppliers: { data: [{ id: 4, name: "Supplier A" }, { id: 5, name: "Supplier B" }], error: null },
+      company_accounts: { data: [{ id: 100, name: "Main Account", account_type: "cash" }], error: null },
+      supplier_purchases: { data: [{
+        id: 93, tenant_id: 44, site_id: 7, supplier_id: 5, purchase_number: "OTHER-SUPPLIER-INVOICE",
+      }], error: null },
+      supplier_ledger_entries: { data: [], error: null },
+    };
+    state.from.mockReset().mockImplementation((table: string) => {
+      const query: any = {
+        select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), in: vi.fn().mockReturnThis(),
+        is: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(),
+        then: (resolve: (value: any) => unknown, reject?: (reason: unknown) => unknown) =>
+          Promise.resolve(dataByTable[table] ?? { data: [], error: null }).then(resolve, reject),
+      };
+      return query;
+    });
+
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.listSupplierPaymentHistory;
+    await expect(query._def.resolver({
+      ctx: { user: { id: 83 } }, input: { siteId: 7, limit: 50 },
+    })).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "تعذر التحقق من ارتباط أحد تخصيصات دفعات الموردين بمستنده وفرعه.",
+    });
+  });
+
   it("requires manageSupplierPayments before calling the atomic supplier-payment RPC", async () => {
     state.rpc.mockClear();
     state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
@@ -212,21 +492,20 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
   it("requires viewInventory or viewInventoryReports before querying stock balances", async () => {
     state.rpc.mockClear();
-    state.siteAccess.mockReset().mockResolvedValue({
-      tenantId: 44, role: "technician", permissions: [], usesPermissionOverride: false,
-    });
+    state.siteAccess.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.stockOverview;
     await expect(query._def.resolver({
       ctx: { user: { id: 84 } }, input: { siteId: 7 },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.siteAccess).toHaveBeenCalledWith(84, 7);
+    expect(state.siteAccess).toHaveBeenCalledWith(84, 7, ["viewInventory", "viewInventoryReports"]);
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
   it("returns tenant-scoped stock overview through the read RPC", async () => {
     state.siteAccess.mockReset().mockResolvedValue({
-      tenantId: 44, role: "manager", permissions: ["viewInventory"], usesPermissionOverride: false,
+      tenantId: 44, role: "manager", permissions: ["viewInventory"],
+      allowedCapabilities: ["viewInventory"], usesPermissionOverride: false,
     });
     state.rpc.mockReset().mockResolvedValue({
       data: [{
@@ -250,7 +529,8 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
   it("requires the dedicated report permission before querying paginated stock movements", async () => {
     state.siteAccess.mockReset().mockResolvedValue({
-      tenantId: 44, role: "manager", permissions: ["viewInventory"], usesPermissionOverride: true,
+      tenantId: 44, role: "manager", permissions: ["viewInventory"],
+      allowedCapabilities: ["viewInventory"], usesPermissionOverride: true,
     });
     state.rpc.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
@@ -259,13 +539,14 @@ describe("PowerHub inventory catalog and supplier API", () => {
       ctx: { user: { id: 851 } },
       input: { siteId: 7, limit: 100 },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.siteAccess).toHaveBeenCalledWith(851, 7);
+    expect(state.siteAccess).toHaveBeenCalledWith(851, 7, ["viewInventory", "viewInventoryReports"]);
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
   it("forwards tenant scope and keyset filters to the paginated inventory report RPC", async () => {
     state.siteAccess.mockReset().mockResolvedValue({
-      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports"], usesPermissionOverride: true,
+      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports"],
+      allowedCapabilities: ["viewInventoryReports"], usesPermissionOverride: true,
     });
     state.rpc.mockReset().mockResolvedValue({
       data: [
@@ -382,7 +663,8 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
   it("does not expose unit or total stock valuation to users without inventory-report permission", async () => {
     state.siteAccess.mockReset().mockResolvedValue({
-      tenantId: 44, role: "technician", permissions: ["viewInventory"], usesPermissionOverride: false,
+      tenantId: 44, role: "technician", permissions: ["viewInventory", "viewInventoryReports"],
+      allowedCapabilities: ["viewInventory"], usesPermissionOverride: false,
     });
     state.rpc.mockReset().mockResolvedValue({
       data: [{
@@ -441,6 +723,52 @@ describe("PowerHub inventory catalog and supplier API", () => {
       },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(state.access).toHaveBeenCalledWith(94, 7, expect.any(Array), "adjustInventory");
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("requires supplier-payment permission for a cash refund before invoking the return RPC", async () => {
+    state.access.mockReset()
+      .mockResolvedValueOnce({ tenantId: 44 })
+      .mockRejectedValueOnce(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnToSupplier;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 941 } },
+      input: {
+        siteId: 7, purchaseId: 14, returnDate: "2026-10-21",
+        operationKey: "supplier-return:cash-refund-denied", reason: "damaged item",
+        refundAmount: 5, refundCompanyAccountId: 8,
+        lines: [{ purchaseLineId: 21, quantity: 1 }],
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenNthCalledWith(1, 941, 7, expect.any(Array), "adjustInventory");
+    expect(state.access).toHaveBeenNthCalledWith(2, 941, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.from).not.toHaveBeenCalled();
+    expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cash refund when the financial permission resolves to a different tenant", async () => {
+    state.access.mockReset()
+      .mockResolvedValueOnce({ tenantId: 44 })
+      .mockResolvedValueOnce({ tenantId: 45 });
+    state.from.mockClear();
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.returnToSupplier;
+    await expect(mutation._def.resolver({
+      ctx: { user: { id: 942 } },
+      input: {
+        siteId: 7, purchaseId: 14, returnDate: "2026-10-21",
+        operationKey: "supplier-return:cash-refund-tenant-mismatch", reason: "damaged item",
+        refundAmount: 5, refundCompanyAccountId: 8,
+        lines: [{ purchaseLineId: 21, quantity: 1 }],
+      },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.access).toHaveBeenNthCalledWith(1, 942, 7, expect.any(Array), "adjustInventory");
+    expect(state.access).toHaveBeenNthCalledWith(2, 942, 7, expect.any(Array), "manageSupplierPayments");
+    expect(state.from).not.toHaveBeenCalled();
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
@@ -617,8 +945,34 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
 
+  it("forwards the authorized tenant and stable idempotency key to stocktake count", async () => {
+    state.access.mockReset().mockResolvedValue({ tenantId: 44 });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      stocktake_id: 80, item_id: 90, system_quantity: "4.000",
+      counted_quantity: "3.000", variance_quantity: "-1.000",
+      counted_at: "2026-10-31T10:00:00.000Z", replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordStocktakeCount;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 98 } },
+      input: {
+        siteId: 7, stocktakeId: 80, itemId: 90, countedQuantity: 3,
+        countedUnitCost: 4.5, countNotes: "counted at close",
+        operationKey: "stocktake-count:stable-operation",
+      },
+    });
+    expect(result).toMatchObject({ stocktake_id: 80, item_id: 90, replayed: false });
+    expect(state.access).toHaveBeenCalledWith(98, 7, expect.any(Array), "manageStocktakes");
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_record_stocktake_count", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 98, p_stocktake_id: 80, p_item_id: 90,
+      p_counted_quantity: 3, p_counted_unit_cost: 4.5, p_count_notes: "counted at close",
+      p_operation_key: "stocktake-count:stable-operation",
+    });
+  });
+
   it("blocks a fuel fill before calling the database when the actor lacks the fuel capability", async () => {
-    state.access.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["viewInventoryReports"], allowedCapabilities: ["viewInventoryReports"] });
     state.rpc.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const mutation = (powerhubInventoryRouter as any)._def.record.recordFuelFill;
@@ -629,8 +983,69 @@ describe("PowerHub inventory catalog and supplier API", () => {
         litres: 5, occurredAt: "2026-10-22T09:00:00.000Z", operationKey: "fuel-fill:test-denied",
       },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.access).toHaveBeenCalledWith(55, 7, expect.any(Array), "manageFuelAndConsumption");
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7, ["manageFuelAndConsumption", "viewInventoryReports"]);
     expect(state.rpc).not.toHaveBeenCalled();
+  });
+
+  it("records a fuel fill when no tank-level or operating-hours readings are supplied", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption", "viewInventoryReports"], allowedCapabilities: ["manageFuelAndConsumption", "viewInventoryReports"] });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      fuel_event_id: 901, stock_transfer_id: null, litres: 100,
+      total_cost_amount: 560, replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordFuelFill;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: {
+        siteId: 7, generatorId: 10, fuelItemId: 12,
+        sourceWarehouseId: 4, destinationWarehouseId: 5,
+        litres: 100, occurredAt: "2026-11-04T20:00:00.000Z",
+        operationKey: "fuel-fill:without-measurements",
+      },
+    });
+
+    expect(result).toMatchObject({
+      fuel_event_id: 901, stock_transfer_id: null, litres: 100,
+      total_cost_amount: 560, replayed: false,
+    });
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7, ["manageFuelAndConsumption", "viewInventoryReports"]);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_record_fuel_fill", {
+      p_tenant_id: 44, p_site_id: 7, p_user_id: 55, p_generator_id: 10,
+      p_fuel_item_id: 12, p_source_warehouse_id: 4, p_destination_warehouse_id: 5,
+      p_litres: 100, p_occurred_at: "2026-11-04T20:00:00.000Z",
+      p_level_before_liters: null, p_level_after_liters: null,
+      p_operating_hours: null, p_reference_no: null, p_notes: null,
+      p_operation_key: "fuel-fill:without-measurements",
+    });
+  });
+
+
+  it("hides fuel-fill cost when the platform role policy denies report visibility", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44,
+      permissions: ["manageFuelAndConsumption", "viewInventoryReports"],
+      allowedCapabilities: ["manageFuelAndConsumption"],
+    });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      fuel_event_id: 902, stock_transfer_id: null, litres: 10,
+      total_cost_amount: 56, replayed: false,
+    }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const mutation = (powerhubInventoryRouter as any)._def.record.recordFuelFill;
+    const result = await mutation._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: {
+        siteId: 7, generatorId: 10, fuelItemId: 12,
+        sourceWarehouseId: 4, destinationWarehouseId: 5,
+        litres: 10, occurredAt: "2026-11-04T20:00:00.000Z",
+        operationKey: "fuel-fill:policy-redacted-cost",
+      },
+    });
+
+    expect(result).toMatchObject({ fuel_event_id: 902, litres: 10, replayed: false });
+    expect(result).not.toHaveProperty("total_cost_amount");
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7, ["manageFuelAndConsumption", "viewInventoryReports"]);
   });
 
   it("denies fuel-reading writes before the RPC when the actor lacks fuel-management capability", async () => {
@@ -685,7 +1100,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
   });
 
   it("requires report permission before computing measured fuel consumption", async () => {
-    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.siteAccess.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.rpc.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.fuelConsumptionReport;
@@ -693,12 +1108,13 @@ describe("PowerHub inventory catalog and supplier API", () => {
       ctx: { user: { id: 55 } },
       input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-22" },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.siteAccess).toHaveBeenCalledWith(55, 7);
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7, ["viewInventoryReports"]);
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
   it("hides fuel cost fields from users who can manage fuel but lack report permission", async () => {
-    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption", "viewInventoryReports"],
+      allowedCapabilities: ["manageFuelAndConsumption"] });
     state.rpc.mockReset().mockResolvedValue({ data: [{
       event_id: 80, generator_id: 10, litres: "5.000", unit_cost: "9.5000", total_cost_amount: "47.50",
     }], error: null });
@@ -717,7 +1133,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
 
   it("requires report permission and calls the cycle-aware fuel report with generator and tank filters", async () => {
-    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.siteAccess.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.rpc.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.fuelConsumptionReportPeriod;
@@ -727,7 +1143,8 @@ describe("PowerHub inventory catalog and supplier API", () => {
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(state.rpc).not.toHaveBeenCalled();
 
-    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["viewInventoryReports"] });
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["viewInventoryReports"],
+      allowedCapabilities: ["viewInventoryReports"] });
     state.rpc.mockReset().mockResolvedValue({ data: [{ generator_id: 10, tank_warehouse_id: 20, actual_consumption_liters: "3.000" }], error: null });
     const result = await query._def.resolver({
       ctx: { user: { id: 55 } },
@@ -737,6 +1154,42 @@ describe("PowerHub inventory catalog and supplier API", () => {
     expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_fuel_consumption_report_period", {
       p_tenant_id: 44, p_site_id: 7, p_period_type: "cycle", p_anchor_date: "2026-10-22",
       p_from_date: null, p_to_date: null, p_generator_id: 10, p_tank_warehouse_id: 20,
+    });
+  });
+
+  it("requires report permission and fetches generator-level fuel consumption cost across stock warehouses", async () => {
+    state.siteAccess.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
+    state.rpc.mockClear();
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const query = (powerhubInventoryRouter as any)._def.record.fuelConsumptionCostReportPeriod;
+    expect(query._def.inputs[0].parse({
+      siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10,
+    })).toMatchObject({
+      siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10,
+    });
+    await expect(query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10 },
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["viewInventoryReports"],
+      allowedCapabilities: ["viewInventoryReports"] });
+    state.rpc.mockReset().mockResolvedValue({ data: [{
+      generator_id: 10, movement_count: 1, recorded_consumption_liters: "0.500",
+      recorded_consumption_cost: "4.25", average_cost_per_liter: "8.5000",
+    }], error: null });
+    const result = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, periodType: "cycle", anchorDate: "2026-10-22", generatorId: 10 },
+    });
+    expect(result).toMatchObject([{
+      generator_id: 10, movement_count: 1, recorded_consumption_liters: "0.500",
+      recorded_consumption_cost: "4.25", average_cost_per_liter: "8.5000",
+    }]);
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_inventory_fuel_consumption_cost_report_period", {
+      p_tenant_id: 44, p_site_id: 7, p_period_type: "cycle", p_anchor_date: "2026-10-22",
+      p_from_date: null, p_to_date: null, p_generator_id: 10,
     });
   });
 
@@ -779,7 +1232,8 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
   it("requires inventory report permission before fetching Phase D financial event details", async () => {
     state.siteAccess.mockReset().mockResolvedValue({
-      tenantId: 44, role: "manager", permissions: ["manageFuelAndConsumption"], usesPermissionOverride: true,
+      tenantId: 44, role: "manager", permissions: ["manageFuelAndConsumption"],
+      allowedCapabilities: ["manageFuelAndConsumption"], usesPermissionOverride: true,
     });
     state.rpc.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
@@ -788,13 +1242,14 @@ describe("PowerHub inventory catalog and supplier API", () => {
       ctx: { user: { id: 55 } },
       input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23", limit: 20 },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.siteAccess).toHaveBeenCalledWith(55, 7);
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7, ["viewInventoryReports", "viewPurchases", "manageSupplierPayments", "viewSupplierLedger", "reverseSupplierPayments"]);
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
   it("filters Phase D financial events before pagination so hidden event cursors are never returned", async () => {
     state.siteAccess.mockReset().mockResolvedValue({
-      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports", "viewPurchases"], usesPermissionOverride: true,
+      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports", "viewPurchases"],
+      allowedCapabilities: ["viewInventoryReports", "viewPurchases"], usesPermissionOverride: true,
     });
     state.rpc.mockReset().mockResolvedValue({ data: [
       { event_date: "2026-10-01", event_type: "purchase_invoice", event_id: 10, reference_no: "PO-10", counterparty_name: "Supplier A", status: "received", amount: "50.00", related_reference: "INV-10", refund_amount: "0.00", allocation_count: 0 },
@@ -822,7 +1277,8 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
 
     state.siteAccess.mockReset().mockResolvedValue({
-      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports", "viewSupplierLedger"], usesPermissionOverride: true,
+      tenantId: 44, role: "accountant", permissions: ["viewInventoryReports", "viewSupplierLedger"],
+      allowedCapabilities: ["viewInventoryReports", "viewSupplierLedger"], usesPermissionOverride: true,
     });
     state.rpc.mockReset().mockResolvedValue({ data: [
       { event_date: "2026-10-01", event_type: "supplier_payment", event_id: 20, reference_no: "PAY-20", counterparty_name: "Supplier A", status: "posted", amount: "25.00", related_reference: "PO-10", refund_amount: "0.00", allocation_count: 1 },
@@ -846,7 +1302,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
     });
   });
   it("requires inventory report permission before querying Phase D financial totals", async () => {
-    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, permissions: ["manageFuelAndConsumption"] });
+    state.siteAccess.mockReset().mockRejectedValue(new TRPCError({ code: "FORBIDDEN", message: "forbidden" }));
     state.rpc.mockClear();
     const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
     const query = (powerhubInventoryRouter as any)._def.record.phaseDFinancialSummary;
@@ -854,13 +1310,14 @@ describe("PowerHub inventory catalog and supplier API", () => {
       ctx: { user: { id: 55 } },
       input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23" },
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(state.siteAccess).toHaveBeenCalledWith(55, 7);
+    expect(state.siteAccess).toHaveBeenCalledWith(55, 7, ["viewInventoryReports"]);
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
   it("queries Phase D financial summary under tenant/site scope and masks fields without their finance capability", async () => {
     state.siteAccess.mockReset().mockResolvedValue({
       tenantId: 44, permissions: ["viewInventoryReports", "viewPurchases"],
+      allowedCapabilities: ["viewInventoryReports", "viewPurchases"],
     });
     state.rpc.mockReset().mockResolvedValue({ data: [{
       purchase_invoice_count: 3, purchase_invoice_amount: "155.00",
@@ -884,6 +1341,7 @@ describe("PowerHub inventory catalog and supplier API", () => {
 
     state.siteAccess.mockReset().mockResolvedValue({
       tenantId: 44, permissions: ["viewInventoryReports", "viewSupplierLedger", "manageSupplierPayments"],
+      allowedCapabilities: ["viewInventoryReports", "viewSupplierLedger", "manageSupplierPayments"],
     });
     const fullResult = await query._def.resolver({
       ctx: { user: { id: 55 } },
@@ -893,6 +1351,21 @@ describe("PowerHub inventory catalog and supplier API", () => {
       supplierPaymentCount: 2, supplierPaymentAmount: 80,
       supplierReturnCount: 1, supplierReturnCreditAmount: 12.5,
     });
+
+    state.siteAccess.mockReset().mockResolvedValue({
+      tenantId: 44,
+      permissions: ["viewInventoryReports", "viewPurchases"],
+      allowedCapabilities: ["viewInventoryReports"],
+    });
+    const policyRestrictedResult = await query._def.resolver({
+      ctx: { user: { id: 55 } },
+      input: { siteId: 7, fromDate: "2026-10-01", toDate: "2026-10-23" },
+    });
+    expect(policyRestrictedResult).toMatchObject({
+      purchaseInvoiceCount: null, purchaseInvoiceAmount: null,
+      supplierPaymentCount: null, supplierPaymentAmount: null,
+      supplierReturnCount: null, supplierReturnCreditAmount: null,
+    });
   });
 
 });
@@ -901,9 +1374,20 @@ describe("PowerHub inventory catalog and supplier API", () => {
 describe("PowerHub inventory mutation capability-denial matrix", () => {
   const cases = [
     {
+      procedure: "createPurchaseAndReceive",
+      capability: "createPurchases",
+      input: {
+        siteId: 7, supplierId: 4, warehouseId: 5,
+        invoiceDate: "2026-11-09", receiptDate: "2026-11-09",
+        paymentMode: "deferred", operationKey: "auth-matrix:auto-receipt",
+        lines: [{ itemId: 9, quantity: 1, unit: "liter", unitsToBaseFactor: 1, unitPrice: 2,
+          discountAmount: 0, taxAmount: 0 }],
+      },
+    },
+    {
       procedure: "updateItem",
       capability: "editInventoryItems",
-      input: { siteId: 7, itemId: 9, name: "Engine oil", category: "oil", baseUnit: "liter", reorderPoint: 0 },
+      input: { siteId: 7, itemId: 9, name: "Engine oil", category: "oil", accountingTreatment: "expense_on_issue", baseUnit: "liter", reorderPoint: 0 },
     },
     {
       procedure: "setItemActive",
@@ -953,7 +1437,7 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
     {
       procedure: "recordStocktakeCount",
       capability: "manageStocktakes",
-      input: { siteId: 7, stocktakeId: 8, itemId: 9, countedQuantity: 1.25 },
+      input: { siteId: 7, stocktakeId: 8, itemId: 9, countedQuantity: 1.25, operationKey: "auth-matrix:stocktake:count" },
     },
     {
       procedure: "submitStocktake",
@@ -1014,4 +1498,47 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
       expect(state.rpc).not.toHaveBeenCalled();
     },
   );
+
+  it("tracks every protected inventory mutation in the capability-denial tests", () => {
+    const routerSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.ts"), "utf8");
+    const testSource = readFileSync(resolve(process.cwd(), "server/powerhub-inventory-router.test.ts"), "utf8");
+    const declarations = [...routerSource.matchAll(/^ {2}([A-Za-z_][A-Za-z0-9_]*): protectedProcedure/gm)];
+    const mutationProcedures = declarations.filter((declaration, index) => {
+      const end = declarations[index + 1]?.index ?? routerSource.length;
+      return routerSource.slice(declaration.index, end).includes(".mutation(");
+    }).map((declaration) => declaration[1]);
+
+    // These procedures have dedicated denial tests above the table-driven matrix.
+    const individualDenialProcedures = [
+      "recordStockMovement", "returnFromIssue", "correctStockMovement", "createItem",
+      "createSupplier", "createPurchase", "createWalkInPurchase", "cancelPurchase", "reverseSupplierPayment",
+      "confirmPurchase", "recordSupplierPayment", "returnToSupplier", "transferStock",
+      "receivePurchase", "upsertFuelAlertSettings", "recordFuelFill", "recordFuelReading",
+    ] as const;
+    const matrixProcedures = cases.map((entry) => entry.procedure);
+    const matrixStart = testSource.indexOf('describe("PowerHub inventory mutation capability-denial matrix"');
+    expect(matrixStart).toBeGreaterThan(-1);
+
+    for (const procedure of individualDenialProcedures) {
+      const token = `_def.record.${procedure}`;
+      let cursor = testSource.indexOf(token);
+      let hasDenialAssertion = false;
+      while (cursor >= 0 && cursor < matrixStart) {
+        const testStart = testSource.lastIndexOf('  it("', cursor);
+        const nextTest = testSource.indexOf('  it("', cursor + token.length);
+        const testBlock = testSource.slice(testStart >= 0 ? testStart : 0, nextTest >= 0 ? nextTest : matrixStart);
+        if (testBlock.includes('rejects.toMatchObject({ code: "FORBIDDEN" })') &&
+            testBlock.includes("not.toHaveBeenCalled()")) {
+          hasDenialAssertion = true;
+          break;
+        }
+        cursor = testSource.indexOf(token, cursor + token.length);
+      }
+      expect(hasDenialAssertion, `Missing direct denial assertion for ${procedure}`).toBe(true);
+    }
+
+    const coveredProcedures = [...matrixProcedures, ...individualDenialProcedures];
+    expect(new Set(coveredProcedures).size).toBe(coveredProcedures.length);
+    expect([...coveredProcedures].sort()).toEqual([...mutationProcedures].sort());
+  });
 });

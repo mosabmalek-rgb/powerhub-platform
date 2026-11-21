@@ -2,6 +2,8 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { authenticatedProcedure, router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
+import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./tenant-membership-expiry";
+import { canUserReceiveAnnouncement } from "./announcement-audience";
 
 const adminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin" || !["platform_owner", "platform_admin"].includes(ctx.user.platformRole ?? "") || ctx.user.accountStatus !== "active") {
@@ -116,37 +118,55 @@ export const platformAnnouncementsRouter = router({
   inbox: router({
     list: authenticatedProcedure.query(async ({ ctx }) => {
       const admin = supabaseAdmin();
-      const [{ data: profiles }, { data: account }] = await Promise.all([
-        admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
+      const [
+        { data: profiles, error: profilesError },
+        { data: account, error: accountError },
+        { data: memberships, error: membershipError },
+      ] = await Promise.all([
+        admin.from("staff_profiles").select("role,tenant_id").eq("user_id", ctx.user.id).eq("is_active", true),
         admin.from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single(),
+        admin.from("tenant_members")
+          .select("tenant_id,role,is_active,membership_status,expires_at")
+          .eq("user_id", ctx.user.id)
+          .eq("is_active", true)
+          .eq("membership_status", "active")
+          .or(activeTenantMembershipOrFilter()),
       ]);
+      if (profilesError || membershipError || accountError) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من أهلية الإشعارات الداخلية." });
+      }
       if (!account || account.account_status !== "active") return [];
-      const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
-      const { data: memberships } = await admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active");
-      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
-      if (account.role) roles.add(account.role);
-      if (account.platform_role) roles.add(account.platform_role);
-      const effectiveRoles = Array.from(new Set(["all", ...roles]));
+      const activeMemberships = (memberships ?? []).filter((membership) =>
+        membership.is_active && membership.membership_status === "active" && isTenantMembershipUnexpired(membership),
+      );
+      const tenantIds = Array.from(new Set(activeMemberships.map((row) => Number(row.tenant_id))));
       let visibleQuery = admin
         .from("platform_announcements")
         .select("id,title,body,announcement_type,status,published_at,scheduled_at,created_by_user_id,created_at,updated_at,audience_roles,tenant_id")
         .eq("status", "published")
         .not("published_at", "is", null)
         .lte("published_at", new Date().toISOString())
-        .overlaps("audience_roles", effectiveRoles)
         .order("published_at", { ascending: false })
         .limit(100);
-      if (tenantIds.size) {
-        visibleQuery = visibleQuery.or(`tenant_id.is.null,tenant_id.in.(${Array.from(tenantIds).join(",")})`);
+      if (tenantIds.length) {
+        visibleQuery = visibleQuery.or(`tenant_id.is.null,tenant_id.in.(${tenantIds.join(",")})`);
       } else {
         visibleQuery = visibleQuery.is("tenant_id", null);
       }
       const { data: visibleRows, error: visibleError } = await visibleQuery;
       if (visibleError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الإشعارات الداخلية." });
-      const visible = visibleRows ?? [];
+      const visible = (visibleRows ?? []).filter((row) =>
+        canUserReceiveAnnouncement(
+          row.tenant_id == null ? null : Number(row.tenant_id),
+          row.audience_roles,
+          { accountStatus: account.account_status, platformRole: account.platform_role, accountRole: account.role },
+          activeMemberships,
+          profiles ?? [],
+        ),
+      );
       const ids = visible.map((row) => Number(row.id));
       const reads = ids.length
-        ? await supabaseAdmin().from("platform_announcement_reads").select("announcement_id,read_at").eq("user_id", ctx.user.id).in("announcement_id", ids)
+        ? await admin.from("platform_announcement_reads").select("announcement_id,read_at").eq("user_id", ctx.user.id).in("announcement_id", ids)
         : { data: [], error: null };
       if (reads.error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل حالة القراءة." });
       const readMap = new Map((reads.data ?? []).map((row) => [Number(row.announcement_id), row.read_at]));
@@ -161,7 +181,12 @@ export const platformAnnouncementsRouter = router({
     }),
     markRead: authenticatedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const admin = supabaseAdmin();
-      const [{ data: announcement, error: announcementError }, { data: profiles }, { data: account }, { data: memberships }] = await Promise.all([
+      const [
+        { data: announcement, error: announcementError },
+        { data: profiles, error: profilesError },
+        { data: account, error: accountError },
+        { data: memberships, error: membershipError },
+      ] = await Promise.all([
         admin.from("platform_announcements")
           .select("id,status,published_at,audience_roles,tenant_id")
           .eq("id", input.id)
@@ -169,20 +194,30 @@ export const platformAnnouncementsRouter = router({
           .not("published_at", "is", null)
           .lte("published_at", new Date().toISOString())
           .single(),
-        admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
+        admin.from("staff_profiles").select("role,tenant_id").eq("user_id", ctx.user.id).eq("is_active", true),
         admin.from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single(),
-        admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active"),
+        admin.from("tenant_members")
+          .select("tenant_id,role,is_active,membership_status,expires_at")
+          .eq("user_id", ctx.user.id)
+          .eq("is_active", true)
+          .eq("membership_status", "active")
+          .or(activeTenantMembershipOrFilter()),
       ]);
-      if (announcementError || !announcement || !account || account.account_status !== "active") {
+      if (announcementError || !announcement) {
         throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
       }
-      const roles = new Set<string>(profiles?.map((p) => p.role) ?? []);
-      if (account.platform_role) roles.add(account.platform_role);
-      if (account.role) roles.add(account.role);
-      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
-      const visible = (announcement.tenant_id == null || tenantIds.has(Number(announcement.tenant_id))) &&
-        (announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role)));
-      if (!visible) throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
+      if (profilesError || accountError || membershipError) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من أهلية قراءة الإعلان." });
+      }
+      if (!account || account.account_status !== "active" || !canUserReceiveAnnouncement(
+        announcement.tenant_id == null ? null : Number(announcement.tenant_id),
+        announcement.audience_roles,
+        { accountStatus: account.account_status, platformRole: account.platform_role, accountRole: account.role },
+        memberships ?? [],
+        profiles ?? [],
+      )) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "الإعلان غير موجود." });
+      }
       const { error } = await admin.from("platform_announcement_reads").upsert(
         { announcement_id: input.id, user_id: ctx.user.id, read_at: new Date().toISOString() },
         { onConflict: "announcement_id,user_id" },
@@ -195,25 +230,40 @@ export const platformAnnouncementsRouter = router({
       if (!ids.length) return { success: true as const, updated: 0 };
       const admin = supabaseAdmin();
       const now = new Date().toISOString();
-      const [{ data: announcements, error: announcementsError }, { data: profiles }, { data: account }, { data: memberships }] = await Promise.all([
+      const [
+        { data: announcements, error: announcementsError },
+        { data: profiles, error: profilesError },
+        { data: account, error: accountError },
+        { data: memberships, error: membershipError },
+      ] = await Promise.all([
         admin.from("platform_announcements")
           .select("id,status,published_at,audience_roles,tenant_id")
           .in("id", ids).eq("status", "published")
           .not("published_at", "is", null).lte("published_at", now),
-        admin.from("staff_profiles").select("role").eq("user_id", ctx.user.id).eq("is_active", true),
+        admin.from("staff_profiles").select("role,tenant_id").eq("user_id", ctx.user.id).eq("is_active", true),
         admin.from("users").select("role,platform_role,account_status").eq("id", ctx.user.id).single(),
-        admin.from("tenant_members").select("tenant_id").eq("user_id", ctx.user.id).eq("is_active", true).eq("membership_status", "active"),
+        admin.from("tenant_members")
+          .select("tenant_id,role,is_active,membership_status,expires_at")
+          .eq("user_id", ctx.user.id)
+          .eq("is_active", true)
+          .eq("membership_status", "active")
+          .or(activeTenantMembershipOrFilter()),
       ]);
-      if (announcementsError || !account || account.account_status !== "active") {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من الإعلانات المتاحة." });
+      if (announcementsError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الإعلانات المتاحة." });
+      if (profilesError || accountError || membershipError) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من أهلية قراءة الإعلانات." });
       }
-      const roles = new Set<string>(profiles?.map((profile) => profile.role) ?? []);
-      if (account.role) roles.add(account.role);
-      if (account.platform_role) roles.add(account.platform_role);
-      const tenantIds = new Set((memberships ?? []).map((row) => Number(row.tenant_id)));
+      if (!account || account.account_status !== "active") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "الحساب غير نشط." });
+      }
       const visibleIds = (announcements ?? []).filter((announcement) =>
-        (announcement.tenant_id == null || tenantIds.has(Number(announcement.tenant_id))) &&
-        (announcement.audience_roles?.includes("all") || announcement.audience_roles?.some((role: string) => roles.has(role))),
+        canUserReceiveAnnouncement(
+          announcement.tenant_id == null ? null : Number(announcement.tenant_id),
+          announcement.audience_roles,
+          { accountStatus: account.account_status, platformRole: account.platform_role, accountRole: account.role },
+          memberships ?? [],
+          profiles ?? [],
+        ),
       ).map((announcement) => Number(announcement.id));
       if (!visibleIds.length) return { success: true as const, updated: 0 };
       const { error } = await admin.from("platform_announcement_reads").upsert(

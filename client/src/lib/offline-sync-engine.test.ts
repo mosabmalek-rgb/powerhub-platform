@@ -37,7 +37,43 @@ describe("offline sync engine", () => {
     ]);
 
     expect(planReadyOperations([b, a], meta, new Set(), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["a"]);
-    expect(planReadyOperations([b, a], meta, new Set(["a"]), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["a", "b"]);
+    expect(planReadyOperations([b, a], meta, new Set(["a"]), 200).map(({ item: x }) => x.clientOperationId)).toEqual(["b"]);
+  });
+
+  it("serializes the HR dependency chain and blocks dependents through conflict and retry", () => {
+    const employee = { ...item("hr-employee-create", 100), kind: "employee_create" } as unknown as QueuedOfflineWork;
+    const advance = { ...item("hr-advance-issue", 200), kind: "employee_advance_issue" } as unknown as QueuedOfflineWork;
+    const repayment = { ...item("hr-advance-repayment", 300), kind: "employee_advance_repayment" } as unknown as QueuedOfflineWork;
+    const employeeMeta = { ...createSyncMetadata(employee, 0), dependsOn: [] };
+    const advanceMeta = { ...createSyncMetadata(advance, 0), dependsOn: [employee.clientOperationId] };
+    const repaymentMeta = { ...createSyncMetadata(repayment, 0), dependsOn: [advance.clientOperationId] };
+    const operations = [repayment, advance, employee];
+    const metadata = new Map([
+      [employee.clientOperationId, employeeMeta],
+      [advance.clientOperationId, advanceMeta],
+      [repayment.clientOperationId, repaymentMeta],
+    ]);
+
+    expect(planReadyOperations(operations, metadata, new Set(), 300).map(({ item: queued }) => queued.clientOperationId))
+      .toEqual(["hr-employee-create"]);
+    expect(planReadyOperations(operations, metadata, new Set(["hr-employee-create"]), 300).map(({ item: queued }) => queued.clientOperationId))
+      .toEqual(["hr-advance-issue"]);
+    expect(planReadyOperations(operations, metadata, new Set(["hr-employee-create", "hr-advance-issue"]), 300).map(({ item: queued }) => queued.clientOperationId))
+      .toEqual(["hr-advance-repayment"]);
+
+    const conflictedEmployeeMeta = new Map(metadata);
+    conflictedEmployeeMeta.set(employee.clientOperationId, { ...employeeMeta, outcome: "conflict" as const });
+    expect(planReadyOperations(operations, conflictedEmployeeMeta, new Set(), 300)).toEqual([]);
+
+    const retryingEmployee = { ...employee, status: "failed" as const };
+    const retryingMetadata = new Map(metadata);
+    retryingMetadata.set(employee.clientOperationId, {
+      ...employeeMeta, outcome: "retryable" as const, attempts: 1, nextAttemptAt: 500,
+    });
+    expect(planReadyOperations([retryingEmployee, advance, repayment], retryingMetadata, new Set(), 499)).toEqual([]);
+    const retryPlan = planReadyOperations([retryingEmployee, advance, repayment], retryingMetadata, new Set(), 500);
+    expect(retryPlan.map(({ item: queued }) => queued.clientOperationId)).toEqual(["hr-employee-create"]);
+    expect(retryPlan[0].item.clientOperationId).toBe(employee.clientOperationId);
   });
 
   it("fails closed when persisted sync metadata is missing", () => {

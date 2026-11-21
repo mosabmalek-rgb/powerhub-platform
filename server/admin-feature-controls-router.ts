@@ -3,6 +3,7 @@ import { z } from "zod";
 import { router } from "./_core/trpc";
 import { supabaseAdmin } from "./supabase-admin";
 import { authenticatedProcedure } from "./_core/trpc";
+import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./tenant-membership-expiry";
 
 const platformAdminProcedure = authenticatedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin" || ctx.user.accountStatus !== "active" || !["platform_owner","platform_admin"].includes(ctx.user.platformRole ?? "")) {
@@ -19,17 +20,19 @@ const addonFeatureMap: Record<string, string> = { subscriber_management: "subscr
 
 async function tenantFeatureSnapshot(tenantId: number) {
   const admin = supabaseAdmin();
-  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult, paymentDocumentationAccessResult, quotaResults] = await Promise.all([
+  const [tenantResult, ownerResult, subscriptionResult, sitesResult, subscribersResult, membersResult, controlsResult, policiesResult, addonsResult, paymentDocumentationAccessResult, supportChatPolicyResult, aiAssistantPolicyResult, quotaResults] = await Promise.all([
     admin.from("tenants").select("id,name,status,slug,created_at").eq("id",tenantId).maybeSingle(),
     admin.from("tenant_owner_profiles").select("tenant_id,owner_user_id,full_name,phone,email,company_name").eq("tenant_id",tenantId).maybeSingle(),
     admin.from("tenant_subscriptions").select("id,package_code,status,started_at,ends_at,billing_cycle").eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
     admin.from("sites").select("id,status",{count:"exact",head:true}).eq("tenant_id",tenantId),
     admin.from("subscribers").select("id",{count:"exact",head:true}).eq("tenant_id",tenantId),
-    admin.from("tenant_members").select("user_id,role,is_active,membership_status").eq("tenant_id",tenantId),
+    admin.from("tenant_members").select("user_id,role,is_active,membership_status,expires_at").eq("tenant_id",tenantId),
     admin.rpc("powerhub_admin_tenant_feature_controls",{p_tenant_id:tenantId}),
     admin.from("package_feature_policies").select("package_code,feature_key,policy,default_limit,limit_mode").order("feature_key"),
     admin.from("tenant_addon_requests").select("id,addon_code,quantity,status,billing_mode,source,starts_at,ends_at,duration_days").eq("tenant_id",tenantId).eq("status","approved").order("ends_at",{ascending:true}).limit(200),
     admin.rpc("powerhub_payment_documentation_access",{p_tenant_id:tenantId}),
+    admin.rpc("powerhub_resolve_tenant_feature_policy",{p_tenant_id:tenantId,p_feature_key:"support_chat"}),
+    admin.rpc("powerhub_resolve_tenant_feature_policy",{p_tenant_id:tenantId,p_feature_key:"powerhub_ai_assistant"}),
     Promise.all([
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"subscribers"}),
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"platformUser"}),
@@ -38,12 +41,12 @@ async function tenantFeatureSnapshot(tenantId: number) {
       admin.rpc("powerhub_effective_tenant_quota",{p_tenant_id:tenantId,p_resource:"sms"}),
     ]),
   ]);
-  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error,paymentDocumentationAccessResult.error, ...quotaResults.map((result:any)=>result.error)].filter(Boolean);
+  const errors = [tenantResult.error,ownerResult.error,subscriptionResult.error,sitesResult.error,subscribersResult.error,membersResult.error,controlsResult.error,policiesResult.error,addonsResult.error,paymentDocumentationAccessResult.error,supportChatPolicyResult.error,aiAssistantPolicyResult.error, ...quotaResults.map((result:any)=>result.error)].filter(Boolean);
   if (errors.length) throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر تحميل مصفوفة ميزات صاحب المولد."});
   const subscription = subscriptionResult.data;
   const packagePolicies = (policiesResult.data ?? []).filter((row:any)=>row.package_code === subscription?.package_code);
   const controls = controlsResult.data ?? [];
-  const members = membersResult.data ?? [];
+  const members = (membersResult.data ?? []).filter((member: any) => isTenantMembershipUnexpired(member));
   return {
     tenant: tenantResult.data ? { id:Number(tenantResult.data.id), name:tenantResult.data.name, slug:tenantResult.data.slug, status:tenantResult.data.status } : null,
     owner: ownerResult.data ? { fullName:ownerResult.data.full_name, phone:ownerResult.data.phone, email:ownerResult.data.email, companyName:ownerResult.data.company_name, userId:ownerResult.data.owner_user_id ? Number(ownerResult.data.owner_user_id) : null } : null,
@@ -58,6 +61,8 @@ async function tenantFeatureSnapshot(tenantId: number) {
     packagePolicies: packagePolicies.map((row:any)=>({featureKey:row.feature_key,policy:row.policy,defaultLimit:row.default_limit == null ? null : Number(row.default_limit),limitMode:row.limit_mode})),
     effectiveFeatureStates: {
       payment_documentation: Boolean(paymentDocumentationAccessResult.data?.[0]?.allowed),
+      support_chat: supportChatPolicyResult.data?.[0]?.enabled === true,
+      powerhub_ai_assistant: aiAssistantPolicyResult.data?.[0]?.enabled === true,
     },
     effectiveQuotas: {
       subscriber_management: Number(Array.isArray(quotaResults[0].data) ? quotaResults[0].data[0] : quotaResults[0].data ?? 0),
@@ -92,7 +97,7 @@ export const adminFeatureControlsRouter = router({
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
       admin.from("tenant_subscriptions").select("tenant_id,package_code,status,ends_at").order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
-      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(5000),
+      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status,expires_at").or(activeTenantMembershipOrFilter()).limit(5000),
       admin.from("subscribers").select("tenant_id").limit(10000),
     ]);
     if (tenantsResult.error || ownersResult.error || subscriptionsResult.error || sitesResult.error || membersResult.error || subscribersResult.error) {
@@ -118,7 +123,7 @@ export const adminFeatureControlsRouter = router({
     }
     const users = new Map<number, { platform: number; field: number }>();
     for (const row of membersResult.data ?? []) {
-      if (!row.is_active || row.membership_status !== "active" || row.role === "owner") continue;
+      if (!row.is_active || row.membership_status !== "active" || row.role === "owner" || !isTenantMembershipUnexpired(row)) continue;
       const tenantId = Number(row.tenant_id);
       const current = users.get(tenantId) ?? { platform: 0, field: 0 };
       current.platform += 1;
@@ -141,6 +146,7 @@ export const adminFeatureControlsRouter = router({
   tenantFeatureSnapshot: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive()})).query(async ({input}) => tenantFeatureSnapshot(input.tenantId)),
 
   grantTenantAddon: platformAdminProcedure.input(z.object({tenantId:z.number().int().positive(),featureKey:featureKeySchema,quantity:z.number().int().positive().max(100000000),billingMode:addonBillingModeSchema,note:z.string().trim().max(2000).optional(),requestKey:z.string().uuid()})).mutation(async ({ctx,input}) => {
+    if(input.featureKey === "sms") throw new TRPCError({code:"PRECONDITION_FAILED",message:"إضافة سعة SMS من الميزات والحدود متوقفة؛ تُدار أرصدة الرسائل حصريًا من محافظ وحزم SMS."});
     const {data,error}=await supabaseAdmin().rpc("powerhub_admin_grant_tenant_addon",{p_actor_user_id:ctx.user.id,p_tenant_id:input.tenantId,p_feature_key:input.featureKey,p_quantity:input.quantity,p_billing_mode:input.billingMode,p_note:input.note ?? null,p_request_key:input.requestKey});
     if(error){const message=String(error.message ?? "");if(message.includes("FEATURE_NOT_ADDON_MANAGEABLE")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"هذه الميزة لا تملك سعة قابلة للإضافة. استخدم التفعيل/التعطيل فقط."});if(message.includes("FEATURE_NOT_AVAILABLE_IN_PACKAGE")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"هذه الميزة غير متاحة في الباقة الحالية."});if(message.includes("SUBSCRIPTION_REQUIRED")) throw new TRPCError({code:"PRECONDITION_FAILED",message:"لا يوجد اشتراك فعال يمكن ربط الإضافة به."});if(message.includes("INVALID_ADDON_QUANTITY")||message.includes("SUBSCRIBER_ADDON_QUANTITY_MULTIPLE_REQUIRED")) throw new TRPCError({code:"BAD_REQUEST",message:"كمية الإضافة غير صالحة. إضافة المشتركين يجب أن تكون بمضاعفات 50."});throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"تعذر إضافة السعة إلى الاشتراك."});}
     const row=data?.[0];
@@ -161,7 +167,7 @@ export const adminFeatureControlsRouter = router({
       admin.from("tenant_owner_profiles").select("tenant_id,full_name,company_name").limit(500),
       admin.from("tenant_subscriptions").select("tenant_id,package_code,status,started_at,ends_at,billing_cycle,archived_at").order("created_at", { ascending: false }).limit(1000),
       admin.from("sites").select("id,tenant_id,status").limit(5000),
-      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status").limit(10000),
+      admin.from("tenant_members").select("tenant_id,user_id,role,is_active,membership_status,expires_at").or(activeTenantMembershipOrFilter()).limit(10000),
       admin.from("subscribers").select("tenant_id").limit(20000),
       admin.from("tenant_tweetsms_accounts").select("tenant_id,monthly_limit,is_active,credential_ciphertext").limit(500),
       admin.from("notification_messages").select("tenant_id,segment_count,status,created_at").eq("channel","sms").gte("created_at", new Date(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1).toISOString()).in("status",["processing","submitted","delivered","read","needs_review"]).limit(100000),
@@ -176,7 +182,7 @@ export const adminFeatureControlsRouter = router({
     for(const row of subscriptionsResult.data??[]){const id=Number(row.tenant_id);if(!subscriptions.has(id))subscriptions.set(id,row);}
     const branches=new Map<number,number>(); for(const row of sitesResult.data??[]){if(row.status==="archived")continue;const id=Number(row.tenant_id);branches.set(id,(branches.get(id)??0)+1);}
     const subscribers=new Map<number,number>(); for(const row of subscribersResult.data??[]){const id=Number(row.tenant_id);subscribers.set(id,(subscribers.get(id)??0)+1);}
-    const members=new Map<number,{platform:number;field:number}>(); for(const row of membersResult.data??[]){if(!row.is_active||row.membership_status!=="active"||row.role==="owner")continue;const id=Number(row.tenant_id);const v=members.get(id)??{platform:0,field:0};if(row.role==="technician")v.field+=1;else v.platform+=1;members.set(id,v);}
+    const members=new Map<number,{platform:number;field:number}>(); for(const row of membersResult.data??[]){if(!row.is_active||row.membership_status!=="active"||row.role==="owner"||!isTenantMembershipUnexpired(row))continue;const id=Number(row.tenant_id);const v=members.get(id)??{platform:0,field:0};if(row.role==="technician")v.field+=1;else v.platform+=1;members.set(id,v);}
     const smsAccounts=new Map((smsAccountsResult.data??[]).map(r=>[Number(r.tenant_id),r]));
     const smsUsed=new Map<number,number>(); for(const row of smsUsageResult.data??[]){const id=Number(row.tenant_id);smsUsed.set(id,(smsUsed.get(id)??0)+Math.max(1,Number(row.segment_count??1)));}
     const addons=new Map<number,any[]>(); for(const row of addonsResult.data??[]){const id=Number(row.tenant_id);const active=!row.starts_at||new Date(row.starts_at)<=new Date();const unexpired=!row.ends_at||new Date(row.ends_at)>new Date();if(active&&unexpired)(addons.get(id)??addons.set(id,[]).get(id)!).push(row);}

@@ -1,0 +1,87 @@
+name: PR359 Docker Shadow (disposable)
+on:
+  push:
+    branches: [feat/auth-local-first-single-pr]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pr359-docker-shadow-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/feat/auth-local-first-single-pr'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check guards and immutable transaction renderer
+        run: |
+          node --test scripts/pr359-shadow/guard.test.mjs scripts/pr359-shadow/render.test.mjs scripts/pr359-shadow/check-managed-catalog.test.mjs scripts/pr359-shadow/check-managed-migrations.test.mjs scripts/pr359-shadow/check-managed-stack-compatibility.test.mjs scripts/pr359-shadow/readiness.test.mjs scripts/pr359-r4/staging-preflight.test.mjs scripts/pr359-r4/ownership-boundary.test.mjs scripts/pr359-r4/object-register.test.mjs scripts/pr359-r4/index-constraint-evidence.test.mjs scripts/pr359-r4/live-ddl-parity.test.mjs scripts/pr359-shadow/history-attestation.test.mjs scripts/pr359-r4/rls-trigger-parity.test.mjs scripts/pr359-r4/relation-parity.test.mjs scripts/pr359-r4/check-staging-legacy-ledger.test.mjs scripts/pr359-r4/staging-shadow-request.test.mjs scripts/pr359-r4/check-staging-table-counts.test.mjs scripts/pr359-r4/check-staging-table-content.test.mjs scripts/pr359-r4/staging-atomic-export.test.mjs scripts/pr359-r4/staging-atomic-export-failure.test.mjs scripts/pr359-r4/check-staging-managed-data.test.mjs scripts/pr359-r4/check-staging-schema-fingerprint.test.mjs scripts/pr359-r4/staging-managed-snapshot-contract.test.mjs scripts/pr359-r4/staging-role-drift.test.mjs scripts/pr359-r4/check-staging-managed-fks.test.mjs scripts/pr359-r4/check-staging-managed-fk-orphans.test.mjs scripts/pr359-r4/check-staging-all-fk-integrity.test.mjs scripts/pr359-r4/check-independent-staging-exports.test.mjs
+          node --check scripts/pr359-shadow/render.mjs
+          bash -n scripts/pr359-shadow/run.sh
+          bash -n scripts/pr359-r4/staging-atomic-export.sh
+          bash -n scripts/pr359-r4/staging-atomic-snapshot-disposable.sh
+      - name: Disposable Docker credit replay and rollback
+        run: bash scripts/pr359-shadow/run.sh smoke
+      - name: Epoch v2 isolated ledger integrity and replay/rollback protocol
+        run: |
+          bash -n scripts/pr359-r4/epoch-v2-disposable.sh
+          bash scripts/pr359-r4/epoch-v2-disposable.sh
+      - name: Real PostgreSQL synchronized snapshot concurrency and expiry regression
+        run: |
+          bash -n scripts/pr359-r4/staging-atomic-snapshot-disposable.sh
+          bash scripts/pr359-r4/staging-atomic-snapshot-disposable.sh
+      - name: Real PostgreSQL schema fingerprint sensitivity (function, RLS, trigger)
+        run: |
+          bash -n scripts/pr359-r4/staging-schema-fingerprint-disposable.sh
+          bash scripts/pr359-r4/staging-schema-fingerprint-disposable.sh
+      - name: Run exact Staging pg_dump filters against isolated PostgreSQL source and restore
+        run: |
+          bash -n scripts/pr359-r4/staging-dump-filter-real-restore.sh
+          bash scripts/pr359-r4/staging-dump-filter-real-restore.sh
+  real-restored-finance:
+    if: >-
+      vars.PR359_ENABLE_PRODUCTION_DOCKER_SHADOW == 'true' &&
+      (
+        github.ref == 'refs/heads/feat/auth-local-first-single-pr' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.head.ref == 'feat/auth-local-first-single-pr'
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: pr359-shadow
+    env:
+      SHADOW_CONFIRM_PRODUCTION_TEST_DATA: YES_PRODUCTION_TEST_DATA
+      SHADOW_REQUIRE_SESSION_POOLER: 'true'
+      SHADOW_SOURCE_DB_URL: ${{ secrets.PR359_SHADOW_SOURCE_DB_URL }}
+      SHADOW_APPROVED_HEAD: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate protected connection URI format without network access
+        run: node scripts/pr359-shadow/guard.mjs
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 3.2.0
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - name: Source hostname guard and 3 isolated Docker financial upgrades
+        run: bash scripts/pr359-shadow/run.sh full

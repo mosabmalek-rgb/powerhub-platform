@@ -18,6 +18,14 @@ const offlineWorkQueue = readFileSync(
   resolve(process.cwd(), "client/src/lib/offline-work-queue.ts"),
   "utf8",
 );
+const payrollPage = readFileSync(
+  resolve(process.cwd(), "client/src/pages/PayrollPage.tsx"),
+  "utf8",
+);
+const employeeAdvancesPage = readFileSync(
+  resolve(process.cwd(), "client/src/pages/EmployeeAdvancesPage.tsx"),
+  "utf8",
+);
 
 describe("offline sync UI contract", () => {
   it("refreshes the field-reading outbox view after the sync result is persisted", () => {
@@ -35,7 +43,7 @@ describe("offline sync UI contract", () => {
   it("routes field reading creates through the shared offline executor", () => {
     expect(meterReadingsPage).toContain("executeReadyOperations({");
     expect(syncPanel).toContain('if (item.kind === "reading_create")');
-    expect(syncPanel).toContain("executeReadyOperations({ items: syncItems");
+    expect(syncPanel).toContain("executeReadyOperations({\n          items: syncItems, metadataByOperationId, completedIds, transport, now: Date.now(),\n          isCurrent: () => isSyncRunCurrent(assertCurrent),");
     expect(syncPanel).toContain("const syncItems = pendingItems.filter((item) => metadataByOperationId.has(item.clientOperationId))");
     expect(syncPanel).toContain("حالة المزامنة المحلية مفقودة أو لا تطابق نطاق المسودة؛ أُوقفت إعادة الإرسال تلقائيًا");
     expect(syncPanel).toContain("isSyncMetadataCompatibleWithWorkItem(item, storedRecord)");
@@ -68,9 +76,65 @@ describe("offline sync UI contract", () => {
     expect(retryBody).toContain("await requeueOfflineWorkForManualRetry({");
     expect(retryBody).not.toContain("upsertSyncMetadata(");
     expect(retryBody).not.toContain("updateOfflineWork(item.id, { status: \"pending\"");
-    expect(retryBody).toContain("await syncPendingUnlocked()");
+    expect(retryBody).toContain("await syncPendingUnlocked(assertCurrent)");
     expect(retryBody).not.toContain("await syncPending();");
-    expect(syncPanel).toContain("const syncPendingUnlocked = async () => {");
+    expect(syncPanel).toContain("const syncPendingUnlocked = async (assertCurrent: () => void) => {");
+  });
+
+  it("binds Outbox replay to the original user, branch and generation before each server mutation", () => {
+    expect(syncPanel).toContain('const auth = useAuth();');
+    expect(syncPanel).toContain("const rawAuthUserId = Number(auth.user?.id);");
+    expect(syncPanel).toContain("Number.isSafeInteger(rawAuthUserId) && rawAuthUserId > 0 ? rawAuthUserId : null");
+    expect(syncPanel).toContain("const syncIdentityRef = useRef<OfflineSyncRunIdentity | null>(null);");
+    expect(syncPanel).toContain("advanceOfflineSyncRunIdentity(syncIdentityRef.current, identitySnapshot)");
+    expect(syncPanel).toContain("assertOfflineSyncRunCurrent(owner, syncIdentityRef.current!, requireOnlineAuth)");
+    expect(syncPanel).toContain("const operationRunGuards = useRef(new Map<string, () => void>());");
+    expect(syncPanel).toContain("isCurrent: () => isSyncRunCurrent(assertCurrent)");
+    const runIdentity = readFileSync(resolve(process.cwd(), "client/src/lib/offline-sync-run-identity.ts"), "utf8");
+    expect(runIdentity).toContain("current.siteId === owner.siteId");
+    expect(runIdentity).toContain("current.authUserId === owner.userId");
+    expect(runIdentity).toContain("current.isLoggingOut");
+    expect(runIdentity).toContain("current.generation === owner.generation");
+    expect(syncPanel).toContain("const runMutation = async <T,>(request: () => Promise<T>): Promise<T> => {");
+    expect(syncPanel).toContain("assertCurrentOperation();");
+    for (const mutation of [
+      "createSubscriber.mutateAsync",
+      "updateSubscriber.mutateAsync",
+      "createReading.mutateAsync",
+      "issueInvoice.mutateAsync",
+      "createExpense.mutateAsync",
+      "createPayment.mutateAsync",
+      "approvePaymentDocumentation.mutateAsync",
+      "replayHrOffline.mutateAsync",
+      "issueEmployeeAdvance.mutateAsync",
+      "repayEmployeeAdvance.mutateAsync",
+      "recordFuelFill.mutateAsync",
+      "submitPaymentDocumentation.mutateAsync",
+    ]) {
+      expect(syncPanel).toContain("runMutation(() => " + mutation);
+    }
+    expect(syncPanel).toContain("runMutation(() => syncGeneratorCreate(");
+    expect(syncPanel).toContain("runMutation(() => syncGeneratorUpdate(");
+    expect(syncPanel).toContain("assertCurrent();\n      const storedAfter = await listSyncMetadata");
+    expect(syncPanel).toContain("if (isSyncRunCurrent(assertCurrent)) toast.error(getErrorMessage(error));");
+  });
+
+  it("labels non-Delta HR financial snapshots and requires fresh server reads before financial actions", () => {
+    expect(payrollPage).toContain("isShowingCachedPayrollRuns");
+    expect(payrollPage).toContain("hasLivePayrollRuns");
+    expect(payrollPage).toContain("runs.isFetchedAfterMount");
+    expect(payrollPage).toContain("isShowingStalePayrollRuns");
+    expect(payrollPage).toContain("disabled={!hasLivePayrollRuns || run.pendingOffline}");
+    expect(payrollPage).toContain("ملخصات الرواتب المتزامنة عبر Delta");
+
+    expect(employeeAdvancesPage).toContain("isShowingCachedAdvances");
+    expect(employeeAdvancesPage).toContain("hasLiveAdvances");
+    expect(employeeAdvancesPage).toContain("advances.isFetchedAfterMount");
+    expect(employeeAdvancesPage).toContain("accounts.isFetchedAfterMount");
+    expect(employeeAdvancesPage).toContain("isShowingStaleAdvances");
+    expect(employeeAdvancesPage).toContain("canMutateAdvances");
+    expect(employeeAdvancesPage).toContain("لا يُعتمد رصيد مالي ولا يتم صرف أو قبض نهائي قبل تأكيد الخادم");
+    expect(employeeAdvancesPage).toContain("repaymentHistoryTruncated");
   });
 
   it("does not overwrite atomically persisted reading metadata with a stale pending result", () => {
@@ -83,7 +147,9 @@ describe("offline sync UI contract", () => {
     expect(offlineReadingQueue).toContain('if (state.outcome === "applied" || state.outcome === "already_applied")');
     expect(offlineReadingQueue).toContain("await removeOfflineConflict(item.userId, item.clientOperationId)");
     expect(offlineWorkQueue).toContain("transaction.objectStore(storeName).add(record)");
-    expect(offlineWorkQueue).toContain("transaction.objectStore(syncMetadataStoreName).add(createInitialSyncMetadataRecord(record))");
+    expect(offlineWorkQueue).toContain('database.transaction([storeName, syncMetadataStoreName], "readwrite")');
+    expect(offlineWorkQueue).toContain("metadataStore.add(createInitialSyncMetadataRecord(record, dependsOn))");
+    expect(offlineWorkQueue).toContain("operationsStore.add(record)");
   });
 
   it("requeues an eligible failed work row and retry metadata in one IndexedDB transaction", () => {

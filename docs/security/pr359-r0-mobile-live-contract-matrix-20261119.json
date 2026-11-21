@@ -1,0 +1,754 @@
+{
+  "captured": "2026-11-19",
+  "source_contracts": [
+    "server/mobile-api.ts",
+    "server/mobile-delta-service.ts",
+    "server/powerhub-mobile-approval-supabase.ts",
+    "server/powerhub-supabase.ts",
+    "app/src/main/java/com/example/data/api/FieldReadingApi.kt"
+  ],
+  "method": "SELECT only; public tables/functions signature+grants; no RPC called",
+  "note": "Presence doesn't prove runtime correctness; exact overload arg names/types still to be compared against callers",
+  "environments": [
+    {
+      "env": "production",
+      "entries": [
+        {
+          "category": "RPC",
+          "name": "powerhub_approve_and_issue_mobile_reading",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamp with time zone,text,numeric)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_cycle_for_reading",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_cycle_for_reading(bigint,bigint,timestamp with time zone)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": false
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_dashboard_financial_overview",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_get_reading_cycle",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_get_reading_cycle(bigint,bigint)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_create_field_reading",
+          "count": 0,
+          "details": []
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_create_single_device_session",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_mobile_create_single_device_session(bigint,bigint,text,text,timestamp with time zone,timestamp with time zone)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_delta_fence",
+          "count": 0,
+          "details": []
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_rotate_refresh_session",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_mobile_rotate_refresh_session(text,text,timestamp with time zone)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_subscriber_projection",
+          "count": 0,
+          "details": []
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_site_access_snapshot",
+          "count": 0,
+          "details": []
+        },
+        {
+          "category": "TABLE",
+          "name": "field_reading_distribution_settings",
+          "count": 0,
+          "details": {
+            "rls": null,
+            "fields": []
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "meter_readings",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "subscriber_id",
+              "client_operation_id",
+              "reading_at",
+              "reading_value",
+              "previous_reading_value",
+              "consumption_kwh",
+              "capture_method",
+              "image_key",
+              "image_hash",
+              "status",
+              "entered_by_user_id",
+              "reviewed_by_user_id",
+              "reviewed_at",
+              "notes",
+              "version_no",
+              "created_at",
+              "updated_at",
+              "approval_client_operation_id",
+              "approval_base_version",
+              "is_opening_baseline"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "mobile_api_sessions",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "user_id",
+              "tenant_id",
+              "refresh_token_hash",
+              "device_label",
+              "expires_at",
+              "revoked_at",
+              "last_used_at",
+              "created_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "mobile_subscriber_change_log",
+          "count": 0,
+          "details": {
+            "rls": null,
+            "fields": []
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "mobile_sync_events",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "site_id",
+              "user_id",
+              "session_id",
+              "event_key",
+              "event_type",
+              "status",
+              "synced_count",
+              "retryable_count",
+              "needs_review_count",
+              "error_code",
+              "error_message",
+              "app_version",
+              "device_label",
+              "metadata",
+              "occurred_at",
+              "created_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "platform_role_policies",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "role",
+              "capability",
+              "is_allowed",
+              "updated_by_user_id",
+              "updated_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "staff_profile_capability_overrides",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "profile_id",
+              "capability",
+              "is_allowed",
+              "updated_by_user_id",
+              "updated_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "staff_profiles",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "user_id",
+              "tenant_id",
+              "site_id",
+              "role",
+              "custom_role_id",
+              "permissions",
+              "suspension_started_at",
+              "suspension_ends_at",
+              "is_active",
+              "created_at",
+              "updated_at",
+              "archived_at",
+              "archived_by_user_id"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "subscribers",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "site_id",
+              "subscriber_no",
+              "client_operation_id",
+              "full_name",
+              "phone",
+              "whatsapp_number",
+              "address",
+              "subscription_type",
+              "service_status",
+              "created_at",
+              "updated_at",
+              "archived_at",
+              "archived_by_user_id",
+              "purge_after_at",
+              "purge_started_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "tenant_members",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "user_id",
+              "role",
+              "is_active",
+              "membership_status",
+              "invited_by_user_id",
+              "expires_at",
+              "created_at",
+              "updated_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "users",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "auth_user_id",
+              "name",
+              "email",
+              "login_method",
+              "role",
+              "platform_role",
+              "account_status",
+              "must_change_password",
+              "temporary_password_issued_at",
+              "created_at",
+              "updated_at",
+              "last_signed_in"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "env": "staging",
+      "entries": [
+        {
+          "category": "RPC",
+          "name": "powerhub_approve_and_issue_mobile_reading",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamp with time zone,text,numeric)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_cycle_for_reading",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_cycle_for_reading(bigint,bigint,timestamp with time zone)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": false
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_dashboard_financial_overview",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_get_reading_cycle",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_get_reading_cycle(bigint,bigint)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_create_field_reading",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_mobile_create_field_reading(bigint,bigint,bigint,bigint,uuid,timestamp with time zone,numeric,text,text,text,text,boolean,boolean,text,double precision,double precision)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": false
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_create_single_device_session",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_mobile_create_single_device_session(bigint,bigint,text,text,timestamp with time zone,timestamp with time zone)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_delta_fence",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_mobile_delta_fence(bigint,bigint)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": false
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_rotate_refresh_session",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_mobile_rotate_refresh_session(text,text,timestamp with time zone)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": true
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_mobile_subscriber_projection",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_mobile_subscriber_projection(bigint,bigint,bigint,boolean,bigint[],timestamp with time zone,timestamp with time zone)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": false
+            }
+          ]
+        },
+        {
+          "category": "RPC",
+          "name": "powerhub_site_access_snapshot",
+          "count": 1,
+          "details": [
+            {
+              "anon_exec": false,
+              "auth_exec": false,
+              "signature": "powerhub_site_access_snapshot(bigint,bigint)",
+              "service_exec": true,
+              "has_search_path": true,
+              "security_definer": false
+            }
+          ]
+        },
+        {
+          "category": "TABLE",
+          "name": "field_reading_distribution_settings",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "tenant_id",
+              "site_id",
+              "is_enabled",
+              "reader_user_ids",
+              "updated_by_user_id",
+              "created_at",
+              "updated_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "meter_readings",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "subscriber_id",
+              "client_operation_id",
+              "reading_at",
+              "reading_value",
+              "previous_reading_value",
+              "consumption_kwh",
+              "capture_method",
+              "image_key",
+              "image_hash",
+              "status",
+              "entered_by_user_id",
+              "reviewed_by_user_id",
+              "reviewed_at",
+              "notes",
+              "version_no",
+              "created_at",
+              "updated_at",
+              "approval_client_operation_id",
+              "approval_base_version",
+              "is_opening_baseline"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "mobile_api_sessions",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "user_id",
+              "tenant_id",
+              "refresh_token_hash",
+              "device_label",
+              "expires_at",
+              "revoked_at",
+              "last_used_at",
+              "created_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "mobile_subscriber_change_log",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "sequence_id",
+              "tenant_id",
+              "branch_id",
+              "subscriber_id",
+              "change_type",
+              "old_reader_user_id",
+              "new_reader_user_id",
+              "changed_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "mobile_sync_events",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "site_id",
+              "user_id",
+              "session_id",
+              "event_key",
+              "event_type",
+              "status",
+              "synced_count",
+              "retryable_count",
+              "needs_review_count",
+              "error_code",
+              "error_message",
+              "app_version",
+              "device_label",
+              "metadata",
+              "occurred_at",
+              "created_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "platform_role_policies",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "role",
+              "capability",
+              "is_allowed",
+              "updated_by_user_id",
+              "updated_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "staff_profile_capability_overrides",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "profile_id",
+              "capability",
+              "is_allowed",
+              "updated_by_user_id",
+              "updated_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "staff_profiles",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "user_id",
+              "tenant_id",
+              "site_id",
+              "role",
+              "custom_role_id",
+              "permissions",
+              "suspension_started_at",
+              "suspension_ends_at",
+              "is_active",
+              "created_at",
+              "updated_at",
+              "archived_at",
+              "archived_by_user_id"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "subscribers",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "site_id",
+              "subscriber_no",
+              "client_operation_id",
+              "full_name",
+              "phone",
+              "whatsapp_number",
+              "address",
+              "subscription_type",
+              "service_status",
+              "created_at",
+              "updated_at",
+              "archived_at",
+              "archived_by_user_id",
+              "purge_after_at",
+              "purge_started_at",
+              "assigned_reader_user_id"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "tenant_members",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "tenant_id",
+              "user_id",
+              "role",
+              "is_active",
+              "membership_status",
+              "invited_by_user_id",
+              "expires_at",
+              "created_at",
+              "updated_at"
+            ]
+          }
+        },
+        {
+          "category": "TABLE",
+          "name": "users",
+          "count": 1,
+          "details": {
+            "rls": true,
+            "fields": [
+              "id",
+              "auth_user_id",
+              "name",
+              "email",
+              "login_method",
+              "role",
+              "platform_role",
+              "account_status",
+              "must_change_password",
+              "temporary_password_issued_at",
+              "created_at",
+              "updated_at",
+              "last_signed_in"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

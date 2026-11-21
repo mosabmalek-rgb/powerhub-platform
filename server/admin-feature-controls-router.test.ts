@@ -10,4 +10,12 @@ describe("admin feature controls production schema contract", () => {
     expect(source).toContain('select("id,name,status,slug")');
     expect(source).toContain("subscription.package_code");
   });
+
+  it("keeps bounded usage matrices free of expired tenant memberships", async () => {
+    const source = await readFile(fileURLToPath(new URL("./admin-feature-controls-router.ts", import.meta.url)), "utf8");
+    expect(source).toContain(".or(activeTenantMembershipOrFilter()).limit(5000)");
+    expect(source).toContain(".or(activeTenantMembershipOrFilter()).limit(10000)");
+    expect(source).toContain("isTenantMembershipUnexpired(row)");
+  });
+
 });

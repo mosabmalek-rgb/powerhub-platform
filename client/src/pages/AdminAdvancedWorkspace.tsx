@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { can, powerCapabilityLabels, powerRoleLabels, type PowerCapability, type PowerRole } from "@shared/powerhub-rbac";
 import { AlertTriangle, BarChart3, Building2, CircleDollarSign, Database, Radio, Search, ShieldAlert, Ticket, UsersRound, WalletCards, Wrench } from "lucide-react";
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -16,31 +16,191 @@ const complaintStatus: Record<string, string> = { open: "مفتوحة", assigned
 
 function Metric({ label, value, suffix = "", icon: Icon, tone = "gold" }: { label: string; value: unknown; suffix?: string; icon: typeof Building2; tone?: "gold" | "green" | "red" }) {
   const color = tone === "green" ? "text-emerald-400" : tone === "red" ? "text-rose-400" : "text-[#F5B800]";
-  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><Icon className={`h-5 w-5 ${color}`} /><p className="mt-5 text-sm text-slate-400">{label}</p><p className="mt-2 text-3xl font-extrabold text-white">{format(value)}{suffix}</p></CardContent></Card>;
+  return <Card className="border-white/8 bg-[#111823] shadow-panel"><CardContent className="p-5"><Icon className={`h-5 w-5 ${color}`} /><p className="mt-5 text-sm text-slate-400">{label}</p><p className="mt-2 text-3xl font-extrabold text-white">{typeof value === "number" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) ? format(value) : String(value ?? "—")}{suffix}</p></CardContent></Card>;
 }
 
 const DASHBOARD_REFRESH_MS = 30_000;
 
+function AdminActivityMetricsPanel() {
+  const toGazaDate = (value: Date) => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Gaza",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(value);
+    const part = (type: "year" | "month" | "day") => parts.find((item) => item.type === type)?.value ?? "";
+    return `${part("year")}-${part("month")}-${part("day")}`;
+  };
+  const shiftDate = (dateValue: string, days: number) => {
+    const [year, month, day] = dateValue.split("-").map(Number);
+    const shifted = new Date(Date.UTC(year, month - 1, day + days));
+    return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
+  };
+  const todayDate = toGazaDate(new Date());
+  const defaultFromDate = shiftDate(todayDate, -29);
+  const [periodMode, setPeriodMode] = useState<"7d" | "30d" | "90d" | "all" | "custom">("30d");
+  const [customFromDate, setCustomFromDate] = useState(defaultFromDate);
+  const [customToDate, setCustomToDate] = useState(todayDate);
+  const [appliedPeriod, setAppliedPeriod] = useState<{ fromDate: string | null; toDate: string | null }>({ fromDate: defaultFromDate, toDate: todayDate });
+  const [dateError, setDateError] = useState("");
+  const metrics = trpc.admin.activityMetrics.useQuery(appliedPeriod, {
+    refetchInterval: DASHBOARD_REFRESH_MS,
+    refetchIntervalInBackground: false,
+    staleTime: 10_000,
+  });
+  const data = metrics.data as any;
+  const payment = data?.paymentDocumentation;
+  const search = data?.search;
+  const ownerMetrics = trpc.admin.ownerActivityMetrics.useQuery(appliedPeriod, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: false, staleTime: 10_000 });
+  const ownerRows = ownerMetrics.data?.owners ?? [];
+  const dateLabel = (value: string | null | undefined) => value
+    ? new Date(value).toLocaleDateString("ar-PS", { timeZone: "Asia/Gaza" })
+    : "لا توجد بيانات ضمن الفترة";
+  const percentLabel = (value: number | null | undefined) => value === null || value === undefined
+    ? "لا توجد بيانات كافية"
+    : `${format(value)}٪`;
+  const applyPreset = (mode: "7d" | "30d" | "90d" | "all") => {
+    setPeriodMode(mode);
+    setDateError("");
+    if (mode === "all") {
+      setAppliedPeriod({ fromDate: null, toDate: null });
+      return;
+    }
+    const days = mode === "7d" ? 7 : mode === "30d" ? 30 : 90;
+    setAppliedPeriod({ fromDate: shiftDate(todayDate, -(days - 1)), toDate: todayDate });
+  };
+  const applyCustomPeriod = () => {
+    if (!customFromDate || !customToDate) {
+      setDateError("حدد تاريخ البداية والنهاية.");
+      return;
+    }
+    if (customToDate < customFromDate) {
+      setDateError("تاريخ النهاية يجب ألا يسبق تاريخ البداية.");
+      return;
+    }
+    const from = Date.parse(`${customFromDate}T00:00:00.000Z`);
+    const to = Date.parse(`${customToDate}T00:00:00.000Z`);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to - from > 3650 * 86_400_000) {
+      setDateError("النطاق الزمني يجب أن يكون صحيحًا وألا يتجاوز عشر سنوات.");
+      return;
+    }
+    setDateError("");
+    setPeriodMode("custom");
+    setAppliedPeriod({ fromDate: customFromDate, toDate: customToDate });
+  };
+  const activePeriodLabel = appliedPeriod.fromDate && appliedPeriod.toDate
+    ? `من ${appliedPeriod.fromDate} إلى ${appliedPeriod.toDate}`
+    : "كل الفترات";
+
+  if (metrics.isLoading) return <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5 text-sm text-slate-400">جارٍ تحميل إحصاءات البحث وتوثيق الدفع…</CardContent></Card>;
+  if (metrics.isError) return <Card role="alert" className="border-rose-400/25 bg-rose-400/[.04]"><CardContent className="p-5"><h3 className="font-bold text-rose-200">تعذر تحميل إحصاءات البحث وتوثيق الدفع</h3><p className="mt-2 text-sm text-slate-400">{metrics.error.message}</p><Button type="button" variant="outline" size="sm" className="mt-3 border-white/10 text-slate-200" onClick={() => void metrics.refetch()}>إعادة المحاولة</Button></CardContent></Card>;
+
+  return <section className="space-y-4">
+    <div className="flex flex-wrap items-end justify-between gap-2">
+      <div><h2 className="text-lg font-extrabold text-white">إحصاءات البحث وتوثيق الدفع</h2><p className="mt-1 text-xs text-slate-500">بيانات تشغيلية مجمعة، دون حفظ عبارات البحث أو بيانات المشتركين في سجل الإحصاءات.</p></div>
+      <Button type="button" variant="outline" size="sm" onClick={() => void metrics.refetch()} disabled={metrics.isFetching} className="border-white/10 text-slate-200">{metrics.isFetching ? "جارٍ التحديث…" : "تحديث الإحصاءات"}</Button>
+    </div>
+    <Card className="border-white/8 bg-[#111823]"><CardContent className="space-y-3 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold text-white">الفترة الزمنية للإحصاءات</h3><p className="mt-1 text-xs text-slate-500">يُطبّق النطاق نفسه على إحصاءات البحث وطلبات توثيق الدفع.</p></div><Badge className="bg-[#F5B800]/10 text-[#F5B800]">{activePeriodLabel}</Badge></div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant={periodMode === "7d" ? "default" : "outline"} onClick={() => applyPreset("7d")}>آخر 7 أيام</Button>
+        <Button type="button" size="sm" variant={periodMode === "30d" ? "default" : "outline"} onClick={() => applyPreset("30d")}>آخر 30 يومًا</Button>
+        <Button type="button" size="sm" variant={periodMode === "90d" ? "default" : "outline"} onClick={() => applyPreset("90d")}>آخر 90 يومًا</Button>
+        <Button type="button" size="sm" variant={periodMode === "all" ? "default" : "outline"} onClick={() => applyPreset("all")}>كل الفترات</Button>
+        <Button type="button" size="sm" variant={periodMode === "custom" ? "default" : "outline"} onClick={() => { setCustomFromDate(appliedPeriod.fromDate ?? defaultFromDate); setCustomToDate(appliedPeriod.toDate ?? todayDate); setPeriodMode("custom"); }}>فترة مخصصة</Button>
+      </div>
+      {periodMode === "custom" && <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <label className="space-y-1 text-xs text-slate-400">من تاريخ<Input type="date" value={customFromDate} max={customToDate || undefined} onChange={(event) => setCustomFromDate(event.target.value)} className={inputClass} /></label>
+        <label className="space-y-1 text-xs text-slate-400">إلى تاريخ<Input type="date" value={customToDate} min={customFromDate || undefined} onChange={(event) => setCustomToDate(event.target.value)} className={inputClass} /></label>
+        <Button type="button" onClick={applyCustomPeriod} className="bg-[#F5B800] font-bold text-[#0D1117] hover:bg-[#ffd23f]">تطبيق الفترة</Button>
+      </div>}
+      {dateError && <p role="alert" className="text-xs text-rose-300">{dateError}</p>}
+    </CardContent></Card>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Metric label="طلبات توثيق الدفع ضمن الفترة" value={payment?.totalRequests} icon={WalletCards} />
+      <Metric label="طلبات قيد التحقق" value={payment?.pendingRequests} icon={AlertTriangle} tone={payment?.pendingRequests ? "red" : "green"} />
+      <Metric label="طلبات معتمدة" value={payment?.approvedRequests} icon={CircleDollarSign} tone="green" />
+      <Metric label="طلبات مرفوضة" value={payment?.rejectedRequests} icon={AlertTriangle} tone={payment?.rejectedRequests ? "red" : "green"} />
+      <Metric label="المبالغ المعتمدة ضمن الفترة" value={payment ? format(payment.approvedAmountInPeriod) : undefined} suffix="" icon={WalletCards} tone="green" />
+      <Metric label="نسبة الاعتماد من الطلبات المحسومة" value={payment ? percentLabel(payment.approvalRatePercent) : undefined} icon={BarChart3} />
+      <Metric label="عمليات البحث ضمن الفترة" value={search?.searchesInPeriod} icon={Search} />
+      <Metric label="عمليات البحث دون نتائج" value={search?.noResultSearchesInPeriod} icon={Search} />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-2">
+      <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+        <h3 className="font-bold text-white">تفاصيل توثيق الدفع</h3>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">طلبات محسومة</p><p className="mt-1 text-xl font-bold text-white">{format(payment?.decidedRequests)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">آخر طلب ضمن الفترة</p><p className="mt-1 text-sm font-bold text-white">{payment?.latestSubmittedAt ? new Date(payment.latestSubmittedAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</p></div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">تعتمد حالات الطلبات والمبالغ على تاريخ تقديم الطلب ضمن الفترة المختارة؛ المبالغ المعتمدة تخص الطلبات المعتمدة من هذه المجموعة فقط.</p>
+      </CardContent></Card>
+      <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+        <h3 className="font-bold text-white">تفاصيل البحث المركزي</h3>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">معدل البحث دون نتائج</p><p className="mt-1 text-xl font-bold text-white">{percentLabel(search?.noResultRatePercentInPeriod)}</p></div>
+          <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">آخر عملية بحث</p><p className="mt-1 text-sm font-bold text-white">{search?.lastSearchAt ? new Date(search.lastSearchAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</p></div>
+        </div>
+        <div className="mt-4 space-y-2 text-xs text-slate-400">
+          <div className="flex justify-between gap-3"><span>أول يوم قياس ضمن الفترة</span><strong className="text-white">{dateLabel(search?.trackingStartedAt)}</strong></div>
+          <div className="flex justify-between gap-3"><span>نتائج المولدات</span><strong className="text-white">{format(search?.generatorResultHitsInPeriod)}</strong></div>
+          <div className="flex justify-between gap-3"><span>نتائج المشتركين</span><strong className="text-white">{format(search?.subscriberResultHitsInPeriod)}</strong></div>
+          <div className="flex justify-between gap-3"><span>نتائج أصحاب المولدات</span><strong className="text-white">{format(search?.ownerResultHitsInPeriod)}</strong></div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-500">أعداد النتائج والفئات تخص عمليات البحث الواقعة ضمن الفترة المحددة، دون عبارة البحث أو تفاصيل النتائج.</p>
+      </CardContent></Card>
+    </div>
+    <Card className="border-white/8 bg-[#111823]">
+      <CardContent className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h3 className="font-bold text-white">تفاصيل النشاط حسب صاحب المولد والاشتراك</h3><p className="mt-1 text-xs leading-6 text-slate-500">يشمل كل مساحة مالك، حتى التي لا تملك نشاطًا. البحث المقاس هو بحث دليل المشتركين في الصفحة الأولى فقط؛ إعادة الجلب قد تُحتسب مرة أخرى. لا تُحفظ عبارة البحث أو بيانات المشترك.</p></div>
+          <Badge className="bg-white/5 text-slate-300">{ownerMetrics.isLoading ? "جارٍ التحميل…" : `${format(ownerMetrics.data?.ownerCount ?? 0)} مساحة`}</Badge>
+        </div>
+        {ownerMetrics.isError ? <div role="alert" className="mt-4 rounded-xl border border-rose-400/20 p-3 text-sm text-rose-200">تعذر تحميل إحصاءات المالكين. <Button type="button" variant="outline" size="sm" className="mr-2 border-white/10" onClick={() => void ownerMetrics.refetch()}>إعادة المحاولة</Button></div> : null}
+        {ownerMetrics.data?.ownerBreakdownTruncated ? <p className="mt-3 text-xs text-amber-200">يعرض التقرير أول 500 مساحة مرتبة حسب حجم النشاط؛ إجمالي المساحات: {format(ownerMetrics.data.ownerCount)}.</p> : null}
+        <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[1120px] text-right text-xs">
+          <thead><tr className="border-b border-white/10 text-slate-400"><th className="p-3">صاحب المولد / المساحة</th><th className="p-3">الباقة / الاشتراك</th><th className="p-3">طلبات التوثيق</th><th className="p-3">معلقة</th><th className="p-3">معتمدة</th><th className="p-3">مرفوضة</th><th className="p-3">المبالغ المعتمدة</th><th className="p-3">بحث المشتركين</th><th className="p-3">دون نتائج</th><th className="p-3">معدل دون نتائج</th><th className="p-3">آخر بحث</th></tr></thead>
+          <tbody>
+            {ownerRows.map((owner) => <tr key={owner.tenantId} className="border-b border-white/5 last:border-0">
+              <td className="p-3"><strong className="block text-white">{owner.ownerName}</strong><span className="mt-1 block text-slate-400">{owner.companyName ?? owner.tenantName}</span><span className="mt-1 block text-[10px] text-slate-600">{owner.tenantName} · #{owner.tenantId}</span></td>
+              <td className="p-3 text-slate-300"><strong className="block">{owner.packageCode ?? "—"}</strong><span className="mt-1 block text-slate-500">{owner.subscriptionStatus ?? "لا يوجد اشتراك"}</span></td>
+              <td className="p-3 text-white">{format(owner.payment.totalRequests)}</td><td className="p-3 text-amber-200">{format(owner.payment.pendingRequests)}</td><td className="p-3 text-emerald-300">{format(owner.payment.approvedRequests)}</td><td className="p-3 text-rose-300">{format(owner.payment.rejectedRequests)}</td><td className="p-3 text-emerald-200">{format(owner.payment.approvedAmountInPeriod)}</td><td className="p-3 text-white">{format(owner.search.searchesInPeriod)}</td><td className="p-3 text-slate-300">{format(owner.search.noResultSearchesInPeriod)}</td><td className="p-3 text-slate-300">{percentLabel(owner.search.noResultRatePercentInPeriod)}</td><td className="p-3 text-slate-400">{owner.search.lastSearchAt ? new Date(owner.search.lastSearchAt).toLocaleString("ar-PS", { timeZone: "Asia/Gaza" }) : "—"}</td>
+            </tr>)}
+            {!ownerMetrics.isLoading && !ownerMetrics.isError && ownerRows.length === 0 ? <tr><td colSpan={11} className="p-8 text-center text-slate-500">لا توجد مساحات لعرضها.</td></tr> : null}
+          </tbody>
+        </table></div>
+      </CardContent>
+    </Card>
+  </section>;
+}
+
 export function AdvancedDashboard() {
-  const dashboard = trpc.admin.advancedDashboard.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: true, staleTime: 10_000 });
+  const dashboard = trpc.admin.advancedDashboard.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: false, staleTime: 10_000 });
   const [query, setQuery] = useState("");
-  const search = trpc.admin.globalSearch.useQuery({ query }, { enabled: query.trim().length >= 2 });
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedQuery(query.trim()), 250);
+    return () => window.clearTimeout(handle);
+  }, [query]);
+  const search = trpc.admin.globalSearch.useQuery({ query: debouncedQuery }, { enabled: debouncedQuery.length >= 2 });
   const data = dashboard.data;
   const collections = (data?.collectionsByGenerator ?? []) as Array<{ generatorName: string; code: string; amount: number }>;
   const top = collections.slice(0, 5);
   const low = [...collections].sort((a, b) => a.amount - b.amount).slice(0, 5);
   const collectionRate = Number(data?.kpis.collectionRate);
   return <section className="space-y-6">
-    <Card className="border-[#F5B800]/15 bg-gradient-to-l from-[#111823] to-[#131d2b] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-sm font-bold text-[#F5B800]">لوحة التحكم الرئيسية</p><h2 className="mt-2 text-2xl font-extrabold text-white">متابعة تشغيل PowerHub من مركز واحد</h2><p className="mt-2 text-sm leading-7 text-slate-400">مؤشرات حية وتحليلات مركزية للمولدات والمشتركين والتحصيل والشكاوى.</p></div><div className="relative w-full lg:max-w-md"><Search className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث باسم مولد أو رقم اشتراك أو هاتف…" className={inputClass + " pr-9"} /><div className="absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-[#111823] shadow-xl">{query.length >= 2 && (search.data ?? []).map((result) => <div key={`${result.kind}-${result.id}`} className="border-b border-white/6 px-3 py-2 text-sm last:border-0"><p className="font-bold text-white">{result.label}</p><p className="mt-1 text-xs text-slate-500">{result.reference} · {result.tenantName}</p></div>)}{query.length >= 2 && !search.data?.length && <p className="p-3 text-sm text-slate-500">لا توجد نتائج مطابقة.</p>}</div></div></div></CardContent></Card>
+    <Card className="border-[#F5B800]/15 bg-gradient-to-l from-[#111823] to-[#131d2b] shadow-panel"><CardContent className="p-5"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-sm font-bold text-[#F5B800]">لوحة التحكم الرئيسية</p><h2 className="mt-2 text-2xl font-extrabold text-white">متابعة تشغيل PowerHub من مركز واحد</h2><p className="mt-2 text-sm leading-7 text-slate-400">مؤشرات حية وتحليلات مركزية للمولدات والمشتركين والتحصيل والشكاوى.</p></div><div className="relative w-full lg:max-w-md"><Search className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث باسم مولد أو رقم اشتراك أو هاتف…" className={inputClass + " pr-9"} /><div className="absolute z-20 mt-2 w-full rounded-xl border border-white/10 bg-[#111823] shadow-xl">{debouncedQuery.length >= 2 && (search.data ?? []).map((result) => <div key={`${result.kind}-${result.id}`} className="border-b border-white/6 px-3 py-2 text-sm last:border-0"><p className="font-bold text-white">{result.label}</p><p className="mt-1 text-xs text-slate-500">{result.reference} · {result.tenantName}</p></div>)}{debouncedQuery.length >= 2 && !search.data?.length && <p className="p-3 text-sm text-slate-500">لا توجد نتائج مطابقة.</p>}</div></div></div></CardContent></Card>
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="المولدات النشطة" value={data?.kpis.activeGenerators} icon={Building2} tone="green" /><Metric label="إجمالي المشتركين" value={data?.kpis.subscribers} icon={UsersRound} /><Metric label="استهلاك اليوم kWh" value={data?.kpis.dailyConsumption} icon={BarChart3} /><Metric label="تحصيل هذا الشهر" value={data?.kpis.monthlyCollections} icon={CircleDollarSign} tone="green" /><Metric label="شكاوى مفتوحة" value={data?.kpis.openComplaints} icon={Ticket} tone="red" /><Metric label="مولدات تحتاج مراجعة" value={data?.kpis.generatorsToReview} icon={Wrench} tone="red" /><Metric label="استهلاك الشهر kWh" value={data?.kpis.monthlyConsumption} icon={BarChart3} /><Metric label="نسبة التحصيل" value={Number.isFinite(collectionRate) ? collectionRate : 0} suffix="%" icon={CircleDollarSign} tone="green" /></div>
     <div className="grid gap-6 xl:grid-cols-2"><ChartCard title="نمو المشتركين خلال آخر 12 شهراً"><ResponsiveContainer width="100%" height={240}><LineChart data={data?.monthlyGrowth ?? []}><CartesianGrid stroke="#ffffff12" vertical={false} /><XAxis dataKey="month" stroke="#64748b" fontSize={11} /><YAxis stroke="#64748b" fontSize={11} /><Tooltip contentStyle={{ background: "#111823", border: "1px solid #ffffff1a", borderRadius: 12 }} /><Line type="monotone" dataKey="count" stroke="#F5B800" strokeWidth={3} dot={{ fill: "#F5B800" }} /></LineChart></ResponsiveContainer></ChartCard><ChartCard title="توزيع الاستهلاك حسب المناطق"><ResponsiveContainer width="100%" height={240}><BarChart data={data?.consumptionByRegion ?? []}><CartesianGrid stroke="#ffffff12" vertical={false} /><XAxis dataKey="region" stroke="#64748b" fontSize={11} /><YAxis stroke="#64748b" fontSize={11} /><Tooltip contentStyle={{ background: "#111823", border: "1px solid #ffffff1a", borderRadius: 12 }} /><Bar dataKey="consumptionKwh" fill="#2dd4bf" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></ChartCard></div>
     <div className="grid gap-6 xl:grid-cols-2"><ChartCard title="أعلى المولدات تحصيلاً"><GeneratorRank rows={top} color="#22c55e" /></ChartCard><ChartCard title="الأقل تحصيلاً"><GeneratorRank rows={low} color="#fb7185" /></ChartCard></div>
     <div className="grid gap-6 xl:grid-cols-3"><QuickList title="آخر المولدات المسجلة" rows={(data?.latestGenerators ?? []).map((item) => ({ title: item.name, detail: `${item.tenantName} · ${item.status}`, meta: item.code }))} /><QuickList title="الشكاوى الجديدة" rows={(data?.recentComplaints ?? []).map((item) => ({ title: item.title, detail: `${item.tenantName} · ${complaintStatus[item.status] ?? item.status}`, meta: item.priority }))} /><QuickList title="الاشتراكات الأقرب انتهاءً" rows={(data?.expiringSubscriptions ?? []).map((item) => ({ title: item.ownerName ?? item.tenantName, detail: item.tenantName, meta: date(item.endsAt) }))} /></div>
+    <AdminActivityMetricsPanel />
   </section>;
 }
 
 export function OperationalMonitoringPanel({ onNavigate }: { onNavigate: (target: "notifications" | "security" | "reports" | "field_sync") => void }) {
-  const monitoring = trpc.admin.operationalMonitoring.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: true, staleTime: 10_000 });
+  const monitoring = trpc.admin.operationalMonitoring.useQuery(undefined, { refetchInterval: DASHBOARD_REFRESH_MS, refetchIntervalInBackground: false, staleTime: 10_000 });
   const data = monitoring.data;
   const iconByKey = { database: Database, messaging: Radio, sync: Wrench, security: ShieldAlert } as const;
   const tone = (state: string) => state === "healthy" ? "border-emerald-400/20 bg-emerald-400/[.055] text-emerald-200" : state === "warning" ? "border-amber-400/25 bg-amber-400/[.06] text-amber-100" : "border-rose-400/25 bg-rose-400/[.07] text-rose-100";
@@ -470,6 +630,7 @@ const policyCapabilities: Array<{ id: PowerCapability; label: string }> = [
   { id: "collectPayments", label: "التحصيل والدفعات" },
   { id: "approvePaymentDocumentation", label: "اعتماد توثيق الدفع الإلكتروني" },
   { id: "manageExpenses", label: "المصروفات" },
+  { id: "viewFinancialReports", label: "عرض التقارير والبيانات المالية" },
   { id: "managePayroll", label: "اعتماد وصرف الرواتب" },
   { id: "manageTeam", label: "إدارة الفريق" },
   { id: "manageMessaging", label: "المراسلات" },
@@ -574,4 +735,99 @@ export function PlatformRolePoliciesPanel() {
       </> : <p className="mt-6 rounded-xl border border-dashed border-white/10 py-8 text-center text-sm text-slate-500">اختر مستخدماً لعرض صلاحياته وتخصيصها.</p>}
     </>}
   </CardContent></Card>;
+}
+
+
+export function PlatformPerformancePanel() {
+  const metrics = trpc.admin.performanceMetrics.useQuery(undefined, {
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    staleTime: 15_000,
+  });
+
+  const data = metrics.data;
+  const bytes = (value: number) => {
+    if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
+    if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(2)} MiB`;
+    if (value >= 1024) return `${(value / 1024).toFixed(2)} KiB`;
+    return `${format(value)} B`;
+  };
+
+  return <section className="space-y-5" aria-label="قياسات أداء المنصة">
+    <Card className="border-white/8 bg-[#111823] shadow-panel">
+      <CardContent className="flex flex-col justify-between gap-3 p-5 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-lg font-extrabold text-white">الأداء والبنية التحتية</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-400">قراءات مباشرة من إحصاءات PostgreSQL، تتحدث كل 30 ثانية أثناء فتح هذا التبويب.</p>
+          {data?.generatedAt && <p className="mt-1 text-xs text-slate-500">آخر قياس: {new Date(data.generatedAt).toLocaleString("ar-PS")}</p>}
+        </div>
+        <Button type="button" variant="outline" className="border-white/10 text-white" onClick={() => void metrics.refetch()} disabled={metrics.isFetching}>
+          {metrics.isFetching ? "جارٍ التحديث…" : "تحديث القياسات"}
+        </Button>
+      </CardContent>
+    </Card>
+
+    {metrics.isError && <Card role="alert" className="border-rose-400/30 bg-rose-400/[.05]"><CardContent className="p-4">
+      <p className="font-bold text-rose-200">تعذر تحميل قياسات الأداء</p>
+      <p className="mt-1 text-sm text-slate-400">{metrics.error.message}</p>
+    </CardContent></Card>}
+    {metrics.isLoading && <Card className="border-white/8 bg-[#111823]"><CardContent className="p-6 text-sm text-slate-400">جارٍ قراءة مؤشرات قاعدة البيانات…</CardContent></Card>}
+
+    {data && <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="حجم قاعدة البيانات" value={data.database.sizeMiB.toFixed(2)} suffix=" MiB" icon={Database} />
+        <Metric label="الاتصالات النشطة" value={data.connections.active} suffix={` / ${format(data.connections.maxConnections)}`} icon={Radio} />
+        <Metric label="Cache Hit" value={data.cacheHitRatioPercent === null ? "—" : data.cacheHitRatioPercent.toFixed(2)} suffix={data.cacheHitRatioPercent === null ? "" : "%"} icon={BarChart3} />
+        <Metric label="Deadlocks" value={data.transactions.deadlocks} icon={AlertTriangle} tone={data.transactions.deadlocks ? "red" : "green"} />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+          <h3 className="font-bold text-white">اتصالات قاعدة البيانات</h3>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">كل اتصالات العملاء</p><p className="mt-1 text-xl font-bold text-white">{format(data.connections.clientBackends)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">نشطة</p><p className="mt-1 text-xl font-bold text-white">{format(data.connections.active)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Idle in transaction</p><p className="mt-1 text-xl font-bold text-white">{format(data.connections.idleInTransaction)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">الحد الأقصى للإعداد</p><p className="mt-1 text-xl font-bold text-white">{format(data.connections.maxConnections)}</p></div>
+          </div>
+        </CardContent></Card>
+        <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+          <h3 className="font-bold text-white">عدادات PostgreSQL التراكمية</h3>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Commits</p><p className="mt-1 text-xl font-bold text-white">{format(data.transactions.commits)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Rollbacks</p><p className="mt-1 text-xl font-bold text-white">{format(data.transactions.rollbacks)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Temporary files</p><p className="mt-1 text-xl font-bold text-white">{format(data.transactions.tempFiles)}</p></div>
+            <div className="rounded-xl bg-white/[.03] p-3"><p className="text-slate-500">Temporary bytes (تراكمي)</p><p className="mt-1 text-xl font-bold text-white">{bytes(data.transactions.tempBytes)}</p></div>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">هذه العدادات منذ آخر إعادة ضبط لإحصاءات PostgreSQL وليست قياسات لحظية لاستهلاك القرص المؤقت.</p>
+          <p className="mt-1 text-xs text-slate-500">بداية الإحصاءات: {data.transactions.statsResetAt ? new Date(data.transactions.statsResetAt).toLocaleString("ar-PS") : "غير متاحة"}</p>
+        </CardContent></Card>
+      </div>
+
+      <Card className="border-white/8 bg-[#111823]"><CardContent className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-bold text-white">أكبر 10 جداول حسب الحجم</h3>
+          <span className="text-xs text-slate-500">الحجم يشمل البيانات والفهارس وTOAST</span>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[620px] text-right text-sm">
+            <thead><tr className="border-b border-white/10 text-xs text-slate-500"><th className="p-3">الجدول</th><th className="p-3">الحجم الكلي</th><th className="p-3">الفهارس</th><th className="p-3">صفوف حية (تقديري)</th><th className="p-3">صفوف ميتة (تقديري)</th></tr></thead>
+            <tbody>{data.topTables.map((table) => <tr key={`${table.schemaName}.${table.tableName}`} className="border-b border-white/5 last:border-0">
+              <td className="p-3 font-medium text-white" dir="ltr">{table.schemaName}.{table.tableName}</td>
+              <td className="p-3 text-slate-300">{bytes(table.totalBytes)}</td>
+              <td className="p-3 text-slate-300">{bytes(table.indexBytes)}</td>
+              <td className="p-3 text-slate-300">{format(table.liveRowsEstimate)}</td>
+              <td className="p-3 text-slate-300">{format(table.deadRowsEstimate)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </CardContent></Card>
+    </>}
+
+    <Card className="border-amber-300/20 bg-amber-300/[.035]"><CardContent className="p-5">
+      <h3 className="font-bold text-amber-100">قياسات الاستضافة</h3>
+      <p className="mt-2 text-sm leading-6 text-slate-400">CPU والذاكرة ومدة تنفيذ Serverless Functions وطلبات Vercel لا تُعرض هنا بعد؛ تكامل Vercel الحالي لا يوفّر مصدرًا موثوقًا لهذه القيم ضمن الخطة والإعدادات المتاحة. لن نعرض أرقامًا تقديرية على أنها قياسات فعلية.</p>
+      <p className="mt-2 text-xs text-slate-500">يمكن إضافة هذه المؤشرات عند تفعيل مصدر Observability/API مناسب والتحقق من نطاق بياناته.</p>
+    </CardContent></Card>
+  </section>;
 }

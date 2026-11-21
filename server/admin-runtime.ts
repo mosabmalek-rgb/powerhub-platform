@@ -56,7 +56,23 @@ export const adminRouter = router({
       billingCycle: input.billingCycle, subscriptionDuration: input.subscriptionDuration,
       trialEnabled: input.trialEnabled, trialDurationDays: input.trialEnabled ? (input.trialDurationDays ?? 8) : null,
     };
-    const fingerprint = crypto.createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+    const fingerprintSecret = process.env.JWT_SECRET;
+    if (!fingerprintSecret || fingerprintSecret.length < 32) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "مفتاح بصمة عمليات التسجيل غير مهيأ بأمان." });
+    }
+    // Bind the KDF salt to non-password request fields, then use scrypt as
+    // the final fingerprint persisted for idempotent operation reconciliation.
+    const { temporaryPassword: _temporaryPassword, ...fingerprintContext } = normalized;
+    const fingerprintSalt = crypto.createHmac("sha256", fingerprintSecret)
+      .update("powerhub-generator-owner-provisioning-fingerprint:v1:")
+      .update(JSON.stringify(fingerprintContext))
+      .digest();
+    const fingerprint = crypto.scryptSync(
+      JSON.stringify(normalized),
+      fingerprintSalt,
+      32,
+      { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 },
+    ).toString("hex");
     const admin=supabaseAdmin();
     const begin = await admin.rpc("powerhub_admin_begin_generator_owner_provisioning", {
       p_actor_user_id: ctx.user.id, p_client_operation_id: input.clientOperationId,

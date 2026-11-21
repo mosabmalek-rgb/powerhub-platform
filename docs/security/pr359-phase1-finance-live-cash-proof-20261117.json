@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "observedDate": "2026-11-17",
+  "sourceHead": "b333f9626b832ea8d26ea26bcbefbf15affb427d",
+  "projects": {
+    "production": "vvcdiqcyhaloxesvpppc",
+    "staging": "iyuryuhaylhisjfcrwkz"
+  },
+  "scope": "read-only aggregation and catalog checks; no individual business rows",
+  "environments": {
+    "production": {
+      "payments": {
+        "rows": 5,
+        "completed": 5,
+        "nonpositive": 0,
+        "total_amount": "1260.00",
+        "orphan_invoice": 0,
+        "completed_amount": "1260.00",
+        "excess_precision": 0,
+        "completed_unlinked": 0,
+        "cross_scope_invoice": 0
+      },
+      "cashLinks": {
+        "missing_cash": 0,
+        "payment_rows": 5,
+        "duplicate_cash": 0,
+        "wrong_cash_type": 0,
+        "cross_tenant_cash": 0,
+        "exactly_one_cash_row": 5,
+        "incorrect_cash_amount": 0
+      },
+      "invoiceCash": {
+        "paid_total": "1260.00",
+        "invoice_rows": 20,
+        "paid_mismatches": 0,
+        "linked_paid_total": "1260.00"
+      },
+      "cashLedgerSize": {
+        "rows": 8,
+        "gross_amount": "1890.00",
+        "payment_linked_rows": 5
+      },
+      "financeColumns": [],
+      "invoiceBalances": {
+        "rows": 20,
+        "total_due": "3387.30",
+        "total_paid": "1260.00",
+        "total_invoiced": "4647.30",
+        "negative_amounts": 0,
+        "balance_mismatches": 0
+      },
+      "coreFinanceHistory": [],
+      "subscriberCreditLedgerPresent": false
+    },
+    "staging": {
+      "payments": {
+        "rows": 6,
+        "completed": 6,
+        "nonpositive": 0,
+        "total_amount": "667.00",
+        "orphan_invoice": 0,
+        "completed_amount": "667.00",
+        "excess_precision": 0,
+        "completed_unlinked": 0,
+        "cross_scope_invoice": 0
+      },
+      "cashLinks": {
+        "missing_cash": 0,
+        "payment_rows": 6,
+        "duplicate_cash": 0,
+        "wrong_cash_type": 0,
+        "cross_tenant_cash": 0,
+        "exactly_one_cash_row": 6,
+        "incorrect_cash_amount": 0
+      },
+      "invoiceCash": {
+        "paid_total": "667.00",
+        "invoice_rows": 4,
+        "paid_mismatches": 0,
+        "linked_paid_total": "667.00"
+      },
+      "cashLedgerSize": {
+        "rows": 361009,
+        "gross_amount": "23806612.00",
+        "payment_linked_rows": 6
+      },
+      "financeColumns": [
+        "invoice_applied_amount",
+        "payment_purpose",
+        "subscriber_credit_amount"
+      ],
+      "invoiceBalances": {
+        "rows": 4,
+        "total_due": "2005.50",
+        "total_paid": "667.00",
+        "total_invoiced": "2672.50",
+        "negative_amounts": 0,
+        "balance_mismatches": 0
+      },
+      "coreFinanceHistory": [
+        {
+          "name": "powerhub_subscriber_credit_ledger",
+          "version": "20261103131052",
+          "sqlAvailable": true
+        },
+        {
+          "name": "powerhub_subscriber_liability_and_cash_allocation",
+          "version": "20261103131104",
+          "sqlAvailable": true
+        },
+        {
+          "name": "powerhub_statement_operating_collection_summary",
+          "version": "20261103131125",
+          "sqlAvailable": true
+        },
+        {
+          "name": "powerhub_legacy_unlinked_payments_to_subscriber_credit",
+          "version": "20261103145232",
+          "sqlAvailable": true
+        }
+      ],
+      "subscriberCreditLedgerPresent": true
+    }
+  },
+  "historicMigrationExecution": "UNPROVEN",
+  "productionDerivedShadow": "NOT_TESTED",
+  "releaseDecision": "NO_GO"
+}

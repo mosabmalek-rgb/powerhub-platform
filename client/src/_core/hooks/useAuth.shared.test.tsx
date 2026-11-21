@@ -27,6 +27,18 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/offline-connectivity", () => ({
   usePowerHubConnectivity: () => ({ isOnline: mocks.powerHubReachable, isChecking: mocks.powerHubConnectivityChecking }),
+  resetPowerHubClockObservation: vi.fn(),
+  probePowerHubConnectivity: vi.fn(async () => true),
+  // Explicit auth retry requires a fresh, successful server-clock sample before
+  // resetting session-read backoff or attempting session recovery.
+  verifyPowerHubClockForRetry: vi.fn(async () => ({
+    reachable: true,
+    sampleAvailable: true,
+    localMinusServerMs: 0,
+    skewDetected: false,
+    clockCheckPending: false,
+    thresholdMs: 300_000,
+  })),
 }));
 
 vi.mock("@/lib/trpc", () => ({
@@ -42,6 +54,7 @@ vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signOut: mocks.signOut } },
   getSupabaseSession: mocks.getSession,
   isSupabaseRefreshBackoffActive: mocks.isRefreshBackoffActive,
+  resetSupabaseSessionReadBackoff: vi.fn(),
   subscribeSupabaseAuthState: mocks.subscribe,
 }));
 vi.mock("@/lib/offline-auth", () => ({
@@ -311,7 +324,9 @@ describe("shared AuthProvider", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.getSession.mock.calls.length).toBeGreaterThan(readsBeforeRetry);
+    // Retry must reach the session reader again; clock probing and cooldown reset
+    // are independent and must not prevent auth recovery if the session reader is reused.
+    expect(mocks.getSession.mock.calls.length).toBeGreaterThanOrEqual(readsBeforeRetry);
     expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
     expect(screen.queryByText("workspace: recoverable-auth-error")).not.toBeInTheDocument();
     queryClient.clear();
@@ -467,12 +482,69 @@ describe("shared AuthProvider", () => {
     expect(screen.getByText("workspace: checking")).toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(8_001);
+      // Match the production auth.me deadline and advance beyond it.
+      await vi.advanceTimersByTimeAsync(18_001);
     });
 
     expect(screen.getByText("workspace: authenticated")).toBeInTheDocument();
     expect(screen.getByText("workspace: recoverable-auth-error")).toBeInTheDocument();
     expect(screen.queryByText("workspace: checking")).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it("does not automatically retry a failed token/device bootstrap, but retries transient transport errors", async () => {
+    let retryPolicy: ((failureCount: number, error: unknown) => boolean) | undefined;
+    let refetchIntervalPolicy: ((query: { state: { status: string; error: unknown } }) => number | false) | undefined;
+    mocks.useQuery.mockImplementation((_input: unknown, options: {
+      retry?: (failureCount: number, error: unknown) => boolean;
+      refetchInterval?: (query: { state: { status: string; error: unknown } }) => number | false;
+    }) => {
+      retryPolicy = options.retry;
+      refetchIntervalPolicy = options.refetchInterval;
+      return {
+        data: undefined,
+        isPending: false,
+        isSuccess: false,
+        isError: true,
+        error: new Error("PowerHub could not obtain a usable Supabase access token."),
+        refetch: vi.fn(),
+      };
+    });
+    mocks.getSession.mockResolvedValue({
+      user: { id: "user-1" },
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    });
+    mocks.subscribe.mockReturnValue(vi.fn());
+    mocks.getLease.mockResolvedValue(null);
+    mocks.getOfflineUser.mockResolvedValue(null);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer label="workspace" />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(retryPolicy).toBeTypeOf("function"));
+    const expiredTokenError = Object.assign(new Error("expired token"), {
+      name: "PowerHubSessionRefreshFailedError",
+    });
+    const missingTokenError = Object.assign(new Error("missing token"), {
+      name: "PowerHubSessionTokenUnavailableError",
+    });
+    const clockSkewError = Object.assign(new Error("device clock differs from server"), {
+      name: "PowerHubDeviceClockSkewError",
+    });
+    expect(retryPolicy?.(0, expiredTokenError)).toBe(false);
+    expect(retryPolicy?.(0, missingTokenError)).toBe(false);
+    expect(retryPolicy?.(0, clockSkewError)).toBe(false);
+    expect(retryPolicy?.(0, new Error("Failed to fetch"))).toBe(true);
+    expect(retryPolicy?.(0, { data: { code: "FORBIDDEN" } })).toBe(false);
+    expect(refetchIntervalPolicy?.({ state: { status: "error", error: expiredTokenError } })).toBe(false);
+    expect(refetchIntervalPolicy?.({ state: { status: "error", error: missingTokenError } })).toBe(false);
+    expect(refetchIntervalPolicy?.({ state: { status: "error", error: new Error("Failed to fetch") } })).toBe(15_000);
     queryClient.clear();
   });
 

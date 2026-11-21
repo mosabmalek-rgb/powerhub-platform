@@ -13,7 +13,12 @@ function readStoredBranchId() {
 
 function persistBranchId(branchId: number) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(BRANCH_FILTER_STORAGE_KEY, String(branchId));
+  try {
+    window.localStorage.setItem(BRANCH_FILTER_STORAGE_KEY, String(branchId));
+  } catch {
+    // Keep the in-memory branch selection usable when storage is blocked.
+  }
+  window.dispatchEvent(new CustomEvent("powerhub:branch-changed", { detail: { siteId: branchId } }));
 }
 
 /**

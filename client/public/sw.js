@@ -1,8 +1,7 @@
-const SHELL_CACHE = "powerhub-shell-v7";
+const SHELL_CACHE = "powerhub-shell-v8";
 const ASSET_CACHE = "powerhub-assets-v7";
 const CACHE_PREFIX = "powerhub-";
 const APP_SHELL = ["/", "/login", "/workspace", "/manifest.json"];
-const NAVIGATION_TIMEOUT_MS = 2_500;
 
 function isApiOrServiceWorker(url) {
   return url.pathname.startsWith("/api/") || url.pathname === "/sw.js";
@@ -24,16 +23,6 @@ function isCacheableStaticAsset(url) {
 function normalizedUrl(value) {
   const url = new URL(value, self.location.origin);
   return new URL(url.pathname, self.location.origin).href;
-}
-
-async function fetchWithTimeout(request, timeoutMs) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(request, { cache: "no-store", signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 self.addEventListener("install", (event) => {
@@ -70,7 +59,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
       try {
-        const response = await fetchWithTimeout(request, NAVIGATION_TIMEOUT_MS);
+        const response = await fetch(request, { cache: "no-store" });
         if (response.ok && (response.headers.get("content-type") || "").includes("text/html")) {
           // Keep only a generic SPA shell key; do not persist query strings/tokens.
           await cache.put(normalizedUrl(request.url), response.clone());

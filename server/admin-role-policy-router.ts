@@ -4,6 +4,7 @@ import { authenticatedProcedure, router } from "./_core/trpc";
 import { saveRolePolicy } from "./role-policy-supabase";
 import { supabaseAdmin } from "./supabase-admin";
 import { defaultCapabilitiesForRole, powerCapabilityLabels, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { isTenantMembershipUnexpired } from "./tenant-membership-expiry";
 
 const roleSchema = z.enum(["owner", "manager", "accountant", "collector", "technician", "viewer"]);
 const capabilitySchema = z.enum([
@@ -17,6 +18,7 @@ const capabilitySchema = z.enum([
   "collectPayments",
   "approvePaymentDocumentation",
   "manageExpenses",
+  "viewFinancialReports",
   "managePayroll",
   "manageTeam",
   "manageMessaging",
@@ -81,7 +83,7 @@ export const adminRolePolicyRouter = router({
           .order("id", { ascending: false })
           .limit(500),
         admin.from("tenant_members")
-          .select("tenant_id,user_id,role,is_active,membership_status")
+          .select("tenant_id,user_id,role,is_active,membership_status,expires_at")
           .eq("role", "owner")
           .order("tenant_id", { ascending: true })
           .limit(500),
@@ -184,7 +186,7 @@ export const adminRolePolicyRouter = router({
           siteId: null,
           siteName: "جميع فروع مساحة صاحب المولد",
           role: "owner" as const,
-          isActive: Boolean(member.is_active && member.membership_status === "active"),
+          isActive: Boolean(member.is_active && member.membership_status === "active" && isTenantMembershipUnexpired(member)),
           baseCapabilities: Object.keys(powerCapabilityLabels) as PowerCapability[],
           overrides: ownerOverrides.get(`${tenantId}:${userId}`) ?? [],
         };

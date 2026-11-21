@@ -1,12 +1,16 @@
 import type { Express, Request, Response } from "express";
+import { rateLimit } from "express-rate-limit";
 import { createClient } from "@supabase/supabase-js";
 import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
 import crypto from "node:crypto";
-import { can, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
-import { storagePut } from "./storage";
+import { can, applyStaffCapabilityOverrides, defaultCapabilitiesForRole, type PowerCapability, type PowerRole } from "../shared/powerhub-rbac";
+import { storagePut, storageRemove } from "./storage";
 import { supabaseAdmin } from "./supabase-admin";
 import { consumeHttpRateLimit, getClientIp } from "./http-rate-limit";
+import { activeTenantMembershipOrFilter, isTenantMembershipUnexpired } from "./tenant-membership-expiry";
+import { decodeMobileDeltaCursor, encodeMobileDeltaCursor, MobileCursorError, mobileDeltaScopeVersion, nextMobileDeltaCursor, type MobileDeltaCursor } from "./mobile-delta-protocol";
+import { loadMobileDeltaScope, mobileBootstrapIds, mobileDeltaEvents, mobileDeltaFence, mobileDeltaProject } from "./mobile-delta-service";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -27,6 +31,14 @@ const mobileChangePasswordSchema = z.object({ newPassword: z.string().min(8).max
 const refreshSchema = z.object({ refreshToken: z.string().min(32).max(256) });
 const subscriberQuerySchema = z.object({ branchId: z.coerce.number().int().positive(), limit: z.coerce.number().int().min(1).max(100).default(100), cursor: z.coerce.number().int().min(0).default(0) });
 
+const mobileSubscriberDeltaQuerySchema = z.object({
+  branchId: z.coerce.number().int().positive(),
+  cursor: z.string().min(1).max(2048).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  bootstrap: z.enum(["true", "false"]).optional(),
+}).strict().refine((input) => !input.cursor || input.bootstrap !== "true", {
+  message: "Bootstrap and cursor cannot be combined.",
+});
 const mobileCycleSyncStatsQuerySchema = z.object({
   branchId: z.coerce.number().int().positive(),
   from: z.string().datetime(),
@@ -151,6 +163,42 @@ type MobileScope = {
 const toNumber = (value: number | string | null | undefined) => Number(value);
 const isoNow = () => new Date().toISOString();
 
+async function resolveMobileFieldReadingDistributionEnabled(tenantId: number, siteId: number) {
+  const { data, error } = await supabaseAdmin().from("field_reading_distribution_settings")
+    .select("is_enabled").eq("tenant_id", tenantId).eq("site_id", siteId).maybeSingle();
+  return { enabled: data?.is_enabled === true, error };
+}
+
+async function resolveMobileReadingCycle(tenantId: number, siteId: number, readingAt: Date | string) {
+  const at = readingAt instanceof Date ? readingAt.toISOString() : readingAt;
+  const { data, error } = await supabaseAdmin().rpc("powerhub_cycle_for_reading", {
+    p_tenant_id: tenantId,
+    p_site_id: siteId,
+    p_reading_at: at,
+  });
+  if (error) return { cycle: null, error };
+  const row = ((Array.isArray(data) ? data[0] : data) ?? null) as {
+    cycle_key?: string | null;
+    cycle_start_at?: string | null;
+    cycle_end_at?: string | null;
+    cycle_label?: string | null;
+  } | null;
+  if (!row?.cycle_key || !row.cycle_start_at || !row.cycle_end_at) {
+    return { cycle: null, error: { message: "Canonical reading-cycle boundaries were not returned." } };
+  }
+  return {
+    cycle: {
+      key: row.cycle_key,
+      startAt: row.cycle_start_at,
+      endAt: row.cycle_end_at,
+      label: row.cycle_label ?? row.cycle_key,
+      asOf: at,
+    },
+    error: null,
+  };
+}
+
+
 export function hashMobileToken(value: string) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -199,31 +247,72 @@ async function syncMobileProfile(input: { id: string; email: string; name?: stri
 
 async function resolveMobileScope(userId: number, tenantId: number, allowPasswordChange = false): Promise<MobileScope | null> {
   const admin = supabaseAdmin();
-  const [userResult, membershipResult, tenantResult, profilesResult] = await Promise.all([
+  const [userResult, membershipResult, tenantResult, profilesResult, policyResult] = await Promise.all([
     admin.from("users").select("id, name, account_status, must_change_password").eq("id", userId).maybeSingle(),
-    admin.from("tenant_members").select("id").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").maybeSingle(),
+    admin.from("tenant_members").select("id, expires_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).eq("membership_status", "active").or(activeTenantMembershipOrFilter()).maybeSingle(),
     admin.from("tenants").select("id, status").eq("id", tenantId).maybeSingle(),
-    admin.from("staff_profiles").select("site_id, role, permissions, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true),
+    admin.from("staff_profiles").select("id, site_id, role, permissions, custom_role_id, suspension_started_at, suspension_ends_at").eq("user_id", userId).eq("tenant_id", tenantId).eq("is_active", true).is("archived_at", null),
+    admin.from("platform_role_policies").select("role,capability,is_allowed")
+      .eq("role","technician").eq("is_allowed",false),
   ]);
-  if (userResult.error || membershipResult.error || tenantResult.error || profilesResult.error) throw new Error("Supabase mobile scope lookup failed");
+  if (userResult.error || membershipResult.error || tenantResult.error ||
+      profilesResult.error || policyResult.error) throw new Error("Supabase mobile scope lookup failed");
   const user = userResult.data;
-  if (!user || user.account_status !== "active" || (!allowPasswordChange && user.must_change_password) || !membershipResult.data || tenantResult.data?.status !== "active") return null;
+  if (!user || user.account_status !== "active" || (!allowPasswordChange && user.must_change_password) || !isTenantMembershipUnexpired(membershipResult.data) || tenantResult.data?.status !== "active") return null;
 
+  const profiles = profilesResult.data ?? [];
+  const ids=profiles.map(profile=>Number(profile.id)).filter(id=>Number.isSafeInteger(id) && id>0);
+  const customIds=profiles.map(profile=>Number(profile.custom_role_id)).filter(id=>Number.isSafeInteger(id) && id>0);
+  const [overridesResult,customRolesResult] = await Promise.all([
+    ids.length
+      ? admin.from("staff_profile_capability_overrides").select("profile_id,capability,is_allowed")
+        .eq("tenant_id",tenantId).in("profile_id",ids)
+      : Promise.resolve({data:[],error:null}),
+    customIds.length
+      ? admin.from("custom_permission_roles").select("id,permissions,is_active")
+        .eq("tenant_id",tenantId).in("id",customIds).eq("is_active",true)
+      : Promise.resolve({data:[],error:null}),
+  ]);
+  if(overridesResult.error || customRolesResult.error) throw new Error("Supabase mobile permission lookup failed");
+  const deniedPolicy=new Set((policyResult.data??[])
+    .filter(x=>x.is_allowed===false).map(x=>String(x.capability)));
+  const effectiveRights=(profile: (typeof profiles)[number]): PowerCapability[] => {
+    const role=profile.role as PowerRole;
+    const explicit=profile.permissions!==null && profile.permissions!==undefined;
+    let rights:PowerCapability[]=explicit
+      ? (Array.isArray(profile.permissions)?profile.permissions:[])
+      : defaultCapabilitiesForRole(role);
+    if(!explicit && profile.custom_role_id){
+      const custom=(customRolesResult.data??[]).find(x=>Number(x.id)===Number(profile.custom_role_id));
+      rights=Array.isArray(custom?.permissions)?custom.permissions:[];
+    }
+    rights=applyStaffCapabilityOverrides(rights,(overridesResult.data??[])
+      .filter(x=>Number(x.profile_id)===Number(profile.id)));
+    return rights.filter(right=>!deniedPolicy.has(right));
+  };
   const now = new Date();
-  const permitted = (profilesResult.data ?? []).filter((profile) => {
+  const permitted = profiles.filter((profile) => {
     const suspendedAt = profile.suspension_started_at ? new Date(profile.suspension_started_at) : null;
     const suspensionEndsAt = profile.suspension_ends_at ? new Date(profile.suspension_ends_at) : null;
     const suspended = Boolean(suspendedAt && suspendedAt <= now && (!suspensionEndsAt || suspensionEndsAt >= now));
-    return !suspended && hasFieldAppAccess(profile.role as PowerRole, (profile.permissions as PowerCapability[] | null) ?? null);
+    return !suspended && hasFieldAppAccess(profile.role as PowerRole, effectiveRights(profile));
   });
   if (!permitted.length) return null;
 
   const allBranches = permitted.some((profile) => profile.site_id === null);
   const { data: activeSites, error: sitesError } = await admin.from("sites").select("id").eq("tenant_id", tenantId).eq("status", "active");
   if (sitesError) throw new Error(`Supabase active site lookup failed: ${sitesError.message}`);
+  // A site-scoped staff profile is not sufficient by itself: disabled or
+  // removed sites must never remain reachable through an otherwise valid
+  // mobile session. Intersect every profile assignment with this tenant's
+  // currently active sites, just as the all-branches path already does.
+  const activeSiteIds = new Set((activeSites ?? []).map((site) => toNumber(site.id)));
   const branchIds = allBranches
-    ? (activeSites ?? []).map((site) => toNumber(site.id))
-    : Array.from(new Set(permitted.flatMap((profile) => profile.site_id ? [toNumber(profile.site_id)] : [])));
+    ? Array.from(activeSiteIds)
+    : Array.from(new Set(
+        permitted.flatMap((profile) => profile.site_id ? [toNumber(profile.site_id)] : [])
+          .filter((siteId) => activeSiteIds.has(siteId)),
+      ));
   if (!branchIds.length) return null;
   const { data: subscription, error: subscriptionError } = await admin.from("tenant_subscriptions")
     .select("status, ends_at")
@@ -236,7 +325,7 @@ async function resolveMobileScope(userId: number, tenantId: number, allowPasswor
   const subscriptionActive = Boolean(subscription && ["trial", "active"].includes(String(subscription.status)) && (!subscriptionEndsAt || new Date(subscriptionEndsAt).getTime() > Date.now()));
   if (!subscriptionActive || !subscriptionEndsAt) return null;
   const selected = permitted[0];
-  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: (selected.permissions as string[] | null) ?? null, subscriptionEndsAt, mustChangePassword: Boolean(user.must_change_password) };
+  return { userId, userName: user.name as string | null, tenantId, branchIds, role: selected.role as PowerRole, permissions: effectiveRights(selected), subscriptionEndsAt, mustChangePassword: Boolean(user.must_change_password) };
 }
 
 async function authenticateMobile(req: Request, allowPasswordChange = false): Promise<{ scope: MobileScope; sessionId: number } | null> {
@@ -275,10 +364,11 @@ async function authenticateMobile(req: Request, allowPasswordChange = false): Pr
 
 async function availableTenantsForUser(userId: number) {
   const admin = supabaseAdmin();
-  const { data: memberships, error } = await admin.from("tenant_members").select("tenant_id, tenants!inner(id, name, status)")
-    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").eq("tenants.status", "active");
+  const { data: memberships, error } = await admin.from("tenant_members").select("tenant_id, expires_at, tenants!inner(id, name, status)")
+    .eq("user_id", userId).eq("is_active", true).eq("membership_status", "active").eq("tenants.status", "active").or(activeTenantMembershipOrFilter());
   if (error) throw new Error(error.message);
-  return (memberships ?? []).map((membership: any) => ({ id: toNumber(membership.tenants.id), name: membership.tenants.name as string }));
+  return (memberships ?? []).filter((membership: any) => isTenantMembershipUnexpired(membership))
+    .map((membership: any) => ({ id: toNumber(membership.tenants.id), name: membership.tenants.name as string }));
 }
 
 async function createSession(scope: MobileScope, deviceLabel?: string) {
@@ -379,11 +469,35 @@ export function registerMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/v1/auth/change-password", async (req, res) => {
+  app.post("/api/mobile/v1/auth/change-password", rateLimit({
+    windowMs: 900000,
+    limit: 60,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز محاولات تغيير كلمة المرور من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-change-password-ip", windowSeconds: 900, maxAttempts: 30,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "900");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز محاولات تغيير كلمة المرور من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const parsed = mobileChangePasswordSchema.safeParse(req.body);
     if (!parsed.success) return sendError(res, 400, "INVALID_PASSWORD_INPUT", "كلمة المرور الجديدة غير صالحة.");
     const context = await authenticateMobile(req, true);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة.");
+    const changePasswordAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-change-password-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 900, maxAttempts: 5,
+    });
+    if (!changePasswordAllowed) {
+      res.setHeader("Retry-After", "900");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز محاولات تغيير كلمة المرور. حاول لاحقاً.", true);
+    }
     if (!context.scope.mustChangePassword) return sendError(res, 409, "PASSWORD_CHANGE_NOT_REQUIRED", "لا توجد كلمة مرور مؤقتة معلقة.");
     const admin = supabaseAdmin();
     const { data: user, error: userError } = await admin.from("users").select("auth_user_id").eq("id", context.scope.userId).maybeSingle();
@@ -423,23 +537,95 @@ export function registerMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/v1/auth/logout", async (req, res) => {
+  app.post("/api/mobile/v1/auth/logout", rateLimit({
+    windowMs: 60000,
+    limit: 120,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز محاولات تسجيل الخروج من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-logout-ip", windowSeconds: 60, maxAttempts: 60,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز محاولات تسجيل الخروج من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة.");
+    const logoutAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-logout-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 10,
+    });
+    if (!logoutAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز محاولات تسجيل الخروج. حاول لاحقاً.", true);
+    }
     const { error } = await supabaseAdmin().from("mobile_api_sessions").update({ revoked_at: isoNow(), last_used_at: isoNow() }).eq("id", context.sessionId);
     if (error) return sendSupabaseError(res, error);
     return res.status(204).send();
   });
 
-  app.get("/api/mobile/v1/auth/me", async (req, res) => {
+  app.get("/api/mobile/v1/auth/me", rateLimit({
+    windowMs: 60000,
+    limit: 480,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد طلبات الجلسة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-me-ip", windowSeconds: 60, maxAttempts: 240,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات الجلسة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const meAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-me-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!meAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات الجلسة. حاول لاحقاً.", true);
+    }
     return res.json({ user: mobileUserPayload(context.scope) });
   });
 
-  app.get("/api/mobile/v1/reading-cycle", async (req, res) => {
+  app.get("/api/mobile/v1/reading-cycle", rateLimit({
+    windowMs: 60000,
+    limit: 240,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد طلبات دورة القراءة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-reading-cycle-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات دورة القراءة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const cycleAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-reading-cycle-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 60,
+    });
+    if (!cycleAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات دورة القراءة. حاول لاحقاً.", true);
+    }
 
     const branchId = Number(req.query.branchId);
     if (!Number.isInteger(branchId) || branchId <= 0) return sendError(res, 400, "INVALID_BRANCH", "الفرع المحدد غير صالح.");
@@ -451,6 +637,11 @@ export function registerMobileApi(app: Express) {
     });
     if (error) return sendSupabaseError(res, error, "تعذر تحميل دورة القراءات من PowerHub.");
 
+    const currentCycleResult = await resolveMobileReadingCycle(context.scope.tenantId, branchId, isoNow());
+    if (currentCycleResult.error || !currentCycleResult.cycle) {
+      return sendSupabaseError(res, currentCycleResult.error, "تعذر تحديد حدود دورة القراءات الحالية.");
+    }
+
     const row = Array.isArray(data) ? data[0] : data;
     return res.json({
       cycle: {
@@ -459,12 +650,37 @@ export function registerMobileApi(app: Express) {
         monthlyStartDay: Number(row?.monthly_start_day ?? 1),
         timezone: row?.timezone ?? "Asia/Gaza",
       },
+      currentCycle: currentCycleResult.cycle,
     });
   });
 
-  app.get("/api/mobile/v1/reading-cycle-sync-stats", async (req, res) => {
+  app.get("/api/mobile/v1/reading-cycle-sync-stats", rateLimit({
+    windowMs: 60000,
+    limit: 60,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد طلبات إحصاءات الدورة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-cycle-stats-ip", windowSeconds: 60, maxAttempts: 30,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات إحصاءات الدورة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const cycleStatsAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-cycle-stats-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 12,
+    });
+    if (!cycleStatsAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات إحصاءات الدورة. حاول لاحقاً.", true);
+    }
     const parsed = mobileCycleSyncStatsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       return sendError(res, 400, "INVALID_CYCLE_SYNC_STATS_QUERY", "بيانات الفترة المحددة غير صالحة.");
@@ -506,16 +722,228 @@ export function registerMobileApi(app: Express) {
     return res.json({ branchId, from, to, syncedReadingCount: readingIds.size });
   });
 
-  app.get("/api/mobile/v1/subscribers", async (req, res) => {
+  // E51: stable per-session scoped bootstrap/delta; v1 offset endpoint remains
+  // available to older Android installs. A missing or stale cursor is NEVER
+  // interpreted as an offset or as authority to switch tenant or branch.
+  app.get("/api/mobile/v1/subscribers/delta", rateLimit({
+    windowMs: 60_000, limit: 240,
+    standardHeaders: "draft-8", legacyHeaders: false,
+  }), async (req, res, next) => {
+    const allowed = await consumeHttpRateLimit({
+      req, scope: "mobile-delta-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!allowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "طلبات تحديث المشتركين متكررة للغاية.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const allowed = await consumeHttpRateLimit({
+      req, scope: "mobile-delta-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 60,
+    });
+    if (!allowed) return sendError(res, 429, "RATE_LIMITED", "تم تجاوز حد المزامنة.", true);
+    const parsed = mobileSubscriberDeltaQuerySchema.safeParse(req.query);
+    if (!parsed.success) return sendError(res, 400, "INVALID_DELTA_QUERY", "طلب Delta غير صالح.");
+    const { branchId, limit } = parsed.data;
+    if (!context.scope.branchIds.includes(branchId)) {
+      return sendError(res, 403, "BRANCH_ACCESS_DENIED", "الفرع خارج صلاحيات الحساب.");
+    }
+    try {
+      const [scope,cycleResult]=await Promise.all([
+        loadMobileDeltaScope(context.scope.tenantId,context.scope.userId,branchId),
+        resolveMobileReadingCycle(context.scope.tenantId,branchId,isoNow()),
+      ]);
+      if(cycleResult.error || !cycleResult.cycle) {
+        return sendSupabaseError(res,cycleResult.error,"تعذر تحديد الدورة الحالية للمزامنة.");
+      }
+      // Cycle rollover can change the per-subscriber read/completed flags
+      // without touching a subscriber or reading row. It is a scope change:
+      // require a safe full bootstrap once per cycle rather than stale flags.
+      const binding = {
+        tenantId:context.scope.tenantId,userId:context.scope.userId,
+        branchId,sessionId:context.sessionId,
+        scopeVersion:mobileDeltaScopeVersion({
+          access:scope.scopeVersion,cycleKey:cycleResult.cycle.key,
+          start:cycleResult.cycle.startAt,end:cycleResult.cycle.endAt,
+        }),
+      };
+      let cursor: MobileDeltaCursor;
+      let retainedFloor: number;
+      if (parsed.data.cursor) {
+        cursor = decodeMobileDeltaCursor(parsed.data.cursor,binding);
+        const fence = await mobileDeltaFence(binding.tenantId,branchId);
+        retainedFloor=fence.retainedFloor;
+        if (cursor.mode==="bootstrap" && cursor.highwater<retainedFloor ||
+            cursor.mode==="delta" && cursor.after<retainedFloor) {
+          return res.status(409).json({
+            requiresBootstrap:true,error:{code:"CURSOR_EXPIRED",
+              message:"تجاوز المؤشر حدود سجل التغييرات المحتفظ به.",retryable:false},
+          });
+        }
+        if (cursor.mode==="delta" && cursor.after===cursor.highwater) {
+          cursor = {...cursor,highwater:fence.highwater,issuedAt:Date.now()};
+        }
+      } else if (parsed.data.bootstrap === "true") {
+        const fence=await mobileDeltaFence(binding.tenantId,branchId);
+        retainedFloor=fence.retainedFloor;
+        cursor={v:1,mode:"bootstrap",...binding,
+          highwater:fence.highwater,after:0,ceiling:fence.ceiling,issuedAt:Date.now()};
+      } else {
+        return res.status(409).json({
+          requiresBootstrap:true,error:{code:"BOOTSTRAP_REQUIRED",
+            message:"يجب تهيئة بيانات هذا الفرع لأول مرة.",retryable:false},
+        });
+      }
+      let ids: number[];
+      let hasMore: boolean;
+      let nextAfter: number;
+      if (cursor.mode==="bootstrap") {
+        const page=await mobileBootstrapIds({
+          tenantId:binding.tenantId,branchId,userId:binding.userId,
+          distributed:scope.distributionEnabled,after:cursor.after,
+          ceiling:cursor.ceiling,limit,
+        });
+        ids=page.ids;
+        hasMore=page.hasMore;
+        nextAfter=ids.at(-1)??cursor.after;
+      } else {
+        const page=await mobileDeltaEvents({
+          tenantId:binding.tenantId,branchId,userId:binding.userId,
+          distributed:scope.distributionEnabled,after:cursor.after,
+          highwater:cursor.highwater,limit,
+        });
+        ids=[...new Set(page.events.map(e=>e.id))];
+        hasMore=page.hasMore;
+        nextAfter=page.events.at(-1)?.sequence??cursor.after;
+        if(!hasMore)nextAfter=cursor.highwater;
+      }
+      const upserts=await mobileDeltaProject({
+        tenantId:binding.tenantId,branchId,userId:binding.userId,
+        distributed:scope.distributionEnabled,ids,
+        cycleStart:cycleResult.cycle.startAt,cycleEnd:cycleResult.cycle.endAt,
+      });
+      const projectedIds=new Set(upserts.map(x=>x.id));
+      const deletes=ids.filter(id=>!projectedIds.has(id));
+      // A scope may be revoked while a page is being prepared. Recheck after
+      // projection and never emit the page under a changed entitlement.
+      const [refreshed,refreshedCycle]=await Promise.all([
+        loadMobileDeltaScope(binding.tenantId,binding.userId,branchId),
+        resolveMobileReadingCycle(binding.tenantId,branchId,isoNow()),
+      ]);
+      if(refreshedCycle.error || !refreshedCycle.cycle) {
+        return sendSupabaseError(res,refreshedCycle.error,"تعذر إعادة التحقق من الدورة الحالية.");
+      }
+      const finalVersion=mobileDeltaScopeVersion({
+        access:refreshed.scopeVersion,cycleKey:refreshedCycle.cycle.key,
+        start:refreshedCycle.cycle.startAt,end:refreshedCycle.cycle.endAt,
+      });
+      if(finalVersion!==binding.scopeVersion) {
+        return res.status(409).json({
+          requiresBootstrap:true,error:{code:"CURSOR_SCOPE_CHANGED",
+            message:"تغيرت صلاحيات الحساب؛ يلزم إعادة تهيئة الفرع.",retryable:false},
+        });
+      }
+      const next=nextMobileDeltaCursor(cursor,nextAfter,hasMore);
+      return res.json({
+        tenantId:binding.tenantId,userId:binding.userId,branchId,
+        mode:cursor.mode,scopeVersion:binding.scopeVersion,
+        currentCycle:cycleResult.cycle,
+        upserts,deletes,nextCursor:encodeMobileDeltaCursor(next),
+        hasMore,requiresBootstrap:false,serverTime:isoNow(),
+        transferredCount:upserts.length+deletes.length,
+      });
+    } catch (error) {
+      if(error instanceof MobileCursorError) {
+        return res.status(error.code==="CURSOR_INVALID"?400:409).json({
+          requiresBootstrap:true,error:{code:error.code,
+            message:"مؤشر المزامنة لم يعد صالحاً لهذا الحساب أو الفرع.",retryable:false},
+        });
+      }
+      return sendSupabaseError(res,
+        error instanceof Error?error:null,"تعذر تنفيذ Delta؛ بقي المؤشر المحلي دون تغيير.");
+    }
+  });
+
+  app.get("/api/mobile/v1/subscribers", rateLimit({
+    windowMs: 60000,
+    limit: 240,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد طلبات المشتركين من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-subscribers-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات المشتركين من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
+    const context = await authenticateMobile(req);
+    if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const subscribersAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-subscribers-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 30,
+    });
+    if (!subscribersAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد طلبات المشتركين. حاول لاحقاً.", true);
+    }
     const parsed = subscriberQuerySchema.safeParse(req.query);
     if (!parsed.success) return sendError(res, 400, "INVALID_QUERY", "بيانات طلب المشتركين غير صالحة.");
     if (!context.scope.branchIds.includes(parsed.data.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية الوصول إلى هذا الفرع.");
     const admin = supabaseAdmin();
-    const { data: rows, error } = await admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
-      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active").order("id", { ascending: true }).range(parsed.data.cursor, parsed.data.cursor + parsed.data.limit - 1);
+    const distribution = await resolveMobileFieldReadingDistributionEnabled(context.scope.tenantId, parsed.data.branchId);
+    if (distribution.error) return sendSupabaseError(res, distribution.error, "تعذر التحقق من توزيع المشتركين على مدخلي القراءة.");
+    let subscribersQuery = admin.from("subscribers").select("id, subscriber_no, full_name, phone, address, site_id")
+      .eq("tenant_id", context.scope.tenantId).eq("site_id", parsed.data.branchId).eq("service_status", "active");
+    if (distribution.enabled) subscribersQuery = subscribersQuery.eq("assigned_reader_user_id", context.scope.userId);
+    const { data: rows, error } = await subscribersQuery.order("id", { ascending: true }).range(parsed.data.cursor, parsed.data.cursor + parsed.data.limit - 1);
     if (error) return sendSupabaseError(res, error);
+
+    const currentCycleResult = await resolveMobileReadingCycle(context.scope.tenantId, parsed.data.branchId, isoNow());
+    if (currentCycleResult.error || !currentCycleResult.cycle) {
+      return sendSupabaseError(res, currentCycleResult.error, "تعذر تحديد حدود دورة القراءات الحالية.");
+    }
+
+    const cycleReadingsBySubscriber = new Map<number, {
+      readingId: number;
+      readingValue: string;
+      readingAt: string;
+      status: string;
+    }>();
+    const subscriberIds = (rows ?? []).map((row) => toNumber(row.id));
+    if (subscriberIds.length > 0) {
+      const { data: cycleReadings, error: cycleReadingsError } = await admin.from("meter_readings")
+        .select("id, subscriber_id, reading_value, reading_at, status")
+        .eq("tenant_id", context.scope.tenantId)
+        .in("subscriber_id", subscriberIds)
+        .eq("is_opening_baseline", false)
+        .neq("status", "rejected")
+        .gte("reading_at", currentCycleResult.cycle.startAt)
+        .lte("reading_at", currentCycleResult.cycle.endAt)
+        .order("reading_at", { ascending: false })
+        .limit(1000);
+      if (cycleReadingsError) return sendSupabaseError(res, cycleReadingsError, "تعذر تحميل قراءات المشتركين في الدورة الحالية.");
+      for (const reading of cycleReadings ?? []) {
+        const subscriberId = toNumber(reading.subscriber_id);
+        if (!cycleReadingsBySubscriber.has(subscriberId)) {
+          cycleReadingsBySubscriber.set(subscriberId, {
+            readingId: toNumber(reading.id),
+            readingValue: String(reading.reading_value),
+            readingAt: reading.reading_at,
+            status: reading.status,
+          });
+        }
+      }
+    }
+
     try {
       const items = await Promise.all((rows ?? []).map(async (row) => {
         // Keep the opening baseline as the meter-value starting point, but do not
@@ -536,56 +964,72 @@ export function registerMobileApi(app: Express) {
           phone: row.phone, address: row.address, branchId: toNumber(row.site_id),
           lastReading: lastApprovedResult.data?.reading_value == null ? null : normalizeMobileReadingValue(lastApprovedResult.data.reading_value),
           lastReadingAt: lastOperationalResult.data?.reading_at ?? null,
+          hasReadingInCurrentCycle: cycleReadingsBySubscriber.has(toNumber(row.id)),
+          currentCycleReading: cycleReadingsBySubscriber.get(toNumber(row.id)) ?? null,
         };
       }));
-      return res.json({ items, nextCursor: (rows?.length ?? 0) === parsed.data.limit ? String(parsed.data.cursor + parsed.data.limit) : null });
+      return res.json({
+        items,
+        currentCycle: currentCycleResult.cycle,
+        nextCursor: (rows?.length ?? 0) === parsed.data.limit ? String(parsed.data.cursor + parsed.data.limit) : null,
+      });
     } catch (lastReadingError) {
       return sendSupabaseError(res, lastReadingError instanceof Error ? lastReadingError : null);
     }
   });
 
-  app.post("/api/mobile/v1/readings", async (req, res) => {
+  app.post("/api/mobile/v1/readings", rateLimit({
+    windowMs: 60000,
+    limit: 240,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد عمليات تسجيل القراءة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-reading-write-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد عمليات تسجيل القراءة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const readingAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-reading-write-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 30,
+    });
+    if (!readingAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد عمليات تسجيل القراءة. حاول لاحقاً.", true);
+    }
     const parsed = readingSchema.safeParse(req.body);
     if (!parsed.success) {
       return sendError(res, 400, "INVALID_READING", "بيانات القراءة غير صالحة.", false, {
-        issues: parsed.error.issues.map((issue) => ({
-          path: issue.path.map(String).join("."),
-          code: issue.code,
-          message: issue.message,
-        })),
+        issues: parsed.error.issues.map((issue) => ({ path: issue.path.map(String).join("."), code: issue.code, message: issue.message })),
       });
     }
     const input = parsed.data;
     if (!context.scope.branchIds.includes(input.branchId)) return sendError(res, 403, "BRANCH_ACCESS_DENIED", "لا تملك صلاحية تسجيل قراءة لهذا الفرع.");
+
     const admin = supabaseAdmin();
-    const { data: existing, error: existingError } = await admin.from("meter_readings").select("id, status, consumption_kwh")
-      .eq("tenant_id", context.scope.tenantId).eq("client_operation_id", input.clientOperationId).maybeSingle();
-    if (existingError) return sendSupabaseError(res, existingError);
-    if (existing) return res.status(200).json({ id: toNumber(existing.id), status: existing.status, consumptionKwh: existing.consumption_kwh, replayed: true });
-    const { data: subscriber, error: subscriberError } = await admin.from("subscribers").select("id")
-      .eq("id", input.subscriberId).eq("tenant_id", context.scope.tenantId).eq("site_id", input.branchId).eq("service_status", "active").maybeSingle();
-    if (subscriberError) return sendSupabaseError(res, subscriberError);
-    if (!subscriber) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
-    const readingAt = new Date(input.readingAt);
-    // Field readings use the platform's configured Gaza calendar convention.
-    // Do not depend on a non-contractual configuration table for duplicate protection.
-    const dayWindow = mobileReadingDayWindow(readingAt, "Asia/Gaza");
-    const { data: sameDayReading, error: sameDayError } = await admin.from("meter_readings").select("id")
-      .eq("subscriber_id", subscriber.id)
-      .gte("reading_at", dayWindow.start.toISOString()).lt("reading_at", dayWindow.end.toISOString())
-      .eq("is_opening_baseline", false).neq("status", "rejected").limit(1).maybeSingle();
-    if (sameDayError) return sendSupabaseError(res, sameDayError);
-    if (sameDayReading) return sendError(res, 409, "READING_ALREADY_EXISTS_TODAY", "توجد قراءة غير مرفوضة لهذا المشترك في اليوم نفسه.");
-    const { data: previous, error: previousError } = await admin.from("meter_readings").select("reading_value")
-      .eq("subscriber_id", subscriber.id).eq("status", "approved").order("reading_at", { ascending: false }).limit(1).maybeSingle();
-    if (previousError) return sendSupabaseError(res, previousError);
-    const previousValue = Number(previous?.reading_value ?? 0);
-    const nextValue = Number(input.readingValue);
-    if (nextValue < previousValue && !input.isReadingReset) return sendError(res, 409, "READING_BELOW_PREVIOUS", "القراءة الحالية أقل من القراءة المعتمدة السابقة.");
-    if (nextValue < previousValue && !input.notes) return sendError(res, 400, "READING_RESET_NOTE_REQUIRED", "أدخل ملاحظة تشرح إعادة ضبط سجل القراءة.");
-    const consumptionKwh = input.isReadingReset && nextValue < previousValue ? nextValue : nextValue - previousValue;
+    // Fast-path an already committed operation before uploading its image again.
+    // The database RPC repeats this check under an operation-key lock to cover races.
+    const { data: prior, error: priorError } = await admin.from("meter_readings")
+      .select("id,status,consumption_kwh,subscriber_id,entered_by_user_id")
+      .eq("tenant_id", context.scope.tenantId)
+      .eq("client_operation_id", input.clientOperationId)
+      .maybeSingle();
+    if (priorError) return sendSupabaseError(res, priorError);
+    if (prior) {
+      if (Number(prior.subscriber_id) !== input.subscriberId || Number(prior.entered_by_user_id) !== context.scope.userId) {
+        return sendError(res, 409, "IDEMPOTENCY_KEY_REUSED", "معرف العملية مستخدم لعملية أخرى.");
+      }
+      return res.status(200).json({ id: toNumber(prior.id), status: prior.status, consumptionKwh: prior.consumption_kwh, replayed: true });
+    }
+
     let imageKey: string | undefined;
     let imageHash: string | undefined;
     if (input.imageData) {
@@ -594,25 +1038,88 @@ export function registerMobileApi(app: Express) {
       if (!imageBytes.byteLength || imageBytes.byteLength > 7 * 1024 * 1024) return sendError(res, 413, "IMAGE_TOO_LARGE", "يجب ألا يتجاوز حجم صورة القراءة 7 ميغابايت.");
       imageHash = crypto.createHash("sha256").update(imageBytes).digest("hex");
       const extension = input.imageMime === "image/png" ? "png" : input.imageMime === "image/webp" ? "webp" : "jpg";
-      imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${subscriber.id}-${Date.now()}.${extension}`, imageBytes, input.imageMime)).key;
+      try {
+        imageKey = (await storagePut(`subscriber-readings/mobile/${context.scope.userId}/${input.subscriberId}-${input.clientOperationId}.${extension}`, imageBytes, input.imageMime)).key;
+      } catch (storageError) {
+        return sendSupabaseError(res, storageError instanceof Error ? storageError : null, "تعذر حفظ صورة القراءة.");
+      }
     }
-    const notes = [input.isReadingReset ? "[إعادة ضبط سجل القراءة]" : "", input.fieldVerified ? "[تم التحقق ميدانياً]" : "", input.notes ?? ""].filter(Boolean).join(" ");
-    const { data: inserted, error: insertError } = await admin.from("meter_readings").insert({
-      tenant_id: context.scope.tenantId, subscriber_id: subscriber.id, client_operation_id: input.clientOperationId, reading_at: readingAt.toISOString(), reading_value: input.readingValue,
-      previous_reading_value: previous?.reading_value ?? null, consumption_kwh: String(consumptionKwh), capture_method: input.captureMethod, image_key: imageKey, image_hash: imageHash, entered_by_user_id: context.scope.userId, notes,
-    }).select("id, status, consumption_kwh").single();
-    if (insertError || !inserted) return sendSupabaseError(res, insertError, "تعذر تسجيل القراءة.");
-    try {
-      await writeAudit({ tenantId: context.scope.tenantId, branchId: input.branchId, userId: context.scope.userId, role: context.scope.role, entityType: "meter_reading", entityId: String(inserted.id), action: "mobile_create", afterData: { clientOperationId: input.clientOperationId, subscriberId: input.subscriberId, readingValue: input.readingValue, readingAt: input.readingAt, latitude: input.latitude, longitude: input.longitude, captureMethod: input.captureMethod } });
-      return res.status(201).json({ id: toNumber(inserted.id), status: inserted.status, consumptionKwh: inserted.consumption_kwh, replayed: false });
-    } catch (auditError) {
-      return sendSupabaseError(res, auditError instanceof Error ? auditError : null, "تم حفظ القراءة لكن تعذر تسجيل التدقيق.");
+
+    const { data, error } = await admin.rpc("powerhub_mobile_create_field_reading", {
+      p_tenant_id: context.scope.tenantId,
+      p_site_id: input.branchId,
+      p_user_id: context.scope.userId,
+      p_subscriber_id: input.subscriberId,
+      p_client_operation_id: input.clientOperationId,
+      p_reading_at: input.readingAt,
+      p_reading_value: input.readingValue,
+      p_capture_method: input.captureMethod,
+      p_image_key: imageKey ?? null,
+      p_image_hash: imageHash ?? null,
+      p_notes: input.notes ?? null,
+      p_is_reading_reset: input.isReadingReset,
+      p_field_verified: input.fieldVerified,
+      p_actor_tenant_role: context.scope.role,
+      p_latitude: input.latitude ?? null,
+      p_longitude: input.longitude ?? null,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    if (error || !row) {
+      if (imageKey) {
+        try { await storageRemove(imageKey); } catch (cleanupError) { console.error("[Mobile API] rejected reading image cleanup failed", cleanupError); }
+      }
+      const message = String(error?.message ?? "");
+      if (message.includes("FIELD_READER_ASSIGNMENT_CHANGED") || message.includes("MOBILE_FIELD_READER_NOT_ELIGIBLE")) {
+        return sendError(res, 403, "FIELD_READER_ASSIGNMENT_CHANGED", "لم تعد تملك إسناد هذا المشترك أو انتهت صلاحية عضويتك.", false);
+      }
+      if (message.includes("READING_ALREADY_EXISTS_IN_CYCLE") || message.includes("meter_readings_one_operational_reading_per_cycle")) {
+        return sendError(res, 409, "READING_ALREADY_EXISTS_IN_CYCLE", "توجد قراءة غير مرفوضة لهذا المشترك في دورة القراءة نفسها.");
+      }
+      if (message.includes("READING_BELOW_PREVIOUS")) return sendError(res, 409, "READING_BELOW_PREVIOUS", "القراءة الحالية أقل من القراءة المعتمدة السابقة.");
+      if (message.includes("READING_RESET_NOTES_REQUIRED")) return sendError(res, 400, "READING_RESET_NOTE_REQUIRED", "أدخل ملاحظة تشرح إعادة ضبط سجل القراءة.");
+      if (message.includes("MOBILE_READING_IDEMPOTENCY_KEY_REUSED")) return sendError(res, 409, "IDEMPOTENCY_KEY_REUSED", "معرف العملية مستخدم لعملية أخرى.");
+      if (message.includes("SUBSCRIBER_OUT_OF_SCOPE_OR_INACTIVE")) return sendError(res, 404, "SUBSCRIBER_NOT_FOUND", "المشترك لا يتبع للفرع المحدد أو أن خدمته غير نشطة.");
+      return sendSupabaseError(res, error, "تعذر تسجيل القراءة.");
     }
+
+    if (row.replayed && imageKey) {
+      try { await storageRemove(imageKey); } catch (cleanupError) { console.error("[Mobile API] replay image cleanup failed", cleanupError); }
+    }
+    return res.status(row.replayed ? 200 : 201).json({
+      id: toNumber(row.reading_id),
+      status: row.status,
+      consumptionKwh: row.consumption_kwh,
+      replayed: Boolean(row.replayed),
+    });
   });
 
-  app.post("/api/mobile/v1/sync-events", async (req, res) => {
+  app.post("/api/mobile/v1/sync-events", rateLimit({
+    windowMs: 60000,
+    limit: 240,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "تم تجاوز عدد أحداث المزامنة من هذا الاتصال. حاول لاحقاً.", retryable: true } },
+  }), async (req, res, next) => {
+    const ipAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-sync-events-ip", windowSeconds: 60, maxAttempts: 120,
+    });
+    if (!ipAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد أحداث المزامنة من هذا الاتصال. حاول لاحقاً.", true);
+    }
+    return next();
+  }, async (req, res) => {
     const context = await authenticateMobile(req);
     if (!context) return sendError(res, 401, "UNAUTHORIZED", "جلسة الموبايل غير صالحة أو منتهية.");
+    const syncEventsAllowed = await consumeHttpRateLimit({
+      req, scope: "mobile-sync-events-session",
+      keyMaterial: `${context.scope.tenantId}:${context.scope.userId}:${context.sessionId}`,
+      windowSeconds: 60, maxAttempts: 30,
+    });
+    if (!syncEventsAllowed) {
+      res.setHeader("Retry-After", "60");
+      return sendError(res, 429, "RATE_LIMITED", "تم تجاوز عدد أحداث المزامنة. حاول لاحقاً.", true);
+    }
     const parsed = syncEventSchema.safeParse(req.body);
     if (!parsed.success) return sendError(res, 400, "INVALID_SYNC_EVENT", "بيانات حدث المزامنة غير صالحة.");
     const input = parsed.data;
@@ -637,4 +1144,4 @@ export function registerMobileApi(app: Express) {
   });
 }
 
-export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, cycleSyncStats: mobileCycleSyncStatsQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };
+export const mobileApiSchemas = { login: mobileLoginSchema, changePassword: mobileChangePasswordSchema, refresh: refreshSchema, subscribers: subscriberQuerySchema, subscriberDelta: mobileSubscriberDeltaQuerySchema, cycleSyncStats: mobileCycleSyncStatsQuerySchema, reading: readingSchema, syncEvent: syncEventSchema };

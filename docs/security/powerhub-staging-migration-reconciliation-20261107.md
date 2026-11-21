@@ -1,0 +1,449 @@
+# PowerHub — Staging Migration History Reconciliation
+
+**Snapshot:** 7 November 2026  
+**Repository snapshot:** \`850144da0b8b7234f440a92da0739cc9f3142628\`  
+**Supabase project:** \`iyuryuhaylhisjfcrwkz\` (Staging only)  
+**Method:** GitHub recursive tree + Supabase migration ledger read-only query. No migration was applied and no history row was changed.
+
+## 1. Inventory
+
+| Measure | Observed |
+|---|---:|
+| Canonical 14-digit migration files in repository tree | 502 |
+| Legacy numeric migration files with non-14-digit versions | 77 |
+| Total SQL files under `supabase/migrations` | 579 |
+| Rows in Staging migration ledger | 424 |
+| Exact Version + Name matches | 179 |
+| Same Name, different Version | 91 local files |
+| Local files with neither exact Name nor matching Version | 232 |
+| Of those local unmatched files at/before latest Staging Version | 225 |
+| Local files after latest Staging Version | 7 |
+| Staging rows whose Name has no exact local filename match | 150 rows / 149 unique names |
+| Staging duplicate-name groups | 5 |
+
+Staging latest recorded version at snapshot: \`20261106224902\` (\`powerhub_payment_delta_purpose_projection\`).
+
+The 91 name matches are not proof that the local SQL bytes equal the SQL previously executed in Staging. The ledger has no dedicated checksum column, but the live supabase_migrations.schema_migrations table does retain statements and rollback arrays. This follow-up reads the stored SQL payloads for the five duplicate-name groups and compares their bytes, normalized content, function bodies, and live postconditions. The original 91-candidate inventory still requires the same direct statement-to-source comparison; it must not be inferred from name/version alone.
+
+## 2. Version drift
+
+The 91 name matches have different local and recorded versions. Current classification:
+- 39 local filenames sort before their Staging record.
+- 52 local filenames sort after their Staging record.
+
+This supersedes the earlier working estimate of 95 drift cases. The snapshot calculation is based on the 502-file recursive Git tree and the current 424-row Staging ledger.
+
+## 3. Duplicate names in Staging
+
+| Name | Recorded versions |
+|---|---|
+| \`powerhub_chat_helpdesk_v2\` | \`20260922090008\`, \`20260922090208\` |
+| \`powerhub_reading_opening_baseline_save_fix\` | \`20261010161951\`, \`20261010170812\` |
+| \`staging_restore_powerhub_submit_payment_documentation_source_destination_support_v2\` | \`20261012174547\`, \`20261012174856\` |
+| \`powerhub_image_retention_metadata\` | \`20261101200609\`, \`20261102171227\` |
+| \`powerhub_chat_feature_entitlements\` | \`20261101210557\`, \`20261102171243\` |
+
+These are ambiguous history entries. Do not release any same-name migration until each group is reconciled against the migration source and resulting schema.
+
+## 4. Staging-only names and normalization candidates
+
+Of the 150 unmatched Staging rows:
+- 12 names embed a timestamp prefix in the Name field.
+- 53 names use a \`staging_\` prefix.
+- 27 rows can be associated with an existing local migration by conservative name normalization (removing a recognized staging/replay prefix and/or embedded timestamp).
+- 123 rows remain unmatched after that normalization.
+
+Normalization is a discovery aid only. It is not authorization to rewrite migration history or to classify a migration as byte-identical.
+
+## 5. Seven local files after the latest Staging record
+
+| Version | File |
+|---|---|
+| \`20261107120000\` | \`powerhub_inventory_supplier_site_rls_scope\` |
+| \`20261107130000\` | \`powerhub_inventory_phase_d_supplier_allocation_scope\` |
+| \`20261107130443\` | \`powerhub_platform_support_identity_role_guard\` |
+| \`20261107140000\` | \`powerhub_inventory_supplier_payables_allocation_scope\` |
+| \`20261107143819\` | \`powerhub_company_account_capability_search_path\` |
+| \`20261107150000\` | \`powerhub_supplier_browser_read_acl_revoke\` |
+| \`20261107150951\` | \`powerhub_public_default_privilege_hardening\` |
+
+All seven are later than the latest Staging ledger version. Their existence in Git does not establish whether equivalent SQL was applied under another historical name/version.
+
+## 6. Content and dependency review completed
+
+The seven files were read from the exact repository snapshot. Key contracts identified:
+- Supplier branch/site restrictive read policies and allocation/document cross-scope checks.
+- Phase D financial details and supplier-payables RPCs fail closed on malformed cross-branch allocations and are service-role-only.
+- Platform capability helper requires active \`users.role='admin'\`, allowlisted platform role, and explicit capability policy; it pins empty \`search_path\`.
+- Company-account capability helper preserves owner, SECURITY DEFINER, and authenticated/service_role EXECUTE while pinning empty \`search_path\`.
+- Supplier direct browser table/column SELECT is revoked while service_role SELECT remains.
+- Default privilege hardening is limited to objects created by \`postgres\`; it deliberately does not modify \`supabase_admin\` defaults or existing object ACLs.
+
+Live Staging inspection found:
+- Supplier tables have RLS enabled and service_role SELECT. Eight supplier-domain tables still grant authenticated SELECT; supplier return tables are already server-only. Existing permissive tenant/site policies are present. The pending migration \`20261107150000\` is designed to remove table and column-level browser grants after server-only route review.
+- The live company-account capability helper still has its prior non-empty search_path. The new migration is not applied.
+- The live platform capability helper still lacks the \`users.role='admin'\` predicate. This is the identity-hardening gap addressed by the new migration and regression test.
+- Current postgres defaults in public/storage still include browser role grants; \`supabase_admin\` defaults are provider-managed and are not modified by the proposed migration.
+- The default-privilege preflight currently finds no postgres-owned routines or function defaults in unreviewed schemas.
+
+## 7. Release blockers and safe next actions
+
+1. Run the new isolated PostgreSQL identity regression test for \`20261107130443\` on CI.
+2. Review the 91 drift candidates against historical migration sources and resulting schema; do not mass-rename.
+3. Resolve all five duplicate-name groups with source evidence before release tooling is allowed to classify them.
+4. Identify the 123 remaining Staging-only names and 225 older local files without a direct Staging name match. Inspect repository history, prior branches, and staging-specific replay/reconciliation migrations.
+5. For each of the seven newer migrations, validate dependencies, preconditions, postconditions, and test coverage. In particular, ensure the server-only supplier routes are the only runtime data path before revoking browser SELECT.
+6. Re-run the migration-release guard against the actual ledger after the identity test and before any future migration approval.
+
+## 8. Safety boundary
+
+This report is a read-only reconciliation snapshot. It did not apply migrations, update \`schema_migrations\`, change ACL/RLS, alter data, touch Production, create a Preview, or merge PR #359.
+
+
+## 9. Local timestamp collisions and release-source inventory — 7 November 2026
+
+### Verified repository snapshot
+
+Follow-up verification used source HEAD \`ee957aad1503cfc2490fe14f0c866a9441c532a8\` and tree \`fa968e35ed11150689dc453ead3e9aa5f88c8834\`. GitHub's compare endpoint confirms that the only changes between the report's original source snapshot \`850144da0b8b7234f440a92da0739cc9f3142628\` and \`ee957...\` were the PostgreSQL integration workflow, security ledger, this report, and the platform-support SQL regression. No migration file changed in that interval. The 502-file reconciliation baseline therefore remains valid for canonical 14-digit migrations.
+
+The complete tree contains 579 SQL files:
+- 502 canonical migration filenames with a 14-digit version.
+- 77 older numeric-version SQL filenames that do not use the 14-digit convention.
+- The original 502/424 comparison is specifically the canonical 14-digit migration inventory versus the 424 live Staging ledger rows; it was not a count of every SQL file in the directory.
+
+### Four additional 14-digit duplicate-version groups
+
+The full tree contains four canonical 14-digit versions used by two distinct SQL files each. Their contents and GitHub path histories were inspected; the paired files implement different changes and are not duplicate byte copies.
+
+| Version | First file and source evidence | Second file and source evidence |
+|---|---|---|
+| \`20260916190000\` | \`enforce_subscriber_phone_required.sql\` — required phone / optional WhatsApp constraint; blob \`8d062127e09d0101dd6e1bfca669a32830293407\`; path commit \`65cdb5dd040f\` at \`2026-09-16 16:48:05Z\` | \`powerhub_owner_subscription_main_site.sql\` — atomic owner-subscription and main-site creation; blob \`9fd5ace64f8a633ef43dc724f14e953b1615df2f\`; path history includes \`781bc0af66d9\` at \`2026-09-16 15:53:12Z\` |
+| \`20260922123000\` | \`powerhub_unified_field_user_guard.sql\` — field-user feature-policy guard; blob \`a9386eae4ea80ac8a44be7a8dbaea3a007ee6912\`; path commit \`62d128cc5f39\` at \`2026-09-22 07:02:04Z\` | \`powerhub_unified_field_user_policy.sql\` — revised quota guard plus explicit trigger recreation; blob \`f887b4a5580211cb624701d0601975952b660006\`; path commit \`219ac8a2fd34\` at \`2026-09-22 07:02:17Z\` |
+| \`20260926123000\` | \`powerhub_advanced_dashboard_synchronization.sql\` — platform dashboard read model; blob \`6b4b14956e7d753f0a9f2ecfccd5ddd836c6aaa5\`; path commit \`2e586374a622\` at \`2026-09-26 09:56:29Z\` | \`powerhub_upgrade_review_hardening.sql\` — subscription-upgrade approval transaction hardening; blob \`ae9100ff76d479576e3d7bab98a416b5b22d6e48\`; path commit \`38acd99531d6\` at \`2026-09-26 09:23:44Z\` |
+| \`20261013170000\` | \`powerhub_fix_sms_claim_tenant_id_ambiguity.sql\` — SMS claim tenant scoping / output-parameter ambiguity; blob \`d985ecf9ea6d7f20f3faf1a8d7345cfcf6de5634\`; path commit \`cbe97a809052\` at \`2026-10-13 13:07:26Z\` | \`powerhub_unified_message_history_filters.sql\` — unified, tenant/site-scoped message history and filters; blob \`8d633a7c5186c9e636b271bcc600aa5de916feed\`; path commit \`0b21e7c37681\` at \`2026-10-13 17:00:07Z\` |
+
+The repository also retains two older, non-14-digit collision groups:
+- \`0010\`: \`0010_fix_subscriber_create_rpc_ambiguity.sql\` and \`0010_powerhub_update_subscriber_rpc.sql\`.
+- \`0060\`: \`0060_admin_subscription_upgrade_enrichment_rpc.sql\` and \`0060_powerhub_request_owner_access_recovery.sql\`.
+
+### Existing guard assessment
+
+At \`ee957...\`, \`scripts/check-supabase-migration-files.mjs\` already pinned all six exact collision groups (the four 14-digit groups above plus legacy \`0010\` and \`0060\`). Thus these four 14-digit groups were not completely unguarded; the gap was that they were absent from this reconciliation report and the release workflow did not validate the entire immutable PR-source inventory.
+
+The release workflow checks out trusted release scripts from \`main\`, checks out the source PR at its immutable SHA into \`migration-source\`, but copies only the selected SQL file into the trusted workspace. Its previous inventory check therefore saw the \`main\` migration directory plus the selected file, not all migrations in the source PR. That is insufficient to detect a second, unselected new file in the same PR sharing a version.
+
+### Hardening implemented in this follow-up
+
+- Shared \`assertSupabaseMigrationFileInventory\` validates the complete filename inventory. It allows only the exact six pinned historical groups and fails closed on any new, altered, or additional duplicate version.
+- \`assertSupabaseMigrationReleaseVersionIsUnique\` additionally prevents releasing any selected file whose version is shared by another local migration, including a member of a pinned historical group.
+- \`check-supabase-migration-files.mjs\` accepts \`POWERHUB_MIGRATION_DIR\`, so the protected release workflow can inspect the entire source-PR migration directory rather than only the selected copied file.
+- \`release-supabase-migration.mjs\` validates that same full source inventory and requires the selected candidate to be present in it.
+- The protected workflow passes the immutable checkout at \`migration-source/supabase/migrations\` to both the inventory checker and the release runner.
+- Regression tests cover all six pinned groups, a new 14-digit collision, changes to pinned members, malformed filenames, selection of a colliding candidate, and a unique candidate.
+
+### Decision and remaining proof
+
+No historical filename or timestamp was changed. Git path-commit dates and distinct SQL contents establish that the paired files are separate source changes, but do not by themselves prove which timestamp should replace the shared version or whether equivalent SQL was executed under another historical Staging/Production identity. Assigning new timestamps without the complete historical release ledger and schema evidence would risk replaying already-applied SQL. The four groups remain pinned and unreleasable by candidate-version guard until an evidence-backed reconciliation decides their final disposition.
+
+Staging remains at 424 ledger rows, latest \`20261106224902\`; no migration was applied, no migration-history row was inserted or rewritten, and Production was not modified during this follow-up.
+
+
+## 10. Direct Staging SQL evidence for the five duplicate-name groups — 7 November 2026
+
+### Ledger capability and method correction
+
+The earlier sections compared only version and name. A later read-only inspection of the live supabase_migrations.schema_migrations catalog found these columns:
+
+- version text
+- name text
+- statements text[]
+- rollback text[]
+- created_by text
+- idempotency_key text
+
+There is no dedicated migration checksum column, but the statements array stores the SQL payload. The checks below used the live SQL text itself, its server-computed MD5 fingerprint and byte length, direct equality/normalized equality against GitHub files, function-body equality against pg_proc.prosrc, and current schema postconditions. No SQL payload was written back and no history row was changed.
+
+### Reconciled evidence
+
+| Staging name | Version | Stored SQL bytes | MD5 of stored SQL | Comparison / finding |
+|---|---:|---:|---|---|
+| powerhub_chat_helpdesk_v2 | 20260922090008 | 9 | ccb5b4481bced39454dca6d845601d54 | The entire stored statement is select 1;; it is not the Helpdesk migration. |
+| powerhub_chat_helpdesk_v2 | 20260922090208 | 61,340 | a009aaa8c8cfa095335a8824611988d6 | Byte-for-byte equal to current Git file 20260922180000_powerhub_chat_helpdesk_v2.sql (blob 6c8f87cd2c62338d00becbed70a9489bf0f5cf5a). Git history shows the file was corrected through several commits immediately before this Staging execution. |
+| powerhub_reading_opening_baseline_save_fix | 20261010161951 | 4,657 | b84cce66740522b1915bce44fb39cb60 | Earlier function revision; not the current live function body. |
+| powerhub_reading_opening_baseline_save_fix | 20261010170812 | 5,036 | df6d9de5bf8b5df4f9cb8f11d787f580 | Distinct corrected revision. Its powerhub_create_reading body matches both the current Git migration function body and live pg_proc.prosrc exactly. |
+| staging_restore_powerhub_submit_payment_documentation_source_destination_support_v2 | 20261012174547 | 6,831 | 8d3b1ce3cfd644c0121f59cd8a7c54f8 | Earlier implementation of the payment-documentation RPC restore. |
+| staging_restore_powerhub_submit_payment_documentation_source_destination_support_v2 | 20261012174856 | 6,955 | a0968072e376081061869d4a0927e545 | Distinct corrected implementation; adds a branch/site scope check for account mappings. The live function retains that check and also contains a later audit-role extension, so its current body is newer than either historical payload. |
+| powerhub_image_retention_metadata | 20261101200609 | 733 | 1a2c6ab45e987ea533f6c48d2cee3068 | SQL is normalized-identical to the second row and current Git source; one trailing-byte difference only. |
+| powerhub_image_retention_metadata | 20261102171227 | 734 | 99abb28cc30bc4e48c274a76a55ca268 | Byte-for-byte equal to current Git file 20261101210000_powerhub_image_retention_metadata.sql (blob 9fd0925c6072f663dbf5075f0ce4ce2a917e0ce6). |
+| powerhub_chat_feature_entitlements | 20261101210557 | 21,410 | 80250e35d839835158c1b544a6f7013e | Byte-for-byte equal to current Git file 20261101223000_powerhub_chat_feature_entitlements.sql (blob 870d0c1cf1cf4a4c5541882c3d2f0f80d2cb5d5c). |
+| powerhub_chat_feature_entitlements | 20261102171243 | 21,410 | 80250e35d839835158c1b544a6f7013e | Exact same SQL payload as the preceding row and the current Git file. |
+
+### Per-group decisions and live postconditions
+
+#### A. Chat Helpdesk v2
+
+The first duplicate row is a 9-byte no-op (select 1;). The second row is the complete Helpdesk migration and matches the current Git source exactly. The Helpdesk tables, ticket/metadata columns, message-visibility column, and support-scoped RLS policies are present in Staging. The current stored bodies of private.chat_support_set_metadata, private.chat_send_internal_note, public.chat_support_set_metadata, public.chat_send_internal_note, public.chat_reopen_support_conversation, and public.chat_set_conversation_tags were compared with the source; the matching wrappers/helpers are present, while a later replacement of the private reopen helper is treated as subsequent runtime evolution rather than evidence against the historical row.
+
+**Runtime follow-up:** the Staging cron.job table currently contains only powerhub_reconcile_expired_field_readers and powerhub-subscription-lifecycle. It does not contain powerhub_chat_sla. The SLA/auto-close functions exist, but the expected PostgreSQL cron schedule is absent in this Staging snapshot. This does not rule out a separately managed scheduler; verify the actual scheduler before claiming automated SLA processing is active.
+
+#### B. Reading opening-baseline save fix
+
+The two statements are different revisions. The later statement tightens idempotency lookup by requiring the matching tenant and subscriber, and adds the opening-baseline reading as a fallback previous value when no approved operational reading exists. The later stored function body matches the current Git migration and the live public.powerhub_create_reading body exactly. The live routine is SECURITY INVOKER, owned by postgres, with search_path=public, pg_temp. The separate single-reading-per-cycle trigger is also present in the current table catalog.
+
+**Decision:** the later revision is the current effective function body; retain both historical rows unchanged. Do not replay either statement.
+
+#### C. Payment-documentation source/destination support
+
+The two stored CREATE OR REPLACE FUNCTION bodies differ. The later revision adds an explicit check that, when a destination account has site mappings for the tenant, the selected destination account must be mapped to the request's site. The live function contains that site check. Its current body also includes a later audit extension for actor_tenant_role, so it should not be represented as byte-identical to either October 12 payload.
+
+The live public.powerhub_submit_payment_documentation function is SECURITY INVOKER, owned by postgres, pins search_path=public, pg_temp, and has only postgres and service_role in its function ACL. The live table has a non-null destination_account_id and the documented payment-method constraint. The later 20261012190000_powerhub_payment_documentation_source_destination_type_support.sql is a separate follow-on patch; its expected cash-versus-electronic account-type guard is present in the live function.
+
+**Decision:** both historical payloads are distinguishable; the second contains the tighter site-scope condition and the live body has subsequent audit-role evolution. Keep history unchanged and do not replay either stored payload.
+
+#### D. Image-retention metadata
+
+The two stored statements are equal after line-ending/trailing-whitespace normalization; the second is byte-for-byte equal to the current Git migration. The live chat_message_attachments.storage_deleted_at column and index exist, as do payment_documentation_requests.receipt_image_retention_until and receipt_image_deleted_at, together with the claim/finish retention RPCs.
+
+The Staging PostgreSQL cron catalog currently has no job whose name contains retention/image. This only establishes the absence of a pg_cron entry in Staging; it does not establish the absence of a Vercel Cron or Edge Function scheduler. Verify the Staging scheduler path and its execution logs separately before declaring cleanup operational.
+
+**Decision:** the duplicate records represent the same normalized metadata SQL. Preserve both ledger rows; no DDL replay or history rewrite is needed.
+
+#### E. Chat and AI feature entitlements
+
+Both stored statements are byte-for-byte identical to each other and to the current Git migration. Live feature_catalog rows for support_chat and powerhub_ai_assistant are active, use capability type and server enforcement. Both feature keys have addon policies for all five package codes (10 package-policy rows). The live private.chat_feature_enabled_for_tenant body matches the source, uses SECURITY DEFINER with an empty search_path, and the feature resolver is SECURITY INVOKER.
+
+There are currently zero tenant_feature_controls rows for these two feature keys in Staging. This means the catalog/package defaults are present, but no explicit per-tenant override is currently recorded for these features in this database snapshot; it does not mean the control mechanism is absent.
+
+**Decision:** these are two executions of the same SQL payload. Preserve both rows and do not replay the migration.
+
+### Reconciliation outcome
+
+- The five duplicate-name groups are now content-classified from the actual SQL stored in Staging, rather than inferred from names or timestamps.
+- Three groups contain distinct revisions (powerhub_reading_opening_baseline_save_fix, payment-documentation restore, and Chat Helpdesk's no-op versus full migration); two groups are exact/normalized replays (powerhub_image_retention_metadata and powerhub_chat_feature_entitlements).
+- No historical version was deleted, rewritten, or renumbered. The release classifier must continue rejecting ambiguous same-name candidates rather than silently treating duplicate ledger rows as a clean migration identity; no mass history repair is justified.
+- The remaining 91 same-name/different-version candidates still require this same direct statements payload comparison against the 91 local SQL files. The five groups above do not close those 91 cases.
+- All queries were read-only. No apply_migration, db push, DDL, data mutation, ACL/RLS change, storage deletion, SMS, or financial operation was performed. Staging remains at 424 ledger rows with latest version 20261106224902; Production was not accessed or modified in this reconciliation.
+
+
+## 11. Canonical migration payload reconciliation and exact-content release guard — 7 November 2026
+
+### Recomputed source and ledger inventory
+
+A fresh recursive-tree and direct-Staging SQL comparison was run at source HEAD `fd0e9149cf242bbc0f7ab2d185274db0cfcb5b60`. It deliberately uses only canonical 14-digit migration files for the numerical reconciliation and separately preserves the full legacy inventory rules.
+
+| Measure | Verified value |
+|---|---:|
+| Canonical local 14-digit SQL files | 502 |
+| Staging migration-ledger rows | 424 |
+| Exact Version + Name identities | 179 |
+| Same-name / different-version ledger rows against local names | 95 rows across 91 unique names |
+| Exact stored-SQL payload matches (at least one per local file) | 248 local files |
+| Exact payload match pairs (including multiple ledger replays) | 251 |
+| Exact Version + Name + SQL payload matches | 138 |
+| Local identities whose Version + Name exists but stored SQL differs | 41 |
+| Local SQL files with no exact payload match anywhere in Staging | 254 |
+| Staging rows with NULL/empty SQL payload | 12 |
+| Local files without identity or exact payload match | 214 (207 at/before the Staging head; 7 newer) |
+
+The payload fingerprint was calculated over the UTF-8 bytes reconstructed from the retained `statements text[]` (all 424 current rows have at most one statement element). This is a content comparison, not proof that an arbitrary unmatched migration has not already changed the live schema: migration history may contain older source revisions, later edits may supersede functions, and schema postconditions must be checked before any replay decision.
+
+The 41 exact-identity/content-drift rows and 12 rows with unavailable payloads must not be auto-classified as “already applied”. The 95 same-name/different-version rows are 91 unique candidate groups, not 95 distinct migrations. Historical timestamps and payloads remain untouched.
+
+### Seven newer source migrations
+
+All seven 14-digit migrations after the Staging head `20261106224902` remain unapplied in the ledger:
+
+- `20261107120000_powerhub_inventory_supplier_site_rls_scope.sql`
+- `20261107130000_powerhub_inventory_phase_d_supplier_allocation_scope.sql`
+- `20261107130443_powerhub_platform_support_identity_role_guard.sql`
+- `20261107140000_powerhub_inventory_supplier_payables_allocation_scope.sql`
+- `20261107143819_powerhub_company_account_capability_search_path.sql`
+- `20261107150000_powerhub_supplier_browser_read_acl_revoke.sql`
+- `20261107150951_powerhub_public_default_privilege_hardening.sql`
+
+Read-only review confirmed that Staging already has branch-aware SELECT RLS policies on supplier purchases, payment headers, purchase details, receipts, receipt details, payment allocations, and supplier ledger entries. The shared supplier catalogue intentionally has tenant-scoped visibility. Eight supplier tables still expose direct authenticated SELECT grants (the two supplier-return tables are already server-only); the proposed ACL migration removes those direct browser reads while preserving service-role SELECT for scoped server routes. Do not describe the existing seven branch RLS policies as absent.
+
+The live platform capability helper still lacks the additional `users.role='admin'` predicate present in the proposed identity guard. Staging has allow-policy rows for platform_admin and platform_support, but this read did not find a user row with `platform_role='platform_support'`; this is a latent identity-boundary inconsistency, not evidence of a currently active non-admin support account.
+
+Staging default ACL metadata also contains provider-managed `supabase_admin` defaults, including browser grants in several schemas. The proposed default-privilege migration explicitly leaves those provider-managed defaults untouched and hardens future objects created by `postgres`; its scope must not be represented as removing every default browser grant in the project.
+
+### Release-runner correction
+
+The prior release classifier accepted an exact Version + Name row without comparing its retained SQL. That was unsafe when a migration file had changed after its original execution. The runner now reads the SHA-256 of the stored `statements` payload and compares it with the SHA-256 of the exact UTF-8 source file:
+
+- Exact identity and exact SQL hash: return `already-applied`.
+- Exact identity but different SQL hash: fail closed and require source/schema reconciliation.
+- Exact identity but missing stored SQL payload: fail closed and require manual evidence.
+- Same name under another version, same version under another name, or duplicate ledger names: continue to fail closed.
+- No matching version or name: proceed to the existing atomic release guard only after all other release checks.
+
+This SHA-256 is computed at comparison time; no new database column, migration ledger update, DDL, or migration application is required. Regression tests cover exact-match, changed-payload, unavailable-payload, malformed digest, duplicate name/version, and UTF-8 byte hashing.
+
+### Execution boundary and remaining proof
+
+All Staging inspection above was read-only. No `apply_migration`, `db push`, DDL, data update, ACL/RLS change, storage deletion, SMS, or financial operation was performed. Production was not changed. The seven newer migrations remain unapplied pending their own dependency/postcondition tests and an explicit Staging release decision. CI must pass on the new implementation/documentation commit before this runner hardening is considered verified.
+
+
+## Exact stored-SQL comparison for the 91 version-drift groups — 7 November 2026
+
+### Scope and method
+
+- Source snapshot: PR branch `feat/auth-local-first-single-pr`, exact source HEAD `0eae37af485905028e32d342636fe11f8d8903ea`.
+- Staging snapshot: project `iyuryuhaylhisjfcrwkz`, read-only.
+- Re-enumerated all 502 canonical 14-digit local migration files and all 424 Staging migration-ledger rows.
+- Identified 91 unique local migration names whose local filename version differs from the version stored in Staging, represented by 95 ledger rows.
+- For every one of the 91 source files, fetched its exact UTF-8 content from the pinned PR branch and compared it directly with the reconstructed historical payload `array_to_string(statements, E'\\n')` for the same migration name in Staging. PostgreSQL SHA-256 fingerprints were also used as a cross-check.
+
+### Results
+
+| Result | Count |
+|---|---:|
+| Unique names with local-version / Staging-version mismatch | 91 |
+| Corresponding Staging ledger rows | 95 |
+| Names with at least one exact current-source / stored-payload match | 63 |
+| Exact matching ledger rows | 64 |
+| Names with no exact payload match in their corresponding rows | 28 |
+| Ledger rows in those 28 no-match groups | 29 |
+
+The 64 exact payload rows include two matching executions of `powerhub_chat_feature_entitlements`. The Chat Helpdesk and image-retention duplicate groups each have one row matching the current source and one older row that does not. The opening-baseline group has two distinct stored revisions, neither byte-identical to the current source.
+
+### The 28 groups still requiring schema-postcondition reconciliation
+
+- `powerhub_generator_offline_idempotency`
+- `powerhub_revoke_legacy_generator_rpc_execute`
+- `admin_subscription_upgrade_enrichment_rpc`
+- `harden_admin_subscription_upgrade_enrichment_rpc_execute`
+- `platform_capability_resolver`
+- `chat_foundation_v1`
+- `chat_rls_security_v1`
+- `chat_realtime_authorization_v1`
+- `chat_realtime_authorization_v1_harden`
+- `chat_performance_indexes_v1`
+- `chat_storage_rls_v1`
+- `chat_storage_grants_hardening_v1`
+- `chat_write_boundary_v1`
+- `chat_write_boundary_v1_fix`
+- `chat_receipts_notifications_v1`
+- `chat_realtime_receipts_notifications_v1`
+- `chat_mark_read_up_to_v1`
+- `chat_notification_rpc_security_hardening_v2`
+- `chat_support_operator_v1`
+- `chat_support_users_v1`
+- `chat_staging_compatibility_v1`
+- `powerhub_field_user_guards`
+- `powerhub_platform_support_role_reconciliation`
+- `powerhub_optional_generator_capacity`
+- `powerhub_reading_opening_baseline_save_fix`
+- `powerhub_unified_message_history_filters`
+- `powerhub_manual_sms_history_scope`
+- `powerhub_owner_capability_overrides`
+
+### Interpretation and release decision
+
+- The 63 exact payload matches establish that the same SQL text is retained in Staging under another version. They do **not** make the local Version + Name identity match, and they do not authorize rewriting the migration ledger or bypassing the release guard.
+- The 28 no-match groups are **not** classified as unapplied. Their historical SQL may have been revised, superseded, or represented by later schema changes. Each needs targeted live postcondition evidence (objects, function bodies, RLS policies, ACLs, indexes, triggers, and relevant data invariants) before deciding whether the current source is represented in the database.
+- Preserve every existing history row. Do not rename, renumber, delete, replay, or manually mark any of these migrations as applied.
+- This 91-group comparison is separate from the 41 exact Version + Name identities with SQL-content drift and the 12 rows whose historical SQL payload is unavailable. Those remain open.
+- The separately identified duplicate-name group `staging_restore_powerhub_submit_payment_documentation_source_destination_support_v2` has no same-named canonical local file and remains covered by its prior source/function-body reconciliation.
+
+### Execution boundary
+
+All comparisons were read-only. No `apply_migration`, `db push`, DDL, history-row update, ACL/RLS change, storage deletion, SMS, financial operation, or Production operation was performed. Staging remains at 424 history rows (latest recorded version `20261106224902`). The release guard remains fail-closed for same-name / different-version cases.
+
+
+## Release-runner ledger-payload persistence fix — 7 November 2026
+
+A read-only Staging catalog inspection found that `supabase_migrations.schema_migrations.statements` is nullable, has no default expression, and has no non-internal trigger that populates it. The release runner previously inserted only `version` and `name`; a migration released through that runner would therefore be recorded without its SQL payload, and a later exact-content verification would correctly fail closed as “payload unavailable”.
+
+The runner is corrected to build its ledger INSERT with the third `statements` column populated from a Base64-encoded UTF-8 representation of the exact source SQL, decoded by PostgreSQL using `convert_from(decode(...), 'base64'), 'UTF8'`. This avoids unsafe or ambiguous SQL literal escaping for apostrophes, backslashes, mixed line endings, and non-ASCII SQL text. The migration SQL and history insert remain inside the same transaction.
+
+Regression coverage asserts exact UTF-8 payload persistence for quotes, backslashes, Arabic text, LF and CRLF, and rejects malformed identifiers / empty SQL. A PostgreSQL 17 integration test now executes the generated INSERT against a disposable `schema_migrations` table, reads back the exact `text[]` payload, and verifies the stored SHA-256 before rolling back the test transaction. This is source-code and test-only. It does not backfill the 12 existing Staging rows whose historical statements are unavailable, does not modify any history row, and does not apply any migration. Staging remains at 424 history rows, latest `20261106224902`.
+
+
+## Large-migration psql transport hardening — 7 November 2026
+
+The repository's largest canonical SQL migration is 94,039 bytes. The release runner's atomic SQL transaction now contains both the migration text and its Base64-encoded `statements` ledger payload; passing that whole transaction as one `psql --command` argument can exceed Linux's per-argument size ceiling on large migrations. The runner now sends the transaction over the child process standard input instead of a single argv value. The PostgreSQL 17 round-trip regression fixture was expanded to a 120,000-byte source payload so the combined SQL and Base64 statement exceeds that boundary, then verifies exact UTF-8 text and SHA-256 inside a rolled-back transaction.
+
+Source-only correction and disposable PostgreSQL test. No Staging history row, Production object, or live schema was changed.
+
+
+## 11. Production parity and provider-managed extension / advisor review — 7 November 2026
+
+### Pinned live snapshots
+
+All database inspection in this section was read-only and used the exact PR source HEAD \`b9778a29106709a5876a93af23e65ab26890b0d8\`.
+
+| Environment | Project | PostgreSQL | Migration rows | Latest recorded migration |
+|---|---|---:|---:|---|
+| Staging | \`iyuryuhaylhisjfcrwkz\` | 17.6.1.166 | 424 | \`20261106224902\` / \`powerhub_payment_delta_purpose_projection\` |
+| Production | \`vvcdiqcyhaloxesvpppc\` | 17.6.1.155 | 486 | \`20261026102654\` / \`powerhub_pin_subscription_lifecycle_search_path\` |
+
+The seven canonical PR migrations dated 7 November remain beyond the Staging ledger's latest version and beyond Production's latest version. This confirms they have not been recorded under their canonical names/versions in either environment; it does not exclude equivalent historical SQL under another name/version. Existing migration drift rules remain in force.
+
+### Offline generator RPC — Production parity blocker
+
+The current Staging definitions of \`public.powerhub_sync_generator_create\` and \`public.powerhub_sync_generator_update\` now use:
+
+- \`SECURITY DEFINER SET search_path = ''\`.
+- The shared \`private.powerhub_has_generator_management_access(tenant_id,site_id)\` guard.
+- Active, non-expired tenant membership and current staff-profile state.
+- The same NULL/inherit, explicit-empty deny, custom-role and per-profile override semantics as the server RBAC resolver.
+- Idempotency replay validation bound to tenant, site and generator identity.
+
+Production still has the older function bodies with \`search_path = public, pg_temp\`, direct role/profile checks and weaker replay-scope validation. The exact regression fixture \`supabase/tests/offline_generator_membership_expiry.sql\` imports the November migrations into disposable PostgreSQL and exercises missing-JWT denial, expired/suspended membership, archived and suspended staff profiles, explicit permission deny/grant overrides, cross-site replay denial, and positive active-owner paths. The same test runs in \`Reading Cycle PostgreSQL Integration\`.
+
+**Decision:** treat Production as behind the Staging authorization contract. Do not patch either live function manually. Before a Production release, reconcile the complete migration history and deploy the canonical migration sequence through the protected release runner, then verify the two function bodies and their ACLs on the exact resulting Production HEAD.
+
+### Seven 7-November migrations — test and dependency map
+
+| Migration | Existing disposable PostgreSQL coverage |
+|---|---|
+| \`20261107120000\` supplier site RLS | \`inventory_supplier_site_rls_scope.sql\` |
+| \`20261107130000\` Phase D supplier allocation | \`inventory_purchase_receiving_workflow.sql\` |
+| \`20261107130443\` platform support identity | \`platform_support_identity_role_guard.sql\` |
+| \`20261107140000\` supplier payables allocation | \`inventory_purchase_receiving_workflow.sql\` |
+| \`20261107143819\` company-account capability search path | \`financial_site_rls_scope.sql\` |
+| \`20261107150000\` supplier browser read ACL | \`inventory_supplier_site_rls_scope.sql\` |
+| \`20261107150951\` postgres default privileges | \`default_privileges_acl_guard.sql\` |
+
+All six test files are referenced by the PostgreSQL integration workflow; the large procurement workflow includes both Phase D and payables-allocation adversarial regressions. The seven source files have explicit preflight/postflight assertions. The separate release gate still requires source-payload/history reconciliation before any live apply.
+
+### pg_net ownership, scheduler and provider boundary
+
+Read-only catalog inspection confirms:
+
+- Both projects run pg_net 0.20.4 and have the provider-owned \`grant_pg_net_access()\` event trigger.
+- Staging has pg_net installed in \`public\`; Production has it in \`extensions\`. In both projects the extension owner is \`supabase_admin\`, not the application migration role.
+- The \`net\` schema, \`net.http_*\` routines and queue/response tables have provider-managed grants. The Supabase troubleshooting note documents why customer REVOKE attempts on these provider-owned pg_net objects may report that no privileges can be revoked.
+- The pg_net worker is running as \`postgres\` in both projects. Staging's request queue was empty and held six recent response rows. Production's queue was empty and held 360 response rows.
+- Production has three active PowerHub HTTP Cron jobs (invoice notifications, payment-documentation retention and subscriber retention). Across the last 24 hours, 1,442 executions were recorded with zero failed Cron runs. Staging has no active Cron job whose command calls \`net.http_*\`.
+
+**Decision:** do not REVOKE provider-owned pg_net ACLs, alter its event trigger, or relocate the extension as a routine PowerHub migration. Any change to API schema exposure must first be checked in the Supabase API configuration; SQL role grants alone do not prove that the \`net\` schema is exposed. Production scheduled jobs remain untouched.
+
+### Supabase Advisors — read-only triage
+
+| Advisor finding | Staging | Production | Triage |
+|---|---:|---:|---|
+| RLS enabled, no policies | 64 | 54 | No \`anon\` or \`authenticated\` SELECT/DML grant was found on any flagged table; service_role retains server access. These are server-only / deny-by-default objects, not evidence of a client read path. |
+| Authenticated SECURITY DEFINER RPCs in public | 34 | 17 | Staging public routines were checked for pinned search_path and browser ACLs. The 17 Production public routines have no anon/PUBLIC EXECUTE; two older generator sync RPCs retain non-empty search_path and require parity update. |
+| pg_net in public | 1 warning | 0 | Provider-managed extension placement; no relocation recommended. |
+| Leaked-password protection disabled | 1 warning | 1 warning | Remains a project Auth configuration action; the available database connector cannot inspect/change the Auth dashboard setting. |
+| Unindexed foreign keys | 236 | 179 | Broad database-wide performance inventory; do not add indexes without query-plan/workload review. |
+| Unused indexes | 143 | 153 | Do not drop automatically; usage statistics depend on workload window and may reset. |
+| Duplicate index | 0 | 1 | Production has two byte-for-byte identical partial btree indexes on \`notification_messages\`. The \`_reconciled\` index has 36,404 scans versus 5 on the older index. No live drop performed. |
+
+A targeted check of all supplier-domain foreign keys found zero unindexed foreign keys. Those nine supplier tables are small in Staging (roughly 80–208 kB each) with low row estimates; no additional index was justified for the new branch-read policies from this snapshot.
+
+The \`RLS enabled no policy\` Advisor is INFO, not proof of exposure. Supabase's API guidance states that GRANT controls whether a role can reach an object and RLS then controls which rows it can access. The live ACL check confirms the relevant browser grants are absent for the flagged tables.
+
+### Chat trigger ACL — Staging/Production difference
+
+Production retains PUBLIC/anon EXECUTE on three \`private\` Chat helper functions; two are bound to triggers and one is not currently trigger-bound. Staging has the later trigger-function EXECUTE revocation applied and reports no PUBLIC/anon/authenticated execution on those helpers. Production does not grant anon USAGE on \`private\`, but authenticated does. This is a genuine ACL parity difference; it is not classified as a confirmed external REST exploit because the private schema is not the default public Data API schema and no project-specific exposed-schema setting was available in the connector. Preserve the existing Staging revocation migration and include Production parity in the release review.
+
+### Health and performance decisions
+
+Both projects returned no Health Advisor findings. Do not auto-fix all 236/179 unindexed-FK or 143/153 unused-index warnings as a batch. The duplicate Production SMS index is a discrete cleanup candidate, but dropping it requires a separately reviewed, migration-based plan and a post-release check that the heavily used reconciled index remains valid.
+
+### Execution boundary
+
+This section did not apply migrations, mutate \`schema_migrations\`, change RLS/ACL, move extensions, alter Cron jobs, drop indexes, change Auth settings, deploy a Vercel preview, run real SMS/financial operations, or modify Production data/schema. PR #359 remains OPEN / DRAFT / NOT MERGED.

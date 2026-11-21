@@ -1,0 +1,65 @@
+{
+  "format": "PR359 R4 Staging ownership observation v1",
+  "source_head": "53db334d8774f1851b8eadf9adedf96d0b1ed2e6",
+  "capture_date": "2026-11-20",
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "capture_mode": "single-statement-read-only",
+  "metadata": {
+    "scope": "PR359_R4_STAGING_OWNERSHIP_BOUNDARY_V1",
+    "owned_groups": [
+      {
+        "kind": "function",
+        "schema": "powerhub_private",
+        "owner": "postgres",
+        "extension_owned": false,
+        "object_count": 5
+      },
+      {
+        "kind": "function",
+        "schema": "private",
+        "owner": "postgres",
+        "extension_owned": false,
+        "object_count": 57
+      },
+      {
+        "kind": "function",
+        "schema": "public",
+        "owner": "postgres",
+        "extension_owned": false,
+        "object_count": 579
+      },
+      {
+        "kind": "relation",
+        "schema": "private",
+        "owner": "postgres",
+        "extension_owned": false,
+        "object_count": 12
+      },
+      {
+        "kind": "relation",
+        "schema": "public",
+        "owner": "postgres",
+        "extension_owned": false,
+        "object_count": 325
+      }
+    ],
+    "managed_edges": [],
+    "cron_inventory": [
+      {
+        "name": "powerhub-subscription-lifecycle",
+        "schedule": "*/15 * * * *",
+        "active": true
+      },
+      {
+        "name": "powerhub_reconcile_expired_field_readers",
+        "schedule": "*/5 * * * *",
+        "active": true
+      }
+    ],
+    "app_trigger_count": 202,
+    "app_rel_with_rls_no_policy": 78
+  },
+  "important_limitation": "pg_depend direct pg_class references only; PL/pgSQL dynamic SQL is not fully captured; postgres owner is not an APP_OWNED attestation",
+  "app_owned_allowlist_approved": false,
+  "staging_inplace_go": false
+}

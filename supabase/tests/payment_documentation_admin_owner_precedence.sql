@@ -130,7 +130,8 @@ insert into public.tenant_feature_entitlements(
 )
 values (1,'payment_documentation',true,9,now());
 
-\ir ../migrations/20261015125300_powerhub_payment_documentation_admin_owner_precedence.sql
+\ir ../migrations/20261101083808_powerhub_payment_documentation_admin_precedence_reconcile.sql
+\ir ../migrations/20261101085211_powerhub_payment_documentation_owner_constraint_reconcile.sql
 
 do $restore$
 declare v_status text; v_allowed boolean;

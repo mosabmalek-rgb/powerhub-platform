@@ -7,10 +7,13 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./static";
 import { receiveWhatsAppWebhook, verifyWhatsAppWebhook } from "../messaging-webhooks";
+import { httpRateLimitMiddleware } from "../http-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import { registerMobileApi } from "../mobile-api";
 import { isVercelRuntime } from "./runtime";
 import { registerBrandAssetProxy } from "./storageProxy";
 import { healthHandler, readinessHandler } from "./health";
+import { b5TraceMiddleware } from "../b5-request-trace";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -58,8 +61,16 @@ export function createPowerHubApp() {
   app.get("/api/ready", readinessHandler);
   registerBrandAssetProxy(app);
   registerMobileApi(app);
-  app.get("/api/webhooks/whatsapp/:tenantId", verifyWhatsAppWebhook);
-  app.post("/api/webhooks/whatsapp/:tenantId", receiveWhatsAppWebhook);
+  app.get("/api/webhooks/whatsapp/:tenantId", rateLimit({
+    windowMs: 300_000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false,
+  }), httpRateLimitMiddleware({
+    scope: "whatsapp-webhook-verify-ip", windowSeconds: 300, maxAttempts: 30,
+  }), verifyWhatsAppWebhook);
+  app.post("/api/webhooks/whatsapp/:tenantId", rateLimit({
+    windowMs: 300_000, limit: 600, standardHeaders: "draft-8", legacyHeaders: false,
+  }), httpRateLimitMiddleware({
+    scope: "whatsapp-webhook-delivery-ip", windowSeconds: 300, maxAttempts: 300,
+  }), receiveWhatsAppWebhook);
   app.all("/api/scheduled/process-invoice-notifications", async (req, res) => {
     const configuredSecret = process.env.CRON_SECRET;
     const authorization = req.headers.authorization ?? "";
@@ -110,12 +121,15 @@ export function createPowerHubApp() {
     }
     if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     try {
-      const { cleanupPaymentDocumentationReceiptImages } = await import("../payment-documentation-retention");
-      const result = await cleanupPaymentDocumentationReceiptImages();
+      const { cleanupExpiredStorageImages } = await import("../storage-image-retention");
+      // A caller holding CRON_SECRET may explicitly request a read-only dry run,
+      // even after scheduled cleanup is enabled for actual deletion.
+      const requestedDryRun = req.body && typeof req.body === "object" && (req.body as { dryRun?: unknown }).dryRun === true;
+      const result = await cleanupExpiredStorageImages(new Date(), requestedDryRun ? { dryRun: true } : {});
       return res.status(200).json({ ok: true, ...result });
     } catch (error) {
-      console.error("[payment-documentation-retention] cleanup failed", error);
-      return res.status(500).json({ ok: false, error: "payment_documentation_retention_failed" });
+      console.error("[storage-image-retention] cleanup failed", error);
+      return res.status(500).json({ ok: false, error: "storage_image_retention_failed" });
     }
   });
   app.all("/api/scheduled/*", (_req, res) => res.status(410).json({
@@ -151,6 +165,7 @@ export function createPowerHubApp() {
     });
     next();
   });
+  app.use("/api/trpc", b5TraceMiddleware);
   app.use(
     "/api/trpc",
     createExpressMiddleware({

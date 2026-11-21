@@ -1,0 +1,804 @@
+# PowerHub — Phase B engineering evidence / acceptance ledger
+
+## 2026-11-12 — B4.11 source-first correction readiness
+
+- Verified the previous B5.6 head `5318516555f8d4e6f39af76364c6e74584227edd` passed **all 4 CI workflows**, with a SHA-matched READY Vercel Preview. PR #359 remained Draft, unmerged. Staging retained exactly 25 GL entries / 51 lines and no permanent cross-site operations or eliminations.
+- Inspected posted GL and the existing `powerhub_financial_accrual_journal_reverse` + `powerhub_financial_gl_post_accrual` functions. An approved reversal must originate in the operational accrual subledger, be independently approved, and then post into GL. An unrestricted generic GL reversal would break operational/source-to-GL integrity.
+- Applied and registered Staging migration `20261112133754_powerhub_financial_b411_source_backed_correction_readiness.sql`. It provides **read-only**, service-role-only, tenant/site/period-bounded `powerhub_financial_gl_correction_readiness` with 1–50 row keyset pagination. It recognizes already reversed entries, reversal entries, insufficient opening evidence, unsupported generic corrections, intact approved accrual sources that are eligible for a *source* reversal, pending source reversals, and source-vs-GL fingerprint mismatches. It **never posts GL entries** or issues financial certification.
+- Guarded actual approved accrual details against original GL fingerprint and exact journal sides/amounts, as well as period/site scope. A reversal available indication is **not** financial approval; the existing maker/checker source workflow remains compulsory.
+- `B411_SOURCE_FIRST_CORRECTION_READINESS_PASS_ROLLBACK` passed: original synthetic accrual GL 169 correctly reports `ALREADY_REVERSED` with linked GL 170; GL 170 reports `REVERSAL_ENTRY_IMMUTABLE`; main site keyset paging is limited; 51-row requests are rejected; 25 GL entries and 51 lines remained unchanged.
+- Added protected, `viewFinancialReports`-authorized tRPC `financialGLCorrectionReadiness` with strict response validation; added read-only `FinancialGLCorrectionReadinessWorkspace` to financial audit UI. The user cannot perform generic GL posting from this view. Registered CI contracts for migration, rollback SQL, endpoint and UI.
+- **Not completed by B4.11:** a generalized source-specific correction process for all invoices, payments, supplier, stock, and cash operations; two distinct authenticated users confirming corrections in the browser; year-end close / tax review. The B4 approval gate remains open, with `NOT_CERTIFIED` retained.
+
+---
+
+
+## 2026-11-12 — B5.6 reference-prefix performance evidence
+
+- Confirmed PR #359 was Draft/unmerged with four successful CI workflows and a SHA-matched READY Vercel Preview at `1cf1359c5863191a53c7f877b1b65ea28938573e` **before** new performance commits.
+- Examined actual B1/B3 call graph: `powerhub_financial_gl_site_statements` obtains `powerhub_financial_gl_source_coverage`, which calls `powerhub_financial_gl_prior_operational_gaps`; both invoke immutable performance-cohort provenance guards. Measured main-site sequential/parallel variability; source-coverage path must never be bypassed merely for latency.
+- Pre-index PostgreSQL `EXPLAIN (ANALYZE,BUFFERS)` for the exact fixture reference-prefix count: **262.116 ms**, parallel sequential scan (~11,510 shared hit blocks). Applied and Git-committed generic `account_transactions_tenant_site_reference_prefix_idx` (tenant, site, reference number with `text_pattern_ops`, non-null references) as actual Staging migration `20261112132131_powerhub_financial_b56_company_account_reference_prefix_index.sql`.
+- Post-index first cold plan incurred **1,623.329 ms / 2,224 shared read blocks** while loading the new index. Subsequent warm `Index Only Scan` samples: **101.339 / 66.254 / 65.576 ms**, ~2,232 shared hits and ~131 heap fetches. These are *individual query samples*, not stable browser p95 or a claim of guaranteed speedup under concurrency.
+- Source-level checks after the index: fixture `verified=true`, exact 250,000 quarantined **synthetic performance records**, anchored SHA-256 unchanged, `humanReviewed=false`, `financialCertification=NOT_CERTIFIED`; prior-operational unclassified and unresolved counts **0**; 25 GL entries; position-before-eliminations assets **4,070.50**, liabilities **7,119.00**, equation difference **0**. The full fixture rows remain in the database.
+- Added and executed `B56_INDEXED_STAGING_SOURCE_GUARD_PASS_ROLLBACK`: verifies actual index validity, fixture provenance, prior accounting coverage, unmodified GL counts and non-certified rollup. Added CI contract protection for migration and SQL gate. No real Production mutations or business transactions.
+- Related, *not directly comparable* EXPLAIN samples of main-site source statement / prior gaps / rollup remain variable. The B5 production-like authenticated multi-user latency SLO and p95 are still **OPEN**. This is a scoped database optimization, not final B5 acceptance.
+
+---
+
+
+## 2026-11-12 — B3.9.5 orphan elimination fail-closed + UI null discipline
+
+- Verified the previous `62851e9ac0d3e7629aea2f66659d7ef96b3dd253` PR head completed **4/4 GitHub CI**. No SHA-matched Vercel Preview was returned for that commit. This is historical CI evidence, **not** evidence for the newer commits below.
+- Identified a reconciliation gap: the B3.9.4 report checked approved eliminations attached to matched transfers, but could overlook an approved elimination header whose operational source or pair of site GL entries was missing.
+- Applied and registered additive Staging migration `20261112130226_powerhub_financial_b395_orphan_elimination_fail_closed.sql`. The report now counts independently detected orphan elimination headers in `orphanEliminationCount`, returns `BLOCKED_INTEGRITY`, and suppresses `approvedEliminationAmount` / approved asset and liability reductions with **NULL (not zero)** if any invalid source, orphan GL, or orphan elimination exists. It does not alter or certify the GL.
+- Tested `B395_ORPHAN_APPROVED_ELIMINATION_FAIL_CLOSED_PASS_ROLLBACK`: a synthetically inserted `approved` elimination without genuine source or matching GL must return orphan count 1, `BLOCKED_INTEGRITY`, null approved amounts, `NOT_CERTIFIED` and unchanged branch GL. The test passed inside `ROLLBACK`.
+- Re-ran `B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK`, `B394_APPROVED_ELIMINATION_VISIBILITY_INVALID` and `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`: passed after the migration.
+- Hardened UI: null/withheld accounting amounts render **غير متاح**, never zero. The transfer-review and elimination-approval workspace stops actions when the independent proof shows `BLOCKED_INTEGRITY` or orphan elimination records. The audit panel displays orphan count, approved elimination amount, and an expressly non-certified after-elimination preview only when the proof is valid. Added CI assertions.
+- Verified durable Staging baseline remained **25 GL entries / 51 GL lines; zero inter-site transfer operations or elimination records**. No Production changes and PR remains Draft.
+- **Open:** complete 4/4 CI on the final commit, SHA-matched Preview authenticated-browser maker/checker acceptance (B2 and B3), stable B5 concurrent latency SLO and any outstanding B4 generalized reversal review. Do not mark the overall phase finally certified or merged.
+
+---
+
+
+## 2026-11-12 — B3.10/B3.11 source, dual-site GL and independent elimination journal
+
+- Implemented and applied Staging **B3.10** source creation RPC, both-site checks, exclusive account mapping, source-funds check, lock-aware operation key and equal paired account movements. Discovered cross-site audit trigger would reject a different-site counterpart under `toTransactionId`. Fixed safely in **B3.10.1** by preserving the counterpart ID as `counterpartTransactionId`; did **not** relax the original site-isolation trigger.
+- Full `B310_REAL_SOURCE_TO_GL_AND_AUDIT_PASS_ROLLBACK` passed for **12.3 ILS**; maker **4**, separate GL reviewer **260**, idempotent source creation, idempotent dual-site GL replay, B3.9 independently matched pair. **No synthetic transactions persisted**.
+- Added protected tRPC `financialGLCreateInterSiteTransfer` and UI `FinancialInterSiteTransferWorkspace`, with separately authenticated review procedure `financialGLPostInterSiteTransfer`. Branch/site permission checks remain on server and SQL, UI confirmation cannot bypass them.
+- Implemented and applied **B3.11** dedicated `financial_gl_inter_site_eliminations` records with unique source/operation/gl links, immutable original evidence, preparer and independent approver, source revalidation on approval, and status `draft/approved`. Does **not** write elimination lines into any site GL.
+- Applied **B3.11.1**, dedicated immutable, two-line elimination journal: `Dr 2350 / Cr 1350` at equal amounts, audit rows for prepare and approve, fail-closed line verification. An ambiguous PL/pgSQL `elimination_id` argument was fixed and applied as **B3.11.2**.
+- `B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK` passed: valid synthetic source, two site GL entries, preparation, self-approval rejected, independent approval by actor 260, idempotent re-approval, with `NOT_CERTIFIED`.
+- **B3.9.4** audit/rollup reports bounded `matchedSources` with referenced elimination status and verified `approvedEliminationAmount`, still flags `NOT_CERTIFIED` and never claims consolidated statements. `B394_APPROVED_ELIMINATION_VISIBILITY_INVALID` assertion passed after approval on rollback.
+- Added `financialGLPrepareInterSiteElimination` and `financialGLApproveInterSiteElimination` authenticated server mutations, both with site/capability checks and original maker/checker separation. The finance workspace now shows matched transfer sources and distinct draft vs independent approval controls, using the tenant's verified B3 rollup.
+- Persistent Staging baseline after all rollback tests: 25 GL entries / 51 GL lines; 0 persisted company transfer operations; 0 persisted elimination headers / lines. No Production writes and no PR merge.
+- **Open gates:** browser authentication with two genuinely distinct sessions, B2 distribution policy maker/checker browser exercise, representative B5 latency/p95 under concurrency and full balance/settlement certification; tax and financial close policies. This B3 path can receive independently reviewed elimination journals but is **not** a final certified consolidated P&L/balance sheet. New SHA-matched 4/4 CI and Vercel Preview remain to be re-verified.
+
+---
+
+
+## 2026-11-12 — B3.8/B3.9 operational cross-site GL and verified audit
+
+- The preceding B3.7 experiment proved the accounting signs only. This follow-up **implemented** a service-role-only SQL RPC `powerhub_financial_gl_post_inter_site_source` that posts **two balanced site-scoped GL entries atomically** from a separately persisted and validated operational transfer pair. The actual applied Staging migrations are `20261112115946` and the `20261112120316` qualified-extensions digest fix.
+- **Source integrity:** original and counterpart movements, active site-locked company account mapping, matching amounts/description/period/tenant/account links, actual transfer-operation MD5 payload at decimal scales 0–6, different maker and checker, checker authorized at both sites, period locks, deterministic advisory locking, exact journal fingerprint, replay checks and correction-on-conflict denial. GL uses 1350 debit / source cash credit and destination cash debit / 2350 credit; no income or expense generated.
+- Added `financialGLPostInterSiteTransfer` protected tRPC mutation with `confirmSourceReview=true`, **both sites independently authorized** using `manageExpenses` and `viewFinancialReports`, actual checker identity from authenticated context, and source/paired branch checks. This does **not** create the underlying cross-site operational transfer or auto-approve it. No unvalidated two-site financial mutation is exposed to a client.
+- Positive rollback E2E `B38_POSITIVE_AND_REPLAY_PASS_ROLLBACK` passed: 20 ILS, exactly two balanced GL journals, idempotent retry without new entries, maker self-review rejected, NOT_CERTIFIED retained. Negative `B38_NEGATIVE_SOURCE_SCOPE_AND_REPLAY_PASS_ROLLBACK` passed, proving forged payload and wrong site-account mapping rejected. All synthetic data (including temporary mapping) was reverted.
+- Added read-only, service-only `powerhub_financial_gl_inter_site_posting_audit` with applied migrations `20261112120914`, `20261112121003`, `20261112121237`. It independently validates each source/GL pair, detects pending/invalid/orphan journals and returns only **mathematical elimination preview**, never a posted elimination or certified consolidation.
+- Positive `B39_INTER_SITE_POSTING_AUDIT_PASS_ROLLBACK` checked a correct two-site 20 ILS source and dual GL journal. Found and fixed a potential false warning: valid same-site transfers must not be counted as inter-site sources. Existing B3.4 real same-site RPC test now asserts this and passed. Existing B5 Staging engineering gate also passed after the new SQL.
+- The authenticated B3 rollup now invokes the audit **after checking access to every active site**, fails closed if the evidence result is unavailable or malformed, and returns `interSiteGLProof`. The UI shows matched/pending/invalid pairs and equal due-from/due-to elimination *previews* while retaining `PRELIMINARY_MULTI_SITE_ROLLUP` and `NOT_CERTIFIED`. CI contract assertions added.
+- **Acceptance boundary:** source creation for a genuine cross-site account transfer is not yet exposed as a complete authenticated operation; an approved standalone *consolidation elimination journal* is not implemented; independent B2 authenticated maker/checker browser flow and B5 sustained concurrency are not yet proven. Do not mark complete B3 financial consolidation or deploy Production. PR #359 remains Draft and unmerged.
+- Newly committed code/SQL requires 4/4 GitHub CI on the **new final SHA**; old successful workflow conclusions do not apply.
+
+---
+
+
+## 2026-11-12 — B3.7 positive cross-site due-from/due-to accounting proof
+
+- Ran a **positive synthetic double-entry experiment** inside `BEGIN/ROLLBACK`, with a properly fingerprinted cross-site transfer of **20 ILS** from the primary site's cash account to the isolated second site's wallet account. No persistent account mapping, transfer, account or GL records were created.
+- The experiment temporarily added chart accounts **1350** (due from another site, asset) and **2350** (due to another site, liability), then added two GL journal entries: **site 1: Dr 1350 / Cr 1010 20**, **site 2: Dr 1020 / Cr 2350 20**. Each journal was balanced.
+- The preliminary multi-site rollup showed exactly **+20 net assets and +20 liabilities**, reflecting the inter-site claim and obligation. Mathematically eliminating **Dr 2350 / Cr 1350 20** returned those consolidated figures to the prior baseline, while retaining `NOT_CERTIFIED`, `isConsolidatedFinancialStatements=false` and the explicit elimination-proof warning.
+- Verified no change to the 25 GL entries / 51 lines after `ROLLBACK`. Saved executable SQL at `docs/security/sql/pr359-financial-b37-cross-site-elimination-math-rollback.sql` and CI contract assertions.
+- **Engineering interpretation:** this validates the double-entry signs and elimination arithmetic, **not** a production-capable cross-site transfer RPC, independently reviewed consolidation journal, legal/accounting approval, account-chart deployment or authenticated browser UI. Those are still required for full B3 closure.
+
+---
+
+
+## 2026-11-12 — B3.6 cross-site posting guard regression
+
+- Exercised a valid, correctly fingerprinted two-site test transfer source in `BEGIN/ROLLBACK`.
+- Called the actual `powerhub_financial_gl_source_plan(1,1,'account_movement',source_id)` with the cross-site source; PostgreSQL correctly refused to plan it as an **intra-site** transfer with `GL_COMPANY_TRANSFER_PAIR_INVALID_OR_CROSS_SITE`.
+- Verified no additional GL entry was posted and the B3 rollup remained `PRELIMINARY_MULTI_SITE_ROLLUP`, `NOT_CERTIFIED`.
+- Added regression `docs/security/sql/pr359-financial-b36-cross-site-same-site-post-denied-rollback.sql` and CI contract assertions. This protects against an incorrect double counting / unbalanced journal shortcut.
+- **Important limitation:** the correct dedicated dual-site due-from/due-to posting and independent consolidation elimination workflow is **not yet implemented**; this result proves only safe rejection of the wrong posting path. Do not mark B3 final.
+
+---
+
+
+## 2026-11-12 — B5.5 post-correction read consistency and performance sampling
+
+- Re-executed the durable B5 Staging engineering SQL gate after B4.10: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. Ran B4.6 no-fabricated-opening-evidence, B4.8 only-one-reversal, B3 preliminary rollup, B2 independent-actor SQL, B3.3 cross-site source, B3.5 forged source, and B5.2 repeat-read regression successfully. The B4.6 and B4.8 fixtures were updated for the durable 25-entry / 51-line baseline; **no active GL was mutated during these rollback tests**.
+- Four different concurrent `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` PostgreSQL calls observed: B3 rollup **5,598.898 ms**; main site B4 subledger **2,091.181 ms**; main site B4 account audit **552.100 ms**; second site B4 subledger **79.811 ms**. Every corresponding root plan reported **0 PostgreSQL temporary-written blocks**.
+- Three subsequent sequential B3 rollup measurements: **1,045.711 / 385.686 / 415.497 ms**, also 0 temp-written blocks. These mixed concurrent and sequential samples indicate highly variable cold/concurrency behavior, rather than a reproducible stable p95.
+- B5.2 repeat-read consistency gate passed on the new durable Staging baseline; GL remained 25/51 and accounting certification remained `NOT_CERTIFIED`.
+- **Not demonstrated:** long-run p95/p99 SLO, browser route latency under production-like concurrency, two independent logged-in-user review flows, or a SHA-matched fresh Vercel Preview. Do not infer full B5 performance acceptance from these database samples.
+
+---
+
+
+## 2026-11-12 — B4.10 durable Staging-only synthetic opening correction
+
+- User reconfirmed there is no launch or real user transaction history; **Staging financial records are entirely synthetic** and may be changed for acceptance tests. No Production write, release, or merge was authorized.
+- The isolated synthetic second-site opening batch **19**, source GL entry **168**, had unverified cash 2,000 ILS and capital 2,000 ILS. A verified, scoped **append-only** inverse journal was committed to Staging using the guarded script `docs/security/sql/pr359-financial-b410-staging-only-technical-opening-correction.sql`. The original opening and its history remain unchanged.
+- The correction checked the exact site name, batch reference, source SHA-256, original entry/line amounts and posting, and absence of an existing reversal. It inserted debit **3100 = 2,000** / credit **1010 = 2,000**, linked `reverses_entry_id=168`, with a deterministic operation key/fingerprint and exactly one **system-attributed technical** audit event. The event explicitly sets `humanApproved=false`, `accountingCertification=NOT_CERTIFIED`, and `productionAllowed=false`. A technical `posted_by_user_id` is NOT a human-review approval.
+- Verified both the rollback dry-run and the actual **COMMIT on Staging**. Result `B4_10_STAGING_TECHNICAL_REVERSAL_VERIFIED_NOT_CERTIFIED`. Persistent GL now **25 entries / 51 lines**, one matching reversal and one technical audit row; **0 fabricated opening evidence**. Site-2 cash difference and all 5 supported B4 subledger differences are **zero**; B4 document/cash audits now report matching without certification.
+- Updated B5 engineering gate to demand a valid reversal, its explicit audit and zero subledger mismatch **without permitting** fabricated evidence or final-accounting approval. Re-executed the revised gate on durable Staging: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- Updated B4.8 duplicate-reversal negative test (second reversal correctly rejected), B4.6 prohibited-evidence negative test, and B3 preliminary rolled-up figures after this synthetic correction: 25 entries, net assets **4,070.50**, liabilities **7,119**, equity **0**, accumulated result **-3,048.50**, equation difference zero. B3 remains `PRELIMINARY_MULTI_SITE_ROLLUP` with `NOT_CERTIFIED`.
+- All tests were executed inside rollback except the one explicitly authorized **technical Staging correction**. The helper SQL stored in GitHub deliberately ends in `ROLLBACK` to prevent accidental reapplication; an audited, explicit `COMMIT` was used only in this synthetic correction operation.
+- **Still open:** historic original opening has no independently attested documents (although its numeric effect is now reversed); no genuine independent 2-user browser proof for B2; no standalone cross-site due-to/due-from journal and elimination acceptance; no sustained authenticated multi-user performance SLA evidence. These open gates must not be represented as certified.
+- Required post-change check: four CI workflows on the new final PR SHA and SHA-matched READY Preview.
+
+---
+
+
+## 2026-11-12 — B3.5 verifiable transfer-source provenance
+
+- Independently verified current PR head before changes: `2d4697199ce825982ea631a649bab480f9cb5a05` with 4/4 successful GitHub workflows and a matching READY Vercel Preview.
+- Discovered the B3 transfer source-pair check did not validate source operation MD5 payload, creator identity, transaction descriptions, mapped account site eligibility, site status, or movement-period consistency. A synthetically paired transfer with arbitrary MD5 could pass the pair-integrity flag even though it remained uncertified.
+- Applied and registered additive Staging migration `20261112111111_powerhub_financial_b35_transfer_source_provenance_hardening`. The new B3 checker compares actual RPC-aligned MD5 payload across permissible input decimal scales (0–6), both actor IDs, account-site maps and movement dates; it fails closed into `INVALID_OPERATIONAL_PAIR_BLOCKS_ELIMINATION`. It **never creates GL entries, never certifies consolidation and never accepts fabricated human review**.
+- Ran four SQL test scenarios against the applied Staging function, all passing in `BEGIN/ROLLBACK`: `B3_3_POSITIVE_CROSS_SITE_SOURCE_BLOCKED_PASS_ROLLBACK`, `B3_4_REAL_RPC_TRANSFER_TYPES_PASS_ROLLBACK`, `B3_3_INVALID_TRANSFER_PAIR_PASS_ROLLBACK`, and new `B3_5_FORGED_TRANSFER_SOURCE_BLOCKED_PASS_ROLLBACK`. The positive synthetic fixture now has a valid source hash; a forged hash is explicitly detected.
+- Committed migration, positive/negative regressions and CI contract assertions to the existing Draft PR #359. **New commit CI and SHA-matched Preview must be verified separately.**
+- Open gates unchanged: real independently authorized inter-site due-to/due-from elimination posting and review, authorized append-only correction of unsupported 2,000 ILS site-2 opening, B2 two-login authenticated browser flow and representative sustained performance tests. Accounting certification remains `NOT_CERTIFIED`. No Production changes, PR unmerged.
+
+---
+
+
+**Date:** 2026-11-11 (Asia/Gaza)  
+**Pull request:** #359, Draft, **not merged**  
+**Environment:** Staging only, all records are prelaunch synthetic test data  
+**Result:** **B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED**. This is evidence of a tested engineering baseline, **not** completed Phase B financial acceptance, audited statements or permission to deploy Production.
+
+## 2026-11-12 — B3.2 warehouse pair fault injection and B5 guard
+
+- All four GitHub CI gates passed on the prior tested head `0d666468fee4cdb73aa616664d4880539f9d85b0`. The B3.1 database migration `20261110225954` was recorded on Staging.
+- The B3.1 report now separately counts **2 intra-site warehouse transfers valued at 170 ILS** whose source/destination movements match, with **0 pair discrepancies** and **0 candidate inter-site GL entries**. This is **not** evidence that inter-site consolidation eliminations were independently reconciled.
+- Executed an actual Staging synthetic fault injection in `BEGIN/ROLLBACK`: changed transfer #2 from 70.00 to 70.01, verified `intraSiteWarehouseTransferMismatchCount=1` and `warehouseTransfersPaired=false`, while `accountingCertification=NOT_CERTIFIED`; result `B3_2_FAULT_INJECTION_PASS_ROLLBACK`. No change persisted.
+- Saved the reusable regression in `docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql`. Updated the B5 Staging engineering gate to verify the paired count, sum, zero mismatch, classification, and continued non-certification. B5 gate re-executed and returned `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- Added Vitest contract assertions for the migration, fault test, B5 gate and UI warnings. CI must be confirmed again on the new final SHA, not inferred from the old passed SHA.
+- B2 authenticated two-user browser review, missing 2,000 ILS opening documentation, standalone inter-site elimination evidence, and sustained concurrent E2E performance remain open. **Phase B is not financially certified.** PR #359 stays Draft; Production untouched.
+
+---
+
+## 2026-11-12 — B2.1 independent-actor SQL acceptance
+
+- Last verified pre-change PR head was `95ff9f09e725d02d17d682cf58d42094247579cf`; all four CI checks passed on that head and its Vercel Preview was READY.
+- Re-ran B2/B3/B3.2/B5 tests on synthetic Staging using `BEGIN/ROLLBACK`; they passed with results `B2_1_TWO_ACTOR_NEGATIVE_PASS_ROLLBACK`, `B3_PASS_ROLLBACK_ONLY`, `B3_2_FAULT_INJECTION_PASS_ROLLBACK`, `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- B2.1 used **two separate existing synthetic tenant actor IDs 4 and 260** through actual PostgreSQL RPCs: unauthorized prepare/approval were denied; maker self-approval was denied; the independent test checker approved inside the transaction; draft was not prematurely reported approved; exact retry reused the policy; modified payload or changed operation key caused conflicts; the GL entry/line counts were unchanged. The transaction was rolled back, leaving no central policy or synthetic human approval.
+- SQL source: `docs/security/sql/pr359-financial-b2-two-actor-negative-rollback.sql`. Static contract assertions were added in `server/financial-stage-a-acceptance.contract.test.ts`.
+- **IMPORTANT acceptance boundary:** invoking SQL with distinct actor IDs is **not** the same as two authenticated users interacting in the browser with authorization scoped by `requireSupabaseSiteRole`. E2E browser verification on the matching current Preview is still required.
+- No real accounting evidence or signed opening documentation exists for the 2,000 ILS synthetic second-site opening; it still must be reported as unreconciled. B3 remains preliminary and inter-site eliminations unreviewed. No merge and no Production change.
+- The four CI gates must be checked again on the final SHA after this documentation update.
+
+---
+
+## 2026-11-12 — B4.6 prohibited evidence + B2/B4 stale-state isolation
+
+- The previously green head `e13d38b8db1a0eb2ff80b87d52057e3448efb220` had four successful CI gates and a matching READY Preview.
+- Finance UI: `FinancialOpeningEvidenceWorkspace` is now keyed by site ID so selected files, document details and temporary review state cannot carry over to a different site. Both opening evidence actions and B2 policy details now fail closed while site/period query data is inactive, loading, refetching or errored. Static contract assertions guard these behaviors. A true logged-in multi-user browser exercise is still outstanding.
+- **B4.6 Staging negative acceptance:** posted test opening `19` at site `9000000000099` remains marked `NOT-CERTIFIED`; the database guard correctly rejects any attempt to submit nominal "evidence" to a synthetic/unverified opening (`GL_OPENING_EVIDENCE_SOURCE_OR_SCOPE_INVALID`). The test verifies no custody, no evidence rows, no GL change, `BLOCKED_RECONCILIATION` and no independent attestation. Executed `B4_6_MARKED_OPENING_FAIL_CLOSED_PASS_ROLLBACK`, in `BEGIN/ROLLBACK`, and stored `docs/security/sql/pr359-financial-b4-marked-opening-fail-closed-rollback.sql`.
+- An earlier attempt to submit synthetic paper-like evidence was **rejected by the intended PostgreSQL guard**; the proper solution was to assert that rejection, not disable the guard or manufacture approval. This is a financial integrity pass, not completed site opening reconciliation.
+- Pending: repeat CI on latest SHA, confirm matching Preview; actual browser authentication and reviewer workflows; independent inter-site GL eliminations; unresolved test opening; sustained performance E2E. PR #359 remains Draft, no Production changes.
+
+---
+
+## 2026-11-12 — B5.2 final-gate revalidation and concurrency evidence
+
+- Confirmed PR #359 head `fee7a544eb5375737f7f3ae39b9350b9cce99cc8` was **4/4 CI SUCCESS**, Draft, unmerged, with a SHA-matched READY Vercel Preview before the B5.2 changes.
+- Re-executed four independent synthetic Staging acceptance scripts in rollback transactions: `B2_1_TWO_ACTOR_NEGATIVE_PASS_ROLLBACK`, `B3_2_FAULT_INJECTION_PASS_ROLLBACK`, `B4_6_MARKED_OPENING_FAIL_CLOSED_PASS_ROLLBACK`, and `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. All passed. Real GL remained 24 entries / 49 lines, B2 policies zero, second-site evidence/custody zero, company movements 250,009.
+- Ran 4 parallel database read requests for B3 rollup, B4 primary-site subledger and B4 cash audit. **All 4 returned identical MD5 digests per report**; no false `NOT_CERTIFIED` transitions. This verifies concurrent *read result consistency*, not authenticated user isolation, peak load capacity, or stable latency.
+- `EXPLAIN ANALYZE` for 4 concurrent B3 calls returned **11,410.529 / 3,533.875 / 372.741 / 534.849 ms**. Three later sequential calls returned **475.487 / 347.918 / 342.698 ms**. The high cold/concurrent latency means **B5 performance cannot be closed as an established SLA**.
+- Ran new rollback SQL `docs/security/sql/pr359-financial-b5-repeat-read-consistency-rollback.sql` and confirmed `B5_2_REPEAT_READ_CONSISTENCY_PASS_NOT_CERTIFIED`; corresponding CI contract test added. This gate confirms no GL mutation and deterministic repeat data with `NOT_CERTIFIED`.
+- **No financial certification or real UI E2E is evidenced.** Opening #19 on site 9000000000099 is intentionally labeled unproven and cannot be attested by manufactured evidence; independent inter-site GL eliminations and authenticated two-user browser B2 review are still open. Production unchanged and PR #359 remains Draft.
+- Next decisive work: browser E2E on a SHA-matching Preview, repeatable representative concurrent load with thresholds, and scope-specific inter-site accounting fixtures built as true *new test movements* with no false certification. CI success on this earlier head does not apply to subsequent commits.
+
+---
+
+## 2026-11-12 — User browser acceptance + B3.3 source-pair evidence
+
+- User confirmed the browser has been checked. **Recorded as user-reported browser verification**, not a claim that we observed two independent authenticated user sessions or collected click-path screenshots.
+- Prior head `53c119fac914bc7bbbf90df234247e29bd61020f` had all four GitHub CI gates SUCCESS and a matching READY Preview before the changes below.
+- B3.3 adds cross-site **operational source** indicators to the existing preliminary tenant rollup: count of actual company-account transfer operations, count and total amount of those spanning sites, malformed source pair count, and an explicit evidence classification. Both the audit and UI never label zero candidates as independent GL elimination approval.
+- The Staging dataset currently has **0 company-account transfer operation rows**: `NO_CROSS_SITE_SOURCE_OBSERVED_NOT_CERTIFIED`. It still has **2 intra-site warehouse transfers** with 170 ILS total, which are a separate operational category, not inter-site GL elimination evidence.
+- Executed a controlled negative fixture inside `BEGIN/ROLLBACK`: created a synthetic transfer operation pointing at two unrelated receipt transactions; B3.3 detected 1 invalid source pair, set `interSiteSourcePairIntegrity=false`, and left `NOT_CERTIFIED`. Test result: `B3_3_INVALID_TRANSFER_PAIR_PASS_ROLLBACK`. No persistent transfer was created.
+- Staging migration `20261112083854_powerhub_financial_gl_b3_inter_site_source_visibility.sql` applied and committed to PR #359, plus UI warning and CI contract. The full B5 engineering gate was extended for B3.3 fields and re-executed: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- **Acceptance boundary:** These are source visibility and negative checks, NOT evidence of a correctly eliminated positive cross-site transaction. A positive two-site source/GL elimination test and accounting treatment of the unsupported 2,000 ILS synthetic opening remain outside the certified acceptance. Do not create fictional evidence, relabel this as consolidated statements, or deploy Production.
+- CI must be verified on the new SHA. PR #359 stays Draft/unmerged.
+
+---
+
+## 2026-11-12 — B3.3 positive cross-site source test
+
+- Added a **valid two-sided test transfer** of 20 ILS from site 1 to site `9000000000099`, with separate company-account transactions and a cross-site wallet-site mapping, entirely in `BEGIN/ROLLBACK`. The two movements were paired to the same transfer-operation key.
+- Verified `companyTransferSourceOperationCount=1`, `crossSiteOperationalTransferCount=1`, `crossSiteOperationalTransferAmount=20`, `invalidOperationalTransferPairCount=0`, and `interSiteSourceEvidenceStatus=CROSS_SITE_TRANSFER_REQUIRES_GL_ELIMINATION_PROOF`.
+- Even a valid cross-site source does **not** certify independent inter-site GL elimination. `canBeCertifiedConsolidation=false`, `isConsolidatedFinancialStatements=false`, `accountingCertification=NOT_CERTIFIED`, GL count unchanged. Test result: `B3_3_POSITIVE_CROSS_SITE_SOURCE_BLOCKED_PASS_ROLLBACK`.
+- Added permanent regression SQL at `docs/security/sql/pr359-financial-b3-positive-cross-site-source-rollback.sql` and Vitest contract assertions. No test source remains in Staging after rollback.
+- The remaining work is accounting-grade matching of actual inter-site posting/elimination journal entries (currently not implemented as a certified B3 consolidation), and settlement of the separately blocked synthetic opening for site 2. This positive synthetic source test is **engineering proof**, not final consolidation acceptance.
+- The user's browser check is acknowledged; no assumptions are made about separate reviewer credentials beyond the evidence available.
+
+---
+
+## 2026-11-12 — B3.4 correction based on the production transfer RPC
+
+- All four CI gates were GREEN on the preceding head `9bdf8e1071dc29121f6ce93c5de0696be818fb14`; the associated Vercel Preview was READY. These older results **do not** certify the new head.
+- Discovered a false-negative risk in B3.3: the rollup's source pair predicate expected `withdrawal` + `collection`, while the actual `powerhub_transfer_company_accounts_idempotent` RPC creates `transfer_out` + `transfer_in`. Changed the source comparator to the actual operation types, without relaxing matching of tenant, site, account, amount, and counterpart.
+- Applied and registered Staging migration `20261112091332_powerhub_financial_b3_transfer_type_alignment.sql` and committed the exact SQL to PR #359. No Production changes.
+- Directly called the **real transfer RPC** in a Staging `BEGIN/ROLLBACK` transaction for an intra-site 20 ILS transfer: paired movements were recognized without mismatches, `NOT_CERTIFIED` remained, and GL count was unchanged. Result: `B3_4_REAL_RPC_TRANSFER_TYPES_PASS_ROLLBACK`.
+- Corrected the prior synthetic cross-site fixture to use `transfer_out/in` and confirmed `B3_3_POSITIVE_CROSS_SITE_SOURCE_BLOCKED_PASS_ROLLBACK`. The invalid-pair regression `B3_3_INVALID_TRANSFER_PAIR_PASS_ROLLBACK` also passed.
+- Re-ran B5 on Staging after these corrections: `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. Tests were added to the contract suite.
+- **Still not final:** no approved standalone inter-site GL elimination entries; opening #19 on the isolated second site has no independently verified document and continues to block acceptance; representative load under concurrent users not proven. User confirmed browser checking, but distinct authenticated checker session is not independently evidenced.
+- PR #359 remains Draft/unmerged. New SHA needs full CI and Preview checks before acceptance.
+
+---
+
+## 2026-11-12 — B5.3 prior-gap optimization with exact ledger invariants
+
+- Starting head `f39afe0c7b5493b1804fcf593102c63365753c5c`: **all four CI gates successful**, Vercel Preview READY, PR Draft/unmerged.
+- Discovered the unclassified prior-account-movement report scans 250,000 benchmark rows in the synthetic tenant (historical May 2026 records) despite existing exclusion bookkeeping. These rows are immutable and SHA-256 anchored; unrelated accounts/site/periods must never inherit their exemption.
+- Applied Staging migration `20261112093106_powerhub_financial_b5_fast_prior_coverage_without_250k_rescan.sql`, committed exact SQL. The raw gap source now uses the existing guarded proof for **tenant=1/site=1 and a historical window containing the entire May fixture**. It counts all non-fixture movements through the existing partial index and adds the anchored 250,000 historical rows back to its *raw* figures. If the proof is not verified, it performs the original full counting path, without excluding anything.
+- Compared digest of **raw gap result, filtered gap result, and B3 rollup before/after change**; all three were exactly equal. The raw gap continued showing 250,000 unclassified and tagged test movements; filtered report continued showing zero unresolved, with the quarantine clearly described. No false financial certification.
+- Disabled `powerhub_financial_gl_fixture_freeze_write` **inside BEGIN/ROLLBACK**; the fast proof failed, the raw gap still counted all 250,000 as unresolved, and the filtered gap no longer excluded them. Re-enabled the trigger inside the test, verified recovery. Result `B5_3_RAW_FALLBACK_PRESERVES_UNRESOLVED_PASS_ROLLBACK`. The guard is active after rollback.
+- **Performance limitation:** measured raw prior-gap query near 6,346 ms before and 4,955 ms after in two runs, but these are highly variable. Filtered prior-gap query after was 490 ms and B3 rollup 634 ms. This does not prove a stable p95 or closure of B5 concurrency performance. Do not claim a guaranteed speedup.
+- Test contract added. No change to 24 GL entries/49 lines, no B2 central allocations, no manufactured site-2 opening evidence; Production unchanged.
+- Outstanding full-B closure: site-2 2,000 ILS opening requires a formally authorized accounting disposition; independent GL elimination entries for cross-site transfers remain unimplemented/unproven; repeatable load benchmarks and post-change green CI on the final SHA are still required.
+
+---
+
+## 2026-11-12 — B4.7 cash-transfer correction, B4.8 opening reversal simulation, and operational amount display
+
+- Browser validation is user-reported; real independent two-user browser-role coverage remains subject to scope confirmation.
+- **B4.7:** The real company-account transfer RPC creates `transfer_out` and `transfer_in`. B4 previously called them unknown and did not include their signed operational cash/wallet effects. The Staging function now recognizes these as known types, computes signed source balances, and returns `BLOCKED_UNPOSTED_ACCOUNT_TRANSFER` for both cash and wallet until a supported GL journal exists. Test `B4_7_TRANSFER_RECOGNIZED_BUT_GL_BLOCKED_ROLLBACK_PASS` passed with a synthetic 17.33 ILS RPC transfer. B5 gate remained `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- Staging recorded two generated migrations with the same B4.7 name, versions `20261112094941` and `20261112095117`. Both are represented by idempotent final-definition SQL files in Git. This duplicate sequence is explicitly tracked for future migration hygiene; do not rewrite applied migration history silently.
+- **B4.8:** A posted synthetic opening cannot be voided by the draft-only void RPC. An append-only correction/reversal was simulated for original GL entry 168 (site 9000000000099, 2,000 ILS), with exact opposite lines and `reverses_entry_id=168`. This eliminated the *numeric* cash difference but did not certify source evidence. Test `B4_8_POSTED_TEST_OPENING_REVERSAL_SIMULATION_PASS` passed inside `BEGIN/ROLLBACK`. No permanent GL reversal or fabricated authorization was saved. A production-ready controlled correction workflow remains outstanding.
+- **Display policy from user:** operational money amounts usually have no fraction (~99.5%); a small minority have one decimal (~0.5%). Modified B1/B3/B4 audit, B2 central costs and opening-evidence **display only** to use `minimumFractionDigits:0, maximumFractionDigits:2`: integer values show with no decimal, one-decimal values keep one, genuine 2-decimal sums remain intact. B2 allocation percentages continue using exact basis points and up to 2 decimal percentage digits. Storage, API amounts, GL postings and idempotency hashes unchanged. Contract tests enforce the UI choice.
+- Invariants after rollback remained 24 GL entries / 49 lines; 0 central policies, 0 company-transfer operations, 0 second-site opening evidence and custody documents.
+- **B is not financially certified:** no independently proven inter-site elimination workflow; isolated posted opening requires authorized reversal process, and concurrency/performance thresholds are not accepted. CI/Preview must be checked at the latest head. PR #359 stays Draft and Production was not touched.
+
+---
+
+## 2026-11-12 — B4.9 posted company-account transfers: source-backed GL and UI
+
+- Prior verified head `cb74c4be5fd70a02b17c8359b5c320579b080323` passed the four CI gates and had matching READY Preview. These old results do **not** establish success on the new branch head.
+- Implemented `account_movement` in the existing `powerhub_financial_gl_source_plan` and `powerhub_financial_gl_post_source` pathway for **intra-site** company-account transfers. It uses the actual `transfer_out/in` source pair; two linked account movements; exact tenant, site, account, amount, operation, source fingerprint; existing locking, privileges, balanced lines, immutable GL and idempotent replay. Transfers from cash to wallet debit `1020` and credit `1010` with **no additional revenue or expense**. Cross-site transfers are intentionally rejected pending their own elimination model.
+- B4 reconciliation now counts a transfer as matched **only after** finding one correctly fingerprinted `account_movement` GL entry with two exact opposing lines and an independently matching source pair. Without GL, it continues reporting `BLOCKED_UNPOSTED_ACCOUNT_TRANSFER`. No false certification.
+- Executed real-source E2E SQL: `B49_TRANSFER_GL_RECONCILIATION_PASS_ROLLBACK`: 17.30 ILS transfer, first GL post, idempotent retry with same entry, both source balances numerically reconciled, zero unposted transfer count, and `NOT_CERTIFIED`. Tested forged operation rejection: `B49_FORGED_TRANSFER_BLOCKED_PASS_ROLLBACK`.
+- Found and fixed a decimal-scale mismatch: the old transfer RPC hash uses the input textual decimal precision (`12.3`) while the persisted movement uses `numeric(14,2)` (`12.30`). The validator now accepts only hashes computed from the same numeric value at representable input scales 0–6 while preserving the original actor, accounts, description and operation key. Tested `12.3` using real source RPC.
+- Added a **user-initiated GL posting workspace** to the financial audit, with a server-authenticated, tenant/site-scoped and paginated candidate RPC `powerhub_financial_gl_cash_transfer_candidates`, explicit checkbox confirmation before posting, no stale financial actions on failed fetch, and no claimed success before the server acknowledges GL. The UI is keyed by site+period and invalidates B4 reconciliation after posting. Candidate test: `B49_CANDIDATES_PENDING_POSTED_PASS_ROLLBACK`.
+- Staging applied migrations **20261112101831**, **20261112102257**, **20261112102934** and their exact files were committed to PR #359. CI contract tests added. No Production write or merged PR.
+- **Open for Phase B full accounting closure:** independently supported and tested inter-site due-to/due-from and consolidation elimination journals, controlled disposition of the second synthetic site's unsupported 2,000 ILS opening, repeatable concurrent performance thresholds. User-reported browser checking predates the new B4.9 UI and does not prove this UI was visually tested.
+- **Financial certification remains NOT_CERTIFIED**, despite successful engineering acceptance of the tested source/GL path.
+
+---
+
+## 2026-11-12 — B4.9.3 and B5.4 engineering closure evidence
+
+- B4.9 GL transfer posting and B4 subledger matching are now callable from the financial audit's user-initiated, site/period-keyed UI. The server enforces tenant/site membership, `manageExpenses` and `viewFinancialReports`, limits candidate results to 25 per cursor page, verifies source ID and GL posting server-side, and never claims success without a returned GL entry ID. The table is NOT a certification workflow.
+- The original transfer RPC computes an MD5 payload hash from the input decimal *scale*, while persisted account movements use `numeric(14,2)`. B4.9.2 checks hashes of the **identical amount value** at permissible textual scales 0–6 while preserving tenant, source/destination IDs, actor and description. Test `B49_CANDIDATES_PENDING_POSTED_PASS_ROLLBACK` confirms **12.3** source value posted and reconciled despite 12.30 storage. The forged transfer test remains rejected.
+- B4.9.3 corrected a narrower-than-product account type guard: `cash`, `jawwal_pay`, `palpay`, `bank_of_palestine`, `other` are supported per account constraint. Source cash maps to 1010; all other near-cash accounts map to 1020, with the original source, amount and provenance validated. Test `B49_JAWWAL_PAY_TRANSFER_MATCHED_PASS_ROLLBACK` passed using the real transfer RPC with synthetic Jawwal Pay account. Staging migration `20261112103607` applied and committed to Git.
+- B5.4 found a further large query bottleneck: `powerhub_financial_gl_company_movement_audit` repeatedly counted all 250,000 historical benchmark transactions. It now uses the fixed, signed/immutable Staging cohort proof only after the complete May 2026 fixture window; it counts all rows normally if proof/cutoff conditions fail. Before/after MD5 of full B4 cash audit result **identical**. Migration `20261112104342` applied and committed.
+- Explicit fail-closed negative `B54_AUDIT_FIXTURE_FAIL_CLOSED_PASS_ROLLBACK`: disabling the immutable freeze trigger within rollback caused the report to count the cohort as unverified, return `BLOCKED_ACCOUNT_MOVEMENT_AUDIT`, and exclude **zero** rows; normal status returned only when the freeze guard was restored. No trigger permanently disabled.
+- An earlier mixed concurrent-read sample saw ~8,385.53 ms for the B4 cash audit (before B5.4). The subsequent mixed sample after B5.4 returned B4 cash audit **442.084 / 526.056 / 416.157 ms**, B3 rollup 1,093.258 ms, B4 site reconciliation 348.828 ms, prior raw gaps 229.027 ms. No PostgreSQL temporary disk blocks were generated. These are **samples**, not proven authenticated browser p95 or SLA under sustained multi-user load.
+- Both B4.9 and B5.4 regression scripts, source-key validations and CI static contracts are committed. All synthetic test transfers and account rows were rolled back. PR #359 remains Draft, Production untouched.
+- **Open full financial B scope**: independently posted and audited cross-site due-from/due-to elimination journal workflow (B3), authorized append-only reversal/disposition of site 2's unsupported 2,000 ILS test opening (B4), and representative sustained performance acceptance (B5). Existing statement label `NOT_CERTIFIED` remains correct. Earlier user browser verification predates the B4.9 UI and is not evidence of its current click-path review.
+
+---
+
+## Historical baseline before B4.10 (superseded numbers)
+
+The following figures and B4 site-2 BLOCKED status describe the **pre-correction test baseline**, not the present durable Staging state. Current numbers are 25 GL entries, 51 lines, 0 supported subledger balance differences; original opening evidence remains unauthenticated and certification remains NOT_CERTIFIED.
+
+
+| Scope | Direct evidence | Status |
+|---|---|---|
+| B1 — initial site statements | 24 GL entries, 49 lines; equation difference zero on both test sites; `NOT_CERTIFIED` | Implemented and structurally checked |
+| B2 — administrative central expense distribution | `B2_PASS_ROLLBACK_ONLY`: 85-unit expense split 60/40 = 51/34; rejects 90% weights and self-approval; no GL posting | Backend/database acceptance passed; browser review still open |
+| B3 — preliminary multi-site rollup | `B3_PASS_ROLLBACK_ONLY`: 2 sites, 24 GL entries, net assets 6,070.50, liabilities 7,119, posted equity 2,000, unclosed accumulated result -3,048.50, equation difference zero | Preliminary only; `NOT_INDEPENDENTLY_RECONCILED` internal eliminations |
+| B4 — main site subledgers | 5/5 balances matched, 16 document sources, 9 linked cash/account movements, zero mismatches among supported sources | Numeric/document matching; `NOT_CERTIFIED` |
+| B4 — isolated second site | GL cash 2,000 versus assistant ledger 0. No opening evidence/custody documents. | **BLOCKED**, not accepted |
+| B5 — combined safety gate | `docs/security/sql/pr359-financial-b5-staging-engineering-gate.sql` executed on Staging in `BEGIN/ROLLBACK`; result `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED` | Engineering-only automated check passed |
+| B5.1 — fast integrity proof | `docs/security/sql/pr359-financial-b5-fast-proof-negative-rollback.sql`: disabled write-freeze trigger inside reversible transaction; proof correctly failed closed, then recovered | Security-negative test passed |
+
+Previously executed isolated SQL evidence: `B2_PASS_ROLLBACK_ONLY`, `B3_PASS_ROLLBACK_ONLY`, `B4_1_PASS_ROLLBACK_ONLY`, `B4_2_PASS_ROLLBACK_ONLY`, `B4_5_INDEX_AND_LEDGER_PASS`.
+
+## B5.1 performance remediation
+
+**Issue:** `powerhub_financial_gl_prior_operational_gaps` repeatedly invoked the complete 250,000-row SHA-256 verification in every site-statements/rollup request. A B3 run used ~14.37 seconds and ~25,662 PostgreSQL temporary write blocks.
+
+**Fix:** `20261110223326_powerhub_financial_b5_fast_staging_fixture_coverage.sql` adds `powerhub_financial_gl_fast_staging_fixture_proof` and uses it **only** for tenant 1/site 1/months after 2026-05. It checks a fixed SHA-256 evidence record, exact 250,000-row cardinality, active immutable write/truncate/record triggers, and operational cross-references. A guard failure makes `verified=false`; unclassified test records are **not** silently excluded. `powerhub_financial_gl_verify_staging_fixture` remains the independent full-hash verifier. This optimization makes **no data edits**, does not imply human approval and never changes `NOT_CERTIFIED`.
+
+Selected `EXPLAIN (ANALYZE, BUFFERS)` samples in Staging, not SLA guarantees:
+
+| Path | Before | After B5.1 / measured samples |
+|---|---:|---:|
+| B3 whole preliminary rollup | 14,369 ms | 2,271 ms single run; 1,013 / 370 / 324 ms in an additional concurrent-read sample |
+| B1 site statements, primary branch | 14,837 ms | 408 ms |
+| Prior operational gaps | 9,648 ms | 372 ms |
+| B4 company movements | Earlier variable 0.64–8.36 seconds | 1,863 ms under the same concurrent-read sample |
+| Full 250k-row hash (independent) | 10–15 seconds | **Still full**; intentionally not part of every rollup |
+
+An actual browser experience and sustained concurrent-load test have **not** been verified. A matching recent Vercel preview has **not** been established for the latest branch head.
+
+## Incomplete acceptance requirements (must not be marked done)
+
+1. **B2:** E2E interactive prepare/approve with **two distinct authenticated user identities**. SQL regression does not prove button behavior, authenticated review or permissions in the browser.
+2. **B3:** independently sourced inter-site transfer eliminations; accounting for shared central balances and preventing double count; tax mapping; verified consolidation. Current result remains preliminary even if transfer candidates count is zero.
+3. **B4:** the original unsubstantiated 2,000 opening was technically reversed in Staging with independently checked numeric and audit integrity; the original source evidence is still missing. No human approval, original statement, or final certification is implied. A generalized controlled reversal workflow is still required before launch.
+4. **B5:** matching Vercel preview and E2E tests, multi-user isolation, repeated load tests / concurrency under thresholds, and all four CI gates **on final SHA**. A successful old SHA is not evidence for a new head.
+5. **Production:** no migration, no SMS, no live financial posting, no merge without express approval.
+
+## Release decision
+
+**Engineering tests:** positive for the explicitly checked synthetic-Staging baseline.  
+**Financial acceptance:** **NOT_CERTIFIED / BLOCKED where evidence is missing**.  
+**Full Phase B:** **NOT COMPLETE** until the open requirements above are accepted and documented.
+
+Keep this distinction visible in all dashboards and deployment notes.
+
+
+---
+
+## 2026-11-12 — B4.12 reversal provenance fail-closed acceptance
+
+- Reverified the last pre-change head `95c7389221136d0ba947ed78dbd86cfdbc352ac2`: PowerHub CI, PostgreSQL Integration, PowerHub Security and Supabase Admin Guard all succeeded; corresponding Vercel Preview was READY. **These are not CI/Preview certifications for B4.12.**
+- Created migration `20261112141000_powerhub_financial_b412_reversal_provenance_guard.sql` on PR #359 and applied its SQL to the verified `powerhub-staging-dr` project `iyuryuhaylhisjfcrwkz` in an atomic transaction using the **repository version identifier** `20261112141000`. The migration history record exists. No Production change or PR merge.
+- Added `powerhub_financial_gl_reversal_source_proof`: invoker-rights and `service_role` only; verifies same tenant/site, original/reversal direction and period, exactly one linked reversal, full inverse GL lines with duplicate multiplicities, positive amounts, and original/reverse SHA fingerprints. Accruals require both posted source journals, exact reversal link, cross-approved actors and matching SHA-256 source fingerprints.
+- B4.11 read-only readiness now distinguishes `SOURCE_BACKED_REVERSAL_VALID` from `GL_INVERSE_ONLY_SOURCE_UNATTESTED` and `BLOCKED_INTEGRITY`. This is fail-closed: an unproven or invalid existing reversal is **not** described as independently verified. No browser GL reversal button has been added.
+- The synthetic second-site opening #168 and correction #890 have exact inverse GL lines but no independently attested original document: status `EXISTING_REVERSAL_SOURCE_REVIEW_REQUIRED`, **not** financial approval. Accrual #169 / reversal #170 pass source-backed proof; both remain immutable.
+- Saved standalone rollback regression `docs/security/sql/pr359-financial-b412-reversal-provenance-rollback.sql`. Its result on live Staging was `B412_REVERSAL_PROVENANCE_GUARD_PASS_ROLLBACK`, including correct accrual, blocked forged/cross-site source, opening warning, pagination limit and unchanged 25 GL entries / 51 lines.
+- Financial audit UI now gives Arabic explanatory labels for the three new review/integrity statuses.
+- `NOT_CERTIFIED` remains mandatory. Outstanding: source-specific correction workflows for invoice, payment, supplier, stock, expense and payroll; independent browser checker acceptance for B2/B3; sustained measured multi-user B5 and verified four CI/READY Preview gates on the new final SHA. The B4.12 SQL does not create human approval.
+
+
+---
+
+## 2026-11-12 — B4.13 exact accrual GL-line source attestation
+
+- Reverified commit `d7ae1381e64adce0ff754198acb65eb650d20b70`: all four GitHub required workflows passed. A Vercel Preview matching that SHA was not found; browser acceptance remains open.
+- Found a real false-positive in B4.12 by testing on the live *pre-fix* Staging function: two accrual GL entries can be simultaneously reclassified to a different account while retaining zero net balance and exact inverse lines. The original helper returned `SOURCE_BACKED_REVERSAL_VALID` even though those GL lines no longer matched their independently approved source journal. The adversarial test produced expected pre-fix failure `B413_FORGED_BALANCED_PAIR_ACCEPTED`; the enclosing SQL transaction was rolled back.
+- Added `supabase/migrations/20261112153000_powerhub_financial_b413_accrual_gl_line_source_proof.sql` in PR #359 and applied precisely that SQL to the verified Staging project. Its history record has version `20261112153000` and stores the complete source SQL text (7102 characters); no dynamically generated version or production changes.
+- This migration retains the B4.12 invoker / service_role scope but requires **both** original/reversal GL entries to contain exactly two lines matching their respective accrual journal's debit code, credit code, amount and direction. Exact inverse GL lines and SHA-256 journal fingerprints remain mandatory.
+- Regression `docs/security/sql/pr359-financial-b413-source-paired-gl-forgery-rollback.sql` now passes on the actual migrated Staging function, returning `B413_BALANCED_BUT_SOURCE_FORGED_GL_REJECTED_PASS_ROLLBACK`. It disables the GL-line immutability trigger only inside a rollback transaction, mutates both sides of a balanced pair, and verifies fail-closed readiness classification. The trigger is confirmed enabled after rollback.
+- Existing B4.12 acceptance remains `B412_REVERSAL_PROVENANCE_GUARD_PASS_ROLLBACK`; B5 regression remains `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. Durable tenant-1 GL: 25 entries, 51 lines, unchanged. Correct accrual 169/170 remains `SOURCE_BACKED_REVERSAL_VALID`.
+- **These are engineering evidence only**. Final financial certification remains `NOT_CERTIFIED`. Source-specific corrections outside accrual reversals, B2/B3 independent authenticated browser checker flows, and representative sustained B5 performance are still pending.
+- Check final GitHub CI and matching Vercel Preview on the new final SHA before claiming release-readiness. PR #359 remains Draft and unmerged; Production was not touched.
+
+
+---
+
+## 2026-11-12 — B4.14 supplier payment posted-GL reversal fail-closed guard
+
+- Actual Staging verification revealed a source/GL mismatch risk in the existing supplier-payment reversal paths: `powerhub_inventory_reverse_supplier_payment_flexible` and `powerhub_inventory_reverse_supplier_payment` could create a compensating `account_transactions.deposit` and a `supplier_ledger_entries.reversal` while an immutable `supplier_ledger` GL journal still represented the original supplier payment. The existing GL source planner does **not** yet support `supplier_ledger.entry_type='reversal'`. This is a correctness gap; it must not be hidden behind a numerically balanced cash ledger.
+- Demonstrated on synthetic Staging payment #5 (210 ILS; payment ledger source #20; original GL entry #857): inside `BEGIN/ROLLBACK`, the old business reversal created the compensating deposit and supplier-ledger reversal, without a matching GL reversal.
+- Added guard to **both** supplier payment reversal RPC variants in `supabase/migrations/20261112172000_powerhub_financial_b414_supplier_reverse_gl_guard.sql`. For a payment with an already-posted `supplier_ledger` GL source, the attempted standalone operational reversal raises `SUPPLIER_PAYMENT_POSTED_GL_SOURCE_REVERSAL_REQUIRED` (SQLSTATE `22023`) before writing any reversal source, payment status or account movement. This is an intentionally fail-closed mitigation, **not** a completed supplier GL reversal workflow.
+- Applied and registered this exact migration on Staging `iyuryuhaylhisjfcrwkz`, preserving the explicit repository migration version `20261112172000`. The migration record contains the complete SQL source (17,502 characters). Production was not touched.
+- Standalone regression `docs/security/sql/pr359-financial-b414-supplier-reversal-gl-guard-rollback.sql` passed against the applied Staging functions: `B414_SUPPLIER_GL_REVERSAL_REQUIRED_FAIL_CLOSED_PASS_ROLLBACK`. Both RPC variants refuse reversing GL-posted payment #5; no compensating transaction, supplier reversal record or GL mutation persists.
+- Re-ran previous audit `B412_REVERSAL_PROVENANCE_GUARD_PASS_ROLLBACK` and B5 engineering gate `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`. Post-test permanent baseline: 25 tenant-1 GL entries, 51 lines, 0 supplier payment reversals, 0 compensating deposits for payment #5; immutable GL line trigger enabled.
+- **Next needed B4 work:** implement an explicitly source-linked, atomic and idempotent supplier payment correction process, with maker/checker, lock order, period controls, original GL matching, exact opposite lines and source-fingerprint validation. Until implemented, GL-posted supplier payments must not be reversed operationally.
+- B2/B3 authenticated two-actor browser acceptance, B5 concurrent performance and matching latest-head CI/Preview remain independently open. No financial certification is claimed; all statements remain `NOT_CERTIFIED`.
+
+
+### 2026-11-12 — B4.14.1 replay fail-closed extension
+
+- Rechecked both supplier-reversal entrypoints after B4.14. Found a second false-success case: a source payment already marked `reversed` could use the idempotent replay branch, bypassing the new guard, even when original GL remained posted and no supported correcting journal existed.
+- Added `20261112180000_powerhub_financial_b4141_supplier_reversal_replay_guard.sql` on PR #359, moving the posted-GL refusal before either RPC's `reversed` / `posted` status branch. This blocks false-success replays for already-reversed or tampered records while leaving original GL unchanged. The migration was applied and registered by exact version on Staging.
+- Verified `B4141_TAMPERED_REPLAY_BLOCKED_PASS_ROLLBACK` by simulating an already-reversed supplier payment inside `BEGIN/ROLLBACK`; both direct and flexible RPCs return SQLSTATE 22023 instead of claiming replay success. Re-ran B4.14 guard and B5 engineering acceptance: `B414_SUPPLIER_GL_REVERSAL_REQUIRED_FAIL_CLOSED_PASS_ROLLBACK` and `B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED`.
+- This is **not** a completed correction mechanism for supplier payments. It is an explicit accounting integrity guard until source-backed, fully auditable and idempotent GL reversal is implemented and accepted. Independent B2/B3 browser acceptance and B5 sustained load tests also remain open. Production untouched and PR #359 still Draft.
+
+
+---
+
+## 2026-11-12 — B5 usage-weighted acceptance and single-site-first interface
+
+### Customer/transaction operating assumptions supplied by product owner
+
+- Approximately **90% of future customers operate a single active branch** (expected production usage, **not** an inference from Staging).
+- Approximately **99% of future financial activities** will be invoice collection, payment documentation approval, company account deposit/withdrawal, expenses, fuel and maintenance purchasing, payroll, and employee advances.
+- Approximately **99% of transactions are accepted on the first attempt and never adjusted**. Source-specific corrections are rare and require safe exception workflows; these assumptions **must not** bypass ACL, tenant/site isolation, idempotency, atomicity, source fingerprints, posting safeguards, or period locks.
+
+### Implemented
+
+- Added the tenant-scoped authenticated `reports.financialGLSiteScope` procedure, requiring `viewFinancialReports` for the selected site before it reads active site count. Query is restricted to the verified tenant, requires the selected site in its result, and fails closed for ambiguous/truncated results. A platform-wide site count must never be used as a tenant complexity signal.
+- Updated `FinancialGLAuditPanel` so central allocations, inter-site transfer workspace, and the B3 multi-site rollup remain unmounted/unfetched when a verified tenant has exactly one active site. They remain available for authorized multi-site tenants. If scope cannot be verified, cross-site UI is hidden but site-local B1/B4 auditing remains accessible.
+- Added `server/financial-single-site-fast-path.contract.test.ts` for scoped permission checks, conditional query enabling, and fail-closed UI.
+- No database changes or production migration needed for this route/UI update.
+
+### B5 short concurrent-read sample (direct Staging PostgreSQL, not browser p95)
+
+Ran **4 independent simultaneous SQL sessions**, each performing five runs of `powerhub_financial_gl_company_movement_audit(1,1,'2026-11')` and five runs of `powerhub_financial_gl_subledger_reconciliation(1,1,'2026-11')`, each session with read-only measurement data confined to a `ROLLBACK` transaction.
+
+| Worker | Cash audit p50 (ms) | Cash audit p95 est. (ms) | Cash audit maximum (ms) | Subledger p50 (ms) | Subledger max (ms) |
+|---|---:|---:|---:|---:|---:|
+| 1 | 275.05 | 5,147.48 | 6,356.651 | 177.41 | 254.567 |
+| 2 | 236.31 | 337.45 | 361.899 | 180.83 | 208.861 |
+| 3 | 228.70 | 324.98 | 348.946 | 174.82 | 194.576 |
+| 4 | 233.28 | 299.07 | 315.145 | 182.46 | 199.781 |
+
+Each of the four sessions saw exactly one response digest per procedure and `NOT_CERTIFIED`; no divergence was observed **within sessions**. The extreme cash-audit tail must remain investigated. Five runs per session are insufficient to claim a statistically representative p95/p99, and no full authenticated browser SLA or sustained load test has been proven. The existing 250,000-row immutable test cohort was not removed or quarantined further.
+
+### Still open
+
+- E2E browser scenario with a genuine single-site authenticated tenant plus dual-account multi-site maker/checker tests (B2/B3).
+- A supported, source-backed GL correction workflow for already-posted supplier payment reversals (B4.14/14.1 currently fail closed), and source-specific exceptional correction paths elsewhere.
+- Sustained authenticated and transactional p95/p99 workload representative of collection, payment approval, deposits/withdrawals, expenses, fuel, maintenance, payroll, advances and report reads, with an agreed performance budget.
+- All four GitHub CI checks and an exact-SHA READY Preview **on the latest head** before final closure. No Production changes and no automatic certification.
+
+
+### B5.7 repeatable performance sample artifact
+
+- Checked in `docs/security/sql/pr359-financial-b57-concurrent-gl-read-worker-rollback.sql` to make each direct database worker reproducible. It fails closed if five sequential digests for an operation diverge or any `accountingCertification` ceases to be `NOT_CERTIFIED`; all local measurement records are rolled back.
+- Independently executed one additional Staging worker: cash audit sample p50 **233.73 ms**, sample p95 **5,056.23 ms**, maximum **6,247.504 ms**, and subledger p50 **181.15 ms**, maximum **313.663 ms**. Both had identical response fingerprints across their five calls.
+- This confirms the previously observed *intermittent slow-tail risk* on the company movement audit. It does **not** show a general median regression, establish stable p95/p99, or measure the real transactional collection path. Keep B5 open and investigate this outlier using long-running-query instrumentation/EXPLAIN and authenticated application load before acceptance.
+
+
+---
+
+## 2026-11-12 — Final product rule: effective branch limit 1 means single-site subscription
+
+**Owner decision:** if the *effective subscription branch quota* is exactly **1**, the customer is **not a multi-branch customer**, even when legacy Staging data contains multiple site records or an enable override is set. Entitlement must come from server-side branch policy, **not** from counting existing site records.
+
+### Implemented on PR #359 (not yet merged)
+
+- `resolveBranchPolicy` now makes `maxBranches > 1` a strict prerequisite to `isEnabled`, so even `isEnabledOverride=true` cannot turn a one-branch quota into multi-branch access. Existing archived/test records cannot defeat this rule.
+- `sites.multiBranchAccess` checks the current authenticated user's tenant and resolves package/platform/tenant override policy. Missing policy reads fail closed.
+- Direct `/branches` access is guarded; menus, financial site comparison, B3 rollup, inter-site GL actions, central allocation workspace, company-account branch links/filters, team-wide branch grants, and multi-branch report sections/export columns are hidden for ineligible subscriptions.
+- Multi-site financial RPCs and staff `allBranches=true` mutation paths validate the same tenant entitlement server-side, not only in React. Branch-local collection, deposits/withdrawals, supplier operations and normal finance pages remain visible.
+- Added `server/multi-branch-entitlement-visibility.contract.test.ts` covering the limit-one override condition and UI/server access contracts. Updated the existing single-site contract after removing unnecessary multi-branch disclosure.
+- The platform admin remains able to configure the subscription through admin-only tools; the *tenant user interface* remains single-site until the admin actually raises the effective subscription limit and enables the feature.
+
+### Verification status
+
+- GitHub PR #359 remains Draft and unmerged.
+- The implementation is committed and CI is being rerun on the latest head; a prior revision had a TypeScript error in the staff page from conditional JSX, which was corrected, along with a nullable sites list access. Do **not** report the latest head as CI-approved until all four checks succeed on that exact SHA.
+- No Production deployments, financial source changes, or data deletion occurred in this UI/ACL round.
+- B2/B3 authenticated browser evidence and B4 supplier posted-GL correction plus B5 sustained performance are still independent acceptance gates. No financial certification.
+
+
+---
+
+## 2026-11-12 — B5.8 synthetic four-session financial-account load on disposable PostgreSQL
+
+**No user-generated or production financial traffic is necessary for this prelaunch gate.** Inspected the existing code: `scripts/powerhub-capacity-smoke.mjs` measures the health endpoint only, so its p95/p99 are **not financial transaction** latencies. The codebase already tests real PostgreSQL account-movement, invoice-payment, payroll, inventory and financial-source functions in disposable CI databases; however, those suites are largely correctness and limited-concurrency tests, not representative authenticated end-to-end throughput.
+
+Added a new CI workflow `.github/workflows/b5-synthetic-financial-load.yml` using a throwaway PostgreSQL 17 container, actual `powerhub_add_account_movement_idempotent` and `powerhub_transfer_company_accounts_idempotent` migrations, and a strict localhost-only, database-name-only runner. It **never** targets a deployed Supabase or Vercel endpoint and sends no SMS or real payment.
+
+Files:
+- `supabase/tests/b5_disposable_single_site_load_setup.sql`
+- `supabase/tests/b5_disposable_single_site_load_assertions.sql`
+- `scripts/b5-disposable-financial-load.sh`
+- `.github/workflows/b5-synthetic-financial-load.yml`
+
+### Actual successful GitHub Actions execution
+
+On commit `2f552d4f15463781ae3b37e10a517ab23e548462`, run `43259323547` completed **successfully**:
+
+- Four **distinct PostgreSQL backend sessions**; **1,000 successful actual RPC calls** (600 deposits, 300 withdrawals, 100 same-site account transfers).
+- **999 first-time operations and exactly 1 idempotent replay**. No duplicate operation, audit, or financial transaction; transfer-out and transfer-in remain exact paired entries.
+- Verified tenant/site isolation, account-to-transaction provenance, cash + wallet reconciliation, and result identity of replay against the first posting.
+- Recorded per-RPC database latency (ms) in the disposable database:
+
+| RPC type | Requests | p50 ms | observed p95 ms | observed p99 ms | maximum ms |
+|---|---:|---:|---:|---:|---:|
+| Deposit | 600 | 1.87 | 2.96 | 5.18 | 8.079 |
+| Withdrawal | 300 | 1.89 | 2.89 | 3.54 | 4.206 |
+| Transfer between accounts, same branch | 100 | 2.05 | 3.14 | 5.17 | 5.633 |
+
+- Final marker: `B5_SYNTHETIC_SINGLE_SITE_1000_REQUESTS_999_FIRST_TIME_1_REPLAY_4_BACKENDS_PASS`.
+- Preliminary 100-call run `43258974516` also passed; a previous failing run revealed a missing `backend_pid` field in the measurement table, which was fixed and retested rather than bypassed.
+
+**Scope and interpretation:** This is real execution of the actual database financial-account RPCs against **synthetic local data**. It does not include network, tRPC authorization middleware, browser rendering, SQL load at production volume, invoice payment approval, supplier purchasing, inventory fuel maintenance, or payroll workload percentages. It therefore **closes the artificial-account-movement concurrency smoke gate**, but not B5's full representative, authenticated financial transactional SLA. The 5-second p95 / 10-second p99 checks in this smoke test are test ceilings, not an agreed final product SLA.
+
+**Next needed:** a staged, synthetic, safe authenticated API workload for the other common transactions with idempotency and isolation; B4 source-backed posted supplier payment corrections; independent B2/B3 browser acceptance. Do not require actual customers, real payments or a production release to generate these fixtures. No preview was generated in this batch.
+
+
+---
+
+## 2026-11-12 — B5.9 synthetic source-RPC load (customer-free prelaunch acceptance)
+
+The platform is not launched, and authentic customer activity must **not** be a requirement for prelaunch financial engineering acceptance. Completed actual PostgreSQL RPC load tests on **disposable PostgreSQL 17 GitHub Actions service databases**, without Supabase Staging mutations, Vercel previews, SMS or genuine payments.
+
+### Implemented and passed on GitHub Actions
+
+The existing `.github/workflows/b5-synthetic-financial-load.yml` now covers four separate transactional workloads and their source-specific integrity assertions:
+
+1. **Company accounts** — 1,000 requests, 999 first-time operations, one identical idempotent replay; deposits, withdrawals and same-branch transfers. Four independent connections, linked operation/audit/transaction rows and cash/wallet balance reconciliation. 99.5% whole amounts and 0.5% one-decimal amounts.
+2. **Payroll approval** — 400 unique approvals, four identical replays, four independent workers, exactly one audit event per approved payroll. Explicitly rejected maker=self-checker, foreign-tenant and suspended approvers, wrong-site access and forged second-approver replays. A separate **two-reviewer race on the same payroll** proved exactly one winner and one conflict, with a single audit event. This is the actual `powerhub_approve_payroll` SQL migration, not a mock. No wages are paid.
+3. **Invoice collection** — 1,000 requests, **999 genuine DB inserts and one replay**, using the hardened `20261025101844_powerhub_payment_idempotency_replay_hardening.sql` `powerhub_create_payment` RPC. Verified paid invoice status and balances, exact one cash movement, exact one payment audit and offline operation ledger per source, tenant/site isolation, 99.5% whole amounts, 0.5% one-decimal amounts, forged-key rejection, over-collection rejection, cross-tenant denial and RPC browser ACL. This fixture does not use the legacy billing-test payment stub.
+4. **Classified expenses** — 1,000 requests, **999 real DB expense inserts and one replay**, using the actual classified/idempotent expense RPC migrations. Each expense creates exactly one linked company-account withdrawal and audit. Verified classification, source linkage, balance and exact replay, 99.5% whole and 0.5% one-decimal amounts, foreign-tenant rejection, overdraft rejection and browser ACL. These expense categories include fuel/maintenance but **are not a substitute for testing the inventory supplier-purchase, fuel-stock or maintenance-work-order lifecycle**.
+
+**Successful merged synthetic workflow execution**: GitHub run `43265368983`, commit `cd85936d1024ee90a75804317cae42407c1c4580`. Observed per-call database-level latency in the disposable runner (not an API/browser SLA):
+
+| Operation | Calls | p50 ms | sample p95 ms | sample p99 ms | Max ms |
+|---|---:|---:|---:|---:|---:|
+| Deposit | 600 | 1.49 | 2.57 | 304.20 | 407.645 |
+| Same-site account transfer | 100 | 1.71 | 3.55 | 5.47 | 5.608 |
+| Withdrawal | 300 | 1.43 | 2.21 | 30.21 | 326.474 |
+| Payroll approval + four replay calls | 404 | 0.12 | 0.43 | 1.46 | 2.663 |
+| Invoice collection | 1,000 | 1.03 | 2.12 | 11.68 | 30.296 |
+| Classified expense + linked account withdrawal | 1,000 | 2.71 | 6.25 | 26.16 | 115.079 |
+
+Note the **account-movement p99 outlier** in one workflow execution; do not summarize all queries as universally 2–5 ms or mark B5 certified based on brief synthetic runs. This is real PostgreSQL RPC processing, **not** authenticated tRPC/React/browser throughput nor a production-sized 250k dataset, and the observed sample p95/p99 are not service-level commitments.
+
+The original B5 synthetic workflow also verifies a signed negative suite: reusing a key with changed payload, overdrawing an account, cross-tenant invocation, and client-role direct function execution are denied with no side effects. The payroll same-run race additionally ensures a distinct reviewer cannot overwrite approval.
+
+### Engineering disposition
+
+**Closed now:** repeatable automated prelaunch database-level workload for common account movements, invoice collections, expenses, payroll approval (including real two-actor contention). No actual customers required.
+
+**Still open before financial B certification:** an atomic maker/checker posted-GL supplier-payment correction workflow (B4), actual purchase/warehouse receipt/fuel tank and maintenance life-cycle load, authenticated end-to-end tRPC request p95/p99, independent B2/B3 browser-role acceptance, and formally approved accounting evidence. `NOT_CERTIFIED` remains the correct status.
+
+This work generated **no Vercel preview** and did not change either Staging or Production data; PR #359 remains Draft.
+
+---
+
+## 2026-11-12 — B5.10 single-branch supplier diesel purchase-to-cash synthetic gate
+
+Added a complete transaction-chain synthetic workload for the **actual warehouse/supplier purchase and payment RPCs**, in existing CI's disposable `inventory_purchase_receiving_test` PostgreSQL database, not on Staging or Production. It tests a diesel inventory item (`PUR-WF-ITEM-01`), warehouse (`PUR-WF-MAIN`) and supplier (`PUR-WF-SUP`).
+
+Implementation:
+- `supabase/tests/b5_disposable_supplier_purchase_load_prepare.sql`: a strict disposable DB gate, actual source-backed `powerhub_inventory_create_purchase`, `powerhub_inventory_confirm_purchase`, `powerhub_inventory_receive_purchase`, `powerhub_inventory_record_supplier_payment`, four-backend measurement capture.
+- `scripts/b5-disposable-supplier-purchase-load.sh`: 4 SQL sessions x 25 complete purchase/receive/pay requests.
+- `supabase/tests/b5_disposable_supplier_purchase_load_assertions.sql`: 99 first-time posted purchase/payment/warehouse receipt/stock-movement/supplier-ledger/cash-withdrawal/allocation records with exact source links, one identical replay, 1.5 amount once and all other amounts 1.00, 99.5 total purchasing and cash outflow, permission boundary, forged-replay negative test.
+- Integrated in `.github/workflows/reading-cycle-sql-integration.yml`, after all existing disposable inventory source tests. No new preview.
+
+First verified successful run: `43267053053` on commit `670c94347f57a50a328cac8a9278b94a22390fa8`. Exact output:
+
+```text
+B5_SUPPLIER_PURCHASE_RECEIPT_PAYMENT_DISPOSABLE_FIXTURE_READY
+100|8.95|133.65|162.79|163.650
+B5_SUPPLIER_100_PURCHASE_RECEIPT_PAYMENT_99_FIRST_1_REPLAY_PASS
+```
+
+These five columns are: total calls, sample p50 ms, sample p95 ms, sample p99 ms, and maximum ms of the **full SQL purchase-confirm-stock receive-payment transaction chain** (not a single isolated RPC). These observed values are not authenticated API/browser production latency or formal SLA. A subsequent forged-idempotency-key negative suite was added and must pass on the final head before certifying the updated gate. The current production GL-posted supplier reversal remains **fail-closed** and is **not** solved by this load test.
+
+Phase B continues to require B4.14+ original-GL-linked and independently approved atomic supplier payment correction, final B2/B3 authenticated browser-role acceptance, and complete human-reviewed accounting certification. `NOT_CERTIFIED` must remain. No Production deploy, merge or preview.
+
+
+---
+
+## 2026-11-12 — B4.15 supplier payment posted-GL correction preflight, source verified
+
+**Scope:** Read-only source-linked assessment, not operational reversal or financial certification.
+
+**Implemented on PR #359:**
+- Migration `20261112191500_powerhub_financial_b415_supplier_payment_correction_preflight.sql`: source-specific RPC `powerhub_financial_supplier_payment_correction_readiness(tenant,site,payment)`, restricted to `service_role`.
+- Server query `financialSupplierPaymentCorrectionReadiness` in `server/powerhub.ts`: requires **both** tenant/site `viewFinancialReports` and `manageSupplierPayments`, and validates every critical scope and fail-closed status field; no correction mutation endpoint added.
+- Contract tests `server/financial-supplier-correction-readiness.contract.test.ts` and replay-safe Staging SQL regression `docs/security/sql/pr359-financial-b415-supplier-correction-readiness-rollback.sql`.
+- Separate tests confirm the preflight never creates cash transactions, GL entries or lines, reversal ledger rows, or false financial approvals.
+
+**Verified on Staging using `BEGIN/ROLLBACK` first**, with marker `B415_SOURCE_LINKED_READ_ONLY_NEGATIVE_PASS_ROLLBACK`. It rejects an unknown payment, a payment under a different site, a cross-tenant request, and direct `anon`/`authenticated` execute grants. It also checks original GL and subledger counts remain unchanged.
+
+**Applied and recorded exact Git repository migration version `20261112191500` on Staging** `iyuryuhaylhisjfcrwkz` after the five GitHub gates succeeded on commit `3df10c3af3e72ea61bc620d14fe9d4ebec74d82c`. The migration was applied and its history row written in one PostgreSQL transaction, guarded by the preceding `20261112180000` version and tenant-1 accounting baseline (25 GL entries and 51 GL lines). One complete SQL statement is stored under the exact version; md5 of registered SQL: `f2bf6717922d6a0eb6e0a8736669e4da`. Production was untouched.
+
+**Real Staging source proof, supplier payment `#5`:**
+- Payment amount: **210.00**; original supplier ledger payment event `#20`.
+- Original posted GL `#857`: debit **2300** 210.00; credit **1010** 210.00.
+- Source-plan SHA-256 equals immutable GL source fingerprint: `a1ea7fb3b8b9c01c56bc726394be8a0b993fc96776534f257624941274975fc4`.
+- Source evidence status: `SOURCE_VERIFIED_WORKFLOW_NOT_IMPLEMENTED`; flags `sourceEvidenceVerified=true`, `canPostCorrection=false`, `canReverseGLDirectly=false`, `makerCheckerRequired=true`, `requiresDocumentedCashRefund=true`, `correctionWorkflowImplemented=false`, `accountingCertification=NOT_CERTIFIED`.
+- **No correction GL, supplier reversal, compensating cash deposit, or financial approval was fabricated.**
+
+**The principal B4 blocker remains open:** implement independently approved, atomic, source-specific supplier reversal and opposite GL lines while preserving original source integrity and verified supplier/cash balances. The original B4.14/14.1 refusal must remain in effect until that correction path is audited, tested with two independent actors, replayed and verified under concurrency and period lock. Do not relabel a successful diagnostic as a posted correction or a certified financial closing.
+
+**B5 supplier negative proof:** PostgreSQL Integration run `43268380188` passed the additional `B5_SUPPLIER_FORGED_REPLAY_ROLLBACK_PASS` and `B5_SUPPLIER_100_PURCHASE_RECEIPT_PAYMENT_99_FIRST_1_REPLAY_PASS` with 100 full supplier purchase/confirm/receipt/payment requests across four backend sessions. Recorded full chain sample p50 **11.53ms**, sample p95 **49.14ms**, sample p99 **123.14ms**, max **130.243ms**; these are SQL test-runner timings, not authenticated API/browser SLA.
+
+**No Vercel Preview, PR merge, or Production release** occurred. Accountants have not independently certified Phase B; `NOT_CERTIFIED` is mandatory.
+
+
+---
+
+## 2026-11-12 — B4.16 source-linked supplier payment correction, Staging
+
+- Verified prior PR #359 head a2b03c9fc83723fb381a3b521e940478997c57ec with five successful workflows: PowerHub CI, PostgreSQL Integration, Security, Admin Guard, B5 Synthetic Financial Load.
+- Applied migration 20261112193000_powerhub_financial_b416_supplier_source_correction.sql to Staging project iyuryuhaylhisjfcrwkz with exact version and stored source as ONE statement in supabase_migrations.schema_migrations. Registered SQL MD5: 3b542841326a7bfa1ab2d37ed73f11e2.
+- Guarded Staging source and migration history: tenant 1 kept 25 GL entries/51 GL lines; payment 5 (210.00) remained posted; zero permanent supplier corrections created.
+- Before permanent schema application, ran B4.16 DDL in rollback (compiled), then positive synthetic source correction and two negative/scope/fingerprint/cash-audit validations, each wholly inside BEGIN/ROLLBACK. Markers: B416_SOURCE_CORRECTION_ATOMIC_REPLAY_PASS_ROLLBACK and B416_NEGATIVE_SCOPE_FINGERPRINT_GL_CASH_AUDIT_PASS_ROLLBACK.
+- Synthetic test identities maker 4 and checker 260 are database fixtures only. They do NOT represent human accounting approvals. Original GL 857 fingerprint unchanged, independent reversed GL proof valid, idempotent replay had no duplicate cash/GL. Accounting status NOT_CERTIFIED.
+- Added protected server request and independent approval routes with both manageSupplierPayments and viewFinancialReports in the authenticated tenant/site, server-derived actor, explicit user review confirmation and fail-closed DB result validation. No generic GL reversal endpoint.
+- Added server contract and reusable staging-only rollback SQL regression. The regression exercises the already registered B4.16 schema without persisting any financial writes.
+- OPEN: post-commit five-green CI and exact-SHA Preview; authenticated two-account API/browser testing, formal B2/B3 maker-checker acceptance, full B5 network-inclusive latency and human certification. Do not merge or publish Production; keep NOT_CERTIFIED.
+
+
+---
+
+## 2026-11-12 — B4.16 supplier UI, authenticated reviewer queue, and scope hardening
+
+- Previously verified 5462de65433fdbe7b26a549e82ede838c1ff5e38 with all **five** CI workflows successful; Staging version 20261112193000 remains applied.
+- Identified missing operational flow: B4.16 server mutations had no navigable supplier-payment UI, and the existing supplier-history direct reverse button correctly cannot reverse posted-GL supplier payments. Added explicit on-demand GL correction action from supplier history, without making hidden multi-branch features visible.
+- Added FinancialSupplierPaymentCorrectionWorkspace: on-demand source/GL readiness, exact payment ID, documented cash-refund reference and reason, pending queue, distinct maker/checker confirmation, idempotency key, online-only mutations, no offline financial fallback, invalidation of supplier and GL reports after success.
+- Added tenant/site-scoped pending reviewer query. Server validates returned scope and pending status and caps page to 25. Server now checks reverseSupplierPayments in **addition** to manageSupplierPayments and viewFinancialReports on each new correction mutation and queue read.
+- UI denies self approval (and SQL separately enforces it); no auto-post or certified status is shown. Reviewers must independently establish cash refund evidence; the free-text reference is NOT verified documentary storage or human certification.
+- Added client/server source contract test. Pending gate: same-SHA CI, real browser users (two independent identities), verified preview staging isolation, representative B5 authenticated end-to-end latency, B2/B3 multi-branch maker/checker and formal accounting evidence. No merge/Production.
+
+
+---
+
+## 2026-11-12 — Phase B post-B4.16 verification and explicit acceptance matrix
+
+### Verified latest pre-documentation code head
+
+- Commit `1de8cc7b42340a81cad38bd1c1f0d780deb0a06f` has **five completed successful workflow runs on the same SHA**:
+  - PowerHub CI: GitHub Actions run `43282907548`.
+  - Reading Cycle PostgreSQL Integration: `43282907659`.
+  - PowerHub Security: `43282907382`.
+  - Supabase Admin Guard: `43282907580`.
+  - B5 Synthetic Financial Load: `43282907309`.
+- Earlier failed PowerHub CI at `f802393567cf33b479b0265e469c2ceb58003643` was the contract test that still expected only two B4.16 routes. Added server-side reviewer queue as the third route, so the contract was updated to check all three permissions and the `reverseSupplierPayments` guard. The subsequent full CI passed without dropping authorization checks.
+- Re-executed checked-in rollback tests directly against the actual Staging PostgreSQL environment (each returned its explicit PASS marker):
+  - `pr359-financial-b2-two-actor-negative-rollback.sql`: `B2_1_TWO_ACTOR_NEGATIVE_PASS_ROLLBACK`.
+  - `pr359-financial-b311-independent-elimination-rollback.sql`: `B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK`.
+  - `pr359-financial-b395-orphan-elimination-fail-closed-rollback.sql`: `B395_ORPHAN_APPROVED_ELIMINATION_FAIL_CLOSED_PASS_ROLLBACK`.
+- Staging post-test tenant-1 persistent baseline: **25 GL entries, 51 GL lines, 0 B2 central policies for November, 0 B3 elimination headers, 0 B4.16 supplier corrections**. No finance approval or synthetic GL reversal persisted.
+- Staging company movement audit `(tenant=1,site=1,period=2026-11)` returned `LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED`, accounting certification `NOT_CERTIFIED`. Supplier payment #5 remains posted with original GL #857 unchanged.
+- Confirmed exact Staging migration `20261112193000` exists with stored SQL MD5 `3b542841326a7bfa1ab2d37ed73f11e2`; all supplier correction functions refuse direct `anon` and `authenticated` SQL `EXECUTE` and retain only `service_role` access.
+- No READY Vercel Preview matching the exact latest code head was returned by the deployment list query. Do not substitute earlier READY Preview SHA evidence. The service-role Preview key association also requires independent Staging verification before authenticated financial operations.
+
+### B1–B5 engineering gate disposition
+
+| Gate | Proven here | Remains open |
+|---|---|---|
+| B1 | Structural financial statement generation, GL scope and noncertified reporting covered by earlier tests | Independent financial review and authenticated browser output acceptance |
+| B2 | Two distinct SQL test identities, replay rejection, self-approval and unauthorized approval denial, policy preview, no GL posting; SQL rollback passed now | Independent authenticated maker/checker sessions and actual UI rendering |
+| B3 | Real two-site source-to-GL + independently reviewed elimination under rollback; orphan exclusion fail-closed passed now | Authenticated cross-site browser roles, branch-entitlement gating and UI proof |
+| B4 | B4.16 migration applied; source-linked supplier correction atomicity, replay, ledger/cash/GL proof and ACL tested; UI/API contract CI passed | Authenticated tRPC/browser end-to-end; review of exceptional source corrections outside supplier payments; independent evidence of real refund for production use |
+| B5 | 5/5 CI, disposable four-session financial workload, 100 supplier purchase/receipt/payment chain, Staging invariant/rollback checks | Sustained authenticated API/browser p50/p95/p99 under realistic concurrency, tail latency risk and formal product performance budget |
+
+### Final closure guard
+
+**Phase B engineering work is substantially advanced, but full operational/browser acceptance is OPEN and financial statements remain `NOT_CERTIFIED`.** No actual human approval is implied by synthetic SQL identities. Keep PR #359 Draft and unmerged, and do not publish Production until the user explicitly authorizes it and unresolved acceptance checks are satisfied.
+
+
+---
+
+## 2026-11-12 — Owner acceptance exception: two-account Preview test waived
+
+**Decision (explicit owner instruction):** Do not execute the live Preview test using two independently authenticated user accounts as a Phase B closure prerequisite. Record this **WAIVED_BY_OWNER / NOT_EXECUTED**, never PASS. This waiver is limited to the *manual two-account test on the new Vercel Preview*; it is **not** authorization to remove, relax, or bypass runtime maker/checker controls, tenant/site scope checks, independent approval, permissions, RLS, audit logs, idempotency, or source-backed financial verification.
+
+- Existing SQL synthetic dual-actor, concurrency, scope/isolation and rollback tests; React mocked-transport UX tests; and server/DB guard tests continue to run and remain mandatory CI gates.
+- The absence of a live two-account Preview session is an **accepted residual operational risk**: real authentication/cookie/session/route behavior and human maker/checker handoff have not been demonstrated end-to-end. Do not claim that behavior was tested or certified.
+- Latest completed pre-waiver verification: PR #359 head `dced28f8ec513391a4501f8ada8d1c9298b16e58`, 5/5 GitHub workflows successful on the same SHA, Vercel Preview deployment `dpl_22hmbRtDLYRH2zL8b9GjCS6UT8Lx` READY with that exact SHA. Staging B4.16 migration and rollback evidence previously recorded.
+- **Remaining Phase B gates unaffected:** validate Preview runtime Supabase frontend/service-role destination without exposing secrets; record HTTP end-to-end B5 network-inclusive p50/p95/p99 under representative synthetic workload; complete any outstanding reconciliation/fail-closed audit evidence and final engineering acceptance record. Independent accounting review and documentary approval remain separate and `NOT_CERTIFIED` until genuinely obtained.
+- Keep PR #359 Draft/unmerged, no Production release, no genuine SMS or money movements, no permanent artificial financial approvals. The waiver must never be interpreted as a security exception or financial accounting certification.
+
+
+---
+
+## 2026-11-12 — Preview environment connectivity and bounded HTTP acceptance (read-only)
+
+- Author confirmed the branch's environment variables were configured. No sensitive values were decrypted or printed.
+- The tested preview is deployment `dpl_22hmbRtDLYRH2zL8b9GjCS6UT8Lx` at `https://powerhub-platform-4r57fqbmc-mosabmalek-rgb.vercel.app`, state `READY`, deployed code SHA `dced28f8ec513391a4501f8ada8d1c9298b16e58`. The intervening commit `48aaec56ef0299f4a8bc37ae211ee3fe77ac619c` changed the acceptance document only; it is NOT the deployment's exact SHA.
+- From an isolated short-lived Vercel Sandbox (`sbx_R5Fd7es7ndyIdW2KOPahaDjVPrTX`, `sin1`, outbound network restricted to this Preview hostname), live HTTP GET checks returned:
+  - `/api/health`: HTTP 200, `status=ok`.
+  - `/api/ready`: HTTP 200, `application=true`, `supabaseConfig=true`, `supabaseConnectivity=true`; the health path verifies the publishable-key connection, **not** privileged service-role transactions.
+  - `/api/trpc/powerhub.reports.financialSupplierPaymentCorrectionPending` without authentication: HTTP 401, tRPC `UNAUTHORIZED`; no financial record was returned.
+- Inspected actual delivered JavaScript asset `/assets/supabase-la8UqDtN.js`, without disclosing any keys. Its compiled client Supabase URL is `https://iyuryuhaylhisjfcrwkz.supabase.co`, the same Staging project as the branch's plain `SUPABASE_URL`. Source `server/supabase-admin.ts` also has a fail-closed Preview origin-mismatch check. The sensitive service-role value was **not** read or independently authenticated in this exercise.
+- Performed bounded, cache-disabled read-only GET requests, `24` measured samples on each of three routes (`72/72` expected statuses), at `4` concurrent requests, measuring the full external HTTP round trip on the same Sandbox:
+
+| HTTP GET target (all synthetic/no sign-in) | Accepted / attempted | p50 (ms) | sample p95 (ms) | sample p99 (ms) | max (ms) |
+|---|---:|---:|---:|---:|---:|
+| `/api/health` 200 | 24/24 | 32.18 | 772.34 | 982.63 | 982.63 |
+| `/api/ready` 200 | 24/24 | 63.01 | 156.20 | 846.72 | 846.72 |
+| unauthenticated correction-queue 401 | 24/24 | 24.05 | 42.88 | 61.19 | 61.19 |
+
+- These are **read-only availability and authentication-denial latencies**, not authenticated finance mutation latencies or a B5 financial API SLO. No financial mutation was attempted; the prior owner waiver explicitly covers the *two independent Preview accounts* test only.
+- Verified unchanged Staging tenant-1 baseline afterward: `25` GL entries, `51` GL lines, `0` permanent supplier corrections, `0` B2 central policies, `0` B3 elimination records; B4.16 stored SQL MD5 remains `3b542841326a7bfa1ab2d37ed73f11e2`. Cash audit remains `LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED`. No financial certification was generated.
+- Sandbox was stopped after the test; no further preview deployment, merge, Production action, external SMS, or real money movement was performed.
+- **Outstanding B5 engineering performance gate:** an explicitly scoped, non-production, authenticated financial HTTP workload with representative data and network-inclusive p50/p95/p99; its absence must be recorded as `NOT_EXECUTED`, not as PASS. The two-user manual Preview test remains `WAIVED_BY_OWNER`. Accounting approval remains `NOT_CERTIFIED`.
+
+
+---
+## 2026-11-12 — B5 measured performance tail: full Phase B engineering acceptance remains OPEN
+
+**Scope:** The owner waived only the two-independent-account Preview manual test; no waiver for B5 actual financial HTTP latency or safety controls was requested.
+
+- Verified prior head 2bcc5aadbedad35680bd297e44b938b8e11ff1a9 with five successful same-SHA workflows: PowerHub CI 43294005284, PostgreSQL Integration 43294005292, Security 43294005004, Admin Guard 43294005139, B5 Synthetic Financial Load 43294005042.
+- Re-executed staging-safe SQL gates: B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED and B416_ATOMIC_SOURCE_CORRECTION_NEGATIVE_REPLAY_PASS_ROLLBACK; both passed, with no retained synthetic correction.
+- Staging baseline before the diagnostics: 25 GL entries / 51 lines for tenant 1, zero supplier corrections / B2 policies / B3 eliminations, B4.16 migration SQL MD5 3b542841326a7bfa1ab2d37ed73f11e2.
+- Four concurrent, read-only PostgreSQL test sessions each executed eight company-movement audit calls inside BEGIN/ROLLBACK. Each required status LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED and accountingCertification NOT_CERTIFIED.
+
+| Worker | Calls | p50 ms | observed p95 ms | observed p99 ms | max ms |
+|---|---:|---:|---:|---:|---:|
+| 1 | 8 | 370.08 | 3946.90 | 5443.19 | 5817.27 |
+| 2 | 8 | 364.10 | 1097.49 | 1405.04 | 1481.93 |
+| 3 | 8 | 365.44 | 445.38 | 468.56 | 474.35 |
+| 4 | 8 | 371.85 | 419.80 | 432.12 | 435.20 |
+
+- Small sample sizes do not establish stable p95/p99, and these are database-call times, **not** network-inclusive financial transaction HTTP times. Observed worst-case 5.817 seconds remains an explicit B5 slow-tail risk.
+- Read-only EXPLAIN ANALYZE: full company-movement audit about 648 ms / 42163 shared buffer hits; immutable staging fixture proof about 105 ms / 4304 hits; GL subledger reconciliation about 261 ms / 14911 hits; unlinked nonfixture movement count about 0.10 ms using account_transactions_nonfixture_opening_idx. These are individual plans, not proven bottleneck attribution under load.
+- Financial-source correctness and immutable benchmark cohort proof must never be bypassed for performance. Any query optimization must preserve identical full result fingerprints, reversals, scope controls, rollback-negative tests and migration discipline.
+- Prior Preview HTTP success (72/72 safe read/denied responses) proved health, public Supabase connectivity and unauthenticated financial endpoint refusal; it is not an authenticated finance mutation latency SLO.
+- **Disposition:** B1–B4 and B5 disposable SQL/concurrency correctness are supported at the tested engineering scope. B5 authenticated finance HTTP p50/p95/p99 remains NOT_EXECUTED; database audit long-tail variance is unresolved. Therefore entire Phase B remains ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED rather than CLOSED. Independent accounting review remains NOT_CERTIFIED.
+- PR #359 stays Draft/unmerged; no Production release, genuine SMS, real financial movement or synthetic human certification.
+
+
+---
+
+## 2026-11-12 — B5.17 financial-report optimization: immutable fixture fast path
+
+- Root cause confirmed in `powerhub_financial_gl_subledger_reconciliation`: every cash-account aggregation re-scanned the 250,000 frozen synthetic benchmark transactions. Company movement audit invokes that expensive subledger report; B1/site reporting shares similar provenance scans. Existing nonfixture partial index can be used only with a hash/freeze proof, never by unsafe unconditional prefix filtering.
+- Added migration `20261112224000_powerhub_financial_b517_subledger_cash_fixture_fast_path.sql` preserving the original raw SQL verbatim in a fail-closed ELSE branch and using the existing hash-anchored, frozen Staging fixture proof for the exact tenant/site/cohort and date cutoff. Only this cohort is excluded from the arithmetic aggregation; no production or real movements are suppressed. Maintained exact NUMERIC(14,2) JSON formatting including 0.00 values.
+- Before committing tested the replacement inside BEGIN/ROLLBACK on Staging and compared **exact full JSON string digests** (not just numeric equivalence) across periods May/June/July/September/October/November 2026 and the second site. All seven matched. Representative subledger November sample from 191.58 to 78.99 ms; May 561.95 to 169.18; June 188.37 to 73.40; July 182.91 to 119.17; September 183.65 to 78.51; October 187.80 to 79.30. These are single-run samples, not stable p95/p99.
+- A separate transaction-local disabling of the account freeze trigger caused the signed fixture proof to fail as designed; the new function fell back to the original raw 250k-row path with an **exact JSON text match**. Result `B517_DISABLED_FREEZE_GUARD_FALLBACK_EXACT_PASS_ROLLBACK`. Trigger state was restored by rollback, no durable GL/cash/fixture rows changed.
+- Added reusable raw-aggregation comparison regression with transaction-local freeze-failure injection, statement rollback, branch-scope and ACL assertions; and Vitest contract assertions. Account SQL function remains SECURITY INVOKER and service_role-only; no final certification is conferred.
+- Remaining to verify after the new commit: all five same-SHA CI, exact Staging migration ledger registration and post-apply SQL regression, concurrent four-worker p50/p95/p99 remeasurement, and live authenticated financial HTTP performance not waived by owner. Do not declare B finally closed on this optimization alone.
+
+
+---
+
+## 2026-11-12 — B5.18 direct post-handoff verification: CI, Preview, Staging and open HTTP gate
+
+**Acceptance disposition: `ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED`; accounting: `NOT_CERTIFIED`.** This record documents direct connector checks, not an authenticated financial HTTP benchmark run.
+
+- PR #359 verified OPEN, Draft, unmerged and mergeable at `2a014744df3f539a63464378ec93968fd53aa963`; base `8602b155c410749ef04b79cb072cc59d5fed76bf`. GitHub returned five successful, completed workflow runs **on this exact source SHA**: PowerHub CI `43303688382`, PostgreSQL Integration `43303688248`, PowerHub Security `43303688354`, Supabase Admin Guard `43303688061`, B5 Synthetic Financial Load `43303688056`. These are engineering checks, not approval of B5 real authenticated HTTP latency.
+- Vercel's latest branch-scoped READY preview is `dpl_DUpyHFkWAB1K7UgYUuk1sZzXE4Wg` / `https://powerhub-platform-5x55dj0iv-mosabmalek-rgb.vercel.app` at `a546fca88df9020450131ee35113a41689a33b24`. The current head is **one commit ahead**; GitHub compare identified only the benchmark script, its mock-transport test, documentation and the synthetic-load workflow. No changed deployed finance-report application/server source was found in that one-commit compare, but the Preview is **not SHA-matched** to the latest repository head. No new Preview was requested for a docs/test-only commit.
+- Current branch-scoped Vercel Preview variables were listed **without decrypting any secrets**. No `POWERHUB_B5_*` keys appeared in that Vercel list. This does **not** establish whether credentials exist in GitHub Actions, an operator's secure shell or another store, and does not authorize reading any token.
+- Direct read-only SQL on dedicated Staging project `iyuryuhaylhisjfcrwkz` verified tenant 1 still has **25 GL entries and 51 GL lines**; no tenant-1 November B2 central allocation policy and no tenant-1 B3 elimination; **zero supplier corrections globally**; supplier payment ID 5 remains `posted`. Migrations `20261112193000` (B4.16) and `20261112224000` (B5.17) are each registered once, and fixture freeze trigger `powerhub_financial_gl_fixture_freeze_write` remains enabled (`O`). No data was mutated.
+- Additional ledger invariant SELECT verified **0 unbalanced GL entries**, **0 cross-tenant/site GL lines** and **0 GL entries with NULL source fingerprint** for tenant 1. This is a structural integrity snapshot, not a substitute for source-specific review or audited statements.
+- Reviewed `scripts/b5-financial-http-benchmark.mjs` and its seven passing mock-transport tests in the five-workflow CI snapshot. The harness requires a permitted HTTPS Preview origin, one Staging test login token with a bound device UUID, site/period, 100–400 samples per financial GET route, concurrency 1–4 and **an agreed positive p95 budget**. It rejects non-200, response-scope mismatch and fabricated financial certification; its output omits authorization tokens.
+- **Real authenticated financial HTTP measurement is `NOT_EXECUTED`.** A valid authorized Staging token, bound device lease and explicitly approved p95 budget were not available to this execution context. Neither SQL timings, synthetic/mock HTTP tests nor previously measured health/readiness/unauthenticated 401 timings can satisfy this gate. Do not infer the harness was executed against live authenticated reports.
+- Owner's narrow manual two-independent-account Preview exception remains `WAIVED_BY_OWNER / NOT_EXECUTED`, not PASS; maker/checker, RLS, tenant/site isolation and source-backed approval guards remain mandatory. No production deployment, PR merge, SMS, financial write, permanent test correction or accounting certification took place.
+
+**Closure requirement:** Run the approved read-only authenticated B5 HTTP harness from a secure operator-controlled context with a bound single test device and an agreed p95 limit; record Preview deployment SHA, request scope, p50/p95/p99/max and all failing samples. Until then the Phase B engineering gate is conditional/open; PR #359 stays Draft and production remains untouched.
+
+
+## 2026-11-12 — Final verification attempt for B5 authenticated HTTP acceptance
+
+- Verified live GitHub state: PR #359 remains **OPEN / DRAFT / UNMERGED**. Current head is `afe864416e024f412161ccade11b91c46f1361a1`; base is `8602b155c410749ef04b79cb072cc59d5fed76bf`; GitHub reports the branch as mergeable. All check-runs returned for the current head were `completed / success`, including TypeScript/tests/build, CodeQL, dependency review/audit, Supabase runtime migration guards, reading-cycle migration assertions, SBOM generation, and the disposable B5 synthetic ledger load. No failed or pending check was observed.
+- Verified current Staging migration ledger through Supabase. The latest recorded migration is `20261112224000 powerhub_financial_b517_subledger_cash_fixture_fast_path`; B4.16 (`20261112193000`) and B5.17 (`20261112224000`) are present. This is a Staging-only verification; no Production migration, merge, or Production deployment was performed.
+- Verified current Staging structural baseline with read-only SQL: `financial_gl_entries=25`, `financial_gl_opening_batches=1`, `financial_gl_staging_fixture_manifests=0`, and `financial_supplier_payment_corrections=0`. No financial write was executed during this verification. The report RPCs remain `NOT_CERTIFIED` by contract; no accounting certification was fabricated.
+- Verified the B5 HTTP benchmark source and ran its seven local contract tests: **7/7 passed**. The benchmark accepts only an exact HTTPS Vercel Preview origin, requires a non-empty access token and UUID device lease, uses GET-only requests, rejects unauthorized or out-of-scope responses, checks `NOT_CERTIFIED`, and does not include the token in its output.
+- A single SHA-matched Vercel Preview was created for final acceptance at `powerhub-platform-e1p0ljoqz-mosabmalek-rgb.vercel.app` from the current head. At the final status check available in this run it was still `BUILDING`; the previous READY Preview remains the older commit `a546fca88df9020450131ee35113a41689a33b24` and is not evidence for the current head.
+- **B5 authenticated HTTP measurement: NOT_EXECUTED.** The required authorized access token, device lease, explicit p95 budget, and site/session configuration were not available in the execution environment. The current-head Preview was also not READY at the final check. No attempt was made to bypass authentication, invent a device lease, use the old Preview as a substitute, or manufacture latency results.
+- Consequently the phase remains `ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED`; accounting remains `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. The owner-waived two-user Preview test remains `WAIVED_BY_OWNER / NOT_EXECUTED`, while the single-session authenticated HTTP B5 gate remains open and is not waived.
+
+
+## 2026-11-12 — Correction after Preview completion and documentation commit
+
+- The SHA-matched code Preview for `afe864416e024f412161ccade11b91c46f1361a1` completed successfully and is now `READY` at `https://powerhub-platform-e1p0ljoqz-mosabmalek-rgb.vercel.app`. This Preview is linked to the current branch and uses Staging configuration as configured by Vercel; no Production target was used.
+- After the Preview became ready, the acceptance ledger was committed to the same PR as a documentation-only commit `5c3503482455f70e7d3437a32581287528bdb3fc`. Therefore the latest PR head is `5c3503...`, while the runnable application code is unchanged from the SHA-matched Preview `afe8644...`. No new Preview was created for this documentation-only change.
+- The correction does not change the acceptance decision: the live authenticated B5 HTTP benchmark was not executed because the authorized test token, bound device lease, and explicit p95 budget were unavailable. The phase remains `ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED` and accounting remains `NOT_CERTIFIED`.
+
+
+## 2026-11-12 — Real authenticated HTTPS B5 measurement
+
+- Executed from the SHA-matched READY Preview `https://powerhub-platform-e1p0ljoqz-mosabmalek-rgb.vercel.app` using the authorized Staging account session and its bound browser device. The access token and device identifier were used in-memory only and were not printed or persisted in the report. All application requests were HTTPS GET-only; no financial write, approval, SMS, or database mutation was performed.
+- `financialGLSubledgerReconciliation`: **100/100 valid responses**, concurrency 4, site 1, period `2026-11`, `NOT_CERTIFIED` preserved. p50 **638.30 ms**, p95 **931.70 ms**, p99 **1220.30 ms**, max **1224.70 ms**, errors **0**.
+- `financialGLCompanyMovementAudit`: **0/10 valid responses** in the diagnostic sample at concurrency 4. Failures included HTTP 504, HTTP 500, and client timeouts at the 8-second diagnostic limit. A separate single request also returned HTTP 504 after **2479.80 ms**. Supabase logs during the run show repeated `powerhub_financial_gl_company_movement_audit` RPC responses with HTTP 500 and origin times reaching approximately 18 seconds; other calls were successful but too slow for a stable acceptance result.
+- `financialGLSiteStatements`: **0/10 valid responses** in the diagnostic sample at concurrency 4. Failures included HTTP 500 and client timeouts at the 8-second diagnostic limit. A separate single request returned HTTP 500 after **7650.60 ms**. Supabase logs show the underlying `powerhub_financial_gl_site_statements` RPC returning HTTP 405 in the observed path, which the application exposed as HTTP 500; this indicates an RPC method/contract failure in addition to the latency problem.
+- The failures reproduced without concurrency: one sequential request to each failing route still returned 504/500. Therefore the B5 result is **FAIL**, not merely a concurrency-only warning. No approved p95 budget was available, but the HTTP 5xx/504 responses and invalid report contracts are unconditional acceptance failures.
+- Root-cause evidence is currently sufficient to block acceptance but not to claim a code-level fix: the Company Movement RPC is intermittently failing/overrunning in Supabase under the tested report path, while the Site Statements path shows a PostgREST RPC method/contract mismatch. Further diagnosis should inspect the exact Supabase RPC signatures and the server adapter's invocation mode before any remediation.
+- Final decision: `B5_REAL_AUTHENTICATED_HTTP=FAIL`; `ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED`; `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. No code or schema fix was applied during this run, and PR #359 remains open and Draft.
+
+
+## 2026-11-12 — B5 rerun requested by owner
+
+- Reused the still-authenticated Staging session and bound browser device on the same READY Preview. No token was printed, no database write was made, and no financial or accounting state was changed.
+- The attempted 100-sample run for `financialGLSubledgerReconciliation` exceeded the browser execution limit before completion, so it is not counted as a 100-sample result. A bounded diagnostic rerun produced **9 valid responses and 1 timeout out of 10** at concurrency 4. Successful response times ranged from 829.20 ms to 7607.00 ms; the timeout occurred at 8000.20 ms.
+- `financialGLCompanyMovementAudit` produced **3 valid responses and 7 failures out of 10** at concurrency 4. The failures were 4 client timeouts at 8000 ms and 3 HTTP 504 responses at approximately 4145–4253 ms. Valid response times were 2096.60 ms, 2524.00 ms, and 7145.30 ms.
+- `financialGLSiteStatements` produced **0 valid responses and 10 timeouts out of 10** at concurrency 4; every request reached approximately 8000 ms and was aborted by the diagnostic timeout.
+- This rerun confirms a persistent and broader availability/latency failure rather than a one-off result. The prior 100/100 Subledger PASS is historical evidence for the earlier run only; it must not be reused as the result of this rerun.
+- Rerun decision: `B5_RERUN=FAIL`; `B5_REAL_AUTHENTICATED_HTTP=FAIL`; `ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED`; `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. No remediation was applied.
+
+
+## 2026-11-13 — B5.19 failed HTTPS rerun: shared authentication contention and remaining concurrent financial load
+
+- Reviewed real authenticated rerun committed in `413463919ce541a036d7322869711971f5812458`: `financialGLSubledgerReconciliation` 9/10 valid with one 8000ms timeout, `financialGLCompanyMovementAudit` 3/10 with 4 timeouts + 3 HTTP 504, `financialGLSiteStatements` 0/10 (all timed out around 8000ms). The aborted 100-sample browser attempt is explicitly NOT a 100-sample acceptance.
+- Corroborated from Supabase PostgREST/edge logs: both 200 and 500 across financial RPCs. PostgreSQL logged repeated statement timeouts, and Vercel's Preview logs demonstrated failed `financialGLSiteStatements` requests taking ~8.8–14.3s, company movement mixed success (1.9–8.2s) / 504 (~3.9s) / 500 (~12–13.5s).
+- Separately Vercel stages showed `auth.profileSync` taking up to ~2.2s, `resolveSupabaseSiteAccessDetails` up to 4.1s, and `authenticatedProcedure.deviceClaim` reaching its 2-second deadline. This is a shared authenticated request cost; not solely SQL report time. No credential, device ID or user ID was logged.
+- PostgreSQL `pg_stat_statements` revealed `powerhub_claim_user_device` ~7035 calls, mean ~18.34ms, worst ~3348.17ms, with repeated advisory serialization and WAL-producing refresh on the same active device. SQL source inspection confirmed a fresh DB claim/lease row already contains the device and last-seen timestamps.
+- Added and registered Staging migration `20261113001000_powerhub_b519_device_same_lease_read_fast_path.sql` with MD5 `001064fe2bcf1456475b66ba1108a443`. A fresh same-device DB row with recent heartbeat and >47h remaining lease now avoids the exclusive advisory lock and redundant UPDATE on every protected request. Expired/stale/other-device claims preserve existing serialized lock, 15-minute stale handoff, protection and 48-hour lease extension. The function remains service_role-only with existing SECURITY DEFINER/ACL and no change to auth policy or tenant checks.
+- Added `supabase/tests/b519_device_fast_claim_rollback.sql`; ran after applying the migration: `B519_FAST_CLAIM_GUARDS_PASS_ROLLBACK`. Tested same-device fast acceptance with unchanged updated_at, competitor rejection, heartbeat refresh after stale interval, 15-minute handoff and no ACL widening. Test data was ROLLBACKed.
+- Diagnostic 4-way concurrent read-only PostgreSQL calls showed highly variable single-function time: immutable fixture proof ~2625.8ms, source coverage ~5885.9ms, subledger reconciliation ~827.2ms, site statements ~1292.7ms. Samples are not representative p95 and demonstrate remaining database contention under concurrency despite earlier single-SQL speedups.
+- CI at B5.19 test commit `a2b7548555f894ff6ee505d739dafc3bf6a546f1`: Admin Guard and B5 Synthetic Financial Load completed success; Security, PostgreSQL Integration and PowerHub CI still in progress when checked. Do not substitute their earlier success for this SHA.
+- Baseline remains `B5_REAL_AUTHENTICATED_HTTP=FAIL`, `ENGINEERING_CONDITIONAL_NOT_FINALLY_ACCEPTED`, `ACCOUNTING_CERTIFICATION=NOT_CERTIFIED`. No Production changes, no external SMS or money movements, no financial booking. A new real authenticated HTTPS retry of all three routes, with recorded network-inclusive latencies and the approved p95 budget, remains required; keep PR #359 Draft.
+
+
+## 2026-11-13 — B5.20 unified profile and site authorization hardening (Staging only)
+
+This batch follows the **FAILED** authenticated B5 rerun and B5.19 same-device serialized-lease improvements. It reduces repeated network round trips on normal authorized report requests without moving privileges to client or allowing stale role decisions.
+
+**Implemented in PR #359 (Draft, not merged):**
+- Normal tRPC context requests still verify Supabase JWT claims, then obtain a **fresh users row** for role, account status and forced-password status. They do **not** call invitation-acceptance RPCs, update `last_signed_in` or insert/update identities. Profile bootstrap (including the earlier guarded invitation/profile reconciliation) runs at the explicit `auth.me` or `auth.claimDevice` endpoints only. Missing normal-request profile fails closed rather than inserting one from a financial GET.
+- `powerhub_site_access_snapshot(userId,siteId)` returns the current user's state, site tenant scope, active/unexpired tenant membership, latest relevant tenant subscription, owner overrides, tenant/site staff profiles, per-profile overrides, active custom role permissions, and platform role policy decisions in **one** SQL snapshot. This is a `SECURITY INVOKER`, `STABLE`, **service_role-only** RPC with `PUBLIC/anon/authenticated` EXECUTE revoked; it never trusts a JWT-provided role or tenantId. One server-side role/capability decision uses this fresh database result; no long-lived cached ACL or permission bypass.
+- Site authorization reuses the single current policy snapshot for `requireSupabaseSiteRole`, all-capability and any-capability decisions, failing closed on missing/unexpected RPC results. Platform administrators retain the existing live active-platform-identity guard. Expired membership, suspended staff and disallowed subscriptions remain denied; cancelled subscription retains its read-only access window, with write endpoints remaining subject to existing retention guards. Tenant/site key filtering remains mandatory for the report RPCs.
+- B5.19 single-device lease is unchanged: same-device recent lease may be read without repeated exclusive writes; a second device must still pass the serialized row/advisory-lock claim. No account/device IDs or secrets are logged.
+
+**Staging-only migration:**
+`20261113002000_powerhub_b520_site_access_single_snapshot.sql` applied and registered using original Git filename/version; recorded migration MD5 `31df5f86595530a9bbe54e3e1dc0d736`. No Production changes.
+
+**Verified SQL evidence:**
+- Snapshot returns tenant 1 when asked for Staging site 1 and validates live membership, account status and scope.
+- In a transaction rolled back in full, revoking an active tenant membership immediately yielded a null membership in the next snapshot; changing account to `disabled` immediately returned the new account state.
+- Within a separate rollback transaction, inserting a `viewFinancialReports` owner policy deny immediately appeared in the next snapshot. These tests had no persistent IAM or financial mutations.
+- `anon` EXECUTE: false; `authenticated` EXECUTE: false; `service_role` EXECUTE: true.
+- Four concurrent PostgreSQL timing probes on the snapshot: 162.324ms, 5.402ms, 5.305ms, 5.403ms. **Not p95 or HTTPS**; the higher first sample is not discarded.
+- Financial baseline after B5.20: 25 GL entries, 51 GL lines, zero supplier corrections, zero inter-site eliminations. Accounting: `NOT_CERTIFIED`.
+
+**Test updates:** source contracts, profile/session/bootstrap tests, fresh policy revocation, staff mock RPC and rollback Staging SQL test were rewritten to match the new authorized behavior, rather than adding a production fallback to an uninstalled or forbidden RPC. Historical test suite failures were narrowed from 110 to 3, and the final three stale test fixtures/contracts were then corrected. The final GitHub CI result must still be independently checked on the newest SHA; do not infer success from earlier or running workflows.
+
+**Still open:** B5 real authenticated HTTP acceptance remains `FAIL`. The installed DB-only changes do not establish API latency improvement or a successful 100-sample/4-concurrency run on a deployment containing the new server code. Deploy one consolidated **Preview only after the required CI gates pass**, then rerun the three report routes with real authorized single-device Staging auth, zero errors and explicit p95 threshold. No production merge, release, SMS, financial booking or human accounting certification.

@@ -1,65 +1,31 @@
--- Move pg_net out of the exposed public schema without losing queued work.
--- pg_net is non-relocatable: Supabase requires dropping and recreating it.
--- Cron jobs are paused inside this transaction so no request can race the move.
-create schema if not exists extensions;
-
-select cron.unschedule(jobname)
-from (values ('powerhub-invoice-notifications'), ('powerhub-payment-documentation-retention')) as jobs(jobname)
-where exists (select 1 from cron.job where cron.job.jobname = jobs.jobname);
+-- Verify pg_net placement without changing the Supabase-managed extension.
+--
+-- Hosted Supabase owns pg_net as supabase_admin. Application migrations run as
+-- postgres and must not attempt to reassign that ownership or change the
+-- extension's managed ACLs. The pg_net worker is configured to connect as
+-- postgres, so its built-in grants must remain intact.
+--
+-- Existing installations in public require an operator-managed relocation.
+-- The Data API exposed-schema configuration is an independent access boundary.
 
 do $$
 declare
-  pending_requests bigint := 0;
+  v_extension_schema text;
 begin
-  if exists (
-    select 1 from pg_extension e
-    join pg_namespace n on n.oid = e.extnamespace
-    where e.extname = 'pg_net' and n.nspname = 'public'
-  ) then
-    execute 'select count(*) from net.http_request_queue' into pending_requests;
-    if pending_requests > 0 then
-      raise exception 'Cannot move pg_net while % HTTP requests are queued', pending_requests;
-    end if;
-    drop extension pg_net;
-    create extension pg_net with schema extensions;
-  elsif not exists (select 1 from pg_extension where extname = 'pg_net') then
-    create extension pg_net with schema extensions;
+  select n.nspname
+    into v_extension_schema
+  from pg_extension e
+  join pg_namespace n on n.oid = e.extnamespace
+  where e.extname = 'pg_net';
+
+  if v_extension_schema is null then
+    raise exception 'pg_net is not installed; enable it from Supabase Database > Extensions before continuing';
+  elsif v_extension_schema <> 'extensions' then
+    raise warning
+      'pg_net remains in schema %. No relocation was attempted. Use the Supabase-managed Extensions workflow after reviewing the stored response history.',
+      v_extension_schema;
+  else
+    raise notice 'pg_net placement is extensions';
   end if;
 end
 $$;
-
--- Keep the HTTP request queue private to database roles used by the scheduler.
-revoke all on schema net from anon, authenticated;
-revoke all on all tables in schema net from anon, authenticated;
-revoke all on all sequences in schema net from anon, authenticated;
-
--- Restore the existing schedules after the extension move.
-select cron.schedule(
-  'powerhub-invoice-notifications',
-  '* * * * *',
-  $cron$
-  select net.http_post(
-    url := 'https://powerhub-platform.vercel.app/api/scheduled/process-invoice-notifications',
-    headers := jsonb_build_object(
-      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'powerhub_cron_secret' limit 1),
-      'Content-Type', 'application/json'
-    ),
-    body := '{}'::jsonb
-  ) as request_id;
-  $cron$
-);
-
-select cron.schedule(
-  'powerhub-payment-documentation-retention',
-  '30 2 * * *',
-  $cron$
-  select net.http_post(
-    url := 'https://powerhub-platform.vercel.app/api/scheduled/payment-documentation-retention',
-    headers := jsonb_build_object(
-      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'powerhub_cron_secret' limit 1),
-      'Content-Type', 'application/json'
-    ),
-    body := '{}'::jsonb
-  ) as request_id;
-  $cron$
-);

@@ -5,20 +5,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getValidOfflineAuthLease } from "@/lib/offline-auth";
 import { getOfflineAuthUser } from "@/lib/offline-query-cache";
-import { supabase } from "@/lib/supabase";
+import { acceptSupabaseSignInSession, resetSupabaseSessionReadBackoff, supabase } from "@/lib/supabase";
 import { probePowerHubConnectivity } from "@/lib/offline-connectivity";
+import { shouldRedirectToWorkspaceAfterAuthentication } from "@/lib/auth-routing";
+import { describeAuthFailure } from "@/lib/auth-diagnostics";
 import { ArrowRight, KeyRound, Loader2, Mail } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
 function authMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "تعذر إتمام العملية، حاول مرة أخرى.";
+  // Supabase AuthError responses are not guaranteed to inherit from Error.
+  // Normalize only the message for known, user-safe mappings; never stringify
+  // the whole response object because it may contain implementation details.
+  const message = error instanceof Error
+    ? error.message
+    : error && typeof error === "object" && "message" in error && typeof error.message === "string"
+      ? error.message
+      : "";
   if (/invalid login credentials/i.test(message)) return "البريد الإلكتروني أو كلمة المرور غير صحيحين.";
   if (/email not confirmed/i.test(message)) return "يرجى تأكيد البريد الإلكتروني من الرسالة المرسلة قبل تسجيل الدخول.";
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
-    return "لا يوجد اتصال بالإنترنت. إذا كانت جلستك السابقة ما تزال محفوظة على هذا الجهاز، أعد فتح PowerHub وسيتم الدخول تلقائيًا. أما تسجيل الدخول بعد تسجيل الخروج فيتطلب اتصالًا بالإنترنت.";
+    return "تعذر الوصول إلى خدمة الدخول أو خادم PowerHub مؤقتًا. هذا لا يثبت انقطاع الإنترنت عن جهازك؛ تحقق من الاتصال بالخادم ثم أعد المحاولة.";
   }
-  return message;
+  return message || "تعذر إتمام العملية، حاول مرة أخرى.";
 }
 
 function isBrowserOffline() {
@@ -27,20 +36,57 @@ function isBrowserOffline() {
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated, loading: authLoading, hasSession: hasSupabaseSession } = useAuth();
+  const {
+    isAuthenticated,
+    loading: authLoading,
+    hasSession: hasSupabaseSession,
+    error: authError,
+    refresh,
+    powerHubReachable,
+  } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [awaitingSignInConfirmation, setAwaitingSignInConfirmation] = useState(false);
+  // An explicit "Open login" action must win over automatic offline-cache
+  // restoration; otherwise the login page can redirect straight back to the
+  // workspace and make the button appear broken.
+  const forceLoginRequested = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("forceLogin") === "1";
 
   useEffect(() => {
-    // Supabase persists a valid browser session across restarts by default.
-    // If the user opens /login directly, do not ask for credentials again when
-    // the shared AuthProvider has already restored and validated that session.
-    if (hasSupabaseSession || (!authLoading && isAuthenticated)) setLocation("/workspace");
-  }, [authLoading, hasSupabaseSession, isAuthenticated, setLocation]);
+    // A Supabase snapshot proves only that local session state exists. Do not
+    // route on it alone; wait for the shared AuthProvider's settled account
+    // state so a stale/revoked session cannot trigger /login ↔ /workspace churn.
+    if (shouldRedirectToWorkspaceAfterAuthentication({
+      loading: authLoading,
+      isAuthenticated,
+    })) {
+      setAwaitingSignInConfirmation(false);
+      setLocation("/workspace");
+      return;
+    }
+
+    // AuthProvider has a bounded recovery path. Once it reports a settled
+    // failure after a successful password exchange, leave the login form on
+    // screen and expose its recovery/error UI instead of forcing a route hop.
+    if (awaitingSignInConfirmation && !authLoading && !isAuthenticated && authError) {
+      setAwaitingSignInConfirmation(false);
+      if (!hasSupabaseSession) setError(describeAuthFailure(authError));
+    }
+  }, [
+    awaitingSignInConfirmation,
+    authLoading,
+    isAuthenticated,
+    authError,
+    hasSupabaseSession,
+    setLocation,
+  ]);
 
   useEffect(() => {
+    if (forceLoginRequested) return;
+
     let active = true;
 
     const restoreOfflineWorkspace = async () => {
@@ -54,7 +100,7 @@ export default function LoginPage() {
       const lease = await getValidOfflineAuthLease();
       if (!active || !lease) return;
       const cachedUser = await getOfflineAuthUser(lease.userId);
-      if (active && cachedUser) window.location.replace("/workspace");
+      if (active && cachedUser) setLocation("/workspace");
     };
 
     void restoreOfflineWorkspace().catch(() => {
@@ -64,7 +110,7 @@ export default function LoginPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [forceLoginRequested]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -94,9 +140,11 @@ export default function LoginPage() {
       if (signInError) throw signInError;
       if (!data.session) throw new Error("تعذر تثبيت جلسة الدخول. حاول مرة أخرى.");
 
-      // The sign-in response itself contains the newly-created session. Avoid a
-      // second shared session read here, which may still hold an older snapshot.
-      setLocation("/workspace");
+      // Hand the authoritative sign-in result to the one shared Supabase
+      // session state immediately, but do not route yet. AuthProvider must
+      // complete its normal PowerHub validation/recovery transition first.
+      acceptSupabaseSignInSession(data.session);
+      setAwaitingSignInConfirmation(true);
     } catch (submitError) {
       const networkFailure = submitError instanceof TypeError ||
         /failed to fetch|networkerror|network request failed|load failed|fetch failed|network.*(?:unavailable|offline)|connection (?:lost|reset|refused)|timeout/i.test(
@@ -139,12 +187,46 @@ export default function LoginPage() {
           <p className="text-sm font-bold text-[#F5B800]">حساب PowerHub</p>
           <h2 className="mt-2 text-2xl font-extrabold">تسجيل الدخول</h2>
           <p className="mt-2 text-sm leading-6 text-slate-400">أدخل بريدك وكلمة المرور للوصول إلى المساحة المصرح بها.</p>
+          {awaitingSignInConfirmation ? (
+            <p role="status" aria-live="polite" className="mt-5 text-sm leading-6 text-sky-800">
+              تم قبول بيانات الدخول؛ جارٍ التحقق من جلسة PowerHub. لن نفتح مساحة العمل قبل اكتمال التحقق.
+            </p>
+          ) : null}
+          {hasSupabaseSession && !isAuthenticated ? (
+            <div role="status" aria-live="polite" className="mt-5 space-y-2 text-sm leading-6">
+              <p className="font-bold text-amber-800">
+                {authLoading ? "جارٍ التحقق من الجلسة المحفوظة…" : "الجلسة موجودة، لكن التحقق من الحساب لم يكتمل."}
+              </p>
+              <p className="text-xs text-slate-600">
+                {authError
+                  ? describeAuthFailure(authError)
+                  : powerHubReachable
+                    ? "أعد التحقق قبل المتابعة. لن نعيد التوجيه تلقائيًا قبل تأكيد هوية الحساب."
+                    : "تعذر الوصول إلى خادم PowerHub حاليًا. لن نمسح الجلسة أو بيانات العمل."}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={authLoading}
+                onClick={() => {
+                  resetSupabaseSessionReadBackoff();
+                  void refresh();
+                }}
+                className="mt-1 border-slate-300 text-slate-700"
+              >
+                {authLoading ? "جارٍ التحقق…" : "إعادة التحقق من الجلسة"}
+              </Button>
+            </div>
+          ) : null}
           <form className="mt-7 space-y-5" onSubmit={submit}>
             <div className="space-y-2"><Label htmlFor="email" className="text-[#263546]">البريد الإلكتروني</Label><div className="relative"><Mail className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="email" type="email" autoComplete="email" dir="ltr" value={email} onChange={(event) => setEmail(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="you@example.com" /></div></div>
             <div className="space-y-2"><Label htmlFor="password" className="text-[#263546]">كلمة المرور</Label><div className="relative"><KeyRound className="absolute right-3 top-3 h-4 w-4 text-slate-500" /><Input id="password" type="password" autoComplete="current-password" dir="ltr" value={password} onChange={(event) => setPassword(event.target.value)} required className="h-11 border-[#d5dee8] bg-[#f8fafc] pr-10 text-[#17212b] placeholder:text-slate-400" placeholder="••••••••" /></div></div>
             {error && <p role="alert" className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-700">{error}</p>}
             <Button disabled={pending} type="submit" className="h-11 w-full bg-[#F5B800] font-extrabold text-[#0D1117] hover:bg-[#ffd23f]">{pending ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ المتابعة…</> : "تسجيل الدخول"}</Button>
           </form>
+          <p className="mt-4 text-center text-xs leading-6 text-slate-500">
+            تُنشأ الحسابات ودعوات الوصول من الإدارة المعتمدة؛ لا يتوفر إنشاء حساب ذاتي من هذه الصفحة.
+          </p>
         </section>
       </div>
     </main>

@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { supabaseAdmin } from "./supabase-admin";
+import { isTenantMembershipUnexpired } from "./tenant-membership-expiry";
 
 type TenantRow = { id: number | string; name: string; slug: string; status: string; created_at: string; updated_at: string };
 type OwnerRow = { id: number | string; tenant_id: number | string; owner_user_id: number | string | null; full_name: string; phone: string; whatsapp_number: string | null; email: string | null; company_name: string | null; report_logo_key: string | null; identity_number_last4: string | null; invited_at: string | null; claimed_at: string | null; created_at: string; updated_at: string };
@@ -81,6 +82,11 @@ export async function ownerOverviewFromSupabase(tenantId?: number) {
 }
 
 type EntityRow = Record<string, unknown>;
+type MembershipEntityRow = EntityRow & {
+  expires_at: string | null;
+  is_active: boolean;
+  membership_status: string;
+};
 
 function requireData<T>(result: { data: T[] | null; error: { message: string; code?: string } | null }, area: string) {
   if (result.error) unavailable(result.error, area);
@@ -130,7 +136,7 @@ export async function platformSnapshotFromSupabase() {
   const generators = requireData(generatorsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.generators");
   const users = requireData(usersResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.users");
   const staff = requireData(staffResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.staffProfiles");
-  const memberships = requireData(membershipResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.tenantMembers");
+  const memberships = requireData(membershipResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.tenantMembers") as MembershipEntityRow[];
   const invoices = requireData(invoicesResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.invoices");
   const payments = requireData(paymentsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.payments");
   const readings = requireData(readingsResult as unknown as { data: EntityRow[] | null; error: { message: string; code?: string } | null }, "admin.snapshot.meterReadings");
@@ -232,7 +238,8 @@ export async function platformSnapshotFromSupabase() {
       const ownerProfile = ownerProfileByUser.get(numeric(membership.user_id));
       const employeePhones = employeeByUser.get(numeric(membership.user_id)) ?? [];
       const phone = ownerProfile?.phone ?? ownerProfile?.whatsapp_number ?? employeePhones.find((row) => row.phone)?.phone ?? null;
-      const membershipStatus = membership.membership_status ?? (membership.is_active ? "active" : "suspended");
+      const membershipExpired = !isTenantMembershipUnexpired(membership);
+      const membershipStatus = membershipExpired ? "expired" : (membership.membership_status ?? (membership.is_active ? "active" : "suspended"));
       return {
         id: numeric(membership.id),
         userId: numeric(membership.user_id),
@@ -248,7 +255,7 @@ export async function platformSnapshotFromSupabase() {
         accountStatus: user.account_status ?? "active",
         membershipStatus,
         status: membershipStatus,
-        isActive: Boolean(membership.is_active && membershipStatus === "active" && user.account_status === "active"),
+        isActive: Boolean(membership.is_active && membershipStatus === "active" && user.account_status === "active" && !membershipExpired),
         lastSignedIn: user.last_signed_in ?? null,
         staffProfileId: staffProfile ? numeric(staffProfile.id) : null,
         invitationStatus: null,
@@ -324,12 +331,13 @@ export async function platformSnapshotFromSupabase() {
       staffDirectory: staff.map((item) => {
         const user = userById.get(numeric(item.user_id));
         const membership = membershipByTenantUser.get(`${numeric(item.tenant_id)}:${numeric(item.user_id)}`);
+        const membershipExpired = membership ? !isTenantMembershipUnexpired(membership) : false;
         return {
           id: numeric(item.id),
           userId: numeric(item.user_id),
           role: item.role,
-          isActive: item.is_active,
-          membershipStatus: membership?.membership_status ?? (item.is_active ? "active" : "suspended"),
+          isActive: Boolean(item.is_active && membership?.is_active && membership.membership_status === "active" && !membershipExpired && user?.account_status === "active"),
+          membershipStatus: membershipExpired ? "expired" : (membership?.membership_status ?? "suspended"),
           accountStatus: user?.account_status ?? "active",
           userName: user?.name ?? null,
           userEmail: user?.email ?? null,

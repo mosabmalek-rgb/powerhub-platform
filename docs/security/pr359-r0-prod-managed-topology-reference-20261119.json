@@ -1,0 +1,369 @@
+{
+  "format": "PR359 R0 managed relation topology reference v1",
+  "date": "2026-11-19",
+  "project_ref": "vvcdiqcyhaloxesvpppc",
+  "read_only": true,
+  "warning": "Relations and partition topology only. Provider ownership/constraints not a restore-acceptance certificate.",
+  "relations": [
+    {
+      "schema": "auth",
+      "table": "audit_log_entries",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "custom_oauth_providers",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "flow_state",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "identities",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "instances",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "mfa_amr_claims",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "mfa_challenges",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "mfa_factors",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "mfa_recovery_code_sets",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "mfa_recovery_codes",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "oauth_authorizations",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "oauth_client_states",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "oauth_clients",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "oauth_consents",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "one_time_tokens",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "refresh_tokens",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "saml_providers",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "saml_relay_states",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "schema_migrations",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "scim_tokens",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "scim_users",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "sessions",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "sso_domains",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "sso_providers",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "users",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "webauthn_challenges",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "auth",
+      "table": "webauthn_credentials",
+      "kind": "r",
+      "owner": "supabase_auth_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "realtime",
+      "table": "messages",
+      "kind": "p",
+      "owner": "supabase_realtime_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "realtime",
+      "table": "schema_migrations",
+      "kind": "r",
+      "owner": "supabase_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "realtime",
+      "table": "subscription",
+      "kind": "r",
+      "owner": "supabase_realtime_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "bucket_lifecycle_states",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "buckets",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "buckets_analytics",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "buckets_vectors",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "lifecycle_abandoned_artifacts",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "migrations",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "objects",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "s3_multipart_uploads",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "s3_multipart_uploads_parts",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    },
+    {
+      "schema": "storage",
+      "table": "vector_indexes",
+      "kind": "r",
+      "owner": "supabase_storage_admin",
+      "is_partition": false,
+      "parent": null,
+      "partition_bound": null
+    }
+  ]
+}

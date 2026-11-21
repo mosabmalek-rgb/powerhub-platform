@@ -36,3 +36,21 @@ describe("payment documentation approval capability", () => {
     expect(can("collector", "approvePaymentDocumentation", undefined)).toBe(false);
   });
 });
+
+
+describe("financial reporting capability", () => {
+  it("grants financial reports to owner, manager, and accountant by default only", () => {
+    expect(can("owner", "viewFinancialReports")).toBe(true);
+    expect(can("manager", "viewFinancialReports")).toBe(true);
+    expect(can("accountant", "viewFinancialReports")).toBe(true);
+    expect(can("collector", "viewFinancialReports")).toBe(false);
+    expect(can("technician", "viewFinancialReports")).toBe(false);
+    expect(can("viewer", "viewFinancialReports")).toBe(false);
+  });
+
+  it("supports explicit grants and explicit deny overrides", () => {
+    expect(can("viewer", "viewFinancialReports", ["viewFinancialReports"])).toBe(true);
+    expect(can("accountant", "viewFinancialReports", [])).toBe(false);
+    expect(can("collector", "viewFinancialReports", ["collectPayments"])).toBe(false);
+  });
+});

@@ -24,6 +24,30 @@ describe("buildFinancialOverview", () => {
     expect(overview.outstandingInvoices[0]).toMatchObject({ invoiceId: 101, invoiceNo: "INV-1", outstanding: 70, isOverdue: true, partialInvoices: 1 });
     expect(overview.outstandingInvoices[1]).toMatchObject({ invoiceId: 102, invoiceNo: "INV-2", outstanding: 80, isOverdue: false, partialInvoices: 0 });
   });
+
+  it("sums currency amounts exactly in integer minor units", () => {
+    const overview = buildFinancialOverview({
+      now: new Date("2026-08-21T12:00:00.000Z"),
+      branches: [{ id: 1, name: "الفرع", activeSubscribers: 1 }],
+      invoices: [
+        { id: 1, siteId: 1, subscriberId: 1, subscriberName: "أ", subscriberNo: "1", invoiceNo: "I-1", issueDate: new Date("2026-08-21T08:00:00.000Z"), dueDate: new Date("2026-08-30T00:00:00.000Z"), totalAmount: "0.10", paidAmount: "0", balanceDue: "0.10", status: "issued" },
+        { id: 2, siteId: 1, subscriberId: 2, subscriberName: "ب", subscriberNo: "2", invoiceNo: "I-2", issueDate: new Date("2026-08-21T09:00:00.000Z"), dueDate: new Date("2026-08-30T00:00:00.000Z"), totalAmount: "0.20", paidAmount: "0", balanceDue: "0.20", status: "issued" },
+      ],
+      payments: [
+        { siteId: 1, subscriberId: 1, amount: "0.10", status: "completed", paidAt: new Date("2026-08-21T10:00:00.000Z") },
+        { siteId: 1, subscriberId: 2, amount: "0.20", status: "completed", paidAt: new Date("2026-08-21T11:00:00.000Z") },
+      ],
+      expenses: [{ siteId: 1, amount: "0.05", occurredAt: new Date("2026-08-21T12:00:00.000Z") }],
+    });
+    expect(overview.today).toMatchObject({ invoiced: 0.3, collected: 0.3, collectionRate: 100 });
+    expect(overview.month).toMatchObject({ invoiced: 0.3, collected: 0.3, expenses: 0.05, netCash: 0.25 });
+    expect(overview.outstanding.total).toBe(0.3);
+    expect(overview.branchSummaries[0]).toMatchObject({ invoiced: 0.3, collected: 0.3, outstanding: 0.3 });
+    expect(overview.trend.find((row) => row.date === "2026-08-21")).toMatchObject({
+      invoiced: 0.3, collected: 0.3, expenses: 0.05, netCash: 0.25,
+    });
+  });
+
 });
 
 describe("buildFinancialTrendSeries", () => {

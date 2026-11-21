@@ -19,8 +19,6 @@ CREATE TABLE IF NOT EXISTS private.platform_admin_search_metrics_daily (
 ALTER TABLE private.platform_admin_search_metrics_daily ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.platform_admin_search_metrics_daily FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE private.platform_admin_search_metrics_daily FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
-GRANT USAGE ON SCHEMA private TO postgres;
 
 CREATE OR REPLACE FUNCTION public.powerhub_admin_record_search_metric(
   p_result_count integer,
@@ -48,7 +46,7 @@ BEGIN
     RAISE EXCEPTION 'INVALID_SEARCH_METRICS';
   END IF;
 
-  INSERT INTO private.platform_admin_search_metrics_daily (
+  INSERT INTO private.platform_admin_search_metrics_daily AS metrics (
     metric_day, search_count, no_result_search_count,
     result_count, generator_result_count, subscriber_result_count,
     owner_result_count, first_searched_at, last_searched_at
@@ -58,13 +56,13 @@ BEGIN
     p_owner_result_count, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp()
   )
   ON CONFLICT (metric_day) DO UPDATE SET
-    search_count = private.platform_admin_search_metrics_daily.search_count + 1,
-    no_result_search_count = private.platform_admin_search_metrics_daily.no_result_search_count
+    search_count = metrics.search_count + 1,
+    no_result_search_count = metrics.no_result_search_count
       + CASE WHEN EXCLUDED.no_result_search_count = 1 THEN 1 ELSE 0 END,
-    result_count = private.platform_admin_search_metrics_daily.result_count + EXCLUDED.result_count,
-    generator_result_count = private.platform_admin_search_metrics_daily.generator_result_count + EXCLUDED.generator_result_count,
-    subscriber_result_count = private.platform_admin_search_metrics_daily.subscriber_result_count + EXCLUDED.subscriber_result_count,
-    owner_result_count = private.platform_admin_search_metrics_daily.owner_result_count + EXCLUDED.owner_result_count,
+    result_count = metrics.result_count + EXCLUDED.result_count,
+    generator_result_count = metrics.generator_result_count + EXCLUDED.generator_result_count,
+    subscriber_result_count = metrics.subscriber_result_count + EXCLUDED.subscriber_result_count,
+    owner_result_count = metrics.owner_result_count + EXCLUDED.owner_result_count,
     last_searched_at = EXCLUDED.last_searched_at;
 END;
 $function$;
@@ -94,7 +92,7 @@ BEGIN
     count(*) FILTER (WHERE submitted_at >= v_now - interval '7 days')::bigint AS requests_last_7_days,
     count(*) FILTER (WHERE submitted_at >= v_now - interval '30 days')::bigint AS requests_last_30_days,
     coalesce(sum(payment_amount) FILTER (WHERE status = 'approved'), 0)::double precision AS approved_amount_all_time,
-    coalesce(sum(payment_amount) FILTER (WHERE status = 'approved' AND submitted_at >= v_now - interval '30 days'), 0)::double precision AS approved_amount_last_30_days,
+    coalesce(sum(payment_amount) FILTER (WHERE status = 'approved' AND reviewed_at >= v_now - interval '30 days'), 0)::double precision AS approved_amount_last_30_days,
     max(submitted_at) AS latest_submitted_at
   INTO v_payment
   FROM public.payment_documentation_requests;

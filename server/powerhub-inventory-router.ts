@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
-import { requireSupabaseSiteRole, resolveSupabaseSiteAccess } from "./powerhub-supabase";
+import { requireSupabaseSiteAnyCapability, requireSupabaseSiteRole, resolveSupabaseSiteCapabilityAccess } from "./powerhub-supabase";
 import { supabaseAdmin } from "./supabase-admin";
 
 const roles = ["owner", "manager", "accountant", "collector", "technician", "viewer"] as const;
@@ -20,6 +20,28 @@ type InventoryStockOverviewRow = {
   stock_value: number | string;
   average_unit_cost: number | string;
   below_reorder_point: boolean;
+};
+
+type InventoryStocktakeRow = {
+  stocktake_id: number;
+  stocktake_number: string;
+  warehouse_id: number;
+  warehouse_name: string;
+  location_type: string;
+  status: string;
+  reason: string;
+  notes: string | null;
+  snapshot_at: string;
+  created_at: string;
+  created_by_user_id: number | null;
+  submitted_at: string | null;
+  submitted_by_user_id: number | null;
+  posted_at: string | null;
+  posted_by_user_id: number | null;
+  item_count: number;
+  counted_count: number;
+  variance_count: number;
+  variance_quantity: number | string;
 };
 
 type InventoryStockMovementRow = {
@@ -48,6 +70,7 @@ type InventoryStockMovementRow = {
 };
 
 const categorySchema = z.enum(["fuel", "oil", "filter", "spare_part", "maintenance_supply", "other"]);
+const accountingTreatmentSchema = z.enum(["expense_on_issue", "capital_asset", "pending_classification"]);
 const unitSchema = z.enum(["liter", "milliliter", "piece", "container", "kg", "gram", "meter", "set", "gallon", "other"]);
 
 function mapDatabaseError(error: { code?: string } | null, operation: string): never {
@@ -65,12 +88,25 @@ function mapPurchaseDatabaseError(
   if (error?.code === "23505" && (error.message ?? "").includes("inventory_item_units_label_unique_idx")) {
     throw new TRPCError({ code: "CONFLICT", message: "وحدة شراء بهذا الاسم موجودة لهذا الصنف." });
   }
+  if (error?.code === "23505" && (error.message ?? "").includes("AUTO_RECEIPT_INCOMPLETE_REPLAY")) {
+    throw new TRPCError({ code: "CONFLICT", message: "وجدنا شراءً سابقًا بنفس المفتاح لكن دون سجل استلام تلقائي مكتمل؛ لم تُنفّذ عملية ثانية." });
+  }
   if (error?.code === "23505") {
     throw new TRPCError({ code: "CONFLICT", message: "يوجد رقم فاتورة أو مفتاح عملية مستخدم مسبقًا." });
   }
   const message = error?.message ?? "";
   const known: Record<string, { code: "BAD_REQUEST" | "CONFLICT" | "NOT_FOUND" | "FORBIDDEN"; message: string }> = {
-    INVALID_OPERATION_KEY: { code: "BAD_REQUEST", message: "مفتاح العملية غير صالح." },
+    SUPPLIER_PAYMENT_POSTED_GL_SOURCE_REVERSAL_REQUIRED: { code: "CONFLICT", message: "لا يمكن عكس دفعة المورد لأن قيدها المحاسبي مُرحّل. لم تُنفّذ أي حركة عكس. يلزم مسار تصحيح محاسبي معتمد يحافظ على دفتر المورد والأستاذ العام." },
+    AUTO_RECEIPT_REQUEST_INVALID: { code: "BAD_REQUEST", message: "تحقق من المخزن والتاريخ وبنود الاستلام التلقائي." },
+    AUTO_RECEIPT_PAYMENT_MODE_INVALID: { code: "BAD_REQUEST", message: "الشراء الفوري يتطلب حسابًا وتاريخ دفع صالحين." },
+    AUTO_RECEIPT_WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن المحدد غير نشط أو لا يتبع الفرع." },
+    AUTO_RECEIPT_PURCHASE_NOT_CREATED: { code: "CONFLICT", message: "تعذر إنشاء شراء الاستلام التلقائي؛ لم تُحفظ أي حركة." },
+    AUTO_RECEIPT_LINE_COUNT_MISMATCH: { code: "CONFLICT", message: "عدد بنود الشراء لا يطابق الاستلام؛ لم تُحفظ حركة مخزون." },
+    AUTO_RECEIPT_NOT_FULLY_RECEIVED: { code: "CONFLICT", message: "لم يكتمل استلام كل البنود؛ ألغيت العملية بالكامل." },
+    AUTO_RECEIPT_PAYMENT_NOT_POSTED: { code: "CONFLICT", message: "تعذر تسجيل السداد والاستلام في معاملة واحدة؛ ألغيت العملية." },
+    AUTO_RECEIPT_RECEIPT_NOT_CREATED: { code: "CONFLICT", message: "تعذر تسجيل سند الاستلام؛ ألغيت عملية الشراء." },
+    AUTO_RECEIPT_WALK_IN_PAYMENT_MISSING: { code: "CONFLICT", message: "سداد المورد غير المسجل لم يكتمل؛ ألغيت العملية." },
+        INVALID_OPERATION_KEY: { code: "BAD_REQUEST", message: "مفتاح العملية غير صالح." },
     INVALID_STOCK_TRANSFER: { code: "BAD_REQUEST", message: "بيانات التحويل المخزني غير صالحة؛ اختر مخزنين مختلفين." },
     INVALID_STOCK_TRANSFER_QUANTITY: { code: "BAD_REQUEST", message: "كمية التحويل غير صالحة أو تتجاوز ثلاث منازل عشرية." },
     STOCK_DESTINATION_WAREHOUSE_OUT_OF_SCOPE: { code: "BAD_REQUEST", message: "المخزن المستلم غير نشط أو لا يتبع هذا الفرع." },
@@ -255,41 +291,52 @@ function mapFuelDatabaseError(error: { code?: string; message?: string } | null,
 }
 
 async function requireFuelReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const canManageFuel = access.permissions.includes("manageFuelAndConsumption");
-  const canViewFuelReports = access.permissions.includes("viewInventoryReports");
-  if (!canManageFuel && !canViewFuelReports) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض سجلات الوقود أو تقاريره." });
-  }
+  const access = await requireSupabaseSiteAnyCapability(userId, siteId, [
+    "manageFuelAndConsumption", "viewInventoryReports",
+  ]);
+  const canManageFuel = access.allowedCapabilities.includes("manageFuelAndConsumption");
+  const canViewFuelReports = access.allowedCapabilities.includes("viewInventoryReports");
   return { ...access, canManageFuel, canViewFuelReports };
 }
 
 async function requirePurchaseReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const canManageSupplierPayments = access.permissions.includes("manageSupplierPayments");
-  const canViewFinancials = access.permissions.includes("viewPurchases") || canManageSupplierPayments;
-  const canAdjustInventory = access.permissions.includes("adjustInventory");
-  if (!canViewFinancials && !access.permissions.includes("receiveInventory") && !canAdjustInventory) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض المشتريات أو تنفيذ استلام أو مرتجع مخزني." });
-  }
+  const access = await requireSupabaseSiteAnyCapability(userId, siteId, [
+    "viewPurchases", "manageSupplierPayments", "receiveInventory", "adjustInventory",
+  ]);
+  const canManageSupplierPayments = access.allowedCapabilities.includes("manageSupplierPayments");
+  const canViewFinancials = access.allowedCapabilities.includes("viewPurchases") || canManageSupplierPayments;
   return { ...access, canViewFinancials, canManageSupplierPayments };
 }
 
+async function requirePurchaseReceiptHistoryReadAccess(userId: number, siteId: number) {
+  return requireSupabaseSiteAnyCapability(userId, siteId, [
+    "viewPurchases", "receiveInventory", "adjustInventory",
+  ]);
+}
+
+async function requireSupplierReturnHistoryReadAccess(userId: number, siteId: number) {
+  return requireSupabaseSiteAnyCapability(userId, siteId, [
+    "viewPurchases", "manageSupplierPayments", "adjustInventory",
+  ]);
+}
+
 async function requireStockReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  if (!access.permissions.includes("viewInventory") && !access.permissions.includes("viewInventoryReports")) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض أرصدة المخزون وحركاته." });
-  }
-  return access;
+  return requireSupabaseSiteAnyCapability(userId, siteId, ["viewInventory", "viewInventoryReports"]);
 }
 
 async function requireStocktakeReadAccess(userId: number, siteId: number) {
-  const access = await resolveSupabaseSiteAccess(userId, siteId);
-  const canReadStocktakes = access.permissions.includes("viewStocktakes")
-    || access.permissions.includes("manageStocktakes")
-    || access.permissions.includes("approveStocktakes");
-  if (!canReadStocktakes) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض جلسات الجرد." });
+  return requireSupabaseSiteAnyCapability(userId, siteId, [
+    "viewStocktakes", "manageStocktakes", "approveStocktakes",
+  ]);
+}
+
+async function requirePhaseDFinancialReadAccess(userId: number, siteId: number) {
+  const access = await resolveSupabaseSiteCapabilityAccess(userId, siteId, [
+    "viewInventoryReports", "viewPurchases", "manageSupplierPayments",
+    "viewSupplierLedger", "reverseSupplierPayments",
+  ]);
+  if (!access.allowedCapabilities.includes("viewInventoryReports")) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون المالية." });
   }
   return access;
 }
@@ -316,7 +363,7 @@ export const powerhubInventoryRouter = router({
         p_site_id: input.siteId,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أرصدة المخزون." });
-      if (access.permissions.includes("viewInventoryReports")) return data ?? [];
+      if (access.allowedCapabilities.includes("viewInventoryReports")) return data ?? [];
       return (data ?? []).map((row: InventoryStockOverviewRow) => {
         const { stock_value: _stockValue, average_unit_cost: _averageUnitCost, ...visible } = row;
         return visible;
@@ -333,7 +380,7 @@ export const powerhubInventoryRouter = router({
         p_limit: input.limit,
       });
       if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل حركات المخزون." });
-      if (access.permissions.includes("viewInventoryReports")) return data ?? [];
+      if (access.allowedCapabilities.includes("viewInventoryReports")) return data ?? [];
       return (data ?? []).map((row: InventoryStockMovementRow) => {
         const { unit_cost: _unitCost, total_cost_amount: _totalCostAmount, ...visible } = row;
         return visible;
@@ -344,7 +391,7 @@ export const powerhubInventoryRouter = router({
     .input(z.object({ siteId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
       const access = await requireStockReadAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
+      if (!access.allowedCapabilities.includes("viewInventoryReports")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون." });
       }
       const { data, error } = await supabaseAdmin().from("inventory_warehouses")
@@ -377,7 +424,7 @@ export const powerhubInventoryRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const access = await requireStockReadAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
+      if (!access.allowedCapabilities.includes("viewInventoryReports")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض أو تصدير تقارير المخزون." });
       }
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_list_stock_movement_report", {
@@ -549,7 +596,7 @@ export const powerhubInventoryRouter = router({
     .query(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "viewInventory");
       let query = supabaseAdmin().from("inventory_items")
-        .select("id,tenant_id,sku,name,category,base_unit,reorder_point,specification,notes,is_active,created_at,updated_at")
+        .select("id,tenant_id,sku,name,category,base_unit,reorder_point,specification,notes,accounting_treatment,is_active,created_at,updated_at")
         .eq("tenant_id", access.tenantId)
         .order("name", { ascending: true })
         .limit(500);
@@ -569,20 +616,26 @@ export const powerhubInventoryRouter = router({
       sku: z.string().trim().max(80).optional(),
       name: z.string().trim().min(1).max(180),
       category: categorySchema,
+      accountingTreatment: accountingTreatmentSchema,
       baseUnit: unitSchema,
       reorderPoint: z.number().finite().min(0).max(1_000_000_000).default(0),
       specification: z.string().trim().max(500).optional(),
       notes: z.string().trim().max(2000).optional(),
+    }).superRefine((value, issue) => {
+      if (value.accountingTreatment !== "expense_on_issue" && value.category !== "other") {
+        issue.addIssue({ code: "custom", path: ["accountingTreatment"], message: "المعالجة الرأسمالية أو غير المصنفة متاحة للأصناف الأخرى فقط." });
+      }
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createInventoryItems");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_item", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_item_v2", {
         p_tenant_id: access.tenantId,
         p_site_id: input.siteId,
         p_user_id: ctx.user.id,
         p_sku: input.sku || null,
         p_name: input.name,
         p_category: input.category,
+        p_accounting_treatment: input.accountingTreatment,
         p_base_unit: input.baseUnit,
         p_reorder_point: input.reorderPoint,
         p_specification: input.specification || null,
@@ -597,16 +650,21 @@ export const powerhubInventoryRouter = router({
     .input(z.object({
       siteId: z.number().int().positive(), itemId: z.number().int().positive(),
       sku: z.string().trim().max(80).optional(),
-      name: z.string().trim().min(1).max(180), category: categorySchema, baseUnit: unitSchema,
+      name: z.string().trim().min(1).max(180), category: categorySchema,
+      accountingTreatment: accountingTreatmentSchema, baseUnit: unitSchema,
       reorderPoint: z.number().finite().min(0).max(1_000_000_000),
       specification: z.string().trim().max(500).optional(), notes: z.string().trim().max(2000).optional(),
+    }).superRefine((value, issue) => {
+      if (value.accountingTreatment !== "expense_on_issue" && value.category !== "other") {
+        issue.addIssue({ code: "custom", path: ["accountingTreatment"], message: "المعالجة الرأسمالية أو غير المصنفة متاحة للأصناف الأخرى فقط." });
+      }
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "editInventoryItems");
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_item", {
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_update_item_v2", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_item_id: input.itemId, p_sku: input.sku || null, p_name: input.name, p_category: input.category,
-        p_base_unit: input.baseUnit, p_reorder_point: input.reorderPoint,
+        p_accounting_treatment: input.accountingTreatment, p_base_unit: input.baseUnit, p_reorder_point: input.reorderPoint,
         p_specification: input.specification || null, p_notes: input.notes || null,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر تعديل الصنف.");
@@ -968,6 +1026,128 @@ export const powerhubInventoryRouter = router({
       }));
     }),
 
+  listPurchaseHeaders: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      limit: z.number().int().min(1).max(200).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requirePurchaseReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().from("supplier_purchases")
+        .select("id,tenant_id,site_id,supplier_id,warehouse_id,purchase_number,invoice_date,status,created_at,updated_at,confirmed_at,received_at,cancelled_at")
+        .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+        .in("status", ["confirmed", "partially_received", "received"])
+        .order("invoice_date", { ascending: false }).order("id", { ascending: false }).limit(input.limit);
+      if (error) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل عناوين المشتريات التشغيلية." });
+      const purchases = (data ?? []) as Array<Record<string, unknown>>;
+      if (!purchases.length) return [];
+      const supplierIds = [...new Set(purchases.map((row) => Number(row.supplier_id)))];
+      const warehouseIds = [...new Set(purchases.map((row) => Number(row.warehouse_id)))];
+      const [suppliersResult, warehousesResult] = await Promise.all([
+        supabaseAdmin().from("suppliers").select("id,name,supplier_code")
+          .eq("tenant_id", access.tenantId).in("id", supplierIds),
+        supabaseAdmin().from("inventory_warehouses").select("id,name")
+          .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("id", warehouseIds),
+      ]);
+      if (suppliersResult.error || warehousesResult.error) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل أسماء الموردين والمخازن." });
+      }
+      const supplierById = new Map((suppliersResult.data ?? []).map((row) => [Number(row.id), row]));
+      const warehouseById = new Map((warehousesResult.data ?? []).map((row) => [Number(row.id), row]));
+      return purchases.map((row) => {
+        const id = Number(row.id);
+        const supplierId = Number(row.supplier_id);
+        const warehouseId = Number(row.warehouse_id);
+        const supplier = supplierById.get(supplierId);
+        const warehouse = warehouseById.get(warehouseId);
+        return {
+          id, purchase_id: id,
+          tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId,
+          supplier_id: supplierId, supplierId,
+          supplier_name: supplier?.name ?? "مورد غير متاح",
+          supplierName: supplier?.name ?? "مورد غير متاح",
+          supplier_code: supplier?.supplier_code ?? null,
+          supplierCode: supplier?.supplier_code ?? null,
+          warehouse_id: warehouseId, warehouseId,
+          warehouse_name: warehouse?.name ?? "مخزن غير متاح",
+          warehouseName: warehouse?.name ?? "مخزن غير متاح",
+          purchase_number: String(row.purchase_number ?? ""),
+          invoice_date: String(row.invoice_date ?? ""),
+          status: String(row.status ?? ""),
+          created_at: String(row.created_at ?? ""),
+          updated_at: String(row.updated_at ?? ""),
+          confirmed_at: typeof row.confirmed_at === "string" ? row.confirmed_at : null,
+          received_at: typeof row.received_at === "string" ? row.received_at : null,
+          cancelled_at: typeof row.cancelled_at === "string" ? row.cancelled_at : null,
+        };
+      });
+    }),
+
+  listPurchaseReceiptHeaders: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(100) }))
+    .query(async ({ ctx, input }) => {
+      const access = await requirePurchaseReceiptHistoryReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_inventory_sync_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: "inventory_purchase_receipt_headers",
+      });
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل الاستلام التشغيلي." });
+      }
+      const snapshot = data as unknown as { rows?: unknown[] };
+      const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+      return rows.slice(0, input.limit).flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const row = item as Record<string, unknown>;
+        const id = Number(row.receipt_id ?? row.id);
+        const purchaseId = Number(row.purchase_id), supplierId = Number(row.supplier_id), warehouseId = Number(row.warehouse_id);
+        const supplierName = String(row.supplier_name ?? ""), warehouseName = String(row.warehouse_name ?? "");
+        return [{
+          id, receipt_id: id, tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId, purchase_id: purchaseId, purchaseId,
+          purchase_number: String(row.purchase_number ?? ""), receipt_number: String(row.receipt_number ?? ""),
+          receipt_date: String(row.receipt_date ?? ""), status: String(row.status ?? ""),
+          supplier_id: supplierId, supplierId, supplier_name: supplierName, supplierName,
+          supplier_code: (row.supplier_code ?? null) as string | null,
+          warehouse_id: warehouseId, warehouseId, warehouse_name: warehouseName, warehouseName,
+          received_at: (row.received_at ?? null) as string | null, created_at: String(row.created_at ?? ""),
+          line_count: Number(row.line_count ?? 0), received_quantity: String(row.received_quantity ?? "0.000"),
+        }];
+      });
+    }),
+
+  listSupplierReturnHeaders: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(100) }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupplierReturnHistoryReadAccess(ctx.user.id, input.siteId);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_get_inventory_sync_snapshot", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_entity_type: "inventory_supplier_return_headers",
+      });
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل سجل مرتجعات المورد التشغيلي." });
+      }
+      const snapshot = data as unknown as { rows?: unknown[] };
+      const rows = Array.isArray(snapshot.rows) ? snapshot.rows : [];
+      return rows.slice(0, input.limit).flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const row = item as Record<string, unknown>;
+        const id = Number(row.return_id ?? row.id);
+        const purchaseId = Number(row.purchase_id), supplierId = Number(row.supplier_id), warehouseId = Number(row.warehouse_id);
+        const supplierName = String(row.supplier_name ?? ""), warehouseName = String(row.warehouse_name ?? "");
+        return [{
+          id, return_id: id, tenant_id: access.tenantId, tenantId: access.tenantId,
+          site_id: input.siteId, siteId: input.siteId, purchase_id: purchaseId, purchaseId,
+          purchase_number: String(row.purchase_number ?? ""), return_number: String(row.return_number ?? ""),
+          return_date: String(row.return_date ?? ""), status: String(row.status ?? ""),
+          supplier_id: supplierId, supplierId, supplier_name: supplierName, supplierName,
+          supplier_code: (row.supplier_code ?? null) as string | null,
+          warehouse_id: warehouseId, warehouseId, warehouse_name: warehouseName, warehouseName,
+          returned_at: (row.returned_at ?? null) as string | null, created_at: String(row.created_at ?? ""),
+          line_count: Number(row.line_count ?? 0), returned_quantity: String(row.returned_quantity ?? "0.000"),
+        }];
+      });
+    }),
+
   getPurchase: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive(), purchaseId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
@@ -1090,11 +1270,19 @@ export const powerhubInventoryRouter = router({
         const paymentIds = [...allocationByPayment.keys()];
         if (paymentIds.length) {
           const { data: paymentRows, error: paymentError } = await supabaseAdmin().from("supplier_payments")
-            .select("id,amount,payment_date,reference_no,company_account_id,account_transaction_id,posted_at,status,reversal_reason")
-            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId).in("id", paymentIds)
+            .select("id,supplier_id,amount,payment_date,reference_no,company_account_id,account_transaction_id,posted_at,status,reversal_reason")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+            .eq("supplier_id", purchase.supplier_id).in("id", paymentIds)
             .order("payment_date", { ascending: false }).order("id", { ascending: false });
           if (paymentError) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل دفعات المورد." });
           const visiblePayments = paymentRows ?? [];
+          if (visiblePayments.length !== paymentIds.length ||
+            visiblePayments.some((payment) => Number(payment.supplier_id) !== Number(purchase.supplier_id))) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "تعذر التحقق من ارتباط دفعات فاتورة المشتريات بالمورد والفرع المحددين.",
+            });
+          }
           const accountIds = [...new Set(visiblePayments.map((payment) => Number(payment.company_account_id)))];
           const { data: accountRows, error: accountError } = accountIds.length
             ? await supabaseAdmin().from("company_accounts").select("id,name")
@@ -1152,6 +1340,129 @@ export const powerhubInventoryRouter = router({
       };
     }),
 
+  // A walk-in supplier is not registered in the active directory. The
+  // Postgres RPC creates an archival supplier reference, confirms the purchase,
+  // and posts the full payment in ONE transaction or rolls everything back.
+  createWalkInPurchase: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      warehouseId: z.number().int().positive(),
+      companyAccountId: z.number().int().positive(),
+      supplierInvoiceNo: z.string().trim().max(120).optional(),
+      invoiceDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      paymentDate: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      paymentReferenceNo: z.string().trim().max(120).optional(),
+      paymentNotes: z.string().trim().max(2000).optional(),
+      operationKey: z.string().trim().min(1).max(180),
+      lines: z.array(purchaseLineInputSchema).min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Capability gates must be enforced independently. A create-only user
+      // cannot silently bypass approval or move money out of company accounts.
+      const createAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createPurchases");
+      const approvalAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "approvePurchases");
+      const paymentAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+      if (createAccess.tenantId !== approvalAccess.tenantId || createAccess.tenantId !== paymentAccess.tenantId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "تعارض نطاق صلاحيات فرع المشتريات." });
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_create_walk_in_immediate_purchase", {
+        p_tenant_id: createAccess.tenantId,
+        p_site_id: input.siteId,
+        p_user_id: ctx.user.id,
+        p_warehouse_id: input.warehouseId,
+        p_company_account_id: input.companyAccountId,
+        p_supplier_invoice_no: input.supplierInvoiceNo || null,
+        p_invoice_date: input.invoiceDate,
+        p_payment_date: input.paymentDate,
+        p_reference_no: input.referenceNo || null,
+        p_notes: input.notes || null,
+        p_payment_reference_no: input.paymentReferenceNo || null,
+        p_payment_notes: input.paymentNotes || null,
+        p_operation_key: input.operationKey,
+        p_lines: input.lines.map((line) => ({
+          item_id: line.itemId, quantity: line.quantity, unit: line.unit,
+          units_to_base_factor: line.unitsToBaseFactor, unit_price: line.unitPrice,
+          discount_amount: line.discountAmount, tax_amount: line.taxAmount,
+          notes: line.notes || null,
+        })),
+      });
+      if (error || !data?.[0]) {
+        mapPurchaseDatabaseError(error, "تعذر إتمام شراء المورد غير المسجل. لم يُحفظ شراء جزئي أو دفعة منفصلة.");
+      }
+      return data[0];
+    }),
+
+  // One-transaction purchase/confirmation/full physical receipt. This is a
+  // distinct explicit action; normal draft creation is never auto-received.
+  createPurchaseAndReceive: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      supplierId: z.number().int().positive().nullable(),
+      warehouseId: z.number().int().positive(),
+      supplierInvoiceNo: z.string().trim().max(120).optional(),
+      invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      paymentTermsDays: z.number().int().min(0).max(3650).optional(),
+      paymentMode: z.enum(["immediate", "deferred"]),
+      referenceNo: z.string().trim().max(120).optional(),
+      notes: z.string().trim().max(2000).optional(),
+      companyAccountId: z.number().int().positive().optional(),
+      paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      paymentReferenceNo: z.string().trim().max(120).optional(),
+      paymentNotes: z.string().trim().max(2000).optional(),
+      receiptDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      operationKey: z.string().trim().min(8).max(155),
+      lines: z.array(purchaseLineInputSchema).min(1).max(200),
+    }).superRefine((value, ctx) => {
+      if (!value.supplierId && value.paymentMode !== "immediate") {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "المورد غير المسجل يتطلب دفعًا فوريًا." });
+      }
+      if (value.paymentMode === "immediate" && (!value.companyAccountId || !value.paymentDate)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "حدد حساب الشركة وتاريخ الدفع الفوري." });
+      }
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const createAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "createPurchases");
+      const approvalAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "approvePurchases");
+      const receiveAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "receiveInventory");
+      if (createAccess.tenantId !== approvalAccess.tenantId || createAccess.tenantId !== receiveAccess.tenantId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "تعارض نطاق صلاحيات الشراء والاعتماد والاستلام." });
+      }
+      if (input.paymentMode === "immediate") {
+        const paymentAccess = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageSupplierPayments");
+        if (paymentAccess.tenantId !== createAccess.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "تعارض صلاحية السداد مع نطاق المشتريات." });
+        }
+      }
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_purchase_auto_receive", {
+        p_tenant_id: createAccess.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
+        p_supplier_id: input.supplierId, p_warehouse_id: input.warehouseId,
+        p_supplier_invoice_no: input.supplierInvoiceNo || null,
+        p_invoice_date: input.invoiceDate, p_due_date: input.dueDate || null,
+        p_payment_terms_days: input.paymentTermsDays ?? null,
+        p_payment_mode: input.paymentMode,
+        p_reference_no: input.referenceNo || null, p_notes: input.notes || null,
+        p_company_account_id: input.companyAccountId || null,
+        p_payment_date: input.paymentDate || null,
+        p_payment_reference_no: input.paymentReferenceNo || null,
+        p_payment_notes: input.paymentNotes || null,
+        p_receipt_date: input.receiptDate,
+        p_operation_key: input.operationKey,
+        p_lines: input.lines.map((line) => ({
+          item_id: line.itemId, quantity: line.quantity, unit: line.unit,
+          units_to_base_factor: line.unitsToBaseFactor, unit_price: line.unitPrice,
+          discount_amount: line.discountAmount, tax_amount: line.taxAmount,
+          notes: line.notes || null,
+        })),
+      });
+      if (error || !data?.[0]) {
+        mapPurchaseDatabaseError(error, "تعذر إكمال الشراء والاستلام في معاملة واحدة؛ لم تُحفظ حالة جزئية.");
+      }
+      return data[0];
+    }),
+
   createPurchase: protectedProcedure
     .input(z.object({
       siteId: z.number().int().positive(),
@@ -1207,6 +1518,18 @@ export const powerhubInventoryRouter = router({
 
 
 
+  stocktakeOfflineAccess: protectedProcedure
+    .input(z.object({ siteId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireStocktakeReadAccess(ctx.user.id, input.siteId);
+      return {
+        tenantId: access.tenantId,
+        canViewStocktakes: access.allowedCapabilities.includes("viewStocktakes"),
+        canManageStocktakes: access.allowedCapabilities.includes("manageStocktakes"),
+        canApproveStocktakes: access.allowedCapabilities.includes("approveStocktakes"),
+      };
+    }),
+
   listStocktakeWarehouses: protectedProcedure
     .input(z.object({ siteId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
@@ -1232,7 +1555,13 @@ export const powerhubInventoryRouter = router({
         p_warehouse_id: input.warehouseId ?? null, p_limit: input.limit,
       });
       if (error || !data) mapPurchaseDatabaseError(error, "تعذر تحميل سجل جلسات الجرد.");
-      return data ?? [];
+      const stocktakes = (data ?? []) as InventoryStocktakeRow[];
+      return stocktakes.map((row) => ({
+        ...row,
+        id: Number(row.stocktake_id),
+        tenantId: access.tenantId,
+        siteId: input.siteId,
+      }));
     }),
 
   listStocktakeLines: protectedProcedure
@@ -1272,6 +1601,7 @@ export const powerhubInventoryRouter = router({
       countedUnitCost: z.number().finite().min(0).max(1_000_000_000)
         .refine((value) => Math.abs(value * 10000 - Math.round(value * 10000)) < 1e-7).optional(),
       countNotes: z.string().trim().max(500).optional(),
+      operationKey: z.string().trim().min(1).max(180),
     }))
     .mutation(async ({ ctx, input }) => {
       const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageStocktakes");
@@ -1279,7 +1609,7 @@ export const powerhubInventoryRouter = router({
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_stocktake_id: input.stocktakeId, p_item_id: input.itemId,
         p_counted_quantity: input.countedQuantity, p_counted_unit_cost: input.countedUnitCost ?? null,
-        p_count_notes: input.countNotes || null,
+        p_count_notes: input.countNotes || null, p_operation_key: input.operationKey,
       });
       if (error || !data?.[0]) mapPurchaseDatabaseError(error, "تعذر حفظ كمية العد الفعلية.");
       return data[0];
@@ -1357,10 +1687,7 @@ export const powerhubInventoryRouter = router({
       if (spanDays > 365) issue.addIssue({ code: z.ZodIssueCode.custom, path: ["toDate"], message: "لا يمكن أن يتجاوز نطاق التقرير 366 يومًا." });
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقارير المخزون المالية." });
-      }
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["viewInventoryReports"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_summary", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
         p_from_date: input.fromDate, p_to_date: input.toDate,
@@ -1369,11 +1696,11 @@ export const powerhubInventoryRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تحميل الملخص المالي للمخزون والمشتريات." });
       }
       const row = data[0] as Record<string, unknown>;
-      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
-        access.permissions.includes("manageSupplierPayments");
-      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
-        access.permissions.includes("manageSupplierPayments") ||
-        access.permissions.includes("reverseSupplierPayments");
+      const canViewPurchaseFinancials = access.allowedCapabilities.includes("viewPurchases") ||
+        access.allowedCapabilities.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.allowedCapabilities.includes("viewSupplierLedger") ||
+        access.allowedCapabilities.includes("manageSupplierPayments") ||
+        access.allowedCapabilities.includes("reverseSupplierPayments");
       return {
         purchaseInvoiceCount: canViewPurchaseFinancials ? Number(row.purchase_invoice_count ?? 0) : null,
         purchaseInvoiceAmount: canViewPurchaseFinancials ? Number(row.purchase_invoice_amount ?? 0) : null,
@@ -1408,15 +1735,12 @@ export const powerhubInventoryRouter = router({
       }
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تفاصيل التقارير المالية." });
-      }
-      const canViewPurchaseFinancials = access.permissions.includes("viewPurchases") ||
-        access.permissions.includes("manageSupplierPayments");
-      const canViewSupplierFinancials = access.permissions.includes("viewSupplierLedger") ||
-        access.permissions.includes("manageSupplierPayments") ||
-        access.permissions.includes("reverseSupplierPayments");
+      const access = await requirePhaseDFinancialReadAccess(ctx.user.id, input.siteId);
+      const canViewPurchaseFinancials = access.allowedCapabilities.includes("viewPurchases") ||
+        access.allowedCapabilities.includes("manageSupplierPayments");
+      const canViewSupplierFinancials = access.allowedCapabilities.includes("viewSupplierLedger") ||
+        access.allowedCapabilities.includes("manageSupplierPayments") ||
+        access.allowedCapabilities.includes("reverseSupplierPayments");
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_phase_d_financial_details", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
         p_from_date: input.fromDate, p_to_date: input.toDate, p_limit: input.limit + 1,
@@ -1511,10 +1835,17 @@ export const powerhubInventoryRouter = router({
       const openingEntryIds = [...new Set(allocations.filter((row) => row.supplier_ledger_entry_id != null).map((row) => Number(row.supplier_ledger_entry_id)))];
       const [purchaseResult, openingResult] = await Promise.all([
         purchaseIds.length
-          ? supabaseAdmin().from("supplier_purchases").select("id,purchase_number").eq("tenant_id", access.tenantId).in("id", purchaseIds)
+          ? supabaseAdmin().from("supplier_purchases")
+            .select("id,tenant_id,site_id,supplier_id,purchase_number")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+            .in("supplier_id", supplierIds).in("id", purchaseIds)
           : Promise.resolve({ data: [], error: null }),
         openingEntryIds.length
-          ? supabaseAdmin().from("supplier_ledger_entries").select("id,reference_no,description").eq("tenant_id", access.tenantId).in("id", openingEntryIds)
+          ? supabaseAdmin().from("supplier_ledger_entries")
+            .select("id,tenant_id,site_id,supplier_id,entry_type,purchase_id,supplier_payment_id,reference_no,description")
+            .eq("tenant_id", access.tenantId).eq("site_id", input.siteId)
+            .in("supplier_id", supplierIds).in("id", openingEntryIds)
+            .eq("entry_type", "opening_balance").is("purchase_id", null).is("supplier_payment_id", null)
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (purchaseResult.error || openingResult.error) {
@@ -1524,6 +1855,7 @@ export const powerhubInventoryRouter = router({
       const accounts = new Map((accountResult.data ?? []).map((row) => [Number(row.id), row]));
       const purchases = new Map((purchaseResult.data ?? []).map((row) => [Number(row.id), row]));
       const openingEntries = new Map((openingResult.data ?? []).map((row) => [Number(row.id), row]));
+      const paymentsById = new Map(payments.map((payment) => [Number(payment.id), payment]));
       const allocationsByPayment = new Map<number, Array<{
         purchase_id: number | null;
         supplier_ledger_entry_id: number | null;
@@ -1531,19 +1863,54 @@ export const powerhubInventoryRouter = router({
         document_type: "purchase_invoice" | "opening_balance";
         document_reference: string;
       }>>();
+      const invalidAllocationError = () => new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "تعذر التحقق من ارتباط أحد تخصيصات دفعات الموردين بمستنده وفرعه.",
+      });
       for (const row of allocations) {
         const paymentId = Number(row.payment_id);
+        const payment = paymentsById.get(paymentId);
         const isPurchase = row.purchase_id != null;
-        const purchase = isPurchase ? purchases.get(Number(row.purchase_id)) : undefined;
-        const opening = row.supplier_ledger_entry_id != null ? openingEntries.get(Number(row.supplier_ledger_entry_id)) : undefined;
+        const isOpeningBalance = row.supplier_ledger_entry_id != null;
+        if (!payment || isPurchase === isOpeningBalance) throw invalidAllocationError();
+
+        const allocationAmount = Number(row.amount);
+        if (!Number.isFinite(allocationAmount) || allocationAmount <= 0) throw invalidAllocationError();
+
+        let documentReference: string;
+        if (isPurchase) {
+          const purchase = purchases.get(Number(row.purchase_id));
+          if (!purchase ||
+            Number(purchase.tenant_id) !== access.tenantId ||
+            Number(purchase.site_id) !== input.siteId ||
+            Number(purchase.supplier_id) !== Number(payment.supplier_id)) {
+            throw invalidAllocationError();
+          }
+          documentReference = purchase.purchase_number ?? "فاتورة مشتريات";
+        } else {
+          const opening = openingEntries.get(Number(row.supplier_ledger_entry_id));
+          if (!opening ||
+            Number(opening.tenant_id) !== access.tenantId ||
+            Number(opening.site_id) !== input.siteId ||
+            Number(opening.supplier_id) !== Number(payment.supplier_id) ||
+            opening.entry_type !== "opening_balance" ||
+            opening.purchase_id != null ||
+            opening.supplier_payment_id != null) {
+            throw invalidAllocationError();
+          }
+          documentReference = opening.reference_no ?? opening.description ?? "رصيد افتتاحي";
+        }
+
         const entry = {
           purchase_id: row.purchase_id == null ? null : Number(row.purchase_id),
           supplier_ledger_entry_id: row.supplier_ledger_entry_id == null ? null : Number(row.supplier_ledger_entry_id),
-          amount: Number(row.amount),
+          amount: allocationAmount,
           document_type: (isPurchase ? "purchase_invoice" : "opening_balance") as "purchase_invoice" | "opening_balance",
-          document_reference: purchase?.purchase_number ?? opening?.reference_no ?? opening?.description ?? "رصيد افتتاحي",
+          document_reference: documentReference,
         };
-        allocationsByPayment.set(paymentId, [...(allocationsByPayment.get(paymentId) ?? []), entry]);
+        const paymentAllocations = allocationsByPayment.get(paymentId) ?? [];
+        paymentAllocations.push(entry);
+        allocationsByPayment.set(paymentId, paymentAllocations);
       }
       return payments.map((payment) => ({
         id: Number(payment.id),
@@ -1918,10 +2285,7 @@ export const powerhubInventoryRouter = router({
       message: "تاريخ بداية التقرير يجب ألا يتجاوز تاريخ نهايته.",
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقرير استهلاك الوقود." });
-      }
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["viewInventoryReports"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_report", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId,
         p_from_date: input.fromDate, p_to_date: input.toDate, p_generator_id: input.generatorId ?? null,
@@ -1948,10 +2312,7 @@ export const powerhubInventoryRouter = router({
       }
     }))
     .query(async ({ ctx, input }) => {
-      const access = await resolveSupabaseSiteAccess(ctx.user.id, input.siteId);
-      if (!access.permissions.includes("viewInventoryReports")) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليست لديك صلاحية عرض تقرير استهلاك الوقود." });
-      }
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["viewInventoryReports"]);
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_report_period", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_period_type: input.periodType,
         p_anchor_date: input.anchorDate ?? null, p_from_date: input.fromDate ?? null,
@@ -1959,6 +2320,33 @@ export const powerhubInventoryRouter = router({
         p_tank_warehouse_id: input.tankWarehouseId ?? null,
       });
       if (error) mapFuelDatabaseError(error, "تعذر احتساب تقرير الوقود للفترة المحددة.");
+      return data ?? [];
+    }),
+
+  fuelConsumptionCostReportPeriod: protectedProcedure
+    .input(z.object({
+      siteId: z.number().int().positive(),
+      periodType: z.enum(["day", "cycle", "month", "custom"]),
+      anchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      generatorId: z.number().int().positive().optional(),
+    }).superRefine((value, ctx) => {
+      if (value.periodType !== "custom" && !value.anchorDate) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["anchorDate"], message: "حدد التاريخ المرجعي للفترة." });
+      }
+      if (value.periodType === "custom" && (!value.fromDate || !value.toDate || value.fromDate > value.toDate)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fromDate"], message: "حدد نطاقًا زمنيًا صحيحًا للتقرير." });
+      }
+    }))
+    .query(async ({ ctx, input }) => {
+      const access = await requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["viewInventoryReports"]);
+      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_fuel_consumption_cost_report_period", {
+        p_tenant_id: access.tenantId, p_site_id: input.siteId, p_period_type: input.periodType,
+        p_anchor_date: input.anchorDate ?? null, p_from_date: input.fromDate ?? null,
+        p_to_date: input.toDate ?? null, p_generator_id: input.generatorId ?? null,
+      });
+      if (error) mapFuelDatabaseError(error, "تعذر احتساب تكلفة استهلاك الوقود من المخزون للفترة المحددة.");
       return data ?? [];
     }),
 
@@ -2051,7 +2439,10 @@ export const powerhubInventoryRouter = router({
       message: "مستوى الخزان بعد التعبئة لا يجوز أن يقل عن المستوى المسجل قبلها.", path: ["levelAfterLiters"],
     }))
     .mutation(async ({ ctx, input }) => {
-      const access = await requireSupabaseSiteRole(ctx.user.id, input.siteId, [...roles], "manageFuelAndConsumption");
+      const access = await resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["manageFuelAndConsumption", "viewInventoryReports"]);
+      if (!access.allowedCapabilities.includes("manageFuelAndConsumption")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
+      }
       const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_fuel_fill", {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_generator_id: input.generatorId, p_fuel_item_id: input.fuelItemId,
@@ -2061,8 +2452,8 @@ export const powerhubInventoryRouter = router({
         p_operating_hours: input.operatingHours ?? null, p_reference_no: input.referenceNo || null,
         p_notes: input.notes || null, p_operation_key: input.operationKey,
       });
-      if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر تسجيل تعبئة الوقود وترحيل حركة المخزون.");
-      if (access.permissions.includes("viewInventoryReports")) return data[0];
+      if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر تسجيل تعبئة الوقود واحتساب تكلفة الصرف للمولد.");
+      if (access.allowedCapabilities.includes("viewInventoryReports")) return data[0];
       const { total_cost_amount: _totalCost, ...withoutCost } = data[0];
       return withoutCost;
     }),

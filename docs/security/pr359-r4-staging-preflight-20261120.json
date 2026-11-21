@@ -1,0 +1,52 @@
+{
+  "format": "PR359 R4 read-only Staging preflight observation v1",
+  "captured_at_utc_date": "2026-11-20",
+  "source_branch_sha": "b522ff6e1068786b7d3c50ea614cf8b348710ea7",
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "capture_mode": "single-statement-read-only",
+  "metadata": {
+    "app_relations": {
+      "public": 325,
+      "private": 12
+    },
+    "app_extension_members": 0,
+    "auth_user_count": 7,
+    "storage_object_metadata_count": 0,
+    "storage_bucket_count": 1,
+    "migration_history_count": 553,
+    "migration_latest_version": "20261116231000",
+    "app_cron_job_count": 2,
+    "authenticated_security_definer_exposed_count": 52,
+    "auth_user_noninternal_triggers": [],
+    "app_managed_foreign_keys": [
+      {
+        "name": "powerhub_user_device_locks_user_id_fkey",
+        "source_schema": "public",
+        "source_relation": "powerhub_user_device_locks",
+        "referenced_schema": "auth",
+        "referenced_relation": "users"
+      },
+      {
+        "name": "staff_password_reset_intents_auth_user_id_fkey",
+        "source_schema": "public",
+        "source_relation": "staff_password_reset_intents",
+        "referenced_schema": "auth",
+        "referenced_relation": "users"
+      },
+      {
+        "name": "users_auth_user_id_fkey",
+        "source_schema": "public",
+        "source_relation": "users",
+        "referenced_schema": "auth",
+        "referenced_relation": "users"
+      }
+    ]
+  },
+  "non_goals": [
+    "No SQL mutation",
+    "No Auth/Storage/cron changes",
+    "Not an approved object drop allowlist",
+    "Not an R4 GO"
+  ],
+  "source_execution": "Supabase MCP execute_sql SELECT of metadata, single statement; no durable snapshots of individual business records"
+}

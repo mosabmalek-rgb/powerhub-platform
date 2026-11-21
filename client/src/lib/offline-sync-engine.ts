@@ -52,6 +52,10 @@ export function planReadyOperations(
 ): SyncPlanItem[] {
   return items
     .flatMap((item) => {
+      // A caller may restore the completed-ID set from durable Outbox metadata
+      // after a page reload. Never plan those operations again; the IDs remain
+      // available below only to unlock their dependents.
+      if (completedIds.has(item.clientOperationId)) return [];
       // Missing persisted metadata is ambiguous after a crash. Fail closed:
       // never turn it into a fresh pending operation and replay it automatically.
       const metadata = metadataByOperationId.get(item.clientOperationId);

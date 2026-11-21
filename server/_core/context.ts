@@ -23,6 +23,17 @@ function isStandalonePublicInvoiceLookup(req: CreateExpressContextOptions["req"]
   return candidates.some((candidate) => candidate.replace(/^\/+|\/+$/g, "") === "powerhub.invoices.publicByToken");
 }
 
+/**
+ * Only explicit authentication/bootstrap entry points may reconcile profile
+ * identity and pending invitations. Ordinary tRPC GETs must not write the
+ * profile or claim onboarding invitations on each page/report request.
+ */
+function isExplicitAuthBootstrap(req: CreateExpressContextOptions["req"]): boolean {
+  const pathname = req.originalUrl.split("?", 1)[0].replace(/^\/api\/trpc\/?/, "");
+  return [req.path, pathname].some((candidate) =>
+    /^(auth\.me|auth\.claimDevice)$/.test(candidate.replace(/^\/+|\/+$/g, "")));
+}
+
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
@@ -31,7 +42,7 @@ export async function createContext(
 
   if (!isStandalonePublicInvoiceLookup(opts.req)) {
     try {
-      user = await authenticateSupabaseRequest(opts.req);
+      user = await authenticateSupabaseRequest(opts.req, { bootstrap: isExplicitAuthBootstrap(opts.req) });
     } catch (error) {
       user = null;
       // Missing/invalid credentials remain unauthenticated. Network, configuration,
@@ -41,10 +52,10 @@ export async function createContext(
       if (!rejectedCredential) {
         authError = error instanceof Error ? error : new Error("Supabase authentication failed");
         const details = error && typeof error === "object"
-          ? error as { name?: unknown; code?: unknown; status?: unknown }
+          ? error as { name?: unknown; code?: unknown; status?: unknown; authStage?: unknown }
           : {};
         console.warn("[PowerHub auth context failure]", {
-          stage: "authenticateSupabaseRequest",
+          stage: typeof details.authStage === "string" ? details.authStage : "authenticateSupabaseRequest",
           errorName: typeof details.name === "string" ? details.name : authError.name,
           errorCode: typeof details.code === "string" ? details.code : undefined,
           status: typeof details.status === "number" ? details.status : undefined,
