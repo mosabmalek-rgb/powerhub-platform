@@ -100,10 +100,10 @@ test('schema diagnostics stay linked to the identical source snapshot and fail c
  assert.doesNotMatch(sql,/\b(DROP|DELETE|INSERT|UPDATE|TRUNCATE)\b.*;/i);
  assert.ok(exported.includes('source_psql "$workdir/staging-schema-object-source.jsonl"'));
  assert.ok(exported.indexOf('staging-schema-object-source.jsonl')<exported.indexOf('dump_schema schema.sql'));
- assert.ok(restore.includes('staging-schema-object-drift-diagnostics'));
+ assert.ok(restore.includes('staging-schema-object-drift-$stage'));
  assert.ok(restore.includes('PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED'));
  assert.ok(restore.includes('exit 2'));
- assert.ok(restore.indexOf('staging-schema-object-drift-diagnostics')<restore.indexOf('SHADOW_STAGE=staging-managed-fks-before-data'));
+ assert.ok(restore.indexOf('check_staging_restored_schema pre-data')<restore.indexOf('SHADOW_STAGE=staging-managed-fks-before-data'));
 });
 
 test('diagnostic per-object hash uses the exact aggregate catalog delimiter',()=>{
@@ -148,9 +148,9 @@ test('per-attribute R4 diagnostics have identical source snapshot and fail-close
  assert.match(detail,/WHERE i\.category IN \('columns','functions','relations'\)/);
  assert.ok(exportSh.includes('source_psql "$workdir/staging-schema-attribute-source.jsonl"'));
  assert.ok(exportSh.indexOf('staging-schema-attribute-source.jsonl')<exportSh.indexOf('dump_schema schema.sql'));
- assert.ok(restore.includes('staging-schema-attribute-drift-diagnostics'));
+ assert.ok(restore.includes('staging-schema-attribute-drift-$stage'));
  assert.ok(restore.includes('PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED'));
- assert.ok(restore.indexOf('staging-schema-attribute-drift-diagnostics')<restore.indexOf('staging-managed-fks-before-data'));
+ assert.ok(restore.indexOf('check_staging_restored_schema pre-data')<restore.indexOf('staging-managed-fks-before-data'));
 });
 
 test('canonical schema snapshot retains all categories and faithfully normalizes every ACL privilege',()=>{
@@ -215,4 +215,16 @@ test('semantic parity permits only the exact reviewed raw ACL/physical ordinal d
  assert.throws(()=>reviewRestoredSchemaSemanticParity(...[...args.slice(0,5),
    args[5]+attr('relations','public.r_0','rls','b')+'\n']),
   /unreviewed relation RLS/);
+});
+
+test('semantic guard runs before data COPY and after restoration, preserving fail-closed paths',()=>{
+ const runner=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const helper=runner.slice(runner.indexOf('check_staging_restored_schema(){'),runner.indexOf('\nrestore(){'));
+ assert.ok(helper.includes('staging-schema-object-drift-$stage'));
+ assert.ok(helper.includes('staging-schema-attribute-drift-$stage'));
+ assert.ok(helper.includes('PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED'));
+ assert.equal((runner.match(/check_staging_restored_schema (?:pre-data|restored)/g)||[]).length,2);
+ assert.ok(runner.indexOf('check_staging_restored_schema pre-data')<runner.indexOf('SHADOW_STAGE=restore-data'));
+ assert.ok(runner.indexOf('check_staging_restored_schema restored')>runner.indexOf('SHADOW_STAGE=restore-data'));
+ assert.ok(helper.includes('review-staging-schema-semantic-parity.mjs'));
 });
