@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {validateStagingRequest,currentGitRequestContext,REQUEST_PATH,STAGING_BRANCH_REF} from './staging-shadow-request.mjs';
+import {classifyStagingRequest} from './staging-shadow-request-preflight.mjs';
 const approvedParent='a'.repeat(40);
 const reviewedHead='b'.repeat(40);
 const context=()=>({
@@ -106,4 +107,41 @@ test('actual Git commit topology and changed-files parser isolates a request-onl
   request.approved_parent_sha=parent;
   assert.equal(validateStagingRequest(request,ctx).requestValid,true);
  }finally{process.chdir(original);rmSync(root,{recursive:true,force:true});}
+});
+
+test('request preflight treats a safely disabled reset as no protected restore',()=>{
+ const req={...base(),requested:false,approval_token:'UNSET',approved_parent_sha:'UNSET'};
+ const disabled=classifyStagingRequest(req,{...context(),changedFiles:[REQUEST_PATH,'scripts/pr359-shadow/run.sh']});
+ assert.deepEqual(disabled,{requested:false,restoreExecuted:false,stagingInplaceGo:false});
+ assert.throws(()=>classifyStagingRequest({...req,approval_token:'STAGING-SHADOW-TEST_REQUEST_001'},context()));
+ assert.throws(()=>classifyStagingRequest({...req,approved_parent_sha:approvedParent},context()));
+ assert.throws(()=>classifyStagingRequest({...req,requested:'false'},context()));
+ assert.throws(()=>classifyStagingRequest({...req,project_ref:'vvcdiqcyhaloxesvpppc'},context()));
+ assert.throws(()=>classifyStagingRequest({...req,purpose:'do not validate'},context()));
+});
+test('request preflight activates only exact reviewed request-only commit',()=>{
+ const req={...base(),requested:true,approval_token:'STAGING-SHADOW-TEST_REQUEST_001',
+  approved_parent_sha:approvedParent};
+ assert.deepEqual(classifyStagingRequest(req,context()),
+  {requested:true,restoreExecuted:false,stagingInplaceGo:false});
+ assert.throws(()=>classifyStagingRequest(req,{...context(),parentSha:'c'.repeat(40)}));
+ assert.throws(()=>classifyStagingRequest(req,{...context(),changedFiles:[REQUEST_PATH,'server/unsafe.ts']}));
+ assert.throws(()=>classifyStagingRequest(req,{...context(),ref:'refs/heads/main'}));
+ assert.throws(()=>classifyStagingRequest(req,{...context(),approvedHeadSha:'a'.repeat(40)}));
+ assert.throws(()=>classifyStagingRequest({...req,approval_token:'UNSET'},context()));
+});
+test('protected Staging job requires active preflight and retains all source safeguards',()=>{
+ const wf=readFileSync('.github/workflows/pr359-staging-shadow.yml','utf8');
+ assert.match(wf,/request_preflight:/);
+ assert.match(wf,/requested: \$\{\{ steps\.classify\.outputs\.requested \}\}/);
+ assert.match(wf,/staging-shadow-request-preflight\.mjs >> "\$GITHUB_OUTPUT"/);
+ const restore=wf.slice(wf.indexOf('\n  real-staging-ledger-restore:'));
+ assert.match(restore,/needs: request_preflight/);
+ assert.match(restore,/needs\.request_preflight\.outputs\.requested == 'true'/);
+ assert.match(restore,/vars\.PR359_ENABLE_STAGING_DOCKER_SHADOW == 'true'/);
+ assert.match(restore,/name: pr359-staging-shadow/);
+ assert.match(restore,/secrets\.PR359_STAGING_SHADOW_SOURCE_DB_URL/);
+ assert.match(restore,/staging-shadow-request\.mjs/);
+ assert.match(restore,/guard\.mjs/);
+ assert.match(restore,/run\.sh staging-restore/);
 });

@@ -11,8 +11,29 @@ concurrency:
   group: pr359-staging-shadow-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  request_preflight:
+    name: Validate request activation or safely skip disabled request
+    runs-on: ubuntu-latest
+    outputs:
+      requested: ${{ steps.classify.outputs.requested }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: classify
+        name: Classify disabled request or validate request-only activation
+        env:
+          SHADOW_APPROVED_HEAD: ${{ github.sha }}
+        run: node scripts/pr359-r4/staging-shadow-request-preflight.mjs >> "$GITHUB_OUTPUT"
   real-staging-ledger-restore:
+    needs: request_preflight
     if: >-
+      needs.request_preflight.result == 'success' &&
+      needs.request_preflight.outputs.requested == 'true' &&
       github.ref == 'refs/heads/feat/auth-local-first-single-pr' &&
       vars.PR359_ENABLE_STAGING_DOCKER_SHADOW == 'true'
     runs-on: ubuntu-latest
