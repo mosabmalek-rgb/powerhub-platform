@@ -690,3 +690,12 @@ This is implemented code, not yet protected-run proof. The failed protected requ
 `PRODUCTION_INPLACE_GO=false`  
 `APP_OWNED_APPROVED=false`  
 `PR359_MERGE_GO=false`
+
+
+## 2026-11-21 — protected Staging failure: semantic schema parity not established
+
+[Run 44908964463](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/44908964463) **FAILED** after two independent source exports and 183 table content and 561 FK source checks passed. First isolated restore imported application schema, but the **seven-category semantic fingerprint did not match**. The earlier raw diagnosis still showed 579 function ACL, 216 relation ACL and the known physical column-ordinal changes. The failure occurred at `staging-semantic-security-parity-pre-data`, before business data import. Docker was not OOM, and no hosted data were modified. **Do not treat the ACL differences as only textual/ordering differences:** source-to-target effective privileges or grant provenance may actually differ; the logs did not isolate the semantic category or field yet.
+
+Diagnostic-only remediation: capture per-field semantic SHA-256 evidence, from the **same source MVCC snapshot** for each of two independent exports, and compare against each isolated target before the existing strict reviewer. Logs only bounded object identities and field mismatch counts, never ACL grants, function definitions, SQL, or user records. It remains fail-closed: diagnostics CANNOT authorize accepting semantic drift, skipping RLS checks, or importing data. No permission for Staging/Production in-place action or PR merge. Disabled the failed request.
+
+`R4_SOURCE_TWIN_EXPORTS=PROVEN`; `R4_TWO_DISPOSABLE_RESTORES=NOT_PROVEN`; `APP_OWNED_APPROVED=FALSE`; `CANONICAL_BASELINE_APPROVED=FALSE`; `STAGING_INPLACE_GO=FALSE`; `PRODUCTION_INPLACE_GO=FALSE`; `PR359_MERGE_GO=FALSE`.

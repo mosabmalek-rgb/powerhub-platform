@@ -494,6 +494,18 @@ check_staging_restored_schema(){
   node scripts/pr359-r4/diagnose-staging-schema-attribute-drift.mjs \
     "$restore_work/staging-schema-attribute-source.jsonl" \
     "$restore_work/staging-schema-attributes-$stage.jsonl" || :
+  # Diagnostic only: classify semantic drift before the strict reviewer. A
+  # mismatch never grants restore permission and still stops before data COPY.
+  SHADOW_STAGE="staging-semantic-attributes-diagnostic-$stage"
+  sql postgres < scripts/pr359-r4/staging-schema-semantic-attribute-digests.sql \
+    > "$restore_work/staging-schema-semantic-attributes-$stage.jsonl" || {
+    echo 'PR359_R4_SEMANTIC_ATTRIBUTE_READ_FAILED' >&2; return 2
+  }
+  if ! node scripts/pr359-r4/diagnose-staging-schema-attribute-drift.mjs \
+    "$restore_work/staging-schema-semantic-attributes-source.jsonl" \
+    "$restore_work/staging-schema-semantic-attributes-$stage.jsonl"; then
+    echo 'PR359_R4_SEMANTIC_FIELD_DRIFT_PRESENT' >&2
+  fi
   SHADOW_STAGE="staging-semantic-security-parity-$stage"
   if ! node scripts/pr359-r4/review-staging-schema-semantic-parity.mjs \
     "$restore_work/staging-schema-semantic-source.jsonl" "$semantic_target" \

@@ -72,6 +72,8 @@ source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-sche
 # The canonical representation is additional evidence, NEVER a replacement for
 # the fixed raw source fingerprint and its reviewed SHA-256.
 source_psql "$workdir/staging-schema-semantic-source.jsonl" scripts/pr359-r4/staging-schema-semantic-fingerprint.sql
+# Same exported source snapshot, per-field hashes only, no secret-bearing values.
+source_psql "$workdir/staging-schema-semantic-attributes-source.jsonl" scripts/pr359-r4/staging-schema-semantic-attribute-digests.sql
 # Keep per-object SHA evidence inside the very SAME MVCC source snapshot.
 # These are identity/hash-only diagnostics, never SQL or user data.
 source_psql "$workdir/staging-schema-object-source.jsonl" scripts/pr359-r4/staging-schema-object-digests.sql

@@ -228,3 +228,27 @@ test('semantic guard runs before data COPY and after restoration, preserving fai
  assert.ok(runner.indexOf('check_staging_restored_schema restored')>runner.indexOf('SHADOW_STAGE=restore-data'));
  assert.ok(helper.includes('review-staging-schema-semantic-parity.mjs'));
 });
+
+test('semantic SHA field diagnostics share exact source CTE and preserve seven-category security gate',()=>{
+ const source=readFileSync('scripts/pr359-r4/staging-schema-semantic-fingerprint.sql','utf8');
+ const detail=readFileSync('scripts/pr359-r4/staging-schema-semantic-attribute-digests.sql','utf8');
+ const exporter=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
+ const twin=readFileSync('scripts/pr359-r4/check-independent-staging-exports.mjs','utf8');
+ const runner=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const cte=s=>s.slice(s.indexOf('WITH inventory AS ('),s.indexOf('\nSELECT jsonb_build_object('));
+ assert.ok(cte(source).length>2000);
+ assert.equal(cte(source),detail.slice(detail.indexOf('WITH inventory AS ('),detail.indexOf('\n-- Hash every semantic attribute')));
+ assert.match(detail,/jsonb_each\(i\.attributes\)/);
+ assert.match(detail,/extensions\.digest\(f\.value::text,'sha256'\)/);
+ assert.match(detail,/WHERE i\.category IN \('columns','functions','relations'\)/);
+ assert.ok(exporter.includes('source_psql "$workdir/staging-schema-semantic-attributes-source.jsonl"'));
+ assert.ok(exporter.indexOf('staging-schema-semantic-attributes-source.jsonl')<exporter.indexOf('dump_schema schema.sql'));
+ assert.ok(twin.includes("'staging-schema-semantic-attributes-source.jsonl'"));
+ const helper=runner.slice(runner.indexOf('check_staging_restored_schema(){'),runner.indexOf('\nrestore(){'));
+ assert.ok(helper.includes('staging-semantic-attributes-diagnostic-$stage'));
+ assert.ok(helper.includes('PR359_R4_SEMANTIC_FIELD_DRIFT_PRESENT'));
+ assert.ok(helper.indexOf('staging-schema-semantic-attribute-digests.sql')<helper.indexOf('review-staging-schema-semantic-parity.mjs'));
+ assert.ok(helper.includes('PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED'));
+ assert.ok(runner.indexOf('check_staging_restored_schema pre-data')<runner.indexOf('SHADOW_STAGE=restore-data'));
+ assert.equal((runner.match(/check_staging_restored_schema (?:pre-data|restored)/g)||[]).length,2);
+});
